@@ -1109,15 +1109,17 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// SetGlobalTimeMultiplier (`UiRequests::time_multiplier`): the virtual clock runs at that
 /// speed, so everything driven by `Time` (animations, physics, NPCs, the scripts' frame
 /// time, the game clock) slows down or speeds up together [documented: GECK wiki
-/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Sounds keep their speed and pitch
+/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Its sounds keep their speed and pitch
 /// [engineering choice: the shipped slow motion asks for that, QUST 0x00102037 stage 27].
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
-/// (`crate::vats_mode`, docs/design/vats-mode.md §4).
+/// (`crate::vats_mode`, docs/design/vats-mode.md §4); those two also slow sound
+/// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
 fn time_multiplier(
     script: Res<ScriptState>,
     scale: Option<Res<ClockScale>>,
     vats: Option<Res<crate::vats_mode::VatsMode>>,
+    sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
     mut told: Local<Option<f32>>,
 ) {
@@ -1127,9 +1129,13 @@ fn time_multiplier(
     if before != asked {
         info!("time multiplier: {before} -> {asked} (SetGlobalTimeMultiplier)");
     }
-    let want = asked * scale.map_or(1.0, |s| s.0.max(0.0)) * vats.map_or(1.0, |v| v.time_scale());
+    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats.map_or(1.0, |v| v.time_scale());
+    let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
+    }
+    if let Some(mut sound) = sound {
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine)));
     }
 }
 

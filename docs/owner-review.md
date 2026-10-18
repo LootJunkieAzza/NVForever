@@ -4093,7 +4093,11 @@ Decisions where the sources were unclear:
 - **SetActorsAI 0** stops package choice, walking and detection, not animation or
   collision: the actor stands in its idle. Check the ambusher of `SCPT 0x000F9D8F/90`.
 - **SetGlobalTimeMultiplier** slows the whole virtual clock (animations, physics, NPCs,
-  scripts' frame time, the game clock); sound is never slowed or pitched.
+  scripts' frame time, the game clock); its sound is never slowed or pitched. The
+  engine's own slow motion (VATS mode, the death camera) does slow sound since
+  2026-10-18 (owner): longer and lower, at the square root of the clock's speed, no
+  lower than 0.4; music, radio and `UI…` sounds keep their speed. Check by ear that
+  the amount and what stays at speed sound like the base game's kill camera.
 - **ShowAllMapMarkers 0** forgets ShowMap's markers but leaves found and Visible ones.
   The Explorer perk (`1 0 0`) shows the hidden-flagged markers too, as the wiki reads.
   Smoke run: 183 of the 188 Mojave markers on the world map (5 are disabled).
