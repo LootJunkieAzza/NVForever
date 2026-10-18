@@ -281,8 +281,10 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         warn!("creator: {p}; no sliders");
     }
     info!("creator: open on {} ({} sliders, {} races, {} beards, {} starting faces)", m.caption(), m.sliders().len(), data.0.catalogue.races.len(), data.0.catalogue.facial_hair.len(), data.0.catalogue.presets(m.look.race, m.look.female).len());
-    if kind == model::RaceMenu::Barber {
-        info!("creator: as the barber (ShowBarberMenu): the hair, its colour and the beard only");
+    match kind {
+        model::RaceMenu::Barber => info!("creator: as the barber (ShowBarberMenu): the hair, its colour and the beard only"),
+        model::RaceMenu::Surgeon => info!("creator: as the plastic surgeon (ShowPlasticSurgeonMenu): the face, eyes and brows only"),
+        model::RaceMenu::Creator => {}
     }
     let mut m = m;
     let c = m.camera();
@@ -470,6 +472,10 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
     let m = st.model.as_mut()?;
     let before = (m.tab, m.row(), m.on_actions, m.look.clone());
     let mut event = None;
+    // The row's shown value changed although the look did not (a starting face the same
+    // as the face already worn: the player record's is the first Caucasian man's): it is
+    // logged as a change all the same.
+    let mut row_changed = false;
     match op {
         Op::Orbit(..) | Op::Pan(..) | Op::Zoom(_) | Op::ViewReset => {
             match op {
@@ -506,15 +512,19 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
             m.select_row(i);
         }
         Op::Adjust(by, fine) => {
+            let shown = m.chosen_row().map(|r| m.view(r));
             if m.adjust(by, fine) && m.on_actions.is_none() {
                 event = Some(UiEvent::Value { up: by > 0 });
             }
+            row_changed = shown != m.chosen_row().map(|r| m.view(r));
         }
         Op::AdjustRow(i, by) => {
             m.select_row(i);
+            let shown = m.chosen_row().map(|r| m.view(r));
             if m.adjust(by, false) {
                 event = Some(UiEvent::Value { up: by > 0 });
             }
+            row_changed = shown != m.chosen_row().map(|r| m.view(r));
         }
         Op::Track(i, f) => {
             m.select_row(i);
@@ -579,7 +589,9 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
             };
             m.set_tab(t);
             m.select_row(i);
+            let shown = m.chosen_row().map(|r| m.view(r));
             m.adjust(by, false);
+            row_changed = shown != m.chosen_row().map(|r| m.view(r));
         }
         Op::SetNamed(label, f) => {
             let Some((t, i)) = find_row(m, &label) else {
@@ -597,7 +609,7 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
     if (before.0, before.1, before.2) != (after.0, after.1, after.2) && event.is_none() {
         event = Some(UiEvent::Focus);
     }
-    if before.3 != *after.3 {
+    if before.3 != *after.3 || row_changed {
         if let Some(r) = m.chosen_row() {
             let shown = match m.view(r) {
                 RowView::Choice { label, value, .. } => format!("{label} {value}"),

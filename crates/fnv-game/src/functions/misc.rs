@@ -292,6 +292,13 @@ pub fn show_race_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Stri
     open(g, menus::RACE)
 }
 
+/// ShowPlasticSurgeonMenu: the race menu as the plastic surgeon's, the face only (menu
+/// 1036, `crate::game::RaceMenu::Surgeon`).
+pub fn show_plastic_surgeon_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.race_menu = crate::game::RaceMenu::Surgeon;
+    open(g, menus::RACE)
+}
+
 /// ShowBarberMenu: the race menu as the barber's, the hair and beard only (menu 1036,
 /// `crate::game::RaceMenu::Barber`).
 pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {

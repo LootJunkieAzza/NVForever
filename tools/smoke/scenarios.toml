@@ -1980,12 +1980,13 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # 222 → 220 calls, 377 → 125 condition uses.
 # The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
 # [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
+# claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
 expect = [
-  { json = "summary.stubs", equals = 43 },
+  { json = "summary.stubs", equals = 42 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 42 },
+  { json = "summary.by_status.needs_system", equals = 41 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 216 },
+  { json = "summary.stub_calls", equals = 214 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -4274,3 +4275,31 @@ order = [[
   "creator: closed",
 ]]
 manual = "barber_open.png: the panel titled BARBER with one tab (HAIR) and no brows or sliders, the head framed; barber_changed.png: another hair, colour and beard"
+
+[[scenario]]
+name = "plastic-surgeon-menu"
+source = "owner todo 6 task 3: ShowPlasticSurgeonMenu opens the character creator as the plastic surgeon, the face, eyes and brows only (docs/spec-notes/character-creator.md §11)"
+areas = ["chargen", "menus"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-game/src/functions/misc.rs"]
+# As barber-menu: the console runs the function once the scripts run (14 s), --no-messages
+# closes the add-ons' OK-only start-up boxes, script menus stay open.
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:ShowPlasticSurgeonMenu;14.3:close", NVF_PLAY_TEST_CREATOR = "17:next:Starting face,17.5:set:Nose - short / long:0.8,18:next:Eye colour,18.5:next:Brows,19:random,19.5:next:Hair style,20:next:Origin,20.5:tab:hair,22:done", NVF_PLAY_TEST_SHOTS = "16.5:surgeon_open.png,21:surgeon_changed.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+order = [[
+  "console: > ShowPlasticSurgeonMenu",
+  "script: menu 1036 open",
+  "creator: open on",
+  "creator: as the plastic surgeon (ShowPlasticSurgeonMenu): the face, eyes and brows only",
+  "creator: camera on opening: 42 units away, looking 2 under the eye (the face)",
+  "creator: Starting face Face 1",
+  "creator: Nose +60",
+  "creator: Eye colour",
+  "creator: Brows",
+  "creator: randomised",
+  'test aid: creator: no row "Hair style"',
+  'test aid: creator: no row "Origin"',
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+  "creator: closed",
+]]
+manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"

@@ -483,6 +483,11 @@ pub enum RaceMenu {
     /// and style"] and the beard [owner 2026-10-17, todo 6]; not the race, sex or name
     /// [owner].
     Barber,
+    /// ShowPlasticSurgeonMenu: the face [documented: GECK wiki ShowPlasticSurgeonMenu,
+    /// "allows the player to change their face"]: its shape, skin, eyes and brows, the
+    /// starting faces; not the hair or beard, the race, sex or name [owner 2026-10-18,
+    /// todo 6].
+    Surgeon,
 }
 
 /// The player's state outside the world's reference table.

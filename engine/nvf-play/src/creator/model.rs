@@ -24,6 +24,8 @@ pub enum Tab {
 pub const TABS: [Tab; 6] = [Tab::Basics, Tab::Face, Tab::Detail, Tab::Skin, Tab::Hair, Tab::Eyes];
 /// The barber's one tab (docs/spec-notes/character-creator.md §10).
 pub const BARBER_TABS: [Tab; 1] = [Tab::Hair];
+/// The plastic surgeon's tabs: everything but the hair (§11 of the note).
+pub const SURGEON_TABS: [Tab; 5] = [Tab::Basics, Tab::Face, Tab::Detail, Tab::Skin, Tab::Eyes];
 
 pub use fnv_game::game::RaceMenu;
 
@@ -310,6 +312,7 @@ impl Model {
         match self.kind {
             RaceMenu::Creator => &TABS,
             RaceMenu::Barber => &BARBER_TABS,
+            RaceMenu::Surgeon => &SURGEON_TABS,
         }
     }
 
@@ -318,6 +321,7 @@ impl Model {
         match self.kind {
             RaceMenu::Creator => "APPEARANCE",
             RaceMenu::Barber => "BARBER",
+            RaceMenu::Surgeon => "SURGEON",
         }
     }
 
@@ -341,11 +345,16 @@ impl Model {
     /// The slider groups a tab cycles through, in the controls file's order.
     pub fn groups(&self, tab: Tab) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
+        // The surgeon has no Hair tab: the brows' shading goes with the eyes, the beard's
+        // with the skin (they are the face's texture) [design].
+        let surgeon = self.kind == RaceMenu::Surgeon;
+        let eye_group = |g: &str| EYE_GROUPS.contains(&g) || (surgeon && g == "Eyebrows");
+        let hair_group = |g: &str| !surgeon && HAIR_GROUPS.contains(&g);
         for s in self.sliders() {
             let wanted = match tab {
-                Tab::Eyes => s.space() == Space::Skin && EYE_GROUPS.contains(&s.group.as_str()),
-                Tab::Hair => s.space() == Space::Skin && HAIR_GROUPS.contains(&s.group.as_str()),
-                Tab::Skin => s.space() == Space::Skin && !EYE_GROUPS.contains(&s.group.as_str()) && !HAIR_GROUPS.contains(&s.group.as_str()),
+                Tab::Eyes => s.space() == Space::Skin && eye_group(&s.group),
+                Tab::Hair => s.space() == Space::Skin && hair_group(&s.group),
+                Tab::Skin => s.space() == Space::Skin && !eye_group(&s.group) && !hair_group(&s.group),
                 _ => tab.space() == Some(s.space()) && s.label != AGE_LABEL,
             };
             if wanted && !out.contains(&s.group) {
@@ -378,6 +387,12 @@ impl Model {
         let group = self.group();
         let age = self.sliders().iter().position(|s| s.label == AGE_LABEL);
         let mut rows = match self.tab {
+            // The surgeon changes neither the sex nor the race [owner].
+            Tab::Basics if self.kind == RaceMenu::Surgeon => {
+                let mut r = vec![Row::Preset];
+                r.extend(age.map(Row::Slider));
+                r
+            }
             Tab::Basics => {
                 let mut r = vec![Row::Sex, Row::Race, Row::Preset];
                 r.extend(age.map(Row::Slider));
@@ -402,6 +417,8 @@ impl Model {
                 r.extend(sliders_of(&group, Space::Skin));
                 r
             }
+            // The surgeon's brows are here, with no Hair tab.
+            Tab::Eyes if self.kind == RaceMenu::Surgeon => [vec![Row::Eyes, Row::Brows, Row::Group], sliders_of(&group, Space::Skin)].concat(),
             Tab::Eyes => [vec![Row::Eyes, Row::Group], sliders_of(&group, Space::Skin)].concat(),
         };
         if self.groups(self.tab).is_empty() {
@@ -543,10 +560,17 @@ impl Model {
                 self.preset = cycle(self.preset, by, n);
                 if let Some(p) = self.preset.checked_sub(1).and_then(|i| presets.get(i)) {
                     self.look.facegen = p.facegen.clone();
-                    self.look.hair = p.hair.or(self.look.hair);
-                    self.look.hair_color = p.hair_color.or(self.look.hair_color);
                     self.look.eyes = p.eyes.or(self.look.eyes);
-                    self.look.head_parts = p.head_parts.clone();
+                    if self.kind == RaceMenu::Surgeon {
+                        // The face, its eyes and brows; the hair and beard stay.
+                        let brows = self.data.catalogue.brows.clone();
+                        let brow = p.head_parts.iter().copied().find(|h| brows.iter().any(|c| c.id == *h));
+                        creator::set_part(&mut self.look, &brows, brow);
+                    } else {
+                        self.look.hair = p.hair.or(self.look.hair);
+                        self.look.hair_color = p.hair_color.or(self.look.hair_color);
+                        self.look.head_parts = p.head_parts.clone();
+                    }
                 } else {
                     self.look.facegen = self.start.facegen.clone();
                 }
@@ -651,7 +675,9 @@ impl Model {
         self.last_edit = None;
         // The race stays: it is chosen on purpose [design].
         let before = self.look.clone();
-        self.look = creator::random_look(&self.data.catalogue, &self.look, Randomise { face: self.kind == RaceMenu::Creator, hair: true, race: false }, rng);
+        // The surgeon draws a face only; the barber the hair only (below).
+        let what = Randomise { face: self.kind != RaceMenu::Barber, hair: self.kind != RaceMenu::Surgeon, race: false };
+        self.look = creator::random_look(&self.data.catalogue, &self.look, what, rng);
         if self.kind == RaceMenu::Barber {
             // Only the hair, its colour and the beard: the eyes and brows stay.
             let beards = self.data.catalogue.facial_hair.clone();
@@ -972,6 +998,32 @@ mod tests {
         assert!(tone_reading(tone(c, 1, 20.0), 1) > tone_reading(c, 1));
         assert!(tone_reading(tone(c, 2, 20.0), 2) > tone_reading(c, 2));
         assert_eq!(tone([250, 250, 250], 0, 20.0), [255, 255, 255]);
+    }
+
+    #[test]
+    fn the_surgeon_does_the_face_only() {
+        let start = Look { head_parts: vec![FormId(50)], ..look() };
+        let mut m = Model::of_kind(data(), start.clone(), RaceMenu::Surgeon);
+        assert_eq!((m.tab, m.title()), (Tab::Basics, "SURGEON"));
+        // No sex or origin; a starting face and the age.
+        assert_eq!(m.rows(), vec![Row::Preset, Row::Slider(0)]);
+        assert_eq!(m.tabs(), &SURGEON_TABS);
+        assert!(!m.set_tab(Tab::Hair), "no Hair tab");
+        // The brows are on the Eyes tab.
+        m.set_tab(Tab::Eyes);
+        assert_eq!(&m.rows()[..2], &[Row::Eyes, Row::Brows]);
+        // The beard's shading is the skin's, with no Hair tab.
+        assert!(m.groups(Tab::Skin).contains(&"Beard".to_string()));
+        // A starting face brings its face, eyes and brows, not its hair or beard.
+        assert!(m.adjust_row(Row::Preset, 1, false));
+        assert_eq!(m.look.facegen.fggs[3], 2.0);
+        assert_eq!(m.look.eyes, Some(FormId(31)));
+        assert_eq!((m.look.hair, m.look.hair_color), (start.hair, start.hair_color));
+        assert!(!m.look.head_parts.contains(&FormId(40)), "not the preset's beard");
+        // Random: a new face; the hair stays.
+        let mut rng = <rand_chacha::ChaCha8Rng as rand_core::SeedableRng>::seed_from_u64(5);
+        m.randomise(&mut rng);
+        assert_eq!((m.look.hair, m.look.hair_color, m.look.race, m.look.female), (start.hair, start.hair_color, start.race, start.female));
     }
 
     #[test]

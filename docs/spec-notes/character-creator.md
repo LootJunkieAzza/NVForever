@@ -35,7 +35,8 @@ Code: data `crates/fnv-actor/src/creator.rs` (with the controls file reader in
 - `ShowBarberMenu` and `ShowPlasticSurgeonMenu` open the same menu 1036 [documented:
   GECK wiki "MenuMode (Function)", notes: "ShowRaceMenu, ShowPlasticSurgeonMenu, and
   ShowBarberMenu all return true for MenuMode 1036"]. The game keeps which function
-  opened it (`Game::race_menu`), and the creator shows what that one may change (§10).
+  opened it (`Game::race_menu`), and the creator shows what that one may change (§10,
+  §11).
 
 ## 2. What the game data offers [observed unless tagged]
 
@@ -377,3 +378,25 @@ A sketch: the published mockup (the owner's review). The rules:
 - Log: "creator: as the barber (ShowBarberMenu): the hair, its colour and the beard
   only" after "creator: open on …". Smoke scenario `barber-menu` (the console runs
   ShowBarberMenu in Doc Mitchell's house).
+
+## 11. The plastic surgeon (ShowPlasticSurgeonMenu)
+
+- ShowPlasticSurgeonMenu opens menu 1036 as the plastic surgeon's
+  (`fnv_game::game::RaceMenu::Surgeon`; the function was a stub before). What it changes:
+  the face [documented: GECK wiki ShowPlasticSurgeonMenu, "allows the player to change
+  their face"]: its shape and asymmetry, its skin, the starting faces and the age, the
+  eyes and the brows [owner 2026-10-18, todo 6: the face sliders, starting faces, eyes,
+  and the brows left out of the barber]. Not the hair, its colour or the beard, nor the
+  race, the sex or the name [owner, same].
+- The panel is the creator's with the title SURGEON and five tabs: BASICS (the starting
+  face and the age, no sex or origin), FACE, DETAIL, SKIN, EYES. With no Hair tab the
+  brows are on the Eyes tab (the row and their shading sliders) and the beard's shading
+  sliders on the Skin tab (both are the face's texture) [design]. It opens framed on the
+  face, as the creator does.
+- A starting face brings its face, eyes and brows and leaves the hair, its colour and
+  the beard as they are; Random draws a new face (two authored faces blended, §6) and
+  leaves the hair and beard; Undo, Reset and Done as in the creator. The Hair tab can not
+  be chosen.
+- Log: "creator: as the plastic surgeon (ShowPlasticSurgeonMenu): the face, eyes and
+  brows only" after "creator: open on …". Smoke scenario `plastic-surgeon-menu` (the
+  console runs ShowPlasticSurgeonMenu in Doc Mitchell's house).
