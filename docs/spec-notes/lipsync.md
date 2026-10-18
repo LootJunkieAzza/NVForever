@@ -449,6 +449,32 @@ Cost: a speaking actor rewrites about 1,500 to 2,500 vertex positions a frame; a
 idle face only while it blinks or its eyes move (weights that changed by less than
 0.004 since the last write are not written again).
 
+### 5.4 Morphs other systems ask for [engine choice]
+
+`face_morphs::FaceMorphs` on an actor's root (the entity with `ActorRig`) is a weight
+0 to 1 per morph label that another system wants shown; the combat face sets
+`CombatAnger` there (`combat_face.rs`). `lips.rs` reads it:
+
+- labels are the expressions (`Anger` … `Pained`), the nine moods of the heads
+  (`MoodNeutral`, `MoodAfraid`, `MoodAnnoyed`, `Cocky`, `MoodDrugged`, `MoodPleasant`,
+  `MoodAngry`, `MoodSad`, `CombatAnger`; §4.2) and the `.lip` channels; another label
+  is named once in a warning and left out;
+- the weights are added to the line's (§5) and the idle face's (§5.3), and an actor
+  with any is given a moving face while it is within 840 units of the camera, idle face
+  on or off; it is let go when the list is empty again;
+- **one expression at a time**: while a response with an emotion other than Neutral is
+  shown, the expression and mood weights asked for are scaled by 1 − the emotion's share
+  (§5.2), so the line's emotion takes over as it comes in and hands back as it eases
+  out; a Neutral response leaves them. [The rule is the GECK wiki's note on
+  `ModifyFaceGen` that an actor shows one expression at a time, as read through search
+  summaries (§3.2); how the game itself mixes a mood with a line's emotion is not
+  known.]
+
+Log: `face: <reference> shows asked morphs: <label> <weight>, …` once per actor
+(`(no morph)` after a label its face does not carry). Test aid
+`NVF_FACE_TEST_MORPHS=<label>=<weight>[,...]`: every drawn actor with a face rig asks
+for those morphs (smoke `face-morphs-asked`; not a game behaviour).
+
 ## 6. Open
 
 **Owner's comparison, 2026-10-10.** The owner watched Doc Mitchell's lines in

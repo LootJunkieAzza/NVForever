@@ -50,6 +50,7 @@ mod handoff;
 mod furniture;
 mod graphics;
 mod grass;
+mod face_morphs;
 mod head_look;
 mod idles;
 mod lights;

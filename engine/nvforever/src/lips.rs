@@ -49,6 +49,7 @@ use std::f32::consts::PI;
 use std::sync::Arc;
 
 use crate::actors::ActorWorld;
+use crate::face_morphs::FaceMorphs;
 use crate::facegen::sibling;
 use crate::head_look::{HeadLook, NoHeadLook};
 use crate::limbs::ActorRig;
@@ -88,8 +89,12 @@ pub const HEAD_RADIANS_PER_UNIT: f32 = 1.0;
 /// shows nothing) [hypothesis: by name, lipsync.md §4.4].
 pub const EXPRESSIONS: [&str; 7] = ["Anger", "Disgust", "Fear", "Sad", "Happy", "Surprise", "Pained"];
 
-/// Morph slots: the 33 `.lip` channels, then the expressions.
-pub const SLOTS: usize = CHANNELS + EXPRESSIONS.len();
+/// The mood morphs of the heads (lipsync.md §4.2), which other systems may ask for
+/// through [`FaceMorphs`] (the combat face sets `CombatAnger`).
+pub const MOODS: [&str; 9] = ["MoodNeutral", "MoodAfraid", "MoodAnnoyed", "Cocky", "MoodDrugged", "MoodPleasant", "MoodAngry", "MoodSad", "CombatAnger"];
+
+/// Morph slots: the 33 `.lip` channels, then the expressions, then the moods.
+pub const SLOTS: usize = CHANNELS + EXPRESSIONS.len() + MOODS.len();
 
 /// A weight per slot.
 pub type Weights = [f32; SLOTS];
@@ -115,8 +120,10 @@ pub fn morph_slot(s: usize) -> bool {
 pub fn slot_name(s: usize) -> &'static str {
     if s < CHANNELS {
         CHANNEL_NAMES[s]
-    } else {
+    } else if s < CHANNELS + EXPRESSIONS.len() {
         EXPRESSIONS[s - CHANNELS]
+    } else {
+        MOODS[s - CHANNELS - EXPRESSIONS.len()]
     }
 }
 
@@ -127,7 +134,9 @@ pub fn emotion_slot(code: u8) -> Option<usize> {
 
 /// The slot of a channel or expression name (case does not matter).
 pub fn slot(name: &str) -> Option<usize> {
-    channel(name).or_else(|| EXPRESSIONS.iter().position(|e| e.eq_ignore_ascii_case(name)).map(|i| CHANNELS + i))
+    channel(name)
+        .or_else(|| EXPRESSIONS.iter().position(|e| e.eq_ignore_ascii_case(name)).map(|i| CHANNELS + i))
+        .or_else(|| MOODS.iter().position(|e| e.eq_ignore_ascii_case(name)).map(|i| CHANNELS + EXPRESSIONS.len() + i))
 }
 
 /// Seconds over which a face returns to rest when its line ends or is cut.
@@ -515,6 +524,10 @@ pub struct LipState {
     /// the blinks and glances of faces already let go.
     idle_actors: HashSet<u32>,
     followed: HashSet<u32>,
+    /// `FaceMorphs` labels without a slot, named once.
+    unknown_labels: HashSet<&'static str>,
+    /// Actors whose asked morphs were logged.
+    asked_shown: HashSet<u32>,
     blinks: u64,
     glances: u64,
     logged_near: usize,
@@ -539,6 +552,8 @@ impl LipState {
             emotions: BTreeMap::new(),
             idle_actors: HashSet::new(),
             followed: HashSet::new(),
+            unknown_labels: HashSet::new(),
+            asked_shown: HashSet::new(),
             blinks: 0,
             glances: 0,
             logged_near: 0,
@@ -675,7 +690,31 @@ fn emotion_of(script: Option<&nvf_play::script::ScriptState>, info: FormId, resp
     }
 }
 
-type Rigs<'w, 's> = Query<'w, 's, (Entity, &'static ActorRig, &'static LipRig, &'static GlobalTransform, Option<&'static HeadLook>, Has<NoHeadLook>), (Without<Dying>, Without<Corpse>)>;
+type Rigs<'w, 's> =
+    Query<'w, 's, (Entity, &'static ActorRig, &'static LipRig, &'static GlobalTransform, Option<&'static HeadLook>, Has<NoHeadLook>, Option<&'static FaceMorphs>), (Without<Dying>, Without<Corpse>)>;
+
+/// The slots and weights an actor's [`FaceMorphs`] asks for (labels `lips.rs` does not
+/// know are left out and named in `unknown`).
+fn asked(m: &FaceMorphs, unknown: &mut HashSet<&'static str>) -> Vec<(usize, f32)> {
+    let mut out = Vec::new();
+    for (&label, &w) in &m.0 {
+        match slot(label) {
+            Some(s) if morph_slot(s) => out.push((s, w.clamp(0.0, 1.0))),
+            _ => {
+                if unknown.insert(label) {
+                    warn!("face: no morph slot for the label {label:?} (FaceMorphs); left out");
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether slot `s` is an expression or a mood: the class a line's emotion takes over
+/// ("one expression at a time", lipsync.md §5.4).
+pub fn expression_class(s: usize) -> bool {
+    (CHANNELS..SLOTS).contains(&s)
+}
 
 #[allow(clippy::too_many_arguments)]
 fn drive(
@@ -825,13 +864,22 @@ fn drive(
         }
     }
 
-    // Faces near the camera between lines.
+    // Faces near the camera between lines, and faces other systems ask morphs of.
     let idle_on = st.enabled && st.idle && st.hold.is_none();
     let cam = camera.iter().next().map(GlobalTransform::translation);
+    if st.enabled && st.hold.is_none() {
+        if let Some(cam) = cam {
+            for (root, actor, rig, g, .., m) in &rigs {
+                if m.is_some_and(|m| !m.is_empty()) && g.translation().distance(cam) <= IDLE_RELEASE {
+                    ensure_face(st, &mut commands, root, actor, rig, &world, &data, &mut meshes, clock);
+                }
+            }
+        }
+    }
     if idle_on {
         if let Some(cam) = cam {
             let mut near: usize = 0;
-            for (root, actor, rig, g, _, off) in &rigs {
+            for (root, actor, rig, g, _, off, _) in &rigs {
                 if off || g.translation().distance(cam) > IDLE_RADIUS {
                     continue;
                 }
@@ -851,13 +899,15 @@ fn drive(
     let mut gone = Vec::new();
     for (&reference, face) in st.faces.iter_mut() {
         face.turn = Quat::IDENTITY;
-        let Ok((_, _, _, g, look, off)) = rigs.get(face.root) else {
+        let Ok((_, _, _, g, look, off, morphs)) = rigs.get(face.root) else {
             // Despawned, dying or dead.
             gone.push(reference);
             continue;
         };
         let mut w: Weights = [0.0; SLOTS];
         let mut speech = 0.0;
+        // How far a line's emotion has taken over the expressions asked for.
+        let mut taken = 0.0;
         if let Some(h) = face.held {
             w = h;
             face.turn = head_turn(&h);
@@ -868,10 +918,23 @@ fn drive(
             face.turn = head_turn(&lip);
             w[HEAD_PITCH..=HEAD_YAW].fill(0.0);
             if let Some((s, full)) = sp.emotion {
-                w[s] += full * sp.emotion_share(now);
+                taken = sp.emotion_share(now);
+                w[s] += full * taken;
             }
         }
         let far = cam.is_none_or(|c| g.translation().distance(c) > IDLE_RELEASE);
+        let asks = st.enabled && face.held.is_none() && !far && morphs.is_some_and(|m| !m.is_empty());
+        if asks {
+            let list = asked(morphs.expect("asks"), &mut st.unknown_labels);
+            if st.asked_shown.insert(reference) {
+                let carried = |s: usize| face.shapes.iter().any(|m| m.morphs.iter().any(|(ms, _)| *ms == s));
+                let names: Vec<String> = list.iter().map(|&(s, x)| format!("{} {x:.2}{}", slot_name(s), if carried(s) { "" } else { " (no morph)" })).collect();
+                info!("face: {reference:08X} shows asked morphs: {}", names.join(", "));
+            }
+            for (s, x) in list {
+                w[s] += if expression_class(s) { x * (1.0 - taken) } else { x };
+            }
+        }
         let idle_here = idle_on && !off && !far && face.held.is_none();
         if idle_here && speech < 1.0 {
             let share = 1.0 - speech;
@@ -892,7 +955,7 @@ fn drive(
                 *x += share * i;
             }
         }
-        if face.held.is_none() && !st.speaking.contains_key(&FormId(reference)) && !idle_here {
+        if face.held.is_none() && !st.speaking.contains_key(&FormId(reference)) && !idle_here && !asks {
             gone.push(reference);
             continue;
         }
@@ -983,6 +1046,37 @@ fn parse_hold(v: &str) -> Result<Weights, String> {
     Ok(w)
 }
 
+/// Test aid `NVF_FACE_TEST_MORPHS=<label>=<weight>[,...]`: every drawn actor with a face
+/// rig asks for these morphs through [`FaceMorphs`], as the combat face does (the path
+/// other systems use, lipsync.md §5.4). Not a game behaviour.
+#[derive(Resource)]
+struct FaceTest(Vec<(&'static str, f32)>);
+
+fn parse_face_test(v: &str) -> Result<Vec<(&'static str, f32)>, String> {
+    let mut out = Vec::new();
+    for item in v.split(',').filter(|s| !s.trim().is_empty()) {
+        let (name, value) = item.split_once('=').ok_or(format!("{item}: expected <label>=<weight>"))?;
+        let s = slot(name.trim()).filter(|&s| morph_slot(s)).ok_or(format!("{name}: no such morph"))?;
+        out.push((slot_name(s), value.trim().parse().map_err(|_| format!("{value}: not a number"))?));
+    }
+    Ok(out)
+}
+
+/// Rigged actors not yet given [`FaceMorphs`].
+type Unasked = (With<LipRig>, Without<FaceMorphs>);
+
+fn face_test(mut commands: Commands, test: Res<FaceTest>, new: Query<(Entity, &ActorRig), Unasked>) {
+    for (e, actor) in &new {
+        let mut m = FaceMorphs::default();
+        for &(label, w) in &test.0 {
+            m.set(label, w);
+        }
+        let shown: Vec<String> = test.0.iter().map(|&(l, _)| format!("{l} {:.2}", m.get(l))).collect();
+        info!("face test: {:08X} asks for {}", actor.reference, shown.join(", "));
+        commands.entity(e).insert(m);
+    }
+}
+
 pub struct LipsPlugin {
     pub enabled: bool,
     /// The faces between lines (`--no-face-idle`).
@@ -1012,6 +1106,13 @@ impl Plugin for LipsPlugin {
                     .after(crate::speech_look::face),
             )
             .add_systems(Last, report);
+        match std::env::var("NVF_FACE_TEST_MORPHS").map(|v| parse_face_test(&v)) {
+            Ok(Ok(m)) => {
+                app.insert_resource(FaceTest(m)).add_systems(Update, face_test.before(drive));
+            }
+            Ok(Err(e)) => warn!("NVF_FACE_TEST_MORPHS: {e}"),
+            Err(_) => {}
+        }
         if !self.enabled {
             info!("lip sync is off (--no-lip)");
         } else if !self.idle {
@@ -1064,6 +1165,15 @@ mod tests {
         assert!(morph_slot(CHANNELS) && morph_slot(SLOTS - 1) && !morph_slot(SLOTS));
         assert_eq!(slot("happy"), emotion_slot(5));
         assert_eq!(slot("BigAah"), Some(1));
+        assert_eq!(slot("combatanger").map(slot_name), Some("CombatAnger"));
+        assert_eq!(slot("MoodNeutral").map(slot_name), Some("MoodNeutral"));
+        assert!(expression_class(slot("CombatAnger").unwrap()) && expression_class(emotion_slot(1).unwrap()) && !expression_class(0));
+        let mut m = FaceMorphs::default();
+        m.set("CombatAnger", 1.5);
+        m.set("Nose", 1.0);
+        let mut unknown = HashSet::new();
+        assert_eq!(asked(&m, &mut unknown), vec![(slot("CombatAnger").unwrap(), 1.0)]);
+        assert!(unknown.contains("Nose"));
     }
 
     #[test]
@@ -1131,9 +1241,9 @@ mod tests {
         }
         let tri = Tri::parse(&b).unwrap();
         let morphs = shape_morphs(&tri, None);
-        // Aah, the blink, the look and the expression; BMP moves nothing, a mood is no slot.
+        // Aah, the blink, the look, the expression and the mood; BMP moves nothing.
         let found: Vec<usize> = morphs.iter().map(|m| m.0).collect();
-        assert_eq!(found, vec![0, 16, 27, emotion_slot(5).unwrap()]);
+        assert_eq!(found, vec![0, 16, 27, emotion_slot(5).unwrap(), slot("MoodSad").unwrap()]);
         assert_eq!(morphs[0].1, vec![(1, [0.0, 0.0, -2.0])]);
         assert_eq!(morphs[1].1, vec![(1, [0.0, 0.0, -0.5])]);
         assert_eq!(morphs[2].1, vec![(2, [0.0, 0.0, 0.5])]);

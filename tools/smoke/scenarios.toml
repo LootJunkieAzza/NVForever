@@ -4404,3 +4404,16 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", N
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
 run_seconds = 12
 expect = ["face idle: off (--no-face-idle)"]
+
+[[scenario]]
+name = "face-morphs-asked"
+source = "docs/spec-notes/lipsync.md §5.4: morphs other systems ask for through FaceMorphs (the combat face's CombatAnger) are shown on a face between lines; frame face_morphs_asked.png in target/smoke (compare lip_face_rest.png)"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvforever/src/face_morphs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_FACE_TEST_MORPHS = "CombatAnger=0.8", NVF_PLAY_TEST_SHOTS = "9:face_morphs_asked.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = [
+  { re = 'face test: \w+ asks for CombatAnger 0\.80', label = "the test aid asks for CombatAnger" },
+  { re = 'face: \w+ shows asked morphs: CombatAnger 0\.80$', label = "a face shows it (its head carries the morph)" },
+]
