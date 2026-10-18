@@ -1199,19 +1199,28 @@ name = "ref-fade"
 source = "script function parameters (docs/design/script-function-params.md §3): Enable fades in by default, Disable 1 fades out and only then hides, Enable 0 pops in [documented: GECK wiki Enable, Disable]; the psych test's card TempRorschachTest01REF in Doc Mitchell's house"
 areas = ["scripts", "rendering", "script-params"]
 paths = ["engine/nvf-play/src/ref_fade.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/effect_shaders.rs", "crates/fnv-game/src/functions/refs.rs"]
-env = { NVF_PLAY_TEST_CONSOLE = "9:001084B0.enable;9.3:close;12:001084B0.disable 1;12.3:close;15:001084B0.enable 0;15.3:close" }
+# Enable 0 comes 5 s after Disable 1, past a fade-out that keeps the reference enabled for
+# up to 4 s (PR #455's hold), so both "gone" lines come before it either way.
+env = { NVF_PLAY_TEST_CONSOLE = "9:001084B0.enable;9.3:close;12:001084B0.disable 1;12.3:close;17:001084B0.enable 0;17.3:close" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
-run_seconds = 18
+run_seconds = 20
 expect = [
   { text = "ref fade summary: 1 in, 1 out", label = "one fade in and one fade out, none for Enable 0" },
   { re = 'actor alpha: .* 0\.00 \(\d+ meshes\)', label = "the card is drawn clear at the start of its fade-in" },
 ]
+# When the fade-out ends, script_draw drops the card's model and activate's visuals sync
+# hides it in the same frame, in either order (each alone takes it off screen): one chain
+# for each, both required between the fade-out and Enable 0.
 order = [[
   "ref fade: 0x001084B0 in (1 s)",
   "reference 0x001084B0 present:",
   "ref fade: 0x001084B0 out (1 s)",
   "reference 0x001084B0 fading out:",
   "reference 0x001084B0 no longer drawn by scripts",
+  "reference 0x001084B0 present:",
+], [
+  "ref fade: 0x001084B0 out (1 s)",
+  "reference 0x001084B0 fading out:",
   "reference 0x001084B0 gone:",
   "reference 0x001084B0 present:",
 ]]
