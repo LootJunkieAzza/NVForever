@@ -18,6 +18,7 @@
 mod activators;
 mod actor_feet;
 mod anim_objects;
+mod anim_state;
 mod actor_groups;
 mod actor_scale;
 mod actors;
@@ -1256,6 +1257,8 @@ fn main() -> AppExit {
             app.add_plugins(provoked::ProvokedPlugin);
             // How fighters aim, shoot and bite (attack_anims.rs).
             app.add_plugins(attack_anims::AttackAnimsPlugin);
+            // What the actors' bodies do, told to the rules (anim_state.rs).
+            app.add_plugins(anim_state::AnimStatePlugin);
         }
     }
     if play.is_some() {
@@ -1317,7 +1320,7 @@ fn main() -> AppExit {
     if let Some(secs) = args.run_seconds {
         #[allow(clippy::too_many_arguments)]
         let summary = move |time: Res<Time>,
-                            clocks: (Res<Time<Virtual>>, Res<Time<Real>>),
+                            clocks: RunClocks,
                             streamer: Res<Streamer>,
                             lod: Res<lod::LodState>,
                             grass: Res<grass::GrassCache>,
@@ -1331,7 +1334,14 @@ fn main() -> AppExit {
             // ends.
             t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             t.1 += 1;
-            if t.0 >= secs {
+            // The seconds a late start held the world test aids back (`--play` with
+            // NVF_PLAY_AIDS_FROM_SCRIPTS, `nvf_play::pause::WorldAidClock`) are added, so
+            // their last steps still run.
+            let held = clocks.2.as_deref().map_or(0.0, |w| w.held_secs());
+            if t.0 >= secs + held {
+                if held > 0.0 {
+                    info!("--run-seconds {secs}: run {held:.1} s longer, as long as the world test aids were held back");
+                }
                 let (baked, cached) = lod.gen.as_ref().map_or((0, 0), |g| (g.baked, g.cached));
                 info!(
                     "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache, actors {:?}",
@@ -1646,6 +1656,10 @@ fn timelapse(
     *seen += 1;
     info!("time-lapse {}  ({} hours passed)", sky.sample(), *seen);
 }
+
+/// The `--run-seconds` limit's clocks: the virtual and the real one, and how long the
+/// world test aids were held back (`nvf_play::pause::WorldAidClock`).
+type RunClocks<'w> = (Res<'w, Time<Virtual>>, Res<'w, Time<Real>>, Option<Res<'w, nvf_play::pause::WorldAidClock>>);
 
 /// Time spent advancing single clips (animated models; actors are timed by
 /// `locomotion::ActorAnimCost`), for the `--run-seconds` summary.

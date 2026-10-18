@@ -48,6 +48,7 @@ pub mod stats;
 mod test_aid;
 
 use crate::control::{PlayerControl, Pov};
+use fnv_game::game::menus;
 use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::PlaySet;
@@ -295,9 +296,11 @@ impl Plugin for PipBoyPlugin {
                 Update,
                 (
                     follow_menu.after(crate::menu::MenuSystems),
-                    (keys, apply_input).chain().run_if(pipboy_open),
-                    repair::keys,
-                    items::keys,
+                    reset_manager,
+                    (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
+                    repair::keys.run_if(takes_keys),
+                    items::keys.run_if(takes_keys),
+                    report_menu,
                     advance,
                     camera_on,
                     flat_screen,
@@ -317,6 +320,67 @@ impl Plugin for PipBoyPlugin {
 /// Whether the Pip-Boy's menus take input.
 pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
     pip.open()
+}
+
+/// Whether the Pip-Boy's keys are its own: not while the tutorial menu is open over it
+/// (`crate::tutorial_menu`, whose A, S and E are Next, Previous and Close).
+fn takes_keys(script: Option<Res<crate::script::ScriptState>>) -> bool {
+    !script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.menu == Some(menus::TUTORIAL))
+}
+
+/// The menu code the Pip-Boy shows (`MenuMode`): its page's, or the repair list's while
+/// that is open [documented: GECK wiki GetSelectedItemRef, "Inventory Menu (1002)",
+/// "Pipboy STATS Menu (1003)", "Pipboy DATA Menu (1023)", "Pipboy Repair Menu (1035)"].
+pub fn menu_code(page: Page, repairing: bool) -> u16 {
+    match page {
+        _ if repairing => menus::REPAIR,
+        Page::Stats => menus::STATS,
+        Page::Items => menus::INVENTORY,
+        Page::Data => menus::MAP,
+    }
+}
+
+/// While the Pip-Boy is up, the scripts' open menu is its page's code ([`menu_code`];
+/// it opens as the inventory, 1002, `crate::script::engine_menu_opened`). Logged:
+/// `pipboy: menu code <code>`.
+fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, script: Option<ResMut<crate::script::ScriptState>>) {
+    if !pip.open() {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    let code = menu_code(pip.page, repair.is_open());
+    if rt.game.menu != Some(code) && rt.game.set_pipboy_menu(code) {
+        info!("pipboy: menu code {code}");
+    }
+}
+
+/// ResetPipboyManager (`fnv_game::functions::ui::reset_pipboy_manager`): the Pip-Boy's
+/// pages start again on their defaults (ITEMS, every page on its first tab) and its
+/// light (NVForever's flashlight, `crate::flashlight`) goes off [documented: GECK wiki
+/// ResetPipboyManager, the look back to its default and the light off; hypothesis: the
+/// pages]. Logged: `pipboy: manager reset (…)`.
+fn reset_manager(
+    script: Option<Res<crate::script::ScriptState>>,
+    mut seen: Local<u64>,
+    mut pip: ResMut<PipBoy>,
+    light: Option<ResMut<crate::flashlight::Flashlight>>,
+) {
+    let Some(n) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.ui.pipboy_resets) else { return };
+    if n <= *seen {
+        *seen = n;
+        return;
+    }
+    *seen = n;
+    pip.page = Page::default();
+    pip.tabs = [0; 3];
+    let lit = light.is_some_and(|mut l| {
+        let on = l.on;
+        if on {
+            l.toggle();
+        }
+        on
+    });
+    info!("pipboy: manager reset (ResetPipboyManager): page {} tab {}{}", pip.page.title(), pip.page.tabs()[pip.tab()], if lit { ", light off" } else { "" });
 }
 
 fn setup_screen(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -546,6 +610,13 @@ pub fn on_click(click: On<Pointer<Click>>, nodes: Query<&Clickable>, mut out: Me
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_page_has_its_menu_code() {
+        assert_eq!(Page::ALL.map(|p| menu_code(p, false)), [1003, 1002, 1023]);
+        assert!(Page::ALL.iter().all(|&p| menu_code(p, true) == 1035));
+        assert!(Page::ALL.iter().all(|&p| menus::answers(menus::PIPBOY, menu_code(p, false))));
+    }
 
     #[test]
     fn the_clip_holds_at_hit_while_up() {

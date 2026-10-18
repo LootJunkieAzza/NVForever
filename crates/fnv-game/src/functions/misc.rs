@@ -130,20 +130,6 @@ pub const EXE_SETTINGS: [(&str, f32); 5] = [
     ("iLockLevelMaxVeryHard", 100.0),
 ];
 
-/// `actor.GetAnimAction`: the special animation action the actor is doing, −1 for none
-/// [documented: GECK wiki GetAnimAction, its table of codes; observed: −1 for the player
-/// and Sunny Smiles at rest (capture `fa_batch1_queries`), 0 for Ringo drawing his weapon
-/// 3 frames after SetAlert 1 and −1 once it was out (`fa_batch3_actions`)]. The engine
-/// tells the drawing and holstering of the NPCs it draws (`Senses::anim_actions`, while
-/// it keeps telling their weapon state); attacks, reloads and the player's actions are
-/// not told yet (docs/design/script-function-audit.md: gap left), so they read −1.
-pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    let r = ctx.subject()?;
-    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
-    let action = g.senses.anim_actions.get(&r).copied().filter(|_| told).unwrap_or(-1);
-    Ok(Value::Num(action as f64))
-}
-
 pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(a.num(0)?.abs()))
 }
@@ -191,11 +177,13 @@ pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// 1 while a menu is open, or that menu with a menu code [documented: catalogue summary].
 /// A conversation with the player is a menu: `MenuMode` and `MenuMode 1009` read 1 from
 /// its greeting to its end [owner statement 2026-10-10: such a dialogue pauses the game;
-/// documented: GECK wiki GetMenuTargetRef, owner export, for the code 1009].
+/// documented: GECK wiki GetMenuTargetRef, owner export, for the code 1009]. `MenuMode 1`
+/// is any of the Pip-Boy's menus; a loading screen is a menu (1007) [hypothesis]; the
+/// codes: `Game::menu_open`, `game::menus`.
 pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::bool(match a.num(0).ok().filter(|c| *c != 0.0) {
-        None => g.in_menu(),
-        Some(c) => g.menu.is_some_and(|m| m as f64 == c) || (c == menus::DIALOGUE as f64 && g.dialogue.is_some()),
+        None => g.in_menu() || g.loading,
+        Some(c) => c.fract() == 0.0 && (0.0..=u16::MAX as f64).contains(&c) && g.menu_open(c as u16),
     }))
 }
 

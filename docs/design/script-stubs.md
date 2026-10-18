@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11); 48 (1 assigned, 1 implementable, 46 need a system) after the used items (§3.12); 47 (1 implementable, 46 need a system) after GetOwnerLastTarget (unconscious actors, 2026-10-17); 46 (1 implementable, 45 need a system) after ShowRepairMenu (repair services, 2026-10-17); 44 (1 implementable, 43 need a system) after GetVATSValue and GetVATSMode (VATS mode, 2026-10-18); 43 (1 implementable, 42 need a system) after ShowBarberMenu (the barber, #414); 41 (1 implementable, 40 need a system) after ShowPlasticSurgeonMenu and PushActorAway (knockdowns, 2026-10-18); 38 (1 implementable, 37 need a system) after SystemSave, ForceSave and PlaceAtReticle (2026-10-18) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11); 48 (1 assigned, 1 implementable, 46 need a system) after the used items (§3.12); 47 (1 implementable, 46 need a system) after GetOwnerLastTarget (unconscious actors, 2026-10-17); 46 (1 implementable, 45 need a system) after ShowRepairMenu (repair services, 2026-10-17); 44 (1 implementable, 43 need a system) after GetVATSValue and GetVATSMode (VATS mode, 2026-10-18); 43 (1 implementable, 42 need a system) after ShowBarberMenu (the barber, #414); 41 (1 implementable, 40 need a system) after ShowPlasticSurgeonMenu and PushActorAway (knockdowns, 2026-10-18); 38 (1 implementable, 37 need a system) after SystemSave, ForceSave and PlaceAtReticle (2026-10-18); 37 (1 implementable, 36 need a system) after IsPlayerActionActive (§3.13); 33 (33 need a system) after the menu hooks (§3.15) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11); 619 (242 calls, 377 condition uses) after the used items (§3.12); 614 (237 calls, 377 condition uses) after GetOwnerLastTarget; 599 (222 calls, 377 condition uses) after ShowRepairMenu; 345 (220 calls, 125 condition uses) after VATS mode; 341 (216 calls, 125 condition uses) after ShowBarberMenu; 304 (179 calls, 125 condition uses) after ShowPlasticSurgeonMenu and PushActorAway (35 calls); 294 (169 calls, 125 condition uses) after SystemSave, ForceSave and PlaceAtReticle (10 calls) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11); 619 (242 calls, 377 condition uses) after the used items (§3.12); 614 (237 calls, 377 condition uses) after GetOwnerLastTarget; 599 (222 calls, 377 condition uses) after ShowRepairMenu; 345 (220 calls, 125 condition uses) after VATS mode; 341 (216 calls, 125 condition uses) after ShowBarberMenu; 304 (179 calls, 125 condition uses) after ShowPlasticSurgeonMenu and PushActorAway (35 calls); 294 (169 calls, 125 condition uses) after SystemSave, ForceSave and PlaceAtReticle (10 calls); 292 (167 calls, 125 condition uses) after IsPlayerActionActive (§3.13); 283 (158 calls, 125 condition uses) after the menu hooks (§3.15) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -61,7 +61,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | ForceTerminalBack | 0x1223 | 80 | 0 | `Terminals::back`, handed on by `terminal::choose` | the terminal goes back one level or closes; counted in the terminal summary |
 | IsSneaking | 0x111E | 35 | 33 | `Senses::motion` | `control::tell_scripts` (the player, every frame), `detection.rs` (everyone measured) |
 | GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°) | `detection.rs` (already) |
-| IsMoving | 0x1019 | 0 | 49 | `Senses::motion` (moving reads 1, forward) | `detection.rs` |
+| IsMoving | 0x1019 | 0 | 49 | `Senses::anim` (the way told, §3.13), else `Senses::motion` (moving reads 1) | `anim_state.rs`, `detection.rs` |
 | GetCurrentAIPackage | 0x106E | 16 | 15 | package type codes; 5 combat, 29 search, 6 conversation | none |
 | AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1048 as its attributes page (levelup.md §8) | the attributes page opens with those rules (Intense Training) |
 | AlwaysShowActorSubtitles | 0x1277 | 16 | 0 | `Senses::always_subtitles` | `script_hud.rs` shows the subtitle out of hearing too |
@@ -246,13 +246,61 @@ GetIsUsedItemType (0x10F7, 6), GetIsUsedItemEquipType (0x11E0, 1) and GetUsedIte
 (0x1103, 3). What an actor uses is the furniture it is on, else what its Find or Use Item
 At package last had it take or use [hypothesis]. 52 → 48 stubs, 403 → 377 condition uses.
 
-### 3.13 Miscellaneous statistics and SetScale (claude/blockers-miscstat-scale, 2026-10-18)
+### 3.13 Animation state (2026-10-18)
+
+The engine tells the rules what each drawn actor's body and the player's do, every frame
+(`fnv_game::anim_state::AnimState`, `Senses::anim`; written by `nvforever` `anim_state.rs`;
+evidence in docs/spec-notes/anim-state.md): GetAnimAction (0x10DB) now answers attacks (2,
+3, 4), reloads (9), blocks (7), a blocked blow's recoil (8) and special idles (13) by the
+New Vegas table, checked against the AI observer's gunfight and melee runs; IsMoving
+(0x1019, 49 condition uses) the way (2 backward, 3 left, 4 right); IsAnimPlaying (0x1128)
+an actor's own movement group (`Idle` standing, observed); IsIdlePlaying (0x1070) an
+actor on furniture (observed). IsPlayerActionActive (0x1170, 2 calls) is implemented for
+action 9, iron sights, the only one the shipped scripts ask; the wiki export lacks the
+ActionIndex list, so the other indices read 0. Not answered: GetAnimAction 5, 6 (throw
+phases), 10–12, and 17 (seen on .357 revolvers before a reload, meaning unknown). 38 → 37
+stubs, 169 → 167 calls (after the knockdowns and the script saves).
+
+### 3.14 Miscellaneous statistics and SetScale (claude/blockers-miscstat-scale, 2026-10-18)
 
 Not stubs, but half-built (outstanding.md §1 row 16): GetPCMiscStat now answers every New
 Vegas statistic by code, 26 of them counted by the rules and the engine, and SetScale's
 scale is drawn and collided ([misc-stats](../spec-notes/misc-stats.md)). Tests:
 `functions.rs` `misc_stats_count_and_set_scale_is_kept_on_the_reference`; smoke
 `misc-stats-scale`.
+
+### 3.15 Menu hooks (claude/menu-hooks, 2026-10-18)
+
+outstanding.md §1 rows 6, 7, 9 and 18; the menu codes in `fnv_game::game::menus`:
+
+- **MenuMode**: `MenuMode 1` (call and `Begin MenuMode 1` block) answers for any of the
+  Pip-Boy's menus, and the Pip-Boy reports its page's code (STATS 1003, ITEMS 1002, DATA
+  1023, the repair list 1035) [documented: GECK wiki MenuMode, GetSelectedItemRef]. A
+  loading screen is 1007: `MenuMode 1007` holds and only the `Begin MenuMode 1007` blocks
+  run under it, also in the two frames after a save is loaded [hypothesis, the DLC
+  scripts' "from load" flags]. NVForever's VATS marking is 1056 beside GameMode
+  [design]. The pause menu's 1013 is not reported (scripts do not run under it). The
+  blackjack table moved from 1035 (the repair list's) to its own 1102.
+- **ShowTutorialMenu** (2 calls, CGTutorial's crippled-limb help from its
+  `Begin MenuMode 1` block): the tutorial menu, MenuMode 1059 [observed: capture mh1_tutorial], over the menu
+  that is open, which it gives back when closed (docs/spec-notes/tutorial-menu.md).
+- **ResetPipboyManager** (4 calls: Doc Mitchell's Pip-Boy, the three DLC starts): the
+  Pip-Boy's pages go back to their defaults and its light (NVForever's flashlight) goes
+  off [documented: the look and the light; hypothesis: the pages]. NVForever's Pip-Boy
+  needs no reset to be used (the wiki's "NPC Pip-Boy" state is not modelled: test runs
+  open the inventory without a Pip-Boy).
+- **AutoDisplayObjectives** (2 calls, VCG01 stages 55 and 200): kept with the player;
+  while on, the HUD's objective list stays on screen until another quest line waits
+  [hypothesis].
+- **ExitGame** (1 call, the ending's fade-out): back to the main menu as the pause menu's
+  Quit to the main menu; a run a test aid drives quits instead. The credits are not
+  built.
+
+Tests: `synthetic.rs` `coded_menu_mode_blocks_run_for_their_menus`,
+`the_tutorial_menu_opens_over_the_pipboy_and_gives_it_back`,
+`pipboy_reset_exit_and_objective_display_requests`; nvf-play `tutorial_menu` and
+`quest_messages` tests. Smoke: `menu-hooks-tutorial`, `menu-hooks-pipboy-codes`,
+`menu-hooks-exit-game`.
 
 ## 4. Every remaining stub
 
@@ -274,7 +322,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | Autosave | 0x115E | 74 | 0 | implemented 2026-10-15 | saving: asks the engine for an autosave (`nvf_play::save`) |
 | GetGroupMemberCount | 0x11A0 | 0 | 66 | implemented 2026-10-16 (§3.7) | `Game::combat_group` |
 | IsLimbGone | 0x118E | 51 | 0 | needs a system not built yet | combat (dismemberment: no limb is ever severed) |
-| GetAnimAction | 0x10DB | 44 | 1 | implemented 2026-10-16 (§3.9) | drawing and holstering from the engine; attacks and reloads not told |
+| GetAnimAction | 0x10DB | 44 | 1 | implemented 2026-10-16 (§3.9), attacks and reloads 2026-10-18 (§3.13) | the engine's snapshot: drawing, holstering, shots, blows, reloads, blocks, special idles |
 | IsFacingUp | 0x106A | 0 | 41 | implemented 2026-10-17 (§3.11) | 1 on a standing actor [observed]; knockdowns not built |
 | GetKnockedState | 0x106B | 5 | 35 | implemented 2026-10-16 (§3.7) | 1 unconscious, else 0 (no fatigue or live knockdown) |
 | SetSecuritronExpression | 0x1248 | 37 | 0 | implemented 2026-10-16 (§3.6) | rendering (a texture swap) |
@@ -310,7 +358,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | PlayBink | 0x1114 | 4 | 0 | needs a system not built yet | video |
 | IsPlayerGrabbedRef | 0x11D0 | 3 | 1 | needs a system not built yet | physics (grab) |
 | ShowBarberMenu | 0x11F1 | 4 | 0 | implemented 2026-10-18 (the barber, #414) | menus (appearance) |
-| ResetPipboyManager | 0x1201 | 4 | 0 | needs a system not built yet | Pip-Boy |
+| ResetPipboyManager | 0x1201 | 4 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | Pip-Boy: default page and tabs, the light off |
 | AttachAshPile | 0x1211 | 4 | 0 | needs a system not built yet | rendering (death effects) |
 | AddCardToPlayer | 0x125B | 4 | 0 | needs a system not built yet | Caravan |
 | SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
@@ -321,16 +369,16 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetSandman | 0x10E2 | 0 | 2 | needs a system not built yet | AI (Mister Sandman perk) |
 | setAllReachable | 0x1159 | 2 | 0 | needs a system not built yet | navigation |
 | SetSceneIsComplex | 0x115D | 2 | 0 | deliberately no-op | performance switch of the original's AI |
-| IsPlayerActionActive | 0x1170 | 2 | 0 | needs a system not built yet | player input |
+| IsPlayerActionActive | 0x1170 | 2 | 0 | implemented 2026-10-18 (§3.13) | 9 (iron sights) only; the other indices are not known |
 | SetDisposition | 0x1184 | 2 | 0 | implemented 2026-10-17 (§3.11) | GetDisposition reads its value [observed] |
 | GetCauseofDeath | 0x118D | 1 | 1 | implemented 2026-10-16 (§3.7) | the killing hit's weapon type |
 | SetCellImageSpace | 0x1196 | 2 | 0 | needs a system not built yet | image space |
 | DisableNavmesh | 0x11BF | 2 | 0 | needs a system not built yet | navigation |
-| ShowTutorialMenu | 0x11E3 | 2 | 0 | needs a system not built yet | menus (tutorial) |
+| ShowTutorialMenu | 0x11E3 | 2 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | menus (tutorial): docs/spec-notes/tutorial-menu.md |
 | AgeRace | 0x11E4 | 2 | 0 | needs a system not built yet | character appearance |
 | ShowPlasticSurgeonMenu | 0x11F2 | 2 | 0 | needs a system not built yet | menus (appearance) |
 | ForceSave | 0x1217 | 2 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md) | saving |
-| AutoDisplayObjectives | 0x1225 | 2 | 0 | implementable, left for later | objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary |
+| AutoDisplayObjectives | 0x1225 | 2 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | the HUD keeps the objective list on screen while it is on |
 | SetScreenSplatterFade | 0x1243 | 2 | 0 | needs a system not built yet | image space |
 | GetForceHitReaction | 0x1259 | 0 | 2 | needs a system not built yet | combat (hit reactions forced by power attacks) |
 | EnableLoadingMenu | 0x1270 | 2 | 0 | needs a system not built yet | menus (loading) |
@@ -340,7 +388,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | IsWaterObject | 0x1130 | 0 | 1 | needs a system not built yet | AI (drinking) |
 | PreloadMagicEffect | 0x1163 | 1 | 0 | deliberately no-op | loading: effect particles load when drawn |
 | GetPlantedExplosive | 0x11AC | 0 | 1 | needs a system not built yet | combat (live explosives planted by reverse pickpocketing) |
-| ExitGame | 0x11B5 | 1 | 0 | needs a system not built yet | menus (credits, main menu) |
+| ExitGame | 0x11B5 | 1 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | back to the main menu; the credits are not built |
 | ClearScreenSplatter | 0x1241 | 1 | 0 | needs a system not built yet | image space |
 
 Notes on the most used:

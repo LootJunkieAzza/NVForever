@@ -286,7 +286,7 @@ fn run_aid(
     if aid.steps.is_empty() {
         return;
     }
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     // Steps wait for the scripts (the casino records are theirs).
     if script.as_ref().and_then(|s| s.rt.as_ref()).is_none() {
         return;

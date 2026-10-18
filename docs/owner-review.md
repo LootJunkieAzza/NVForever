@@ -5638,6 +5638,34 @@ guesses to check against the game:
 - **A second crippling while it shows** starts the 5 s again and only the new limb
   flashes; healing a limb shows nothing.
 
+## Animation state told to the rules (2026-10-18, branch claude/blockers-anim-state-d26319)
+
+The engine now tells the rules what each body does every frame (docs/spec-notes/anim-state.md;
+smoke `anim-state`). The codes are the wiki's New Vegas table, checked against the AI
+observer's gunfight and melee runs. My choices, to check against the game:
+
+- **Where a shot's 2, 3 and 4 change**: 2 on the shot's first frame, 3 the frame after, 4
+  for the rest of the clip. The observer saw 2 for 2–4 frames on semi-automatic guns, and
+  the bolt-action rifles (varmint, hunting rifle) held 3 for about 0.45 s, through the
+  bolt; NVForever holds 3 one frame for every gun.
+- **A blow's 2 to 4** at the clip's Hit key (the observer saw 2 then 4, no 3, for the
+  baseball bat and creatures; where it changes is my guess).
+- **17**, seen on the .357 revolvers for about two seconds before most of their reloads'
+  9, is not in the wiki's table; NVForever never answers it. A capture of a .357 reload
+  with GetAnimAction every frame and the clip playing would say what it is.
+- **13** for PlayIdle idles, a package's begin/end/change idles, cowering, PlayGroup
+  groups on actors, crippled-limb staggers and the player's jams; not for fidgets,
+  idle-marker idles or talking gestures (the observer's sitters and talkers read −1).
+- **IsMoving** of the player is the movement keys even against a wall ("requesting to
+  move"); a diagonal reads the larger axis, forward and back on a tie.
+- **IsAnimPlaying** on an actor reads its movement group (Idle, Forward, FastLeft …)
+  after any PlayGroup group; walking and running counting like Idle is my guess. An actor turning
+  in place reads Idle, not TurnLeft or TurnRight (also a guess).
+- **IsIdlePlaying** reads 1 on beds as on seats (only a seat was observed).
+- **IsPlayerActionActive**: only 9 (iron sights) is answered, as the wiki names only it
+  (and 8, standing on a table or chair, which NVForever's player never does); the
+  others read 0. The wiki export lacks the ActionIndex list; a capture of indices 1–10
+  while firing, sneaking and aiming would give it.
 ## Saves from scripts and PlaceAtReticle (2026-10-18, branch claude/blockers-save-reticle-d710e4)
 
 SystemSave, ForceSave and PlaceAtReticle are built (docs/spec-notes/script-saves-and-reticle.md;
@@ -5783,6 +5811,67 @@ down too (GetKnockedState 2). Guesses to check against the game:
   the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
   only pushes].
 
+## Gun reach: no shots out of range, a distance per weapon (2026-10-18, branch claude/gun-reach)
+
+Owner request 2026-10-18 (Cook-Cook firing his flamer from cover as soon as the player is
+in sight; shotguns closer than sniper rifles, launchers clear of their blast). Rules in
+docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reach`,
+`combat-sniper-reach`. What is decided and what to check:
+
+- **No shot beyond the weapon's reach** is the GECK wiki's rule for Max Range
+  [documented]. The reach is the WEAP Max Range times the combat style's Ranged Weapon Max
+  Range Mult, cut to the projectile's Range (the flamer: 650 cut to its flame's 640).
+  *Check:* Cook-Cook's camp from the south ridge (about 1,700 units): he should only run
+  at you, not fire, until about 6 m away.
+- **Where each weapon stops** is unchanged in shape (80 % of its reach, 400 to 2,500
+  units), with guesses: it never stops beyond 90 % of its reach (`GUN_REACH_EDGE`); a
+  gun with an explosive projectile stops at least its blast radius + 64 units away
+  (`BLAST_MARGIN`); a flamer stops at half its reach, 320 (`FLAME_RANGE_SHARE`), as the
+  original's flamer trooper fought from 164–320; an area weapon (blast at least a quarter
+  of its reach, `AREA_BLAST_SHARE`) stops just clear of its blast: missile launcher 1,064,
+  grenade rifle 814, Fat Man 1,764. A sniper rifle still stops at 2,500 (the original's
+  backed off to 2,150). *Check:* are shotgunners (480) and flamers (320) close enough?
+- **No shot into its own blast** (a launcher with the target nearer than its explosion's
+  radius) and **a step back from it** (from the radius + 64 instead of 256 units): my
+  design; it does not switch weapons (weapon choice is not built). A missile trooper you
+  rush will back away and not fire. The original's missile trooper fought from 450–550
+  units, inside its own 1,000 blast [observed 2026-10-18]: you asked for them to keep
+  clear, so that stays. *Check:* whether you'd rather they fire anyway when cornered.
+- **Leaving cover**: a gunman at its cover whose target is beyond its reach leaves the
+  cover and closes in, and does not take that cover again; cover is now looked for within
+  its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
+  shoots at you from cover while you are far off.
+- **Min Range** stays unused (it is not a back-off distance; §12.6).
+- **A rifleman's stop stays at 80 % of its reach** (Violet's hunting rifle: 1,600). Before
+  this change she walked on past 1,400, firing all the way in from out of reach; now she
+  stops at 1,600 and fires from the hip only when you come within 1,400 (smoke
+  `combat-sights` moves you to her at 38 s). *Check:* whether riflemen should close nearer.
+- **Setting off again at 90 % of its reach** (`GUN_REACH_EDGE`): a gunman standing at its
+  stop sets off again once you are beyond 90 % of its reach, while it can still fire, so
+  it walks in aiming rather than standing until you are out of reach (hunting rifle:
+  stops at 1,600, sets off beyond 1,800, reach 2,000) [design].
+- **Out of reach, a gunman runs straight in**: no flank place and no step aside for a
+  friend in its line of fire while its target is beyond its reach (it has no shot to
+  line up), so Cook-Cook runs at you instead of circling to a flank first [design].
+- **Violet no longer aims while walking in from afar.** Seen from about 2,700 units,
+  beyond her hunting rifle's reach (2,000), she holds fire and runs in with her sights
+  down; within reach she stops at 1,600, takes cover or aims. The original's flamer
+  trooper likewise held fire from 1,283 units [observed 2026-10-18, gun_reach]. Smoke
+  `combat-sights` now starts you within her reach (about 1,900 units), so it still tests
+  walking while aiming; `combat-sights-beyond-reach` tests the new case. *Check:* that a
+  rifleman running in and then aiming from cover looks right to you.
+- Not done: other ammo's projectiles (an NPC's reach is its default ammo's); on a cliff
+  the shot's distance can be beyond reach while the flat distance is not, so a gunman can
+  stand silent there.
+- **Capture** (first run 2026-10-18, readings in combat-ai.md §16: the flamer trooper held
+  fire from 1,283 units and first attacked at 726, about 13 % beyond its max range of
+  650; we keep 640, where the flame ends): observer campaign `tools/capture/observe/gun_reach.campaign.json`
+  (an NCR trooper with a flamer from 1,600 units, a shotgun from 1,600, a sniper rifle from
+  2,400, a missile launcher from 600; the save nvftest) shows the original's first-shot
+  distance and stopping distance for each, to compare with these numbers. The campaign's
+  `place` items now take `ammo` (500 rounds), since a gunman without ammunition does not
+  fire in the original, and `offset` (PlaceAtMe's distance put three of the four 300–460
+  units away; a second run with the offsets is ready).
 ## Script packages and disabled references: the 2026-10-18 captures (branch claude/gifted-nightingale-0cc6ae)
 
 Capture jobs `od_08_script_packages` and `od_09a_disabled_ref_script` (readings in
@@ -5852,6 +5941,47 @@ AddItemToLeveledList's health. What is left unread and why: §4 there.
    speed-up plays sound that much faster, at most 2×.
 7. **Locked gear in the inventory menu** answers "<item> can't be unequipped now" / "can't be
    equipped now": NVForever's words, the original's are not known.
+## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
+
+docs/design/script-stubs.md §3.15, docs/spec-notes/tutorial-menu.md. Smoke
+`menu-hooks-pipboy-codes`, `menu-hooks-tutorial`, `menu-hooks-exit-game`; capture job
+`tools/capture/probes/menu_hooks.toml` (batches `mh1_tutorial`, `mh2_reset_objectives`,
+save nvfstrip). Guesses, each waiting for you or the capture:
+
+- **The tutorial menu's code is 1059: confirmed** by capture mh1_tutorial (nvfstrip,
+  2026-10-18): MenuMode 1059 was 1, 1001 and 1060 were 0, so it is not a message box. A
+  second ShowTutorialMenu left one 1059 menu, and one CloseAllMenus closed it and the menu
+  that had been open before it (MenuMode 0); NVForever's CloseAllMenus now does the same.
+  Not settled by the capture: whether the second message is a second page (NVForever) or
+  replaces the first. Capture mh2_reset_objectives: ResetPipboyManager and
+  AutoDisplayObjectives open no menu (MenuMode 0), as in NVForever; it could not show the
+  objectives (VCG01 not running in nvfstrip), so that guess stays.
+- **The tutorial menu opens over the Pip-Boy** (CGTutorial shows it from its MenuMode 1
+  block) and the Pip-Boy is back when it closes. A second ShowTutorialMenu while it is
+  open adds a page (Next / Previous, "1/2" at the top right). *Check:* cripple a limb with
+  the Pip-Boy open; the "Healing Limbs" page should come over it.
+- **Its look**: the file's layout, but as dark as the other menus (the file's fill alpha
+  of 32/255 was hard to read over the Pip-Boy); the words "Next", "Previous", "Close",
+  "A) S) E)" and "VDSG Manual" (the game settings are not in the masters); the text in
+  font 1. A frame is saved at 15 s and 20 s of `menu-hooks-tutorial` in target/smoke.
+- **MenuMode 1007 under loading screens**: the 1007 blocks run (and only they) in the two
+  frames after travel and after a save is loaded; the DLC scripts use them to put their
+  hologram shaders back. The pause menu's 1013 is not reported: scripts still do not run
+  under NVForever's pause menu.
+- **VATS 1056**: NVForever's VATS is no menu, so `Begin MenuMode 1056` blocks run beside
+  GameMode while it marks (CGTutorial's VATS tutorial message comes from one).
+- **Blackjack's menu code moved from 1035 to 1102**: 1035 is the Pip-Boy's repair list in
+  the wiki; neither is asked for by a shipped script.
+- **ResetPipboyManager** turns the flashlight off (the wiki says the reset turns the
+  Pip-Boy light off; the flashlight is NVForever's Pip-Boy light) and puts the pages back
+  to ITEMS / first tabs. The wiki's "without a reset the Pip-Boy acts as an NPC's" is not
+  built: the Pip-Boy opens without a reset (test runs open the inventory without one).
+- **AutoDisplayObjectives 1** keeps the objective list on the HUD (no fading) until
+  another quest line comes; VCG01 turns it on at stage 55 (before the player has the
+  Pip-Boy) and off at 200. *Check:* in the opening, after Doc Mitchell's first lines, the
+  "Ain't That a Kick in the Head" objectives should stay at the left.
+- **ExitGame** goes back to the main menu as Quit to the main menu does; the end credits
+  are not built. A run a test aid drives quits instead (so a smoke log ends there).
 ## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
 
 What each crippled limb does, for the player and for NPCs, is in

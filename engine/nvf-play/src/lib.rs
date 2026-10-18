@@ -78,6 +78,7 @@ pub mod start_menu;
 pub mod sim;
 pub mod space;
 pub mod terminal;
+pub mod tutorial_menu;
 mod test_aid;
 pub mod sfx;
 pub mod ui_sounds;
@@ -278,6 +279,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
+            .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
             .add_plugins(blackjack::BlackjackPlugin)

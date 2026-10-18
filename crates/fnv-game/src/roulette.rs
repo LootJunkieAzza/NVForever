@@ -14,7 +14,7 @@ use rand_core::RngCore;
 pub const HELP_MESSAGE: FormId = FormId(0x0017_2095);
 /// The menu's code to scripts (roulette.md §1) [hypothesis: NVForever's own; the menu
 /// file's `&RouletteMenu;` class number is not in the menu files and no shipped script
-/// asks for it; blackjack's is 1035]. Not 1036: that is the race menu's, which
+/// asks for it; blackjack's is 1102]. Not 1036: that is the race menu's, which
 /// ShowRaceMenu opens in the opening [observed: layer5-captures.md §10.3;
 /// `game::menus::RACE`]; sharing it made the race menu no script menu, and nothing could
 /// close it. Above the codes the game is known to use (1001 to 1084) [design].

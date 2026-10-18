@@ -209,15 +209,16 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
    (spec-notes/script-saves-and-reticle.md).
 8. ~~**Look turning the body**~~ (built: the rotate-body flag turns the whole body to
    the target until StopLook, `script_look.rs` and `fnv_ai`; docs/design/script-stubs.md §3),
-   **the engine's animation state** (IsAnimPlaying,
-   IsIdlePlaying, IsMoving's directions, IsPlayerActionActive) and **AI package codes**
+   ~~**the engine's animation state**~~ (IsAnimPlaying,
+   IsIdlePlaying, IsMoving's directions, IsPlayerActionActive: told by the engine every
+   frame since 2026-10-18, docs/spec-notes/anim-state.md) and **AI package codes**
    (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2): each a few dozen quests.
-9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial**, **Caravan**,
+9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan**,
    **slot machines**.
 
 Cheap fixes left (the system exists, little use): SetCellImageSpace,
-PlayBink, ExitGame, AutoDisplayObjectives, ResetPipboyManager, GetDialogueEmotion's
-current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, MenuMode's codes, a loaded
+PlayBink, GetDialogueEmotion's
+current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, a loaded
 the sim treating every XLOC as locked (the gas station's inner door has XLOC level 255
 with no Locked flag and is open in the original; worth a GetLocked probe on it).
 
@@ -245,12 +246,12 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 3 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
 | 4 | saves from scripts | built | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
 | 5 | Look turning the body | built | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
-| 6 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
+| 6 | animation state told to the rules | built | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
 | 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
 | 8 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
-| 9 | Pip-Boy reset | wrong | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
+| 9 | Pip-Boy reset | built | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
 | 10 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
-| 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | wrong | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
+| 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | built | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
 | 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
 | 13 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
 | 14 | crosshair placement | built | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
@@ -264,11 +265,11 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
 | 23 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 24 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
-| 25 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
+| 25 | objective display switch | built | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
 | 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
 | 27 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
 | 28 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
-| 29 | quitting from scripts | wrong | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
+| 29 | quitting from scripts | built | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
 | 30 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
 | 31 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
 | 32 | dialogue: current response | wrong | 0 | 0 / 0 | 0 / 20 | GetDialogueEmotion | - | - |
@@ -311,7 +312,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | AlwaysShowActorSubtitles | 0x1277 | 16 / 0 | match | - | - |  |
 | ApplyImageSpaceModifier | 0x1191 | 355 / 0 | match | - | - |  |
 | AttachAshPile | 0x1211 | 4 / 0 | no-system | dismemberment and critical deaths | - | Stub. |
-| AutoDisplayObjectives | 0x1225 | 2 / 0 | wrong | objective display switch | - | Implementable (script-stubs.md). |
+| AutoDisplayObjectives | 0x1225 | 2 / 0 | open | objective display switch | - | Kept with the player; the HUD keeps the objective list on screen while on [hypothesis: what the display shows; capture job menu_hooks] (script-stubs.md §3.15). |
 | Autosave | 0x115E | 74 / 0 | match | - | - |  |
 | CastImmediateOnSelf | 0x11D9 | 233 / 0 | match | - | - |  |
 | ClearDestruction | 0x11D8 | 2 / 0 | match | - | - |  |
@@ -340,7 +341,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
 | EvaluatePackage | 0x105E | 2285 / 0 | match | - | - |  |
 | Exists | 0x119F | 0 / 21 | match | - | - |  |
-| ExitGame | 0x11B5 | 1 / 0 | wrong | quitting from scripts | - | Stub, 1 call; the console's qqq exists. |
+| ExitGame | 0x11B5 | 1 / 0 | match | - | - | Back to the main menu as the pause menu's Quit [documented: GECK wiki]; the credits it plays first are not built (script-stubs.md §3.15). |
 | FireWeapon | 0x11E2 | 24 / 0 | match | - | - |  |
 | ForceActiveQuest | 0x11DD | 82 / 0 | match | - | - |  |
 | ForceActorValue | 0x110E | 31 / 0 | match | - | - |  |
@@ -487,7 +488,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsActorRefEssential | 0x1272 | 2 / 0 | match | - | - |  |
 | IsActorTalkingThroughActivator | 0x11AE | 0 / 92 | no-system | talking activators | same 1 | 0 at rest matches [observed: probes]. |
 | IsAlwaysHardcore | 0x126B | 4 / 0 | match | - | - |  |
-| IsAnimPlaying | 0x1128 | 108 / 0 | wrong | animation state told to the rules | differs 1, same 1 | Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours counts PlayGroup groups only. |
+| IsAnimPlaying | 0x1128 | 108 / 0 | match | animation state told to the rules | differs 1, same 1 | Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours now reads the movement group the engine tells (Idle, Forward, FastLeft ...) after PlayGroup's (anim-state.md §3, 2026-10-18). Walking and running groups counting the same way is hypothesis. |
 | IsChild | 0x116D | 0 / 203 | match | - | - |  |
 | IsCombatTarget | 0x1203 | 6 / 1 | match | - | - |  |
 | IsCurrentFurnitureObj | 0x10A3 | 1 / 56 | match | - | - |  |
@@ -497,7 +498,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsFacingUp | 0x106A | 0 / 41 | match | - | same 1 | 1 on a standing actor [observed: probes]; knockdowns are not built, so never 0. |
 | IsGoreDisabled | 0x1226 | 6 / 0 | match | - | - |  |
 | IsHardcore | 0x124A | 11 / 278 | match | - | - |  |
-| IsIdlePlaying | 0x1070 | 11 / 2 | wrong | animation state told to the rules | differs 1, same 2 | Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine tells PlayIdle idles only. |
+| IsIdlePlaying | 0x1070 | 11 / 2 | match | animation state told to the rules | differs 1, same 2 | Easy Pete sitting read 1 [observed: probes]; ours reads 1 on furniture (GetSitting or GetSleeping 3) and while the engine plays an idle (anim-state.md §3, 2026-10-18); beds are hypothesis. |
 | IsImageSpaceActive | 0x1232 | 43 / 0 | match | - | - |  |
 | IsInCombat | 0x1121 | 312 / 219 | match | - | same 1 | NPC fights out of the player's detection reach start in the loaded area since 2026-10-17, as in the original [observed: capture detection-1 det2] (detection.md §7); out of it nobody detects anyone, as in the original with the player indoors [observed: det3]. |
 | IsInCriticalStage | 0x1213 | 16 / 0 | match | - | game error 3 | `IsInCriticalStage None` 1 and GooStart / DisintegrateEnd 0 on a live actor, as ours [observed: probes fp7]; the parameter is a stage name (a number does not compile). No engine critical death sets a stage (see SetCriticalStage). |
@@ -506,11 +507,11 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsKiller | 0x1199 | 45 / 0 | match | - | same 1 |  |
 | IsLeftUp | 0x111D | 0 / 22 | match | - | same 1 | As IsFacingUp [observed: probes]. |
 | IsLimbGone | 0x118E | 12 / 0 | no-system | dismemberment and critical deaths | same 1 | 0 on Ringo matches [observed: probes]. |
-| IsMoving | 0x1019 | 0 / 49 | wrong | animation state told to the rules | same 3 | Only 0/1; backward/left/right (2-4) never, though the player's move intent holds them. 0 at rest matches [observed: probes]. |
+| IsMoving | 0x1019 | 0 / 49 | match | animation state told to the rules | same 3 | The way told by the engine: the player's movement keys, an NPC's walk in its own axes, 1-4 [documented: GECK wiki IsMoving]; 0 at rest matches [observed: probes] (anim-state.md §2, 2026-10-18). |
 | IsOwner | 0x1116 | 0 / 18 | match | - | - |  |
 | IsPC1stPerson | 0x1188 | 2 / 9 | match | - | differs 1 |  |
 | IsPCSleeping | 0x10AF | 2 / 0 | match | - | same 2 |  |
-| IsPlayerActionActive | 0x1170 | 2 / 0 | wrong | animation state told to the rules | same 2 | Stub 0; 0 at rest matches [observed: probes]. The engine knows aiming (OWB asks action 9, iron sights). |
+| IsPlayerActionActive | 0x1170 | 2 / 0 | match | animation state told to the rules | same 2 | Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18). 0 at rest matches [observed: probes]. |
 | IsPlayerGrabbedRef | 0x11D0 | 3 / 1 | no-system | grabbing objects | same 1 | 0 at rest matches [observed: probes]. |
 | IsPlayerInRegion | 0x1260 | 57 / 0 | match | - | - |  |
 | IsPlayerMovingIntoNewSpace | 0x1166 | 6 / 8 | match | - | - |  |
@@ -534,7 +535,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | Lock | 0x1072 | 303 / 0 | match | - | - | On a terminal: locked at the level (at most 5), the terminal's own state, read by the opening [observed: probes; documented: GECK wiki Lock]. |
 | Look | 0x105C | 159 / 0 | built | Look turning the body | - | With rotateBody 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: the AI's actors at the walker's turn rate (`fnv_ai` social.rs), standing ones on the spot with a conversation's turn (`script_look.rs`); the rate and the body keeping its heading after StopLook are [hypothesis] (no capture covers a Look; smoke `script-look-body`). |
 | MarkForDelete | 0x11BB | 602 / 0 | match | - | - |  |
-| MenuMode | 0x1024 | 13 / 11 | wrong | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | differs 2, same 3 | MenuMode 1 is compared as a literal code; 1007/1013 never set (audit §5). The sleep menu is 1012 [observed: probes]. |
+| MenuMode | 0x1024 | 13 / 11 | match | - | differs 2, same 3 | MenuMode 1 for any Pip-Boy page (1002/1003/1023, repair 1035) [documented]; loading 1007 with its blocks, VATS 1056, tutorial 1059 [observed: capture mh1_tutorial]; the pause menu's 1013 not reported (no scripts run under it). The sleep menu is 1012 [observed: probes] (script-stubs.md §3.15). |
 | ModActorValue | 0x1010 | 62 / 0 | match | - | - |  |
 | ModPCMiscStat | 0x1137 | 6 / 0 | match | - | - |  |
 | ModWeaponHealthPerc | 0x11F6 | 8 / 0 | match | - | - |  |
@@ -576,7 +577,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ResetAI | 0x11FA | 711 / 0 | open | - | - | Combat is not reset; capture of ResetAI on an actor in combat (attended). |
 | ResetHealth | 0x1150 | 54 / 0 | match | - | - |  |
 | ResetInventory | 0x11ED | 17 / 0 | match | - | - |  |
-| ResetPipboyManager | 0x1201 | 4 / 0 | wrong | Pip-Boy reset | - | Stub, 4 calls. |
+| ResetPipboyManager | 0x1201 | 4 / 0 | match | - | - | The Pip-Boy's light off [documented: GECK wiki] and its pages back to their defaults [hypothesis] (script-stubs.md §3.15). |
 | ResetQuest | 0x11DB | 6 / 0 | match | - | - |  |
 | ResetXP | 0x126D | 2 / 0 | match | - | - |  |
 | RestoreActorValue | 0x1182 | 284 / 0 | match | - | - |  |
@@ -666,7 +667,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ShowSleepWaitMenu | 0x1279 | 2 / 0 | match | - | - |  |
 | ShowSlotMachineMenuParams | 0x1252 | 5 / 0 | no-system | casino slot machines | - | Stub; blackjack and roulette are built. |
 | ShowTraitMenu | 0x1268 | 5 / 0 | match | - | - |  |
-| ShowTutorialMenu | 0x11E3 | 2 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
+| ShowTutorialMenu | 0x11E3 | 2 / 0 | match | - | - | The tutorial menu from tutorial_menu.xml over the open menu (tutorial-menu.md); its code 1059 [observed: capture mh1_tutorial]; CloseAllMenus closes it with the menu under it [observed]. |
 | ShowWarning | 0x11B9 | 71 / 0 | match | - | - |  |
 | Sqrt | 0x121F | 2 / 0 | match | - | - |  |
 | StartCannibal | 0x107E | 4 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |

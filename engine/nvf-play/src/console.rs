@@ -37,7 +37,8 @@
 //!
 //! Log: `console: > <line>` and `console: <reply line>` for each line. Test aid
 //! `NVF_PLAY_TEST_CONSOLE=<seconds>:<line>[;<seconds>:<line>…]` opens the console and runs
-//! the line at that time (on the aids' clock); the line `click <x> <y>` clicks at that
+//! the line at that time (on the world aids' clock, `crate::pause::WorldAidClock`: with
+//! `NVF_PLAY_AIDS_FROM_SCRIPTS=1` the lines wait for the scripts to run); the line `click <x> <y>` clicks at that
 //! fraction of the window (0..1 from the top left), `close` closes the console.
 
 use crate::activate::pick::{self, RayHit};
@@ -194,7 +195,7 @@ fn toggle(
     roots: Query<Entity, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
 ) {
-    let by_aid = aid.0.first().is_some_and(|(t, _)| *t <= time.elapsed_secs());
+    let by_aid = aid.0.first().is_some_and(|(t, _)| time.world_secs().is_some_and(|now| *t <= now));
     if !c.open {
         // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
         let world = *state.get() == PlayState::Playing || (free_cam.holds_world() && *state.get() == PlayState::Menu);
@@ -261,8 +262,10 @@ fn typing(
         c.print(l);
     }
     let mut submit: Vec<String> = Vec::new();
-    let now = time.elapsed_secs();
-    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+    // A world aid (`crate::pause::WorldAidClock`): with NVF_PLAY_AIDS_FROM_SCRIPTS it
+    // waits for the scripts, which most lines need.
+    let now = time.world_secs();
+    while aid.0.first().is_some_and(|(t, _)| now.is_some_and(|now| *t <= now)) {
         let (_, line) = aid.0.remove(0);
         info!("test aid NVF_PLAY_TEST_CONSOLE: {line}");
         submit.push(line);
