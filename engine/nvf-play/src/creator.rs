@@ -325,8 +325,9 @@ fn input(
         return;
     }
     let mut ops: Vec<(Op, &str)> = Vec::new();
-    let now = time.elapsed_secs();
-    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+    // A world aid (`crate::pause::WorldAidClock`).
+    let now = time.world_secs();
+    while aid.0.first().is_some_and(|(t, _)| now.is_some_and(|now| *t <= now)) {
         let (_, op) = aid.0.remove(0);
         info!("test aid: creator {op:?}");
         ops.push((op, "test aid NVF_PLAY_TEST_CREATOR"));

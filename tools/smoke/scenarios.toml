@@ -13,6 +13,15 @@
 #   are written here. `offset` moves a member's timed test aids in a shared run.
 # - Expectation syntax: tools/smoke/smoke/expect.py. "run finished" and exit code 0 are
 #   always expected of a game run.
+# - Test-aid times: the runner sets NVF_PLAY_AIDS_FROM_SCRIPTS=1 for every `--play`
+#   launch, so the aids that act on the world (console, script steps, keys, moves, looks,
+#   controls, activate, talk, wait, hits, the menus' and games' aids, screenshots) wait
+#   until the scripts first run and are held back by as long as that start came after
+#   6.5 s (engine/nvf-play/src/pause.rs WorldAidClock; `--run-seconds` grows by as much).
+#   On an unbusy machine the times mean what they did, and a step need not sit at 14 s or
+#   later to be safe from a late start. The main menu, intro, pause menu, settings, go-to
+#   and face aids keep the time since the start. `NVF_PLAY_AIDS_FROM_SCRIPTS = "0"` in a
+#   scenario's env keeps the old clock for all of them.
 
 # `{masters}` in a tool command: the ten masters ("the masters" of the docs), in load order.
 masters = [
@@ -25,6 +34,7 @@ untimed = [
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
   "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
+  "NVF_PLAY_AIDS_FROM_SCRIPTS",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
