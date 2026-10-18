@@ -12,7 +12,9 @@
 //!   10 after the left one (centred on the line, 5 lower), and the line going on from 10
 //!   after the title to the right corner's (no page number: one page).
 //! - The text in the default font, 5 in from the title's left, 21 under the corner lines'
-//!   ends (their 60), wrapped to the box less the buttons' column.
+//!   ends (their 60), wrapped to the box less the buttons' column. A text longer than the
+//!   box scrolls (wheel, Up/Down, Page Up/Down, Home/End, the bar held) with a scroll bar
+//!   beside it [design: the owner's request; the original pages with Next/Previous].
 //! - At the bottom the same corners fading up, after the left one the VDSG symbol (64
 //!   high, its file's first 36 left out) and "VDSG MANUAL", then the line to the right
 //!   corner; the Close button right-aligned 81 from the box's right, its foot on the
@@ -24,11 +26,13 @@
 //! `&sKBF;`); [`expand_keys`] writes the key bound to each, "WSAD" and "F" with the
 //! game's default keys as the screenshot has them [observed].
 
-use super::screen::{Ctx, FontKind, LockButton, BUTTON_DIM};
+use super::screen::{Ctx, FontKind, LockButton, ParagraphLine, BUTTON_DIM};
 use super::{Help, LockpickInput};
 use crate::bindings::{Bindings, Control, GAME_CONTROLS};
 use crate::interface::{amber, at, u};
+use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
+use bevy::ui::RelativeCursorPosition;
 
 const BOX_PART: f32 = 0.8;
 const SIDE: f32 = 48.0;
@@ -64,6 +68,90 @@ const CLOSE_LOWER: f32 = 20.0;
 const HINT_GAP: f32 = 16.0;
 /// The globals' background fill alpha [documented: menus\globals.xml].
 const FILL_ALPHA: f32 = 32.0 / 255.0;
+/// The scroll bar [design]: this far right of the text's room, this wide; the text's
+/// window reaches this far past the room so no glyph's edge is cut.
+const BAR_GAP: f32 = 24.0;
+const BAR_W: f32 = 6.0;
+const CLIP_SPARE: f32 = 10.0;
+/// Lines a wheel notch scrolls, and the pixels of a touchpad's scroll that make a line
+/// [design].
+const WHEEL_LINES: f32 = 3.0;
+const PIXELS_PER_LINE: f32 = 20.0;
+
+/// The help text's lines in their window: the first shown, how many there are and fit.
+#[derive(Component)]
+pub struct HelpScroll {
+    first: usize,
+    lines: usize,
+    shown: usize,
+    pitch: f32,
+    /// The window's height, the bar's.
+    room: f32,
+}
+
+/// The scroll bar's thumb (`top`: the bar's), and the strip along the bar that is
+/// clicked or dragged.
+#[derive(Component)]
+pub struct HelpThumb {
+    top: f32,
+}
+#[derive(Component)]
+pub struct HelpTrack;
+
+/// Scrolls the help text: the wheel, Up/Down a line, Page Up/Down a window less a line,
+/// Home/End, or the bar held where the pointer is.
+pub fn scroll(
+    keys: Res<ButtonInput<KeyCode>>,
+    wheel: Option<Res<AccumulatedMouseScroll>>,
+    mut texts: Query<(&mut Node, &mut HelpScroll)>,
+    mut lines: Query<(&mut Visibility, &ParagraphLine)>,
+    mut thumbs: Query<(&mut Node, &HelpThumb), Without<HelpScroll>>,
+    tracks: Query<(&Interaction, &RelativeCursorPosition), With<HelpTrack>>,
+    mut spill: Local<f32>,
+) {
+    let Ok((mut node, mut s)) = texts.single_mut() else {
+        *spill = 0.0;
+        return;
+    };
+    let last = s.lines.saturating_sub(s.shown);
+    let page = s.shown.saturating_sub(1).max(1) as f32;
+    let mut first = s.first as f32;
+    if let Some(w) = wheel {
+        *spill -= match w.unit {
+            MouseScrollUnit::Line => w.delta.y * WHEEL_LINES,
+            MouseScrollUnit::Pixel => w.delta.y / PIXELS_PER_LINE,
+        };
+        first += spill.trunc();
+        *spill = spill.fract();
+    }
+    let steps = [(KeyCode::ArrowDown, 1.0), (KeyCode::ArrowUp, -1.0), (KeyCode::PageDown, page), (KeyCode::PageUp, -page)];
+    first += steps.iter().filter(|(k, _)| keys.just_pressed(*k)).map(|(_, d)| d).sum::<f32>();
+    if keys.just_pressed(KeyCode::Home) {
+        first = 0.0;
+    }
+    if keys.just_pressed(KeyCode::End) {
+        first = last as f32;
+    }
+    // The bar held: the thumb's middle goes to the pointer.
+    for (i, at) in &tracks {
+        if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+            first = ((p.y + 0.5) * s.lines as f32 - s.shown as f32 / 2.0).round();
+        }
+    }
+    let first = (first.max(0.0) as usize).min(last);
+    for (mut v, line) in &mut lines {
+        v.set_if_neq(if (first..first + s.shown).contains(&line.0) { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    if first == s.first {
+        return;
+    }
+    s.first = first;
+    node.top = u(-(first as f32) * s.pitch);
+    let top = s.room * first as f32 / s.lines as f32;
+    for (mut t, thumb) in &mut thumbs {
+        t.top = u(thumb.top + top);
+    }
+}
 
 /// The label of a key as the help text shows it: a letter or digit as itself, the
 /// modifiers and arrows in words, else the key's name [observed: "WSAD", "F"; design:
@@ -197,12 +285,35 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
         c.image(b, solid, at(after, TOP, (right_corner - after).max(0.0), THICK), bright);
         c.image(b, solid, at(right_corner, TOP, CORNER, THICK), bright);
         c.image(b, down, at(w - SIDE, TOP, THICK, FADE), bright);
-        // The text.
-        let text_x = title_x + TEXT_IN;
-        let wrap = (w - BUTTONS_FROM_RIGHT - BUTTON_COLUMN - BEFORE_BUTTONS - title_x - TEXT_IN).max(100.0);
-        c.paragraph(b, FontKind::Body, &help.text, text_x, TOP + FADE + TEXT_DOWN, wrap, 0.0, bright);
-        // The bottom: corners, the VDSG symbol and words, the line on.
+        // The text, in a window of whole lines down to the bottom corners' fading lines;
+        // a longer text scrolls, a bar beside it showing where [design: the owner's
+        // request, 2026-10-18; the original pages long texts with Next/Previous].
         let bottom = h - TOP;
+        let text_x = title_x + TEXT_IN;
+        let text_top = TOP + FADE + TEXT_DOWN;
+        let wrap = (w - BUTTONS_FROM_RIGHT - BUTTON_COLUMN - BEFORE_BUTTONS - title_x - TEXT_IN).max(100.0);
+        let pitch = c.font_size(FontKind::Body);
+        let shown = (((bottom - FADE - text_top) / pitch).floor() as usize).max(1);
+        // The window runs from the first line's tallest glyph to the last one's deepest,
+        // so whole lines show; the lines on either side, whose glyphs may reach into it,
+        // are hidden.
+        let (rise, fall) = c.ink(FontKind::Body);
+        let window_top = text_top - rise;
+        let room = rise + (shown - 1) as f32 * pitch + fall.max(pitch - rise);
+        let mut lines = 0;
+        b.spawn(Node { overflow: Overflow::clip(), ..at(text_x, window_top, wrap + CLIP_SPARE, room) }).with_children(|window| {
+            window
+                .spawn(at(0.0, 0.0, wrap + CLIP_SPARE, room))
+                .with_children(|t| lines = c.paragraph(t, FontKind::Body, &help.text, 0.0, rise, wrap, 0.0, bright))
+                .insert(HelpScroll { first: 0, lines, shown, pitch, room });
+        });
+        if lines > shown {
+            let bar_x = text_x + wrap + BAR_GAP;
+            b.spawn((at(bar_x + (BAR_W - THICK) / 2.0, window_top, THICK, room), BackgroundColor(amber(BUTTON_DIM))));
+            b.spawn((HelpThumb { top: window_top }, at(bar_x, window_top, BAR_W, room * shown as f32 / lines as f32), BackgroundColor(bright)));
+            b.spawn((HelpTrack, Interaction::default(), RelativeCursorPosition::default(), at(bar_x - BAR_GAP / 2.0, window_top, BAR_W + BAR_GAP, room)));
+        }
+        // The bottom: corners, the VDSG symbol and words, the line on.
         c.image(b, up, at(SIDE, bottom - FADE, THICK, FADE), bright);
         c.image(b, solid, at(SIDE, bottom - THICK, CORNER, THICK), bright);
         let symbol_x = SIDE + CORNER + BUFFER - DEAD_SPACE;

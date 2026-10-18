@@ -176,54 +176,12 @@ pub fn reputation_title(fame: usize, infamy: usize) -> &'static str {
     crate::reputation::title(fame, infamy)
 }
 
-/// The New Vegas statistics the player's General list names [documented: GECK wiki
-/// GetPCMiscStat, "Fallout: New Vegas" list, in its order; hypothesis: the order on the
-/// page].
-pub const MISC_STATS: [&str; 43] = [
-    "Barter Amount Traded",
-    "Blackjack Games Played",
-    "Books Read",
-    "Caravan Games Lost",
-    "Caravan Games Won",
-    "Challenges Completed",
-    "Chems Taken",
-    "Computers Hacked",
-    "Corpses Eaten",
-    "Creatures Killed",
-    "Disintegrations",
-    "Dismembered Limbs",
-    "Doctor Bags Used",
-    "Have Limbs Crippled",
-    "Health From Food",
-    "Health From Stimpaks",
-    "Items Crafted",
-    "Items Repaired",
-    "Locations Discovered",
-    "Locks Picked",
-    "Mines Disarmed",
-    "Miss Fortunate Occurrences",
-    "Mysterious Stranger Visits",
-    "Pants Exploded",
-    "Paralyzing Punches",
-    "People Killed",
-    "Pockets Picked",
-    "Quests Completed",
-    "Rad-X Taken",
-    "RadAway Taken",
-    "Robots Disabled",
-    "Roulette Games Played",
-    "Sandman Kills",
-    "Slots Games Played",
-    "Speech Failures",
-    "Speech Successes",
-    "Stimpaks Taken",
-    "Times Addicted",
-    "Times Slept",
-    "Total Things Killed",
-    "Water Consumed",
-    "Weapon Modifications",
-    "Weapons Created",
-];
+/// The New Vegas statistics the player's General list names, in the order of their codes
+/// [documented: GECK wiki GetPCMiscStat names them; observed: the original's list starts
+/// Quests Completed, Locations Discovered, People Killed, Creatures Killed, Locks Picked,
+/// Computers Hacked, Stimpaks Taken, Rad-X Taken, RadAway Taken, Chems Taken, owner's
+/// screenshot in the private references, "pipboy stat tracking", 2026-10-14] (`fnv_game::misc_stats`).
+pub const MISC_STATS: [&str; 43] = fnv_game::misc_stats::NAMES;
 
 /// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): its name, the number at
 /// the right, the mark after it, and what the display beside the list shows of it.

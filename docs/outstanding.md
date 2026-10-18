@@ -37,7 +37,7 @@ still stubs.
 | 13 | A leveled actor's level re-rolled | 4 | SetLevel sets the level but does not re-roll the NPC's inventory | SetLevel |
 | 14 | Cannibal and Mister Sandman | 3 | The perks' activate choices are not built | (perk entry points) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
-| 16 | Miscellaneous stats, scale | 3 each | Counters other than ModPCMiscStat's; SetScale not read by the engine | GetPCMiscStat, SetScale |
+| 16 | Miscellaneous stats, scale | 3 each | Built (misc-stats.md, 2026-10-18): all 43 statistics have codes, 26 counted by the rules and the engine, the Pip-Boy shows them; SetScale drawn and collided. Not counted: the 17 of misc-stats.md §3 (pickpocketing, dismemberment, Caravan, slots, skill books, New Vegas speech checks) | (GetPCMiscStat, SetScale) |
 | 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
 | 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, SetPCCanUsePowerArmor, ExitGame | |
 
@@ -66,6 +66,10 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **World**: skeleton collision still upright (playtest list 5 item 71).
 - **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
   package types and flags are carried out since #400).
+  - Find's Allow Killing is built, but only for actors whose inventory holds the food. In
+    the original a gecko on FindFood killed a radroach whose meat is only its death item
+    [observed 2026-10-18; the rule it implies is a hypothesis;
+    spec-notes/owner-decision-captures.md §4].
 
 ## 3. Decisions and checks waiting for the owner
 
@@ -75,10 +79,13 @@ how quests run, the rest are guessed constants and looks to compare in the game.
 **Quest-critical** (each needs a ruling):
 - Layer 5: the `L5.script.decode` choice, the `delay_*` scenario inputs, holdouts to
   demote and where `encodings.json` lives (lab rules); the runtime rules still to confirm
-  (stage conditions, timers, reputation tolerances, `ref` handling, disabled references,
-  Return, script packages).
+  (stage conditions, timers, reputation tolerances, `ref` handling, Return; disabled
+  references' GameMode and script packages were settled by captures on 2026-10-18).
 - Script stubs and the function audit: ResetAI and procedure codes, SetPackDuration,
-  SetActorsAI; package durations (about 358 packages restart every duration).
+  SetActorsAI; package durations (about 358 packages restart every duration). The
+  gecko captures contradict that rule: a duration ended a package only once its goal was
+  done, and the next choice came from the top of the list [observed 2026-10-18; the
+  reading is a hypothesis; owner-review "Package durations"].
 - EnablePlayerControls: a number left out now gives that control back.
 - Dialogue: Info Connection's shared lines, the end of a Random pool, actors without a
   greeting; whether walking away or an attack ends a conversation; force-greets; a generic
@@ -112,20 +119,34 @@ item 22 (convict karma); Victor's and Sunny's stop-and-go (list 4 items 2–3). 
 ## 4. Found by today's comparisons with the original
 
 From the owner-decision captures (2026-10-18 [observed],
-[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). The
-runtime is not fixed yet in either case:
+[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). Both
+confirm rules the runtime already had; the owner-review wording that said otherwise was
+out of date (#441 adds tests):
 - **AddScriptPackage replaces** the actor's script package; it does not stack. One
-  RemoveScriptPackage brings back the list package. Our script runtime stacks them.
+  RemoveScriptPackage brings back the list package.
 - **Disabled references still run their GameMode blocks** (the skull's timer kept falling
-  while it was disabled). Our runtime skips disabled references.
+  while it was disabled).
 
 From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) §8:
 - Fights end far sooner in ours (NCR against Fiends over in 32 s; the original's still
   going after 120 s).
 - Melee attackers against the player in god mode or with huge health keep away in the
   original and never swing; ours always close in (the rule is not understood).
-- The Strip's crowd was not observed (the `strip` campaign from the owner's save was
-  dropped); only Gomorrah's first 12 game hours of the casinos were.
+- **The Strip's crowd** was observed on 2026-10-18 [observed]: campaign `strip`, session
+  `strip_evening`, from `nvfstrip`, 5.9 game hours, 1,442 samples, 900 state changes. The
+  timeline is private, on the coordinator's desktop
+  (`C:\fnv-private\capture\observe\strip.timeline.json`). The crowd ran on its packages:
+  - Travellers and gamblers walk between Gomorrah, the Lucky 38 and the gate on
+    VStripFluff1PortRNDTo{Top,Gom}Package (90–107 segments each).
+  - Hookers 01 and 03 hold their Dance packages; 02 patrols.
+  - The NCR MPs patrol and check (VStripMPABPatrol38, VStripFluff1MPCheckA), with escorts
+    (VStripSS2Start*Escort).
+  - NCR troopers A–D ran the SS2 travel / drunk-wall chain for 0.3–1.0 h, then left the
+    sampled area.
+  - Mr. Holdout sat on VMrHoldoutHangOutSell, and the securitrons held their gates.
+
+  It is not compared with our engine yet. Of the casinos, only Gomorrah's first 12 game
+  hours were observed.
 - No spawn aid for creature fights in our engine's test runs.
 
 ## 5. Process

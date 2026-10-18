@@ -22,7 +22,7 @@ use fnv_sim::FormId;
 pub fn reset_ai(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
-        e.packages.clear();
+        e.script_package = None;
         e.package_goal_met = false;
         e.package_blocked.clear();
     }

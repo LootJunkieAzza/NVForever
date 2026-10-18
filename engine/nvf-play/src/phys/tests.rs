@@ -313,7 +313,7 @@ fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     assert!(!p.placed_dynamic.contains_key(&id));
     // (The made-up cells have no records, so the job names the crate itself.)
     let cell = PhysCell::Exterior(0, 0);
-    let job = with_poses(Job { cell, refs: vec![id], land: None, poses: Vec::new() }, &sim);
+    let job = with_poses(Job { cell, refs: vec![id], land: None, poses: Vec::new(), scales: Vec::new() }, &sim);
     p.insert(&LoadCtx { d: &d, sim: &sim, data: None }, fake_cell(&job));
     let b = p.world.ref_bodies(id)[0];
     for i in 0..3 {

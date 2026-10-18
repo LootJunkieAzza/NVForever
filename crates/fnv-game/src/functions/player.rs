@@ -275,21 +275,11 @@ pub fn get_xp_for_next_level(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Valu
     Ok(Value::Num((xp_for_level(g, level + 1) - g.player.xp).max(0.0).round()))
 }
 
-/// The misc_stat codes the shipped scripts ask GetPCMiscStat for (encodings.json).
-pub const STAT_LOCATIONS_DISCOVERED: u16 = 1;
-pub const STAT_TIMES_ADDICTED: u16 = 10;
-
-/// The player's miscellaneous statistics by code (the source names them as strings; the
-/// bytes hold the code, scripts.md §2.4): what ModPCMiscStat added, and for the two the
-/// shipped scripts ask about, the game's own count: Locations Discovered also counts the
-/// map markers the player found [hypothesis: one data point, the save nvftest with only
-/// Goodsprings found read 1, function probes `fp1_queries` 2026-10-17]; Times Addicted is
-/// counted by the addiction roll (`Game::ingest`). The others are only ModPCMiscStat's:
-/// the codes of the other names the wiki lists are not known (no shipped script uses them).
+/// The player's miscellaneous statistic by code (the source names it as a string; the
+/// bytes hold the code, scripts.md §2.4): the counter the rules and the engine keep and
+/// ModPCMiscStat adds to (`crate::misc_stats`, docs/spec-notes/misc-stats.md).
 pub fn get_pc_misc_stat(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let code = a.code(0)?;
-    let own = if code == STAT_LOCATIONS_DISCOVERED { g.player.found_markers.len() as f64 } else { 0.0 };
-    Ok(Value::Num(own + g.player.misc_stats.get(&code).copied().unwrap_or(0.0)))
+    Ok(Value::Num(g.misc_stat(a.code(0)?)))
 }
 
 pub fn mod_pc_misc_stat(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {

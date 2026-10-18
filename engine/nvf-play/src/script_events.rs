@@ -244,7 +244,8 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             continue;
         }
         match &e.kind {
-            EventKind::RefEnabled { reference } | EventKind::RefDisabled { reference } => changed(&mut out, *reference),
+            // A new scale changes the reference's collision too (`crate::phys`).
+            EventKind::RefEnabled { reference } | EventKind::RefDisabled { reference } | EventKind::Scaled { reference, .. } => changed(&mut out, *reference),
             EventKind::Moved { reference, cell, pos } if *reference == player => {
                 let (world, interior) = match ctx.destination(*cell) {
                     Destination::Interior(c) => (None, Some(c)),

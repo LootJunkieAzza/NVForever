@@ -106,6 +106,10 @@ pub struct LockpickRoot;
 #[derive(Component)]
 pub struct LockpickDebugRoot;
 
+/// A line of a paragraph, by its number.
+#[derive(Component, Clone, Copy)]
+pub struct ParagraphLine(pub usize);
+
 /// A button and what it does.
 #[derive(Component, Clone, Copy)]
 pub struct LockButton(pub LockpickInput);
@@ -243,6 +247,17 @@ impl Ctx<'_> {
         self.face(kind).0.font.size
     }
 
+    /// Where the font's printable ASCII glyphs reach, from a line's top: how far the
+    /// tallest rises above it (none when every glyph stays under it) and how far down the
+    /// deepest goes.
+    pub fn ink(&self, kind: FontKind) -> (f32, f32) {
+        let (face, base) = self.face(kind);
+        let drawn = || face.font.glyphs.iter().skip(0x20).take(0x5F).filter(|g| g.drawn());
+        let rise = drawn().map(|g| g.ascent - base).fold(0.0, f32::max);
+        let fall = drawn().map(|g| base - g.ascent + g.height).fold(0.0, f32::max);
+        (rise, fall)
+    }
+
     /// Text in font 7 with its top at `top`; `right`: `x` is its right end. Its width.
     fn text(&mut self, p: &mut ChildSpawnerCommands, s: &str, x: f32, top: f32, right: bool, color: Color) -> f32 {
         self.text_in(p, FontKind::Menu, s, x, top, right, color)
@@ -260,14 +275,16 @@ impl Ctx<'_> {
     }
 
     /// Text wrapped at `wrap`, its top at `top`, its lines the font's size and `leading`
-    /// apart.
+    /// apart, each in its own [`ParagraphLine`]. The number of lines.
     #[allow(clippy::too_many_arguments)]
-    pub fn paragraph(&mut self, p: &mut ChildSpawnerCommands, kind: FontKind, s: &str, x: f32, top: f32, wrap: f32, leading: f32, color: Color) {
+    pub fn paragraph(&mut self, p: &mut ChildSpawnerCommands, kind: FontKind, s: &str, x: f32, top: f32, wrap: f32, leading: f32, color: Color) -> usize {
         let (face, base) = self.face(kind);
         let pitch = face.font.size + leading;
-        for (i, line) in face.font.lines(s.trim_end(), Some(wrap)).iter().enumerate() {
-            set_line(p, face, line, x, top + base + pitch * i as f32, color);
+        let lines = face.font.lines(s.trim_end(), Some(wrap));
+        for (i, line) in lines.iter().enumerate() {
+            p.spawn((ParagraphLine(i), at(x, top + pitch * i as f32, 0.0, 0.0))).with_children(|l| set_line(l, face, line, 0.0, base, color));
         }
+        lines.len()
     }
 }
 

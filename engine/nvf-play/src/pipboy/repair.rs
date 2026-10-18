@@ -239,6 +239,9 @@ pub fn keys(
                     taken == 1 && inv.set_condition_one(o.item, o.extra, to)
                 });
                 if done {
+                    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                        rt.game.count_stat(fnv_game::misc_stats::ITEMS_REPAIRED, 1.0);
+                    }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
                 } else {
