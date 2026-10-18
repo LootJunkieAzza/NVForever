@@ -13,7 +13,7 @@
 //!   it, adding the lip sync's mouth shapes on top, so a fighter's barks still move its
 //!   mouth.
 //!
-//! Log lines: `face: <name> <ref> mood CombatAnger rises|falls` when the target changes,
+//! Log lines (named as the alert lines name actors): `face: <name> <ref> mood CombatAnger rises|falls` when the target changes,
 //! and `face: <name> <ref> mood CombatAnger <weight>` when the fade has arrived.
 
 use crate::face_morphs::FaceMorphs;
@@ -48,17 +48,18 @@ struct Fading {
     target: f32,
 }
 
-type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut FaceMorphs>, Option<&'w mut Fading>);
+type Actors<'w> = (Entity, &'w ActorRig, Option<&'w Name>, Option<&'w mut FaceMorphs>, Option<&'w mut Fading>);
 
 fn drive(mut commands: Commands, time: Res<Time>, script: Option<Res<ScriptState>>, mut actors: Query<Actors, With<LipRig>>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let dt = time.delta_secs();
-    for (e, rig, morphs, fading) in &mut actors {
+    for (e, rig, name, morphs, fading) in &mut actors {
         let id = FormId(rig.reference);
         let fighting = game.awareness.state(id).in_combat() && !game.is_dead(id);
         let target = if fighting { FULL } else { 0.0 };
         let weight = morphs.as_ref().map_or(0.0, |m| m.get(LABEL));
-        let who = || format!("{} {id}", game.data.name(id));
+        // As the alert lines name it (detection.rs): "Actor 000F570B 1EFiendViolet" → "1EFiendViolet 000F570B".
+        let who = || format!("{} {:08X}", name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or(""), rig.reference).trim().to_string();
         // Changes of target, once each.
         let was = fading.as_ref().map(|f| f.target);
         if was != Some(target) && (was.is_some() || weight != target) {
