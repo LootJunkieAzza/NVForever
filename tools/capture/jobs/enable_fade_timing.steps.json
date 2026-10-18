@@ -3,10 +3,57 @@
  "name": "enable_fade_timing",
  "title": "Enable/Disable fades: how long and in what shape a reference fades (docs/design/script-function-params.md, about 1 min)",
  "start": "nvfstrip (any save). The job travels to the Prospector Saloon, faces the terminal and hides the HUD; never saved; unattended (capture_run.py --save nvfstrip).",
- "forms": {
-  "term": "FalloutNV.esm:0010872F"
- },
  "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
   {
    "console": "tgm"
   },
@@ -14,27 +61,24 @@
    "console": "coc GSProspectorSaloonInterior"
   },
   {
-   "until": "@term.HasLoaded3D",
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := rF1.HasLoaded3D\nSetFunctionValue fV\nEnd\n",
    "max_frames": 1200
   },
   {
    "frames": 120
   },
   {
-   "script": "player.MoveTo @term 0 -110 0"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nplayer.MoveTo rF1 0 -110 0\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 60
   },
   {
-   "remember": "player.GetAngle Z + player.GetHeadingAngle @term",
+   "remember": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := player.GetAngle Z + player.GetHeadingAngle rF1\nSetFunctionValue fV\nEnd\n",
    "as": "face"
   },
   {
-   "script": [
-    "player.SetAngle Z %{face}",
-    "player.SetAngle X 10"
-   ]
+   "script": "Begin Function { }\nplayer.SetAngle Z %{face}\nplayer.SetAngle X 10\nSetFunctionValue 1\nEnd\n"
   },
   {
    "console": "tm"
@@ -43,27 +87,27 @@
    "frames": 60
   },
   {
-   "query": "TimeScale",
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
    "field": "timescale"
   },
   {
    "screenshot": "before"
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_start",
    "field": "days"
   },
   {
-   "script": "@term.Disable 1"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Disable 1\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "query": "@term.GetDisabled",
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
    "label": "disabled_at_once",
    "field": "disabled"
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_00_t",
    "field": "days"
   },
@@ -74,7 +118,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_01_t",
    "field": "days"
   },
@@ -85,7 +129,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_02_t",
    "field": "days"
   },
@@ -96,7 +140,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_03_t",
    "field": "days"
   },
@@ -107,7 +151,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_04_t",
    "field": "days"
   },
@@ -118,7 +162,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_05_t",
    "field": "days"
   },
@@ -129,7 +173,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_06_t",
    "field": "days"
   },
@@ -140,7 +184,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_07_t",
    "field": "days"
   },
@@ -151,7 +195,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_08_t",
    "field": "days"
   },
@@ -162,7 +206,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_09_t",
    "field": "days"
   },
@@ -173,7 +217,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_10_t",
    "field": "days"
   },
@@ -184,7 +228,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_11_t",
    "field": "days"
   },
@@ -195,7 +239,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_12_t",
    "field": "days"
   },
@@ -206,7 +250,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_13_t",
    "field": "days"
   },
@@ -217,7 +261,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_14_t",
    "field": "days"
   },
@@ -228,7 +272,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_15_t",
    "field": "days"
   },
@@ -239,7 +283,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_16_t",
    "field": "days"
   },
@@ -250,7 +294,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_17_t",
    "field": "days"
   },
@@ -261,7 +305,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_18_t",
    "field": "days"
   },
@@ -272,7 +316,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_19_t",
    "field": "days"
   },
@@ -283,7 +327,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_20_t",
    "field": "days"
   },
@@ -294,7 +338,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_21_t",
    "field": "days"
   },
@@ -305,7 +349,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_22_t",
    "field": "days"
   },
@@ -316,7 +360,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_23_t",
    "field": "days"
   },
@@ -327,7 +371,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_24_t",
    "field": "days"
   },
@@ -338,7 +382,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_25_t",
    "field": "days"
   },
@@ -349,7 +393,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_26_t",
    "field": "days"
   },
@@ -360,7 +404,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_27_t",
    "field": "days"
   },
@@ -371,7 +415,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_28_t",
    "field": "days"
   },
@@ -382,7 +426,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_29_t",
    "field": "days"
   },
@@ -393,7 +437,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_30_t",
    "field": "days"
   },
@@ -404,7 +448,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_31_t",
    "field": "days"
   },
@@ -415,7 +459,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_32_t",
    "field": "days"
   },
@@ -426,7 +470,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_33_t",
    "field": "days"
   },
@@ -437,7 +481,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_34_t",
    "field": "days"
   },
@@ -448,7 +492,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_35_t",
    "field": "days"
   },
@@ -459,7 +503,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_36_t",
    "field": "days"
   },
@@ -470,7 +514,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_37_t",
    "field": "days"
   },
@@ -481,7 +525,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_38_t",
    "field": "days"
   },
@@ -492,7 +536,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "out_39_t",
    "field": "days"
   },
@@ -506,20 +550,20 @@
    "frames": 120
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_start",
    "field": "days"
   },
   {
-   "script": "@term.Enable"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Enable\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "query": "@term.GetDisabled",
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
    "label": "enabled_at_once",
    "field": "disabled"
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_00_t",
    "field": "days"
   },
@@ -530,7 +574,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_01_t",
    "field": "days"
   },
@@ -541,7 +585,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_02_t",
    "field": "days"
   },
@@ -552,7 +596,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_03_t",
    "field": "days"
   },
@@ -563,7 +607,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_04_t",
    "field": "days"
   },
@@ -574,7 +618,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_05_t",
    "field": "days"
   },
@@ -585,7 +629,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_06_t",
    "field": "days"
   },
@@ -596,7 +640,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_07_t",
    "field": "days"
   },
@@ -607,7 +651,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_08_t",
    "field": "days"
   },
@@ -618,7 +662,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_09_t",
    "field": "days"
   },
@@ -629,7 +673,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_10_t",
    "field": "days"
   },
@@ -640,7 +684,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_11_t",
    "field": "days"
   },
@@ -651,7 +695,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_12_t",
    "field": "days"
   },
@@ -662,7 +706,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_13_t",
    "field": "days"
   },
@@ -673,7 +717,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_14_t",
    "field": "days"
   },
@@ -684,7 +728,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_15_t",
    "field": "days"
   },
@@ -695,7 +739,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_16_t",
    "field": "days"
   },
@@ -706,7 +750,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_17_t",
    "field": "days"
   },
@@ -717,7 +761,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_18_t",
    "field": "days"
   },
@@ -728,7 +772,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_19_t",
    "field": "days"
   },
@@ -739,7 +783,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_20_t",
    "field": "days"
   },
@@ -750,7 +794,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_21_t",
    "field": "days"
   },
@@ -761,7 +805,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_22_t",
    "field": "days"
   },
@@ -772,7 +816,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_23_t",
    "field": "days"
   },
@@ -783,7 +827,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_24_t",
    "field": "days"
   },
@@ -794,7 +838,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_25_t",
    "field": "days"
   },
@@ -805,7 +849,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_26_t",
    "field": "days"
   },
@@ -816,7 +860,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_27_t",
    "field": "days"
   },
@@ -827,7 +871,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_28_t",
    "field": "days"
   },
@@ -838,7 +882,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_29_t",
    "field": "days"
   },
@@ -849,7 +893,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_30_t",
    "field": "days"
   },
@@ -860,7 +904,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_31_t",
    "field": "days"
   },
@@ -871,7 +915,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_32_t",
    "field": "days"
   },
@@ -882,7 +926,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_33_t",
    "field": "days"
   },
@@ -893,7 +937,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_34_t",
    "field": "days"
   },
@@ -904,7 +948,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_35_t",
    "field": "days"
   },
@@ -915,7 +959,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_36_t",
    "field": "days"
   },
@@ -926,7 +970,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_37_t",
    "field": "days"
   },
@@ -937,7 +981,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_38_t",
    "field": "days"
   },
@@ -948,7 +992,7 @@
    "frames": 2
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "in_39_t",
    "field": "days"
   },
@@ -962,12 +1006,12 @@
    "frames": 60
   },
   {
-   "query": "GameDaysPassed",
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
    "label": "pop_start",
    "field": "days"
   },
   {
-   "script": "@term.Disable"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Disable\nSetFunctionValue 1\nEnd\n"
   },
   {
    "screenshot": "pop_out_0"
@@ -979,7 +1023,7 @@
    "screenshot": "pop_out_1"
   },
   {
-   "script": "@term.Enable 0"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Enable 0\nSetFunctionValue 1\nEnd\n"
   },
   {
    "screenshot": "pop_in_0"
