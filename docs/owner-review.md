@@ -5824,3 +5824,24 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Doc Mitchell's mirror (2026-10-18, branch claude/doc-mirror)
+
+Your report: the mirror Doc hands you before "How'd I do?" was not shown, and the
+hand-over played twice.
+
+- **Not shown.** The mirror (`animobjects\NVPropReflectron.NIF`, record
+  `VAODocGiveReflectron`) hangs from his right hand, but the part that is the mirror is
+  stored about 2 m away and is brought into the hand by a track of its own in the
+  hand-over clip. We drew the model as it is stored and never played that track, so the
+  mirror floated out of sight. Now the parts of a held object that the idle's clip has
+  tracks for follow those tracks (idles.md §10). This affects any held prop whose clip
+  moves it; the broom and the cigarette have no such tracks and are unchanged.
+- **Twice.** The game's data asks Doc for the hand-over twice, 3 s apart: the quest's
+  stage 30 plays it, then the line "How'd I do?" names the same animation. We started it
+  over the second time. Now an animation asked for by a script or a line while that same
+  animation still shows is not started over: Doc keeps holding the mirror out through
+  "How'd I do?" (idles.md §3).
+- **Guess.** That the game carries on instead of starting over, and that he holds the
+  pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
+  Doc keep the mirror held out until the face screen opens, or lower his arm?
