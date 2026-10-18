@@ -524,6 +524,10 @@ pub enum RaceMenu {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
     pub xp: f64,
+    /// AutoDisplayObjectives: the active quest's objectives show on their own
+    /// (`functions::ui::auto_display_objectives`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub auto_objectives: bool,
     /// The name typed in the name menu (`crate::chargen`); `None` before it.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<String>,
@@ -690,6 +694,61 @@ pub mod menus {
     /// (`Game::dialogue`) is the open menu, under any other menu that opens during it
     /// (`Game::in_menu`, `Game::open_menu_code`, `Game::menu_open`).
     pub const DIALOGUE: u16 = crate::dialogue::DIALOGUE_MENU;
+    /// `MenuMode 1`: any of the Pip-Boy's menus ([`is_pipboy`]) [documented: GECK wiki
+    /// "MenuMode (Function)", owner export: the example `If (MenuMode 1)` "will check to
+    /// see if the Pipboy menu is open"]. A group, never a menu's own code; CGTutorial's
+    /// `Begin MenuMode 1` block (the crippled-limb tutorial) runs while the Pip-Boy is
+    /// open [observed in the masters].
+    pub const PIPBOY: u16 = 1;
+    /// The Pip-Boy's ITEMS page, the inventory [documented: GECK wiki GetSelectedItemRef,
+    /// "Inventory Menu (1002)"; GetMenuItemListRefs, "1002 Pip-Boy Inventory Menu"].
+    pub const INVENTORY: u16 = 1002;
+    /// The Pip-Boy's STATS page [documented: GECK wiki GetSelectedItemRef, "Pipboy STATS
+    /// Menu (1003) - Perk"].
+    pub const STATS: u16 = 1003;
+    /// A loading screen [hypothesis: the GECK wiki's MenuMode notes name 1007 among the
+    /// three codes true at Fallout 3's main menu; eight DLC scripts set "from load" flags
+    /// in `Begin MenuMode 1007` blocks to put shaders back on after a load, observed in
+    /// the masters]. Its blocks run under the loading screen (`Game::tick`).
+    pub const LOADING: u16 = 1007;
+    /// The start (pause) menu [hypothesis: the same note names 1013; three DLC effect
+    /// scripts test `MenuMode 1007 || MenuMode 1013` for a load, observed in the masters].
+    /// Not reported: scripts do not run under NVForever's pause menu (`nvf_play::script`).
+    pub const START: u16 = 1013;
+    /// The Pip-Boy's DATA page (the map, quests, notes) [documented: GECK wiki
+    /// GetSelectedItemRef, "Pipboy DATA Menu (1023) - Quest/Note/Challenge";
+    /// GetMenuTargetRef, "1023 The Map Marker on which the mouse is over"].
+    pub const MAP: u16 = 1023;
+    /// The Pip-Boy's repair list (`crate::repair::REPAIR_MENU`) [documented: GECK wiki
+    /// GetSelectedItemRef, "Pipboy Repair Menu (1035)"].
+    pub const REPAIR: u16 = crate::repair::REPAIR_MENU;
+    /// VATS target selection [documented: GECK wiki GetMenuTargetRef, "1056 The current
+    /// target in VATS target-selection"]. NVForever's VATS is a slow-time mode, not a
+    /// menu that pauses the game (`crate::vats`): `MenuMode 1056` holds and the
+    /// `Begin MenuMode 1056` blocks run while it marks, beside GameMode (`Game::tick`)
+    /// [design].
+    pub const VATS: u16 = 1056;
+    /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [observed: MenuMode 1059
+    /// was 1, and 1001 and 1060 were 0, with it open, capture mh1_tutorial, save nvfstrip, 2026-10-18]. Not a message box.
+    pub const TUTORIAL: u16 = 1059;
+
+    /// The codes of the Pip-Boy's menus, which `MenuMode 1` answers for: its three pages
+    /// and the repair list it opens [hypothesis: the repair list counts as the Pip-Boy's;
+    /// the wiki names it "Pipboy Repair Menu"].
+    pub fn is_pipboy(code: u16) -> bool {
+        matches!(code, INVENTORY | STATS | MAP | REPAIR)
+    }
+
+    /// Whether `MenuMode want` holds with the menu `open` on top: its own code, or the
+    /// Pip-Boy's group.
+    pub fn answers(want: u16, open: u16) -> bool {
+        want == open || (want == PIPBOY && is_pipboy(open))
+    }
+
+    /// Whether two codes name the same menu (the Pip-Boy by any of its pages).
+    pub fn same_menu(a: u16, b: u16) -> bool {
+        a == b || (is_pipboy(a) && is_pipboy(b))
+    }
 }
 
 /// `merchant.ShowBarterMenu [discount]`: trade with this actor. `discount` is a percentage
@@ -949,6 +1008,13 @@ pub struct Game<'a> {
     /// barber and the plastic surgeon, which change different parts of the look
     /// (docs/spec-notes/character-creator.md §10). Not saved.
     pub race_menu: RaceMenu,
+    /// The menu under the one open, when the tutorial menu opened over it (the Pip-Boy
+    /// under CGTutorial's crippled-limb tutorial): it is the open menu again once the
+    /// tutorial closes [hypothesis]. Not saved.
+    pub menu_under: Option<u16>,
+    /// The messages of the open tutorial menu (ShowTutorialMenu), its pages in the order
+    /// shown [hypothesis: further calls while it is open add pages]. Not saved.
+    pub tutorial: Vec<FormId>,
     /// A loading screen is up: [`Game::tick`] runs no script and game time stops
     /// [observed: GetSecondsPassed did not count a `coc` loading screen,
     /// layer5-captures.md §8.3 e]. Part of the engine API, scripts.md §7.2.
@@ -1186,6 +1252,8 @@ impl<'a> Game<'a> {
             condition_target: None,
             menu: None,
             race_menu: RaceMenu::Creator,
+            menu_under: None,
+            tutorial: Vec::new(),
             loading: false,
             message_box: None,
             boxes: Vec::new(),
@@ -1479,6 +1547,10 @@ impl<'a> Game<'a> {
             }
             _ => return true,
         };
+        // `Begin MenuMode 1` runs for any of the Pip-Boy's menus (`menus::answers`).
+        if block.event == event::MENU_MODE && !matches!(params[0], Arg::Ref(_)) {
+            return menus::answers(want.num() as u16, subject.num() as u16);
+        }
         match (want.as_form(), subject.as_form()) {
             (Some(a), Some(b)) => a == b,
             _ => want.num() == subject.num(),
@@ -1488,10 +1560,17 @@ impl<'a> Game<'a> {
     /// Run every block of `event` in the instance's script that accepts `subject`.
     /// Returns whether a block ran.
     pub fn run_event(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx) -> bool {
+        self.run_blocks(key, script, event, subject, ctx, false)
+    }
+
+    /// [`Game::run_event`]; with `coded_only`, only the blocks with a parameter run (the
+    /// side menus' `Begin MenuMode 1007` and `1056`, [`Game::side_menu`]).
+    fn run_blocks(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx, coded_only: bool) -> bool {
         let data = self.data;
         let Some(unit) = data.script(script) else { return false };
         let mut ran = false;
-        for b in unit.program.blocks.iter().filter(|b| b.event == event) {
+        let coded = |b: &&Block| !coded_only || b.params.as_ref().is_some_and(|p| !p.is_empty());
+        for b in unit.program.blocks.iter().filter(|b| b.event == event).filter(coded) {
             if !self.block_accepts(unit, key, b, subject) {
                 continue;
             }
@@ -1576,6 +1655,7 @@ impl<'a> Game<'a> {
             self.finish_perk_acts();
         }
         if self.loading {
+            self.side_blocks(menus::LOADING);
             return;
         }
         let dt = self.cfg.frame_seconds;
@@ -1654,6 +1734,11 @@ impl<'a> Game<'a> {
                 self.run_event(key, script, ev, subject, RunCtx { self_ref: None, action_ref: Some(holder), quest: None });
             }
         }
+        // NVForever's VATS is no menu: its `Begin MenuMode 1056` blocks run beside
+        // GameMode while it marks (`menus::VATS`).
+        if !in_menu && !held(self) && self.side_menu() == Some(menus::VATS) {
+            self.side_blocks(menus::VATS);
+        }
         // Abilities and worn enchantments follow the loaded actors and what they wear,
         // menus included (an item equipped in the Pip-Boy).
         self.sync_loaded_actor_effects();
@@ -1671,6 +1756,47 @@ impl<'a> Game<'a> {
             self.update_dialogue(dt);
             self.tick_packages();
             self.update_image_modifiers(dt);
+        }
+    }
+
+    /// The `Begin MenuMode <code>` blocks of a side menu ([`Game::side_menu`]) in the
+    /// running quests' scripts and the scripts of the references in loaded cells, in the
+    /// frame order of [`Game::tick`]; blocks without a code and other events do not run,
+    /// no game time passes and the quest delays do not count [hypothesis: under a
+    /// loading screen the original runs the blocks that ask for it; GetSecondsPassed does
+    /// not count it, layer5-captures.md §8.3 e].
+    fn side_blocks(&mut self, code: u16) {
+        if self.toggles.scripts_off {
+            return;
+        }
+        let subject = Some(Value::Num(code as f64));
+        let data = self.data;
+        let wants = |script: FormId| {
+            data.script(script).is_some_and(|u| {
+                u.program.blocks.iter().any(|b| {
+                    let c = match b.params.as_deref() {
+                        Some([Arg::Int(c), ..]) => *c as f64,
+                        Some([Arg::Enum(c), ..]) => *c as f64,
+                        Some([Arg::Float(c), ..]) => *c,
+                        _ => return false,
+                    };
+                    b.event == event::MENU_MODE && c == code as f64
+                })
+            })
+        };
+        let quests: Vec<(FormId, FormId)> = self
+            .quests
+            .iter()
+            .filter(|(_, s)| s.running)
+            .filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?)))
+            .filter(|(_, s)| wants(*s))
+            .collect();
+        for (q, script) in quests {
+            self.run_blocks(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() }, true);
+        }
+        for r in self.active_refs() {
+            let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
+            self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, true);
         }
     }
 
@@ -1727,9 +1853,26 @@ impl<'a> Game<'a> {
 
     /// Whether the menu with this code is open (`MenuMode <code>`): the menu on top, or
     /// the dialogue menu under it during a conversation [hypothesis: a message box over
-    /// a conversation leaves `MenuMode 1009` at 1].
+    /// a conversation leaves `MenuMode 1009` at 1], or the menu under the tutorial menu
+    /// [hypothesis, as the dialogue's]. `MenuMode 1` is the Pip-Boy by any of its codes
+    /// ([`menus::answers`]); a loading screen is 1007 and NVForever's VATS marking 1056
+    /// ([`Game::side_menu`]).
     pub fn menu_open(&self, code: u16) -> bool {
-        self.menu == Some(code) || (code == menus::DIALOGUE && self.dialogue.is_some())
+        let open = |m: Option<u16>| m.is_some_and(|m| menus::answers(code, m));
+        open(self.menu) || open(self.menu_under) || open(self.side_menu()) || (code == menus::DIALOGUE && self.dialogue.is_some())
+    }
+
+    /// A menu code that holds beside the open menu: the loading menu (1007) under a
+    /// loading screen, VATS (1056) while NVForever's VATS marks targets (`crate::vats`).
+    /// Only the `Begin MenuMode` blocks with that code run for it (`Game::tick`).
+    pub fn side_menu(&self) -> Option<u16> {
+        if self.loading {
+            Some(menus::LOADING)
+        } else if self.vats.mode == crate::vats::MODE_TARGET_SELECT {
+            Some(menus::VATS)
+        } else {
+            None
+        }
     }
 
     /// A function asks the running script to stop as `Return` does (RemoveMe).
@@ -1765,12 +1908,68 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// `ShowTutorialMenu message`: the tutorial menu shows the message, a page of the
+    /// "VDSG Manual" [documented: GECK wiki ShowTutorialMenu, owner export: "Shows the
+    /// specified Message Box form, similar to ShowMessage, but with slightly different
+    /// visuals"]. It opens over the menu that is open (CGTutorial shows it from its
+    /// `Begin MenuMode 1` block, over the Pip-Boy), which is open again once it closes
+    /// [hypothesis]; called while it is open, the message is one more page [hypothesis].
+    /// While it is open MenuMode 1059 runs and game time stops, as for the other menus.
+    pub fn show_tutorial(&mut self, message: FormId) {
+        if !self.tutorial.contains(&message) {
+            self.tutorial.push(message);
+        }
+        if self.menu != Some(menus::TUTORIAL) {
+            self.menu_under = self.menu.take();
+            self.open_menu(menus::TUTORIAL);
+        }
+    }
+
+    /// The engine closed one of its menus (the Pip-Boy, a container…): it is no longer
+    /// the open menu, by any of its codes ([`menus::same_menu`]), nor the one waiting
+    /// under the tutorial menu. A message box waiting meanwhile then opens. Returns
+    /// whether it was either.
+    pub fn engine_menu_closed(&mut self, code: u16) -> bool {
+        if self.menu.is_some_and(|m| menus::same_menu(m, code)) {
+            self.close_menu();
+            true
+        } else if self.menu_under.is_some_and(|m| menus::same_menu(m, code)) {
+            self.menu_under = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The Pip-Boy shows another of its menus (a page, the repair list): its code is the
+    /// open menu's from now on, when the Pip-Boy is the open menu. Returns whether it was.
+    pub fn set_pipboy_menu(&mut self, code: u16) -> bool {
+        match self.menu {
+            Some(m) if menus::is_pipboy(m) && menus::is_pipboy(code) => {
+                self.open_menu(code);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The player closes the open menu with OK / Done (the console's CloseAllMenus closes
     /// it the same way [observed: layer5-captures.md §10.1, §10.3]; the name menu keeps
     /// the name it has). A message box waiting for a button gets button 0 (OK). The next
     /// waiting message box then opens [hypothesis]. Returns the menu closed.
     pub fn close_menu(&mut self) -> Option<u16> {
         let m = self.menu.take()?;
+        if m == menus::TUTORIAL {
+            // The menu under it is the open one again (`Game::show_tutorial`).
+            self.tutorial.clear();
+            self.emit(EventKind::MenuClosed { menu: m });
+            if let Some(under) = self.menu_under.take() {
+                self.open_menu(under);
+            } else if !self.boxes.is_empty() {
+                self.open_menu(menus::MESSAGE);
+            }
+            return Some(m);
+        }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
             let b = self.boxes.remove(0);
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
@@ -1782,6 +1981,18 @@ impl<'a> Game<'a> {
             self.open_menu(menus::MESSAGE);
         }
         Some(m)
+    }
+
+    /// The console's CloseAllMenus: the open menu closes as [`Game::close_menu`] has it,
+    /// and with the tutorial menu the menu under it too [observed: one CloseAllMenus left
+    /// MenuMode 0 after ShowTutorialMenu over a menu already open, capture mh1_tutorial,
+    /// docs/spec-notes/tutorial-menu.md §4]. Returns the menus closed.
+    pub fn close_all_menus(&mut self) -> Vec<u16> {
+        let mut closed: Vec<u16> = self.close_menu().into_iter().collect();
+        if closed == [menus::TUTORIAL] && self.menu.is_some() {
+            closed.extend(self.close_menu());
+        }
+        closed
     }
 
     /// The player picks a button of the open message box: GetButtonPressed of the script

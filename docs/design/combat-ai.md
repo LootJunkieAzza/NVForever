@@ -87,7 +87,7 @@ closes in again (`Awarenesses::engage`):
 
 | Fighting with | Stops at | Closes in again beyond |
 |---|---|---|
-| a gun | 80 % of its max range (WEAP DNAM), between 400 and 2,500 units | its max range |
+| a gun | 80 % of its reach (§16: WEAP max range × style mult, within the projectile's range), between 400 and 2,500 units, clear of its own blast, never beyond 90 % of its reach | its reach (at most 3,125) |
 | melee, creature | its body 6 units from the target's | a 24-unit gap |
 | melee without bodies to measure | 80 % of its reach | its reach |
 
@@ -403,7 +403,7 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Combat Style | Power attacks: chance, by movement or by % chance, fatigue modifier | missing | next |
 | Combat Style | Maneuver decision: dodge chances and timers, fatigue and encumbrance modifiers | missing | next (dodging) |
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | missing | next (cover) |
-| Combat Style | Ranged Weapon Min/Max Range Mult | partial | max used (§10.4); min: no backing off yet |
+| Combat Style | Ranged Weapon Min/Max Range Mult | partial | max used (§10.4, §16: also the reach it fires within); min: no backing off (§12.6) |
 | Combat Style | Semi-Auto Firing Delay Min/Max Mult | have | §10.4 |
 | Combat Style | Weapon Restrictions | partial | Melee Only; Ranged Only needs weapon choice |
 | Combat Style | Max Targeting FOV | missing | read; detection's field of view stands in |
@@ -427,6 +427,8 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Weapons | Sight FOV 0 disables iron sights | have | §10.6 |
 | Weapons | Sight Usage × fCombatIronSightsDistance: when an actor uses its sights | partial | the owner's 20 m rule instead (§10.6) |
 | Weapons | Semi-Auto Fire Delay Min/Max for actors | have | §10.4 |
+| Weapons | Max Range: actors beyond it do not fire until within it | have | §16 |
+| Weapons | Min Range: "they don't need to be closer than this value" | have | nothing to build: it never sends them back (§12.6) |
 | Gun Spread Formula (New Vegas) | No unaimed penalty while aiming | have | player and NPCs (§10.6) |
 | Gun Spread Formula (New Vegas) | NPC spread × fNPCMaxGunWobbleAngle + spread | missing | [design]: NPCs keep the player's formula |
 
@@ -628,7 +630,10 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   **waits to fire** for the Wait To Fire Timer, **fires** for the Fire Timer once it sees
   its target, and hides again [documented: the three timers]. Cover whose edge no longer
   faces the target, or out of the weapon's range, is given up. Log: `takes cover … (a peek
-  … from it)`, `leaves its cover`, `gives up its cover`.
+  … from it)`, `leaves its cover`, `gives up its cover`. Since §16 the edge is looked for
+  within the weapon's reach less the 64-unit peek, and a fighter at its cover whose
+  target is beyond its weapon's reach leaves it to close in (`leaves its cover to close in
+  on …`) instead of firing from it.
 - **Flanks** [design: the owner's "work together in order to win"]: the gunmen of one
   combat group fighting one target, not in cover, spread round it: each gets a place at
   the distance it fights from, turned from the side the group comes from by 0, +35°,
@@ -1103,3 +1108,130 @@ animation combos". The player's swings already follow the attack clips' `a:` tex
 - Checks: unit tests in `npc_combat.rs` (the combo window) and `attack_anims.rs` (a
   creature's chained clip first); smoke scenario `combat-melee-combo` (the `combat-block`
   fist fight: blows go on combos, `attackleft` clips play).
+
+## 16. A gun's reach and the distance it fights from (owner request 2026-10-18)
+
+Owner: "npc's are firing their weapons out of range noticed cook cook will try and fire
+his flamer from cover and starts firing as soon as player is in sight, this makes no
+sense as his flamer is limited range and from a far will never hit the player / we may
+also need to get npcs to get into an optimal range for shooting e.g. a shotgun wants to
+be closer than a sniper rifle or a missle launcher wants to be further away to avoid
+blowing self up". Until now a gunman fired at any target it saw, whatever the distance;
+our projectiles end at their PROJ range (`fnv_combat::projectile`), so Cook-Cook's flames
+died 640 units out while he stood 1,700 away. Combat mechanics are not a parity target
+(owner, combat.md); the rules below are the GECK wiki's where it has them.
+
+**Its reach** (`npc_combat::gun_reach`): the WEAP's Max Range times its combat style's
+Ranged Weapon Max Range Mult [documented: GECK wiki Combat Style, "modify the
+minimum/maximum range value on the combatant's weapon when doing range calculations"],
+and never beyond its projectile's Range ("Maximum distance the projectile will fire"
+[documented: GECK wiki Projectile]) — the projectile its default ammo fires, as the shot
+chain resolves it. A range of 0 sets no limit. Cook-Cook (FiendCookCookRef 0x000F5704,
+base 1ECookCook) carries WeapFlamer: Max Range 650, FlameProjectile Range 640, the
+default style's multiplier 1.0: reach 640 [observed: FalloutNV.esm].
+
+**No shot beyond it.** "Max Range: Tells combat AI they don't want to be any further away
+than this value. Actors outside this range will not fire their weapon until they are
+within distance of this value to the target" [documented: GECK wiki Weapons]. The
+distance is the shot's: from its eyes to the target's chest. Log: `npc combat: … holds
+fire: … is beyond its weapon's reach (… units, reach …)`, and `… has … in reach` when it
+may fire again.
+
+**No shot into its own blast** [design]: a gun whose projectile explodes (PROJ Explosion
+flag and EXPL) does not fire at a target nearer than the explosion's radius. Log: `holds
+fire: … is within its weapon's blast (… units, radius …)`. It does not change weapons
+(weapon choice is not built); it steps back (below).
+
+**Where it stops** (`GunReach::engage`, told to `fnv_ai::alert` as before, §5): 80 % of
+its reach, between 400 and 2,500 units, at least the explosion's radius plus
+`BLAST_MARGIN` (64) for an explosive projectile, and never farther than
+`GUN_REACH_EDGE` (90 %) of its reach; it closes in again once the target is beyond the
+stop ÷ the share, never beyond 90 % of its reach, so it sets off while it can still fire
+and walks in aiming (before, it stood until the target was out of reach, and a gun under
+500 units stopped at 400 and could stand beyond its reach) [design]. Two kinds stop otherwise, after the original was
+watched (below):
+
+- a **flame** (PROJ type Flame) stops at half its reach (`FLAME_RANGE_SHARE`), without the
+  400 floor [hypothesis: fitted to one run];
+- an **area weapon**, whose explosion's radius is at least a quarter of its reach
+  (`AREA_BLAST_SHARE`: the launchers, grenades, grenade rifles and grenade machine guns,
+  not the Gauss rifle's 40 or the incinerator's 212), stops just clear of its blast
+  (radius + 64) instead of at 80 % of its reach [design].
+
+With the masters' weapons [observed: FalloutNV.esm WEAP Max Range, PROJ Range, EXPL
+Radius]:
+
+| Weapon | Max Range | Reach | Stops at | Closes in beyond |
+|---|---|---|---|---|
+| Sawed-off shotgun | 500 | 500 | 400 | 450 |
+| Hunting shotgun, caravan shotgun | 600 | 600 | 480 | 540 |
+| Flamer (flame 640) | 650 | 640 | 320 | 576 |
+| 10mm pistol | 768 | 768 | 614 | 691 |
+| Laser rifle | 1750 | 1750 | 1400 | 1575 |
+| Sniper rifle, service rifle | 3548 | 3548 | 2500 | 3125 |
+| Grenade rifle (blast 750) | 1536 | 1536 | 814 | 1017 |
+| Missile launcher (blast 1000) | 1536 | 1536 | 1064 | 1330 |
+| Fat Man (blast 1700) | 2000 | 2000 | 1764 | 1800 |
+
+So shotguns and flamers close in, rifles hang back, launchers keep clear of their blast;
+melee is unchanged (§5, §14.4).
+
+**The original, watched** (AI observer campaign `gun_reach`, save nvftest, 2026-10-18,
+one run each; GetAnimAction 2/3 = attack; distances flat to the player) [observed]:
+
+| Trooper with | Spawned at | First attack at | Then kept |
+|---|---|---|---|
+| Flamer (max range 650) | 1,283 | 726 | 164–320 |
+| Hunting shotgun (600) | 321 | 328 | drifted out to about 500 |
+| Sniper rifle (3548) | 458 | 534 | backed off to 2,150 |
+| Missile launcher (1536, blast 1000) | 323 | about 450 | about 550 |
+
+- The flamer trooper did not fire from 1,283 units: it holds fire beyond its range, as the
+  wiki says, and our rule does the same. Its first attack began at 726, about 13 % beyond
+  the max range [hypothesis: an attack begun on the way in, or a margin; our flame ends
+  at 640, so the reach stays 640]. It then fought from 164–320: the flame's stop.
+- The sniper backing off to 2,150 supports a long distance for long guns (ours 2,500).
+- The shotgun is consistent with 480 (it spawned too near to show holding fire).
+- The missile trooper fought from inside its own blast. The owner asked for launchers to
+  keep clear of it, so the blast rules stay, but an area weapon now stops just clear of
+  its blast (1,064) and not at 80 % of its reach (1,229): nearer the original without
+  firing into its own explosion [design].
+- In that run PlaceAtMe's distance put the shotgun, sniper and missile troopers 300–460
+  units away; the campaign now moves each spawn by an `offset` (and arrives first), for
+  a second run.
+
+**Cover** (§12.6): a cover edge is looked for within its reach less the 64-unit peek
+step (the peek point lies past the edge), and a fighter at its cover (hiding, waiting to
+fire or firing) whose target is beyond its reach leaves it to close in, and does not take
+that cover again (`leaves its cover to close in on …: beyond its weapon's reach (… units)`)
+[design: owner, "fire his flamer from cover"].
+
+**Closing in straight** [design]: while its target is beyond its reach, a gunman takes
+no flank place and no step aside for a friend in its line of fire (it has no shot to
+line up); it runs at the target (`fnv_ai::alert`, `runs at …`). Log of each fighter's
+first shot in a fight: `npc combat: … opens fire on … from … units (reach …)`.
+
+**A step back** (§12.6): an explosive gun steps back from a target nearer than its
+blast's clearance (radius + 64) instead of 256 [design]. The weapon's Min Range is still
+not a back-off distance: "they don't need to be closer than this value" [documented:
+GECK wiki Weapons].
+
+**Summary** at exit: `npc gun reach summary: held fire … times at a target beyond reach,
+… times within a blast; left cover … times to close in; the farthest shot … % of its
+gun's reach, … shots beyond it`.
+
+**Checks**: unit tests in `npc_combat.rs` (`a_gun_reaches_its_max_range_and_its_projectile_range`,
+`shotguns_close_in_rifles_hang_back`, `launchers_keep_clear_of_their_blast`); smoke
+`combat-flamer-reach` (Cook-Cook holds fire from 1,700 units, closes in, fires within 640)
+`combat-shotgun-reach` / `combat-sniper-reach` (a shotgun closes in, a sniper rifle
+fires from afar) and `combat-sights-beyond-reach` (Violet from 3,000 units: holds fire,
+runs in with sights lowered, first shot within reach; `combat-sights` now starts within
+her reach). The AI observer campaign `gun_reach`
+(tools/capture/observe/gun_reach.campaign.json: an NCR trooper with a flamer, a shotgun, a
+sniper rifle and a missile launcher in turn) gave the readings above; a second run with
+the offsets would show the shotgun, sniper and missile troopers from afar.
+
+**Not built**: the reach of the other ammo (an NPC fires its weapon's default ammo);
+holding fire on a cliff where the shot is beyond reach but the flat distance is not (it
+stands within its stop, silent; the AI moves by the flat distance); switching to another
+weapon when the target is within the blast.

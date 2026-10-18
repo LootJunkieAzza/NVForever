@@ -40,7 +40,8 @@
 use fnv_sim::FormId;
 
 /// MenuMode of the Pip-Boy's repair menu [documented: GECK wiki GetMenuTargetRef, "1035
-/// The item being repaired"]. Not reported yet: the Pip-Boy keeps its own code.
+/// The item being repaired"]. The Pip-Boy reports it while its repair list is open
+/// (`nvf_play::pipboy`).
 pub const REPAIR_MENU: u16 = 1035;
 
 /// MenuMode of the repair services menu [documented: GECK wiki GetMenuTargetRef].
