@@ -193,7 +193,10 @@ pub struct Timers {
     pub alarm: f64,
     /// A target hidden this long leaves the target list.
     pub forget_target: f64,
-    /// In Combat, no target detected for this long: Lost.
+    /// In Combat, no target detected for this long: Lost [design: owner 2026-10-19,
+    /// fighters said CombatToLost almost as soon as they broke line of sight with 3 s;
+    /// shorter than `forget_target`, or a target hidden the whole time is forgotten before
+    /// it is lost and the fighter goes to Normal instead of searching].
     pub lost: f64,
     /// AlertIdle and LostIdle are said every this many seconds, a random time between the
     /// two [documented: Detection Tab, fCombatDetectionDialogueIdleMin/MaxElapsedTime;
@@ -210,7 +213,7 @@ pub struct Timers {
 
 impl Default for Timers {
     fn default() -> Timers {
-        Timers { alarm: 20.0, forget_target: 10.0, lost: 3.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
+        Timers { alarm: 20.0, forget_target: 15.0, lost: 10.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
     }
 }
 
@@ -270,8 +273,13 @@ pub struct Awareness {
     pub targets: BTreeMap<FormId, Target>,
     /// When the next AlertIdle or LostIdle is due.
     pub next_idle_bark: Option<f64>,
-    /// The target it fought at the last settling ([`Awareness::combat_target`] keeps it).
+    /// The target it fought last ([`Awareness::combat_target`] keeps it), remembered while
+    /// it is out of sight, and since when it has fought it.
     pub fighting: Option<FormId>,
+    pub fighting_since: f64,
+    /// Within [`TARGET_COMMIT`] of turning to `fighting`: it keeps it while it detects it,
+    /// whatever the others' values ([`Awareness::settle`] sets it).
+    pub committed: bool,
 }
 
 /// A fighter keeps its target while it detects it, unless another detected one is more
@@ -279,6 +287,12 @@ pub struct Awareness {
 /// fighting Fiends turned between targets, the highest of values that change at every
 /// measurement, every half second].
 pub const TARGET_KEEP_MARGIN: f64 = 50.0;
+
+/// For this many seconds after turning to a target a fighter keeps it while it detects
+/// it, whatever the others' values; it turns earlier only when the target dies, goes or
+/// is out of sight [design: owner 2026-10-19, fighters with several enemies "flicker
+/// between targets"; a target switch cooldown of about 5 seconds].
+pub const TARGET_COMMIT: f64 = 5.0;
 
 /// A change of state, for the engine's log and the tools.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -349,10 +363,11 @@ impl Awareness {
     }
 
     /// Who it fights: the target detected now with the highest value, or the one it
-    /// fought last while that is still detected and within [`TARGET_KEEP_MARGIN`] of it.
+    /// fought last while that is still detected and either within [`TARGET_COMMIT`] of
+    /// turning to it or within [`TARGET_KEEP_MARGIN`] of the highest.
     pub fn combat_target(&self) -> Option<(FormId, &Target)> {
         let best = self.targets.iter().filter(|(_, t)| t.band == Band::Detected).max_by(|a, b| a.1.value.total_cmp(&b.1.value)).map(|(id, t)| (*id, t))?;
-        let kept = self.fighting.and_then(|f| self.targets.get(&f).map(|t| (f, t))).filter(|(_, t)| t.band == Band::Detected && t.value + TARGET_KEEP_MARGIN >= best.1.value);
+        let kept = self.fighting.and_then(|f| self.targets.get(&f).map(|t| (f, t))).filter(|(_, t)| t.band == Band::Detected && (self.committed || t.value + TARGET_KEEP_MARGIN >= best.1.value));
         Some(kept.unwrap_or(best))
     }
 
@@ -368,7 +383,15 @@ impl Awareness {
         self.alarms.retain(|a| a.expires > now);
         self.targets.retain(|_, x| !x.hidden_since.is_some_and(|h| now - h >= t.forget_target));
         let detected = self.combat_target().map(|(id, x)| (id, x.value, x.at));
-        self.fighting = detected.map(|d| d.0);
+        // A new target starts the commitment; one out of sight is remembered, so the
+        // fighter goes back to it when it shows again.
+        if let Some((id, ..)) = detected {
+            if self.fighting != Some(id) {
+                self.fighting = Some(id);
+                self.fighting_since = now;
+            }
+        }
+        self.committed = self.fighting.is_some() && now - self.fighting_since < TARGET_COMMIT;
         let latest = self.search_alarm().copied();
         let from = self.state;
         let (to, about, cause, at, value) = match (from, detected, latest) {
@@ -405,6 +428,8 @@ impl Awareness {
         if to == State::Normal {
             self.targets.clear();
             self.alarms.clear();
+            self.fighting = None;
+            self.committed = false;
         }
         Some(Change { actor, from, to, time: now, about, cause, at, value })
     }
@@ -1045,6 +1070,34 @@ mod tests {
     }
 
     #[test]
+    fn a_fighter_commits_to_a_new_target() {
+        let t = Timers::default();
+        let mut a = Awareness::default();
+        a.observe(FormId(1), &det(60.0), [0.0; 3], 0.0, &t);
+        a.observe(FormId(2), &det(40.0), [0.0; 3], 0.0, &t);
+        step(&mut a, 0.0);
+        assert_eq!(a.fighting, Some(FormId(1)));
+        // Far above its target within the commitment: it keeps its target.
+        a.observe(FormId(2), &det(60.0 + TARGET_KEEP_MARGIN + 10.0), [0.0; 3], 1.0, &t);
+        step(&mut a, 1.0);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(1)));
+        // The commitment over: the margin decides.
+        step(&mut a, TARGET_COMMIT);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(2)));
+        // Its new target out of sight: it turns back at once, committed again.
+        let s = TARGET_COMMIT + 1.0;
+        step(&mut a, s);
+        a.observe(FormId(2), &det(-5.0), [0.0; 3], s, &t);
+        step(&mut a, s);
+        assert_eq!((a.fighting, a.committed), (Some(FormId(1)), true));
+        // Its target dead (forgotten): it turns to the other at once.
+        a.observe(FormId(2), &det(10.0), [0.0; 3], s + 1.0, &t);
+        a.forget(FormId(1));
+        step(&mut a, s + 1.0);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(2)));
+    }
+
+    #[test]
     fn detected_goes_to_combat_from_normal_and_from_alert() {
         let t = Timers::default();
         let mut a = Awareness::default();
@@ -1066,19 +1119,22 @@ mod tests {
         step(&mut a, 0.0);
         // Undetected (noticed) for less than the lost timer: still Combat.
         a.observe(FOE, &det(-5.0), [20.0, 0.0, 0.0], 1.0, &t);
-        assert_eq!(step(&mut a, 2.0), None);
+        assert_eq!(step(&mut a, t.lost - 0.5), None);
         // Long enough: Lost, searching where it was last seen.
-        assert_eq!(step(&mut a, 3.0), Some((State::Combat, State::Lost)));
+        assert_eq!(step(&mut a, t.lost), Some((State::Combat, State::Lost)));
         assert!(a.alarms.iter().any(|x| x.cause == Cause::LostTarget && x.owner == FOE));
         // Seen again: Combat.
-        a.observe(FOE, &det(1.0), [30.0, 0.0, 0.0], 4.0, &t);
-        assert_eq!(step(&mut a, 4.0), Some((State::Lost, State::Combat)));
-        // Hidden: Lost after the lost timer, then the target is forgotten and the
-        // alarms run out: Normal.
-        a.observe(FOE, &det(-50.0), [30.0, 0.0, 0.0], 5.0, &t);
-        assert_eq!(step(&mut a, 7.0), Some((State::Combat, State::Lost)));
-        assert_eq!(step(&mut a, 15.0), None, "the target is still on the list");
-        assert_eq!(step(&mut a, 27.0), Some((State::Lost, State::Normal)));
+        let s = t.lost + 1.0;
+        a.observe(FOE, &det(1.0), [30.0, 0.0, 0.0], s, &t);
+        assert_eq!(step(&mut a, s), Some((State::Lost, State::Combat)));
+        // Hidden: Lost after the lost timer (the target still on the list), then the
+        // target is forgotten and the alarms run out: Normal.
+        a.observe(FOE, &det(-50.0), [30.0, 0.0, 0.0], s + 1.0, &t);
+        assert_eq!(step(&mut a, s + t.lost - 0.5), None);
+        assert_eq!(step(&mut a, s + t.lost), Some((State::Combat, State::Lost)));
+        assert!(a.targets.contains_key(&FOE), "lost before it is forgotten");
+        assert_eq!(step(&mut a, s + t.lost + t.alarm - 0.5), None, "the alarm still runs");
+        assert_eq!(step(&mut a, s + t.lost + t.alarm), Some((State::Lost, State::Normal)));
     }
 
     #[test]
