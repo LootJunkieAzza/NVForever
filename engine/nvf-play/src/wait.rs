@@ -278,7 +278,7 @@ fn script_requests(mut script: Option<ResMut<ScriptState>>, mut menu: ResMut<Wai
             (RestRequest::Sleep { hours }, Some(m)) => {
                 m.sleep_for(hours);
                 match m.passing {
-                    Some(p) => rt.game.rest.begin(true, p.asked),
+                    Some(p) => rt.game.begin_rest(true, p.asked),
                     None => rt.game.rest.end(),
                 }
             }
@@ -549,7 +549,7 @@ fn open(
             m.sleep_for(hours);
             if let Some(p) = m.passing {
                 info!("wait menu: sleeping {} hour(s) (a script's SetPCSleepHours)", p.asked);
-                rt.game.rest.begin(m.sleep, p.asked);
+                rt.game.begin_rest(m.sleep, p.asked);
             }
         }
     }
@@ -639,7 +639,7 @@ fn apply(mut input: MessageReader<WaitInput>, mut menu: ResMut<WaitMenu>, mut ne
                 info!("wait menu: {} {} hour(s)", if m.sleep { "sleeping" } else { "waiting" }, p.asked);
                 // To scripts the player sleeps (or waits) from now until the menu closes.
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
-                    rt.game.rest.begin(m.sleep, p.asked);
+                    rt.game.begin_rest(m.sleep, p.asked);
                 }
             }
             (Command::Cancel, _, true) => match &before.passing {

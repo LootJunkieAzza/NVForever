@@ -606,6 +606,7 @@ fn step(time: AidTime, mut screen: ResMut<RouletteScreen>, mut next: ResMut<Next
             }
             if let Some(rt) = script.and_then(|x| x.into_inner().rt.as_mut()) {
                 s.earnings = casino::add_earnings(&mut rt.game, s.casino, net, s.max_winnings);
+                rt.game.count_stat(fnv_game::misc_stats::ROULETTE_GAMES_PLAYED, 1.0);
                 if casino::winnings_level(s.earnings, s.max_winnings) >= 4 {
                     s.banned = true;
                     stats.bans += 1;

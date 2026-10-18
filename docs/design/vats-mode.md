@@ -94,8 +94,14 @@ needs no second press; until the weapon is out the mode waits, and a second V ca
 - Mechanism: the engine's own slow motion multiplies SetGlobalTimeMultiplier
   (`script.rs` `time_multiplier`): `ClockScale` (the death camera's) × the VATS mode's
   scale. Everything on the virtual clock slows together: animations, physics, NPC AI,
-  projectiles in flight, scripts' frame time and the game clock. Sounds keep their
-  pitch (as for the death camera). The test aids' clock is the virtual one, so aids
+  projectiles in flight, scripts' frame time and the game clock. Sounds slow too,
+  longer and lower (owner 2026-10-18: "more drawn out and lower pitch like the base
+  game"), as for the death camera, but less than the clock: `audio_out::slowed_sound`,
+  the square root of the engine's scale, no lower than 0.4 [design], so 0.71 while
+  firing and 0.4 while marking. Sounds already playing follow at once. Effects,
+  footsteps and voices slow; music, radio and interface sounds (`UI…`, the UIVATS ones
+  among them) keep their speed [hypothesis]. A script's SetGlobalTimeMultiplier still
+  slows only the clock. The test aids' clock is the virtual one, so aids
   timed during marking stretch 20 times in real time (§13).
 
 ## 5. The look

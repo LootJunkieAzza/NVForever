@@ -19,8 +19,10 @@
 //! - **Slow motion**: the game clock (`nvf_play::script::ClockScale`, on top of
 //!   SetGlobalTimeMultiplier) eases down to [`SLOW`] over [`SLOW_IN`], stays there until
 //!   [`SLOW_END`] and comes back to full speed over [`SLOW_OUT`] (seconds of real time,
-//!   menus excluded): the fall plays out at a quarter speed. Sounds keep their speed (the
-//!   virtual clock's rule).
+//!   menus excluded): the fall plays out at a quarter speed. Sounds slow with it, longer
+//!   and lower (owner 2026-10-18, "like the base game"): at half speed, an octave down,
+//!   while the clock is at [`SLOW`] (`nvf_play::audio_out::slowed_sound`); music and
+//!   radio keep theirs.
 //! - **Blur**: the picture blurs to radius [`BLUR`] (the image space modifiers' units,
 //!   `imagespace.rs`) over [`BLUR_IN`] and stays blurred while the player is dead.
 //!   `--death-imod <Editor ID or 0xFormID>` also plays that image space modifier when the

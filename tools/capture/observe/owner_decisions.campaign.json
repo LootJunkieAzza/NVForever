@@ -1,7 +1,7 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "owner_decisions",
- "title": "Owner-review AI questions that need game time (docs/spec-notes/owner-decision-captures.md): the detection Alert against IsInCombat (shots heard by hidden Fiends), whether spawned NCR troopers and Fiends fight unprovoked, and package durations (Hidden Valley's initiates and knights, whose packages 0x000D76E4-0x000D781C have durations and begin scripts; the two geckos at cell -17,-6 with their 2 h / 3 h chain). One game load serves all sessions in this order: god mode (tgm, a toggle) is in the first session only; the player is hidden for the first three and visible again from hv_initiates. All forms by FormID, so no --data is needed to write the jobs.",
+ "title": "Owner-review AI questions that need game time (docs/spec-notes/owner-decision-captures.md): the detection Alert against IsInCombat (shots heard by hidden Fiends), whether spawned NCR troopers and Fiends fight unprovoked, and package durations (Hidden Valley's initiates and knights, whose packages 0x000D76E4-0x000D781C have durations and begin scripts; the two geckos at cell -17,-6 with their 2 h / 3 h chain). One game load serves all sessions in this order: god mode (tgm, a toggle) is in the first session only; the player is hidden for the first three and visible again from hv_initiates. All forms by FormID, so no --data is needed to write the jobs. Save caveat [observed 2026-10-18]: in nvfstrip Cook-Cook's camp is already dead, so alert_noise is not valid from it; the Hidden Valley and gecko sessions crashed from nvfstrip. Run this campaign from nvftest, its save.",
  "save": "nvftest",
  "defaults": {
   "every": 60,
@@ -10,7 +10,7 @@
  "sessions": [
   {
    "name": "alert_noise",
-   "note": "Item 15. South of Cook-Cook's Fiend camp (the npc_battles spot), the player crouched, Sneak 100 and under a Stealth Boy, draws and fires three times: Fiends that hear it but do not see the player should go to the detection Alert (searching, weapon out, GetDetected 0). The sample fields in_combat, detects_player, procedure, weapon_out and alerted show what IsInCombat reads then.",
+   "note": "Item 15. South of Cook-Cook's Fiend camp (the npc_battles spot), the player crouched, Sneak 100 and under a Stealth Boy, draws and fires three times: Fiends that hear it but do not see the player should go to the detection Alert (searching, weapon out, GetDetected 0). The sample fields in_combat, detects_player, procedure, weapon_out and alerted show what IsInCombat reads then. Needs the living Fiends of nvftest: in nvfstrip they are dead from the start [observed 2026-10-18].",
    "go": {
     "cow": [
      "WastelandNV",
@@ -94,7 +94,7 @@
   },
   {
    "name": "hv_knights",
-   "note": "Item 7. Hidden Valley bunker L2: the knights (HVKnightWeaponRepair, HVKnightWeaponRepair2, HVKnightFloorRepair, HVKnightRepair, HVKnightSleep), from the next 06:00 for 12 game hours.",
+   "note": "Item 7. Hidden Valley bunker L2: the knights (HVKnightWeaponRepair, HVKnightWeaponRepair2, HVKnightFloorRepair, HVKnightRepair, HVKnightSleep), from the next 06:00 for 12 game hours. Needs the console line `SetAlly 0001D3FE 0001B2A4` (BrotherhoodSteelFaction and PlayerFaction made allies): the ESM lists PlayerFaction as an enemy of the Brotherhood, AddToFaction VBrotherhoodOfSteelFaction did not help, and tdetect is not used because it also stops NPCs detecting each other (owner's ruling) [observed 2026-10-18, run from nvftest].",
    "go": {
     "coc": "HiddenValley02"
    },
@@ -111,9 +111,13 @@
   },
   {
    "name": "geckos_package_chain",
-   "note": "Item 7. The owner's two geckos at cell -17,-6 (0x0016518B, 0x0016518C): from 17:00 for 14 game hours (find food 2 h, patrol 3 h, find food 2 h, patrol 3 h, then a sandbox that allows aggro, by our reading of their list).",
+   "note": "Item 7. The owner's two geckos at cell -17,-6 (0x0016518B, 0x0016518C): from 17:00 for 14 game hours (find food 2 h, patrol 3 h, find food 2 h, patrol 3 h, then a sandbox that allows aggro, by our reading of their list). The 2026-10-18 run put the player on a gecko's spot (go: moveto) and they fought from 21:43; the rerun stands two cells away (cow WastelandNV -15 -6).",
    "go": {
-    "moveto": "0x0016518B"
+    "cow": [
+     "WastelandNV",
+     -15,
+     -6
+    ]
    },
    "hour": 17,
    "hours": 14,

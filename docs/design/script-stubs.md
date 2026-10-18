@@ -246,6 +246,14 @@ GetIsUsedItemType (0x10F7, 6), GetIsUsedItemEquipType (0x11E0, 1) and GetUsedIte
 (0x1103, 3). What an actor uses is the furniture it is on, else what its Find or Use Item
 At package last had it take or use [hypothesis]. 52 → 48 stubs, 403 → 377 condition uses.
 
+### 3.13 Miscellaneous statistics and SetScale (claude/blockers-miscstat-scale, 2026-10-18)
+
+Not stubs, but half-built (outstanding.md §1 row 16): GetPCMiscStat now answers every New
+Vegas statistic by code, 26 of them counted by the rules and the engine, and SetScale's
+scale is drawn and collided ([misc-stats](../spec-notes/misc-stats.md)). Tests:
+`functions.rs` `misc_stats_count_and_set_scale_is_kept_on_the_reference`; smoke
+`misc-stats-scale`.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is

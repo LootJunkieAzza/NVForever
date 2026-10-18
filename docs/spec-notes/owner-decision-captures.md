@@ -38,7 +38,13 @@ where §4 says so.
 Every job starts by putting the player where it needs them, so the jobs run in any order
 within one game session. The jobs were written for the save `nvftest` (and `od_09a` for
 `nvfdoc`). The owner now wants captures run from `nvfstrip`, so the second round's jobs
-close any open menu first and close message boxes before each conversation (§5):
+close any open menu first and close message boxes before each conversation (§5).
+
+**`nvfstrip` caveat [observed 2026-10-18].** In that save, Cook-Cook's camp is already
+cleared: Cook-Cook (0x0013E5BB), Queenie, the brahmin, the dogs and the camp Fiends
+0x000F9CE6–9 read dead 1 from the first sample. The campaign sessions that need living
+Fiends there (`alert_noise`) are not valid from it; run them from `nvftest`. The Hidden
+Valley and gecko sessions crashed from `nvfstrip` (§4); they were written for `nvftest`.
 
 ```
 python tools/capture/capture_run.py --game <FNV> --save nvftest tools/capture/jobs/od_0[2-8]*.steps.json tools/capture/jobs/od_09b*.steps.json tools/capture/jobs/od_1*.steps.json tools/capture/jobs/od_2*.steps.json
@@ -67,8 +73,8 @@ python tools/capture/observe.py run tools/capture/observe/owner_decisions.campai
 | 5 | `od_05_set_actors_ai` | l. 4093, "Script stubs, second round": SetActorsAI 0 | GoodspringsSettler01Ref (sandboxing) at 10:00: 10 samples, then `SetActorsAI 0` and 20 samples, then the player walks right up for 10 more, then `SetActorsAI 1`. Each sample holds package, type, procedure, GetDetected player, GetAnimAction, IsMoving, combat and pose. | Position frozen and procedure or package unchanged with AI off, against what keeps changing (GetDetected, GetAnimAction, heading). This settles our "stops package choice, walking and detection, not animation". The wiki says it stops "packages, detection, Havok or animation" [documented: GECK wiki SetActorsAI]. |
 | 6 | `od_06_reset_ai` | l. 3547, "Script stubs audited" item 2 (ResetAI and the AI codes) | RingoRef in three parts, each followed by ResetAI with readings 1 to 300 loops later. (a) DefaultStayAtEditorLocation as a script package run until procedure 17 (DONE). (b) The same package cut mid-way. (c) Asleep after 23:00 (GetSleeping 3). | (a) Procedure 17 reached at the package's end confirms "goal met reads 17". (a)/(b) The script package gone after ResetAI confirms it [documented: GECK wiki ResetAI notes]. (c) GetCurrentAIPackage while asleep (4 = SLEEP is our reading of "code 4"), and whether ResetAI wakes him (GetSleeping after). |
 | 7 | campaign sessions `hv_initiates`, `hv_knights`, `geckos_package_chain` | l. 4085, SetPackDuration (the "Hidden Valley bunker Paladins" check); l. 4571, "Package durations" | 12 game hours each in bunker levels L1 and L2 from 06:00, tracking the initiates (Matrix, Running, Exercise, Sandbox) and the knights (WeaponRepair, WeaponRepair2, FloorRepair, Repair, Sleep). Then 14 game hours from 17:00 at the owner's two geckos (0x0016518B/C). | The package-change times in the timeline, against each package's schedule (`fnvtool ai show`). Activity changes every 30–90 game minutes, not all day, support the SetPackDuration reading. The geckos' find-food (2 h) / patrol (3 h) chain ending in the sandbox settles "a duration without a starting hour ends the package". **Finding:** the packages 0x000D76E4–0x000D781C belong to the initiates and knights, not the paladins [observed: `fnvtool ai show --actor`]. |
-| 8 | `od_08_script_packages` | l. 331, item 25: "script packages stack… EvaluatePackage keeps a script package" | Ringo: AddScriptPackage DefaultStayAtEditorLocation, then DefaultSandboxEditorLocation256. GetCurrentPackage read at 10/60/300 loops, then after one RemoveScriptPackage and after a second one. Then EvaluatePackage with a script package on. | After one RemoveScriptPackage: the first package back means they stack (our runtime), the list package back means the second replaced the first [documented: GECK wiki AddScriptPackage, "the second package replaces the first one"]. The package read after EvaluatePackage settles the second rule. |
-| 9a | `od_09a_disabled_ref_script` (save `nvfdoc`) | l. 331, item 25: "disabled references run their scripts in the wiki but not in the runtime"; script-language.md §8 item 1 | The skull activator's script timer (`timer`, `runtimer` set with SetVariable) read while enabled, for 300 loops while disabled, and enabled again. | `timer` falling while disabled means GameMode runs for disabled references [documented: GECK wiki Object scripts]. A steady `timer` supports our runtime. |
+| 8 | `od_08_script_packages` | l. 331, item 25: "script packages stack… EvaluatePackage keeps a script package" | Ringo: AddScriptPackage DefaultStayAtEditorLocation, then DefaultSandboxEditorLocation256. GetCurrentPackage read at 10/60/300 loops, then after one RemoveScriptPackage and after a second one. Then EvaluatePackage with a script package on. | After one RemoveScriptPackage: the first package back means they stack, the list package back means the second replaced the first [documented: GECK wiki AddScriptPackage, "the second package replaces the first one"]. The package read after EvaluatePackage settles the second rule. |
+| 9a | `od_09a_disabled_ref_script` (save `nvfdoc`) | l. 331, item 25: "disabled references run their scripts in the wiki but not in the runtime"; script-language.md §8 item 1 | The skull activator's script timer (`timer`, `runtimer` set with SetVariable) read while enabled, for 300 loops while disabled, and enabled again. | `timer` falling while disabled means GameMode runs for disabled references [documented: GECK wiki Object scripts]. A steady `timer` means it does not. |
 | 9b | `od_09b_carried_item_script` | the same line: "scripted items in other actors' … inventories don't run"; script-language.md §8 item 2 | NVLegionExplorerAuraToken given to the player (the control) and to Ringo. Its script casts LegionExplorerAura on its holder after 2 s in combat. Ringo is then put in combat with the player (god mode), and IsSpellTarget of the aura is read at 150/300/600 loops. | Ringo IsSpellTarget 1 means items run in NPC inventories. The player's reading checks the job. Containers are not covered: no item script found shows an effect with a container as holder. |
 | 10 | `od_10_stray_markers` | l. 197, item 16 "Stray Else/ElseIf/EndIf markers: one capture of SCPT 0x00123191" | TecMineHostage's variables `freed`, `doonce`, `button` and GetDead before and after `Activate player 1` on the living hostage (freed 0 and 1) and on the dead one, with the menus and a screenshot. | Already largely settled: the dead hostage's loot menu opened through the stray `elseif GetDead == 1 / activate` [observed: layer5-captures.md §8.3 c]. This job adds the variables, showing whether anything after the stray EndIf touched them. |
 | 11 | `od_11_clock_in_dialogue` | l. 515, item 34 (2) "should the game clock keep moving while you talk" | GameHour and GameDaysPassed every 300 loops before, while (MenuMode 1009) and after a conversation with Ringo. | The clock steady while 1009 = 1 means it stops. Already seen once: GameHour stayed 10.0122 through Sunny's conversation [observed: ai-observer.md §7, meet_sunny]. The owner's question is what NVForever should do; this confirms the original only. |
@@ -117,8 +123,7 @@ This note was written from the readings the coordinator relayed, not from the ra
 It claims no more than those readings give. In the `ai` field the values are in this
 order: package, type, procedure, …, x, y, z, heading.
 
-**Still pending.** `od_22` (it crashed at the job's start, and a retry was running) and
-the campaign sessions (items 7, 14 and 15).
+**Still pending.** The second round's jobs (§5).
 
 ### Settled
 
@@ -129,13 +134,17 @@ the campaign sessions (items 7, 14 and 15).
     nvftest), not `000200D5`. With a script package on, EvaluatePackage kept it
     (`00018E6A` at 10 and 300 loops).
   - **Verdict.** The second package replaces the first, as the GECK wiki's AddScriptPackage
-    notes say. **Our runtime's stacking is wrong.** EvaluatePackage keeping a script
-    package is confirmed.
+    notes say. EvaluatePackage keeps a script package. Both **confirm the runtime's
+    rules**: it has replaced since 2026-10-10. owner-review item 25's "script packages
+    stack" was out of date; see #441.
+  - The actor's state now holds one script-package slot (`RefExtra::script_package`);
+    older saves' lists load as their last entry (#443).
 - **od_09a, disabled reference: its GameMode still runs.**
   - **Readings.** The skull's `timer` kept falling while the skull was disabled, from
     998.19 to 992.94 over 300 loops. That is the same rate as while enabled.
-  - **Verdict.** GameMode runs for disabled references, as the wiki says. **Our runtime is
-    wrong** to skip them.
+  - **Verdict.** GameMode runs for disabled references, as the wiki says. This **confirms
+    the runtime's rule**: it has run them since 2026-10-09. Item 25's "not in the runtime"
+    was out of date; see #441.
 - **od_10, stray markers: they touch no variable.**
   - **Readings.** Activated with freed 0, the living hostage opened a message box
     (menu.message 1). With freed 1, nothing opened. The dead hostage opened its loot
@@ -217,6 +226,110 @@ the campaign sessions (items 7, 14 and 15).
 - **od_21, Red Lucy.** A message box instead of dialogue, and the screenshots failed with
   "cannot create a bitmap". That is a plugin-side capture error the job cannot fix
   [hypothesis: the game window was not visible].
+
+### The campaign `owner_decisions`, from `nvfstrip`
+
+- **Item 14, `ncr_fiends_placed`: settled in part.** Six actors were spawned with nobody
+  provoking them and the player hidden.
+  - **Fought:** three with health 50 (FF00130D, FF00130F and FF001313, weapon 000E9C3B,
+    around (-42800, 72300)) and one with health 65 (FF001315, about 500 units from them).
+    They fought each other for 207–327 combat samples each, with targets crossing both
+    ways, and FF001315 died at sample 208 of 1,809.
+  - **Did not fight:** the other two health-65 spawns (FF001317 and FF00131A, about
+    3,000 units off) never entered combat.
+  - **Verdict.** Spawned NCR troopers and Fiends **do fight with nobody provoking them**,
+    at least within about 500 units, so the shared utility faction (GeneralIdleFaction)
+    does not keep them at peace. This supports our changed rule.
+  - **Open.** Which spawn is on which side is not read from the bases yet: they are
+    references made at run time, and the timeline has their base forms.
+- **Item 15, `alert_noise`: not settled.** The session ran (965 samples, 118 state
+  changes), but the Fiends it relies on are dead in `nvfstrip` (§2). It needs a rerun
+  from `nvftest`.
+- **Item 7 from `nvfstrip`: all three sessions crashed.** The first try of
+  `hv_initiates` crashed after about 150 s, and the retries within about 15 s of
+  starting. The observer gave up after three cut-offs each. They were rerun from
+  `nvftest`, the save they were written for (next item).
+- **Item 7 from `nvftest`.** The summaries come from `observe.py report --text` on the
+  coordinator's desktop; the package-change times in full are there too.
+  - **`hv_initiates` (bunker L1): complete.** It ran from 06:00 to about 18:14, 1,519
+    samples, and the player was never in combat.
+    - The paladins cycle TargetPractice1/2/3, PaladinSandboxDay and PaladinDaySleep,
+      each lasting a few game hours.
+    - The initiates switch often between Class, Matrix, Running, Exercise and Sandbox,
+      with many packages made at run time (0xFF…).
+    - Knights AF and CM on L1 held FloorRepair / Repair for all 12 hours.
+  - **`hv_knights` (bunker L2): complete.** It ran from 06:04 to about 18:13, 1,470
+    samples, and the player was never in combat.
+    - **It needed `SetAlly 0001D3FE 0001B2A4`.** That makes BrotherhoodSteelFaction and
+      PlayerFaction allies. The ESM lists PlayerFaction as an enemy of
+      BrotherhoodSteelFaction, and `AddToFaction` VBrotherhoodOfSteelFaction did not help.
+    - `tdetect` was rejected by the owner, because it also stops NPCs detecting each
+      other.
+  - **Item 7 verdict, the bunker.** Activities do change every few hours rather than
+    staying all day. So the SetPackDuration check is answered in its direction; the exact
+    times are in the desktop report.
+  - **`geckos_package_chain`: partly usable.** Their list is VCrGeckoFindFood (2 h),
+    VCrGeckoPatrolRunningLinkedRef (3 h), FindFood02, Patrol02 and a sandbox. None has a
+    start hour, and all are Once Per Day.
+    - **The patrol ran past its duration.** Both geckos held the patrol (0x001651B5)
+      from 17:03 to 21:43, which is 4.7 h against its 3 h duration, and never went on
+      to FindFood02. That is evidence **against** our rule that a duration without a
+      start hour ends the package [observed]. A silent restart of the same package
+      cannot be ruled out: the package and procedure were the same throughout.
+    - **The rest of the run is not clean.** From 21:43 they fought the player, because
+      `go: moveto` put the player on gecko 8B's spot.
+    - **A hint about midnight.** At 00:10 one gecko in combat chose FindFood, the first
+      package of its list. That suggests Once Per Day resets at midnight [hypothesis].
+    - **A rerun was running.** It puts the player two cells away (`cow WastelandNV
+      -15 -6`), with no faction change.
+  - **`geckos_package_chain` rerun: complete.**
+    - **The run.** It ran 14 game hours from 17:00, about 2,100 samples per gecko, with
+      the player two cells away and never in combat. The capture restarted once (at
+      about 15:21 real time) with no gap in the samples.
+    - **Both geckos: patrol.** They held the patrol package (VCrGeckoPatrolRunningLinkedRef:
+      3 h, no hour, Once Per Day) from 17:04 to 01:01. That is about **8 h on a 3 h
+      duration**.
+    - **Gecko 0x0016518B.** It ran FindFood (2 h) from 01:01, procedure ACQUIRE, which
+      reached DONE at 02:01. It went back to the patrol at 03:01, exactly 2 h after
+      FindFood began. It did **not** go to FindFood02, the next entry of its list.
+    - **Gecko 0x0016518C.** It ran FindFood from 01:01, with WANDER and ACQUIRE
+      alternating, and was still on it at the end (about 05:00 or later). That is over
+      4 h on a 2 h duration.
+    - **Reading [hypothesis].** A package's duration ended FindFood only once its goal had
+      been met (procedure DONE). It ended neither the patrol nor a find that never
+      completed. After a package ends, the choice starts again from the top of the list
+      (the first eligible package), not at the next entry.
+    - **Midnight not confirmed.** The switch came at 01:01, not 00:00, so this does not
+      confirm a midnight reset of Once Per Day.
+    - **What it bears on.** Our rule that a list package with a duration and no start hour
+      ends after it, so that about 358 packages restart every duration
+      (docs/outstanding.md §3). The runtime is unchanged.
+- **The owner's gecko food question (campaign `gecko_food`, private, from `nvftest`).**
+  Does a Find package with Allow Killing make a gecko kill a radroach?
+  - **Setup.** The clock was set to 00:00, the player was two cells away in god mode, and
+    one radroach (CrRadroach 0x0001CF7C) was placed 256 units from gecko 0x0016518B.
+  - **The gecko next to the radroach.** From 00:04 it was on VCrGeckoFindFood (a Find
+    whose target is the object type Food, with Allow Killing). At 00:07 it switched to a
+    combat package made at run time, targeting FF00131E: the only actor the job created,
+    so the radroach. By 00:08 it was back on FindFood, procedure ACQUIRE.
+  - **The control gecko 0x0016518C** fought nothing. It patrolled until 01:00, then took
+    FindFood (ACQUIRE), which reached DONE at 02:00.
+  - **Reading [hypothesis].** A Find package with Allow Killing makes the actor kill a
+    creature within reach and then resume the find.
+  - **Not sampled.** The radroach's death and the meat being picked up: the radroach was
+    not in the observer's scan, and the observer does not read inventories. A first,
+    narrower run, with the radroach outside the scan, saw no combat at all, so the
+    placement is not proven for that run.
+  - **How it compares with our runtime.** The base radroach carries no inventory; its meat
+    is its death item, DeathItemRadroach100 [observed: `fnvtool esm decode`]. Our Find
+    attacks a living actor only when its inventory holds what the package looks for
+    (`fnv-ai` `errand.rs`). So our gecko would leave this radroach alone. Either the
+    original counts a death item as carried food, or Allow Killing has it attack any
+    creature in reach [both hypotheses]. The runtime is unchanged.
+- **od_22 retry (`nvfstrip`): not settled.** Ralph's dialogue never opened (the wait at
+  step 17 timed out every round), and every screenshot failed with "cannot create a
+  bitmap", as in od_21. The second round's `open_dialogue` closes a message box first;
+  the screenshot failure is an open point of the plugin (xnvse-capture.md §6).
 
 ## 5. Second round (jobs changed after the first run)
 

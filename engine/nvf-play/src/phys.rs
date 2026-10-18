@@ -408,9 +408,11 @@ impl std::fmt::Display for PrepareTimes<'_> {
     }
 }
 
-/// `job` with the simulation's poses of its references that physics or a script moved.
+/// `job` with the simulation's poses of its references that physics or a script moved,
+/// and the scales scripts set (SetScale).
 fn with_poses(mut job: Job, sim: &SimState) -> Job {
     job.poses = job.refs.iter().filter_map(|&r| sim.moved_pose(r).map(|(p, a)| (r, p, a))).collect();
+    job.scales = job.refs.iter().filter_map(|&r| sim.script_scale(r).map(|s| (r, s))).collect();
     job
 }
 
@@ -603,7 +605,7 @@ impl PhysState {
             PhysCell::Exterior(..) => record.and_then(|c| c.land),
             PhysCell::Interior(_) => None,
         };
-        Job { cell, refs, land, poses: Vec::new() }
+        Job { cell, refs, land, poses: Vec::new(), scales: Vec::new() }
     }
 
     fn source(&self, ctx: &LoadCtx) -> Source {
@@ -742,7 +744,15 @@ impl PhysState {
         let src = self.source(ctx);
         let mut times = LoadTimes::default();
         let t = Instant::now();
-        let pl = placement(ctx.d.lo, ctx.d.schema, r).map(|pl| prepare::at_pose(pl, ctx.sim.moved_pose(r)));
+        let mut pl = placement(ctx.d.lo, ctx.d.schema, r).map(|pl| prepare::at_pose(pl, ctx.sim.moved_pose(r)));
+        // A script's scale (SetScale) in place of the placement's; one too small to see
+        // has no collision (`crate::sim::MIN_DRAWN_SCALE`).
+        if let (Some(p), Some(s)) = (pl.as_mut(), ctx.sim.script_scale(r)) {
+            if s <= crate::sim::MIN_DRAWN_SCALE {
+                return false;
+            }
+            p.scale = s;
+        }
         times.records += ms_since(t);
         let added = self.apply(ctx, pl, |pl| prepare::reference(&src, pl, &mut times));
         self.stats.times.add(&times);
@@ -785,6 +795,15 @@ impl PhysState {
             self.drawn.remove(&form_id);
             if self.world.remove_ref(form_id) {
                 debug!("collision of {form_id:08X} removed");
+            }
+        } else if self.ref_cell.contains_key(&form_id) && ctx.sim.script_scale(form_id).is_some() {
+            // A script set its scale (SetScale): built again at that scale.
+            self.placed_dynamic.remove(&form_id);
+            self.doors.remove(&form_id);
+            self.drawn.remove(&form_id);
+            self.world.remove_ref(form_id);
+            if self.add_ref(ctx, form_id) {
+                debug!("collision of {form_id:08X} built at scale {}", ctx.sim.ref_scale(form_id));
             }
         } else if self.ref_cell.contains_key(&form_id) && !self.has_collision(form_id) && self.add_ref(ctx, form_id) {
             debug!("collision of {form_id:08X} restored");

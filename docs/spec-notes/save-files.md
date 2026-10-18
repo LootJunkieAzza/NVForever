@@ -129,7 +129,7 @@ documented layout].
 
 | Type | Length (C) | Contents |
 |---|---|---|
-| 0 | 220 | (every value below is followed by 0x7C) u32 count 43, 43 × (u32). All zero in B (new game); first two are 1 in A/C/D. [hypothesis: the Pip-Boy misc statistics, in the game's order] |
+| 0 | 220 | (every value below is followed by 0x7C) u32 count 43, 43 × (u32). All zero in B (new game); first two are 1 in A/C/D. The misc statistics by code: the values of 31 saves fit the names (misc-stats.md §1) [observed] |
 | 1 | 57 | **Player location and created-form counter**: u32 next created form ID (0xFF001313 in C, 0xFF001309 in B, 0xFF001317 in A); ref of the current worldspace (WastelandNV in C, a dummy worldspace FFEncounterWorld in B, which is indoors); two i32 cell grid coordinates (−18, 0 in C); ref of the worldspace or interior cell the player is in (GSDocMitchellHouse in B); three f32 position (no separator between them); ref of a quest (VCG01 in B, VCG02 in C) [hypothesis: the active quest shown in the Pip-Boy]; u32, f32, u32 unknown |
 | 2 | 107 | a short list of mostly zero values; unchanged between all four saves; meaning unknown |
 | 3 | 1803 | **Global variables**: vsval count (200), then per global: ref and f32, each followed by 0x7C. 199 resolve to GLOB records, one to form 0x63 (no record in the masters [hypothesis: a hard-coded global]). Game time is here: GameHour, GameDaysPassed, GameDay/Month/Year, TimeScale (30) |

@@ -8,6 +8,11 @@
 //!   lights what is ahead of the body, not the body's back from the camera, and nearly on
 //!   the line of the eye its shadows fall behind what casts them instead of beside it.
 //!   Being in front of the body, the body casts nothing on what it lights.
+//! - In a view from outside it is placed from the third-person head's eye
+//!   (`PlayerBody::head_eye`), so it moves with the head: from the first-person eye the
+//!   head leaned into it walking and running and shaded the cone (owner 2026-10-18). In
+//!   first person the head casts nothing on it (`sky::SHADOW_LAYER`) and the view's eye
+//!   places it.
 //! - It casts shadows: walls stop it instead of it lighting the rooms behind them. It
 //!   falls off as the game's lights do (`lights.rs`).
 //! - Shadow casters are the world's layer (0), as the light's own layers are: the
@@ -18,6 +23,7 @@
 use bevy::prelude::*;
 use nvf_play::flashlight::Flashlight;
 use nvf_play::player::Player;
+use crate::player_body::PlayerBody;
 
 /// Marks the flashlight's light entity.
 #[derive(Component)]
@@ -32,7 +38,7 @@ const RANGE: f32 = 2800.0;
 /// Half-angle of the cone's edge, and of its fully lit middle, degrees.
 const OUTER_DEG: f32 = 30.0;
 const INNER_DEG: f32 = 14.0;
-/// Where the light sits from the player's eye: ahead along the body's heading, and
+/// Where the light sits from the head's eye: ahead along the body's heading, and
 /// down, game units [design].
 const AHEAD: f32 = 14.0;
 const DOWN: f32 = 6.0;
@@ -59,6 +65,7 @@ fn sync(
     mut commands: Commands,
     flashlight: Res<Flashlight>,
     player: Option<Res<Player>>,
+    body: Option<Res<PlayerBody>>,
     mut lights: Query<(Entity, &mut Transform), With<PlayerFlashlight>>,
 ) {
     let Some(player) = player.filter(|_| flashlight.on) else {
@@ -67,7 +74,7 @@ fn sync(
         }
         return;
     };
-    let place = placement(player.eye(), player.heading, player.pitch);
+    let place = placement(body.and_then(|b| b.head_eye()).unwrap_or_else(|| player.eye()), player.heading, player.pitch);
     if let Some((_, mut t)) = lights.iter_mut().next() {
         *t = place;
         return;
