@@ -521,6 +521,15 @@ fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f3
     (have.last().copied(), own.is_none())
 }
 
+/// The power attacks a creature can make: with a crippled leg, none forward, the leap
+/// (a deathclaw's) [observed: FalloutNV.esm MESG `HelpCrippling`, "Legs: … Enemies cannot
+/// perform leaping or charging attacks"; documented: Fallout wiki crippling text, owner
+/// chat 2026-10-18, "leap attacks suffer (deathclaws, for example)"; hypothesis: the
+/// forward power attack is the leap].
+fn no_leaps(have: &[(Power, f32)], lame: bool) -> Vec<(Power, f32)> {
+    have.iter().copied().filter(|(p, _)| !(lame && *p == Power::Forward)).collect()
+}
+
 /// A number in [0, 1) from the module's own sequence `rng` [design].
 pub(crate) fn next_unit(rng: &mut u64) -> f32 {
     *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -1533,10 +1542,12 @@ fn fight(
                                     f.stats.hip_shots += 1;
                                 }
                                 // Crouched: no standing term in the spread (§14.2). A crippled
-                                // arm (Left/Right Attack Condition) widens it as the player's
-                                // [design: the same settings, actors.md §8.12].
-                                let (left_arm_crippled, right_arm_crippled) = (g.is_crippled(me, 27), g.is_crippled(me, 28));
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled };
+                                // arm (Left/Right Attack Condition) or head widens it as the
+                                // player's [design: the same settings, actors.md §8.12,
+                                // crippled-limbs.md §3].
+                                use fnv_game::combat::{HEAD, LEFT_ARM, RIGHT_ARM};
+                                let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled, head_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
@@ -1652,10 +1663,14 @@ fn fight(
                             Arm::Gun(_) => unreachable!(),
                         };
                         // A creature's power attack (module notes).
+                        // With a crippled leg it does not leap: no forward power attack
+                        // (crippled-limbs.md §4).
+                        let lame = g.is_crippled(me, fnv_game::combat::LEFT_MOBILITY) || g.is_crippled(me, fnv_game::combat::RIGHT_MOBILITY);
                         let power = match (&arm, times.powers.get(&id)) {
                             (Arm::Creature(..), Some(have)) if !have.is_empty() => {
                                 let (u, v) = (next_unit(&mut f.power_rng), next_unit(&mut f.power_rng));
-                                let (p, fallback) = pick_power(style, have, u, v);
+                                let able = no_leaps(have, lame);
+                                let (p, fallback) = pick_power(style, &able, u, v);
                                 if let Some((p, _)) = p {
                                     *f.stats.powers.entry(p.group()).or_default() += 1;
                                     let chance = style.map(|s| s.power_attack_chance).filter(|_| !fallback).unwrap_or(FALLBACK_POWER_CHANCE);
@@ -1845,6 +1860,15 @@ mod tests {
         assert_eq!(pick_power(Some(&s), &both, 0.45, 0.1), (Some((Power::Forward, 0.6)), false));
         assert_eq!(pick_power(Some(&s), &both, 0.55, 0.1).0, None);
         assert_eq!(pick_power(Some(&s), &both[..1], 0.1, 0.9).0, Some((Power::Normal, 0.4)));
+    }
+
+    #[test]
+    fn a_crippled_leg_stops_the_leap() {
+        let both = [(Power::Normal, 0.4), (Power::Forward, 0.6)];
+        assert_eq!(no_leaps(&both, false), both.to_vec());
+        assert_eq!(no_leaps(&both, true), vec![(Power::Normal, 0.4)]);
+        // A creature whose only power attack is the leap makes a plain blow.
+        assert_eq!(pick_power(None, &no_leaps(&both[1..], true), 0.0, 0.0).0, None);
     }
 
     #[test]

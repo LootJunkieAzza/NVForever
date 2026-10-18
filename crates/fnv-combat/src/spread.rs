@@ -25,6 +25,8 @@ pub struct Stance {
     pub airborne: bool,
     pub right_arm_crippled: bool,
     pub left_arm_crippled: bool,
+    /// The head crippled ([`CombatTuning::spread_crippled_head`]).
+    pub head_crippled: bool,
     pub skill: f32,
     pub strength: f32,
     /// "Modify Aiming Move Speed" perk divisor for the moving penalty (1 = none; the page
@@ -35,7 +37,7 @@ pub struct Stance {
 /// Whether a weapon counts as one-handed for the crippled-arm penalties: pistols
 /// [documented: the page names GetWeaponAnimType 4 as one-handed; we take every
 /// "(1 Hand)" gun type].
-fn one_handed(w: &WeaponStats) -> bool {
+pub(crate) fn one_handed(w: &WeaponStats) -> bool {
     w.anim_type.as_deref().is_some_and(|t| t.ends_with("(1 Hand)"))
 }
 
@@ -51,6 +53,21 @@ pub fn actor_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance) ->
         r.spread_walking
     } / s.aiming_move_divisor.max(1.0);
     let standing = if s.sneaking { 0.0 } else { r.spread_standing };
+    let arms = crippled_spread(r, t, w, s);
+    let str_req = (w.strength_req as f32 - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
+    // The page reports the original applies the Strength setting to the skill shortfall
+    // (a bug); we use the skill setting it names.
+    let skill_req = (w.skill_req as f32 - s.skill.min(100.0)).max(0.0) * r.skill_req_penalty;
+    let jump = if s.airborne { t.jump_spread } else { 0.0 };
+    let skill_mult = 1.0 - r.wobble_to_skill * s.skill.clamp(0.0, 100.0) / 100.0;
+    (skill_mult * (unaimed + moving + standing + arms + str_req + skill_req + jump)).max(r.min_gun_spread)
+}
+
+/// The crippled limbs' part of the actor spread, spread units: the documented
+/// crippled-arm penalties by one or two arms and one- or two-handed weapons, and the
+/// head's [design]. VATS mode's shots, which have no other spread, keep this
+/// (docs/spec-notes/crippled-limbs.md §3).
+pub fn crippled_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance) -> f32 {
     let both = s.left_arm_crippled && s.right_arm_crippled;
     let arms = match (one_handed(w), both) {
         (true, true) => r.spread_crippled_arms_1h,
@@ -59,13 +76,7 @@ pub fn actor_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance) ->
         (false, false) if s.left_arm_crippled || s.right_arm_crippled => r.spread_crippled_arm_2h,
         _ => 0.0,
     };
-    let str_req = (w.strength_req as f32 - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
-    // The page reports the original applies the Strength setting to the skill shortfall
-    // (a bug); we use the skill setting it names.
-    let skill_req = (w.skill_req as f32 - s.skill.min(100.0)).max(0.0) * r.skill_req_penalty;
-    let jump = if s.airborne { t.jump_spread } else { 0.0 };
-    let skill_mult = 1.0 - r.wobble_to_skill * s.skill.clamp(0.0, 100.0) / 100.0;
-    (skill_mult * (unaimed + moving + standing + arms + str_req + skill_req + jump)).max(r.min_gun_spread)
+    arms + if s.head_crippled { t.spread_crippled_head } else { 0.0 }
 }
 
 /// Degrees of deviation for an actor spread `p` and a weapon spread `w` (Min Spread): the

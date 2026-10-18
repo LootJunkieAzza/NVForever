@@ -177,8 +177,10 @@ Food:      fMagicSurvivalSkillBase + fMagicSurvivalSkillMult × Survival / 100  
 - Withdrawal effects are Value Modifiers with Recover and Detrimental (Buffout Withdrawal:
   Strength −1, Endurance −1) [observed], so they sit in the temporary pool.
 - Their conditions (e.g. GetActorValue Ignore Crippled Limbs == 0 on Buffout's) are read
-  when the spell is added, as for any effect (scripts.md §7.6); they are not evaluated
-  again later [design: the masters' are constant in play].
+  when the spell is added, as for any effect (scripts.md §7.6). An effect whose
+  conditions fail then is not started; one that started has them checked again every
+  second as an ability's (§13), and is held while they fail [hypothesis; since
+  2026-10-18, for the player's `PlayerConcussed`, crippled-limbs.md §2].
 - Addictions do not wear off with time here [hypothesis: nothing in the export says they
   do].
 
