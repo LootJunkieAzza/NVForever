@@ -107,7 +107,9 @@ MO2 and modorganizer-game_gamebryo source, cited in `mo2.rs`]. A player's start 
 `usvfs_x64.dll` loaded in its own process and MO2's header line at the top of that file
 loads the plugins listed there, in their order (MO2's right pane), skipping any not in
 `Data`, with `FalloutNV.esm` first. The home's `plugins.txt` is then not read or written.
-Without the hook, or without MO2's header, nothing changes. Player guide:
+Such a start also runs on the game folder MO2's instance manages
+(`gamePath` in the instance's `ModOrganizer.ini`; modlists often manage a copy of the game),
+not the INI's, and does not store it. Without the hook, or without MO2's header, nothing changes. Player guide:
 docs/mod-organizer-2.md.
 
 On the first start of the new home, the settings and saves of the earlier home

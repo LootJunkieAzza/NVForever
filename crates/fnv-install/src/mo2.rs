@@ -16,6 +16,22 @@
 //!   pane's order), lines ending in CRLF;
 //! - written in the system's ANSI code page (its `loadorder.txt` is UTF-8).
 //!
+//! The merged `Data` is the one of the game MO2's instance manages, which need not be the
+//! game folder in NVForever's INI (a modlist often manages a copy of the game [observed:
+//! the owner's Viva New Vegas instance manages `Fallout New Vegas - Copy`]). So a start
+//! from MO2 runs on the instance's game folder ([`game_dir`]): its `ModOrganizer.ini`
+//! gives it under `[General]` as `gamePath=@ByteArray(<path>)` with backslashes doubled
+//! [observed: the owner's two instances]. The instance is found as MO2 finds it
+//! [documented: MO2 `InstanceManager::currentInstance`, `GlobalSettings::settings`]:
+//! `portable.txt` beside `ModOrganizer.exe` forces the portable instance (that folder);
+//! else a non-empty `CurrentInstance` under `HKCU\Software\Mod Organizer Team\Mod
+//! Organizer` names a global one in `%LOCALAPPDATA%\ModOrganizer\<name>` [hypothesis:
+//! Qt's AppLocalDataLocation for MO2; the folder exists on the owner's PC]; else a
+//! `ModOrganizer.ini` beside the program is the portable instance. `ModOrganizer.exe`'s
+//! folder is the folder of the injected usvfs DLL [observed: both of the owner's MO2
+//! installs hold `usvfs_x64.dll` beside `ModOrganizer.exe`]. An instance chosen with MO2's
+//! `-i` option is not seen.
+//!
 //! NVForever takes MO2's list only when both hold: the hook's DLL is loaded in this process
 //! ([`usvfs_loaded`]; `usvfs_x64.dll` [documented: usvfs `src/usvfs_dll/CMakeLists.txt`,
 //! name `usvfs` + `_x64` on 64-bit]), and the file there starts with MO2's header line. The
@@ -48,6 +64,124 @@ pub fn usvfs_loaded() -> bool {
 #[cfg(not(windows))]
 pub fn usvfs_loaded() -> bool {
     false
+}
+
+#[cfg(windows)]
+mod win {
+    use std::ffi::{c_void, OsString};
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::PathBuf;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+        fn GetModuleFileNameW(module: *mut c_void, buf: *mut u16, size: u32) -> u32;
+    }
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegGetValueW(key: isize, sub: *const u16, value: *const u16, flags: u32, ty: *mut u32, data: *mut c_void, len: *mut u32) -> i32;
+    }
+    const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+    const RRF_RT_REG_SZ: u32 = 0x2;
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    /// The file a loaded module of this process was loaded from.
+    pub fn module_path(name: &str) -> Option<PathBuf> {
+        let n = wide(name);
+        // SAFETY: NUL-terminated name; the handle is used only while the module is loaded
+        // (usvfs stays loaded for the process' life) and the buffer's length is passed.
+        unsafe {
+            let h = GetModuleHandleW(n.as_ptr());
+            if h.is_null() {
+                return None;
+            }
+            let mut buf = vec![0u16; 32768];
+            let len = GetModuleFileNameW(h, buf.as_mut_ptr(), buf.len() as u32) as usize;
+            (len > 0 && len < buf.len()).then(|| PathBuf::from(OsString::from_wide(&buf[..len])))
+        }
+    }
+
+    /// A REG_SZ value under HKEY_CURRENT_USER.
+    pub fn user_string(sub: &str, value: &str) -> Option<String> {
+        let (s, v) = (wide(sub), wide(value));
+        let mut buf = vec![0u16; 4096];
+        let mut len = (buf.len() * 2) as u32;
+        // SAFETY: NUL-terminated names; the buffer's size in bytes is passed and written back.
+        let r = unsafe {
+            RegGetValueW(HKEY_CURRENT_USER, s.as_ptr(), v.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut len)
+        };
+        if r != 0 {
+            return None;
+        }
+        let n = (len as usize / 2).min(buf.len());
+        let end = buf[..n].iter().position(|&c| c == 0).unwrap_or(n);
+        Some(String::from_utf16_lossy(&buf[..end]))
+    }
+}
+
+/// The folder of the MO2 instance that started this process, or `None` when MO2 did not
+/// (module notes).
+#[cfg(windows)]
+pub fn instance_dir() -> Option<PathBuf> {
+    let app = win::module_path(USVFS_DLL)?.parent()?.to_path_buf();
+    let current = win::user_string(r"Software\Mod Organizer Team\Mod Organizer", "CurrentInstance").unwrap_or_default();
+    let global = directories::BaseDirs::new().map(|d| d.data_local_dir().join("ModOrganizer"));
+    pick_instance(&app, &current, global.as_deref())
+}
+
+#[cfg(not(windows))]
+pub fn instance_dir() -> Option<PathBuf> {
+    None
+}
+
+/// MO2's choice of instance: `app` is `ModOrganizer.exe`'s folder, `current` the
+/// registry's `CurrentInstance`, `global` the folder of global instances.
+fn pick_instance(app: &std::path::Path, current: &str, global: Option<&std::path::Path>) -> Option<PathBuf> {
+    if app.join("portable.txt").is_file() {
+        return Some(app.to_path_buf());
+    }
+    if !current.is_empty() {
+        return global.map(|g| g.join(current));
+    }
+    app.join("ModOrganizer.ini").is_file().then(|| app.to_path_buf())
+}
+
+/// `gamePath` under `[General]` of an MO2 `ModOrganizer.ini`: `@ByteArray(...)` unwrapped
+/// and `\\` read as `\` (Qt's escaping), or a plain value as it is.
+pub fn ini_game_path(ini: &str) -> Option<PathBuf> {
+    let mut general = false;
+    for line in ini.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            general = t.eq_ignore_ascii_case("[General]");
+            continue;
+        }
+        let Some(v) = t.strip_prefix("gamePath=").filter(|_| general) else { continue };
+        let v = v.strip_prefix("@ByteArray(").and_then(|r| r.strip_suffix(')')).unwrap_or(v);
+        let mut out = String::new();
+        let mut chars = v.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => out.extend(chars.next()),
+                c => out.push(c),
+            }
+        }
+        return (!out.is_empty()).then(|| PathBuf::from(out));
+    }
+    None
+}
+
+/// The game folder MO2's instance manages, when MO2 started this process and its instance
+/// names one (module notes); NVForever runs on it instead of its INI's.
+pub fn game_dir() -> Option<PathBuf> {
+    if !usvfs_loaded() {
+        return None;
+    }
+    let ini = std::fs::read_to_string(instance_dir()?.join("ModOrganizer.ini")).ok()?;
+    ini_game_path(&ini)
 }
 
 /// Where MO2 puts its profile's `plugins.txt` for New Vegas: the Local AppData known
@@ -156,5 +290,46 @@ mod tests {
     #[test]
     fn not_under_mo2_in_tests() {
         assert!(!usvfs_loaded());
+        assert_eq!(game_dir(), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_calls() {
+        let k = win::module_path("kernel32.dll").unwrap();
+        assert!(k.file_name().unwrap().to_string_lossy().eq_ignore_ascii_case("kernel32.dll"), "{}", k.display());
+        assert_eq!(win::module_path(USVFS_DLL), None);
+        assert_eq!(win::user_string(r"Software\NVForever-test-no-such-key", "CurrentInstance"), None);
+        // A value every Windows user has.
+        let v = win::user_string(r"Control Panel\International", "LocaleName");
+        assert!(v.is_some());
+    }
+
+    #[test]
+    fn game_path_from_the_instance_ini() {
+        let ini = "[General]\r\ngameName=New Vegas\r\nselected_profile=@ByteArray(NVForever)\r\n\
+                   gamePath=@ByteArray(F:\\\\SteamLibrary\\\\steamapps\\\\common\\\\Fallout New Vegas - Copy)\r\n\
+                   [customExecutables]\r\ngamePath=@ByteArray(X:\\\\wrong)\r\n";
+        assert_eq!(ini_game_path(ini), Some(PathBuf::from(r"F:\SteamLibrary\steamapps\common\Fallout New Vegas - Copy")));
+        assert_eq!(ini_game_path("[General]\ngamePath=D:/Games/FNV\n"), Some(PathBuf::from("D:/Games/FNV")));
+        assert_eq!(ini_game_path("[Settings]\ngamePath=D:/x\n"), None);
+    }
+
+    #[test]
+    fn instance_chosen_as_mo2_does() {
+        let t = std::env::temp_dir().join(format!("nvf-mo2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let (app, global) = (t.join("MO2"), t.join("global"));
+        std::fs::create_dir_all(&app).unwrap();
+        // No portable INI and no current instance: none.
+        assert_eq!(pick_instance(&app, "", Some(&global)), None);
+        std::fs::write(app.join("ModOrganizer.ini"), "").unwrap();
+        assert_eq!(pick_instance(&app, "", Some(&global)), Some(app.clone()));
+        // A current global instance wins over the portable INI ...
+        assert_eq!(pick_instance(&app, "Viva", Some(&global)), Some(global.join("Viva")));
+        // ... unless portable.txt locks MO2 to its portable instance.
+        std::fs::write(app.join("portable.txt"), "").unwrap();
+        assert_eq!(pick_instance(&app, "Viva", Some(&global)), Some(app.clone()));
+        std::fs::remove_dir_all(&t).ok();
     }
 }

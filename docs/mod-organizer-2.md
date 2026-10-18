@@ -11,9 +11,10 @@ then pick it beside **Run**.
 2. Press **+**, then **Add from file…**, and choose `nvforever.exe`.
 3. Leave **Start in** as its folder and the arguments empty, then **OK**.
 
-NVForever must be told where the game is as usual (the folder dialog at its first start,
-or `Path=` under `[Game]` in `Documents\My Games\NVForever\NVForever.ini`): the same game
-folder MO2 manages. It can be installed anywhere outside the game folder.
+Started from MO2, NVForever runs on the game folder MO2 manages (Settings, Paths,
+Managed Game), even when that is a copy of the game, as modlists such as Viva New Vegas
+use; the folder in `NVForever.ini` is for starts outside MO2 and is not changed.
+NVForever can be installed anywhere outside the game folder.
 
 ## What it uses from MO2
 
@@ -22,8 +23,11 @@ folder MO2 manages. It can be installed anywhere outside the game folder.
 - **Plugins** (right pane): the plugins ticked there load, in that order. NVForever's own
   plugin list (`Documents\My Games\NVForever\plugins.txt`) is not used or changed by an
   MO2 start; started any other way, NVForever uses its own list as before.
-- The run log says which list was used: `setup: Mod Organizer 2 start: plugins from its
-  profile (...)`.
+- Started from a console, NVForever prints which game folder and plugin list it used:
+  `setup: Mod Organizer 2 start: game folder from its instance (...)` and `... plugins
+  from its profile (...)`.
+- MO2 started with `-i <instance>` is not followed: NVForever finds the instance as MO2
+  does by default (a portable install's own, else MO2's current global instance).
 
 ## What it does not use
 
