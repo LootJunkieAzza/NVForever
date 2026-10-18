@@ -112,12 +112,13 @@ item 22 (convict karma); Victor's and Sunny's stop-and-go (list 4 items 2–3). 
 ## 4. Found by today's comparisons with the original
 
 From the owner-decision captures (2026-10-18 [observed],
-[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). The
-runtime is not fixed yet in either case:
+[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). Both
+confirm rules the runtime already had; the owner-review wording that said otherwise was
+out of date (#441 adds tests):
 - **AddScriptPackage replaces** the actor's script package; it does not stack. One
-  RemoveScriptPackage brings back the list package. Our script runtime stacks them.
+  RemoveScriptPackage brings back the list package.
 - **Disabled references still run their GameMode blocks** (the skull's timer kept falling
-  while it was disabled). Our runtime skips disabled references.
+  while it was disabled).
 
 From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) §8:
 - Fights end far sooner in ours (NCR against Fiends over in 32 s; the original's still

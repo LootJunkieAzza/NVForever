@@ -337,13 +337,14 @@ sessions. You already had it from an earlier playthrough.
       in 5 shipped scripts); result-script variables don't overwrite the quest script's;
       script packages stack instead of replacing each other; EvaluatePackage keeps a
       script package. **Captured 2026-10-18 [observed]:**
-      - A second AddScriptPackage **replaces** the first, so the runtime's stacking is
-        wrong.
-      - EvaluatePackage keeps a script package, as the runtime does.
-      - A disabled reference's GameMode **runs**, so the runtime is wrong to skip it.
+      - A second AddScriptPackage **replaces** the first.
+      - EvaluatePackage keeps a script package.
+      - A disabled reference's GameMode **runs**.
 
-      Neither runtime fix is made yet. Scripted items in other inventories are still to be
-      captured (spec-notes/owner-decision-captures.md §4).
+      All three confirm the runtime's rules. The runtime has replaced script packages
+      since 2026-10-10 and run disabled references' GameMode since 2026-10-09, so this
+      item's wording on those two points was out of date (#441). Scripted items in other
+      inventories are still to be captured (spec-notes/owner-decision-captures.md §4).
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
 26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
