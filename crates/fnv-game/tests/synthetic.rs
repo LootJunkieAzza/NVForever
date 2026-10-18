@@ -1085,6 +1085,33 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!(r.health, 65.0);
 }
 
+/// Crippled legs slow every actor by the game settings, the player's limbs take half the
+/// limb damage, and a sleep outside Hardcore heals them (docs/spec-notes/crippled-limbs.md).
+#[test]
+fn crippled_limbs_slow_and_heal() {
+    use fnv_game::combat::{HitInfo, LimbHit, LEFT_MOBILITY, RIGHT_MOBILITY};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
+    assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
+    assert_eq!(g.limb_damage(npc, 10.0), 10.0);
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0 }) };
+    assert_eq!(g.leg_speed_mult(npc), 1.0);
+    assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
+    assert_eq!(g.leg_speed_mult(npc), 0.85);
+    assert!(g.hit(npc, 1.0, hit(RIGHT_MOBILITY)).crippled);
+    assert_eq!(g.leg_speed_mult(npc), 0.75);
+    // The player's leg; an hour waited does not heal it, an hour slept does.
+    assert!(g.hit(FormId::PLAYER_REF, 1.0, hit(LEFT_MOBILITY)).crippled);
+    assert!(g.pass_hours(1.0, false).limbs_healed.is_empty());
+    assert!(g.is_crippled(FormId::PLAYER_REF, LEFT_MOBILITY));
+    assert_eq!(g.pass_hours(1.0, true).limbs_healed, vec![LEFT_MOBILITY]);
+    assert!(!g.is_crippled(FormId::PLAYER_REF, LEFT_MOBILITY));
+    assert_eq!(g.leg_speed_mult(FormId::PLAYER_REF), 1.0);
+}
+
 #[test]
 fn furniture_functions_answer_from_the_use_set_on_the_actor() {
     let f = fixture();

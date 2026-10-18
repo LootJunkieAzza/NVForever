@@ -142,18 +142,50 @@ fn knockdown_knockback_explosion_falloff() {
 fn hit_reactions_on_crippling_and_crippled_parts() {
     let t = CombatTuning { stagger_cooldown: 3.0, ..CombatTuning::default() };
     // A hit on a healthy part does nothing, however long ago the last reaction was.
-    assert!(!damage::staggers(&t, false, false, None));
-    assert!(!damage::staggers(&t, false, false, Some(100.0)));
+    assert!(!damage::staggers(&t, false, false, false, None));
+    assert!(!damage::staggers(&t, false, false, false, Some(100.0)));
     // The crippling hit always reacts, also right after another reaction.
-    assert!(damage::staggers(&t, true, true, None));
-    assert!(damage::staggers(&t, true, true, Some(-0.5)));
+    assert!(damage::staggers(&t, true, true, false, None));
+    assert!(damage::staggers(&t, true, true, false, Some(-0.5)));
     // Later hits on the crippled part: not while the last reaction plays, and only
     // once the cooldown after it has run out.
-    assert!(damage::staggers(&t, false, true, None));
-    assert!(!damage::staggers(&t, false, true, Some(-0.5)));
-    assert!(!damage::staggers(&t, false, true, Some(0.1)));
-    assert!(!damage::staggers(&t, false, true, Some(2.9)));
-    assert!(damage::staggers(&t, false, true, Some(3.0)));
+    assert!(damage::staggers(&t, false, true, false, None));
+    assert!(!damage::staggers(&t, false, true, false, Some(-0.5)));
+    assert!(!damage::staggers(&t, false, true, false, Some(0.1)));
+    assert!(!damage::staggers(&t, false, true, false, Some(2.9)));
+    assert!(damage::staggers(&t, false, true, false, Some(3.0)));
+    // A crippled torso: any hit reacts, after the cooldown.
+    assert!(damage::staggers(&t, false, false, true, None));
+    assert!(!damage::staggers(&t, false, false, true, Some(1.0)));
+    assert!(damage::staggers(&t, false, false, true, Some(3.0)));
+}
+
+#[test]
+fn crippled_arms_in_melee_by_weapon() {
+    let blade = WeaponStats { anim_type: Some("Melee (1 Hand)".into()), ..gun(10) };
+    let hammer = WeaponStats { anim_type: Some("Melee (2 Hand)".into()), ..gun(10) };
+    let fists = WeaponStats { anim_type: Some("Hand to Hand".into()), ..gun(2) };
+    // One-handed: the right arm only.
+    assert_eq!(damage::arm_condition(&blade, false, false), 1.0);
+    assert_eq!(damage::arm_condition(&blade, true, false), 1.0);
+    assert_eq!(damage::arm_condition(&blade, false, true), 0.0);
+    // Two-handed and unarmed: half for each crippled arm.
+    assert_eq!(damage::arm_condition(&hammer, true, false), 0.5);
+    assert_eq!(damage::arm_condition(&hammer, true, true), 0.0);
+    assert_eq!(damage::arm_condition(&fists, false, true), 0.5);
+}
+
+#[test]
+fn crippled_head_and_arms_widen_the_spread() {
+    let (r, t) = (Rules::defaults(), CombatTuning::default());
+    let rifle = WeaponStats { anim_type: Some("2 Hand Rifle".into()), ..gun(10) };
+    let calm = Stance { aiming: true, sneaking: true, skill: 100.0, strength: 10.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    assert_eq!(spread::crippled_spread(&r, &t, &rifle, &calm), 0.0);
+    let head = Stance { head_crippled: true, ..calm.clone() };
+    assert!(close(spread::crippled_spread(&r, &t, &rifle, &head), t.spread_crippled_head));
+    let arm = Stance { left_arm_crippled: true, ..calm.clone() };
+    assert!(close(spread::crippled_spread(&r, &t, &rifle, &arm), r.spread_crippled_arm_2h));
+    assert!(spread::actor_spread(&r, &t, &rifle, &head) > spread::actor_spread(&r, &t, &rifle, &calm));
 }
 
 #[test]
