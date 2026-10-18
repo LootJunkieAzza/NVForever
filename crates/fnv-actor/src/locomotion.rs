@@ -150,6 +150,28 @@ impl LocomotionSet {
     }
 }
 
+/// The movement clips of a weapon stance (prefix `1hp`, `2hr`, …; `sneak2hh` crouched)
+/// in a skeleton's folder: the walks, runs and turns found by [`LocomotionSet::find`],
+/// without an idle. They take the place of the unarmed `mt` moves while the weapon is
+/// drawn, and the stance's aim clip still plays over them, the two sharing the body by
+/// track priority, as the player's body does (`player_clips::move_clips`): the weapon's
+/// run holds the weapon up, its spine and arms at priority 36 over the aim clip's 30–35
+/// (`locomotion\1hpfastforward.kf` against `1hpaim.kf`, `2hrfastforward.kf` against
+/// `2hraim.kf`), where the unarmed run (30) left the arms to the aim clip, the pistol
+/// at the hip as when standing [observed: the controlled blocks' priorities, base meshes
+/// archive, 2026-10-17; observed in NVForever: owner's playtest 2026-10-17, Ringo
+/// running]. Weapon clips are not per body: `_male\locomotion\` has them once
+/// (`1hpforward.kf`), and the turns of some stances sit in the skeleton's folder itself
+/// (`1hpturnleft.kf`) [observed]. Moves a stance has no clip for keep the unarmed clip
+/// with the aim clip over it [design, as the player's body]. No idle: the drawn weapon's
+/// standing pose is its aim clip [design, as the player's body; `1hmidle.kf` and
+/// `h2hidle.kf` exist but are not used].
+pub fn weapon_moves(folder: &str, prefix: &str, exists: impl Fn(&str) -> bool) -> LocomotionSet {
+    let mut set = LocomotionSet::find(folder, Body::Male, prefix, exists);
+    set.clips.remove(&Move::Idle);
+    set
+}
+
 /// The folder of the limping clips below a skeleton's folder: `<folder>\locomotion\hurt`
 /// [observed: `characters\_male`, `_1stperson` and 30 creature folders have one;
 /// docs/spec-notes/actors.md §8.11].
@@ -652,6 +674,74 @@ mod tests {
         assert_eq!(female.clips[&Move::FastForward], files[3]);
         let pistol = LocomotionSet::find(f, Body::Male, "1hp", exists);
         assert_eq!(pistol.clips.values().collect::<Vec<_>>(), [files[5]]);
+    }
+
+    #[test]
+    fn weapon_move_clips_by_stance() {
+        // File names as `Fallout - Meshes.bsa` lists them under `characters\_male`
+        // (a selection, 2026-10-17).
+        let names = [
+            r"locomotion\mtidle.kf",
+            r"locomotion\mtturnleft.kf",
+            r"locomotion\male\mtforward.kf",
+            r"locomotion\male\mtfastforward.kf",
+            r"locomotion\1hpforward.kf",
+            r"locomotion\1hpfastforward.kf",
+            r"locomotion\1hpleft.kf",
+            r"locomotion\1hpfastbackward.kf",
+            r"1hpturnleft.kf",
+            r"locomotion\2hrforward.kf",
+            r"locomotion\2hrfastforward.kf",
+            r"locomotion\2hrfastleft.kf",
+            r"locomotion\2hmfastforward.kf",
+            r"locomotion\2hhforward.kf",
+            r"locomotion\2hhturnleft.kf",
+            r"locomotion\h2hfastforward.kf",
+            r"h2hturnleft.kf",
+            r"h2hidle.kf",
+            r"1hmidle.kf",
+            r"locomotion\1hmforward.kf",
+            r"sneak2hhforward.kf",
+            r"sneak2hhfastleft.kf",
+            r"sneakmtforward.kf",
+            r"sneak1hmidle.kf",
+        ];
+        let f = r"meshes\characters\_male";
+        let files: Vec<String> = names.iter().map(|n| format!("{f}\\{n}")).collect();
+        let exists = |p: &str| files.iter().any(|x| x == p);
+        let pick = |prefix: &str, m: Move| weapon_moves(f, prefix, exists).clips.get(&m).map(|p| p[f.len() + 1..].to_string());
+        // A pistol: its own walk, run and turn; the run it lacks is not made up.
+        assert_eq!(pick("1hp", Move::FastForward).as_deref(), Some(r"locomotion\1hpfastforward.kf"));
+        assert_eq!(pick("1hp", Move::Forward).as_deref(), Some(r"locomotion\1hpforward.kf"));
+        assert_eq!(pick("1hp", Move::Left).as_deref(), Some(r"locomotion\1hpleft.kf"));
+        assert_eq!(pick("1hp", Move::FastBackward).as_deref(), Some(r"locomotion\1hpfastbackward.kf"));
+        assert_eq!(pick("1hp", Move::TurnLeft).as_deref(), Some(r"1hpturnleft.kf"));
+        assert_eq!(pick("1hp", Move::FastRight), None);
+        // Rifles, two-handed melee, heavy weapons, fists, one-handed melee.
+        assert_eq!(pick("2hr", Move::FastLeft).as_deref(), Some(r"locomotion\2hrfastleft.kf"));
+        assert_eq!(pick("2hr", Move::Backward), None);
+        assert_eq!(pick("2hm", Move::FastForward).as_deref(), Some(r"locomotion\2hmfastforward.kf"));
+        assert_eq!(pick("2hm", Move::Forward), None);
+        assert_eq!(pick("2hh", Move::TurnLeft).as_deref(), Some(r"locomotion\2hhturnleft.kf"));
+        assert_eq!(pick("h2h", Move::FastForward).as_deref(), Some(r"locomotion\h2hfastforward.kf"));
+        assert_eq!(pick("h2h", Move::TurnLeft).as_deref(), Some(r"h2hturnleft.kf"));
+        assert_eq!(pick("1hm", Move::Forward).as_deref(), Some(r"locomotion\1hmforward.kf"));
+        // Never an idle: the aim clip is the drawn weapon's standing pose.
+        for p in ["h2h", "1hm", "1hp", "sneak1hm"] {
+            assert_eq!(pick(p, Move::Idle), None, "{p}");
+        }
+        // Crouched: the stance's sneaking clips where it has them (only `2hh` does).
+        assert_eq!(pick("sneak2hh", Move::Forward).as_deref(), Some(r"sneak2hhforward.kf"));
+        assert_eq!(pick("sneak2hh", Move::FastLeft).as_deref(), Some(r"sneak2hhfastleft.kf"));
+        assert!(weapon_moves(f, "sneak1hp", exists).clips.is_empty());
+        // A stance without movement clips has none.
+        assert!(weapon_moves(f, "1gt", exists).clips.is_empty());
+        // Limping with the weapon: its own `hurt\` clips (`1hpfastforward_hurt.kf`), not
+        // the unarmed ones.
+        assert_eq!(hurt_move_in("1hpfastforward_hurt", Some("FastForward_Hurt"), "1hp"), Some(Move::FastForward));
+        assert_eq!(hurt_move_in("1hmleft_hurt", None, "1hm"), Some(Move::Left));
+        assert_eq!(hurt_move_in("mtforward_hurt", Some("Forward_Hurt"), "1hp"), None);
+        assert_eq!(hurt_move_in("h2hforward_hurt", None, "1hp"), None);
     }
 
     #[test]

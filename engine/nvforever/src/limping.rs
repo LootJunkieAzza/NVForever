@@ -66,27 +66,32 @@ struct LimpStats {
 }
 
 fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<LimpStats>) {
+    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    // Which limping clip a limping actor moves on, once per move: looked at every frame,
+    // as a move can be shorter than the interval (a gecko that starts within a few
+    // strides of its target runs for a fifth of a second).
+    for (rig, lo) in &actors {
+        let mv = lo.blend.cur.mv;
+        let Some(clip) = lo.limping.then(|| lo.set.clips.get(&mv)).flatten().filter(|_| mv.is_moving()) else { continue };
+        let upright = [Some(&lo.stand), lo.alert.as_ref(), lo.sneak.as_ref()].into_iter().flatten().any(|s| s.clips.get(&mv).is_some_and(|c| Arc::ptr_eq(&c.bound, &clip.bound)));
+        if !upright && stats.played.insert((rig.reference, mv.group(), lo.alerted)) {
+            let id = FormId(rig.reference);
+            let how = if lo.alerted { " (alerted)" } else { "" };
+            info!("limping: {} {id} moves {} on its limping clip {}{how}", rt.game.data.name(id), mv.group(), clip.bound.clip.name);
+        }
+    }
     stats.since += time.delta_secs();
     if stats.since < INTERVAL {
         return;
     }
     stats.since = 0.0;
-    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
-    let Some(rt) = script.rt.as_mut() else { return };
     with_world(rt, &mut sim, |rt| {
         let game = &mut rt.game;
         for (rig, mut lo) in &mut actors {
             let id = FormId(rig.reference);
             let want = LEGS.iter().any(|&c| game.is_crippled(id, c));
             if want == lo.limping {
-                // Which limping clip a limping actor moves on, once per move.
-                let mv = lo.blend.cur.mv;
-                let Some(clip) = lo.limping.then(|| lo.set.clips.get(&mv)).flatten().filter(|_| mv.is_moving()) else { continue };
-                let upright = [Some(&lo.stand), lo.alert.as_ref(), lo.sneak.as_ref()].into_iter().flatten().any(|s| s.clips.get(&mv).is_some_and(|c| Arc::ptr_eq(&c.bound, &clip.bound)));
-                if !upright && stats.played.insert((rig.reference, mv.group(), lo.alerted)) {
-                    let how = if lo.alerted { " (alerted)" } else { "" };
-                    info!("limping: {} {id} moves {} on its limping clip {}{how}", game.data.name(id), mv.group(), clip.bound.clip.name);
-                }
                 continue;
             }
             if lo.set_limping(want) {
