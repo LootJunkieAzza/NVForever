@@ -71,6 +71,16 @@ class FieldSets(unittest.TestCase):
             self.assertIn(line, scan)
         self.assertNotIn(":= player.PlaceAtMe", "".join(texts), "PlaceAtMe's result does not compile in game")
 
+    def test_spawned_actors_are_given_items_after_their_weapon(self):
+        c = self.campaign(place=[{"base": "RatBase", "arm": "Knife", "give": [["Knife", 5], ["Bob", 2]], "attack": "player"}])
+        (_, (_, job)), = ob.campaign_jobs(c, EDIDS).items()
+        scan = next(s["script"] for s in job["steps"] if "script" in s and "GetSourceModIndex" in s["script"])
+        equip, more, other = scan.index("rA.EquipItem rF1"), scan.index("rA.AddItem rF2 5"), scan.index("rA.AddItem rF3 2")
+        self.assertLess(equip, more)
+        self.assertLess(more, other)
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(self.campaign(place=[{"base": "RatBase", "give": ["Knife"]}]), EDIDS)
+
     def test_a_spawned_gunman_gets_ammunition_before_it_equips(self):
         c = self.campaign(place=[{"base": "RatBase", "arm": "Knife", "ammo": "Bob", "attack": "player"}])
         (_, (_, job)), = ob.campaign_jobs(c, EDIDS).items()

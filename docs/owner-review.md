@@ -6155,3 +6155,32 @@ Your report: the player walks along the bottom of a lake instead of swimming.
 - *Check:* in the original, walk into Lake Mead from Boulder Beach and note how deep the
   water is (chest? neck?) when swimming starts; and whether a swimmer diving to the bed
   stays swimming there or stands up.
+
+## GetAnimAction's leftovers (2026-10-18, branch claude/anim-action-leftovers, stacked on #433)
+
+What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), and the
+guesses in it:
+
+- **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
+  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. 6 lasts about 0.6 s [observed: the
+  anim_actions campaign, troopers throwing dynamite]. NPCs throw nothing yet in NVForever, so only
+  the player reads them.
+- **10–11**: never answered. The wiki calls them probable left-overs, and none of the
+  observer's samples showed them. **12**: the original's player read it for about 0.8 s
+  after a jump's time in the air [observed: capture player_actions_anim]; NVForever
+  answers it while the player's landing clip plays (*guess*: that 12 is the landing).
+- **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
+  it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
+  answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
+  The campaign confirmed where it falls: between the last shot and the reload's 9 on
+  the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
+  not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
+- **IsPlayerActionActive**: the capture answered part of the missing list [observed]:
+  9 while aiming, 2 for about 2.6 s from a grenade throw; firing, sneaking, jumping and
+  swinging lit no index, though the wiki says firing stays active about two game
+  minutes. Ours answers 9 and 2.
+
+Captures that settle these (nvfstrip): AI observer campaign
+`tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
+dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
+player's own codes and IsPlayerActionActive 1–10 every frame).
