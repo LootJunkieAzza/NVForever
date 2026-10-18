@@ -177,11 +177,16 @@ pub struct Door {
     pub minimal_use: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, serde::Deserialize)]
 pub struct LeveledEntry {
     pub level: u16,
     pub item: FormId,
     pub count: u16,
+    /// The condition (a fraction of full health) of the weapons and armour the entry
+    /// gives: AddItemToLeveledList's health; `None`: whole. The records' own LVLO entries
+    /// are read without it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -703,7 +708,7 @@ fn leveled(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Is
             }
         };
         match global(lo, pi, local) {
-            Ok(Some(item)) => out.entries.push(LeveledEntry { level: level as u16, item, count }),
+            Ok(Some(item)) => out.entries.push(LeveledEntry { level: level as u16, item, count, condition: None }),
             Ok(None) => issues.note("LVLO with null reference", || format!("{id}")),
             Err(l) => issues.note("FormID outside master list", || format!("{id} LVLO 0x{l:08X}")),
         }

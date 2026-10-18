@@ -1158,6 +1158,27 @@ expect = [
 order = [["player body: not drawn while the idle drives the view in first person", "player body: drawn again in first person"]]
 
 [[scenario]]
+name = "ref-fade"
+source = "script function parameters (docs/design/script-function-params.md §3): Enable fades in by default, Disable 1 fades out and only then hides, Enable 0 pops in [documented: GECK wiki Enable, Disable]; the psych test's card TempRorschachTest01REF in Doc Mitchell's house"
+areas = ["scripts", "rendering", "script-params"]
+paths = ["engine/nvf-play/src/ref_fade.rs", "engine/nvf-play/src/activate.rs", "engine/nvforever/src/effect_shaders.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "4:001084B0.enable;4.3:close;7:001084B0.disable 1;7.3:close;10:001084B0.enable 0;10.3:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 13
+expect = [
+  { text = "ref fade summary: 1 in, 1 out", label = "one fade in and one fade out, none for Enable 0" },
+  { re = 'actor alpha: .* 0\.00 \(\d+ meshes\)', label = "the card is drawn clear at the start of its fade-in" },
+]
+order = [[
+  "ref fade: 0x001084B0 in (1 s)",
+  "reference 0x001084B0 present:",
+  "ref fade: 0x001084B0 out (1 s)",
+  "reference 0x001084B0 fading out:",
+  "reference 0x001084B0 gone:",
+  "reference 0x001084B0 present:",
+]]
+
+[[scenario]]
 name = "rorschach-cards"
 source = "SwapTexture (playtest list 5 item 38; docs/design/script-stubs.md §4): Doc Mitchell's lines put the psych test's cards on TempRorschachTest01REF behind him; the line that enables the card shows card 1, an inkblot answer's line swaps in the inkblot"
 areas = ["scripts", "rendering"]

@@ -41,21 +41,34 @@ The hide flag is carried on the trace events (`ItemAdded`/`ItemRemoved` `silent`
 serialised, so traces and goldens are unchanged) and `engine/nvf-play/src/script_events.rs`
 skips silent ones.
 
-## 3. Still ignored
+## 3. Done in the engine follow-up (branch claude/script-params-engine)
 
-| Function | Parameter(s) | Shipped calls passing them | What it needs |
+The rows that needed engine behaviour. Calls are FalloutNV.esm's unless an add-on is named.
+
+| Function | Parameter | Shipped calls passing it | Now |
 |---|---|---|---|
-| Enable / Disable | FadeIn / FadeOut | 276 / 268 | an engine fade of the reference's look (Enable fades by default, Disable does not [documented: catalogue]) |
-| EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | the player's inventory refusing to unequip/equip the item |
-| SetPlayerTagSkill | iSkillIndex | 23 | tag skills kept as four slots instead of a set |
-| Say | ForceSubtitles, Actor, is2D, isVoice | 18 | subtitles shown regardless of the setting, a stand-in speaker, 2D sound |
-| PlaceAtMe | Distance, Direction | 8 | the spawn offset |
-| SexChange | resetAppearance | 6 | |
-| PlaceLeveledActorAtMe | levelMod, encounterZoneID | 5 | leveled actor levels |
-| RemoveAllItems | retainOwnershipFlag | 5 | moved items keep their owner either way now |
-| SetTagSkills | addedPoints, showInitialTaggedSkills | 2 | the tag menu's point count |
-| ShowLoveTesterMenuParams | iPoints | 1 | |
-| SetGlobalTimeMultiplier | keepSoundUnchanged | 1 | |
-| StartConversation | allowMovement | 1 | |
-| AddItemToLeveledList | fHealthPercent100 | 0 | |
-| EquipItem / UnequipItem | HideEquipMessage | (see above) | nothing to hide: the engine shows no equip lines |
+| Enable / Disable | FadeIn / FadeOut | 276 / 268 | Enable fades in unless its flag is 0, Disable fades out only with 1 [documented: GECK wiki Enable, Disable]; enable children fade in with their parent unless their XESP says Pop In, and pop out [documented: same pages]. `nvf_play::ref_fade`: linear over 1 s of game time [hypothesis], drawn as SetActorAlpha draws (nvforever `effect_shaders.rs`); the simulation changes at once. The `fade` flag rides on the trace events, not serialised |
+| EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | `fnv_sim::EquipLocks` on the actor, saved: the player's inventory menu cannot take off an item kept on, nor put on one kept off; an item kept on blocks its slot for every equip, EquipItem's too [documented: GECK wiki EquipItem]. EquipItem lifts NoEquip, UnequipItem lifts NoUnequip [documented] |
+| SetPlayerTagSkill | iSkillIndex | 23 (Doc Mitchell's test: slots 0, 1, 2) | four slots (`PlayerState::tag_slots`): a skill put in a slot replaces the one there; above 3 does nothing [documented: GECK wiki SetPlayerTagSkill]; the tag menu's Done clears the slots |
+| SetTagSkills | addedPoints, showInitialTaggedSkills | 2 | the total to tag; with 0 the old tags are not on the sheet, so the picks replace them [documented: GECK wiki SetTagSkills] |
+| ShowLoveTesterMenuParams | iPoints | 1 (40) | the attributes add up to it, as SetSPECIALPoints [documented: GECK wiki ShowLoveTesterMenuParams] |
+| Say / SayTo | ForceSubtitles / forceSubtitleFlag | 18 | the subtitle shows even with the new setting "Subtitles of lines said in the world" off (`script_hud::SubtitleSettings`, on by default) [documented flag; hypothesis: the flag is about that setting] |
+| Say | is2D | 0 here; 103 in OldWorldBlues.esm | the line is said flat and heard (and subtitled) wherever the player is [hypothesis from the name: the stealth suit's voice, a creature reference that says its lines with is2D 1] |
+| SexChange | resetAppearance | 6 (Fallout 3's CG00 scripts, not run in New Vegas) | the player's look becomes the race's first starting face for the new sex, from the creator's data (`nvf_play::creator::reset_look`) [documented: GECK wiki SexChange; hypothesis: "default preset" = the first]; without it a chosen look takes the new sex and keeps its face [hypothesis] |
+| RemoveAllItems | retainOwnershipFlag | 5 | 0 (the default) clears the moved items' owner [documented: GECK wiki RemoveAllItems] (`World::transfer_all_owned`) |
+| SetGlobalTimeMultiplier | keepSoundUnchanged | 1 (passes 1) | 0 (the default) moves sound with the clock, as the engine's own slow motion does, faster too up to 2× [documented flag; hypothesis: the speed] (`audio_out::clock_sound`) |
+| StartConversation | allowMovement | 1 (passes 0) | 1 lets the two actors walk on while they talk (`Game::held_by_conversation`) [documented: GECK wiki StartConversation]; left out they stand, as before [hypothesis] |
+| AddItemToLeveledList | fHealthPercent100 | 0 here; 11 in HonestHearts.esm (1), 9 in OldWorldBlues / LonesomeRoad (100) | the weapons and armour the entry gives come at that percentage (`LeveledEntry::condition`) [documented: 0–100 in New Vegas]. Honest Hearts adds its vendor lists at 1, so those weapons come at 1 %: owner to check in game (docs/owner-review.md) |
+
+## 4. Still not read, and why
+
+| Function | Parameter(s) | Shipped calls passing them | Why |
+|---|---|---|---|
+| PlaceAtMe | Distance, Direction | 8 | they have no effect in the original: "the object always lands in a safe spot near the caller" [documented: GECK wiki PlaceAtMe, Bugs] |
+| PlaceLeveledActorAtMe | levelMod, encounterZoneID | 0 | leveled actor lists are read at one fixed level for every placement (`fnv_game::templates::LEVELED_ACTOR_LEVEL`, docs/spec-notes/actors.md §2.1); there is no actor level for the difficulty or the zone to change until actor levelling exists |
+| Say | Actor | 0 here; 103 in OldWorldBlues.esm | the wiki gives only the name [documented: GECK wiki Say]; every shipped call names the speaker's own base (NVDLC03StealthSuitVoiceCr), so what another actor would change is not seen |
+| Say | isVoice | 0 | name only, and passed by no shipped script |
+| EquipItem / UnequipItem | HideEquipMessage | 39 / 21 | nothing to hide: the engine shows no equip lines (EquipItem's hides a consumed aid item's line, §2) |
+
+`python -I tools/script_param_audit.py . <decompile.json>` on 2026-10-18 lists, of these
+functions, only the §4 rows (and the false hits of §1).

@@ -911,6 +911,12 @@ impl<'a> Game<'a> {
         self.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == actor || s.target == Some(actor)))
     }
 
+    /// Whether a conversation between actors holds `actor` where it stands: every one
+    /// but those whose StartConversation allowed movement ([`Speech::moving`]).
+    pub fn held_by_conversation(&self, actor: FormId) -> bool {
+        self.speech.iter().any(|s| s.conversation.is_some() && !s.moving && (s.speaker == actor || s.target == Some(actor)))
+    }
+
     /// Line `lines` of a conversation between actors (`said`) is over and its end result
     /// script has run: the next line, or the end of the conversation. In order:
     /// 1. a line with the Goodbye flag ends it [documented: Conversation Tab: a
@@ -955,6 +961,7 @@ impl<'a> Game<'a> {
                 let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
                 self.say_line(who, Some(to), topic, f, next);
                 self.set_line_look(who, said.look);
+                self.set_line_moving(who, said.moving);
                 return;
             }
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
@@ -970,6 +977,7 @@ impl<'a> Game<'a> {
             };
             self.say_line(who, Some(to), topic, info, next);
             self.set_line_look(who, said.look);
+            self.set_line_moving(who, said.moving);
             return;
         }
         end(self, ended::NO_LINKS)

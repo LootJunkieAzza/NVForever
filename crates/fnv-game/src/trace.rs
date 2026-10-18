@@ -24,8 +24,10 @@ pub enum EventKind {
     /// `ref:…`, `item:…@…`), `index` and `name` the variable.
     VarSet { owner: String, index: u16, #[serde(skip_serializing_if = "Option::is_none")] name: Option<String>, #[serde(serialize_with = "value_json")] value: Value },
     GlobalSet { global: FormId, value: f32 },
-    RefEnabled { reference: FormId },
-    RefDisabled { reference: FormId },
+    /// `fade`: the reference fades in or out (Enable's FadeIn, Disable's FadeOut); kept
+    /// out of the trace, as `silent` below.
+    RefEnabled { reference: FormId, #[serde(skip)] fade: bool },
+    RefDisabled { reference: FormId, #[serde(skip)] fade: bool },
     /// SetScale: the reference's new scale.
     Scaled { reference: FormId, scale: f64 },
     /// `silent`: the script asked for no on-screen message (AddItem's and RemoveItem's

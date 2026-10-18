@@ -17,6 +17,15 @@ pub enum SpecialMenu {
     Set(i32),
 }
 
+/// SetTagSkills' rules for the tag-skill menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SetTags {
+    /// The skills tagged when the menu may be left.
+    pub total: usize,
+    /// The skills tagged before are shown (tagged on the sheet).
+    pub show_tagged: bool,
+}
+
 /// What scripts asked of the menus, for the engine to take.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UiRequests {
@@ -29,9 +38,17 @@ pub struct UiRequests {
     /// AddTagSkills: skills to tag in the next tag-skill menu besides those tagged
     /// (`crate::chargen::TagSheet::for_menu`).
     pub extra_tags: Option<usize>,
+    /// SetTagSkills: the rules of the next tag-skill menu (`crate::chargen::TagSheet::for_menu`).
+    pub set_tags: Option<SetTags>,
+    /// SexChange with resetAppearance: the player's look is to become the race's starting
+    /// face for the new sex, which the engine's creator data has (`nvf_play::creator`).
+    pub reset_look: bool,
     /// SetGlobalTimeMultiplier: the game's speed (`None`: never set, 1). The engine
     /// applies it to its clock while no menu holds the game.
     pub time_multiplier: Option<f64>,
+    /// SetGlobalTimeMultiplier's `keepSoundUnchanged` of the last call: sounds keep their
+    /// speed (else they follow the multiplier).
+    pub keep_sound: bool,
     /// Autosave calls the engine has not taken yet.
     pub autosaves: u32,
     /// The console's camera functions (`super::camera`).

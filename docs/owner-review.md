@@ -5752,3 +5752,31 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Script function parameters honoured (2026-10-18, branch claude/script-params-engine)
+
+The follow-up of the parameter audit (docs/design/script-function-params.md §3): Enable /
+Disable fades, EquipItem / UnequipItem locks, tag-skill slots, SetTagSkills and the Vigor
+Tester's totals, Say / SayTo subtitle and 2D flags, SexChange's appearance reset,
+RemoveAllItems' ownership, the time multiplier's sound flag, StartConversation's movement,
+AddItemToLeveledList's health. What is left unread and why: §4 there.
+
+*Decisions for you to check:*
+1. **Fades last one second**, linear, in game time. Neither the length nor the curve is
+   written down; a frame-by-frame look at a scripted Enable in the original would settle it.
+2. **Honest Hearts' vendor weapons at 1 %**: its quest adds eleven vendor lists with health 1,
+   and New Vegas reads that as 1 % (the wiki: 0–100 here, 0–1 in Fallout 3). If the Gun
+   Runners' or other vendors' Honest Hearts weapons are near broken in the original too, this
+   is right; if they are whole there, the original reads it otherwise and the rule should go.
+3. **New setting "Subtitles of lines said in the world"** (Gameplay, on): what Say's and
+   SayTo's force-subtitle flag overrides. Off, only forced lines are written.
+4. **Say's is2D** plays the line flat and heard anywhere: the name, and Old World Blues'
+   stealth suit voice (a creature reference saying its lines to you with is2D 1).
+5. **SexChange's reset** takes the race's first starting face, as the creator's own sex
+   switch does; without the reset a look chosen in the race menu keeps its face and takes the
+   new sex. Only Fallout 3's leftover scripts call it in New Vegas.
+6. **A script's slow motion slows sound** unless it passes keepSoundUnchanged 1 (the shipped
+   one does): as the engine's own slow motion, square root of the clock, at least 0.4; a
+   speed-up plays sound that much faster, at most 2×.
+7. **Locked gear in the inventory menu** answers "<item> can't be unequipped now" / "can't be
+   equipped now": NVForever's words, the original's are not known.

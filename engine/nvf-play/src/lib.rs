@@ -62,6 +62,7 @@ pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
 pub mod radio;
+pub mod ref_fade;
 pub mod repair;
 pub mod reputation;
 pub mod reticle;
@@ -236,6 +237,8 @@ pub struct OpenContainer {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct RefChanged {
     pub form_id: u32,
+    /// The change is a script's Enable or Disable with a fade ([`ref_fade`]).
+    pub fade: bool,
 }
 
 /// The player used up an item from the inventory (an aid item): the script runtime
@@ -270,7 +273,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin))
-            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
+            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin, ref_fade::RefFadePlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin))
             .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)

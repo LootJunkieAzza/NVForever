@@ -537,6 +537,10 @@ pub struct PlayerState {
     pub look: Option<crate::chargen::Look>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
+    /// The tag skills SetPlayerTagSkill put in a slot (0–3), by slot; every one is also
+    /// in `tag_skills`. The tag-skill menu's Done clears them (its tags have no slot).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub tag_slots: BTreeMap<u8, u16>,
     /// The points spent on each skill in the level-up menu (`crate::levelup`), added to
     /// the skill's formula [documented: GECK wiki ActorValue, the player's spent skill
     /// points sit on top of the derived base; docs/spec-notes/levelup.md §4].
@@ -723,6 +727,17 @@ pub struct Speech {
     /// Who the line turns to whom ([`Game::facings`]).
     #[serde(default, skip_serializing_if = "LineLook::is_both")]
     pub look: LineLook,
+    /// A line of a conversation between actors whose StartConversation allowed movement:
+    /// the two keep walking while they talk ([`Game::held_by_conversation`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moving: bool,
+    /// Its subtitle shows even where subtitles of lines said in the world are off
+    /// (Say's ForceSubtitles, SayTo's forceSubtitleFlag); not part of the saved state.
+    #[serde(skip)]
+    pub forced_subtitle: bool,
+    /// Said flat, heard wherever the player is (Say's is2D, [`Game::set_line_2d`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_d: bool,
     /// Position (in the order the responses are said) of the response whose idles were
     /// last asked for (`crate::idles`); not part of the saved state.
     #[serde(skip)]
@@ -1792,6 +1807,29 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// Let the two of the conversation line `speaker` is saying walk while they talk
+    /// ([`Speech::moving`]).
+    pub fn set_line_moving(&mut self, speaker: FormId, moving: bool) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+            s.moving = moving;
+        }
+    }
+
+    /// Make the line `speaker` is saying a flat one heard anywhere ([`Speech::two_d`]).
+    pub fn set_line_2d(&mut self, speaker: FormId) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+            s.two_d = true;
+        }
+    }
+
+    /// Show the subtitle of the line `speaker` is saying whatever the setting
+    /// ([`Speech::forced_subtitle`]).
+    pub fn force_line_subtitle(&mut self, speaker: FormId) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+            s.forced_subtitle = true;
+        }
+    }
+
     /// Who turns to whom while the lines outside a conversation with the player are
     /// said (docs/design/dialogue-play.md §9). Each line said to someone (SayTo, a hello
     /// or a Goodbye greeting at the player, a line of a conversation between actors):
@@ -1839,7 +1877,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0 });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, moving: false, forced_subtitle: false, two_d: false, response: 0 });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }

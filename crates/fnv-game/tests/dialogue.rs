@@ -1335,6 +1335,47 @@ fn lines_said_to_someone_turn_the_two_to_each_other() {
     assert!(turns(&g).is_empty());
 }
 
+/// StartConversation's allowMovement and the subtitle and 2D flags of Say and SayTo
+/// (docs/design/script-function-params.md).
+#[test]
+fn conversation_movement_and_line_flags() {
+    let f = fixture();
+    let (a, b, player) = (FormId(NPC1_REF), FormId(NPC2_REF), FormId::PLAYER_REF);
+    let r = |id: u32| ArgValue::Value(Value::Ref(id));
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    // Left out (and 0), the two stand while they talk; allowMovement 1 lets them walk,
+    // in the replies too.
+    let mut g = game(&f);
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_ARGUE)]);
+    assert!(g.held_by_conversation(a) && g.held_by_conversation(b));
+    let mut g = game(&f);
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_ARGUE), r(0), r(0), n(1.0), n(1.0)]);
+    assert!(g.in_actor_conversation(a) && !g.held_by_conversation(a) && !g.held_by_conversation(b));
+    let first = g.speech[0].info;
+    for _ in 0..20_000 {
+        if g.speech.first().is_none_or(|s| s.info != first) {
+            break;
+        }
+        g.tick();
+    }
+    assert_eq!(g.speech.first().map(|s| s.speaker), Some(b), "the reply is said");
+    assert!(!g.held_by_conversation(b), "the reply walks too");
+    // Say ForceSubtitles / is2D, SayTo forceSubtitleFlag.
+    let line = |g: &Game| g.speech.iter().find(|s| s.speaker == a).map(|s| (s.forced_subtitle, s.two_d));
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 5.0);
+    call(&mut g, 0x1033, NPC1_REF, &[r(GREETING)]);
+    assert_eq!(line(&g), Some((false, false)));
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 5.0);
+    call(&mut g, 0x1033, NPC1_REF, &[r(GREETING), n(1.0), r(0), n(1.0)]);
+    assert_eq!(line(&g), Some((true, true)));
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 5.0);
+    call(&mut g, 0x1034, NPC1_REF, &[r(player.0), r(GREETING), n(1.0)]);
+    assert_eq!(line(&g), Some((true, false)));
+}
+
 #[test]
 fn a_conversation_survives_a_snapshot() {
     let f = fixture();

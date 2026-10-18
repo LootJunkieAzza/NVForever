@@ -1285,3 +1285,97 @@ fn misc_stats_count_and_set_scale_is_kept_on_the_reference() {
     assert!(g.turned.contains(&FormId(ACTI_REF)));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Scaled { reference, scale } if reference == FormId(ACTI_REF) && scale == 0.25)));
 }
+
+/// Parameters the audit found read by nothing (docs/design/script-function-params.md §3),
+/// now honoured.
+#[test]
+fn script_parameters_the_audit_found_ignored() {
+    use fnv_game::chargen::{SpecialSheet, TagSheet};
+    use fnv_game::functions::ui::SpecialMenu;
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let (guns, speech, sneak) = (41u16, 44u16, 43u16);
+
+    // SetPlayerTagSkill: a slot holds one skill; a new one there takes its place; an
+    // index above 3 does nothing.
+    call(&mut g, 0x11CD, None, &[n(guns as f64), n(0.0)]);
+    call(&mut g, 0x11CD, None, &[n(speech as f64), n(1.0)]);
+    call(&mut g, 0x11CD, None, &[n(sneak as f64), n(0.0)]);
+    assert_eq!(g.player.tag_skills.iter().copied().collect::<Vec<_>>(), vec![sneak, speech]);
+    call(&mut g, 0x11CD, None, &[n(guns as f64), n(4.0)]);
+    assert!(!g.player.tag_skills.contains(&guns));
+
+    // SetTagSkills n [show]: n tags in all; with 0 the old tags are not on the sheet.
+    call(&mut g, 0x121A, None, &[n(3.0)]);
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.tagged.len(), t.remaining()), (3, 2, 1));
+    call(&mut g, 0x121A, None, &[n(3.0), n(0.0)]);
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.tagged.len()), (3, 0));
+    t.apply(&mut g);
+    assert!(g.player.tag_slots.is_empty(), "the menu's tags have no slot");
+
+    // ShowLoveTesterMenuParams n: the attributes add up to n.
+    call(&mut g, 0x1245, None, &[n(40.0)]);
+    assert_eq!(g.ui.special, Some(SpecialMenu::Set(40)));
+    assert_eq!(SpecialSheet::for_menu(&mut g).total, 40);
+
+    // SetGlobalTimeMultiplier's keepSoundUnchanged, 0 by default.
+    call(&mut g, 0x1186, None, &[n(0.5), n(1.0)]);
+    assert!(g.ui.keep_sound);
+    call(&mut g, 0x1186, None, &[n(0.5)]);
+    assert!(!g.ui.keep_sound);
+
+    // Enable fades in unless told not to; Disable fades out only when told to.
+    let fades = |g: &Game| {
+        g.events
+            .iter()
+            .filter_map(|e| match e.kind {
+                EventKind::RefEnabled { fade, .. } => Some(("on", fade)),
+                EventKind::RefDisabled { fade, .. } => Some(("off", fade)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    g.events.clear();
+    for (op, args) in [(0x1022, vec![]), (0x1021, vec![]), (0x1022, vec![n(1.0)]), (0x1021, vec![n(0.0)])] {
+        call(&mut g, op, Some(ACTI_REF), &args);
+    }
+    assert_eq!(fades(&g), vec![("off", false), ("on", true), ("off", true), ("on", false)]);
+
+    // EquipItem 1 keeps the gun on: the player's menu cannot take it off until
+    // UnequipItem; UnequipItem 1 keeps it off until EquipItem.
+    g.world.add_item(p, FormId(WEAP), 1).unwrap();
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP), n(1.0)]);
+    assert!(!g.world.can_unequip(p, FormId(WEAP)));
+    call(&mut g, 0x10EF, Some(PLAYER), &[r(WEAP), n(1.0)]);
+    assert!(g.world.can_unequip(p, FormId(WEAP)));
+    assert!(matches!(g.world.equip(p, FormId(WEAP)), Err(fnv_sim::SimError::EquipLocked { .. })));
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP)]);
+    assert!(g.world.peek(p).unwrap().equip_locks.is_empty());
+
+    // RemoveAllItems target 0: the moved items lose their owner; 1 keeps it.
+    use fnv_sim::inventory::Extra;
+    let owner = Some(FormId(ADULT_REF));
+    let owners = |g: &mut Game| g.world.get(FormId(CONT_REF)).unwrap().inventory.as_ref().unwrap().groups().filter(|x| x.0 == FormId(MISC)).map(|x| x.1.owner).collect::<Vec<_>>();
+    for (flag, want) in [(0.0, None), (1.0, owner)] {
+        let mut g = game(&f);
+        g.world.remove_all_items(FormId(CONT_REF)).unwrap();
+        g.world.add_item_extra(p, FormId(MISC), 2, Extra { owner, ..Extra::default() }).unwrap();
+        call(&mut g, 0x10AD, Some(PLAYER), &[r(CONT_REF), n(flag)]);
+        assert_eq!(owners(&mut g), vec![want], "retain {flag}");
+    }
+
+    // SexChange: with resetAppearance the engine is asked for the race's starting face;
+    // without it a chosen look keeps its face and takes the sex.
+    let mut g = game(&f);
+    g.player.look = Some(serde_json::from_value(serde_json::json!({"race": serde_json::to_value(FormId(0x19)).unwrap(), "female": false})).unwrap());
+    call(&mut g, 0x11E7, None, &[ArgValue::Enum(1)]);
+    assert_eq!((g.player.female, g.player.look.as_ref().map(|l| l.female), g.ui.reset_look), (Some(true), Some(true), false));
+    call(&mut g, 0x11E7, None, &[ArgValue::Enum(0), n(1.0)]);
+    assert_eq!((g.player.female, g.ui.reset_look), (Some(false), true));
+    g.ui.reset_look = false;
+    call(&mut g, 0x11E7, None, &[ArgValue::Enum(0), n(1.0)]);
+    assert!(!g.ui.reset_look, "no change of sex, no reset");
+}

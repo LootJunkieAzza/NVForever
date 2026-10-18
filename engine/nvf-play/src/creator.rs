@@ -215,9 +215,38 @@ impl Plugin for CreatorPlugin {
         };
         app.init_resource::<CreatorMenu>()
             .insert_resource(CreatorAid(aid))
-            .add_systems(Update, (sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (reset_look, sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
             .add_systems(Startup, say_data);
     }
+}
+
+/// SexChange with resetAppearance (`fnv_game::functions::ui::UiRequests::reset_look`):
+/// the player's look becomes the race's starting face for the new sex, as the race menu
+/// shows it [documented: GECK wiki SexChange, "the default preset for their race+gender";
+/// hypothesis: that is the first starting face, which the creator's own change of sex
+/// gives (`model::Model::adjust_row`, `Row::Sex`)]. The request waits for the creator's
+/// data.
+fn reset_look(data: Option<Res<CreatorData>>, mut script: Option<ResMut<ScriptState>>) {
+    let Some(data) = data else { return };
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    if !std::mem::take(&mut rt.game.ui.reset_look) {
+        return;
+    }
+    let female = rt.game.player.female.unwrap_or(false);
+    let start = match &rt.game.player.look {
+        Some(l) => Some(actor_look(l)),
+        None => data.0.player.clone(),
+    };
+    let Some(mut look) = start else {
+        warn!("creator: SexChange reset: the player has no look to start from");
+        return;
+    };
+    // The change of sex as the race menu makes it, from the sex before.
+    look.female = !female;
+    let mut m = Model::new(data.0.clone(), look);
+    m.adjust_row(Row::Sex, 1, false);
+    info!("creator: SexChange reset the look: {}", describe(&m));
+    rules::apply_look(&mut rt.game, game_look(&m.look));
 }
 
 /// What the creator has to offer, once (smoke tests read it).

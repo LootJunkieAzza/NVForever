@@ -31,4 +31,4 @@ pub use form::FormId;
 pub use forms::FormStore;
 pub use inventory::Inventory;
 pub use refs::RefTable;
-pub use world::{SimConfig, Snapshot, World};
+pub use world::{EquipLocks, SimConfig, SimError, Snapshot, World};

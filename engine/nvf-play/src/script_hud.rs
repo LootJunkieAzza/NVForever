@@ -124,9 +124,38 @@ pub struct ScriptHudPlugin;
 impl Plugin for ScriptHudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptHud>()
+            .init_resource::<SubtitleSettings>()
             .add_plugins((crate::message_menu::MessageMenuPlugin, crate::corner_messages::CornerMessagesPlugin, crate::quest_messages::QuestMessagesPlugin))
             .add_systems(Startup, spawn)
             .add_systems(Update, draw.in_set(crate::PlaySet::Ui).before(crate::message_menu::DrawBox));
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "world-subtitles",
+                group: crate::pause::GROUP_MENUS,
+                label: "Subtitles of lines said in the world",
+                note: "On: what actors say outside a conversation with you is written at the bottom of the screen. Off: only the lines a script forces (Say and SayTo with their subtitle flag) are written.",
+                get: |w| w.resource::<SubtitleSettings>().world,
+                set: |w, on| w.resource_mut::<SubtitleSettings>().world = on,
+                slider: None,
+            },
+        );
+    }
+}
+
+/// Whether the subtitles of lines said in the world are drawn (the settings page): the
+/// original's general subtitles, which a script's forced subtitle shows all the same
+/// [documented: GECK wiki Say and SayTo, ForceSubtitles / forceSubtitleFlag; hypothesis:
+/// the flag is about this setting]. On by default [design: NVForever drew them always
+/// before the setting].
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct SubtitleSettings {
+    pub world: bool,
+}
+
+impl Default for SubtitleSettings {
+    fn default() -> Self {
+        SubtitleSettings { world: true }
     }
 }
 
@@ -183,7 +212,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&crate::player::Player>, creator: bool) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&crate::player::Player>, creator: bool, world_subtitles: bool) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
     let Some(rt) = script.rt.as_ref() else { return (None, None, Subtitles::default()) };
     let g = &rt.game;
     let front = match g.menu {
@@ -214,8 +243,8 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
-        // (AlwaysShowActorSubtitles).
-        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) {
+        // (AlwaysShowActorSubtitles); a flat line (Say's is2D) is heard everywhere.
+        if !s.two_d && !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
@@ -227,8 +256,16 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         if text.is_empty() {
             continue;
         }
-        subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
-        if !talking {
+        // With the world's subtitles off only a forced one is drawn (`SubtitleSettings`);
+        // AlwaysShowActorSubtitles counts as forced [hypothesis].
+        let allowed = world_subtitles || s.forced_subtitle || g.always_subtitles(s.speaker);
+        let why = match (talking, allowed) {
+            (true, _) => " (not drawn: in dialogue)",
+            (false, false) => " (not drawn: subtitles off)",
+            (false, true) => "",
+        };
+        subs.push(format!("{who}: {text}{why}"));
+        if !talking && allowed {
             on_screen.push(text);
         }
     }
@@ -257,9 +294,9 @@ fn draw(
     areas: Query<Entity, With<SubtitleArea>>,
     player: Option<Res<crate::player::Player>>,
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
-    (creator, creator_menu): (Option<Res<crate::creator::CreatorData>>, Option<Res<crate::creator::CreatorMenu>>),
+    (creator, creator_menu, subtitle_settings): (Option<Res<crate::creator::CreatorData>>, Option<Res<crate::creator::CreatorMenu>>, Res<SubtitleSettings>),
 ) {
-    let (p, front, mut subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some());
+    let (p, front, mut subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some(), subtitle_settings.world);
     // No subtitles over the character creator; they are still logged [owner 2026-10-17].
     if creator_menu.is_some_and(|c| c.is_open()) {
         subs.on_screen.clear();

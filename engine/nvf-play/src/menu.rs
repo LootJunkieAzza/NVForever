@@ -608,7 +608,7 @@ fn apply_input(
             }
             let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
             info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
-            changed.write(RefChanged { form_id: id.0 });
+            changed.write(RefChanged { form_id: id.0, fade: false });
         }
         if a.close {
             info!("menu: close");

@@ -73,8 +73,30 @@ pub fn is_player_tag_skill(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, 
     yes(g.player.tag_skills.contains(&a.code(0)?))
 }
 
+/// `SetPlayerTagSkill skill index`: the skill becomes the tag skill in slot `index`,
+/// 0–3 [documented: GECK wiki SetPlayerTagSkill, "Sets a specified skill to be the tag
+/// skill in a specified index (0-3)"]. The skill the slot held before is no longer
+/// tagged, unless another slot holds it too [hypothesis: a slot holds one skill, as the
+/// index suggests]. An index above 3 does nothing [documented: same page, "seems to have
+/// no effect"]. Without an index the skill is tagged with no slot (as tags from the
+/// tag-skill menu, which has none).
 pub fn set_player_tag_skill(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.tag_skills.insert(a.code(0)?);
+    let skill = a.code(0)?;
+    let p = &mut g.player;
+    let Some(slot) = a.get(1).map(|_| a.num(1)).transpose()? else {
+        p.tag_skills.insert(skill);
+        return none();
+    };
+    if !(0.0..4.0).contains(&slot) {
+        return none();
+    }
+    let slot = slot as u8;
+    if let Some(was) = p.tag_slots.insert(slot, skill).filter(|&s| s != skill) {
+        if !p.tag_slots.values().any(|&s| s == was) {
+            p.tag_skills.remove(&was);
+        }
+    }
+    p.tag_skills.insert(skill);
     none()
 }
 

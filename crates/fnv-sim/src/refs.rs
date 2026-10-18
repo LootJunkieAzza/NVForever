@@ -47,6 +47,11 @@ pub struct Teleport {
 pub struct EnableParent {
     pub reference: FormId,
     pub opposite: bool,
+    /// XESP flag "Pop In": the child appears at once when the parent is enabled, where
+    /// it would fade in [documented: GECK wiki Enable, the children "fade in by default"
+    /// unless "Pop In" is checked]. Not in the dumps (`fnvtool`), which keep their form.
+    #[serde(skip)]
+    pub pop_in: bool,
 }
 
 /// A volume stored on the reference itself (XPRM) rather than in a model: trigger
@@ -344,6 +349,7 @@ fn load_ref(
         Some(EnableParent {
             reference: fid(v.get("reference"), "XESP", issues)?,
             opposite: v.get("flags").is_some_and(|f| has_flag(f, "Set Enable State to Opposite of Parent")),
+            pop_in: v.get("flags").is_some_and(|f| has_flag(f, "Pop In")),
         })
     });
     Some(PlacedRef {

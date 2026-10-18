@@ -1012,6 +1012,10 @@ impl EffectCtx for PlayCtx<'_> {
         (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), m.display_seconds.map(|s| s as f32))
     }
 
+    fn pops_in(&self, r: FormId) -> bool {
+        self.sim.refs.get(r).and_then(|p| p.enable_parent).is_some_and(|e| e.pop_in)
+    }
+
     fn enable_children(&self, r: FormId) -> Vec<FormId> {
         let mut out = Vec::new();
         let mut todo = vec![r];
@@ -1109,12 +1113,14 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// SetGlobalTimeMultiplier (`UiRequests::time_multiplier`): the virtual clock runs at that
 /// speed, so everything driven by `Time` (animations, physics, NPCs, the scripts' frame
 /// time, the game clock) slows down or speeds up together [documented: GECK wiki
-/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Its sounds keep their speed and pitch
-/// [engineering choice: the shipped slow motion asks for that, QUST 0x00102037 stage 27].
+/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Sound follows it, as the engine's own slow
+/// motion's does ([`crate::audio_out::clock_sound`]), unless the call's
+/// `keepSoundUnchanged` was 1 [documented: same page] (`UiRequests::keep_sound`; the
+/// shipped slow motion passes 1, QUST 0x00102037 stage 27 [observed]).
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
-/// (`crate::vats_mode`, docs/design/vats-mode.md §4); those two also slow sound
-/// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
+/// (`crate::vats_mode`, docs/design/vats-mode.md §4); those two always slow sound
+/// (`audio_out::SoundSpeed`).
 fn time_multiplier(
     script: Res<ScriptState>,
     scale: Option<Res<ClockScale>>,
@@ -1135,7 +1141,8 @@ fn time_multiplier(
         clock.set_relative_speed(want);
     }
     if let Some(mut sound) = sound {
-        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine)));
+        let clock = if rt.game.ui.keep_sound { engine } else { want };
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::clock_sound(clock)));
     }
 }
 
@@ -1233,7 +1240,7 @@ pub(crate) fn run_scripts(
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
-                                changed.write(RefChanged { form_id: id.0 });
+                                changed.write(RefChanged { form_id: id.0, fade: false });
                             }
                         }
                         Err(e) => warn!("load: {}: {e}; the game goes on from the plugins", path.display()),
@@ -1413,7 +1420,12 @@ pub(crate) fn run_scripts(
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
-                    changed.write(RefChanged { form_id: id });
+                    changed.write(RefChanged { form_id: id, fade: false });
+                }
+            }
+            ScriptEffect::RefFaded(id) => {
+                if sent.insert(id) {
+                    changed.write(RefChanged { form_id: id, fade: true });
                 }
             }
             ScriptEffect::Travel(t) if crate::stress::holds_player() => {
@@ -1555,8 +1567,8 @@ fn log_event(data: &GameData, e: &Event) {
             let hidden = if hidden.is_empty() { String::new() } else { format!(" (hidden by their conditions: {hidden:?})") };
             info!("script: message {} {:?}{}{hidden}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })
         }
-        EventKind::RefEnabled { reference } => info!("script: {} enabled", n(*reference)),
-        EventKind::RefDisabled { reference } => info!("script: {} disabled", n(*reference)),
+        EventKind::RefEnabled { reference, fade } => info!("script: {} enabled{}", n(*reference), if *fade { " (fading in)" } else { "" }),
+        EventKind::RefDisabled { reference, fade } => info!("script: {} disabled{}", n(*reference), if *fade { " (fading out)" } else { "" }),
         EventKind::Scaled { reference, scale } => info!("script: {} scaled to {scale}", n(*reference)),
         EventKind::Moved { reference, cell, pos } => info!("script: {} moved to {cell:?} {pos:?}", n(*reference)),
         EventKind::Activated { reference, by, outcome } => {

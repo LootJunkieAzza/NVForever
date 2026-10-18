@@ -489,7 +489,7 @@ fn objects(
         *ws.stats.impacts.entry(i.material).or_default() += 1;
         ws.stats.impacts_no_material += i.no_material as u32;
     }
-    for &RefChanged { form_id: id } in changed.read() {
+    for &RefChanged { form_id: id, .. } in changed.read() {
         let Some(s) = sim.world.peek(FormId(id)) else { continue };
         if !ws.forms.items.contains_key(&s.base) {
             continue;

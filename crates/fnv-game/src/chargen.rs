@@ -240,8 +240,20 @@ impl TagSheet {
     /// tag that AddTagSkills asked for (used up by this opening): the skills tagged
     /// before stay tagged and the player picks that many more [documented: GECK wiki
     /// AddTagSkills, "the player may not un-Tag their initial Tagged Skills"].
+    ///
+    /// SetTagSkills n asks for n tags in all [documented: GECK wiki SetTagSkills, "the
+    /// number reflects the total number to be selected"]; with its second parameter 0 the
+    /// skills tagged before are not shown, so the picks replace them [documented: same
+    /// page, "not shown, allowing them to be overwritten"; Done replaces the tags either
+    /// way].
     pub fn for_menu(g: &mut Game) -> TagSheet {
         let mut s = TagSheet::of_player(g);
+        if let Some(t) = g.ui.set_tags.take() {
+            if !t.show_tagged {
+                s.tagged.clear();
+            }
+            s.count = t.total;
+        }
         if let Some(n) = g.ui.extra_tags.take() {
             s.count = s.tagged.len() + n;
             s.locked = s.tagged.clone();
@@ -287,8 +299,10 @@ impl TagSheet {
         av::capped(skill, now - was + will).round() as i32
     }
 
-    /// Done: the player's tags become the sheet's.
+    /// Done: the player's tags become the sheet's (none of them in a SetPlayerTagSkill
+    /// slot).
     pub fn apply(&self, g: &mut Game) {
+        g.player.tag_slots.clear();
         g.player.tag_skills.retain(|c| !SKILLS.contains(c));
         g.player.tag_skills.extend(self.tagged.iter().copied());
     }

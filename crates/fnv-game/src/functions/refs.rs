@@ -6,24 +6,28 @@ use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
-/// Enable / disable; the fade flag is presentation only.
-pub fn enable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+/// `ref.Enable [FadeIn]` / `ref.Disable [FadeOut]`. The fade is how the reference is
+/// drawn coming and going, the engine's (`nvf_play` `ref_fade`): Enable fades in unless
+/// its flag is 0, Disable fades out only with its flag 1 [documented: GECK wiki Enable
+/// and Disable, "Default = 1" / "Default = 0"]. In the simulation the reference is
+/// enabled or disabled at once either way.
+pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
     g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
-        g.emit(EventKind::RefEnabled { reference: r });
+        g.emit(EventKind::RefEnabled { reference: r, fade: a.num_or(0, 1.0) != 0.0 });
         g.note_enabled(r);
     }
     none()
 }
 
-pub fn disable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
-        g.emit(EventKind::RefDisabled { reference: r });
+        g.emit(EventKind::RefDisabled { reference: r, fade: a.num_or(0, 0.0) != 0.0 });
     }
     none()
 }

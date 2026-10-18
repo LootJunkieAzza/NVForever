@@ -605,14 +605,14 @@ fn entries_added_to_a_leveled_list_count_and_persist() {
     let mut w = World::new(&f.forms, &f.refs, cfg);
     // LL_LOOT picks among its highest eligible level (5: CAPS x10); an entry at level 7
     // becomes the only one of the highest level.
-    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(KEY), count: 2 }).unwrap();
+    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(KEY), count: 2, condition: None }).unwrap();
     assert_eq!(w.add_item(FormId::PLAYER_REF, id(LL_LOOT), 1).unwrap(), vec![(id(KEY), 2)]);
     let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
     let mut again = World::restore(&f.forms, &f.refs, &snap).unwrap();
     assert_eq!(again.leveled_added(id(LL_LOOT)).len(), 1);
     assert_eq!(again.add_item(FormId::PLAYER_REF, id(LL_LOOT), 1).unwrap(), vec![(id(KEY), 2)]);
-    assert!(w.add_to_leveled_list(id(STIMPAK), LeveledEntry { level: 1, item: id(KEY), count: 1 }).is_err(), "not a leveled list");
-    assert!(w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 1, item: id(0xDEAD), count: 1 }).is_err(), "unknown form");
+    assert!(w.add_to_leveled_list(id(STIMPAK), LeveledEntry { level: 1, item: id(KEY), count: 1, condition: None }).is_err(), "not a leveled list");
+    assert!(w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 1, item: id(0xDEAD), count: 1, condition: None }).is_err(), "unknown form");
 }
 
 #[test]
@@ -875,6 +875,62 @@ fn equipping_follows_slots() {
     assert!(!w.peek(id(SAFE_REF)).unwrap().inventory.as_ref().unwrap().is_equipped(id(RIFLE)));
     assert!(w.unequip(p, id(SUIT)).unwrap());
     assert!(!w.unequip(p, id(SUIT)).unwrap());
+}
+
+/// EquipItem's NoUnequipFlag and UnequipItem's NoEquipFlag (`EquipLocks`): an item kept
+/// on blocks its slot, an item kept off is refused, and the locks are saved.
+#[test]
+fn equip_locks_hold_a_slot_and_keep_an_item_off() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    for it in [PISTOL, RIFLE, HAT, HELMET] {
+        w.add_item(p, id(it), 1).unwrap();
+    }
+    w.equip(p, id(HAT)).unwrap();
+    w.equip_locks_mut(p).unwrap().no_unequip.insert(id(HAT));
+    assert!(!w.can_unequip(p, id(HAT)));
+    assert_eq!(w.equip(p, id(HELMET)), Err(SimError::EquipLocked { item: id(HELMET), by: Some(id(HAT)) }), "the hat holds the head");
+    w.equip(p, id(HAT)).unwrap();
+    w.equip(p, id(PISTOL)).unwrap();
+    w.equip_locks_mut(p).unwrap().no_equip.insert(id(RIFLE));
+    assert_eq!(w.equip(p, id(RIFLE)), Err(SimError::EquipLocked { item: id(RIFLE), by: None }));
+    assert!(w.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(id(PISTOL)));
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert!(!back.can_unequip(p, id(HAT)));
+    assert!(back.peek(p).unwrap().equip_locks.no_equip.contains(&id(RIFLE)));
+}
+
+/// RemoveAllItems' retain-ownership flag (`World::transfer_all_owned`).
+#[test]
+fn moving_everything_keeps_or_clears_the_owner() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let owner = Some(id(SAFE_REF));
+    for keep in [true, false] {
+        let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+        let p = FormId::PLAYER_REF;
+        w.add_item_extra(p, id(PISTOL), 1, Extra { condition: Some(0.5), owner, ..Extra::default() }).unwrap();
+        w.transfer_all_owned(p, id(SAFE_REF), keep).unwrap();
+        let inv = w.peek(id(SAFE_REF)).unwrap().inventory.clone().unwrap();
+        let moved: Vec<_> = inv.groups().filter(|g| g.0 == id(PISTOL)).map(|g| g.1).collect();
+        assert_eq!(moved, vec![Extra { condition: Some(0.5), owner: if keep { owner } else { None }, ..Extra::default() }], "keep {keep}");
+    }
+}
+
+/// AddItemToLeveledList's health: the weapons the entry gives come at that condition.
+#[test]
+fn a_leveled_entry_health_reaches_its_weapons() {
+    use fnv_sim::forms::LeveledEntry;
+    let f = fixture();
+    let cfg = SimConfig { seed: 3, player_level: 10, ..SimConfig::default() };
+    let mut w = World::new(&f.forms, &f.refs, cfg);
+    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(PISTOL), count: 1, condition: Some(0.6) }).unwrap();
+    let p = FormId::PLAYER_REF;
+    assert_eq!(w.add_item(p, id(LL_LOOT), 1).unwrap(), vec![(id(PISTOL), 1)]);
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!(inv.groups().filter(|g| g.0 == id(PISTOL)).map(|g| g.1.condition).collect::<Vec<_>>(), vec![Some(0.6)]);
 }
 
 #[test]

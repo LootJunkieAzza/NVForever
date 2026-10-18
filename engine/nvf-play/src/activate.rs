@@ -49,6 +49,7 @@ impl Plugin for ActivatePlugin {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
+            .init_resource::<crate::ref_fade::RefFades>()
             .insert_resource(AutoActivate::from_env())
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
@@ -443,7 +444,7 @@ fn activate(
     for e in effects {
         match e {
             Effect::RefChanged(form_id) => {
-                changed.write(RefChanged { form_id });
+                changed.write(RefChanged { form_id, fade: false });
             }
             Effect::Travel { world, interior, feet, heading_deg } => {
                 let to = match (interior, world) {
@@ -472,29 +473,47 @@ type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibi
 
 /// Hide or show `RefVisual` entities from the simulation's state: every entity of a
 /// reference named by `RefChanged`, and new entities as cells stream in (a taken item
-/// must not come back when its cell reloads).
+/// must not come back when its cell reloads). A change with a fade starts it
+/// (`crate::ref_fade`): a reference fading out stays drawn until the fade is over.
 fn sync_visuals(
     sim: Res<SimState>,
+    time: Res<Time>,
+    mut fades: ResMut<crate::ref_fade::RefFades>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,
 ) {
     let mut present: HashMap<u32, bool> = HashMap::new();
     for (r, mut v) in &mut visuals.p0() {
-        if !*present.entry(r.0).or_insert_with(|| sim.present(r.0)) {
+        if !*present.entry(r.0).or_insert_with(|| sim.present(r.0) || fades.fading_out(r.0)) {
             v.set_if_neq(Visibility::Hidden);
         }
     }
-    let mut changed: HashMap<u32, usize> = changes.read().map(|m| (m.form_id, 0)).collect();
+    let mut changed: HashMap<u32, usize> = HashMap::new();
+    for m in changes.read() {
+        changed.insert(m.form_id, 0);
+        if m.fade {
+            fades.start(m.form_id, sim.present(m.form_id), time.elapsed_secs());
+        } else {
+            // A change without a fade (Enable 0 while it fades out) ends a running one.
+            fades.cancel(m.form_id);
+        }
+    }
     if changed.is_empty() {
         return;
     }
+    let drawn = |id: u32| sim.present(id) || fades.fading_out(id);
     for (r, mut v) in &mut visuals.p1() {
         if let Some(n) = changed.get_mut(&r.0) {
-            v.set_if_neq(if sim.present(r.0) { Visibility::Inherited } else { Visibility::Hidden });
+            v.set_if_neq(if drawn(r.0) { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }
     for (id, n) in changed {
-        info!("reference 0x{id:08X} {}: {n} render entities updated", if sim.present(id) { "present" } else { "gone" });
+        let state = match (sim.present(id), fades.fading_out(id)) {
+            (true, _) => "present",
+            (false, true) => "fading out",
+            (false, false) => "gone",
+        };
+        info!("reference 0x{id:08X} {state}: {n} render entities updated");
     }
 }

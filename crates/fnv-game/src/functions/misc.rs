@@ -203,22 +203,44 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// says the topic's first line it can say to the target (`Game::say`,
 /// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said; with
 /// `noTargetLookFlag` 1 the target is not made to look at the speaker [documented: GECK
-/// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). The
-/// subtitle flag is not read (subtitles are always shown).
+/// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). With
+/// `forceSubtitleFlag` 1 the line's subtitle shows even where the world's subtitles are
+/// off [documented: same page, "force subtitles"] (`Speech::forced_subtitle`).
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
-    if g.say(speaker, Some(target), topic, true).is_some() && a.num_or(3, 0.0) != 0.0 {
-        g.set_line_look(speaker, LineLook::Speaker);
+    if g.say(speaker, Some(target), topic, true).is_some() {
+        if a.num_or(3, 0.0) != 0.0 {
+            g.set_line_look(speaker, LineLook::Speaker);
+        }
+        if a.num_or(2, 0.0) != 0.0 {
+            g.force_line_subtitle(speaker);
+        }
     }
     none()
 }
 
-/// `speaker.Say topic`: as SayTo, with no listener.
+/// `speaker.Say topic [ForceSubtitles] [Actor] [is2D] [isVoice]`: as SayTo, with no
+/// listener; ForceSubtitles as SayTo's flag. The wiki gives the other three only their
+/// names and types [documented: GECK wiki Say]. `is2D` 1 says the line flat, heard
+/// wherever the player is (`Speech::two_d`) [hypothesis from the name: the one shipped
+/// user is Old World Blues' stealth suit, whose voice is a creature reference
+/// (NVDLC03StealthSuitVoiceCrREF) that says its lines with is2D 1 to the player wearing
+/// the suit, observed: OldWorldBlues.esm, `fnvtool script decompile`]. `Actor` is not
+/// read: those calls name the speaker's own base (NVDLC03StealthSuitVoiceCr), so what
+/// another actor would change is not seen; `isVoice` is passed by no shipped script
+/// (docs/design/script-function-params.md §3).
 pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let topic = a.form(0)?;
-    g.say(speaker, None, topic, false);
+    if g.say(speaker, None, topic, false).is_some() {
+        if a.num_or(1, 0.0) != 0.0 {
+            g.force_line_subtitle(speaker);
+        }
+        if a.num_or(3, 0.0) != 0.0 {
+            g.set_line_2d(speaker);
+        }
+    }
     none()
 }
 
@@ -233,15 +255,23 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// player overhears them (`Game::start_actor_conversation`, docs/spec-notes/dialogue.md
 /// §5.1). There `headTrack` 0 turns nobody for the whole conversation [documented:
 /// "Enter 0 to disable" head tracking during the conversation; hypothesis: left out, it
-/// is on] (`Game::facings`); the location references and allow-movement are not read,
-/// nor is head-track in a conversation with the player.
+/// is on] (`Game::facings`), and `allowMovement` 1 lets the two walk on while they talk
+/// [documented: same page, "Enter 1 to enable movement during conversation"; hypothesis:
+/// left out, they stand still, as before the parameter was read]
+/// (`Game::held_by_conversation`). The location references are not read: they help the
+/// walk up [documented: "presumably facilitates AI pathing"], which is not built; nor
+/// are head-track and allow-movement in a conversation with the player, which holds
+/// everyone (the menu).
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
     if target != fnv_sim::FormId::PLAYER_REF {
         // Refusals are not errors of the script, as below.
-        if g.start_actor_conversation(speaker, target, a.opt_form(1)).is_ok() && a.num_or(4, 1.0) == 0.0 {
-            g.set_line_look(speaker, LineLook::Nobody);
+        if g.start_actor_conversation(speaker, target, a.opt_form(1)).is_ok() {
+            if a.num_or(4, 1.0) == 0.0 {
+                g.set_line_look(speaker, LineLook::Nobody);
+            }
+            g.set_line_moving(speaker, a.num_or(5, 0.0) != 0.0);
         }
         return none();
     }
@@ -315,7 +345,10 @@ pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, St
 }
 
 /// SetTagSkills: the tag-skill menu.
-pub fn set_tag_skills(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+pub fn set_tag_skills(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let total = a.int(0)?.max(0) as usize;
+    // The second parameter defaults to 1 [documented: GECK wiki SetTagSkills].
+    g.ui.set_tags = Some(super::ui::SetTags { total, show_tagged: a.num_or(1, 1.0) != 0.0 });
     open(g, menus::TAG_SKILLS)
 }
 
@@ -394,7 +427,10 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
 }
 
 /// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
-pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    // "iPoints is the total number of SPECIAL points the player will have to distribute"
+    // [documented: GECK wiki ShowLoveTesterMenuParams]: SetSPECIALPoints' rule.
+    g.ui.special = Some(super::ui::SpecialMenu::Set(a.int(0)?));
     open(g, menus::LOVE_TESTER)
 }
 
@@ -439,9 +475,10 @@ pub fn is_dlc_installed(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// `SetGlobalTimeMultiplier mult [keepSoundUnchanged]`: the speed of the whole game,
 /// 1 normal, 0.5 slow motion [documented: GECK wiki SetGlobalTimeMultiplier]. The
-/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`); sound speed and
-/// pitch are not changed either way (the second parameter's "unchanged" is the only
-/// behaviour; the shipped slow motion asks for it, `QUST 0x00102037` stage 27 [observed]).
+/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`). Sounds slow down
+/// or speed up with it unless `keepSoundUnchanged` is 1 (default 0) [documented: same
+/// page, "sounds will not be sped up/slowed down"] (`UiRequests::keep_sound`); the shipped
+/// slow motion keeps them (`QUST 0x00102037` stage 27 passes 1 [observed]).
 /// 0 "will break the game" [documented]: values at or below 0 are refused.
 pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.num(0)?;
@@ -449,6 +486,7 @@ pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
         return Err(format!("time multiplier {m} refused (must be above 0)"));
     }
     g.ui.time_multiplier = Some(m);
+    g.ui.keep_sound = a.num_or(1, 0.0) != 0.0;
     none()
 }
 

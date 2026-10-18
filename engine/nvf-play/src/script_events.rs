@@ -19,6 +19,9 @@ pub enum ScriptEffect {
     /// A reference's presence changed (enabled, disabled, picked up by a scripted
     /// activation): visuals and collision follow (`crate::RefChanged`).
     RefChanged(u32),
+    /// As `RefChanged`, fading in or out (Enable's FadeIn, Disable's FadeOut,
+    /// `crate::ref_fade`).
+    RefFaded(u32),
     /// The player was moved by a script (`MoveTo`) or went through a door a script
     /// activated.
     Travel(Travel),
@@ -124,6 +127,11 @@ pub trait EffectCtx {
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>);
     /// References whose enable parent chain leads to `r` (their presence follows it).
     fn enable_children(&self, r: FormId) -> Vec<FormId>;
+    /// Whether an enable child's XESP says "Pop In" (it does not fade in with its
+    /// parent).
+    fn pops_in(&self, _r: FormId) -> bool {
+        false
+    }
     /// The player's compass heading in degrees (kept across a scripted MoveTo).
     fn player_heading_deg(&self) -> f32;
     fn destination(&self, cell: Option<FormId>) -> Destination;
@@ -233,19 +241,26 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
         events.iter().filter_map(on).collect()
     };
     let mut announced = BTreeSet::new();
-    let changed = |out: &mut Vec<ScriptEffect>, r: FormId| {
-        out.push(ScriptEffect::RefChanged(r.0));
+    // `fade`: the reference fades; `children_fade`: its enable children fade too, those
+    // without "Pop In" [documented: GECK wiki Enable: the fade-in flag is not passed on,
+    // the children are enabled with the default fade-in; Disable: the children "pop
+    // out"] (`crate::ref_fade`).
+    let changed_as = |out: &mut Vec<ScriptEffect>, r: FormId, fade: bool, children_fade: bool| {
+        out.push(if fade { ScriptEffect::RefFaded(r.0) } else { ScriptEffect::RefChanged(r.0) });
         for c in ctx.enable_children(r) {
-            out.push(ScriptEffect::RefChanged(c.0));
+            out.push(if children_fade && !ctx.pops_in(c) { ScriptEffect::RefFaded(c.0) } else { ScriptEffect::RefChanged(c.0) });
         }
     };
+    let changed = |out: &mut Vec<ScriptEffect>, r: FormId| changed_as(out, r, false, false);
     for (i, e) in events.iter().enumerate() {
         if skip.contains(&i) {
             continue;
         }
         match &e.kind {
             // A new scale changes the reference's collision too (`crate::phys`).
-            EventKind::RefEnabled { reference } | EventKind::RefDisabled { reference } | EventKind::Scaled { reference, .. } => changed(&mut out, *reference),
+            EventKind::RefEnabled { reference, fade } => changed_as(&mut out, *reference, *fade, true),
+            EventKind::RefDisabled { reference, fade } => changed_as(&mut out, *reference, *fade, false),
+            EventKind::Scaled { reference, .. } => changed(&mut out, *reference),
             EventKind::Moved { reference, cell, pos } if *reference == player => {
                 let (world, interior) = match ctx.destination(*cell) {
                     Destination::Interior(c) => (None, Some(c)),
@@ -755,6 +770,9 @@ mod tests {
                 Vec::new()
             }
         }
+        fn pops_in(&self, r: FormId) -> bool {
+            r == GRANDCHILD
+        }
         fn player_heading_deg(&self) -> f32 {
             90.0
         }
@@ -785,10 +803,26 @@ mod tests {
     #[test]
     fn enable_and_disable_change_the_reference_and_its_children() {
         assert_eq!(
-            run(vec![EventKind::RefDisabled { reference: PARENT }]),
+            run(vec![EventKind::RefDisabled { reference: PARENT, fade: false }]),
             vec![ScriptEffect::RefChanged(PARENT.0), ScriptEffect::RefChanged(CHILD.0), ScriptEffect::RefChanged(GRANDCHILD.0)]
         );
-        assert_eq!(run(vec![EventKind::RefEnabled { reference: CHILD }]), vec![ScriptEffect::RefChanged(CHILD.0)]);
+        assert_eq!(run(vec![EventKind::RefEnabled { reference: CHILD, fade: false }]), vec![ScriptEffect::RefChanged(CHILD.0)]);
+    }
+
+    #[test]
+    fn fades_reach_the_children_on_enable_only_and_not_those_that_pop_in() {
+        // Disable's fade-out is the parent's alone: the children pop out.
+        assert_eq!(
+            run(vec![EventKind::RefDisabled { reference: PARENT, fade: true }]),
+            vec![ScriptEffect::RefFaded(PARENT.0), ScriptEffect::RefChanged(CHILD.0), ScriptEffect::RefChanged(GRANDCHILD.0)]
+        );
+        // Enable 0 pops the parent in; its children fade in all the same, but for the one
+        // flagged Pop In (`Fake::pops_in`: the grandchild).
+        assert_eq!(
+            run(vec![EventKind::RefEnabled { reference: PARENT, fade: false }]),
+            vec![ScriptEffect::RefChanged(PARENT.0), ScriptEffect::RefFaded(CHILD.0), ScriptEffect::RefChanged(GRANDCHILD.0)]
+        );
+        assert_eq!(run(vec![EventKind::RefEnabled { reference: CHILD, fade: true }]), vec![ScriptEffect::RefFaded(CHILD.0)]);
     }
 
     #[test]
@@ -895,7 +929,7 @@ mod tests {
         let events = vec![
             ev(EventKind::Activated { reference: FormId(0x55), by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&pick).unwrap()) }),
             ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false }),
-            ev(EventKind::RefDisabled { reference: FormId(0x66) }),
+            ev(EventKind::RefDisabled { reference: FormId(0x66), fade: false }),
         ];
         let e = effects(&events, &BTreeSet::from([0, 1]), &Fake);
         assert_eq!(e, vec![ScriptEffect::RefChanged(0x66)]);

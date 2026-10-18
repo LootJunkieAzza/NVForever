@@ -847,11 +847,24 @@ impl MenuModel {
             (Mode::Inventory, Command::One) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 out.changed = true;
+                // A script's EquipItem / UnequipItem lock holds against the player's own
+                // choice (`fnv_sim::EquipLocks`) [documented: GECK wiki EquipItem,
+                // UnequipItem: "actor (including the player)"]; the line is NVForever's.
                 if r.equipped {
+                    if !world.can_unequip(PLAYER, r.item) {
+                        out.changed = false;
+                        return Ok(format!("{} can't be unequipped now", name(&r)));
+                    }
                     world.unequip(PLAYER, r.item)?;
                     return Ok(format!("Unequipped {}", name(&r)));
                 }
-                let e = world.equip_at(PLAYER, r.item, r.at)?;
+                let e = match world.equip_at(PLAYER, r.item, r.at) {
+                    Err(SimError::EquipLocked { .. }) => {
+                        out.changed = false;
+                        return Ok(format!("{} can't be equipped now", name(&r)));
+                    }
+                    other => other?,
+                };
                 if e.consumed {
                     out.used = Some(r.item);
                 }
