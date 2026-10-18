@@ -4771,7 +4771,7 @@ args = ["--play", "--new-game", "--no-voice"]
 run_seconds = 34
 order = [[
   { re = 'film: playing video\\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, Esc ends it, letterboxed\)$', label = "the opening's call plays the intro film, interruptible, music not paused, letterboxed" },
-  { text = "pointer: hidden (the intro film)", label = "no mouse pointer over the film" },
+  { text = "pointer: hidden (a film)", label = "no mouse pointer over the film (logged as the film starts over the hidden pointer)" },
   "film: screenshot film.png at 3 s",
   { re = 'film: skipped at 6\.\d s \(test aid NVF_PLAY_TEST_INTRO_SKIP\)', label = "skipped (test aid) after 6 s" },
   "film: the game goes on",

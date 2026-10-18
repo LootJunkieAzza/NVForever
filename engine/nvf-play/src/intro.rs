@@ -156,6 +156,11 @@ impl Intro {
         self.playing.is_some()
     }
 
+    /// A script's film (PlayBink) is playing, not the intro before a new game.
+    pub fn playing_script_film(&self) -> bool {
+        self.playing.as_ref().is_some_and(|p| matches!(p.film, Film::Script(_)))
+    }
+
     /// The music is silent: under the intro, and under a scripted film that pauses it.
     pub fn silences_music(&self) -> bool {
         self.playing.as_ref().is_some_and(|p| match &p.film {
