@@ -5638,6 +5638,26 @@ guesses to check against the game:
 - **A second crippling while it shows** starts the 5 s again and only the new limb
   flashes; healing a limb shows nothing.
 
+## Saves from scripts and PlaceAtReticle (2026-10-18, branch claude/blockers-save-reticle-d710e4)
+
+SystemSave, ForceSave and PlaceAtReticle are built (docs/spec-notes/script-saves-and-reticle.md;
+smoke `script-saves-reticle`). The wiki leaves these open; my choices:
+
+- **SystemSave waits** for a moment saving is allowed (after a conversation, a menu or a
+  loading screen), as an autosave does, rather than being dropped: the one base-game use
+  is the save before the battle for Hoover Dam. It writes the slot `systemsave` (load page
+  kind "system"); the previous one is kept as `.bak`.
+- **ForceSave fails** when saving is not allowed at that moment, as a save by hand does
+  (the wiki: it fails while a message box shows). It names the save `Save <n>` as the
+  pause menu's Save button does.
+- Both follow the **"Save when a script asks"** switch (formerly "Autosave when a script
+  asks"; INI key unchanged).
+- **PlaceAtReticle**: the crosshair's ray out to 50000 units; left out, maxDistance is
+  50000; nothing hit within it places nothing and returns 0; the new reference goes in the
+  player's cell, turned to the player's heading, exactly at the hit (not lifted off the
+  surface). A game check of where `player.placeatreticle Stimpak 1` lands, and what it
+  returns while looking at the sky, would settle these.
+
 ## Angry faces in combat (2026-10-18, branch claude/compassionate-mendel-e1faec)
 
 An actor in Combat shows its heads' `CombatAnger` morph, fading in over 1 s and back out
@@ -5861,3 +5881,24 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Doc Mitchell's mirror (2026-10-18, branch claude/doc-mirror)
+
+Your report: the mirror Doc hands you before "How'd I do?" was not shown, and the
+hand-over played twice.
+
+- **Not shown.** The mirror (`animobjects\NVPropReflectron.NIF`, record
+  `VAODocGiveReflectron`) hangs from his right hand, but the part that is the mirror is
+  stored about 2 m away and is brought into the hand by a track of its own in the
+  hand-over clip. We drew the model as it is stored and never played that track, so the
+  mirror floated out of sight. Now the parts of a held object that the idle's clip has
+  tracks for follow those tracks (idles.md §10). This affects any held prop whose clip
+  moves it; the broom and the cigarette have no such tracks and are unchanged.
+- **Twice.** The game's data asks Doc for the hand-over twice, 3 s apart: the quest's
+  stage 30 plays it, then the line "How'd I do?" names the same animation. We started it
+  over the second time. Now an animation asked for by a script or a line while that same
+  animation still shows is not started over: Doc keeps holding the mirror out through
+  "How'd I do?" (idles.md §3).
+- **Guess.** That the game carries on instead of starting over, and that he holds the
+  pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
+  Doc keep the mirror held out until the face screen opens, or lower his arm?

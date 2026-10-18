@@ -80,13 +80,30 @@ pub struct IdlePlay {
     passes: Option<u32>,
     /// Seconds since the idle ended and began to fade out.
     out: Option<f32>,
+    /// Seconds the last pose is held at the end of the clip before the idle ends
+    /// ([`IdlePlay::again`]).
+    hold: f32,
 }
 
 impl IdlePlay {
     /// Start an idle that plays its loop `passes` times (`None`: until
     /// [`IdlePlay::leave_loop`] or [`IdlePlay::stop`]).
     pub fn new(keys: IdleKeys, passes: Option<u32>) -> IdlePlay {
-        IdlePlay { keys, t: 0.0, age: 0.0, passes: passes.map(|n| n.max(1)), out: None }
+        IdlePlay { keys, t: 0.0, age: 0.0, passes: passes.map(|n| n.max(1)), out: None, hold: 0.0 }
+    }
+
+    /// The same idle asked for again while this one still shows: it is not started over.
+    /// One under way plays on; one that ended (holding its last pose as it fades out)
+    /// shows in full again and holds that pose for another clip's length, then ends
+    /// [hypothesis: the opening asks Doc Mitchell for `VCG01DocGiveMirror` twice, 3 s
+    /// apart (stage 30's `PlayIdle`, then the next line's speaker idle), and he hands
+    /// the mirror over once, holding it out at "How'd I do?" (owner, 2026-10-18);
+    /// idles.md §3].
+    pub fn again(&mut self) {
+        if self.out.take().is_some() && self.t >= self.keys.length {
+            // Ends once `t` (past the clip's end while held) has gone one length further.
+            self.hold = self.t;
+        }
     }
 
     /// Advance by `dt` seconds; true in the step the idle ends (it reached the end of
@@ -110,7 +127,7 @@ impl IdlePlay {
             self.t -= span;
             self.passes = self.passes.map(|n| n - 1);
         }
-        if self.passes == Some(1) && self.t >= self.keys.length {
+        if self.passes == Some(1) && self.t >= self.keys.length + self.hold {
             self.t = self.keys.length;
             self.out = Some(0.0);
             return true;
@@ -242,6 +259,24 @@ mod tests {
         let at = p.time();
         p.advance(0.25);
         assert_eq!((p.time(), p.weight()), (at, 0.5));
+    }
+
+    #[test]
+    fn asked_again_an_idle_is_not_started_over() {
+        // Under way: it plays on.
+        let mut p = IdlePlay::new(PLAIN, Some(1));
+        p.advance(1.0);
+        p.again();
+        assert_eq!((p.time(), p.ended()), (1.0, false));
+        // Ended and fading: it shows in full again, holds its last pose for another
+        // length, then ends.
+        run(&mut p, 10.0).unwrap();
+        p.advance(0.125);
+        p.again();
+        assert_eq!((p.time(), p.weight(), p.ended()), (2.0, 1.0, false));
+        let ended = run(&mut p, 10.0).unwrap();
+        assert!((ended - 2.0).abs() < 0.02, "{ended}");
+        assert_eq!(p.time(), 2.0);
     }
 
     #[test]
