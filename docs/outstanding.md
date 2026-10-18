@@ -19,12 +19,13 @@ left of knockdowns), used items and the remaining package types and flags (#400)
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
 (#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413), race and sex
 changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking activators
-(claude/actor-changes). 34 functions are still stubs.
+(claude/actor-changes). 31 functions are still stubs. Saves from scripts and PlaceAtReticle
+are built (rows 2 and 12, 2026-10-18, [script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)).
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
 | 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
-| 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
+| 2 | Saves from scripts (done 2026-10-18) | 29 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)): SystemSave writes the one system slot, ForceSave a new save as by hand; both behind the scripts' save switch | (none) |
 | 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
@@ -34,7 +35,7 @@ changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking a
 | 9 | Menu codes | 6 | MenuMode does not report every menu's code (the Pip-Boy's 1 and the loading codes) | MenuMode |
 | 10 | Caravan | 5 | The card game is not built | ShowCaravanMenu and its functions |
 | 11 | Race and sex changes (done 2026-10-18) | 5 | Built ([appearance-changes](spec-notes/appearance-changes.md) §2): AgeRace along the RACE age links and SexChange on any actor, drawn anew; SexChange's reset gives the player the first starting face (a guess). Every shipped call is on the player (the opening's VCG00 and VCG01) | (none) |
-| 12 | Placing at the crosshair | 5 | Cheap | PlaceAtReticle |
+| 12 | Placing at the crosshair (done 2026-10-18) | 5 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md) §4): the new reference goes where the crosshair's ray first hits, within maxDistance | (none) |
 | 13 | A leveled actor's level re-rolled (done 2026-10-18) | 4 | Built (appearance-changes.md §3): SetLevel on an NPC rolls its carried items again at its new level (the level a guess, probe ac1); every shipped call is on the player | (none) |
 | 14 | Cannibal and Mister Sandman (done 2026-10-18, awaiting the owner) | 3 | Built ([perk-activation](spec-notes/perk-activation.md)): the perks' Activate choices open a choice list on E (Devour, Murder, then the default action); StartCannibal, StartMisterSandman, GetCannibal, GetSandman, HasBeenEaten; idles and sounds. Guesses: how the list looks, the acts' 4 s, the crime | (none) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
