@@ -295,7 +295,8 @@ pub fn draw(
     let back = to_game.transform_vector3(cam.rotation * Vec3::Z).normalize_or(Vec3::Y);
     for b in st.bursts.values() {
         let shown = !b.particles.is_empty();
-        commands.entity(b.entity).insert(if shown { Visibility::Inherited } else { Visibility::Hidden });
+        // The burst's entity may have gone with the world root (a load); nothing to show then.
+        commands.entity(b.entity).try_insert(if shown { Visibility::Inherited } else { Visibility::Hidden });
         if !shown {
             continue;
         }

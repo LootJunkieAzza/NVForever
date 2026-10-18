@@ -52,6 +52,11 @@ def parser() -> argparse.ArgumentParser:
     t = tests.add_parser("tour", help=TESTS["tour"])
     common(t)
     t.add_argument("--world", default="WastelandNV")
+    t.add_argument("--path", choices=["towns", "ring"], default="towns",
+                   help="towns: Goodsprings, Primm, Mojave Outpost, Nipton, Novac, Camp McCarran, Nellis, Jacobstown "
+                        "and back (--towns to change them); ring: a ring on the walkable cells")
+    t.add_argument("--towns", nargs="+", default=None, metavar="CELL",
+                   help="exterior cell Editor IDs to go through in order, back to the first (with --path towns)")
     t.add_argument("--laps", type=int, default=1)
     t.add_argument("--waypoints", type=int, default=12, help="waypoints on the ring (without --route)")
     t.add_argument("--inset", type=float, default=0.3,
@@ -60,6 +65,9 @@ def parser() -> argparse.ArgumentParser:
     t.add_argument("--step", type=float, default=1024.0, help="units a step")
     t.add_argument("--dwell", type=float, default=1.0, help="seconds between steps")
     t.add_argument("--every", type=float, default=5.0, help="seconds between samples")
+    t.add_argument("--slice", default=None, metavar="START:END",
+                   help="only waypoints START to END (1-based) of the ring, to go over one stretch again "
+                        "(the waypoint numbers are the tour log's `at waypoint i/n`)")
     t.add_argument("--hang", type=float, default=180.0)
 
     b = tests.add_parser("battle", help=TESTS["battle"])
@@ -120,7 +128,14 @@ def main(argv=None) -> int:
             wid, _, _ = tour.world_bounds(ctx, a.world)
             # On the walkable world (the largest navmesh area), not the grid's bounds: the
             # grid runs on into empty landscape beyond the playable area.
-            pts = tour.ring_on_cells(tour.nav_cells(ctx, a.world), a.waypoints, a.inset)
+            nav = tour.nav_cells(ctx, a.world)
+            if a.path == "towns":
+                pts, stops = tour.town_route(tour.world_cells(ctx, a.world), nav, a.towns or tour.TOWNS)
+                print("tour: through " + ", ".join(stops))
+            else:
+                pts = tour.ring_on_cells(nav, a.waypoints, a.inset)
+            if a.slice:
+                pts = tour.slice_points(pts, a.slice)
             route = tour.route_text(wid, pts, a.step, a.dwell, a.laps)
             npts = len(pts)
             perimeter = sum(((pts[i][0] - pts[i - 1][0]) ** 2 + (pts[i][1] - pts[i - 1][1]) ** 2) ** 0.5 for i in range(len(pts)))

@@ -280,6 +280,16 @@ pub fn place_text() -> String {
     PLACE.try_lock().map(|p| p.clone()).unwrap_or_default()
 }
 
+/// `; where: <place>` for a log line, or nothing before the camera has a place.
+pub fn place_text_suffix() -> String {
+    let p = place_text();
+    if p.is_empty() {
+        p
+    } else {
+        format!("; where: {p}")
+    }
+}
+
 /// Log [`CLEAN_EXIT`] when the run ends normally.
 pub fn report_exit(mut exit: MessageReader<AppExit>) {
     if exit.read().next().is_some() {

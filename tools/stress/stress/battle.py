@@ -163,6 +163,7 @@ def run(ctx: lib.Ctx, per_side: int, third: int, seconds: float, every: float, c
         "peak": {k: peak(k) for k in ("working set", "private bytes", "projectiles", "ragdolls", "actors", "nan actors", "entities")},
         "combat": analyse(r.lines),
         "crash_groups": lib.group_crashes([("battle", c) for c in r.crashes]),
+        "stray_commands": lib.stray_commands(r.lines),
         "log": str(r.log),
         "tail": r.tail(15) if r.status != "ok" else [],
     }
@@ -194,6 +195,7 @@ def report(res: dict) -> list[str]:
     out += [f"- {k}: {v}" for k, v in sorted(c["system_times"].items())] or ["- none reported"]
     if res["crash_groups"]:
         out += ["", "## Crashes", ""] + [f"- {g['message']} at {g['location']}" for g in res["crash_groups"]]
+    out += lib.stray_report(res.get("stray_commands", {"count": 0}))
     if res["tail"]:
         out += ["", "## Last log lines", "", "```", *res["tail"], "```"]
     return out

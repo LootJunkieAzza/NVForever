@@ -278,6 +278,51 @@ class TourTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             tour.ring_on_cells([])
 
+    def test_the_town_route_goes_through_the_towns_on_walkable_cells(self):
+        # A U of walkable cells: the towns at its ends and bottom; the gap inside is not
+        # walkable, so the way from A to C goes round by B.
+        nav = [[x, y, 9] for x in range(0, 3) for y in range(0, 10)]
+        nav += [[x, y, 9] for x in range(3, 8) for y in range(0, 3)]
+        nav += [[x, y, 9] for x in range(8, 11) for y in range(0, 10)]
+        cells = [{"edid": "TownA", "grid": [1, 9]}, {"edid": "TownB", "grid": [5, 1]}, {"edid": "TownC", "grid": [9, 9]},
+                 {"edid": "Persistent", "grid": None}]
+        pts, stops = tour.town_route(cells, nav, ["TownA", "TownB", "TownC"])
+        on = {(x, y) for x, y, _ in nav}
+        cell = lambda p: (math.floor(p[0] / tour.CELL), math.floor(p[1] / tour.CELL))  # noqa: E731
+        self.assertTrue(all(cell(p) in on for p in pts))
+        self.assertEqual(cell(pts[0]), (1, 9))
+        self.assertEqual(stops[0], "TownA at point 1")
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            self.assertLessEqual(math.hypot(b[0] - a[0], b[1] - a[1]), 3 * tour.CELL, (a, b))
+        # The gap (x 3..7, y 3..9) is never stepped on.
+        self.assertFalse(any(3 <= cell(p)[0] <= 7 and cell(p)[1] >= 3 for p in pts))
+        # A town whose own cell has no navmesh is taken at the nearest navmesh cell.
+        pts2, _ = tour.town_route(cells + [{"edid": "Off", "grid": [5, 6]}], nav, ["TownA", "Off"])
+        self.assertTrue(all(cell(p) in on for p in pts2))
+        with self.assertRaises(ValueError):
+            tour.town_route(cells, nav, ["TownA", "Nowhere"])
+
+    def test_a_slice_of_the_route(self):
+        pts = [(i, i) for i in range(10)]
+        self.assertEqual(tour.slice_points(pts, "3:5"), [(2, 2), (3, 3), (4, 4)])
+        self.assertEqual(tour.slice_points(pts, "9:"), [(8, 8), (9, 9)])
+        with self.assertRaises(ValueError):
+            tour.slice_points(pts, "7:3")
+
+    def test_stray_entity_commands_are_counted_and_named(self):
+        lines = [
+            "WARN nvforever::stray_commands: stray entity command #1 (ignored; the entity is gone): command bevy_ecs::system::commands::entity_command::insert<Visibility>: Entity despawned: The entity with ID 4742v5 is invalid; where: WastelandNV cell -1,28, position -2958, 116277, 4443",
+            "WARN nvforever::stray_commands: stray entity command #2 (ignored; the entity is gone): command bevy_ecs::system::commands::entity_command::insert<Visibility>: Entity despawned: The entity with ID 99v2 is invalid",
+            "INFO other line",
+        ]
+        s = lib.stray_commands(lines)
+        self.assertEqual(s["count"], 2)
+        self.assertEqual(len(s["distinct"]), 1)
+        self.assertTrue(s["distinct"][0]["what"].startswith("command bevy_ecs::system::commands::entity_command::insert<Visibility>"))
+        self.assertEqual(s["distinct"][0]["where"], "WastelandNV cell -1,28, position -2958, 116277, 4443")
+        self.assertIn("Stray entity commands (2 logged, ignored)", "\n".join(lib.stray_report(s)))
+        self.assertEqual(lib.stray_report(lib.stray_commands([])), [])
+
     def sample(self, t, lap_entities):
         return (f"INFO nvforever::stress_sample: stress sample: t {t:.1f} s, frames 60, frame mean 16.70 ms, frame worst 30.10 ms, "
                 f"entities {lap_entities}, refs drawn 2000, meshes 900, images 1200, materials 300, audio 4, cells 25, "

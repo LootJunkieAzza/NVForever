@@ -118,6 +118,54 @@ def cell_path(on: set, start: tuple[int, int], goal: tuple[int, int]) -> list[tu
     return path[::-1]
 
 
+# The owner's lap of the Mojave (2026-10-18): Goodsprings, Primm, Mojave Outpost, Nipton,
+# Novac, Camp McCarran, Nellis, Jacobstown and back to Goodsprings, by the exterior cells'
+# Editor IDs [observed: fnvtool world cells, WastelandNV: Goodsprings -18,0, Primm
+# -14,-14, MojaveOutpost -21,-25, Nipton -8,-23, Novac 5,-9, CampMcCarranGate -5,18,
+# NellisAFBEntrance 6,29, Jacobstown -27,22].
+TOWNS = ["Goodsprings", "Primm", "MojaveOutpost", "Nipton", "Novac", "CampMcCarranGate", "NellisAFBEntrance", "Jacobstown"]
+
+
+def town_route(world_cells: list[dict], nav: list, towns: list[str] = TOWNS, fill: int = 2) -> tuple[list[tuple[float, float]], list[str]]:
+    """A closed route through `towns` (exterior cell Editor IDs, in order) over the
+    walkable cells: each town's cell (or the navmesh cell nearest it, when its own cell
+    has none), joined to the next along the navmesh cells ([`cell_path`]), a point every
+    `fill` cells. `world_cells`: fnvtool `world cells` rows (edid, grid). Returns the
+    points (game units) and, for each town, the index of its point."""
+    by_edid = {c["edid"].lower(): tuple(c["grid"]) for c in world_cells if c.get("edid") and c.get("grid")}
+    missing = [t for t in towns if t.lower() not in by_edid]
+    if missing:
+        raise ValueError(f"no exterior cell named {', '.join(missing)}")
+    on = {(x, y) for x, y, *_ in nav}
+    if not on:
+        raise ValueError("no navmesh cells")
+
+    def snap(c):
+        return c if c in on else min(on, key=lambda o: (o[0] - c[0]) ** 2 + (o[1] - c[1]) ** 2)
+
+    stops = [snap(by_edid[t.lower()]) for t in towns]
+    out: list[tuple[int, int]] = []
+    marks = []
+    for i, a in enumerate(stops):
+        marks.append(len(out))
+        path = cell_path(on, a, stops[(i + 1) % len(stops)])
+        keep = path[:-1][::fill]
+        for c in keep:
+            if not out or out[-1] != c:
+                out.append(c)
+    return [((x + 0.5) * CELL, (y + 0.5) * CELL) for x, y in out], [f"{t} at point {m + 1}" for t, m in zip(towns, marks)]
+
+
+def slice_points(points: list, spec: str) -> list:
+    """Waypoints `START:END` (1-based, both included) of a ring: a short route over one
+    stretch of it, to go over a place again (a crash's)."""
+    a, _, b = spec.partition(":")
+    lo, hi = max(1, int(a)), min(len(points), int(b) if b else len(points))
+    if lo > hi:
+        raise ValueError(f"empty slice {spec} of {len(points)} waypoints")
+    return points[lo - 1:hi]
+
+
 def route_text(world: str, points, step: float, dwell: float, laps: int) -> str:
     return (f"# tools/stress tour\nworld {world}\nstep {step:g}\ndwell {dwell:g}\nlaps {laps}\n"
             + "".join(f"{x:g} {y:g}\n" for x, y in points))
@@ -236,6 +284,12 @@ def write_csv(path, samples: list[dict]) -> None:
             f.write(",".join('"' + str(s.get(k, "")).replace('"', "'") + '"' if k == "at" else str(s.get(k, "")) for k in keys) + "\n")
 
 
+def world_cells(ctx: lib.Ctx, world: str) -> list[dict]:
+    """The worldspace's cells (`fnvtool world cells`, fnv.world.cells/1)."""
+    cmd = [str(ctx.fnvtool), "world", "cells", str(ctx.data), *ctx.masters, "--schema", "schemas/fnv", "--world", world]
+    return json.loads(subprocess.run(cmd, capture_output=True, text=True, cwd=ctx.repo, check=True).stdout)["cells"]
+
+
 def nav_cells(ctx: lib.Ctx, world: str) -> list:
     """The worldspace's walkable cells (`fnvtool nav cells`, fnv.nav.cells/1)."""
     cmd = [str(ctx.fnvtool), "nav", "cells", str(ctx.data), *ctx.masters, "--schema", "schemas/fnv", "--space", world]
@@ -285,6 +339,7 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
         "startup": startup,
         "hitches": hitches,
         "crash_groups": lib.group_crashes([("tour", c) for c in r.crashes]),
+        "stray_commands": lib.stray_commands(r.lines),
         "log": str(r.log),
         "tail": r.tail(15) if r.status != "ok" else [],
     }
@@ -322,6 +377,7 @@ def report(res: dict) -> list[str]:
             out.append(f"- **{k}**: lap {b['lap']} started near {b['start']:g}, ended near {b['end']:g} (peak {b['peak']:g})")
     if res["crash_groups"]:
         out += ["", "## Crashes", ""] + [f"- {g['message']} at {g['location']}" for g in res["crash_groups"]]
+    out += lib.stray_report(res.get("stray_commands", {"count": 0}))
     if res["tail"]:
         out += ["", "## Last log lines", "", "```", *res["tail"], "```"]
     return out

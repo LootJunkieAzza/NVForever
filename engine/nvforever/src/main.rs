@@ -76,6 +76,7 @@ mod outfits;
 mod pipboy_arm;
 mod player_body;
 mod stealth_field;
+mod stray_commands;
 mod post;
 mod particles;
 mod shot_fx;
@@ -1017,6 +1018,8 @@ fn main() -> AppExit {
         }
     };
     let mut app = App::new();
+    // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
+    app.set_error_handler(stray_commands::handler);
     app.add_plugins(
         DefaultPlugins
             .set(ImagePlugin {
@@ -1125,7 +1128,7 @@ fn main() -> AppExit {
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky))
     .add_systems(Startup, (crash::report_start, report_archives))
-    .add_systems(Last, (crash::note_place, crash::report_exit));
+    .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }

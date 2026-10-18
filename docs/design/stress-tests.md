@@ -107,20 +107,30 @@ visited, so a crash anywhere in loading shows up.
   "aborted", its state saved and the cells left not reached; `--resume` goes on.
 - **Results.** Totals (OK, crashed, hung, skipped, not reached), the mean and slowest
   loads, the crash groups with their cells, and each bad cell's last log lines.
+- **Stray entity commands.** A command the engine sends to an entity that is gone is
+  logged, not fatal (nvforever `stray_commands.rs`; Bevy's `debug` feature names the
+  command). Tour and battle reports list them, with the first place each was seen.
 
 ## 4. tour
 
 Long play's memory: what the engine holds, sampled along laps of the Mojave.
 
-- **The route.** A ring on the walkable world: the exterior cells of the worldspace's
-  largest connected navmesh area (`fnvtool nav cells --space WastelandNV`,
-  fnv.nav.cells/1). The playable Mojave has navmesh; the landscape that runs on beyond
-  it to the grid's edges has none. The ring has `--waypoints` corners, each `--inset` of
-  the way in from the area's farthest cell in its direction and on a navmesh cell. The
-  legs follow the navmesh cells between corners (a point every two cells), so the route
-  does not cross the empty land where the area bends. A ring on the grid's bounds took
-  the player past the playable area (owner, 2026-10-18). `--route` takes a file of your
-  own.
+- **The route.** By default (`--path towns`) a lap through Goodsprings, Primm, Mojave
+  Outpost, Nipton, Novac, Camp McCarran, Nellis and Jacobstown and back to Goodsprings
+  (owner, 2026-10-18), each town found by its exterior cell's Editor ID (`--towns` to
+  change them).
+  - The legs follow the walkable cells: the cells of the worldspace's largest connected
+    navmesh area (`fnvtool nav cells --space WastelandNV`, fnv.nav.cells/1), with a
+    point every two cells.
+  - `--path ring` is a ring on those cells instead (`--waypoints`, `--inset`).
+  - `--slice START:END` takes only those points of the route, to go over one stretch
+    again; the numbers are the log's `at waypoint i/n`.
+  - `--route` takes a file of your own.
+  - Steps put the player down rather than walk, so the game's invisible walls
+    (CollisionMarker boxes) do not stop the tour. The route has to stay inside on its
+    own, which the towns route does by going from town to town over walkable cells. A
+    ring on the grid's bounds (then the ring on the whole navmesh area) took the player
+    past the playable area (owner, 2026-10-18).
 - **The pace.** The player moves `--step` units every `--dwell` seconds. The defaults
   (1024 units a second) stream cells about as fast as running would load them.
 - **The samples.** Each sample is tagged with its lap and the waypoint it is on. The
