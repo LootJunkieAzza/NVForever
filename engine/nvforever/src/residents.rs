@@ -243,7 +243,7 @@ impl Mover for PhysMover<'_> {
                     // (fnv_nav::follow::arc_step).
                     walker.heading = turn_towards(walker.heading, heading_of(h), walker.turn_rate * dt);
                     let (along, slow) = arc_step(walker.heading, h);
-                    let speed = walker.speed.min(remaining / dt.max(1e-3)) * slow;
+                    let speed = walker.moving_speed().min(remaining / dt.max(1e-3)) * slow;
                     (WalkEvent::Moved, [along[0] * speed, along[1] * speed])
                 }
                 // Stuck where detours did not help: moved on along the path, past what
@@ -509,6 +509,11 @@ impl Residents {
     /// The walking and running speeds of actors without their own.
     pub fn default_speeds(&self) -> fnv_ai::Speeds {
         fnv_ai::Speeds { walk: self.core.ai.cfg.walk_speed, run: self.core.ai.cfg.run_speed }
+    }
+
+    /// The share of its speed `actor` moves at (crippled legs, `limping.rs`).
+    pub fn set_pace(&mut self, actor: FormId, pace: f32) {
+        self.core.ai.set_pace(actor, pace);
     }
 
     /// Give `actor` speeds of its own (`creature_pace.rs`).

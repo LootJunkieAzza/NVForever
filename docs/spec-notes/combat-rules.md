@@ -622,10 +622,13 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     and the HUD name it ("Goodsprings Settler: left leg crippled").
 - **The player's crippled limbs** (`PlayerLimbs`, read every frame):
   - crippled arms add the documented crippled-arm spread terms (§3) and lower
-    `Attacker::arm_condition` (1, 0.5 with one arm, 0 with both) [design: the share];
-  - crippled legs slow walking and running to 0.7 with one leg, 0.5 with both
-    [design];
+    `Attacker::arm_condition` by the weapon (`damage::arm_condition`, for every
+    attacker: crippled-limbs.md §3);
+  - crippled legs slow walking and running to `fMoveOneCrippledLegSpeedMult` (0.85)
+    with one leg and `fMoveTwoCrippledLegsSpeedMult` (0.75) with both, as for every
+    actor (crippled-limbs.md §4; 0.7 and 0.5 [design] before 2026-10-18);
   - the HUD's health line lists crippled limbs.
+  - What every crippled limb does, to the player and to NPCs: crippled-limbs.md.
 
   Nothing hurts the player yet (no NPC attacks); scripts can (`DamageActorValue`).
 - **Hit reactions** (`damage::staggers`, `deaths.rs`) [design: the owner's rule,

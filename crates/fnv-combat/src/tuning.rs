@@ -312,6 +312,21 @@ pub struct CombatTuning {
     /// starts another, so that fast hits cannot hold it in the reaction
     /// ([`crate::damage::staggers`]).
     pub stagger_cooldown: f32,
+    /// Crippled limbs (docs/spec-notes/crippled-limbs.md): actor-spread penalty with the
+    /// head crippled (spread units, like the documented crippled-arm ones), the game's
+    /// "lower accuracy" for the head having no number.
+    pub spread_crippled_head: f32,
+    /// The player's flinch from a staggering hit (a torso crippled, or the hit that
+    /// cripples): the view is thrown off by up to this many degrees, and no attack
+    /// starts for this many seconds (one under way is broken off).
+    pub flinch_kick_deg: f32,
+    pub flinch_time: f32,
+    /// The view's sway while aiming with one crippled arm and with both, degrees at its
+    /// widest, and its period in seconds (the player's first-person weapon sways; a
+    /// scope's zoom makes the same angle look larger).
+    pub arm_sway_deg: f32,
+    pub arms_sway_deg: f32,
+    pub arm_sway_period: f32,
     /// Weapon jamming (the owner's playtest list 5 item 9; [`crate::condition::jam_chance`]):
     /// below this condition (a share of full) a shot may jam the weapon.
     pub jam_condition: f32,
@@ -352,6 +367,12 @@ impl Default for CombatTuning {
             block: 0.6,
             guard_break: 1.0,
             stagger_cooldown: 3.0,
+            spread_crippled_head: 0.2,
+            flinch_kick_deg: 4.0,
+            flinch_time: 0.6,
+            arm_sway_deg: 1.5,
+            arms_sway_deg: 3.0,
+            arm_sway_period: 2.5,
             jam_condition: 0.75,
             jam_chance_max: 0.04,
             jam_curve: 1.5,
