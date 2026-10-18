@@ -111,8 +111,8 @@ each function; call sites are from `fnvtool script decompile` over the ten maste
 | IsDLCInstalled | 0x126F | 8 | 0 | a load-order plugin whose name matches, spaces, case and extension ignored [hypothesis: "tribal pack" ↔ TribalPack.esm] | none |
 | GetXPForNextLevel | 0x1215 | 3 | 0 | the next level's total, (n − 1)((n − 2)/2 · iXPBumpBase + iXPBase) [documented: GECK wiki Experience Settings], less the player's XP [hypothesis: remaining, from the Here and Now perk's stage] | levelling up by experience: experience.md |
 
-Left, with the reason (§4): PushActorAway (ragdolls are for corpses only; a live
-knockdown and getting up is not built, with GetKnockedState), SetForceSneak (since built,
+Left, with the reason (§4): PushActorAway (since built, docs/spec-notes/unconscious.md
+§5), SetForceSneak (since built,
 §3.5), AutoDisplayObjectives
 (objectives already show as scripts set them; what the switch adds is not documented
 beyond the summary), GetIsObjectType (its condition parameter is a form type code, and
@@ -270,7 +270,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | IsFacingUp | 0x106A | 0 | 41 | implemented 2026-10-17 (§3.11) | 1 on a standing actor [observed]; knockdowns not built |
 | GetKnockedState | 0x106B | 5 | 35 | implemented 2026-10-16 (§3.7) | 1 unconscious, else 0 (no fatigue or live knockdown) |
 | SetSecuritronExpression | 0x1248 | 37 | 0 | implemented 2026-10-16 (§3.6) | rendering (a texture swap) |
-| PushActorAway | 0x118A | 35 | 0 | needs a system not built yet | physics: ragdolls are for corpses only; a live actor knocked down and getting up is not built |
+| PushActorAway | 0x118A | 35 | 0 | built 2026-10-18 | knockdowns: docs/spec-notes/unconscious.md §5 |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
 | FireWeapon | 0x11E2 | 24 | 0 | implemented 2026-10-16 (§3.7) | `CombatRequest::Fire`: the engine fires it as an actor's shot |
@@ -355,8 +355,8 @@ Notes on the most used:
   activators (intercoms, radios) are not built; with none, 0 is the right answer.
 - **SystemSave / ForceSave** (7): saves exist now (docs/design/save-load.md) and Autosave
   is implemented; these two are not.
-- **PushActorAway** (35): the engine's ragdolls (`ragdoll.rs`) are for corpses; a pushed
-  live actor has to be knocked down and get up again (GetKnockedState), not built.
+- ~~**PushActorAway** (35)~~: built 2026-10-18 (docs/spec-notes/unconscious.md §5): the
+  pushed actor falls as a ragdoll thrown from the source and gets up again.
 
 ## 5. Deliberately no-op
 
