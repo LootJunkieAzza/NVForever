@@ -41,34 +41,45 @@ The hide flag is carried on the trace events (`ItemAdded`/`ItemRemoved` `silent`
 serialised, so traces and goldens are unchanged) and `engine/nvf-play/src/script_events.rs`
 skips silent ones.
 
-## 3. Done in the engine follow-up (branch claude/script-params-engine)
+## 3. Honoured on 2026-10-18 (branch claude/script-params-honoured)
 
-The rows that needed engine behaviour. Calls are FalloutNV.esm's unless an add-on is named.
+The list §3 had after the first round, each now read and acted on. Sources: the GECK wiki
+export (`C:\fnv-private\geckwiki`, owner's) [documented] unless tagged otherwise; the
+shipped calls are counted over FalloutNV.esm with `tools/script_param_audit.py`, the
+add-ons' by hand.
 
-| Function | Parameter | Shipped calls passing it | Now |
+| Function | Parameter(s) | Shipped calls | Now |
 |---|---|---|---|
-| Enable / Disable | FadeIn / FadeOut | 276 / 268 | Enable fades in unless its flag is 0, Disable fades out only with 1 [documented: GECK wiki Enable, Disable]; enable children fade in with their parent unless their XESP says Pop In, and pop out [documented: same pages]. `nvf_play::ref_fade`: linear over 1 s of game time [hypothesis], drawn as SetActorAlpha draws (nvforever `effect_shaders.rs`); the simulation changes at once. The `fade` flag rides on the trace events, not serialised |
-| EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | `fnv_sim::EquipLocks` on the actor, saved: the player's inventory menu cannot take off an item kept on, nor put on one kept off; an item kept on blocks its slot for every equip, EquipItem's too [documented: GECK wiki EquipItem]. EquipItem lifts NoEquip, UnequipItem lifts NoUnequip [documented] |
-| SetPlayerTagSkill | iSkillIndex | 23 (Doc Mitchell's test: slots 0, 1, 2) | four slots (`PlayerState::tag_slots`): a skill put in a slot replaces the one there; above 3 does nothing [documented: GECK wiki SetPlayerTagSkill]; the tag menu's Done clears the slots |
-| SetTagSkills | addedPoints, showInitialTaggedSkills | 2 | the total to tag; with 0 the old tags are not on the sheet, so the picks replace them [documented: GECK wiki SetTagSkills] |
-| ShowLoveTesterMenuParams | iPoints | 1 (40) | the attributes add up to it, as SetSPECIALPoints [documented: GECK wiki ShowLoveTesterMenuParams] |
-| Say / SayTo | ForceSubtitles / forceSubtitleFlag | 18 | the subtitle shows even with the new setting "Subtitles of lines said in the world" off (`script_hud::SubtitleSettings`, on by default) [documented flag; hypothesis: the flag is about that setting] |
-| Say | is2D | 0 here; 103 in OldWorldBlues.esm | the line is said flat and heard (and subtitled) wherever the player is [hypothesis from the name: the stealth suit's voice, a creature reference that says its lines with is2D 1] |
-| SexChange | resetAppearance | 6 (Fallout 3's CG00 scripts, not run in New Vegas) | the player's look becomes the race's first starting face for the new sex, from the creator's data (`nvf_play::creator::reset_look`) [documented: GECK wiki SexChange; hypothesis: "default preset" = the first]; without it a chosen look takes the new sex and keeps its face [hypothesis] |
-| RemoveAllItems | retainOwnershipFlag | 5 | 0 (the default) clears the moved items' owner [documented: GECK wiki RemoveAllItems] (`World::transfer_all_owned`) |
-| SetGlobalTimeMultiplier | keepSoundUnchanged | 1 (passes 1) | 0 (the default) moves sound with the clock, as the engine's own slow motion does, faster too up to 2× [documented flag; hypothesis: the speed] (`audio_out::clock_sound`) |
-| StartConversation | allowMovement | 1 (passes 0) | 1 lets the two actors walk on while they talk (`Game::held_by_conversation`) [documented: GECK wiki StartConversation]; left out they stand, as before [hypothesis] |
-| AddItemToLeveledList | fHealthPercent100 | 0 here; 11 in HonestHearts.esm (1), 9 in OldWorldBlues / LonesomeRoad (100) | the weapons and armour the entry gives come at that percentage (`LeveledEntry::condition`) [documented: 0–100 in New Vegas]. Honest Hearts adds its vendor lists at 1, so those weapons come at 1 %: owner to check in game (docs/owner-review.md) |
+| Enable / Disable | FadeIn (default 1) / FadeOut (default 0) | 276 / 268 | the reference fades in or out over 2 s instead of popping (`nvf_play::fade`); enable children fade in unless their XESP "Pop In" flag is set, and pop out [documented: Enable, Disable notes]. GetDisabled [observed: captures `enable_fade_timing`, `disable_fade_getdisabled` and `disable_fade_long`, 2026-10-18]: a plain Disable reads 1 the next game loop and Enable 0; after `Disable 1`, with the player facing the reference from 110 units, it read 0 for 111 loops (1.96–1.97 s) and then 1. So `Disable 1` keeps the reference enabled for `FADE_OUT_HOLD` (2 s) while the engine fades it out over the same 2 s, then disables it; an Enable meanwhile fades it back, a plain Disable disables at once. Not explained: an earlier `Disable 1` from the cell's arrival spot read 0 for all 3.5 s sampled [hypothesis: the original fades only what it draws]. The fade's shape and the fade in's length [hypothesis]: every screenshot failed (BitBlt) |
+| EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | `fnv_sim::world::EquipLock` on the actor, kept in snapshots: a locked-on item cannot be unequipped (inventory menu: "… can't be unequipped") and nothing else takes its slot; a locked-off one cannot be equipped; the other function takes the lock away |
+| SetPlayerTagSkill | iSkillIndex | 23 | four slots (`PlayerState::tag_slots`): the slot's old skill is untagged unless another slot holds it; an index above 3 does nothing |
+| Say / SayTo | ForceSubtitles / forceSubtitleFlag | 18 Say (all pass 1, nothing after it); 131 SayTo here, 76 in the add-ons | the subtitle shows even out of hearing (NVForever has no subtitle setting to override) [hypothesis: the flag's meaning] |
+| Say | is2D | 0 here; 103 in Old World Blues | heard flat and whole wherever the player is, subtitle included [hypothesis] |
+| Say | Actor, isVoice | Actor: 103 in Old World Blues, naming the speaker's own base; isVoice: 0 | **not read**: the wiki gives only the names; the shipped Actor calls name the speaker itself, so what another actor would change is not seen |
+| PlaceAtMe | Distance, Direction | 8 | nothing to do: "The Distance and Direction parameters do not work. No matter what is specified for them, the created reference will be placed in safe location nearby" [documented: PlaceAtMe notes] |
+| SexChange | resetAppearance | 6 (all pass 1) | done by the actor-changes workstream (PR #460, `fnv_game::appearance`, docs/spec-notes/appearance-changes.md): with 1 the player's face becomes the race's first starting face for the new sex; the wiki says "the default preset for their race+gender" |
+| PlaceLeveledActorAtMe | levelMod, encounterZoneID | 0 (the 5 calls pass the actor only) | nothing to do for the shipped scripts: levelMod defaults to 4, "None" [documented]. A level modifier would need leveled actors resolved at the player's level, which they are not (docs/spec-notes/actors.md §2.1) |
+| RemoveAllItems | retainOwnershipFlag | 5 | moved items lose their owner unless it is non-zero (`World::transfer_all_owned`) |
+| SetTagSkills | addedPoints, showInitialTaggedSkills | 2 (`3`, `3 1`) | the menu's count is addedPoints in all, those tagged before counting; with 0 the tags before are not shown and may be chosen over |
+| ShowLoveTesterMenuParams | iPoints | 1 (40) | the seven attributes add up to iPoints, as SetSPECIALPoints |
+| SetGlobalTimeMultiplier | keepSoundUnchanged | 1 (`0.5 1`) | without it the sounds the engine's slow motion slows play at the multiplier too (`audio_out::SoundSpeed`) [hypothesis: which sounds, and the factor itself] |
+| StartConversation | allowMovement | 1 (`0`) | between actors, 1 lets both go on with their packages while they talk (`Game::conversation_moves`); 0, or left out, keeps them standing as before [hypothesis for the default] |
+| AddItemToLeveledList | fHealthPercent100 | 0 here; 11 in Honest Hearts pass 1; 5 in Old World Blues and 4 in Lonesome Road pass 100 | the items the entry gives have that condition, 0–100 % (`LeveledEntry::condition`); Honest Hearts' 1 gives items at 1 % [observed: capture `leveled_list_health`: an entry added at 50 gave Vance's 9mm SMG at 375 of 750 health, at 1 at 7.5] |
+| EquipItem / UnequipItem | HideEquipMessage | (see above) | nothing to hide: the engine shows no equip lines |
 
-## 4. Still not read, and why
+Another session's unpushed branch `claude/script-params-engine` (2026-10-18) covered the
+same rows; from it come the add-ons' call counts above, SayTo's subtitle flag, and keeping
+a reference that scripts draw (`nvf_play::script_draw`) until its fade-out ends. That
+branch (PR #461), merged after this one, adds: SwapTexture on a mesh drawn see-through, by
+a fade or by SetActorAlpha, changes the mesh's own material, so the fade's or the alpha's
+end does not bring the old texture back (nvforever `texture_swap.rs`; the psych test's card
+fades in as Doc Mitchell's line swaps its texture), and the smoke test `ref-fade` on a
+reference only scripts draw.
 
-| Function | Parameter(s) | Shipped calls passing them | Why |
-|---|---|---|---|
-| PlaceAtMe | Distance, Direction | 8 | they have no effect in the original: "the object always lands in a safe spot near the caller" [documented: GECK wiki PlaceAtMe, Bugs] |
-| PlaceLeveledActorAtMe | levelMod, encounterZoneID | 0 | leveled actor lists are read at one fixed level for every placement (`fnv_game::templates::LEVELED_ACTOR_LEVEL`, docs/spec-notes/actors.md §2.1); there is no actor level for the difficulty or the zone to change until actor levelling exists |
-| Say | Actor | 0 here; 103 in OldWorldBlues.esm | the wiki gives only the name [documented: GECK wiki Say]; every shipped call names the speaker's own base (NVDLC03StealthSuitVoiceCr), so what another actor would change is not seen |
-| Say | isVoice | 0 | name only, and passed by no shipped script |
-| EquipItem / UnequipItem | HideEquipMessage | 39 / 21 | nothing to hide: the engine shows no equip lines (EquipItem's hides a consumed aid item's line, §2) |
+## 4. Still ignored
 
-`python -I tools/script_param_audit.py . <decompile.json>` on 2026-10-18 lists, of these
-functions, only the §4 rows (and the false hits of §1).
+Rerun of `tools/script_param_audit.py` after this branch, candidates read by hand as in §1:
+Say's Actor and isVoice (SexChange's resetAppearance, listed here at first, was done by the
+actor-changes workstream, §3). The other rows it prints read their parameters through
+a helper (false hits, §1); Look's rotateBody is read as its second argument (the
+catalogue lists three parameters: a false hit too).

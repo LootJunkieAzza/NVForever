@@ -191,9 +191,8 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// says the topic's first line it can say to the target (`Game::say`,
 /// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said; with
 /// `noTargetLookFlag` 1 the target is not made to look at the speaker [documented: GECK
-/// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). With
-/// `forceSubtitleFlag` 1 the line's subtitle shows even where the world's subtitles are
-/// off [documented: same page, "force subtitles"] (`Speech::forced_subtitle`).
+/// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). The
+/// subtitle flag shows the subtitle even out of hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
@@ -201,33 +200,26 @@ pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         if a.num_or(3, 0.0) != 0.0 {
             g.set_line_look(speaker, LineLook::Speaker);
         }
-        if a.num_or(2, 0.0) != 0.0 {
-            g.force_line_subtitle(speaker);
-        }
+        // forceSubtitleFlag as Say's ForceSubtitles (207 shipped calls pass 1).
+        g.set_line_flags(speaker, a.num_or(2, 0.0) != 0.0, false);
     }
     none()
 }
 
 /// `speaker.Say topic [ForceSubtitles] [Actor] [is2D] [isVoice]`: as SayTo, with no
-/// listener; ForceSubtitles as SayTo's flag. The wiki gives the other three only their
-/// names and types [documented: GECK wiki Say]. `is2D` 1 says the line flat, heard
-/// wherever the player is (`Speech::two_d`) [hypothesis from the name: the one shipped
-/// user is Old World Blues' stealth suit, whose voice is a creature reference
-/// (NVDLC03StealthSuitVoiceCrREF) that says its lines with is2D 1 to the player wearing
-/// the suit, observed: OldWorldBlues.esm, `fnvtool script decompile`]. `Actor` is not
-/// read: those calls name the speaker's own base (NVDLC03StealthSuitVoiceCr), so what
-/// another actor would change is not seen; `isVoice` is passed by no shipped script
-/// (docs/design/script-function-params.md §3).
+/// listener [documented: GECK wiki Say, the parameters' names only]. ForceSubtitles 1
+/// shows the line's subtitle even out of hearing (NVForever has no subtitle setting for
+/// it to override); is2D 1 plays it as a 2D sound: at full volume, not panned, heard
+/// wherever the player is (`Speech::force_subtitles`, `Speech::two_d`, read by
+/// `nvf_play::voice` and `script_hud`) [hypothesis: what the names mean; the shipped
+/// calls pass ForceSubtitles 1 and nothing after it, docs/design/script-function-params.md
+/// §3]. Actor and isVoice are not read: no page says what they do and no shipped script
+/// passes them.
 pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let topic = a.form(0)?;
     if g.say(speaker, None, topic, false).is_some() {
-        if a.num_or(1, 0.0) != 0.0 {
-            g.force_line_subtitle(speaker);
-        }
-        if a.num_or(3, 0.0) != 0.0 {
-            g.set_line_2d(speaker);
-        }
+        g.set_line_flags(speaker, a.num_or(1, 0.0) != 0.0, a.num_or(3, 0.0) != 0.0);
     }
     none()
 }
@@ -243,13 +235,12 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// player overhears them (`Game::start_actor_conversation`, docs/spec-notes/dialogue.md
 /// §5.1). There `headTrack` 0 turns nobody for the whole conversation [documented:
 /// "Enter 0 to disable" head tracking during the conversation; hypothesis: left out, it
-/// is on] (`Game::facings`), and `allowMovement` 1 lets the two walk on while they talk
-/// [documented: same page, "Enter 1 to enable movement during conversation"; hypothesis:
-/// left out, they stand still, as before the parameter was read]
-/// (`Game::held_by_conversation`). The location references are not read: they help the
-/// walk up [documented: "presumably facilitates AI pathing"], which is not built; nor
-/// are head-track and allow-movement in a conversation with the player, which holds
-/// everyone (the menu).
+/// is on] (`Game::facings`). Both stand still while they talk unless `allowMovement` is 1
+/// [documented: "Enter 1 to enable movement during conversation. Enter 0 to disable";
+/// hypothesis: left out, they stand, as before the parameter was read]
+/// (`Game::conversation_moves`). The location references are not read, nor are
+/// head-track and allow-movement in a conversation with the player (the player's
+/// conversation holds the world anyway).
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
@@ -259,7 +250,11 @@ pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
             if a.num_or(4, 1.0) == 0.0 {
                 g.set_line_look(speaker, LineLook::Nobody);
             }
-            g.set_line_moving(speaker, a.num_or(5, 0.0) != 0.0);
+            let talkers = [speaker, target];
+            g.moving_talkers.retain(|&r| !talkers.contains(&r) && g.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == r || s.target == Some(r))));
+            if a.num_or(5, 0.0) != 0.0 {
+                g.moving_talkers.extend(talkers);
+            }
         }
         return none();
     }
@@ -332,11 +327,12 @@ pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, St
     open(g, menus::RACE)
 }
 
-/// SetTagSkills: the tag-skill menu.
+/// `SetTagSkills addedPoints [showInitialTaggedSkills]`: the tag-skill menu, with
+/// `addedPoints` skills tagged in all; the second parameter defaults to 1 [documented:
+/// GECK wiki SetTagSkills] (`crate::chargen::TagSheet::for_menu`).
 pub fn set_tag_skills(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let total = a.int(0)?.max(0) as usize;
-    // The second parameter defaults to 1 [documented: GECK wiki SetTagSkills].
-    g.ui.set_tags = Some(super::ui::SetTags { total, show_tagged: a.num_or(1, 1.0) != 0.0 });
+    let n = a.num(0)?.max(0.0) as usize;
+    g.ui.set_tags = Some((n, a.num_or(1, 1.0) != 0.0));
     open(g, menus::TAG_SKILLS)
 }
 
@@ -414,11 +410,15 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
-/// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
+/// `ShowLoveTesterMenuParams points`: the Vigor Tester's S.P.E.C.I.A.L. menu, the seven
+/// attributes adding up to `points` [documented: GECK wiki ShowLoveTesterMenuParams,
+/// "the total number of SPECIAL points the player will have to distribute"], as
+/// SetSPECIALPoints (`crate::chargen::SpecialSheet::for_menu`). Without points: the
+/// menu's own total [hypothesis].
 pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    // "iPoints is the total number of SPECIAL points the player will have to distribute"
-    // [documented: GECK wiki ShowLoveTesterMenuParams]: SetSPECIALPoints' rule.
-    g.ui.special = Some(super::ui::SpecialMenu::Set(a.int(0)?));
+    if let Ok(n) = a.int(0) {
+        g.ui.special = Some(super::ui::SpecialMenu::Set(n));
+    }
     open(g, menus::LOVE_TESTER)
 }
 
@@ -448,6 +448,89 @@ pub fn is_image_space_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     yes(g.image_modifier_active(a.form(0)?))
 }
 
+/// `PlayBink "file" [interruptable] [muteAudio] [pauseMusic] [letterboxed]`: a Bink film
+/// under `Data\Video` plays over the screen [documented: GECK wiki PlayBink; the flags'
+/// defaults 0, 1, 1, 1 and meanings are the page's]. The film is handed to the engine
+/// (`UiRequests::films`, `nvf_play::intro`), which holds the game while it plays (the
+/// page: it "appears to stop game time"); the script goes on with its next line at
+/// once [hypothesis: whether the original's call returns before or after the film is
+/// not documented; with the game held the order of the script's next lines is the
+/// same]. docs/spec-notes/bink-films.md.
+pub fn play_bink(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let name = a.str(0)?;
+    let path = super::ui::film_path(name).ok_or_else(|| format!("{name:?} names no file under Data"))?;
+    let flag = |i: usize, default: f64| a.num_or(i, default) != 0.0;
+    let film = super::ui::FilmRequest { path, interruptible: flag(1, 0.0), mute_audio: flag(2, 1.0), pause_music: flag(3, 1.0), letterboxed: flag(4, 1.0) };
+    tracing::info!(film = %film.path, interruptible = film.interruptible, "PlayBink");
+    g.ui.films.push(film);
+    none()
+}
+
+/// `TriggerScreenSplatter count duration size opacity`: blood splats over the screen
+/// (docs/spec-notes/screen-splatter.md §2) [hypothesis: the parameters are those the
+/// JohnnyGuitar NVSE extension `TriggerScreenSplatterEx` documents before its texture
+/// names (splatterCount, splatterDuration, sizeMultiplier, opacityMultiplier; GECK
+/// wiki, owner export), which reads as the vanilla call with textures added; the
+/// vanilla page is empty]. A missing or 0 duration is the game setting's. Out-of-range
+/// values are bounded [engineering choice: no shipped call goes beyond count 100, 25 s,
+/// size 3, opacity 2]: count at least 0 (the engine draws at most 1,000),
+/// duration at most an hour, the factors 0 to [`SPLATTER_MAX_FACTOR`]; a value that is not
+/// a number counts as missing.
+pub fn trigger_screen_splatter(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let finite = |i: usize, d: f64| Some(a.num_or(i, d)).filter(|v| v.is_finite()).unwrap_or(d);
+    let count = finite(0, 0.0).clamp(0.0, f64::from(u32::MAX)) as u32;
+    let duration = Some(finite(1, 0.0).min(3600.0) as f32).filter(|d| *d > 0.0);
+    let factor = |i: usize| finite(i, 1.0).clamp(0.0, SPLATTER_MAX_FACTOR) as f32;
+    let t = super::ui::SplatterTrigger { count, duration, size: factor(2), opacity: factor(3) };
+    g.ui.splatter.triggers.push(t);
+    none()
+}
+
+/// The largest size or opacity factor TriggerScreenSplatter takes.
+pub const SPLATTER_MAX_FACTOR: f64 = 10.0;
+
+/// `ClearScreenSplatter`: the splats leave the screen [documented: GECK wiki
+/// ClearScreenSplatter, "Clears the screen splatter"]; calls not yet drawn go too.
+pub fn clear_screen_splatter(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.splatter.triggers.clear();
+    g.ui.splatter.clears += 1;
+    none()
+}
+
+/// `SetScreenSplatterFade start fade`: from `start` (a share of each splat's time) the
+/// splats fade out, when `fade` is not 0 [hypothesis: the page is empty; the only
+/// caller passes 0.5 and 1 before its triggers (`QUST 0x00102037` stages 36 and 50
+/// [observed]), the game setting fBloodSplatterFadeStart is 0.4, and the Ex variant's
+/// last parameter is an int `fade`; screen-splatter.md §2]. The original game quit at
+/// this call, made as the first splatter call of a session from a capture job's function
+/// script, twice [observed 2026-10-18, screen-splatter.md §5]; here it only records the
+/// two values, with or without splats on the screen: a start that is not a number is 0
+/// (the original's splats fade from their start, screen-splatter.md §5), any other is
+/// held to 0–1.
+pub fn set_screen_splatter_fade(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let start = Some(a.num_or(0, f64::NAN)).filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 1.0)) as f32;
+    let on = Some(a.num_or(1, 1.0)).filter(|v| v.is_finite()).is_none_or(|v| v != 0.0);
+    g.ui.splatter.fade = Some((start, on));
+    none()
+}
+
+/// `SetCellImageSpace cell imageSpace`: the cell's image space becomes this one, kept in
+/// the save (`FormChanges::cell_image_spaces`) [documented: GECK wiki
+/// SetCellImageSpace]. The page's note: on a cell that is loaded the new image space
+/// shows only once the cell loads again (left and entered again, or a save made there
+/// loaded); the engine follows it (`nvforever` `cell_image_space`).
+pub fn set_cell_image_space(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let (cell, space) = (a.form(0)?, a.form(1)?);
+    if g.data.sig(cell) != Some(*b"CELL") {
+        return Err(format!("{} is not a cell", g.data.name(cell)));
+    }
+    if g.data.sig(space) != Some(*b"IMGS") {
+        return Err(format!("{} is not an image space", g.data.name(space)));
+    }
+    g.forms.cell_image_spaces.insert(cell, space);
+    none()
+}
+
 /// `IsDLCInstalled "name"`: 1 when the named add-on is in the load order. No wiki page or
 /// catalogue summary describes it; the only caller (`SCPT 0x0017912E`, the pack items'
 /// quest script) asks for "tribal pack", "caravan pack", "mercenary pack" and "classic
@@ -463,18 +546,18 @@ pub fn is_dlc_installed(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// `SetGlobalTimeMultiplier mult [keepSoundUnchanged]`: the speed of the whole game,
 /// 1 normal, 0.5 slow motion [documented: GECK wiki SetGlobalTimeMultiplier]. The
-/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`). Sounds slow down
-/// or speed up with it unless `keepSoundUnchanged` is 1 (default 0) [documented: same
-/// page, "sounds will not be sped up/slowed down"] (`UiRequests::keep_sound`); the shipped
-/// slow motion keeps them (`QUST 0x00102037` stage 27 passes 1 [observed]).
-/// 0 "will break the game" [documented]: values at or below 0 are refused.
+/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`). Sounds play at
+/// the multiplier too unless keepSoundUnchanged is 1 ("sounds will not be sped up/slowed
+/// down when the time mult is changed" [documented: same page]); the shipped slow motion
+/// asks for unchanged sound (`QUST 0x00102037` stage 27 [observed]). 0 "will break the
+/// game" [documented]: values at or below 0 are refused.
 pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.num(0)?;
     if m <= 0.0 || !m.is_finite() {
         return Err(format!("time multiplier {m} refused (must be above 0)"));
     }
     g.ui.time_multiplier = Some(m);
-    g.ui.keep_sound = a.num_or(1, 0.0) != 0.0;
+    g.ui.time_keeps_sound = a.num_or(1, 0.0) != 0.0;
     none()
 }
 
@@ -568,6 +651,12 @@ pub struct ScriptLooks {
     pub alpha: std::collections::BTreeMap<fnv_sim::FormId, f32>,
     /// Counts the changes of `shaders` and `alpha`.
     pub generation: u64,
+    /// References a `Disable 1` is fading out, still enabled until this [`Game::time`]
+    /// (`refs::disable`).
+    pub fading_out: std::collections::BTreeMap<fnv_sim::FormId, f64>,
+    /// References whose fade-out hold ended and that are now disabled, for the engine to
+    /// take (their collision and enable children follow).
+    pub disabled_after_fade: Vec<fnv_sim::FormId>,
 }
 
 impl ScriptLooks {

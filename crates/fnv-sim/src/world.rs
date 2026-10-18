@@ -13,7 +13,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::clock::{self, Calendar};
 use crate::form::FormId;
@@ -116,27 +116,22 @@ pub struct RefState {
     /// placement's (XSCL).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scale: Option<f32>,
-    /// Items a script locked on or off this actor ([`EquipLocks`]).
-    #[serde(skip_serializing_if = "EquipLocks::is_empty", default)]
-    pub equip_locks: EquipLocks,
+    /// Items a script locked on or off this actor (EquipItem's NoUnequipFlag,
+    /// UnequipItem's NoEquipFlag), by base form ([`World::lock_equip`]).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub equip_locks: BTreeMap<FormId, EquipLock>,
 }
 
-/// What a script stopped an actor from changing (the player included) [documented: GECK
-/// wiki EquipItem and UnequipItem]: items it cannot take off (EquipItem's NoUnequipFlag,
-/// until UnequipItem takes them off) and items it cannot put on (UnequipItem's
-/// NoEquipFlag, until EquipItem puts them on).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EquipLocks {
-    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
-    pub no_unequip: BTreeSet<FormId>,
-    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
-    pub no_equip: BTreeSet<FormId>,
-}
-
-impl EquipLocks {
-    pub fn is_empty(&self) -> bool {
-        self.no_unequip.is_empty() && self.no_equip.is_empty()
-    }
+/// A script's lock on an item of an actor [documented: GECK wiki EquipItem, "If
+/// NoUnequipFlag = 1, actor (including the player) will be unable to unequip the item.
+/// Once the item is unequipped with the UnequipItem function, the item can be equipped
+/// and unequipped as normal"; UnequipItem, the same for NoEquipFlag and EquipItem].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EquipLock {
+    /// Put on with NoUnequipFlag: it stays on, and nothing else takes its slot.
+    NoUnequip,
+    /// Taken off with NoEquipFlag: it cannot be put on.
+    NoEquip,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -176,10 +171,14 @@ pub enum SimError {
     /// ([`World::equip`]) [design: the owner's rule, 2026-10-11].
     #[error("{0} is broken: it cannot be equipped until it is repaired")]
     Broken(FormId),
-    /// A script locked the item off the actor, or another item on in its slot
-    /// ([`EquipLocks`], [`World::equip`]).
-    #[error("{item} cannot be equipped now: {}", match by { Some(b) => format!("{b} cannot be taken off"), None => "a script keeps it off".into() })]
-    EquipLocked { item: FormId, by: Option<FormId> },
+    /// A script locked the item on or off ([`EquipLock`]): `item` is the locked one
+    /// (the item itself, or the one holding its slot).
+    #[error("{item} was locked by a script and cannot be {}", if *on { "unequipped" } else { "equipped" })]
+    EquipLocked { item: FormId, on: bool },
+    /// The player has no Power Armor Training for power armour ([`World::equip`],
+    /// `World::set_power_armor_training`).
+    #[error("{0} is power armour: the player lacks the training to wear it")]
+    NoPowerArmorTraining(FormId),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -281,6 +280,9 @@ pub struct World<'a> {
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     setting_changes: BTreeMap<String, crate::settings::Setting>,
+    /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
+    /// flag and sets it here, [`World::set_power_armor_training`]).
+    power_armor_training: bool,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -299,6 +301,7 @@ impl<'a> World<'a> {
             carry_bonus: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
+            power_armor_training: false,
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -306,6 +309,21 @@ impl<'a> World<'a> {
 
     pub fn config(&self) -> SimConfig {
         self.cfg
+    }
+
+    /// Whether the player may wear power armour (ARMO BMDT "Power Armor"): without it
+    /// [`World::equip`] refuses such armour on the player with
+    /// [`SimError::NoPowerArmorTraining`] [documented: GECK wiki SetPCCanUsePowerArmor,
+    /// "sets the flag that lets the player use power armor"; hypothesis: that the flag
+    /// gates the BMDT flag's armour]. Other actors wear it freely. Off at the start
+    /// [hypothesis: the masters set it only from a stage of the Generic quest, which the
+    /// Power Armor Training perk runs, observed].
+    pub fn set_power_armor_training(&mut self, on: bool) {
+        self.power_armor_training = on;
+    }
+
+    pub fn power_armor_training(&self) -> bool {
+        self.power_armor_training
     }
 
     /// State of a reference that has already been materialised.
@@ -373,8 +391,8 @@ impl<'a> World<'a> {
             actor_values: BTreeMap::new(),
             last_restock: None,
             scale: None,
+            equip_locks: BTreeMap::new(),
             outfitted: false,
-            equip_locks: EquipLocks::default(),
         })
     }
 
@@ -410,7 +428,8 @@ impl<'a> World<'a> {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
             leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
-            // COED on an entry applies to whatever it resolves to. [hypothesis]
+            // COED on an entry applies to whatever it resolves to [hypothesis]; without
+            // one an item keeps the condition a script's leveled entry gave it.
             if !e.extra.is_plain() {
                 for r in &mut out[from..] {
                     r.extra = e.extra;
@@ -645,9 +664,9 @@ impl<'a> World<'a> {
     }
 
     /// As [`World::transfer_all`]; with `keep_owner` false the moved items lose their
-    /// owner (RemoveAllItems without its retain-ownership flag [documented: GECK wiki
-    /// RemoveAllItems, "otherwise the ownership is cleared"]). Their condition moves
-    /// with them either way.
+    /// owner [documented: GECK wiki RemoveAllItems, "If the retain ownership flag is set
+    /// to a non-zero value, the items' original ownership is retained; otherwise the
+    /// ownership is cleared"].
     pub fn transfer_all_owned(&mut self, from: FormId, to: FormId, keep_owner: bool) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
         let forms = self.forms;
@@ -781,7 +800,7 @@ impl<'a> World<'a> {
                     last_restock: None,
                     outfitted: false,
                     scale: None,
-                    equip_locks: EquipLocks::default(),
+                    equip_locks: BTreeMap::new(),
                 },
             );
             out.push(id);
@@ -811,11 +830,6 @@ impl<'a> World<'a> {
     /// GECK wiki describes `EquipItem`; to be captured] A weapon at zero condition is
     /// broken and is refused with [`SimError::Broken`] until it is repaired [design: the
     /// owner's rule, 2026-10-11]; a unit that is not broken is taken before a broken one.
-    /// An item a script keeps off ([`EquipLocks::no_equip`]) is refused, and so is one
-    /// whose slot holds an item a script keeps on [documented: GECK wiki EquipItem,
-    /// "EquipItem will not work if there is already an item in that slot that has been
-    /// equipped with the NoUnequipFlag set"], with [`SimError::EquipLocked`]; aid items
-    /// are used all the same [hypothesis].
     pub fn equip(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
         self.equip_at(actor, item, None)
     }
@@ -825,6 +839,7 @@ impl<'a> World<'a> {
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Option<f32>) -> Result<Equip, SimError> {
         let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
+        let trained = self.power_armor_training;
         let inv = self.inventory(actor)?;
         if it.kind == ItemKind::Aid {
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
@@ -841,11 +856,9 @@ impl<'a> World<'a> {
         if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
             return Err(SimError::Broken(item));
         }
-        let locks = self.refs.get(&actor).map(|s| s.equip_locks.clone()).unwrap_or_default();
-        if locks.no_equip.contains(&item) {
-            return Err(SimError::EquipLocked { item, by: None });
+        if it.power_armor && actor == FormId::PLAYER_REF && !trained && !inv.is_equipped(item) {
+            return Err(SimError::NoPowerArmorTraining(item));
         }
-        let inv = self.inventory(actor)?;
         let clashes = |other: FormId| -> bool {
             let Some(o) = forms.item(other) else { return false };
             match (it.kind, o.kind) {
@@ -854,9 +867,17 @@ impl<'a> World<'a> {
                 _ => false,
             }
         };
-        if let Some(by) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.no_unequip.contains(&o)) {
-            return Err(SimError::EquipLocked { item, by: Some(by) });
+        let locks = &self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?.equip_locks;
+        if locks.get(&item) == Some(&EquipLock::NoEquip) {
+            return Err(SimError::EquipLocked { item, on: false });
         }
+        // "EquipItem will not work if there is already an item in that slot that has
+        // been equipped with the NoUnequipFlag set" [documented: GECK wiki EquipItem].
+        let inv = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).ok_or(SimError::NoInventory(actor))?;
+        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
+            return Err(SimError::EquipLocked { item: held, on: true });
+        }
+        let inv = self.inventory(actor)?;
         let mut unequipped = Vec::new();
         for other in inv.equipped() {
             if clashes(other) && inv.clear_equipped(other) {
@@ -869,23 +890,30 @@ impl<'a> World<'a> {
         Ok(Equip { consumed: false, unequipped })
     }
 
-    /// Unequip `item`; returns whether it was equipped. This does not look at
-    /// [`EquipLocks`]: the actor's own choices ask [`World::can_unequip`] first (the
-    /// inventory menu); the engine's rules (a broken weapon leaves the hand) and scripts
-    /// do not.
+    /// Unequip `item`; returns whether it was equipped. An item a script locked on
+    /// ([`EquipLock::NoUnequip`]) stays on.
     pub fn unequip(&mut self, actor: FormId, item: FormId) -> Result<bool, SimError> {
+        if self.equip_lock(actor, item) == Some(EquipLock::NoUnequip) && self.inventory(actor)?.is_equipped(item) {
+            return Err(SimError::EquipLocked { item, on: true });
+        }
         Ok(self.inventory(actor)?.clear_equipped(item))
     }
 
-    /// Whether `actor` may take `item` off by its own choice: not when a script equipped
-    /// it with NoUnequipFlag ([`EquipLocks::no_unequip`]).
-    pub fn can_unequip(&self, actor: FormId, item: FormId) -> bool {
-        !self.refs.get(&actor).is_some_and(|s| s.equip_locks.no_unequip.contains(&item))
+    /// The script lock on an actor's item, if any.
+    pub fn equip_lock(&self, actor: FormId, item: FormId) -> Option<EquipLock> {
+        self.refs.get(&actor).and_then(|s| s.equip_locks.get(&item)).copied()
     }
 
-    /// The scripts' locks on `actor` ([`EquipLocks`]), for EquipItem and UnequipItem.
-    pub fn equip_locks_mut(&mut self, actor: FormId) -> Result<&mut EquipLocks, SimError> {
-        Ok(&mut self.get(actor)?.equip_locks)
+    /// Set (or with `None` take away) a script's lock on an actor's item: EquipItem and
+    /// UnequipItem take away the lock they undo and set the one their flag asks for
+    /// [documented: GECK wiki EquipItem, UnequipItem].
+    pub fn lock_equip(&mut self, actor: FormId, item: FormId, lock: Option<EquipLock>) -> Result<(), SimError> {
+        let locks = &mut self.get(actor)?.equip_locks;
+        match lock {
+            Some(l) => locks.insert(item, l),
+            None => locks.remove(&item),
+        };
+        Ok(())
     }
 
     /// An actor value: S.P.E.C.I.A.L. from the base NPC_ record unless changed at run
@@ -1219,7 +1247,7 @@ impl<'a> World<'a> {
                 last_restock: None,
                 outfitted,
                 scale: None,
-                equip_locks: EquipLocks::default(),
+                equip_locks: BTreeMap::new(),
             },
         );
         Ok(id)
@@ -1387,6 +1415,10 @@ impl<'a> World<'a> {
                 }
             },
             BaseData::Actor(_) => Outcome::Talk { actor: target },
+            // A talking activator (an intercom, a radio with lines) is talked to, as an
+            // actor is [hypothesis: the masters' intercom scripts start the talk with the
+            // default action, `fnv_game::talking_activators`].
+            BaseData::Activator if &base.sig == b"TACT" => Outcome::Talk { actor: target },
             BaseData::Activator | BaseData::Furniture => Outcome::Activated,
             BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
             // A placed explosive activated by script: nothing happens. [observed in

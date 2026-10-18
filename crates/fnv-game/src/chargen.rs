@@ -99,6 +99,8 @@ pub struct Look {
 /// (GetIsSex, GetPCIsSex; GetIsRace reads the look's race).
 pub fn apply_look(g: &mut Game, look: Look) {
     g.player.female = Some(look.female);
+    // The look's race stands for an AgeRace made before it (`crate::appearance`).
+    g.player.race = None;
     g.player.look = Some(look);
 }
 
@@ -240,23 +242,23 @@ impl TagSheet {
     /// tag that AddTagSkills asked for (used up by this opening): the skills tagged
     /// before stay tagged and the player picks that many more [documented: GECK wiki
     /// AddTagSkills, "the player may not un-Tag their initial Tagged Skills"].
-    ///
-    /// SetTagSkills n asks for n tags in all [documented: GECK wiki SetTagSkills, "the
-    /// number reflects the total number to be selected"]; with its second parameter 0 the
-    /// skills tagged before are not shown, so the picks replace them [documented: same
-    /// page, "not shown, allowing them to be overwritten"; Done replaces the tags either
-    /// way].
     pub fn for_menu(g: &mut Game) -> TagSheet {
         let mut s = TagSheet::of_player(g);
-        if let Some(t) = g.ui.set_tags.take() {
-            if !t.show_tagged {
-                s.tagged.clear();
-            }
-            s.count = t.total;
-        }
         if let Some(n) = g.ui.extra_tags.take() {
             s.count = s.tagged.len() + n;
             s.locked = s.tagged.clone();
+        }
+        // SetTagSkills n [show]: n skills tagged in all, those tagged before counting
+        // ("Assuming the player initially has 3 Tagged Skills, calling SetTagSkills 4 will
+        // let the player choose 1 more"); with show 0 the skills tagged before are not
+        // shown and may be chosen over [documented: GECK wiki SetTagSkills; hypothesis:
+        // they may be untagged either way, as nothing says they are locked].
+        if let Some((n, show)) = g.ui.set_tags.take() {
+            s.count = n;
+            s.locked.clear();
+            if !show {
+                s.tagged.clear();
+            }
         }
         s
     }
@@ -299,12 +301,11 @@ impl TagSheet {
         av::capped(skill, now - was + will).round() as i32
     }
 
-    /// Done: the player's tags become the sheet's (none of them in a SetPlayerTagSkill
-    /// slot).
+    /// Done: the player's tags become the sheet's.
     pub fn apply(&self, g: &mut Game) {
-        g.player.tag_slots.clear();
         g.player.tag_skills.retain(|c| !SKILLS.contains(c));
         g.player.tag_skills.extend(self.tagged.iter().copied());
+        g.player.tag_slots.clear();
     }
 }
 

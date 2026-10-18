@@ -1,0 +1,268 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "leveled_list_health",
+ "title": "AddItemToLeveledList health: is 1 one percent (Honest Hearts passes 1) and 50 half? (docs/design/script-function-params.md, under 1 min)",
+ "start": "nvfstrip. Adds Vance's 9mm SMG to a base leveled list at the player's level, draws the list, equips the gun and reads its health; never saved; unattended (capture_run.py --save nvfstrip).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := player.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "as": "lvl"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "field": "smg_before",
+   "label": "smg_before"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nlet rF2 := BuildRef fM1 930548\nAddItemToLeveledList rF1 rF2 %{lvl} 1 50\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "field": "smg_after_50",
+   "label": "smg_after_50"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nplayer.EquipItem rF1 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetEquippedCurrentHealth 5\nSetFunctionValue fV\nEnd\n",
+   "field": "health_points_50",
+   "label": "health_points_50"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetWeaponHealthPerc\nSetFunctionValue fV\nEnd\n",
+   "field": "health_perc_50",
+   "label": "health_perc_50"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nplayer.UnequipItem rF1 0 1\nplayer.RemoveItem rF1 99 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nlet rF2 := BuildRef fM1 930548\nAddItemToLeveledList rF1 rF2 %{lvl} 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "field": "smg_after_1",
+   "label": "smg_after_1"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nplayer.EquipItem rF1 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetEquippedCurrentHealth 5\nSetFunctionValue fV\nEnd\n",
+   "field": "health_points_1",
+   "label": "health_points_1"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetWeaponHealthPerc\nSetFunctionValue fV\nEnd\n",
+   "field": "health_perc_1",
+   "label": "health_perc_1"
+  }
+ ]
+}

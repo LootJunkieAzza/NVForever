@@ -125,8 +125,8 @@ pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, St
 /// `source.PushActorAway target force`: knocks the target down and throws it away from
 /// the source with the force (towards it when negative; straight up without a source); no
 /// effect on the dead, immobile creatures or actors flagged No Knockdowns [documented:
-/// GECK wiki PushActorAway]. The rules are [`Game::push_actor_away`]. The player is not
-/// knocked down [design: not built].
+/// GECK wiki PushActorAway]. The rules are [`Game::push_actor_away`]; the player is
+/// knocked down too (docs/spec-notes/unconscious.md §5.4).
 pub fn push_actor_away(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let target = a.form(0)?;
     let force = a.num_or(1, 0.0);

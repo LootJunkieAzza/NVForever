@@ -285,6 +285,13 @@ pub struct Runtime {
     pub stats: TickStats,
     /// What the player's aid items did (`crate::aid`).
     pub aid: crate::aid::AidStats,
+    /// The perks' choice list answered with the default action: the target is activated
+    /// again as E does (`crate::activate`), without the list (`fnv_game::activate_choices`).
+    pub activate_again: Option<FormId>,
+    choices_passed: Option<FormId>,
+    /// The button picked in the perks' choice list, taken in the next tick (its script
+    /// needs the world).
+    activate_pick: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -374,6 +381,9 @@ impl ScriptState {
             _ if self.before_opening() => ControlLocks::ALL,
             // The player is dead: nothing more to do [design] (`crate::combat`).
             Some(rt) if rt.game.is_dead(FormId::PLAYER_REF) => ControlLocks::ALL,
+            // Knocked down: until the get-up clip is over (docs/spec-notes/unconscious.md
+            // §5.4; `nvforever` player_knockdown.rs).
+            Some(rt) if rt.game.knockout(FormId::PLAYER_REF).is_some() => ControlLocks::ALL,
             Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
             None => ControlLocks::default(),
         }
@@ -478,6 +488,9 @@ impl Runtime {
             started: Instant::now(),
             stats: TickStats::default(),
             aid: crate::aid::AidStats::default(),
+            activate_again: None,
+            choices_passed: None,
+            activate_pick: None,
         };
         with_world(&mut rt, sim, |rt| {
             rt.game.new_game();
@@ -535,6 +548,15 @@ impl Runtime {
     pub fn answer(&mut self, button: Option<i32>) -> bool {
         if self.closing.is_some() {
             return false;
+        }
+        // The perks' choice list (`fnv_game::activate_choices`): OK is its first button;
+        // taken in the next tick, with the world.
+        if self.game.activate_menu.is_some() {
+            if self.activate_pick.is_some() {
+                return false;
+            }
+            self.activate_pick = Some(button.unwrap_or(0).max(0) as usize);
+            return true;
         }
         let Some(menu) = self.game.menu.filter(|&m| is_script_menu(m)) else { return false };
         let front = if menu == MENU_MESSAGE { self.game.boxes.first().copied() } else { None };
@@ -618,7 +640,34 @@ impl Runtime {
         now.into_iter().filter(|r| self.marked.insert(*r)).collect()
     }
 
+    /// The player picks button `index` of the perks' choice list: a perk's choice runs
+    /// its script now; the default action activates the target again as E does
+    /// ([`Runtime::activate_again`]). Whether a list was open.
+    pub fn pick_activate_choice(&mut self, index: usize) -> bool {
+        self.observe_inventory();
+        let picked = self.game.pick_activate_choice(index);
+        let g = &self.game;
+        match &picked {
+            Some(fnv_game::activate_choices::Picked::Choice(c)) => info!("activate: the player chose {} ({})", c.label, g.data.name(c.perk)),
+            Some(fnv_game::activate_choices::Picked::Default(t)) => {
+                info!("activate: the player chose the default action on {}", g.data.name(*t));
+                self.activate_again = Some(*t);
+                self.choices_passed = Some(*t);
+            }
+            None => return false,
+        }
+        self.snapshot_inventory();
+        true
+    }
+
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
+        // opens first, unless it was just answered with the default action.
+        if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
+            let labels: Vec<&str> = self.game.activate_menu.iter().flat_map(|m| m.choices.iter().map(|c| c.label.as_str())).collect();
+            info!("activate: {} offers the perks' choices {labels:?} and its default action", self.game.data.name(target));
+            return Ok(ByHand::Choices);
+        }
         self.observe_inventory();
         let player = FormId::PLAYER_REF;
         let from = self.game.events.len();
@@ -953,6 +1002,9 @@ pub enum ByHand {
     /// The target is an actor whose greeting has the Goodbye flag: it said the line at
     /// the player and no conversation started (`Runtime::talk_after`).
     Greeted,
+    /// The player's perks offer choices on the target: their list opened
+    /// (`fnv_game::activate_choices`, `crate::script_hud`).
+    Choices,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -1015,7 +1067,7 @@ impl EffectCtx for PlayCtx<'_> {
     }
 
     fn pops_in(&self, r: FormId) -> bool {
-        self.sim.refs.get(r).and_then(|p| p.enable_parent).is_some_and(|e| e.pop_in)
+        self.sim.refs.refs.get(&r).and_then(|p| p.enable_parent).is_some_and(|ep| ep.pop_in)
     }
 
     fn enable_children(&self, r: FormId) -> Vec<FormId> {
@@ -1140,14 +1192,16 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// SetGlobalTimeMultiplier (`UiRequests::time_multiplier`): the virtual clock runs at that
 /// speed, so everything driven by `Time` (animations, physics, NPCs, the scripts' frame
 /// time, the game clock) slows down or speeds up together [documented: GECK wiki
-/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Sound follows it, as the engine's own slow
-/// motion's does ([`crate::audio_out::clock_sound`]), unless the call's
-/// `keepSoundUnchanged` was 1 [documented: same page] (`UiRequests::keep_sound`; the
-/// shipped slow motion passes 1, QUST 0x00102037 stage 27 [observed]).
+/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Sounds play at the multiplier too, as tape
+/// played faster or slower, unless the call asked for them unchanged
+/// (`UiRequests::time_keeps_sound`, the shipped slow motion's choice, QUST 0x00102037
+/// stage 27) [documented: same page, keepSoundUnchanged; hypothesis: the sounds that
+/// follow are those the engine's own slow motion slows, `audio_out::SoundCategory::slows`,
+/// and they follow the multiplier itself].
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
-/// (`crate::vats_mode`, docs/design/vats-mode.md §4); those two always slow sound
-/// (`audio_out::SoundSpeed`).
+/// (`crate::vats_mode`, docs/design/vats-mode.md §4); those two also slow sound
+/// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
 fn time_multiplier(
     script: Res<ScriptState>,
     scale: Option<Res<ClockScale>>,
@@ -1168,8 +1222,8 @@ fn time_multiplier(
         clock.set_relative_speed(want);
     }
     if let Some(mut sound) = sound {
-        let clock = if rt.game.ui.keep_sound { engine } else { want };
-        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::clock_sound(clock)));
+        let script_sound = if rt.game.ui.time_keeps_sound { 1.0 } else { asked };
+        sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine) * script_sound));
     }
 }
 
@@ -1265,7 +1319,7 @@ pub(crate) fn run_scripts(
     mut hud: ResMut<ScriptHud>,
     mut corner: ResMut<crate::corner_messages::CornerMessages>,
     mut quest_lines: ResMut<crate::quest_messages::QuestMessages>,
-    mut changed: MessageWriter<RefChanged>,
+    (mut changed, mut fades): (MessageWriter<RefChanged>, MessageWriter<crate::fade::RefFade>),
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
@@ -1301,7 +1355,7 @@ pub(crate) fn run_scripts(
                             rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
-                                changed.write(RefChanged { form_id: id.0, fade: false });
+                                changed.write(RefChanged { form_id: id.0 });
                             }
                         }
                         Err(e) => warn!("load: {}: {e}; the game goes on from the plugins", path.display()),
@@ -1414,6 +1468,9 @@ pub(crate) fn run_scripts(
         for c in &console {
             console_out.push(crate::console::run_call(rt, c));
         }
+        if let Some(i) = rt.activate_pick.take() {
+            rt.pick_activate_choice(i);
+        }
         let from = rt.game.events.len();
         // A conversation with the player pauses the game: nobody moves, and no trigger
         // block runs (OnTrigger would, every frame) until it is over.
@@ -1446,8 +1503,16 @@ pub(crate) fn run_scripts(
     let events = std::mem::take(&mut rt.game.events);
     let skip = std::mem::take(&mut rt.skip);
     rt.stats.events += events.len() as u64;
+    // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
+    // collision and enable children follow.
+    let late = std::mem::take(&mut rt.game.script_looks.disabled_after_fade);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
+    for r in late {
+        info!("script: {} disabled after its fade", rt.game.data.name(r));
+        effects.push(ScriptEffect::RefChanged(r.0));
+        effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
+    }
     for r in marked {
         info!("script: {r} marked for delete");
         effects.push(ScriptEffect::RefChanged(r.0));
@@ -1484,13 +1549,11 @@ pub(crate) fn run_scripts(
         match e {
             ScriptEffect::RefChanged(id) => {
                 if sent.insert(id) {
-                    changed.write(RefChanged { form_id: id, fade: false });
+                    changed.write(RefChanged { form_id: id });
                 }
             }
-            ScriptEffect::RefFaded(id) => {
-                if sent.insert(id) {
-                    changed.write(RefChanged { form_id: id, fade: true });
-                }
+            ScriptEffect::Fade { form_id, fade_in } => {
+                fades.write(crate::fade::RefFade { form_id, fade_in });
             }
             ScriptEffect::Travel(t) if crate::stress::holds_player() => {
                 info!("test aid NVF_PLAY_TEST_STRESS: a script's move of the player to {:?} / {:?} at {:?} left out", t.interior, t.world, t.feet);
@@ -1552,6 +1615,10 @@ fn sync_locks(mut script: ResMut<ScriptState>, mut locks: ResMut<ControlLocks>, 
     }
     if script.rt.as_ref().is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
         info!("player controls: all held, the player is dead");
+        return;
+    }
+    if script.rt.as_ref().is_some_and(|rt| rt.game.knockout(FormId::PLAYER_REF).is_some()) {
+        info!("player controls: all held, the player is knocked down");
         return;
     }
     stats.changes += 1;

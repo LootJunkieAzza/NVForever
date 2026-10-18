@@ -16,20 +16,22 @@
 //! The codes are New Vegas's [documented: GECK wiki GetAnimAction, the table "revised for
 //! GECK NV"], checked against the AI observer's campaigns [observed: `anim_action` of the
 //! Goodsprings gunfight and the melee-spacing runs, C:\fnv-private\capture,
-//! docs/spec-notes/anim-state.md]. Codes no source explains are not answered (module
-//! notes of [`AnimAction`]).
+//! docs/spec-notes/anim-state.md]. 10 and 11 are never answered; 12 (the player's
+//! landing) and 17, which no source explains, as hypotheses (notes of [`AnimAction`]).
 
 use crate::functions::{none, yes, Args, Ctx};
 use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
-/// GetAnimAction's codes [documented: GECK wiki GetAnimAction, New Vegas table]. Not
-/// answered: 10 (dodge), 11 and 12 (the page: "may be left overs"); 6 (the throwable
-/// left the hand) and 5 (gearing up to throw) are not told apart from a shot, as
-/// NVForever's thrown weapons have no throw phases yet; 17, which the observer saw on
-/// .357 revolvers for about two seconds before a reload's 9, has no documented meaning
-/// [observed: Goodsprings gunfight, `WeapNV357Revolver` 0008F216] and is not answered.
+/// GetAnimAction's codes [documented: GECK wiki GetAnimAction, New Vegas table]. Never
+/// answered: 10 (dodge) and 11 (wait for the lower body): the page says 10–12 "may be
+/// left overs", and no actor of the observer's fights read them [observed: Goodsprings
+/// gunfight and the 15 melee-spacing runs, docs/spec-notes/anim-state.md §1]. 12 the
+/// player read after a jump ([`AnimAction::WaitForSpecialIdle`]). 17, which the observer saw on .357 revolvers before
+/// a reload's 9, has no documented meaning: NVForever answers it while a round-by-round
+/// reload opens the weapon ([`AnimAction::ReloadOpen`], hypothesis; the observer
+/// campaign `anim_actions` settles it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimAction {
     /// 0: drawing the weapon.
@@ -46,8 +48,17 @@ pub enum AnimAction {
     FollowThrough,
     /// 4: "returning to the static animation after the attack" [documented]: the rest
     /// of a shot's or a swing's clip [observed: about 0.33 s after a shot, after each
-    /// creature's and the baseball bat's 2].
+    /// creature's and the baseball bat's 2], and "drawing another throw-able weapon after
+    /// one was just thrown" [documented].
     AttackReturn,
+    /// 5: "gearing up to throw" [documented]: a thrown weapon's clip until it leaves the
+    /// hand ([`throw_action`]).
+    ThrowWindUp,
+    /// 6: "the throwable weapon has left the player's hand" [documented]: for
+    /// [`THROWN_SECONDS`] after the throw [observed: troopers throwing dynamite read 5
+    /// for 52–58 samples, then 6 for 11–40 (median 36), then 4 or −1; campaign
+    /// `anim_actions`, 2026-10-18, docs/spec-notes/anim-state.md §1].
+    Thrown,
     /// 7: blocking.
     Block,
     /// 8: "staggered by an npc that is blocking" [documented]: the attacker's recoil.
@@ -55,9 +66,25 @@ pub enum AnimAction {
     /// 9: reloading [documented; observed: about two seconds after a magazine's last
     /// shot, every gun of the gunfight].
     Reload,
+    /// 12: ANIM_ACTION_WAIT_FOR_SPECIAL_IDLE [documented: the name]. No NPC of the
+    /// campaign `anim_actions` read 10–12 [observed]. The player read 12
+    /// for about 49 frames, starting about 50 frames after a jump [observed: capture
+    /// `player_actions_anim`, 2026-10-18]: NVForever answers it while the player's landing
+    /// clip plays [hypothesis: that the landing is what 12 marks; the timing fits a jump's
+    /// time in the air].
+    WaitForSpecialIdle,
     /// 13: "every action not included in the ones above": furniture, PlayIdle idles,
     /// staggering from crippled limbs, getting up [documented].
     ForceScriptAnim,
+    /// 17 (not in the page's table): a round-by-round reload opening the weapon (the
+    /// `reloadxstart` clip of the .357 revolver and the lever-actions), before its rounds'
+    /// 9. Where it falls is [observed: campaign `anim_actions`, 2026-10-18: every reload of
+    /// the .357 (113–115 samples) and of the hunting revolver (75–81) read 17 between the
+    /// last shot's 4 and the reload's 9; the 9mm pistol went from 4 straight to 9]; that
+    /// it is the opening is [hypothesis]: the opening clip `1hpreloadxstart.kf` lasts
+    /// 1.07 s, shorter than the 1.3–1.9 s the original held 17 [observed: `fnvtool nif
+    /// anim`].
+    ReloadOpen,
 }
 
 impl AnimAction {
@@ -68,10 +95,14 @@ impl AnimAction {
             AnimAction::Attack => 2,
             AnimAction::FollowThrough => 3,
             AnimAction::AttackReturn => 4,
+            AnimAction::ThrowWindUp => 5,
+            AnimAction::Thrown => 6,
             AnimAction::Block => 7,
             AnimAction::Stagger => 8,
             AnimAction::Reload => 9,
+            AnimAction::WaitForSpecialIdle => 12,
             AnimAction::ForceScriptAnim => 13,
+            AnimAction::ReloadOpen => 17,
         }
     }
 }
@@ -131,6 +162,9 @@ pub struct AnimState {
     pub group: Option<&'static str>,
     /// The player only: aiming down a gun's sights (IsPlayerActionActive 9).
     pub iron_sights: bool,
+    /// The player only: within [`THROW_ACTION_SECONDS`] of a throw's start
+    /// (IsPlayerActionActive 2).
+    pub throwing: bool,
     /// When ([`Game::time`]) it was told (for traces; it does not expire).
     pub at: f64,
 }
@@ -148,6 +182,39 @@ pub fn shot_action(t: f32, fire: f32, len: f32, dt: f32, repeating: bool) -> Opt
         Some(AnimAction::Attack)
     } else if t < shot + dt {
         Some(AnimAction::FollowThrough)
+    } else if t < len {
+        Some(AnimAction::AttackReturn)
+    } else {
+        None
+    }
+}
+
+/// How long IsPlayerActionActive 2 stays 1 from the start of a throw, seconds [observed:
+/// 181 game loops on both of the player's grenade throws, from the first loop of its 5
+/// through its 6 and 4 and 73 loops after; about 2.6 s at the 69 loops a second of the
+/// same day's `disable_fade_getdisabled` job; capture `player_actions_anim2`, 2026-10-18].
+pub const THROW_ACTION_SECONDS: f32 = 2.6;
+
+/// How long a throw reads 6 after the weapon left the hand when its clip has no `Attach`
+/// key, seconds [observed: median 36 samples, 11–40, at about 60 a second; campaign
+/// `anim_actions`].
+pub const THROWN_SECONDS: f32 = 0.6;
+
+/// GetAnimAction of a throw `t` seconds into its clip of `len` seconds: 5 until the
+/// weapon leaves the hand at `release` (the clip's `Release` key; at least one frame,
+/// `dt`, in), 6 until the next one is in hand at `attach` (the clip's `Attach` key, else
+/// [`THROWN_SECONDS`] after the release), then 4 to the clip's end, then none
+/// [documented: GECK wiki GetAnimAction, 5, 6 and 4; observed: the player's grenade
+/// throws read 5 for 50–52 loops, 6 for 39–41, 4 for 16–17 (capture
+/// `player_actions_anim2`), where `1gtattackthrow.kf` has `Release` at 0.867 s, `Attach`
+/// at 1.533 s and ends at 1.7 s].
+pub fn throw_action(t: f32, release: f32, attach: Option<f32>, len: f32, dt: f32) -> Option<AnimAction> {
+    let release = release.max(dt);
+    let back = attach.filter(|a| *a > release).unwrap_or(release + THROWN_SECONDS);
+    if t < release {
+        Some(AnimAction::ThrowWindUp)
+    } else if t < back {
+        Some(AnimAction::Thrown)
     } else if t < len {
         Some(AnimAction::AttackReturn)
     } else {
@@ -200,20 +267,30 @@ pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 }
 
 /// `IsPlayerActionActive index`: 1 while the player performs the action [documented:
-/// GECK wiki IsPlayerActionActive]. Answered: 9, `PLAYER_ACTION_IRON_SIGHTS`, aiming down
-/// a gun's sights, and not while the player is in combat [documented: the page's notes,
-/// "will not return true if the player is in combat"] (both shipped calls, in Old World
-/// Blues, ask 9: docs/design/script-function-audit.md). The page's ActionIndex list is
-/// a template the wiki export lacks, so the other indices' meanings are not known here
-/// (8 is "standing on a table or chair" by the page's example, which NVForever's player
-/// never does): they read 0 [not answered].
+/// GECK wiki IsPlayerActionActive]. The page's ActionIndex list is a template the wiki
+/// export lacks; what the original answered [observed: capture `player_actions_anim2`,
+/// 2026-10-18, every game loop]:
+/// - 9 while the player aimed a pistol (out of combat), as the page's
+///   PLAYER_ACTION_IRON_SIGHTS; not while the player is in combat [documented: the page's
+///   notes]. Both shipped calls (Old World Blues) ask 9.
+/// - 2 from the start of a grenade throw for [`THROW_ACTION_SECONDS`].
+/// - Nothing (1–10 all 0) while firing a pistol or a revolver, sneaking, firing while
+///   sneaking, jumping, swinging a knife, drawing or holstering, though the page says
+///   firing stays active about two game minutes: no index answered it.
+///
+/// 8 is "standing on a table or chair" by the page's example, which NVForever's player
+/// never does. Every other index reads 0.
 pub fn is_player_action_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let index = a.num_or(0, 0.0) as i32;
-    if index != 9 {
-        return none();
+    let s = g.anim_state(FormId::PLAYER_REF);
+    match index {
+        2 => yes(s.is_some_and(|s| s.throwing)),
+        9 => {
+            let sights = s.is_some_and(|s| s.iron_sights);
+            yes(sights && !g.awareness.hunted(FormId::PLAYER_REF))
+        }
+        _ => none(),
     }
-    let sights = g.anim_state(FormId::PLAYER_REF).is_some_and(|s| s.iron_sights);
-    yes(sights && !g.awareness.hunted(FormId::PLAYER_REF))
 }
 
 #[cfg(test)]
@@ -246,6 +323,27 @@ mod tests {
     }
 
     #[test]
+    fn a_throw_reads_5_then_6_then_4() {
+        let dt = 1.0 / 60.0;
+        let seq: Vec<Option<i32>> = (0..100).map(|i| throw_action(i as f32 * dt, 0.9, None, 1.6, dt).map(AnimAction::code)).collect();
+        let first6 = seq.iter().position(|c| *c == Some(6)).unwrap();
+        assert!(seq[..first6].iter().all(|c| *c == Some(5)), "gearing up until it leaves: {seq:?}");
+        let sixes = seq.iter().filter(|c| **c == Some(6)).count();
+        assert!((35..=37).contains(&sixes), "6 for about 0.6 s: {sixes}");
+        assert_eq!(seq.iter().position(|c| *c == Some(4)), Some(first6 + sixes));
+        assert_eq!(throw_action(1.7, 0.9, None, 1.6, dt), None);
+        // A clip that ends within 0.6 s of the release ends while it still reads 6.
+        assert_eq!(throw_action(0.4, 0.2, None, 0.5, dt), Some(AnimAction::Thrown));
+        // The grenade clip's keys: Release 0.867 s, Attach 1.533 s, end 1.7 s, played as the
+        // original's player read them (5 for about 52 loops, 6 for about 40, then 4).
+        let codes: Vec<i32> = (0..102).filter_map(|i| throw_action(i as f32 * dt, 0.867, Some(1.533), 1.7, dt).map(AnimAction::code)).collect();
+        let count = |c: i32| codes.iter().filter(|x| **x == c).count();
+        assert!((50..=53).contains(&count(5)), "5 until the release: {codes:?}");
+        assert!((39..=41).contains(&count(6)), "6 until the attach: {codes:?}");
+        assert!((9..=11).contains(&count(4)), "4 to the clip's end: {codes:?}");
+    }
+
+    #[test]
     fn a_swing_reads_2_until_its_hit_then_4() {
         assert_eq!(swing_action(0.1, 0.4, 0.9), Some(AnimAction::Attack));
         assert_eq!(swing_action(0.5, 0.4, 0.9), Some(AnimAction::AttackReturn));
@@ -271,10 +369,14 @@ mod tests {
             (AnimAction::Attack, 2),
             (AnimAction::FollowThrough, 3),
             (AnimAction::AttackReturn, 4),
+            (AnimAction::ThrowWindUp, 5),
+            (AnimAction::Thrown, 6),
             (AnimAction::Block, 7),
             (AnimAction::Stagger, 8),
             (AnimAction::Reload, 9),
+            (AnimAction::WaitForSpecialIdle, 12),
             (AnimAction::ForceScriptAnim, 13),
+            (AnimAction::ReloadOpen, 17),
         ];
         for (a, c) in all {
             assert_eq!(a.code(), c);

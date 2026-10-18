@@ -378,7 +378,11 @@ pub struct ClipKeys {
     /// `Detach`: the weapon leaves the hand for the holster.
     pub detach: Option<f32>,
     /// `Hit` (or `Fire`, the first of either): when a ranged weapon fires or a melee one
-    /// strikes [documented: GECK wiki NiTextKeyExtraData, owner export 2026-10-09].
+    /// strikes [documented: GECK wiki NiTextKeyExtraData, owner export 2026-10-09]; a
+    /// thrown weapon's `Release`, when it leaves the hand [observed: the throw clips
+    /// `1gtattackthrow*.kf` have `Hold`, `Release` and `Attach` and no `Hit` or `Fire`;
+    /// `1gtattackthrow.kf` releases at 0.867 s, where the original's player read 5 for
+    /// 50–52 game loops before 6, capture `player_actions_anim2`].
     pub hit: Option<f32>,
     /// `Loop`: where the part of an attack clip that repeats while the trigger is held
     /// ends; it starts at `Fire` and the rest of the clip is the way out [documented:
@@ -412,7 +416,7 @@ impl ClipKeys {
                     out.attach.get_or_insert(*t);
                 } else if lower == "detach" {
                     out.detach.get_or_insert(*t);
-                } else if lower == "hit" || lower == "fire" {
+                } else if lower == "hit" || lower == "fire" || lower == "release" {
                     out.hit.get_or_insert(*t);
                 } else if lower == "loop" {
                     out.loop_end.get_or_insert(*t);

@@ -266,7 +266,8 @@ struct Said {
     remaining: f64,
     /// A line of the conversation with the player.
     conversation: bool,
-    /// Said flat, heard anywhere (Say's is2D, `Speech::two_d`).
+    /// Said as a 2D sound (Say's is2D, `fnv_game::game::Speech::two_d`): heard flat and
+    /// whole wherever the player is, as the conversation's line is.
     two_d: bool,
 }
 
@@ -457,7 +458,7 @@ fn play(
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
         let file = base.and_then(|b| bank.file(s.info.0, k, b.0));
         // A line outside the conversation is heard from where it is said, or not at all;
-        // a flat one (Say's is2D, `Speech::two_d`) as the conversation's.
+        // a 2D one (Say's is2D) as the conversation's.
         let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
         let out_of_hearing = match heard {
             Some(Some((_, d))) if d >= DIALOG_MAX_DISTANCE => Some(format!("{d:.0} units away")),

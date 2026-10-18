@@ -34,7 +34,7 @@ fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
 }
 
 fn item(kind: ItemKind) -> BaseData {
-    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None, non_playable: false, armor_class: Default::default(), armor_dr: None, armor_dt: None, weapon_damage: None, drawable: false, quest_item: false, icon: None, placed_count: None })
+    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None, non_playable: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, drawable: false, quest_item: false, icon: None, placed_count: None })
 }
 
 fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
@@ -147,7 +147,6 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<TravelRequest>()
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()
-        .init_resource::<crate::ref_fade::RefFades>()
         .add_message::<crate::furniture::UseFurniture>()
         .add_message::<crate::world_sounds::Activated>()
         .add_message::<crate::terminal::OpenTerminal>()

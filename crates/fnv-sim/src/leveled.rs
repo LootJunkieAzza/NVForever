@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 use rand_core::RngCore;
 
 use crate::form::FormId;
-use crate::forms::{Entry, FormStore, ItemKind, LeveledEntry};
+use crate::forms::{Entry, FormStore, LeveledEntry};
 
 /// Nesting deeper than this is reported as a cycle.
 pub const MAX_DEPTH: u32 = 32;
@@ -106,9 +106,9 @@ struct Ctx<'a> {
     added: &'a BTreeMap<FormId, Vec<LeveledEntry>>,
 }
 
-/// `condition`: the entry's ([`LeveledEntry::condition`]) that led here, for the weapons
-/// and armour it resolves to [hypothesis: an entry's health reaches the items of a list
-/// it names, the nearest entry's winning; only equipment has a condition].
+/// `condition`: the condition the entry that led here asked for (a script's added
+/// entry, [`LeveledEntry::condition`]); it carries down into nested lists unless one of
+/// their entries asks for its own [hypothesis].
 #[allow(clippy::too_many_arguments)]
 fn resolve_at(
     cx: &Ctx,
@@ -127,9 +127,7 @@ fn resolve_at(
     }
     let Some(list) = cx.forms.leveled(item) else {
         let mut e = Entry::new(item, count);
-        if cx.forms.item(item).is_some_and(|i| matches!(i.kind, ItemKind::Weapon | ItemKind::Armor)) {
-            e.extra.condition = condition;
-        }
+        e.extra.condition = condition;
         out.push(e);
         return Ok(());
     };

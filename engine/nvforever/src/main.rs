@@ -36,6 +36,7 @@ mod creator_view;
 mod death_cam;
 mod deaths;
 mod knockouts;
+mod player_knockdown;
 mod detection;
 mod dialogue_look;
 mod door_fade;
@@ -88,6 +89,7 @@ mod ragdoll;
 mod reflection;
 mod residents;
 mod resurrect;
+mod appearance;
 mod script_look;
 mod ripples;
 mod settings;
@@ -99,6 +101,7 @@ mod imposters;
 mod sky;
 mod limping;
 mod sneaking;
+mod swimming;
 mod ssao;
 mod taa;
 mod speech_look;
@@ -1173,7 +1176,7 @@ fn main() -> AppExit {
         // The loading screen sends the travel in the Input set and reads in `Last` whether
         // the renderer is done: both this frame.
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, (worldspace::switch, world::travel).chain().after(nvf_play::PlaySet::Input).before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space).chain().after(nvf_play::PlaySet::Input).before(world::stream))
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
@@ -1217,7 +1220,9 @@ fn main() -> AppExit {
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
-            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin));
+            // The player knocked down (player_knockdown.rs).
+            app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
+            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {
@@ -1240,6 +1245,8 @@ fn main() -> AppExit {
             app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Actors swimming in water (swimming.rs).
+            app.add_plugins(swimming::SwimmingPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
             // Actors drawn at a script's scale (actor_scale.rs).

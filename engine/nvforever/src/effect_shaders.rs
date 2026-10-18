@@ -14,10 +14,7 @@
 //! - **Ending**: a script's play with a duration ends after max(duration, one cycle),
 //!   without one when stopped; an effect's when the effect ends.
 //! - **Actor alpha**: the meshes of an actor with an alpha below 1 get blended copies of
-//!   their materials with the alpha multiplied in; 1 gives the originals back. A
-//!   reference fading in or out (Enable / Disable with a fade, `nvf_play::ref_fade`) is
-//!   drawn the same way, any reference, its fade's alpha (in steps of [`FADE_STEPS`],
-//!   so a fade makes few material copies) times its SetActorAlpha.
+//!   their materials with the alpha multiplied in; 1 gives the originals back.
 //!
 //! Log: `effect shader: <EDID> on <who> (…)` when one starts, `… ends (…)` when it ends,
 //! `actor alpha: <who> <a> (<n> meshes)`, and at exit `effect shaders summary: …`.
@@ -41,7 +38,7 @@ pub struct EffectShadersPlugin;
 
 impl Plugin for EffectShadersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Shaders>().init_resource::<crate::effect_particles::EffectParticles>().add_systems(Update, (play, actor_alpha.after(nvf_play::PlaySet::Sync), crate::effect_particles::draw.after(play))).add_systems(Last, (report, crate::effect_particles::report));
+        app.init_resource::<Shaders>().init_resource::<crate::effect_particles::EffectParticles>().add_systems(Update, (play, actor_alpha.after(crate::texture_swap::apply), crate::effect_particles::draw.after(play))).add_systems(Last, (report, crate::effect_particles::report));
     }
 }
 
@@ -289,33 +286,21 @@ fn play(
     }
 }
 
-/// The steps a fade's alpha is drawn in (`nvf_play::ref_fade`) [design: 30 steps over
-/// its second, below what the eye follows as steps].
-const FADE_STEPS: f32 = 32.0;
-
-/// Draw actors with an alpha below 1 see-through, and references fading in or out; give
-/// the others their materials back.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+/// Draw actors with an alpha below 1 see-through; give the others their materials back.
+#[allow(clippy::type_complexity)]
 fn actor_alpha(
     mut commands: Commands,
     script: Option<Res<ScriptState>>,
-    fades: Option<Res<nvf_play::ref_fade::RefFades>>,
-    time: Res<Time>,
     mut st: ResMut<Shaders>,
     mut materials: ResMut<Assets<NifMaterial>>,
     drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&Faded>), Without<Overlay>>,
 ) {
     let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
     let alpha = &rt.game.script_looks.alpha;
-    let now = time.elapsed_secs();
-    let fade = |r: u32| fades.as_deref().and_then(|f| f.alpha(r, now)).map(|a| (a * FADE_STEPS).round() / FADE_STEPS);
     let st = &mut *st;
     let mut changed: HashMap<u32, (f32, u32)> = HashMap::new();
     for (e, rv, mat, faded) in &drawn {
-        let want = match (alpha.get(&FormId(rv.0)).copied(), fade(rv.0)) {
-            (a, None) => a,
-            (a, Some(f)) => Some(a.unwrap_or(1.0) * f).filter(|&x| x < 1.0),
-        };
+        let want = alpha.get(&FormId(rv.0)).copied();
         match (want, faded) {
             (None, None) => {}
             (None, Some(f)) => {
@@ -351,10 +336,7 @@ fn actor_alpha(
     }
     for (r, (a, n)) in changed {
         st.alpha_calls += 1;
-        // A fade changes it every step: only its start and end are told.
-        if fade(r).is_none_or(|f| f == 0.0 || f == 1.0) {
-            info!("actor alpha: {} {a:.2} ({n} meshes)", rt.game.data.name(FormId(r)));
-        }
+        info!("actor alpha: {} {a:.2} ({n} meshes)", rt.game.data.name(FormId(r)));
     }
 }
 

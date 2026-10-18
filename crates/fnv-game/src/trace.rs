@@ -24,8 +24,9 @@ pub enum EventKind {
     /// `ref:…`, `item:…@…`), `index` and `name` the variable.
     VarSet { owner: String, index: u16, #[serde(skip_serializing_if = "Option::is_none")] name: Option<String>, #[serde(serialize_with = "value_json")] value: Value },
     GlobalSet { global: FormId, value: f32 },
-    /// `fade`: the reference fades in or out (Enable's FadeIn, Disable's FadeOut); kept
-    /// out of the trace, as `silent` below.
+    /// Enable / Disable. `fade`: the script asked for the reference to fade in or out
+    /// rather than pop (Enable's FadeIn, Disable's FadeOut); not serialised, so traces
+    /// and goldens are unchanged.
     RefEnabled { reference: FormId, #[serde(skip)] fade: bool },
     RefDisabled { reference: FormId, #[serde(skip)] fade: bool },
     /// SetScale: the reference's new scale.

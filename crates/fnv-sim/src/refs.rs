@@ -47,9 +47,11 @@ pub struct Teleport {
 pub struct EnableParent {
     pub reference: FormId,
     pub opposite: bool,
-    /// XESP flag "Pop In": the child appears at once when the parent is enabled, where
-    /// it would fade in [documented: GECK wiki Enable, the children "fade in by default"
-    /// unless "Pop In" is checked]. Not in the dumps (`fnvtool`), which keep their form.
+    /// XESP flag "Pop In": enabled through its parent, it appears at once instead of
+    /// fading in [documented: xEdit wbXESP flag bit 1; GECK wiki Enable, "In order for the
+    /// children to Pop In (Instead of fade in which is the default for Enable) you must
+    /// go to each child and ... check the 'Pop In' checkbox"].
+    /// Not serialised: dumps of placed references stay as they were.
     #[serde(skip)]
     pub pop_in: bool,
 }

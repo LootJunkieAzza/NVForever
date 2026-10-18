@@ -7,6 +7,7 @@ use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::forms::ItemKind;
 use fnv_sim::inventory::Extra;
+use fnv_sim::world::EquipLock;
 use fnv_sim::FormId;
 
 /// The items an item parameter stands for: the form itself, or every member of a form
@@ -77,15 +78,15 @@ pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 }
 
 /// `RemoveAllItems [target] [retainOwnership] [hideMessages]`: into the target
-/// container, or destroyed. Moved items keep their owner only with the retain-ownership
-/// flag non-zero, else it is cleared [documented: GECK wiki RemoveAllItems]
-/// (`World::transfer_all_owned`).
+/// container, or destroyed. Moved items keep their owner only with retainOwnership
+/// non-zero [documented: GECK wiki RemoveAllItems] (`fnv_sim::World::transfer_all_owned`).
 pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let silent = hide_flag(a, 2);
+    let keep_owner = a.num_or(1, 0.0) != 0.0;
     let stacks = match a.opt_form(0) {
         Some(to) => {
-            let moved = g.world.transfer_all_owned(from, to, a.num_or(1, 0.0) != 0.0).map_err(|e| e.to_string())?;
+            let moved = g.world.transfer_all_owned(from, to, keep_owner).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
                 g.emit(EventKind::ItemAdded { to, item, count, silent });
             }
@@ -99,21 +100,29 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     none()
 }
 
-/// `actor.EquipItem item [NoUnequipFlag] [HideEquipMessage]`: the actor equips the item
-/// (an aid item is used). EquipItem lifts UnequipItem's NoEquipFlag on the item; with
-/// NoUnequipFlag 1 the actor (the player too) cannot take the item off until UnequipItem
-/// does; while such an item fills a slot, equipping another there does nothing
-/// [documented: GECK wiki EquipItem] (`fnv_sim::EquipLocks`).
+/// `actor.EquipItem item [NoUnequipFlag] [HideEquipMessage]`. EquipItem takes away a
+/// NoEquip lock UnequipItem put on the item; with NoUnequipFlag 1 the item is locked on:
+/// neither the actor nor the player's inventory can take it off, and nothing else goes
+/// into its slot, until UnequipItem [documented: GECK wiki EquipItem]
+/// (`fnv_sim::EquipLock`). A slot held by a locked item refuses the item [documented:
+/// same page], an error of the call.
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
-    g.world.equip_locks_mut(actor).map_err(|e| e.to_string())?.no_equip.remove(&item);
+    if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
+        g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
+    }
     let e = match g.world.equip(actor, item) {
-        Err(fnv_sim::SimError::EquipLocked { .. }) => return none(),
+        // Power armour on the untrained player: the game's message, as from the Pip-Boy
+        // [hypothesis: a script's EquipItem is refused as the player's own equipping is].
+        Err(fnv_sim::world::SimError::NoPowerArmorTraining(_)) => {
+            super::player::refuse_power_armor(g);
+            return Err(format!("{} needs Power Armor Training", g.data.name(item)));
+        }
         r => r.map_err(|e| e.to_string())?,
     };
-    if !e.consumed && a.num_or(1, 0.0) != 0.0 {
-        g.world.equip_locks_mut(actor).map_err(|e| e.to_string())?.no_unequip.insert(item);
+    if !e.consumed && hide_flag(a, 1) {
+        g.world.lock_equip(actor, item, Some(EquipLock::NoUnequip)).map_err(|e| e.to_string())?;
     }
     for u in e.unequipped {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
@@ -133,21 +142,22 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// `actor.UnequipItem item [NoEquipFlag] [HideEquipMessage]`: the actor takes the item
-/// off, which lifts EquipItem's NoUnequipFlag; with NoEquipFlag 1 the actor (the player
-/// too) cannot put it on until EquipItem does [documented: GECK wiki UnequipItem]
-/// (`fnv_sim::EquipLocks`). Companions ignoring the flag [documented: same page] is not
-/// modelled: no actor but the player chooses its gear yet.
+/// `actor.UnequipItem item [NoEquipFlag] [HideEquipMessage]`. UnequipItem takes away a
+/// NoUnequip lock EquipItem put on; with NoEquipFlag 1 the item is locked off until
+/// EquipItem [documented: GECK wiki UnequipItem] (`fnv_sim::EquipLock`). The page's note
+/// that companions ignore the flag is not modelled (no actor re-equips by itself yet).
+/// HideEquipMessage has nothing to hide: the engine shows no equip lines.
 pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
-    let locks = g.world.equip_locks_mut(actor).map_err(|e| e.to_string())?;
-    locks.no_unequip.remove(&item);
-    if a.num_or(1, 0.0) != 0.0 {
-        locks.no_equip.insert(item);
+    if g.world.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
+        g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
     }
     if g.world.unequip(actor, item).map_err(|e| e.to_string())? {
         g.item_event(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
+    }
+    if hide_flag(a, 1) {
+        g.world.lock_equip(actor, item, Some(EquipLock::NoEquip)).map_err(|e| e.to_string())?;
     }
     g.sync_actor_effects(actor);
     none()
@@ -392,18 +402,20 @@ pub fn set_quest_object(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// a leveled list) is an entry of the leveled item list `list` at `level`, `count` at a
 /// time; kept in the saved state and never taken back [documented: GECK wiki
 /// AddItemToLeveledList] (`fnv_sim::World::add_to_leveled_list`). The health is a
-/// percentage in New Vegas, 0–100 (Fallout 3's 0–1 reads as at most 1 %) [documented:
-/// same page]: the weapons and armour the entry gives come at that condition, whole at
-/// 100 or above or without it (`fnv_sim::forms::LeveledEntry::condition`). Honest Hearts
-/// passes 1 for the vendor lists it adds [observed: QUST 0x02008891 stage 1], so its
-/// vendors' weapons come at 1 % (docs/design/script-function-params.md §3). Count and
-/// level below 1 are read as 1 [hypothesis].
+/// percentage, 0–100 in New Vegas [documented: same page, "now accepts values from 0
+/// to 100, rather than from 0 to 1"]: the items the entry gives have that condition
+/// (`LeveledEntry::condition`); 100, or none given, is a whole item. The shipped calls
+/// ask for 1 or 100 [observed: the 20 decoded calls of Honest Hearts and Old World
+/// Blues]: 1 gives items at 1 % as the page reads [observed: capture `leveled_list_health`,
+/// 2026-10-18: Vance's 9mm SMG drawn from a list entry added at 50 had 375 of 750 health,
+/// at 1 had 7.5].
+/// Count and level below 1 are read as 1 [hypothesis].
 pub fn add_item_to_leveled_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let item = a.form(1)?;
     let level = a.num_or(2, 1.0).clamp(1.0, u16::MAX as f64) as u16;
     let count = a.num_or(3, 1.0).clamp(1.0, u16::MAX as f64) as u16;
-    let condition = a.get(4).map(|_| a.num(4)).transpose()?.filter(|&h| h < 100.0).map(|h| (h.max(0.0) / 100.0) as f32);
+    let condition = a.num(4).ok().map(|h| (h / 100.0).clamp(0.0, 1.0) as f32).filter(|c| *c < 1.0);
     g.world.add_to_leveled_list(list, fnv_sim::forms::LeveledEntry { level, item, count, condition }).map_err(|e| e.to_string())?;
     none()
 }

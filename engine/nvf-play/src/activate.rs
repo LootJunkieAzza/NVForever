@@ -49,7 +49,6 @@ impl Plugin for ActivatePlugin {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
-            .init_resource::<crate::ref_fade::RefFades>()
             .insert_resource(AutoActivate::from_env())
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
@@ -357,10 +356,13 @@ fn activate(
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
 ) {
-    // A reference queued by a lock just opened: activated as if E were pressed on it.
-    let queued = next.and_then(|mut n| n.0.take()).and_then(|id| {
+    // A reference queued by a lock just opened, or by the perks' choice list answered
+    // with the default action: activated as if E were pressed on it.
+    let mut script = script;
+    let again = script.as_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| rt.activate_again.take()).map(|f| (f.0, "the perks' choice list chose its default action"));
+    let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
-        info!("activate 0x{id:08X} {name}: its lock was just opened");
+        info!("activate 0x{id:08X} {name}: {why}");
         Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
     });
     let fired = match (auto, time) {
@@ -417,6 +419,10 @@ fn activate(
             info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
             return;
         }
+        Ok(crate::script::ByHand::Choices) => {
+            info!("activate 0x{:08X} {} ({}): the perks' choice list opened", t.form_id, t.name, t.action.label());
+            return;
+        }
         Ok(crate::script::ByHand::Greeted) => {
             // Heard and shown like a SayTo line; the player stays free.
             info!("activate 0x{:08X} {} ({}): it said its greeting, no conversation", t.form_id, t.name, t.action.label());
@@ -458,7 +464,7 @@ fn activate(
     for e in effects {
         match e {
             Effect::RefChanged(form_id) => {
-                changed.write(RefChanged { form_id, fade: false });
+                changed.write(RefChanged { form_id });
             }
             Effect::Travel { world, interior, feet, heading_deg } => {
                 let to = match (interior, world) {
@@ -487,47 +493,29 @@ type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibi
 
 /// Hide or show `RefVisual` entities from the simulation's state: every entity of a
 /// reference named by `RefChanged`, and new entities as cells stream in (a taken item
-/// must not come back when its cell reloads). A change with a fade starts it
-/// (`crate::ref_fade`): a reference fading out stays drawn until the fade is over.
-fn sync_visuals(
+/// must not come back when its cell reloads).
+pub(crate) fn sync_visuals(
     sim: Res<SimState>,
-    time: Option<Res<Time>>,
-    mut fades: ResMut<crate::ref_fade::RefFades>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,
 ) {
     let mut present: HashMap<u32, bool> = HashMap::new();
     for (r, mut v) in &mut visuals.p0() {
-        if !*present.entry(r.0).or_insert_with(|| sim.present(r.0) || fades.fading_out(r.0)) {
+        if !*present.entry(r.0).or_insert_with(|| sim.present(r.0)) {
             v.set_if_neq(Visibility::Hidden);
         }
     }
-    let mut changed: HashMap<u32, usize> = HashMap::new();
-    for m in changes.read() {
-        changed.insert(m.form_id, 0);
-        if m.fade {
-            fades.start(m.form_id, sim.present(m.form_id), time.as_ref().map_or(0.0, |t| t.elapsed_secs()));
-        } else {
-            // A change without a fade (Enable 0 while it fades out) ends a running one.
-            fades.cancel(m.form_id);
-        }
-    }
+    let mut changed: HashMap<u32, usize> = changes.read().map(|m| (m.form_id, 0)).collect();
     if changed.is_empty() {
         return;
     }
-    let drawn = |id: u32| sim.present(id) || fades.fading_out(id);
     for (r, mut v) in &mut visuals.p1() {
         if let Some(n) = changed.get_mut(&r.0) {
-            v.set_if_neq(if drawn(r.0) { Visibility::Inherited } else { Visibility::Hidden });
+            v.set_if_neq(if sim.present(r.0) { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }
     for (id, n) in changed {
-        let state = match (sim.present(id), fades.fading_out(id)) {
-            (true, _) => "present",
-            (false, true) => "fading out",
-            (false, false) => "gone",
-        };
-        info!("reference 0x{id:08X} {state}: {n} render entities updated");
+        info!("reference 0x{id:08X} {}: {n} render entities updated", if sim.present(id) { "present" } else { "gone" });
     }
 }

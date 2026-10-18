@@ -29,7 +29,7 @@
 //!   `battle summary` at exit.
 
 use bevy::prelude::*;
-use fnv_game::combat_group::GroupNote;
+use fnv_game::combat_group::{GroupNote, PostKind};
 use fnv_game::game::Game;
 use fnv_nav::{CoverEdge, NavGraph, Space};
 use fnv_sim::FormId;
@@ -132,7 +132,7 @@ pub struct Tactic {
     pub fled_health: Option<f64>,
     /// The kind of post it was given last frame; a kind the AI found no way to, barred
     /// until then; behind-cover places it could not reach.
-    pub last_post: Option<fnv_game::combat_group::PostKind>,
+    pub last_post: Option<PostKind>,
     pub no_post: Option<(fnv_game::combat_group::PostKind, f32)>,
     pub bad_cover: Vec<[f32; 3]>,
     /// A shift sideways it is on its way to (docs/design/combat-ai.md §14.2).
@@ -212,6 +212,19 @@ pub fn back_off(from: [f32; 3], target: [f32; 3], step: f32) -> [f32; 3] {
     let len = d[0].hypot(d[1]);
     let u = if len < 1e-3 { [0.0, -1.0] } else { [d[0] / len, d[1] / len] };
     [from[0] + u[0] * step, from[1] + u[1] * step, from[2]]
+}
+
+/// Where a fighter using `cv` goes and as what post. The run to its cover is a Cover
+/// post: it turns the way it goes. Once there, behind it is a Duck post and out at the
+/// peek point a Peek post: it stays facing its target, so it strafes out to fire and
+/// back in (`residents`: only Cover posts turn away) [design: owner 2026-10-18, "a real
+/// person would side strafe in and out during shooting"].
+pub fn cover_post(cv: &Cover) -> ([f32; 3], PostKind) {
+    match cv.phase {
+        Phase::Going => (cv.behind, PostKind::Cover),
+        Phase::Hiding { .. } => (cv.behind, PostKind::Duck),
+        Phase::WaitToFire { .. } | Phase::Firing { .. } => (cv.peek, PostKind::Peek),
+    }
 }
 
 /// The two peek points of a cover edge: past each end of it, [`COVER_STANDOFF`] in from
@@ -508,5 +521,17 @@ mod tests {
         let [p, q] = peek_points(&e);
         assert!((p[0] - (50.0 + 50.0 + PEEK_STEP)).abs() < 1e-3 && (p[1] + COVER_STANDOFF).abs() < 1e-3);
         assert!((q[0] - (50.0 - 50.0 - PEEK_STEP)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn only_the_run_to_cover_turns_away_from_the_target() {
+        let e = CoverEdge { tri: 0, a: [0.0, 0.0, 0.0], b: [100.0, 0.0, 0.0], mid: [50.0, 0.0, 0.0], out: [0.0, 1.0] };
+        let (behind, peek) = ([50.0, -40.0, 0.0], [214.0, -40.0, 0.0]);
+        let at = |phase| cover_post(&Cover { behind, peek, edge: e, phase, low: false });
+        assert_eq!(at(Phase::Going), (behind, PostKind::Cover));
+        // Back behind it from the peek point, and out again: facing the target, strafing.
+        assert_eq!(at(Phase::Hiding { until: 1.0 }), (behind, PostKind::Duck));
+        assert_eq!(at(Phase::WaitToFire { until: 1.0 }), (peek, PostKind::Peek));
+        assert_eq!(at(Phase::Firing { until: 1.0 }), (peek, PostKind::Peek));
     }
 }

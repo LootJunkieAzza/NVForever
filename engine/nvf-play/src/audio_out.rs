@@ -54,7 +54,7 @@
 //!   category follows it at once, as tape played slower: longer and lower together.
 //!   Effects, footsteps and voices slow; music and radio do not, nor interface sounds
 //!   ([`KeepsSpeed`]) [hypothesis: what the original leaves at speed]. A script's
-//!   SetGlobalTimeMultiplier moves sound the same way, slower or faster, unless it asked
+//!   SetGlobalTimeMultiplier changes the same sounds by its multiplier unless it asked
 //!   for sound unchanged (`script::time_multiplier`).
 //! - Spatial `PlaybackSettings` (Bevy's `SpatialAudioSink`) are not built: NVForever pans
 //!   its own sounds (`sfx::Panned`); a spatial request plays plain, with a warning.
@@ -169,20 +169,6 @@ pub const SOUND_FLOOR: f32 = 0.4;
 pub fn slowed_sound(clock: f32) -> f32 {
     clock.clamp(0.0, 1.0).sqrt().max(SOUND_FLOOR)
 }
-
-/// The sound speed at clock speed `clock`, slower or faster: [`slowed_sound`] below 1;
-/// above it the clock's own speed, up to [`SOUND_CEILING`] [hypothesis: a script's
-/// speed-up (SetGlobalTimeMultiplier 2) plays sound that much faster, as tape].
-pub fn clock_sound(clock: f32) -> f32 {
-    if clock <= 1.0 {
-        slowed_sound(clock)
-    } else {
-        clock.min(SOUND_CEILING)
-    }
-}
-
-/// The fastest sped-up sound [design].
-pub const SOUND_CEILING: f32 = 2.0;
 
 /// A sound that never slows with [`SoundSpeed`]: the interface's.
 #[derive(Component, Clone, Copy, Debug, Default)]
@@ -496,9 +482,9 @@ fn follow_sound_speed(
         return;
     }
     let before = told.replace(slow.0).unwrap_or(1.0);
-    // Easing changes it every frame: the log tells only of slowing (or speeding up) and
-    // of speed back (off 1 by 0.005, so the speed told as changed does not read 1.00).
-    let slowed = |s: f32| (s - 1.0).abs() >= 0.005;
+    // Easing changes it every frame: the log tells only of slowing and of speed back
+    // (below 0.995, so the speed told as slowed reads below 1.00).
+    let slowed = |s: f32| s < 0.995;
     if slowed(before) != slowed(slow.0) {
         info!("sound speed: {before:.2} -> {:.2}", slow.0);
     }
@@ -766,9 +752,6 @@ mod tests {
         assert_eq!(slowed_sound(0.05), SOUND_FLOOR, "VATS marking");
         assert_eq!(slowed_sound(0.0), SOUND_FLOOR);
         assert_eq!(slowed_sound(2.0), 1.0, "never faster");
-        assert_eq!(clock_sound(0.25), slowed_sound(0.25));
-        assert_eq!(clock_sound(1.5), 1.5, "a script's speed-up");
-        assert_eq!(clock_sound(8.0), SOUND_CEILING);
         for c in [SoundCategory::Effects, SoundCategory::Footstep, SoundCategory::Voice] {
             assert_eq!(speed_factor(0.5, c, false), 0.5, "{c:?}");
             assert_eq!(speed_factor(0.5, c, true), 1.0, "{c:?}, interface");

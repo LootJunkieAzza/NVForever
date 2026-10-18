@@ -1056,7 +1056,8 @@ the Prospector Saloon porch, Goodsprings [observed]:
   clips (weapon walks have 46 of 60 tracks; priorities are in the controlled blocks,
   `fnv_nif::anim::Track::priority`) and a stance prefix per equipped weapon type
   (animation.md §3.2). Sneak and swim sets sit directly in `characters\_male\`
-  (`sneakmt*`, `swimmt*`) and would need `clip_candidates` to look there too.
+  (`sneakmt*`, `swimmt*`); `clip_candidates` looks there last, and NPCs play both
+  (`sneaking.rs`, and `swimming.rs` since 2026-10-18 with `locomotion::SWIM_STANCES`).
 - **Turn speed**: turn clips carry no root rotation (§8.2); the game's turn speed and
   whether it scales the turn clip's rate are open. The walk test turns at 90°/s; actors
   turning on the spot turn at 120°/s (§8.9).

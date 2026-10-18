@@ -142,7 +142,7 @@ changed. Jobs and outputs are private (`C:\fnv-private\capture\probe\audit2`, `�
 
 Attended, from the audit's §4 (the plugin cannot script them): GetActionRef/IsActionRef
 when an NPC opens a scripted door; IsInCombat of two hostile NPCs out of the player's
-reach; ResetAI on an actor in combat; GetCurrentAIProcedure at a Travel destination;
+reach; ResetAI on an actor in combat; ~~GetCurrentAIProcedure at a Travel destination~~ (17, settled by the AI observer's samples, packages.md §4);
 IsInCriticalStage after a plasma critical kill; GetUnconscious/GetKnockedState of an
 essential knocked out; whether cashing chips counts for GetCasinoWinningsLevel. Unattended
 but not run yet: GetSleeping while the player sleeps (the Wait menu), MenuMode codes in
@@ -212,12 +212,11 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
    ~~**the engine's animation state**~~ (IsAnimPlaying,
    IsIdlePlaying, IsMoving's directions, IsPlayerActionActive: told by the engine every
    frame since 2026-10-18, docs/spec-notes/anim-state.md) and **AI package codes**
-   (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2): each a few dozen quests.
+   (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2; built 2026-10-18, script-stubs.md §3.16): each a few dozen quests.
 9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan**,
    **slot machines**.
 
-Cheap fixes left (the system exists, little use): SetCellImageSpace,
-PlayBink, GetDialogueEmotion's
+Cheap fixes left (the system exists, little use): GetDialogueEmotion's
 current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, a loaded
 the sim treating every XLOC as locked (the gas station's inner door has XLOC level 255
 with no Locked flag and is open in the original; worth a GetLocked probe on it).
@@ -250,25 +249,25 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
 | 8 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
 | 9 | Pip-Boy reset | built | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
-| 10 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
+| 10 | talking activators | built | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
 | 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | built | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
 | 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
-| 13 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
+| 13 | race and sex change on NPCs | built | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
 | 14 | crosshair placement | built | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
-| 15 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
-| 16 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
+| 15 | NPC inventory re-rolled on SetLevel | match (2026-10-18: the original keeps the inventory, capture ac1) | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
+| 16 | Cannibal and Mister Sandman | built | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
 | 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
 | 19 | drawn scale (SetScale) | match (2026-10-18, misc-stats.md §5) | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
-| 21 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
-| 23 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 24 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
+| 21 | Bink videos | match (2026-10-18, bink-films.md) | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 22 | cell image spaces | match (2026-10-18, bink-films.md §4) | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
+| 23 | screen blood splatter | match (2026-10-18, screen-splatter.md; fitted to a capture) | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 24 | AI package codes | match (2026-10-18, packages.md §4 procedure codes) | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
 | 25 | objective display switch | built | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
-| 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
+| 26 | navmesh switches | match (2026-10-18, script-stubs.md §3.16) | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
 | 27 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
-| 28 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
+| 28 | power armour training | built | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
 | 29 | quitting from scripts | built | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
 | 30 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
 | 31 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
@@ -297,7 +296,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | AddFormToFormList | 0x1233 | 651 / 0 | match | - | - |  |
 | AddItem | 0x1002 | 1720 / 0 | match | - | - |  |
 | AddItemHealthPercent | 0x11BC | 166 / 0 | match | - | - |  |
-| AddItemToLeveledList | 0x1236 | 20 / 0 | match | - | - |  |
+| AddItemToLeveledList | 0x1236 | 20 / 0 | match | - | - | fHealthPercent100 (0-100) is the condition of the items the entry gives [documented]; capture job leveled_list_health checks Honest Hearts' 1. |
 | AddNote | 0x117C | 192 / 0 | match | - | - |  |
 | AddPerk | 0x1176 | 188 / 0 | match | - | - |  |
 | AddReputation | 0x1239 | 504 / 0 | match | - | - |  |
@@ -308,7 +307,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | AddTagSkills | 0x121B | 3 / 0 | match | - | - |  |
 | AddToFaction | 0x117F | 542 / 0 | match | - | - |  |
 | AddTopic | 0x1058 | 11 / 0 | match | - | - |  |
-| AgeRace | 0x11E4 | 2 / 0 | no-system | race and sex change on NPCs | - | Stub, 2 calls. |
+| AgeRace | 0x11E4 | 2 / 0 | built | race and sex change on NPCs | - | Steps along RACE ONAM/YNAM, clamped [documented]; any actor; the engine draws it anew (docs/spec-notes/appearance-changes.md; smoke `agerace-sexchange-npc`; probe ac2). |
 | AlwaysShowActorSubtitles | 0x1277 | 16 / 0 | match | - | - |  |
 | ApplyImageSpaceModifier | 0x1191 | 355 / 0 | match | - | - |  |
 | AttachAshPile | 0x1211 | 4 / 0 | no-system | dismemberment and critical deaths | - | Stub. |
@@ -318,27 +317,27 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ClearDestruction | 0x11D8 | 2 / 0 | match | - | - |  |
 | ClearFactionPlayerEnemyFlag | 0x11C9 | 4 / 0 | match | - | - |  |
 | ClearOwnership | 0x118C | 1 / 0 | match | - | - |  |
-| ClearScreenSplatter | 0x1241 | 1 / 0 | no-system | screen blood splatter | - | Stub. |
+| ClearScreenSplatter | 0x1241 | 1 / 0 | match | screen blood splatter | - | Built 2026-10-18 (screen-splatter.md). |
 | CompleteAllObjectives | 0x11AD | 105 / 0 | match | - | - |  |
 | CompleteQuest | 0x1071 | 124 / 0 | match | - | - |  |
 | CreateDetectionEvent | 0x1068 | 1 / 0 | match | - | - |  |
 | DamageActorValue | 0x1181 | 138 / 0 | match | - | - |  |
 | DamageObject | 0x116C | 89 / 0 | match | - | - |  |
 | DetonatePlacedExplosives | 0x124D | 1 / 0 | match | - | - |  |
-| Disable | 0x1022 | 3336 / 0 | match | - | - |  |
-| DisableNavmesh | 0x11BF | 2 / 0 | no-system | navmesh switches | - | Stub. |
+| Disable | 0x1022 | 3336 / 0 | match | - | - | FadeOut 1 fades the reference out over 2 s, kept enabled meanwhile (GetDisabled 0 about 2 s [observed: capture disable_fade_long]); children pop out [documented]. |
+| DisableNavmesh | 0x11BF | 2 / 0 | match | navmesh switches | - | The navmesh leaves the AI's paths until enabled; saved (script-stubs.md §3.16). |
 | DisablePlayerControls | 0x1061 | 220 / 0 | match | - | - |  |
 | Dispel | 0x1142 | 56 / 0 | match | - | - |  |
 | DispelAllSpells | 0x1148 | 11 / 0 | match | - | - |  |
 | Drop | 0x1057 | 4 / 0 | match | - | - |  |
 | DropMe | 0x10A6 | 58 / 0 | match | - | - |  |
-| Enable | 0x1021 | 3324 / 0 | match | - | - |  |
+| Enable | 0x1021 | 3324 / 0 | match | - | - | FadeIn (default 1) fades the reference in over 2 s [hypothesis: the length, as the measured fade out]; enable children fade unless Pop In (script-function-params.md §3, smoke enable-disable-fade). |
 | EnableFastTravel | 0x1111 | 83 / 0 | no-system | fast travel | - | The switch is kept; fast travel itself is not built. |
 | EnableLoadingMenu | 0x1270 | 2 / 0 | no-system | loading screen control | - | Stub. |
-| EnableNavMesh | 0x11C0 | 5 / 0 | no-system | navmesh switches | - | Stub. |
+| EnableNavMesh | 0x11C0 | 5 / 0 | match | navmesh switches | - | The navmesh takes part in the AI's paths again; saved (script-stubs.md §3.16). |
 | EnablePlayerControls | 0x1060 | 177 / 0 | match | - | - |  |
 | EnterTrigger | 0x11BA | 160 / 0 | match | - | - |  |
-| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
+| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. NoUnequipFlag locks the item on (fnv_sim EquipLock; smoke equip-lock-inventory) [documented]. |
 | EvaluatePackage | 0x105E | 2285 / 0 | match | - | - |  |
 | Exists | 0x119F | 0 / 21 | match | - | - |  |
 | ExitGame | 0x11B5 | 1 / 0 | match | - | - | Back to the main menu as the pause menu's Quit [documented: GECK wiki]; the credits it plays first are not built (script-stubs.md §3.15). |
@@ -355,13 +354,13 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetActorValue | 0x100E | 431 / 2074 | match | - | same 2 |  |
 | GetAlarmed | 0x103D | 1 / 0 | match | - | same 1 | 0 at rest [observed: probes]; meaning still hypothesis. |
 | GetAngle | 0x1008 | 10 / 0 | match | - | - |  |
-| GetAnimAction | 0x10DB | 42 / 1 | match | - | same 1 |  |
+| GetAnimAction | 0x10DB | 42 / 1 | match | - | same 1 | New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-11 never (none observed); 12 the player's landing (12 observed after a jump); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions). |
 | GetArmorRating | 0x1051 | 1 / 1 | match | - | - |  |
 | GetAttacked | 0x103F | 0 / 11 | match | - | - |  |
 | GetBaseActorValue | 0x1115 | 6 / 16 | match | - | - |  |
 | GetBroadcastState | 0x11D4 | 6 / 0 | match | - | - |  |
 | GetButtonPressed | 0x101F | 211 / 0 | match | - | - |  |
-| GetCannibal | 0x10E3 | 0 / 1 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
+| GetCannibal | 0x10E3 | 0 / 1 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 at once after StartCannibal [observed: ac4], for the clip's 7.667 s [hypothesis] (docs/spec-notes/perk-activation.md). |
 | GetCasinoWinningsLevel | 0x125C | 24 / 0 | open | - | - | Blackjack and roulette count winnings; whether cashing chips counts needs a capture (attended). |
 | GetCasinoWinningStage | 0x1262 | 0 / 25 | open | - | - | As GetCasinoWinningsLevel. |
 | GetCauseofDeath | 0x118D | 1 / 1 | match | - | same 3 |  |
@@ -370,7 +369,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetContainer | 0x10CF | 11 / 0 | match | - | - |  |
 | GetContainerInventoryCount | 0x127A | 3 / 0 | match | - | - |  |
 | GetCurrentAIPackage | 0x106E | 15 / 15 | match | - | differs 11, same 4 | Codes agree where both run the same package: Sandbox 36, Dialogue 34, Travel 14, Patrol 37; 0 with no package (was -1) [observed: probes fp7 with GetIsCurrentPackage]. Other differences were different package choices (the save's hour and quest state). |
-| GetCurrentAIProcedure | 0x108F | 16 / 64 | wrong | AI package codes | differs 6 | A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Still apart: a loaded actor sandboxing read 0 (ours 45), an unloaded one 45; a Travel package at its chair 17 [observed: probes]. |
+| GetCurrentAIProcedure | 0x108F | 16 / 64 | match | AI package codes | differs 6 | A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Since 2026-10-18 by what the actor does, from the AI observer's samples (packages.md §4, procedure codes): a loaded sandboxing actor 0, 7, 46, 48, 10, 8 or 21, an unloaded one 45; a Travel package 0 on the way and 17 at its goal, seated too; 17 only for the package types that end [observed]. |
 | GetCurrentTime | 0x1012 | 89 / 138 | match | - | - |  |
 | GetDayOfWeek | 0x10AA | 24 / 11 | match | - | same 2 |  |
 | GetDead | 0x102E | 1120 / 725 | match | - | same 3 |  |
@@ -457,7 +456,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetReputationPct | 0x123E | 0 / 2 | match | - | - |  |
 | GetReputationThreshold | 0x123F | 143 / 1643 | match | - | - |  |
 | GetRestrained | 0x10F4 | 5 / 2 | match | - | - |  |
-| GetSandman | 0x10E2 | 0 / 2 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
+| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 from StartMisterSandman on a sleeper until the act ends, 1 at 180 frames and 0 at 420 [observed: ac5c]; NVForever ends it with the clip's 5.967 s [hypothesis]. |
 | GetScale | 0x1018 | 1 / 1 | match | - | - |  |
 | GetScriptVariable | 0x1035 | 0 / 1756 | match | - | - |  |
 | GetSecondsPassed | 0x100C | 821 / 0 | match | - | - |  |
@@ -477,7 +476,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetWeaponAnimType | 0x106C | 14 / 44 | match | - | - |  |
 | GetWeaponHealthPerc | 0x11F4 | 2 / 0 | match | - | - |  |
 | GetXPForNextLevel | 0x1215 | 3 / 0 | match | - | differs 1 |  |
-| HasBeenEaten | 0x107F | 6 / 4 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
+| HasBeenEaten | 0x107F | 6 / 4 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; still 0 while the act lasts [observed: ac4], 1 once it is over [hypothesis], saved (perk-activation.md). |
 | HasLoaded3D | 0x122E | 4 / 0 | match | - | differs 5, same 1 | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
 | HasMagicEffect | 0x10D6 | 41 / 5 | match | - | - | As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]. |
 | HasPerk | 0x11C1 | 126 / 493 | match | - | - |  |
@@ -486,7 +485,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsActionRef | 0x1069 | 578 / 0 | open | NPCs activating doors | - | As GetActionRef. |
 | IsActor | 0x1161 | 1 / 0 | match | - | - |  |
 | IsActorRefEssential | 0x1272 | 2 / 0 | match | - | - |  |
-| IsActorTalkingThroughActivator | 0x11AE | 0 / 92 | no-system | talking activators | same 1 | 0 at rest matches [observed: probes]. |
+| IsActorTalkingThroughActivator | 0x11AE | 0 / 92 | built | talking activators | same 1 | 0 at rest matches [observed: probes]; 1 on the talking actor while its lines are chosen and said through the activator (docs/spec-notes/talking-activators.md; smoke `talking-activator-intercom`; probe ac6). |
 | IsAlwaysHardcore | 0x126B | 4 / 0 | match | - | - |  |
 | IsAnimPlaying | 0x1128 | 108 / 0 | match | animation state told to the rules | differs 1, same 1 | Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours now reads the movement group the engine tells (Idle, Forward, FastLeft ...) after PlayGroup's (anim-state.md §3, 2026-10-18). Walking and running groups counting the same way is hypothesis. |
 | IsChild | 0x116D | 0 / 203 | match | - | - |  |
@@ -511,7 +510,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsOwner | 0x1116 | 0 / 18 | match | - | - |  |
 | IsPC1stPerson | 0x1188 | 2 / 9 | match | - | differs 1 |  |
 | IsPCSleeping | 0x10AF | 2 / 0 | match | - | same 2 |  |
-| IsPlayerActionActive | 0x1170 | 2 / 0 | match | animation state told to the rules | same 2 | Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18). 0 at rest matches [observed: probes]. |
+| IsPlayerActionActive | 0x1170 | 2 / 0 | match | animation state told to the rules | same 2 | Action 9 (iron sights, not in combat [documented; observed: aiming read 9]), the only one the shipped scripts ask (OWB); 2 for 2.6 s from a grenade throw [observed: player_actions_anim2]; firing, sneaking, jumping and swinging lit no index [observed]; the others read 0 (anim-state.md §4). |
 | IsPlayerGrabbedRef | 0x11D0 | 3 / 1 | no-system | grabbing objects | same 1 | 0 at rest matches [observed: probes]. |
 | IsPlayerInRegion | 0x1260 | 57 / 0 | match | - | - |  |
 | IsPlayerMovingIntoNewSpace | 0x1166 | 6 / 8 | match | - | - |  |
@@ -545,10 +544,10 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PickIdle | 0x1064 | 2 / 0 | wrong | IDLE-tree idles picked by scripts | - | Stub; furniture and weapon fidgets use the IDLE tree already. |
 | PipBoyRadio | 0x11A7 | 6 / 0 | match | - | - |  |
 | PipBoyRadioOff | 0x1224 | 11 / 0 | match | - | - |  |
-| PlaceAtMe | 0x1025 | 468 / 0 | match | - | - |  |
+| PlaceAtMe | 0x1025 | 468 / 0 | match | - | - | Distance and Direction do nothing in the original [documented: wiki notes]. |
 | PlaceAtReticle | 0x1263 | 3 / 0 | match | crosshair placement | - | At the crosshair ray's first hit (spec-notes/script-saves-and-reticle.md §4). |
 | PlaceLeveledActorAtMe | 0x11D1 | 5 / 0 | match | - | - |  |
-| PlayBink | 0x1114 | 4 / 0 | wrong | Bink videos | - | Stub; the intro decoder exists (licence note). |
+| PlayBink | 0x1114 | 4 / 0 | match | Bink videos | - | Built 2026-10-18 (bink-films.md): full screen over the held game, the intro's decoder. |
 | PlayerInRegion | 0x1264 | 0 / 74 | match | - | - |  |
 | PlayGroup | 0x1013 | 864 / 0 | match | - | - |  |
 | PlayIdle | 0x1190 | 318 / 0 | match | - | - |  |
@@ -560,7 +559,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PurgeCellBuffers | 0x1189 | 32 / 0 | match | - | - | No-op (script-stubs.md §5). |
 | PushActorAway | 0x118A | 35 / 0 | open | knockdowns and knock-outs | - | Built 2026-10-18 (unconscious.md §5); force scale and time down are design guesses. |
 | ReleaseWeatherOverride | 0x1158 | 11 / 0 | match | - | - |  |
-| RemoveAllItems | 0x10AD | 59 / 0 | match | - | - |  |
+| RemoveAllItems | 0x10AD | 59 / 0 | match | - | - | retainOwnershipFlag 0 clears moved items' owner [documented]. |
 | RemoveAllTypedItems | 0x1249 | 295 / 0 | match | - | - |  |
 | RemoveFromAllFactions | 0x1214 | 19 / 0 | match | - | - |  |
 | RemoveFromFaction | 0x1180 | 683 / 0 | match | - | - |  |
@@ -585,7 +584,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | RewardKarma | 0x1204 | 163 / 0 | match | - | - |  |
 | RewardXP | 0x1177 | 1303 / 0 | match | - | - | Levelling by experience exists now (experience.rs, levelup.rs); the audit's gap is closed. |
 | Rotate | 0x1004 | 4 / 0 | match | - | - |  |
-| Say | 0x1033 | 623 / 0 | match | - | - |  |
+| Say | 0x1033 | 623 / 0 | match | - | - | ForceSubtitles shows the subtitle out of hearing; is2D heard flat anywhere [hypothesis]; Actor and isVoice not read (undocumented, never passed). |
 | SayTo | 0x1034 | 994 / 0 | match | - | - |  |
 | ScriptEffectElapsedSeconds | 0x10BA | 20 / 0 | match | - | - |  |
 | SendAssaultAlarm | 0x105F | 93 / 0 | match | - | - |  |
@@ -596,12 +595,12 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetActorsAI | 0x118B | 3 / 0 | match | - | - |  |
 | SetActorValue | 0x100F | 730 / 0 | match | - | - |  |
 | SetAlert | 0x105A | 39 / 0 | match | - | - |  |
-| setAllReachable | 0x1159 | 2 / 0 | no-system | navmesh switches | - | Stub. |
+| setAllReachable | 0x1159 | 2 / 0 | match | navmesh switches | - | Kept and saved; ways are planned in full here, so nothing is skipped (script-stubs.md §3.16). |
 | SetAllVisible | 0x115A | 5 / 0 | match | - | - | A performance switch: nothing to do here. |
 | SetAlly | 0x1079 | 127 / 0 | match | - | - |  |
 | SetAngle | 0x1009 | 50 / 0 | match | - | - |  |
 | SetBroadcastState | 0x11D5 | 65 / 0 | match | - | - |  |
-| SetCellImageSpace | 0x1196 | 2 / 0 | wrong | cell image spaces | - | Stub; image modifiers exist. |
+| SetCellImageSpace | 0x1196 | 2 / 0 | match | cell image spaces | - | Built 2026-10-18: saved, shown when the cell loads again (bink-films.md §4). |
 | SetCellOwnership | 0x1119 | 18 / 0 | match | - | - |  |
 | SetCellPublicFlag | 0x10BB | 12 / 0 | match | - | - |  |
 | SetCombatStyle | 0x10B1 | 92 / 0 | match | - | - |  |
@@ -613,12 +612,12 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetFactionRank | 0x1089 | 34 / 0 | match | - | - |  |
 | SetForceSneak | 0x10D3 | 3 / 0 | match | - | - |  |
 | SetGhost | 0x10EC | 357 / 0 | match | - | - |  |
-| SetGlobalTimeMultiplier | 0x1186 | 7 / 0 | match | - | - |  |
+| SetGlobalTimeMultiplier | 0x1186 | 7 / 0 | match | - | - | Sounds follow the multiplier unless keepSoundUnchanged [documented; hypothesis: which sounds]. |
 | SetHardcore | 0x124B | 2 / 0 | match | - | - |  |
 | SetIgnoreFriendlyHits | 0x1151 | 132 / 0 | match | - | - |  |
 | SetInCharGen | 0x10E7 | 16 / 0 | match | - | - |  |
 | SetItemValue | 0x1155 | 2 / 0 | match | - | - |  |
-| SetLevel | 0x1133 | 6 / 0 | wrong | NPC inventory re-rolled on SetLevel | - | 6 calls; minor. |
+| SetLevel | 0x1133 | 6 / 0 | match | NPC inventory re-rolled on SetLevel | - | Only the level changes; the inventory stays [observed: capture ac1, against the catalogue's "regenerates"]; the offset and bounds match [observed: ac1]; every shipped call is on the player (appearance-changes.md §3). |
 | SetMinimalUse | 0x1228 | 1 / 0 | match | - | - |  |
 | SetNoAvoidance | 0x115B | 3 / 0 | match | - | - | A performance switch: nothing to do here. |
 | SetNPCRadio | 0x11C4 | 6 / 0 | match | - | - |  |
@@ -627,10 +626,10 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetOpenState | 0x10DD | 241 / 0 | match | - | - |  |
 | SetOwnership | 0x1117 | 144 / 0 | match | - | - |  |
 | SetPackDuration | 0x1122 | 12 / 0 | match | - | - |  |
-| SetPCCanUsePowerArmor | 0x1229 | 2 / 0 | wrong | power armour training | - | Stored, never read: equipping power armour is not gated. |
+| SetPCCanUsePowerArmor | 0x1229 | 2 / 0 | built | power armour training | - | The player cannot wear BMDT Power Armor armour without it; the refusal shows PowerArmorMessage (appearance-changes.md §4; smoke `power-armor-training`; probe ac3). |
 | SetPCEnemyOfFaction | 0x10C6 | 24 / 0 | match | - | - |  |
 | SetPCSleepHours | 0x10BD | 3 / 0 | match | - | - |  |
-| SetPlayerTagSkill | 0x11CD | 23 / 0 | match | - | - |  |
+| SetPlayerTagSkill | 0x11CD | 23 / 0 | match | - | - | Four slots; a slot's old skill is untagged; index above 3 ignored [documented]. |
 | SetPlayerTeammate | 0x11C5 | 189 / 0 | match | - | - |  |
 | SetPos | 0x1007 | 148 / 0 | match | - | - |  |
 | SetQuestDelay | 0x11DC | 167 / 0 | match | - | - |  |
@@ -640,23 +639,23 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetRumble | 0x11FB | 17 / 0 | match | - | - | No-op (script-stubs.md §5); the controller workstream may take it. |
 | SetScale | 0x113C | 9 / 0 | match | - | - | Drawn and collided at the new scale (objects; actors drawn only), kept on the reference and saved (misc-stats.md §5). |
 | SetSceneIsComplex | 0x115D | 2 / 0 | match | - | - | No-op (script-stubs.md §5). |
-| SetScreenSplatterFade | 0x1243 | 2 / 0 | no-system | screen blood splatter | - | Stub. |
+| SetScreenSplatterFade | 0x1243 | 2 / 0 | match | screen blood splatter | - | Built 2026-10-18; parameters a hypothesis (screen-splatter.md §2). |
 | SetSecuritronExpression | 0x1248 | 37 / 0 | match | - | - |  |
 | SetSPECIALPoints | 0x1218 | 2 / 0 | match | - | - |  |
 | SetStage | 0x1039 | 2449 / 0 | match | - | - |  |
-| SetTagSkills | 0x121A | 3 / 0 | match | - | - |  |
+| SetTagSkills | 0x121A | 3 / 0 | match | - | - | addedPoints is the menu's count in all; showInitialTaggedSkills 0 hides the tags before [documented]. |
 | SetTalkingActivatorActor | 0x1171 | 31 / 0 | match | - | - |  |
 | SetUnconscious | 0x10F1 | 199 / 0 | open | knockdowns and knock-outs | - | AI off; holds a lying actor down until cleared; alone lays nobody down (unconscious.md §5.1). |
 | SetVatsTarget | 0x11EB | 10 / 0 | no-system | VATS | - | Stub. |
 | SetWeaponHealthPerc | 0x11F5 | 1 / 0 | match | - | - |  |
 | SetWeather | 0x1104 | 14 / 0 | match | - | - |  |
-| SexChange | 0x11E7 | 12 / 0 | wrong | race and sex change on NPCs | - | Errors on NPCs; all base-game callers are the player. |
+| SexChange | 0x11E7 | 12 / 0 | built | race and sex change on NPCs | - | Any actor; reset gives the player the race's first starting face [hypothesis]; all base-game callers are the player (appearance-changes.md §2). |
 | ShowAllMapMarkers | 0x11F8 | 2 / 0 | match | - | - |  |
 | ShowBarberMenu | 0x11F1 | 4 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
 | ShowBarterMenu | 0x1173 | 168 / 0 | match | - | - |  |
 | ShowBlackJackMenuParams | 0x1254 | 6 / 0 | match | - | - |  |
 | ShowCaravanMenu | 0x125A | 29 / 0 | no-system | Caravan card game | - | Stub. |
-| ShowLoveTesterMenuParams | 0x1245 | 1 / 0 | match | - | - |  |
+| ShowLoveTesterMenuParams | 0x1245 | 1 / 0 | match | - | - | iPoints is the attributes' total, as SetSPECIALPoints [documented]. |
 | ShowMap | 0x1055 | 244 / 0 | match | - | - |  |
 | ShowMessage | 0x1059 | 1717 / 0 | match | - | - |  |
 | ShowPlasticSurgeonMenu | 0x11F2 | 2 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
@@ -670,10 +669,10 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ShowTutorialMenu | 0x11E3 | 2 / 0 | match | - | - | The tutorial menu from tutorial_menu.xml over the open menu (tutorial-menu.md); its code 1059 [observed: capture mh1_tutorial]; CloseAllMenus closes it with the menu under it [observed]. |
 | ShowWarning | 0x11B9 | 71 / 0 | match | - | - |  |
 | Sqrt | 0x121F | 2 / 0 | match | - | - |  |
-| StartCannibal | 0x107E | 4 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |
+| StartCannibal | 0x107E | 4 / 0 | built | Cannibal and Mister Sandman | - | The victim eaten, the eater in the act with the StartCannibal idle; witnesses turn on the player [hypothesis] (perk-activation.md; smoke `perk-cannibal-devour`). |
 | StartCombat | 0x1016 | 938 / 0 | match | - | - |  |
-| StartConversation | 0x1056 | 135 / 0 | match | - | - |  |
-| StartMisterSandman | 0x107C | 1 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |
+| StartConversation | 0x1056 | 135 / 0 | match | - | - | allowMovement 1 lets two actors walk while they talk; left out they stand [hypothesis: the default]. |
+| StartMisterSandman | 0x107C | 1 / 0 | built | Cannibal and Mister Sandman | - | On a sleeping victim the act runs and the victim dies at its end [observed: capture ac5c]; on an awake or unconscious one the original crashed (ac5, ac5b), NVForever refuses (perk-activation.md §3; smoke `perk-sandman-refused-awake`). |
 | StartQuest | 0x1036 | 423 / 0 | match | - | - |  |
 | StartRadioConversation | 0x11D6 | 16 / 0 | match | - | - |  |
 | StopCombat | 0x1017 | 282 / 0 | match | - | - |  |
@@ -684,8 +683,8 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SwapTexture | 0x1269 | 383 / 0 | match | - | - |  |
 | SystemSave | 0x127B | 5 / 0 | match | saves from scripts | - | The one system slot (spec-notes/script-saves-and-reticle.md). |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
-| TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
-| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
+| TriggerScreenSplatter | 0x1240 | 8 / 0 | match | screen blood splatter | - | Built 2026-10-18; parameters a hypothesis (screen-splatter.md §2). |
+| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem; NoEquipFlag locks the item off [documented]. |
 | Unlock | 0x1073 | 450 / 0 | match | - | - | On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]. |
 | UnlockChallenge | 0x125E | 44 / 0 | match | - | - |  |
 | UseWeapon | 0x119C | 13 / 0 | match | - | - |  |

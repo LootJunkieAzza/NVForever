@@ -804,11 +804,14 @@ impl Combat {
     /// (`fnv_game::anim_state`): drawing (0) and putting away (1) as the body says, a
     /// gun's shot by its firing cycle (2 from the pull to the shot and while an automatic
     /// fires on with the trigger held, 3 the frame after, 4 until the cycle is ready
-    /// again), a reload of any kind 9, a melee swing 2 until it strikes and 4 after,
-    /// blocking 7. A jam reads 13 [hypothesis: the page's catch-all, "every action not
-    /// included in the ones above"].
+    /// again), a reload 9, a melee swing 2 until it strikes and 4 after, blocking 7. A
+    /// weapon that spends itself (grenades, thrown weapons, mines) reads 5 until it leaves
+    /// the hand, 6 the frame after and 4 while the next is drawn (`anim_state::
+    /// throw_action`). A round-by-round reload reads 17 while it opens the weapon, 9 for
+    /// its rounds and its close [hypothesis: `AnimAction::ReloadOpen`]. A jam reads 13
+    /// [hypothesis: the page's catch-all, "every action not included in the ones above"].
     pub fn player_anim_action(&self, anim: &WeaponAnim, trigger: bool, aiming: bool, dt: f32) -> Option<fnv_game::anim_state::AnimAction> {
-        use fnv_game::anim_state::{shot_action, swing_action, AnimAction};
+        use fnv_game::anim_state::{swing_action, AnimAction};
         if anim.drawing {
             return Some(AnimAction::Equip);
         }
@@ -825,11 +828,12 @@ impl Combat {
             return aiming.then_some(AnimAction::Block);
         }
         let cy = self.cycle.as_ref()?;
-        let (fire, interval) = (cy.timing.fire_delay, cy.timing.interval);
         match cy.phase {
+            Phase::SpinUp { .. } | Phase::WindUp { .. } if self.self_ammo => Some(AnimAction::ThrowWindUp),
             Phase::SpinUp { .. } | Phase::WindUp { .. } => Some(AnimAction::Attack),
-            Phase::Cooldown { left } => shot_action(fire + (interval - left).max(0.0), fire, fire + interval, dt, cy.automatic && trigger),
-            Phase::Reloading { .. } | Phase::ReloadOpen { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. } => Some(AnimAction::Reload),
+            Phase::Cooldown { left } => cooldown_action(&cy.timing, left, self.self_ammo, cy.automatic && trigger, dt),
+            Phase::ReloadOpen { .. } => Some(AnimAction::ReloadOpen),
+            Phase::Reloading { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. } => Some(AnimAction::Reload),
             Phase::Jammed { .. } => Some(AnimAction::ForceScriptAnim),
             Phase::Ready => None,
         }
@@ -2474,8 +2478,8 @@ fn fly(
                     0.0
                 };
                 let rolled = chance > 0.0 && c.rng.next_f32() < chance;
-                // The rules lay it down (unconscious.md §5); refused for the player and
-                // actors flagged No Knockdowns.
+                // The rules lay it down (unconscious.md §5); refused for actors flagged
+                // No Knockdowns and for the player seated or talking.
                 let shove = [b.push[0] * BLAST_KNOCKDOWN_SPEED, b.push[1] * BLAST_KNOCKDOWN_SPEED, b.push[2].max(0.0) * BLAST_KNOCKDOWN_SPEED + BLAST_KNOCKDOWN_SPEED * fnv_game::unconscious::PUSH_LIFT];
                 let down = rolled && script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, info.attacker, shove));
                 if down {
@@ -2488,7 +2492,7 @@ fn fly(
                     r.dealt,
                     r.health,
                     r.max_health,
-                    if down { ", knocked down" } else if rolled { ", knockdown refused (player or No Knockdowns)" } else { "" }
+                    if down { ", knocked down" } else if rolled { ", knockdown refused (No Knockdowns, or the player seated or talking)" } else { "" }
                 );
             }
         }
@@ -2757,12 +2761,30 @@ fn update_hit_hud(time: Res<Time>, state: Res<State<PlayState>>, mut fb: ResMut<
     }
 }
 
+/// GetAnimAction during a cycle's cooldown, `left` seconds before it is ready again (the
+/// cycle already stepped by this frame's `dt`): the clip's time is the time since the
+/// trigger at the frame's start, `interval - left - dt`, no earlier than the shot (the
+/// cooldown starts at the shot, `fire_delay` in), over a clip of `interval`. A thrown weapon reads as a throw
+/// (6 until the clip's `Attach`), the others as a shot.
+pub fn cooldown_action(timing: &fnv_combat::attack::Timing, left: f32, thrown: bool, repeating: bool, dt: f32) -> Option<fnv_game::anim_state::AnimAction> {
+    use fnv_game::anim_state::{shot_action, throw_action};
+    let (fire, interval) = (timing.fire_delay, timing.interval);
+    let t = (interval - left - dt).max(fire);
+    if thrown {
+        throw_action(t, fire, timing.attach, interval, dt)
+    } else {
+        shot_action(t, fire, interval, dt, repeating)
+    }
+}
+
 /// The cycle's clip timing from the attack clip (length, `Hit` or `Fire` key, and
 /// whether a `Loop` key follows that key), the reload clip (length and `Hit` key) and the
 /// length of the reload's opening clip, as the player body reads them; `next_attack`: the
-/// attack clip's `a:` key, its time and text (`fnv_actor::player_clips::ClipKeys`).
-pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>, next_attack: Option<(f32, &str)>) -> ClipTiming {
+/// attack clip's `a:` key, its time and text (`fnv_actor::player_clips::ClipKeys`);
+/// `attach`: the attack clip's `Attach` key (a thrown weapon's).
+pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>, next_attack: Option<(f32, &str)>, attach: Option<f32>) -> ClipTiming {
     ClipTiming {
+        attach_time: attach,
         next_attack: next_attack.and_then(|(t, v)| fnv_combat::melee::NextAttack::parse(v).map(|n| (t, n))),
         attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0),
         hit_time: attack.and_then(|a| a.1),
@@ -2778,6 +2800,33 @@ pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32
 mod tests {
     use super::*;
     use crate::phys::NpcBody;
+
+    /// A grenade's cooldown, played from the shot (the clip's `Release`, 0.867 s) as the
+    /// cycle runs it: 6 until `Attach` (1.533 s), then 4 to the clip's end (1.7 s). The
+    /// clip's time used to start at twice the fire delay, past `Attach` (smoke
+    /// anim-state-throw: 5 then 4, no 6).
+    #[test]
+    fn a_throws_cooldown_reads_6_until_attach_then_4() {
+        use fnv_game::anim_state::AnimAction;
+        let timing = fnv_combat::attack::Timing { interval: 1.7, fire_delay: 0.867, reload: 2.0, spin_up: 0.0, rounds: None, attach: Some(1.533) };
+        let dt = 1.0 / 60.0;
+        let mut left = timing.interval - timing.fire_delay;
+        let mut codes = Vec::new();
+        while left > 0.0 {
+            left -= dt;
+            codes.push(cooldown_action(&timing, left.max(0.0), true, false, dt).map(AnimAction::code));
+        }
+        let sixes = codes.iter().filter(|c| **c == Some(6)).count();
+        let fours = codes.iter().filter(|c| **c == Some(4)).count();
+        assert_eq!(codes[0], Some(6), "6 from the release: {codes:?}");
+        assert!((38..=41).contains(&sixes), "{codes:?}");
+        assert!((8..=11).contains(&fours), "{codes:?}");
+        // A pistol's shot: 3 the frame after, then 4 (no 2 in the cooldown).
+        let gun = fnv_combat::attack::Timing { interval: 0.5, fire_delay: 0.033, attach: None, ..timing };
+        let first = cooldown_action(&gun, gun.interval - gun.fire_delay - dt, false, false, dt);
+        assert_eq!(first, Some(AnimAction::FollowThrough));
+        assert_eq!(cooldown_action(&gun, 0.2, false, false, dt), Some(AnimAction::AttackReturn));
+    }
 
     /// An NPC walked by a character controller: its character (a man-sized capsule from
     /// the ground) and, inside it, a smaller body hovering (a bloatfly's hit volume).

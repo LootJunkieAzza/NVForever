@@ -149,7 +149,7 @@ fn sync(
     roots: Query<(), With<ScriptDrawnRoot>>,
     mut state: ResMut<ScriptDrawn>,
     mut models: ModelCtx,
-    fades: Option<Res<crate::ref_fade::RefFades>>,
+    fades: Option<Res<crate::fade::Fades>>,
 ) {
     if script.rt.is_none() {
         return;
@@ -162,7 +162,8 @@ fn sync(
         let dormant = st.cells.entry(cell).or_insert_with(|| dormant_in(&play, &sim, cell));
         for d in dormant.iter() {
             let id = d.placement.form_id;
-            // One fading out (Disable 1, `crate::ref_fade`) stays until its fade is over.
+            // One fading out (Disable 1, `crate::fade`) stays until its fade is over
+            // [from the branch claude/script-params-engine].
             let want = sim.present(id) || fades.as_ref().is_some_and(|f| f.fading_out(id));
             match st.drawn.get(&id) {
                 Some(&(root, e)) if !want || e != cell_e => {

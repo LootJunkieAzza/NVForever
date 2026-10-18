@@ -86,6 +86,11 @@ pub struct Item {
     /// (docs/spec-notes/actor-behaviour.md §2.1). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub armor_class: ArmorClass,
+    /// ARMO BMDT general flag "Power Armor" [documented: xEdit wbBMDT]: the player wears
+    /// it only with the training (`World::set_power_armor_training`). Not part of
+    /// `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub power_armor: bool,
     /// ARMO DNAM "DR", damage resistance in percent (the record stores it × 100
     /// [documented: xEdit wbDefinitionsFNV.pas, wbDiv(100)]). `None` for other items. Not
     /// part of `fnv.sim.items/1`.
@@ -182,10 +187,10 @@ pub struct LeveledEntry {
     pub level: u16,
     pub item: FormId,
     pub count: u16,
-    /// The condition (a fraction of full health) of the weapons and armour the entry
-    /// gives: AddItemToLeveledList's health; `None`: whole. The records' own LVLO entries
-    /// are read without it.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// The condition of the items it gives, a fraction of full health: set by
+    /// AddItemToLeveledList's health (`World::add_to_leveled_list`); `None` for the
+    /// authored entries (whole items).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<f32>,
 }
 
@@ -429,6 +434,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         health: None,
                         non_playable: false,
                         armor_class: ArmorClass::Light,
+                        power_armor: false,
                         armor_dr: None,
                         armor_dt: None,
                         weapon_damage: None,
@@ -582,6 +588,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         kind,
         non_playable,
         armor_class,
+        power_armor: general.is_some_and(|f| has_flag(f, "Power Armor")),
         armor_dr: match kind {
             ItemKind::Armor => first(d, b"DNAM").and_then(|v| int(v, "dr")).map(|dr| dr as f32 / 100.0),
             _ => None,

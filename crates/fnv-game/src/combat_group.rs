@@ -60,8 +60,14 @@ pub struct Strength {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PostKind {
-    /// Behind cover, out of its target's sight.
+    /// Behind cover, out of its target's sight: the run there from elsewhere, turned the
+    /// way it goes.
     Cover,
+    /// Behind its cover again, back from its peek point (or waiting there to peek): it
+    /// stays facing its target and steps sideways in and out, as a person firing from
+    /// cover does (owner 2026-10-18: Violet turned between her way and her target at a
+    /// caravan) [design].
+    Duck,
     /// Out of cover far enough to see and fire at its target.
     Peek,
     /// A place round its target beside its group's other fighters, so they come at it
@@ -84,6 +90,7 @@ impl PostKind {
     pub fn name(self) -> &'static str {
         match self {
             PostKind::Cover => "cover",
+            PostKind::Duck => "a duck back behind cover",
             PostKind::Peek => "a peek out of cover",
             PostKind::Flank => "a flank",
             PostKind::Sidestep => "a step aside",

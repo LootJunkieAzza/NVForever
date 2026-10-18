@@ -10,11 +10,20 @@
 //! emittance) is not found]. The shapes of actors' parts (a Securitron's screen,
 //! `SetSecuritronExpression`) carry their name (`nvf_assets::actor::ShapeName`) and are
 //! found by it.
+//!
+//! A mesh drawn see-through wears a copy of its material: SetActorAlpha's
+//! (`crate::effect_shaders`, `Faded`) or a fade's (`nvf_play::fade::Fading`). The swap
+//! goes to the mesh's own material, the one kept aside, so the end of the alpha or the
+//! fade does not bring the old texture back (the psych test's card fades in as Doc
+//! Mitchell's line swaps its texture, smoke test `rorschach-cards`): `Faded` takes the
+//! swapped material as its own and SetActorAlpha copies it again; a fade's copy is
+//! dropped and the fade's next step copies the swapped material.
 
 use bevy::prelude::*;
 use nvf_assets::actor::ShapeName;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::NifMaterial;
+use nvf_play::fade::Fading;
 use nvf_play::script::ScriptState;
 use nvf_play::sim::SimState;
 use nvf_play::RefVisual;
@@ -26,7 +35,8 @@ pub struct TextureSwapPlugin;
 
 impl Plugin for TextureSwapPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Swapped>().add_systems(Update, apply);
+        // Before the fades step, which then copies a swapped material the same frame.
+        app.init_resource::<Swapped>().add_systems(Update, apply.before(nvf_play::PlaySet::Sync));
     }
 }
 
@@ -40,14 +50,14 @@ struct Swapped {
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn apply(
+pub(crate) fn apply(
     mut commands: Commands,
     script: Option<Res<ScriptState>>,
     sim: Option<Res<SimState>>,
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut swapped: ResMut<Swapped>,
-    mut drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&ShapeName>, Option<&mut crate::effect_shaders::Faded>)>,
+    mut drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&ShapeName>, Option<&mut crate::effect_shaders::Faded>, Option<&Fading>)>,
     added: Query<(), Added<RefVisual>>,
 ) {
     let (Some(script), Some(sim), Some(world)) = (script, sim, world) else { return };
@@ -71,13 +81,17 @@ fn apply(
                 .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(shape)))
                 .map(|s| s.material.id())
                 .collect();
-            for (e, rv, mat, name, mut faded) in &mut drawn {
+            for (e, rv, mat, name, mut faded, fading) in &mut drawn {
                 if rv.0 != r.0 {
                     continue;
                 }
-                // A mesh drawn see-through (SetActorAlpha, a fade) wears a copy: its own
-                // material is the one kept aside, and the swap goes there.
-                let own = faded.as_ref().map_or(mat.id(), |f| f.original.id());
+                // A mesh drawn see-through wears a copy: the swap goes to its own material
+                // (module notes).
+                let own = match (&faded, fading) {
+                    (_, Some(f)) => f.original().id(),
+                    (Some(f), None) => f.original.id(),
+                    (None, None) => mat.id(),
+                };
                 let original = swapped.original.get(&own).copied().unwrap_or(own);
                 if !targets.contains(&original) && name.is_none_or(|n| n.0 != *shape) {
                     continue;
@@ -100,13 +114,21 @@ fn apply(
                         h
                     }
                 };
-                match faded.as_mut() {
-                    Some(f) if f.original.id() != copy.id() => f.original = copy,
-                    Some(_) => {}
-                    None if copy.id() != mat.id() => {
+                match (faded.as_mut(), fading) {
+                    (_, Some(f)) if f.original().id() != copy.id() => {
+                        models.materials.remove(f.copy());
+                        commands.entity(e).insert(MeshMaterial3d(copy)).remove::<Fading>();
+                    }
+                    (_, Some(_)) => {}
+                    (Some(f), None) => {
+                        if f.original.id() != copy.id() {
+                            f.original = copy;
+                        }
+                    }
+                    (None, None) if copy.id() != mat.id() => {
                         commands.entity(e).insert(MeshMaterial3d(copy));
                     }
-                    None => {}
+                    (None, None) => {}
                 }
             }
         }
