@@ -5804,3 +5804,36 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Films, cell image spaces and screen blood (2026-10-18, branch claude/screen-video)
+
+Rows 17 and 18 of docs/outstanding.md §1 (docs/spec-notes/bink-films.md,
+docs/spec-notes/screen-splatter.md). What the shipped scripts ask for is small: all four
+PlayBink calls and every splatter call are the opening's (VCG00), and of the four films
+only `FNVIntro.bik` is in your `Data\Video`; the splatter stages belong to an in-engine
+version of the cemetery scene a new game skips. My choices to check:
+
+- **The intro film once.** The main menu's New Game plays it, and the opening's stage 0
+  asks for it again: the second request is not played. Started straight into a new game
+  (no main menu), the opening's call plays it, as the original does.
+- **A film that is not there** (fnvlogo1.bik, fnvlogo2.bik, vb01.bik) is skipped at once.
+- **A film holds the game** like the pause menu (the wiki: it "appears to stop game
+  time"); the world's sounds stop with it even when the call asks to keep them
+  (`muteAudio 0`, not built). A non-letterboxed film is stretched over the window.
+- **SetCellImageSpace waits for the cell to load again**, as the wiki says the original
+  does: in Old World Blues the Think Tank turns red only after you leave and come back
+  (or load a save made there), not while you stand in it when stage 50 is set. If you
+  would rather see it at once (as JohnnyGuitar NVSE makes it), it is one line.
+- **Screen splatter: the parameters** are read as count, seconds, size factor, opacity
+  factor (from a script extender's documented `TriggerScreenSplatterEx`; the vanilla page
+  is empty); `SetScreenSplatterFade 0.5 1` as "fade from half the time, fade on".
+- **Screen splatter: the look.** Each splat is a cell of the game's 2×2 gore atlases
+  (`screenbloodalpha01opt` shape, `screenbloodcolor01opt` colour), placed anywhere on the
+  screen, unrotated, sized 0.12–0.18 of the screen height × the size factor, with the
+  game settings' opacities, at most 25 on the screen (new ones replace the oldest), under
+  the HUD. The settings' flare is not drawn. The capture job
+  `tools/capture/jobs/fx_screen_splatter_look.steps.json` (save nvfstrip) takes the
+  original's pictures to compare with smoke `screen-splatter`'s.
+- **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
+  blood on the screen when the player takes damage, but nothing says when or how much;
+  not built. The same capture job takes a picture after damage.

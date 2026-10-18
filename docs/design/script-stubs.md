@@ -254,6 +254,19 @@ scale is drawn and collided ([misc-stats](../spec-notes/misc-stats.md)). Tests:
 `functions.rs` `misc_stats_count_and_set_scale_is_kept_on_the_reference`; smoke
 `misc-stats-scale`.
 
+### 3.14 Films, cell image spaces and screen splatter (claude/screen-video, 2026-10-18)
+
+PlayBink plays a loose Bink film full screen with its sound over the held game, through
+the intro's decoder ([bink-films](../spec-notes/bink-films.md)); SetCellImageSpace keeps
+the cell's new image space in the save and grades the cell with it when it loads again
+(bink-films.md §4); TriggerScreenSplatter, SetScreenSplatterFade and ClearScreenSplatter
+put the game's gore textures over the screen with the `fBloodSplatter*` settings
+([screen-splatter](../spec-notes/screen-splatter.md)). Every shipped call of the five is
+the opening's but SetCellImageSpace's (Old World Blues' Think Tank). Tests: `functions.rs`
+`films_splatter_and_cell_image_space`, `nvf_play` `intro` and `screen_splatter` unit
+tests; smoke `film-opening`, `film-console`, `screen-splatter`, `cell-image-space`, and
+an expectation more in `main-menu`.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -294,7 +307,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |
 | SetVatsTarget | 0x11EB | 10 | 0 | needs a system not built yet | combat (VATS) |
 | ForceFlee | 0x10F5 | 8 | 0 | implemented 2026-10-16 (§3.7) | `Game::start_flight` from the combat target |
-| TriggerScreenSplatter | 0x1240 | 8 | 0 | needs a system not built yet | image space |
+| TriggerScreenSplatter | 0x1240 | 8 | 0 | implemented 2026-10-18 (§3.14) | screen splatter: docs/spec-notes/screen-splatter.md |
 | IsSwimming | 0x10B9 | 0 | 7 | needs a system not built yet | movement (swimming) |
 | GetVATSTargetHeight | 0x10EB | 0 | 7 | needs a system not built yet | combat (VATS) |
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
@@ -307,7 +320,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | SystemSave | 0x127B | 5 | 0 | needs a system not built yet | saving |
 | StartCannibal | 0x107E | 4 | 0 | needs a system not built yet | AI (Cannibal perk) |
 | GetVATSMode | 0x10E0 | 2 | 2 | implemented 2026-10-18 for VATS mode (docs/design/vats-mode.md §12) | combat (VATS) |
-| PlayBink | 0x1114 | 4 | 0 | needs a system not built yet | video |
+| PlayBink | 0x1114 | 4 | 0 | implemented 2026-10-18 (§3.14) | films: docs/spec-notes/bink-films.md |
 | IsPlayerGrabbedRef | 0x11D0 | 3 | 1 | needs a system not built yet | physics (grab) |
 | ShowBarberMenu | 0x11F1 | 4 | 0 | implemented 2026-10-18 (the barber, #414) | menus (appearance) |
 | ResetPipboyManager | 0x1201 | 4 | 0 | needs a system not built yet | Pip-Boy |
@@ -324,14 +337,14 @@ exists; the note says what is missing); **deliberately no-op**.
 | IsPlayerActionActive | 0x1170 | 2 | 0 | needs a system not built yet | player input |
 | SetDisposition | 0x1184 | 2 | 0 | implemented 2026-10-17 (§3.11) | GetDisposition reads its value [observed] |
 | GetCauseofDeath | 0x118D | 1 | 1 | implemented 2026-10-16 (§3.7) | the killing hit's weapon type |
-| SetCellImageSpace | 0x1196 | 2 | 0 | needs a system not built yet | image space |
+| SetCellImageSpace | 0x1196 | 2 | 0 | implemented 2026-10-18 (§3.14) | image space: bink-films.md §4 |
 | DisableNavmesh | 0x11BF | 2 | 0 | needs a system not built yet | navigation |
 | ShowTutorialMenu | 0x11E3 | 2 | 0 | needs a system not built yet | menus (tutorial) |
 | AgeRace | 0x11E4 | 2 | 0 | needs a system not built yet | character appearance |
 | ShowPlasticSurgeonMenu | 0x11F2 | 2 | 0 | needs a system not built yet | menus (appearance) |
 | ForceSave | 0x1217 | 2 | 0 | needs a system not built yet | saving |
 | AutoDisplayObjectives | 0x1225 | 2 | 0 | implementable, left for later | objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary |
-| SetScreenSplatterFade | 0x1243 | 2 | 0 | needs a system not built yet | image space |
+| SetScreenSplatterFade | 0x1243 | 2 | 0 | implemented 2026-10-18 (§3.14) | screen splatter |
 | GetForceHitReaction | 0x1259 | 0 | 2 | needs a system not built yet | combat (hit reactions forced by power attacks) |
 | EnableLoadingMenu | 0x1270 | 2 | 0 | needs a system not built yet | menus (loading) |
 | StartMisterSandman | 0x107C | 1 | 0 | needs a system not built yet | AI (Mister Sandman perk) |
@@ -341,7 +354,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | PreloadMagicEffect | 0x1163 | 1 | 0 | deliberately no-op | loading: effect particles load when drawn |
 | GetPlantedExplosive | 0x11AC | 0 | 1 | needs a system not built yet | combat (live explosives planted by reverse pickpocketing) |
 | ExitGame | 0x11B5 | 1 | 0 | needs a system not built yet | menus (credits, main menu) |
-| ClearScreenSplatter | 0x1241 | 1 | 0 | needs a system not built yet | image space |
+| ClearScreenSplatter | 0x1241 | 1 | 0 | implemented 2026-10-18 (§3.14) | screen splatter |
 
 Notes on the most used:
 

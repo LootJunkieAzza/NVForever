@@ -1,0 +1,179 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "fx_screen_splatter_look",
+ "title": "Screen splatter look: TriggerScreenSplatter counts, sizes, opacity, fade and ClearScreenSplatter; blood when hurt (pictures, about 1 min, no input)",
+ "start": "nvfstrip (any bright view; the job does not move the player; windowed game in front for the pictures)",
+ "steps": [
+  {
+   "frames": 120
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "clean"
+  },
+  {
+   "script": "Begin Function { }\nSetScreenSplatterFade 0.5 1\nTriggerScreenSplatter 100 20 2 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "s100_20_2_2_t0.5"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "screenshot": "s100_20_2_2_t5.5"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "screenshot": "s100_20_2_2_t10.5"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "screenshot": "s100_20_2_2_t15.5"
+  },
+  {
+   "frames": 330
+  },
+  {
+   "screenshot": "s100_20_2_2_t21"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nTriggerScreenSplatter 1 20 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "count1"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nTriggerScreenSplatter 10 20 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "count10"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nTriggerScreenSplatter 50 20 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "count50"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nTriggerScreenSplatter 100 20 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "count100"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nTriggerScreenSplatter 10 20 3 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "size3"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nTriggerScreenSplatter 10 20 1 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "opacity2"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "screenshot": "cleared"
+  },
+  {
+   "script": "Begin Function { }\nSetScreenSplatterFade 0.5 0\nTriggerScreenSplatter 100 6 2 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "nofade_t0.5"
+  },
+  {
+   "frames": 240
+  },
+  {
+   "screenshot": "nofade_t4.5"
+  },
+  {
+   "frames": 180
+  },
+  {
+   "screenshot": "nofade_t7.5"
+  },
+  {
+   "script": "Begin Function { }\nClearScreenSplatter\nSetScreenSplatterFade 0.4 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "player.DamageActorValue Health 40"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "screenshot": "hurt_t0.2"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "screenshot": "hurt_t1.2"
+  },
+  {
+   "console": "player.RestoreActorValue Health 40"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 30
+  }
+ ]
+}

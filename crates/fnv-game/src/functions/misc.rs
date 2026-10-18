@@ -416,6 +416,74 @@ pub fn is_image_space_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     yes(g.image_modifier_active(a.form(0)?))
 }
 
+/// `PlayBink "file" [interruptable] [muteAudio] [pauseMusic] [letterboxed]`: a Bink film
+/// under `Data\Video` plays over the screen [documented: GECK wiki PlayBink; the flags'
+/// defaults 0, 1, 1, 1 and meanings are the page's]. The film is handed to the engine
+/// (`UiRequests::films`, `nvf_play::intro`), which holds the game while it plays (the
+/// page: it "appears to stop game time"); the script goes on with its next line at
+/// once [hypothesis: whether the original's call returns before or after the film is
+/// not documented; with the game held the order of the script's next lines is the
+/// same]. docs/spec-notes/bink-films.md.
+pub fn play_bink(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let name = a.str(0)?;
+    let path = super::ui::film_path(name).ok_or_else(|| format!("{name:?} names no file under Data"))?;
+    let flag = |i: usize, default: f64| a.num_or(i, default) != 0.0;
+    let film = super::ui::FilmRequest { path, interruptible: flag(1, 0.0), mute_audio: flag(2, 1.0), pause_music: flag(3, 1.0), letterboxed: flag(4, 1.0) };
+    tracing::info!(film = %film.path, interruptible = film.interruptible, "PlayBink");
+    g.ui.films.push(film);
+    none()
+}
+
+/// `TriggerScreenSplatter count duration size opacity`: blood splats over the screen
+/// (docs/spec-notes/screen-splatter.md §2) [hypothesis: the parameters are those the
+/// JohnnyGuitar NVSE extension `TriggerScreenSplatterEx` documents before its texture
+/// names (splatterCount, splatterDuration, sizeMultiplier, opacityMultiplier; GECK
+/// wiki, owner export), which reads as the vanilla call with textures added; the
+/// vanilla page is empty]. A missing or 0 duration is the game setting's.
+pub fn trigger_screen_splatter(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let count = a.num(0)?.max(0.0) as u32;
+    let duration = Some(a.num_or(1, 0.0) as f32).filter(|d| *d > 0.0);
+    let t = super::ui::SplatterTrigger { count, duration, size: a.num_or(2, 1.0).max(0.0) as f32, opacity: a.num_or(3, 1.0).max(0.0) as f32 };
+    g.ui.splatter.triggers.push(t);
+    none()
+}
+
+/// `ClearScreenSplatter`: the splats leave the screen [documented: GECK wiki
+/// ClearScreenSplatter, "Clears the screen splatter"]; calls not yet drawn go too.
+pub fn clear_screen_splatter(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.splatter.triggers.clear();
+    g.ui.splatter.clears += 1;
+    none()
+}
+
+/// `SetScreenSplatterFade start fade`: from `start` (a share of each splat's time) the
+/// splats fade out, when `fade` is not 0 [hypothesis: the page is empty; the only
+/// caller passes 0.5 and 1 before its triggers (`QUST 0x00102037` stages 36 and 50
+/// [observed]), the game setting fBloodSplatterFadeStart is 0.4, and the Ex variant's
+/// last parameter is an int `fade`; screen-splatter.md §2].
+pub fn set_screen_splatter_fade(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let start = a.num(0)?.clamp(0.0, 1.0) as f32;
+    g.ui.splatter.fade = Some((start, a.num_or(1, 1.0) != 0.0));
+    none()
+}
+
+/// `SetCellImageSpace cell imageSpace`: the cell's image space becomes this one, kept in
+/// the save (`FormChanges::cell_image_spaces`) [documented: GECK wiki
+/// SetCellImageSpace]. The page's note: on a cell that is loaded the new image space
+/// shows only once the cell loads again (left and entered again, or a save made there
+/// loaded); the engine follows it (`nvforever` `cell_image_space`).
+pub fn set_cell_image_space(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let (cell, space) = (a.form(0)?, a.form(1)?);
+    if g.data.sig(cell) != Some(*b"CELL") {
+        return Err(format!("{} is not a cell", g.data.name(cell)));
+    }
+    if g.data.sig(space) != Some(*b"IMGS") {
+        return Err(format!("{} is not an image space", g.data.name(space)));
+    }
+    g.forms.cell_image_spaces.insert(cell, space);
+    none()
+}
+
 /// `IsDLCInstalled "name"`: 1 when the named add-on is in the load order. No wiki page or
 /// catalogue summary describes it; the only caller (`SCPT 0x0017912E`, the pack items'
 /// quest script) asks for "tribal pack", "caravan pack", "mercenary pack" and "classic

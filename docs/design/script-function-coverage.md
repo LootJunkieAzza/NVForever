@@ -214,8 +214,7 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
 9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial**, **Caravan**,
    **slot machines**.
 
-Cheap fixes left (the system exists, little use): PlaceAtReticle, SetCellImageSpace,
-PlayBink, ExitGame, AutoDisplayObjectives, ResetPipboyManager, GetDialogueEmotion's
+Cheap fixes left (the system exists, little use): PlaceAtReticle, ExitGame, AutoDisplayObjectives, ResetPipboyManager, GetDialogueEmotion's
 current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, MenuMode's codes, a loaded
 the sim treating every XLOC as locked (the gas station's inner door has XLOC level 255
 with no Locked flag and is open in the original; worth a GetLocked probe on it).
@@ -259,9 +258,9 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
 | 19 | drawn scale (SetScale) | match (2026-10-18, misc-stats.md §5) | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
-| 21 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
-| 23 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 21 | Bink videos | match (2026-10-18, bink-films.md) | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 22 | cell image spaces | match (2026-10-18, bink-films.md §4) | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
+| 23 | screen blood splatter | match (2026-10-18, screen-splatter.md; look awaiting a capture) | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 24 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
 | 25 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
 | 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
@@ -316,7 +315,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ClearDestruction | 0x11D8 | 2 / 0 | match | - | - |  |
 | ClearFactionPlayerEnemyFlag | 0x11C9 | 4 / 0 | match | - | - |  |
 | ClearOwnership | 0x118C | 1 / 0 | match | - | - |  |
-| ClearScreenSplatter | 0x1241 | 1 / 0 | no-system | screen blood splatter | - | Stub. |
+| ClearScreenSplatter | 0x1241 | 1 / 0 | match | screen blood splatter | - | Built 2026-10-18 (screen-splatter.md). |
 | CompleteAllObjectives | 0x11AD | 105 / 0 | match | - | - |  |
 | CompleteQuest | 0x1071 | 124 / 0 | match | - | - |  |
 | CreateDetectionEvent | 0x1068 | 1 / 0 | match | - | - |  |
@@ -546,7 +545,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PlaceAtMe | 0x1025 | 468 / 0 | match | - | - |  |
 | PlaceAtReticle | 0x1263 | 3 / 0 | wrong | crosshair placement | - | Stub; the engine has the crosshair ray. |
 | PlaceLeveledActorAtMe | 0x11D1 | 5 / 0 | match | - | - |  |
-| PlayBink | 0x1114 | 4 / 0 | wrong | Bink videos | - | Stub; the intro decoder exists (licence note). |
+| PlayBink | 0x1114 | 4 / 0 | match | Bink videos | - | Built 2026-10-18 (bink-films.md): full screen over the held game, the intro's decoder. |
 | PlayerInRegion | 0x1264 | 0 / 74 | match | - | - |  |
 | PlayGroup | 0x1013 | 864 / 0 | match | - | - |  |
 | PlayIdle | 0x1190 | 318 / 0 | match | - | - |  |
@@ -599,7 +598,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetAlly | 0x1079 | 127 / 0 | match | - | - |  |
 | SetAngle | 0x1009 | 50 / 0 | match | - | - |  |
 | SetBroadcastState | 0x11D5 | 65 / 0 | match | - | - |  |
-| SetCellImageSpace | 0x1196 | 2 / 0 | wrong | cell image spaces | - | Stub; image modifiers exist. |
+| SetCellImageSpace | 0x1196 | 2 / 0 | match | cell image spaces | - | Built 2026-10-18: saved, shown when the cell loads again (bink-films.md §4). |
 | SetCellOwnership | 0x1119 | 18 / 0 | match | - | - |  |
 | SetCellPublicFlag | 0x10BB | 12 / 0 | match | - | - |  |
 | SetCombatStyle | 0x10B1 | 92 / 0 | match | - | - |  |
@@ -638,7 +637,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetRumble | 0x11FB | 17 / 0 | match | - | - | No-op (script-stubs.md §5); the controller workstream may take it. |
 | SetScale | 0x113C | 9 / 0 | match | - | - | Drawn and collided at the new scale (objects; actors drawn only), kept on the reference and saved (misc-stats.md §5). |
 | SetSceneIsComplex | 0x115D | 2 / 0 | match | - | - | No-op (script-stubs.md §5). |
-| SetScreenSplatterFade | 0x1243 | 2 / 0 | no-system | screen blood splatter | - | Stub. |
+| SetScreenSplatterFade | 0x1243 | 2 / 0 | match | screen blood splatter | - | Built 2026-10-18; parameters a hypothesis (screen-splatter.md §2). |
 | SetSecuritronExpression | 0x1248 | 37 / 0 | match | - | - |  |
 | SetSPECIALPoints | 0x1218 | 2 / 0 | match | - | - |  |
 | SetStage | 0x1039 | 2449 / 0 | match | - | - |  |
@@ -682,7 +681,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SwapTexture | 0x1269 | 383 / 0 | match | - | - |  |
 | SystemSave | 0x127B | 5 / 0 | wrong | saves from scripts | - | Stub; saves and Autosave exist. |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
-| TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
+| TriggerScreenSplatter | 0x1240 | 8 / 0 | match | screen blood splatter | - | Built 2026-10-18; parameters a hypothesis (screen-splatter.md §2). |
 | UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
 | Unlock | 0x1073 | 450 / 0 | match | - | - | On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]. |
 | UnlockChallenge | 0x125E | 44 / 0 | match | - | - |  |
