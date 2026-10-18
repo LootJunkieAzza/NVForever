@@ -2044,8 +2044,8 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
 # fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
 # claude/nav-knockdown implemented EnableNavMesh, DisableNavmesh and setAllReachable (9 calls,
-# docs/design/script-stubs.md §3.5): 38 → 35 stubs, 169 → 160 calls [hypothesis: counted
-# from script-stubs.md's table, not yet run on the masters].
+# docs/design/script-stubs.md §3.14): 38 → 35 stubs, 169 → 160 calls [observed: fnvtool
+# script stubs on the owner's masters, merged with main after #451 and #454, 2026-10-18].
 expect = [
   { json = "summary.stubs", equals = 35 },
   { json = "summary.by_status.implementable", equals = 1 },
