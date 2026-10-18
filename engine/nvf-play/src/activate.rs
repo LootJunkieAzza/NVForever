@@ -181,10 +181,13 @@ fn find_target(
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
     let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
+    // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
+    let mut far = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
         filter.exclude_layers.insert(layers::TRIGGER);
+        far = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter).map(|h| h.distance);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
         let form_id = match h.owner {
             // An actor's hit volume (combat C3) targets the actor.
@@ -204,6 +207,9 @@ fn find_target(
         }
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+    }
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's

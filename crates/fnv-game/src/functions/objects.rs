@@ -71,6 +71,35 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(last.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
 }
 
+/// `PlaceAtReticle object count [minDistance] [maxDistance]`: places the object at the
+/// spot the crosshair points at [documented: GECK wiki PlaceAtReticle; minDistance is
+/// marked unused there and is ignored]. The spot is where the crosshair's ray (told by the
+/// engine each frame, [`super::senses::Reticle`]) first hits the world. Made as PlaceAtMe
+/// makes references (an item is one stack of `count`, anything else `count` references),
+/// in the player's cell, turned to the player's heading, and returned [hypothesis: the
+/// heading and the cell]. maxDistance is clamped to 1-50000 [documented: the wiki's
+/// range]; left out, 50000 [hypothesis]. Nothing hit within it, or no crosshair told (a
+/// headless run): nothing is placed and 0 is returned [hypothesis].
+pub fn place_at_reticle(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let base = a.form(0)?;
+    let count = a.num_or(1, 1.0).max(1.0) as i32;
+    let max = (a.num_or(3, super::senses::RETICLE_REACH as f64) as f32).clamp(1.0, super::senses::RETICLE_REACH);
+    let Some(pos) = g.senses.reticle.and_then(|r| r.point(max)) else {
+        tracing::info!(base = %g.data.name(base), "PlaceAtReticle: the crosshair hits nothing within {max}");
+        return Ok(Value::NONE);
+    };
+    let s = g.world.get(FormId::PLAYER_REF).map_err(|e| e.to_string())?;
+    let (cell, rot) = (s.cell, [0.0, 0.0, s.rot[2]]);
+    let (refs, each) = if is_item(g, base) { (1, count) } else { (count, 1) };
+    let mut last = None;
+    for _ in 0..refs {
+        let r = g.world.place(base, cell, pos, rot, each).map_err(|e| e.to_string())?;
+        note_created(g, r);
+        last = Some(r);
+    }
+    Ok(last.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
+}
+
 /// `DropMe`: the calling inventory item leaves its container and lies in the world
 /// beside it; it acts as a return; OnDrop does not run [documented: catalogue notes of
 /// DropMe]. Placement as a dropped item (fnv-sim `drop_item`).

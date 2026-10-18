@@ -672,6 +672,39 @@ forbid = [
 ]
 
 [[scenario]]
+name = "combat-face"
+source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
+note = "the combat-target-killed setup: Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s, kills the player (health 10 by the console at 8 s) and goes back to Normal; her CombatAnger weight rises to 1 over 1 s on entering Combat and falls back to 0 on leaving it. lips.rs draws the weight (FaceMorphs, lipsync.md §5.4); combat-face-frames checks the drawn face"
+areas = ["combat", "alert", "faces"]
+paths = ["engine/nvforever/src/combat_face.rs", "engine/nvforever/src/face_morphs.rs", "engine/nvforever/src/lips.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger rises', label = "Violet's face turns angry as she enters Combat" },
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 1\.00', label = "her anger reaches full weight" },
+  { re = 'alert: \S*FiendViolet 000F570B Combat → Normal', label = "she leaves Combat once the player is dead" },
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger falls', label = "her face eases back after the fight" },
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 0\.00', label = "her face is at rest again" },
+]
+
+[[scenario]]
+name = "combat-face-frames"
+source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
+note = "god mode, so the fight with Violet (FiendVioletRef 0x000F570B, set on the player by the scripts' clock at 9 s) lasts the run; at 12 s on the test aids' clock (game time) the player is put 100 units in front of her (lips.rs moves faces within 840 units of the camera); frames combat_face_1..3.png in target/smoke at 14, 16 and 18 s show her angry face (combat_face_0.png at 6 s is from before the fight, about 1,000 units off)"
+areas = ["combat", "faces"]
+paths = ["engine/nvforever/src/combat_face.rs", "engine/nvforever/src/face_morphs.rs", "engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player", NVF_PLAY_TEST_FACE = "12:000F570B", NVF_PLAY_TEST_SHOTS = "6:combat_face_0.png,14:combat_face_1.png,16:combat_face_2.png,18:combat_face_3.png" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 25
+expect = [
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 1\.00', label = "her anger reaches full weight" },
+  { re = 'face: 000F570B shows asked morphs: CombatAnger [\d.]+$', label = "lips.rs shows it on her face (her head carries the morph)" },
+  "Screenshot saved to combat_face_3.png",
+]
+forbid = [{ re = 'face: \S*FiendViolet 000F570B mood CombatAnger falls', label = "her face eases back while she still fights" }]
+
+[[scenario]]
 name = "combat-voice"
 source = "owner requests 2026-10-17: the player's hurt and power attack sounds play (docs/spec-notes/combat-dialogue.md §2); the death music plays when the player dies (engine/nvf-play/src/music.rs)"
 note = "combat-lines with voice and music on: the player's Hit lines play their files, the power attack's line cuts the Hit grunt of the blow taken just before it, and the player's death plays MUSDeath"
@@ -991,6 +1024,10 @@ expect = [
   # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
   { text = "pointer: hidden (an idle drives the view)", label = "no mouse pointer while the wake-up drives the view (owner 2026-10-16)" },
+  # owner 2026-10-18 (idles.md §3, §10): the mirror is in Doc Mitchell's hand, moved by the idle's track, and handed over once.
+  { text = "anim object: 00104C0F VAODocGiveReflectron node ##Dummy01_Reflectron01 follows the idle's track", label = "the mirror follows the give-mirror clip's track" },
+  { re = 'idle: DocMitchellREF plays VCG01DocGiveMirror .* again: not started over \(Speaker\)', label = "the speaker idle of \"How'd I do?\" does not start the hand-over again" },
+  { re = 'anim object: 00104C0F holds .*nvpropreflectron\.nif', count = 1, label = "the mirror drawn once" },
   # owner 2026-10-16: let go at the start marker after the stand-up, the character rose onto the bed frame (z 7381); the floor is at 7361.
   { re = 'player view: a second after the idle the character stands at \(-?\d+, -?\d+, (?P<n>-?\d+)\)', range = [7355, 7366], label = "on the floor beside the bed after the stand-up, not on the bed frame" },
 ]
@@ -2025,12 +2062,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
 # claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
 # 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
+# claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
+# docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
+# fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 41 },
+  { json = "summary.stubs", equals = 38 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 40 },
+  { json = "summary.by_status.needs_system", equals = 37 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 179 },
+  { json = "summary.stub_calls", equals = 169 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3060,6 +3100,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "script-saves-reticle"
+source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
+areas = ["save", "script"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-save/", "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVFOREVER_HOME = "script-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "10:0:-30", NVF_PLAY_TEST_CONSOLE = "12:player.placeatreticle Stimpak 2;12.5:player.placeatreticle Stimpak 1 0 1;13:systemsave;14:forcesave;16:systemsave;18:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  { re = 'console: PlaceAtReticle on player >> 0xFF[0-9A-F]{6}', label = "a reference is created where the crosshair hits the ground (the console names a created reference by its ID, as for PlaceAtMe)" },
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: meshes.clutter.health.stimpak01\.nif', label = "the placed Stimpak is drawn" },
+  { re = 'console: PlaceAtReticle on player >> none', label = "nothing is placed when the ground is beyond maxDistance" },
+  { text = "save: SystemSave asked by a script", min = 2, label = "both SystemSave calls are taken" },
+  { re = 'save: wrote .*systemsave\.nvfsave \(system, ', min = 2, label = "the system slot is written each time" },
+  { re = 'save: ForceSave asked by a script: "Save \d+"', label = "ForceSave names a new save" },
+  { re = 'save: wrote .*Save \d+\.nvfsave \(manual, ', label = "ForceSave's save is written" },
+]
+
+[[scenario]]
 name = "load-handoff"
 source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
 areas = ["save"]
@@ -3674,6 +3732,38 @@ expect = [
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
 order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+
+[[scenario]]
+name = "resolution-revert"
+source = "owner 2026-10-18: a resolution dropdown first in the settings page's Display group, and a 20 s countdown back to the resolution before unless it is kept (engine/nvforever/src/window_mode.rs, nvf-play settings.rs ChoiceList); no home, so the player's INI is neither read nor written"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:36", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1024x768" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 38
+expect = [
+  { text = "settings: resolution 1024x768, until kept", label = "a resolution is chosen and waits to be kept" },
+  { text = "window: windowed, 1024x768", label = "the window takes it at once" },
+  { text = "settings: resolution back to 1280x800 (not kept)", label = "unanswered, it goes back after 20 s" },
+]
+order = [["window: windowed, 1280x800", "settings: resolution 1024x768, until kept", "window: windowed, 1024x768", "settings: resolution back to 1280x800 (not kept)", { text = "window: windowed, 1280x800" }]]
+
+[[scenario]]
+name = "resolution-keep"
+source = "owner 2026-10-18: the resolution dropdown's choice is kept when Keep is taken in time; the dropdown opens on the row and shows the monitor's sizes (pause_settings.png is taken with the keep question up, then with the dropdown open)"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:34", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1600x900", NVF_PLAY_TEST_PAUSE_MENU = "13:shot,15:keep,17:pick,18:down,19:shot,21:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 38
+expect = [
+  { text = "settings: resolution 1600x900, until kept", label = "a resolution is chosen" },
+  { text = "window: windowed, 1600x900", label = "the window takes it" },
+  { text = "settings: resolution kept", label = "Keep keeps it" },
+  { re = 'pause menu: the list of \d+ choice\(s\) open', label = "the dropdown opens on the row" },
+]
+order = [["settings: resolution 1600x900, until kept", "settings: resolution kept", "pause menu: the list of"]]
+forbid = [{ text = "(not kept)", label = "a kept resolution does not go back" }]
 
 [[scenario]]
 name = "controls-write"
@@ -4400,6 +4490,99 @@ order = [[
   "creator: closed",
 ]]
 manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"
+
+[[scenario]]
+name = "lip-eye-turns"
+kind = "tool"
+source = "docs/spec-notes/lipsync.md §3.3: an eye .tri's Look morphs are turns of the whole eye, about 22° down and to the sides and 14° up at weight 1 (fnvtool actor tri, best_rotation)"
+areas = ["lip"]
+paths = ["crates/fnv-actor/src/tri.rs", "crates/fnvtool/src/actor_tri.rs"]
+commands = [
+  ["actor", "tri", "{data}", "--nif-schema", "schemas/nif", "--path", 'meshes\characters\head\eyelefthuman.tri'],
+]
+expect = [
+  { json = "files.0.statistical_morphs.?label=LookDown.best_rotation.degrees", range = [21, 23], label = "LookDown turns the male left eye about 22°" },
+  { json = "files.0.statistical_morphs.?label=LookUp.best_rotation.degrees", range = [13, 14.5], label = "LookUp turns it about 14°" },
+  { json = "files.0.statistical_morphs.*.best_rotation.residual", range = [0, 0.1], count = 4, label = "all four Look morphs are turns (little left over after the best turn)" },
+]
+
+[[scenario]]
+name = "lip-head-turn"
+source = "docs/spec-notes/lipsync.md §5.1: a speaker's .lip head channels (HeadPitch, HeadRoll, HeadYaw) nod its head on top of the animation and head tracking; the Look channels move the eyes"
+note = "Chet's conversation of talk-gestures-menu (4 responses); --no-voice keeps each line's timing, so the face still moves"
+areas = ["lip", "dialogue"]
+paths = ["engine/nvforever/src/lips.rs", "crates/fnv-voice/src/lip.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave", NVF_PLAY_TEST_TALK_DELAY = "4" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'lip: animating \S+ \(\d+ tracks, \d+ applied; .*\) speaker \S+: \d+ shapes, \d+ morphs; head turn up to (?P<n>\d+\.\d)° \(pitch', range = [0.5, 15], min = 3, label = "Chet's responses animate with a head turn of a few degrees" },
+  { re = 'lip summary: (?P<n>\d+) responses animated', range = [3, 60], label = "responses counted" },
+  { re = 'lip summary: .* head turned on (?P<n>\d+) ', range = [3, 60], label = "the head turned on each" },
+]
+
+[[scenario]]
+name = "lip-emotion"
+source = "docs/spec-notes/lipsync.md §5.2: a response's emotion (INFO TRDT) adds the head's expression morph of its name"
+note = "Joe Cobb's angry line to Trudy of talk-gestures-npcs (line 0x00105219, emotion Anger)"
+areas = ["lip", "dialogue"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:start:VFreeformGoodsprings,3:enable:GSJoeCobbRef,3.1:enable:TrudyRef,6:call:GSJoeCobbRef:StartConversation:TrudyRef:GSJoeCobbIntro" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'lip: animating \S+_00105219_\d\.lip .* speaker \S+: .*; emotion Anger \d+$', label = "Joe Cobb's angry line shows the Anger morph" },
+  { re = 'lip summary: .* emotions shown on (?P<n>\d+) \(.*Anger \d+', range = [1, 60], label = "emotions counted" },
+]
+
+[[scenario]]
+name = "face-idle"
+source = "docs/spec-notes/lipsync.md §5.3 (design): drawn NPCs near the camera blink about every 3 s and their eyes move between lines"
+note = "the saloon with Sunny Smiles, Easy Pete and Trudy near the player's start"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvforever/src/head_look.rs"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'face idle summary: (?P<n>\d+) actors had an idle face', range = [1, 40], label = "faces near the camera were given an idle face" },
+  { re = 'face idle summary: .*; (?P<n>\d+) blinks', range = [3, 2000], label = "they blinked" },
+  { re = 'face idle summary: .* (?P<n>\d+) glances', range = [3, 2000], label = "their eyes glanced" },
+]
+
+[[scenario]]
+name = "lip-face-held"
+source = "docs/spec-notes/lipsync.md §5 (test aid NVF_LIP_TEST_HOLD): held head channels nod the head, Look moves the eyes, an expression shows; frames lip_face_rest.png (nothing held, idle face off) and lip_face_held.png in target/smoke, Sunny Smiles from 100 units"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_LIP_TEST_HOLD = "HeadPitch=0.17,HeadYaw=0.15,LookLeft=0.5,Anger=0.6", NVF_PLAY_TEST_SHOTS = "9:lip_face_held.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = [
+  { re = 'lip test: holding the given weights on \d+ shapes \((?P<n>\d+) morphs\)', range = [20, 400], label = "faces hold the weights" },
+]
+
+[[scenario]]
+name = "lip-face-rest"
+source = "the rest frame for lip-face-held: the same view with nothing held (lip_face_rest.png)"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SHOTS = "9:lip_face_rest.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = ["face idle: off (--no-face-idle)"]
+
+[[scenario]]
+name = "face-morphs-asked"
+source = "docs/spec-notes/lipsync.md §5.4: morphs other systems ask for through FaceMorphs (the combat face's CombatAnger) are shown on a face between lines; frame face_morphs_asked.png in target/smoke (compare lip_face_rest.png)"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvforever/src/face_morphs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_FACE_TEST_MORPHS = "CombatAnger=0.8", NVF_PLAY_TEST_SHOTS = "9:face_morphs_asked.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = [
+  { re = 'face test: \w+ asks for CombatAnger 0\.80', label = "the test aid asks for CombatAnger" },
+  { re = 'face: \w+ shows asked morphs: CombatAnger 0\.80$', label = "a face shows it (its head carries the morph)" },
+]
 
 [[scenario]]
 name = "misc-stats-scale"

@@ -190,8 +190,8 @@ pub enum AiEvent {
     /// In Combat it runs up to `target`, `away` units off, a way of `length` units to
     /// `to` (`crate::alert`); `aiming`: it aims down its sights and walks.
     Close { target: FormId, to: [f32; 3], away: f32, length: f32, aiming: bool },
-    /// Closing in on `target`, it slows to a walk as it raises its sights (`aiming`), or
-    /// runs again as it lowers them (`crate::alert`).
+    /// Closing in on `target`, or running to a post while fighting it, it slows to a walk
+    /// as it raises its sights (`aiming`), or runs again as it lowers them (`crate::alert`).
     Pace { target: FormId, aiming: bool },
     /// In Combat it goes to the post the combat AI chose (`crate::alert`): `to`, `away`
     /// units off, a way of `length` units.

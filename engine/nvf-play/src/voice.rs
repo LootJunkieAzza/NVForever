@@ -173,6 +173,9 @@ struct Playing {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Spoken<'a> {
     pub speaker: FormId,
+    /// The line (INFO) and the response's index in its record order (`InfoDef::responses`).
+    pub info: FormId,
+    pub response: usize,
     pub path: Option<&'a str>,
     pub started_at: f64,
     /// Moves on while the sound is held.
@@ -193,7 +196,7 @@ impl Spoken<'_> {
 impl VoiceState {
     /// The responses being said this frame, one per speaker.
     pub fn spoken(&self) -> impl Iterator<Item = Spoken<'_>> {
-        self.playing.iter().map(|(&speaker, p)| Spoken { speaker, path: p.path.as_deref(), started_at: p.started_at, ends_at: p.ends_at, held_secs: p.held_secs })
+        self.playing.iter().map(|(&speaker, p)| Spoken { speaker, info: p.info, response: p.response, path: p.path.as_deref(), started_at: p.started_at, ends_at: p.ends_at, held_secs: p.held_secs })
     }
 }
 

@@ -1,0 +1,290 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "lip_head_units",
+ "title": "Face modifiers by MFG: what HeadPitch/Roll/Yaw and Look at 100 do (pictures, about 2 min, no input)",
+ "start": "nvfdoc (Doc Mitchell's house: Doc stands by the player; never saved). Window in front, first person.",
+ "steps": [
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "console": "tai"
+  },
+  {
+   "console": "player.SetAngle z 0"
+  },
+  {
+   "console": "player.SetAngle x 0"
+  },
+  {
+   "console": "DocMitchellREF.MoveTo player 0 70 0"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "console": "prid DocMitchellREF"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "rest_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "rest_front"
+  },
+  {
+   "console": "mfg modifier 14 100"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headpitch100_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headpitch100_front"
+  },
+  {
+   "console": "mfg modifier 14 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "mfg modifier 14 50"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headpitch50_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headpitch50_front"
+  },
+  {
+   "console": "mfg modifier 14 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "mfg modifier 15 100"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headroll100_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headroll100_front"
+  },
+  {
+   "console": "mfg modifier 15 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "mfg modifier 16 100"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headyaw100_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "headyaw100_front"
+  },
+  {
+   "console": "mfg modifier 16 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "mfg modifier 8 100"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "lookdown100_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "lookdown100_front"
+  },
+  {
+   "console": "mfg modifier 8 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "mfg modifier 9 100"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "lookleft100_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "lookleft100_front"
+  },
+  {
+   "console": "mfg modifier 9 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "mfg expression 0 100"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "anger100_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "anger100_front"
+  },
+  {
+   "console": "mfg expression 0 0"
+  },
+  {
+   "frames": 15
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 270"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "reset_profile"
+  },
+  {
+   "console": "DocMitchellREF.SetAngle z 180"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "reset_front"
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "console": "tai"
+  }
+ ]
+}
