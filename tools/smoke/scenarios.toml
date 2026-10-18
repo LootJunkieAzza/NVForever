@@ -3639,6 +3639,38 @@ expect = [
 order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
 
 [[scenario]]
+name = "resolution-revert"
+source = "owner 2026-10-18: a resolution dropdown first in the settings page's Display group, and a 20 s countdown back to the resolution before unless it is kept (engine/nvforever/src/window_mode.rs, nvf-play settings.rs ChoiceList); no home, so the player's INI is neither read nor written"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:36", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1024x768" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 38
+expect = [
+  { text = "settings: resolution 1024x768, until kept", label = "a resolution is chosen and waits to be kept" },
+  { text = "window: windowed, 1024x768", label = "the window takes it at once" },
+  { text = "settings: resolution back to 1280x800 (not kept)", label = "unanswered, it goes back after 20 s" },
+]
+order = [["window: windowed, 1280x800", "settings: resolution 1024x768, until kept", "window: windowed, 1024x768", "settings: resolution back to 1280x800 (not kept)", { text = "window: windowed, 1280x800" }]]
+
+[[scenario]]
+name = "resolution-keep"
+source = "owner 2026-10-18: the resolution dropdown's choice is kept when Keep is taken in time; the dropdown opens on the row and shows the monitor's sizes (pause_settings.png is taken with the keep question up, then with the dropdown open)"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:34", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1600x900", NVF_PLAY_TEST_PAUSE_MENU = "13:shot,15:keep,17:pick,18:down,19:shot,21:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 38
+expect = [
+  { text = "settings: resolution 1600x900, until kept", label = "a resolution is chosen" },
+  { text = "window: windowed, 1600x900", label = "the window takes it" },
+  { text = "settings: resolution kept", label = "Keep keeps it" },
+  { re = 'pause menu: the list of \d+ choice\(s\) open', label = "the dropdown opens on the row" },
+]
+order = [["settings: resolution 1600x900, until kept", "settings: resolution kept", "pause menu: the list of"]]
+forbid = [{ text = "(not kept)", label = "a kept resolution does not go back" }]
+
+[[scenario]]
 name = "controls-write"
 source = "owner 2026-10-16: keys are mapped in the INI's [Controls] and rebound on the settings page's Controls tab; the first half of the round trip (controls-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
