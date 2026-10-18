@@ -63,6 +63,7 @@ BOONE = "0x00096BCE"            # CraigBooneREF
 BOONE_ROOM_CELL = "NovacBoonesRoom"
 BOONE_ROOM_CELL_ID = "0x000CAE83"
 BOONE_ROOM_DOOR = "0x000CED40"  # OffDoorHotelSmL01, the door the follower-boone smoke scenario leaves by
+BOONE_ROOM_EXT_DOOR = "0x000CAFA5"  # its other side outside (the inner door's XTEL; arrival 23776, -29504, 126.76 degrees)
 BOONE_FOLLOW = "0x000B1609"     # FollowersBooneFollowPlayerDEFAULT
 BOONE_WAIT = "0x000B16D1"       # FollowersBooneFollowPlayerWAIT
 SETTLER = "0x00104F03"          # GoodspringsSettler01Ref (sandboxes outside, ai-observer.md section 7)
@@ -81,7 +82,9 @@ NCR_VICTIM = "0x000F36F5"       # one of the six NCR troopers of battle-ncr-fien
 NCR_DISTANT = [("primm_trooper_1", "0x000A23B7"), ("primm_trooper_3", "0x000A23B9"),
                ("primm_trooper_4", "0x000A23BA")]  # PrimmNCRTrooper1REF, 3REF, 4REF
 AURA_TOKEN = "0x0013B1A8"       # NVLegionExplorerAuraToken (script LegionExplorerAuraToken: in combat, casts the aura on its holder)
-AURA = "0x001267A8"             # LegionExplorerAura
+AURA = "0x001267A8"             # LegionExplorerAura (Touch, area 50, 10 s; its effect script gives +2 Perception to members of VCaesarsLegionFaction only)
+LEGION = "0x000EE68A"           # VCaesarsLegionFaction
+LEAD_PIPE = "0x00004337"        # WeapLeadPipe (melee: no ammo, no aim)
 NASH = "0x000E2882"             # PrimmJohnsonNashRef
 RED_LUCY = "0x00134830"         # VMS38RedLucyREF
 RALPH = "0x0010D8E2"            # VFSRalph's reference in Mick & Ralph's
@@ -221,7 +224,17 @@ def ai_samples(who, prefix, n, every):
     return steps
 
 
-def job(name, title, start, steps):
+def dismiss():
+    """Close a message box (MenuMode 1001) if one is up: in the save nvfstrip some actors and
+    places open one (Johnson Nash, Red Lucy) [observed 2026-10-18]. con_CloseAllMenus from a
+    function script closed a dialogue in the observer's hook [observed 2026-10-08]."""
+    return [act(["if MenuMode 1001", "  con_CloseAllMenus", "endif"]), wait(30)]
+
+
+def job(name, title, start, steps, prelude=False):
+    """`prelude`: close any menu the save starts with (the second round's jobs)."""
+    if prelude:
+        steps = close_menus() + steps
     j = cs.job(PREFIX + name, start, steps, cs.MASTERS)
     j["title"] = title
     return j
@@ -302,9 +315,9 @@ def teammate_door():
     steps += [act("{0}.Activate player", [BOONE_ROOM_DOOR]),
               {"until": cs.left_cell_until(BOONE_ROOM_DOOR, CTX), "max_frames": cs.DOOR_LOOPS}]
     steps += after_door("out, following") + boone_package("outside")
-    # Back in through the door the player came out of (the linked door).
-    steps += [form("{0}.GetLinkedDoor", "outside", "linked_door", [BOONE_ROOM_DOOR]),
-              act(["let rD := {0}.GetLinkedDoor", "rD.Activate player"], [BOONE_ROOM_DOOR], decls=["ref rD"]),
+    # Back in through the outside door. The first run's `GetLinkedDoor` + Activate never
+    # took the player in (the wait timed out) [observed 2026-10-18].
+    steps += [act("{0}.Activate player", [BOONE_ROOM_EXT_DOOR]),
               {"until": cs.in_cell_until(BOONE_ROOM_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS}]
     steps += after_door("in, following") + boone_package("back inside")
     # Told to wait: his Wait package is chosen by his `Waiting` variable (the smoke
@@ -318,7 +331,7 @@ def teammate_door():
     return job("03_teammate_door",
                "Teammates through a door: where Boone arrives, following and waiting (owner-review: Followers) (about 2 min)",
                start_text(SAVE_TEST, "coc NovacBoonesRoom; hires Boone by his quest variable and SetPlayerTeammate."),
-               steps)
+               steps, prelude=True)
 
 
 def controls_state(label):
@@ -354,25 +367,34 @@ def enable_controls_sneak():
 
 def set_actors_ai():
     """Item 5: what SetActorsAI 0 stops: package, procedure, position, detection,
-    animation action, for a sandboxing settler in Goodsprings at 10:00."""
+    animation action. In the first run the settler stood at an idle marker with AI on, so
+    nothing could freeze [observed 2026-10-18]; now he is moved 800 units off and given
+    DefaultStayAtEditorLocation, so he walks back when his AI is on."""
     steps = [{"script": observe.set_hour_script(10)}, wait(cs.SETTLE_FRAMES_LONG)]
-    steps += go_to(SETTLER, 0, -300) + [wait(300)]
-    steps += ai_samples(SETTLER, "AI on", 10, 30)
+    steps += go_to(SETTLER, 0, -300) + dismiss()
+    steps += [act("{0}.MoveTo player 0 800 0", [SETTLER]), wait(MOVETO_FRAMES),
+              act("{0}.AddScriptPackage {1}", [SETTLER, STAY_AT_EDITOR]), wait(60)]
+    steps += ai_samples(SETTLER, "AI on, walking back", 10, 15)
     steps += [act("{0}.SetActorsAI 0", [SETTLER])] + ai_samples(SETTLER, "AI off", 20, 30)
     # Walk right up to it: does it still detect, turn or greet?
     steps += [act("player.MoveTo {0} 0 -100 0", [SETTLER]), wait(MOVETO_FRAMES), face(SETTLER)]
     steps += ai_samples(SETTLER, "AI off, player close", 10, 30)
-    steps += [act("{0}.SetActorsAI 1", [SETTLER])] + ai_samples(SETTLER, "AI back on", 10, 30)
+    steps += [act("{0}.SetActorsAI 1", [SETTLER])] + ai_samples(SETTLER, "AI back on", 20, 30)
+    steps += [act("{0}.RemoveScriptPackage", [SETTLER]), wait(60)]
     return job("05_set_actors_ai",
-               "SetActorsAI 0 on a sandboxing settler: package, movement, detection, animation (owner-review: stubs-2) (about 1.5 min)",
-               start_text(SAVE_TEST, "clock to 10:00, player to GoodspringsSettler01Ref."), steps)
+               "SetActorsAI 0 on a settler walking back to his place: package, movement, detection, animation (owner-review: stubs-2) (about 2 min)",
+               start_text(SAVE_TEST, "clock to 10:00, player to GoodspringsSettler01Ref, who is moved 800 units off."), steps,
+               prelude=True)
 
 
 def reset_ai():
     """Item 6: ResetAI and the AI codes. (a) a script package run to its end (procedure
     17 DONE expected), then ResetAI; (b) ResetAI in the middle of a script package;
-    (c) a sleeping actor (package type 4 SLEEP, GetSleeping) and ResetAI."""
-    steps = gas_station()
+    (c) a sleeping actor (package type 4 SLEEP, GetSleeping) and ResetAI. The first run
+    waited for procedure 17 and for GetSleeping 3 and timed out on both [observed
+    2026-10-18]; now the waits are sampled every 300 loops, so a timeout still shows
+    what he was doing, and part (c) waits for the SLEEP procedure (8) first."""
+    steps = gas_station() + dismiss() + [act("{0}.MoveTo player 0 150 0", [RINGO]), wait(MOVETO_FRAMES)]
     after_reset = [("1 loop", 1), ("10 loops", 9), ("30 loops", 20), ("120 loops", 90), ("300 loops", 180)]
 
     def resets(prefix):
@@ -382,24 +404,36 @@ def reset_ai():
                     num("{0}.GetSleeping", f"{prefix}: after ResetAI, {name}", "sleeping", [RINGO])]
         return out
 
+    def watch(prefix, n):
+        out = []
+        for i in range(n):
+            out += [ai_state(RINGO, f"{prefix} {i:02d}"), num("{0}.GetSleeping", f"{prefix} {i:02d}", "sleeping", [RINGO]),
+                    wait(300)]
+        return out
+
     # (a) to the end of DefaultStayAtEditorLocation, moved away from his place first.
     steps += [act("{0}.MoveTo {1}", [RINGO, GAS_STATION_DOOR]), wait(MOVETO_FRAMES), ai_state(RINGO, "a: moved away"),
               act("{0}.AddScriptPackage {1}", [RINGO, STAY_AT_EDITOR]), wait(ACTION_FRAMES),
-              ai_state(RINGO, "a: script package given"),
-              until("{0}.GetCurrentAIProcedure == 17", [RINGO], 3600), ai_state(RINGO, "a: procedure 17")]
+              ai_state(RINGO, "a: script package given")]
+    steps += watch("a: on the package", 8)
+    steps += [until("{0}.GetCurrentAIProcedure == 17", [RINGO], 1200), ai_state(RINGO, "a: procedure 17")]
     steps += resets("a")
     # (b) mid-package.
     steps += [act("{0}.MoveTo {1}", [RINGO, GAS_STATION_DOOR]), wait(MOVETO_FRAMES),
               act("{0}.AddScriptPackage {1}", [RINGO, STAY_AT_EDITOR]), wait(15), ai_state(RINGO, "b: mid-package")]
     steps += resets("b")
+    steps += [act("{0}.RemoveScriptPackage", [RINGO]), wait(300)]
     # (c) asleep: his sleep package starts at 22:00 (GSRingoSleepPackage22x8).
-    steps += [{"script": observe.set_hour_script(23)}, wait(cs.SETTLE_FRAMES_LONG),
-              until("{0}.GetSleeping == 3", [RINGO], 6000), ai_state(RINGO, "c: asleep"),
+    steps += [{"script": observe.set_hour_script(23)}, wait(cs.SETTLE_FRAMES_LONG)]
+    steps += watch("c: after 23:00", 12)
+    steps += [until("{0}.GetCurrentAIProcedure == 8", [RINGO], 3600), ai_state(RINGO, "c: sleep procedure"),
+              until("{0}.GetSleeping == 3", [RINGO], 1800), ai_state(RINGO, "c: asleep"),
               num("{0}.GetSleeping", "c: asleep", "sleeping", [RINGO])]
     steps += resets("c")
     return job("06_reset_ai",
-               "ResetAI and the AI codes: DONE (17), mid-package, asleep (type 4) (owner-review: stubs ResetAI) (about 3 min)",
-               start_text(SAVE_TEST, "RingoRef in GSGasStation; clock to 23:00 for the last part."), steps)
+               "ResetAI and the AI codes: DONE (17), mid-package, asleep (type 4) (owner-review: stubs ResetAI) (about 6 min)",
+               start_text(SAVE_TEST, "RingoRef brought to GSGasStation; clock to 23:00 for the last part."), steps,
+               prelude=True)
 
 
 def script_packages():
@@ -456,28 +490,39 @@ def disabled_ref_script():
 
 def carried_item_script():
     """Item 9 (b): does a scripted item run its GameMode in an NPC's inventory? The
-    Legion explorer token casts its aura on its holder after 2 s in combat (its script,
-    LegionExplorerAuraToken); the player holding it is the control."""
+    Legion explorer token (script LegionExplorerAuraToken) casts LegionExplorerAura on its
+    holder after 2 s in combat. The first run read IsSpellTarget 0 for the player too
+    [observed 2026-10-18]: the aura is a Touch spell of area 50 whose effect script raises
+    Perception by 2 only for members of VCaesarsLegionFaction (fnvtool esm decode,
+    script decompile), so both holders join that faction first, Perception is read beside
+    IsSpellTarget, and the aura cast directly on the player checks the reading itself."""
     def aura(who, label):
         o = "player" if who == "player" else "{0}"
         forms = [] if who == "player" else [who]
         label = f"{'player' if who == 'player' else 'ringo'}: {label}"
         return [num(f"{o}.IsSpellTarget {{{len(forms)}}}", label, "aura", forms + [AURA]),
+                num(f"{o}.GetAV Perception", label, "perception", forms),
                 num(f"{o}.IsInCombat", label, "in_combat", forms),
                 num(f"{o}.GetItemCount {{{len(forms)}}}", label, "tokens", forms + [AURA_TOKEN])]
 
-    steps = god_on() + gas_station()
-    steps += aura("player", "player before") + aura(RINGO, "ringo before")
+    steps = god_on() + gas_station() + dismiss() + [act("{0}.MoveTo player 0 150 0", [RINGO]), wait(MOVETO_FRAMES)]
+    steps += aura("player", "before") + aura(RINGO, "before")
+    steps += [act(["player.AddToFaction {1} 0", "{0}.AddToFaction {1} 0"], [RINGO, LEGION]), wait(30)]
+    # The reading checked: the aura cast on the player directly (10 s), then let it end.
+    steps += [act("player.CastImmediateOnSelf {0}", [AURA]), wait(30)] + aura("player", "aura cast directly")
+    steps += [wait(900)] + aura("player", "direct aura over")
     steps += [act("player.AddItem {0} 1 1", [AURA_TOKEN]), act("{0}.AddItem {1} 1 1", [RINGO, AURA_TOKEN]), wait(30)]
     steps += aura("player", "tokens given") + aura(RINGO, "tokens given")
     steps += [act("{0}.StartCombat player", [RINGO])]
-    for frames, total in ((150, 150), (150, 300), (300, 600)):
+    for frames, total in ((150, 150), (150, 300), (300, 600), (300, 900)):
         steps += [wait(frames)] + aura("player", f"in combat, {total} loops") + aura(RINGO, f"in combat, {total} loops")
-    steps += [act(["{0}.StopCombat", "player.RemoveItem {1} 1 1", "{0}.RemoveItem {1} 1 1"], [RINGO, AURA_TOKEN]),
+    steps += [act(["{0}.StopCombat", "player.RemoveItem {1} 1 1", "{0}.RemoveItem {1} 1 1",
+                   "player.RemoveFromFaction {2}", "{0}.RemoveFromFaction {2}"], [RINGO, AURA_TOKEN, LEGION]),
               wait(60)] + god_off()
     return job("09b_carried_item_script",
-               "Scripted item in an NPC's inventory: does its GameMode run (owner-review: runtime differs, scripted items) (about 40 s)",
-               start_text(SAVE_TEST, "RingoRef in GSGasStation; Ringo fights the player (god mode) for 10 s."), steps)
+               "Scripted item in an NPC's inventory: does its GameMode run (owner-review: runtime differs, scripted items) (about 1.5 min)",
+               start_text(SAVE_TEST, "RingoRef; both join the Legion faction; Ringo fights the player (god mode)."), steps,
+               prelude=True)
 
 
 def stray_markers():
@@ -505,16 +550,25 @@ def stray_markers():
                start_text(SAVE_TEST, "the Techatticup hostages, activated from afar; kills hostage 1."), steps)
 
 
-def open_dialogue(ref):
-    return [act("{0}.Activate player", [ref]), until("MenuMode 1009", max_frames=600)]
+def open_dialogue(ref, label):
+    """Activate the actor and wait for the dialogue menu. A message box in its place (the
+    first run, save nvfstrip [observed 2026-10-18]) is recorded, closed, and the actor
+    activated once more."""
+    return dismiss() + [act("{0}.Activate player", [ref]), wait(ACTION_FRAMES)] + menus(f"{label}: first activation") + [
+        act(["if MenuMode 1001", "  con_CloseAllMenus", "endif"]), wait(30),
+        act(["if MenuMode 1009 == 0", "  {0}.Activate player", "endif"], [ref]),
+        until("MenuMode 1009", max_frames=600)]
 
 
 def clock_in_dialogue():
-    """Item 11: does the game clock run while the dialogue menu is open?"""
-    steps = gas_station() + [act("{0}.MoveTo player 0 120 0", [RINGO]), wait(MOVETO_FRAMES)]
+    """Item 11: does the game clock run while the dialogue menu is open? Every sample
+    carries MenuMode 1009, so only samples with it 1 count (the first run never opened
+    the dialogue [observed 2026-10-18])."""
+    steps = go_to(RINGO, 0, -150) + dismiss() + [act("{0}.MoveTo player 0 120 0", [RINGO]), wait(MOVETO_FRAMES),
+                                                face(RINGO)]
     clock = [("num", "GameHour"), ("num", "GameDaysPassed"), ("num", "MenuMode 1009")]
     steps += [record(clock, "before", "clock"), wait(300), record(clock, "before, 300 loops later", "clock")]
-    steps += open_dialogue(RINGO)
+    steps += open_dialogue(RINGO, "ringo")
     for i in range(6):
         steps += [record(clock, f"dialogue open {i:02d}", "clock"), wait(300)]
     steps += close_menus()
@@ -522,33 +576,60 @@ def clock_in_dialogue():
         steps += [record(clock, f"dialogue closed {i:02d}", "clock"), wait(300)]
     return job("11_clock_in_dialogue",
                "Game clock while the dialogue menu is open (owner-review: dialogue pause (2)) (about 1.5 min)",
-               start_text(SAVE_TEST, "talks to RingoRef in GSGasStation."), steps)
+               start_text(SAVE_TEST, "player to RingoRef wherever he is; talks to him."), steps, prelude=True)
+
+
+CREATED_ATTACKER = [  # the last actor created at run time in the loaded area that is alive
+    "let rA := GetFirstRef 200 1", "while rA != 0",
+    f"  if rA.GetSourceModIndex == {cs.CREATED_MOD_INDEX}", "    if rA.GetDead == 0", "      let rG := rA",
+    "    endif", "  endif", "  let rA := GetNextRef", "loop"]
+
+
+def spawned_state(label):
+    """In combat, combat target, x, y, z of the spawned gecko (found by a scan: PlaceAtMe's
+    result cannot be kept, ai-observer.md section 11)."""
+    return cs.query(cs.function(["ref rA", "ref rG", "ref rT", "float fC", "float fX", "float fY"], CREATED_ATTACKER + [
+        "if rG", "  let fC := rG.IsInCombat", "  let rT := rG.GetCombatTarget", "  let fX := rG.GetPos X",
+        "  let fY := rG.GetPos Y",
+        '  SetFunctionValue (($ fC) + " " + (GetFormIDString rT) + " " + ($ fX) + " " + ($ fY))',
+        "else", '  SetFunctionValue "none"', "endif"]), label, "attacker")
 
 
 def attack_in_dialogue():
-    """Item 12: an attack while the dialogue menu is open: a gecko set on the player
-    (StartCombat), then the speaker himself. Does the conversation end, and does the
-    attacker act while it is open?"""
-    def watch(prefix, attacker):
+    """Item 12: an attack while the dialogue menu is open: a gecko spawned behind the
+    player and set on them (StartCombat), then the speaker himself. Does the conversation
+    end, and does the attacker act while it is open? First run [observed 2026-10-18]: the
+    placed gecko never engaged, and the second dialogue never opened, so Ringo's attack
+    came with no dialogue open; now the gecko is a fresh one and every opening is checked."""
+    def watch(prefix, attacker=None):
         out = []
         for name, frames in (("30 loops", 30), ("150 loops", 120), ("300 loops", 150)):
             label = f"{prefix}, {name}"
-            out += [wait(frames)] + menus(label) + [
+            who = [spawned_state(label)] if attacker is None else [
                 num("{0}.IsInCombat", label, "attacker_in_combat", [attacker]),
-                form("{0}.GetCombatTarget", label, "attacker_target", [attacker]),
-                pose(attacker, label, "attacker_pose"), pose("player", label, "player_pose"),
-                num("player.GetAV Health", label, "player_health"), shot(f"{prefix.replace(' ', '_')}_{name.split()[0]}")]
+                form("{0}.GetCombatTarget", label, "attacker_target", [attacker]), pose(attacker, label, "attacker_pose")]
+            out += [wait(frames)] + menus(label) + who + [
+                pose("player", label, "player_pose"), num("player.GetAV Health", label, "player_health"),
+                shot(f"{prefix.replace(' ', '_')}_{name.split()[0]}")]
         return out
 
-    steps = god_on() + gas_station() + [act("{0}.MoveTo player 0 120 0", [RINGO]), wait(MOVETO_FRAMES)]
-    steps += open_dialogue(RINGO) + [wait(60)]
-    steps += [act(["{0}.MoveTo player 0 -400 0", "{0}.StartCombat player"], [GECKO])] + watch("gecko attacks", GECKO)
-    steps += close_menus() + [act("{0}.Kill", [GECKO]), wait(120)]
-    steps += open_dialogue(RINGO) + [wait(60), act("{0}.StartCombat player", [RINGO])] + watch("speaker attacks", RINGO)
+    steps = god_on() + go_to(RINGO, 0, -150) + dismiss() + [act("{0}.MoveTo player 0 120 0", [RINGO]),
+                                                           wait(MOVETO_FRAMES), face(RINGO)]
+    steps += open_dialogue(RINGO, "first dialogue") + [wait(60)] + menus("before the gecko")
+    steps += [act(["let rB := {0}.GetBaseObject", "player.PlaceAtMe rB 1 400 1"], [GECKO], decls=["ref rB"]), wait(30),
+              cs.query(cs.function(["ref rA", "ref rG"], CREATED_ATTACKER + ["if rG", "  rG.StartCombat player", "endif",
+                                                                           "SetFunctionValue (GetFormIDString rG)"]),
+                       "gecko set on the player", "attacker_ref")]
+    steps += watch("gecko attacks")
+    steps += close_menus() + [act(CREATED_ATTACKER + ["if rG", "  rG.Kill", "endif"], decls=["ref rA", "ref rG"]),
+                              wait(300)]
+    steps += open_dialogue(RINGO, "second dialogue") + [wait(60)] + menus("before Ringo attacks")
+    steps += [act("{0}.StartCombat player", [RINGO])] + watch("speaker attacks", RINGO)
     steps += close_menus() + [act("{0}.StopCombat", [RINGO]), wait(60)] + god_off()
     return job("12_attack_in_dialogue",
-               "An attack while the dialogue menu is open: does the conversation end (owner-review: dialogue pause (3)) (about 1 min)",
-               start_text(SAVE_TEST, "talks to RingoRef; a gecko and then Ringo attack the player (god mode)."), steps)
+               "An attack while the dialogue menu is open: does the conversation end (owner-review: dialogue pause (3)) (about 1.5 min)",
+               start_text(SAVE_TEST, "talks to RingoRef; a spawned gecko and then Ringo attack the player (god mode)."), steps,
+               prelude=True)
 
 
 def victim_state(label):
@@ -557,11 +638,21 @@ def victim_state(label):
             num("{0}.GetAV Health", label, "health", [NCR_VICTIM])]
 
 
+def swing(label):
+    """Hold the attack control for 10 loops (a tap did not land a hit in the first run
+    [observed 2026-10-18]), then read the victim's health."""
+    return [face(NCR_VICTIM), act(["let iK := GetControl 4", "HoldKey iK"], decls=["int iK"]), wait(10),
+            act(["let iK := GetControl 4", "ReleaseKey iK"], decls=["int iK"]), wait(50),
+            num("{0}.GetAV Health", label, "health", [NCR_VICTIM])]
+
+
 def assault_faction():
     """Item 13: does an assault on one NCR trooper turn the whole faction? Distant Primm
-    troopers before and after the player hits a trooper with no witnesses."""
+    troopers before and after the player hits a trooper with no witnesses. The first
+    run's hits did not land (victim's health 50 before and after) [observed 2026-10-18];
+    now the player swings a lead pipe from 70 units, holding the attack control."""
     def distant(prefix, samples):
-        out = go_to(NCR_DISTANT[0][1], 400, 0)
+        out = go_to(NCR_DISTANT[0][1], 400, 0) + dismiss()
         for name, ref in NCR_DISTANT:
             out += [num("{0}.GetActorFactionPlayerEnemy", f"{prefix} {name}", "faction_enemy", [ref]),
                     num("{0}.GetMajorCrimeCount", f"{prefix} {name}", "major_crimes", [ref])]
@@ -572,18 +663,21 @@ def assault_faction():
         return out
 
     steps = god_on() + distant("before", 5)
-    steps += [{"console": "cow WastelandNV -18 0"}, wait(CELL_FRAMES),
-              act("{0}.MoveTo player 0 150 0", [NCR_VICTIM]), wait(MOVETO_FRAMES), face(NCR_VICTIM),
-              act(f"TapControl {READY}"), wait(120)]
+    steps += [{"console": "cow WastelandNV -18 0"}, wait(CELL_FRAMES)] + dismiss()
+    steps += [act(["player.AddItem {0} 1 1", "player.EquipItem {0} 0 1"], [LEAD_PIPE]), wait(ACTION_FRAMES),
+              act("{0}.MoveTo player 0 70 0", [NCR_VICTIM]), wait(MOVETO_FRAMES), face(NCR_VICTIM),
+              act("player.SetAngle X 0"), act(["if player.IsWeaponOut == 0", f"  TapControl {READY}", "endif"]),
+              wait(120)]
     steps += victim_state("victim before")
-    for _ in range(3):
-        steps += [face(NCR_VICTIM), act(f"TapControl {ATTACK}"), wait(45)]
+    for i in range(5):
+        steps += swing(f"swing {i}")
     steps += [wait(120)] + victim_state("victim after the hits")
     steps += distant("after", 30)
-    steps += [act("{0}.StopCombat", [NCR_VICTIM])] + god_off()
+    steps += [act("{0}.StopCombat", [NCR_VICTIM]), act("player.RemoveItem {0} 1 1", [LEAD_PIPE])] + god_off()
     return job("13_assault_faction",
                "Assault on one NCR trooper: do distant NCR troopers turn hostile (owner-review: karma and crime 8) (about 2 min)",
-               start_text(SAVE_TEST, "Primm's NCR troopers, then a trooper hit at Goodsprings' edge (god mode)."), steps)
+               start_text(SAVE_TEST, "Primm's NCR troopers, then a trooper hit with a lead pipe at Goodsprings' edge (god mode)."),
+               steps, prelude=True)
 
 
 def set_alert():
@@ -608,7 +702,7 @@ def dialogue_screen(name, ref, shots=(300, 600, 900)):
     """Activate, then pictures of the dialogue screen (the topic list once the greeting has
     been said): for visual review."""
     steps = go_to(ref, 0, 0) + [act("{0}.MoveTo player 0 120 0", [ref]), wait(MOVETO_FRAMES), face(ref)]
-    steps += open_dialogue(ref)
+    steps += open_dialogue(ref, name)
     last = 0
     for at in shots:
         steps += [wait(at - last), shot(f"{name}_{at}")]
@@ -620,11 +714,11 @@ def dialogue_screen(name, ref, shots=(300, 600, 900)):
 def goodbye_lists():
     """Dialogue (visual review): does the original add the generic GOODBYE to a topic list
     whose only Goodbye entries run an end script (Johnson Nash's Caravan offer; Ringo's)?"""
-    steps = gas_station()
-    steps += dialogue_screen("ringo", RINGO) + dialogue_screen("johnson_nash", NASH)
+    steps = dialogue_screen("ringo", RINGO) + dialogue_screen("johnson_nash", NASH)
     return job("20_dlg_goodbye_lists",
                "Topic lists of Ringo and Johnson Nash: is a generic Goodbye shown (owner-review: item 22, visual) (about 1.5 min)",
-               start_text(SAVE_TEST, "talks to RingoRef, then to Johnson Nash in Primm; screenshots."), steps)
+               start_text(SAVE_TEST, "talks to RingoRef, then to Johnson Nash in Primm; screenshots."), steps,
+               prelude=True)
 
 
 def info_connection():
@@ -633,7 +727,7 @@ def info_connection():
     steps = dialogue_screen("red_lucy", RED_LUCY)
     return job("21_dlg_info_connection",
                "Red Lucy's topic list: is a choice with only a shared line offered (owner-review: dialogue (e), visual) (about 1 min)",
-               start_text(SAVE_TEST, "player to Red Lucy in the Thorn; screenshots."), steps)
+               start_text(SAVE_TEST, "player to Red Lucy in the Thorn; screenshots."), steps, prelude=True)
 
 
 def random_end():
@@ -643,13 +737,14 @@ def random_end():
     he also says 0x00143A89. Eight goodbyes (Tab), each pictured with its subtitle."""
     steps = go_to(RALPH, 0, 0) + [act("{0}.MoveTo player 0 120 0", [RALPH]), wait(MOVETO_FRAMES), face(RALPH)]
     for i in range(8):
-        steps += open_dialogue(RALPH) + [wait(450), shot(f"ralph_{i}_topics"),
+        steps += open_dialogue(RALPH, f"ralph {i}") + [wait(450), shot(f"ralph_{i}_topics"),
                                          act(f"TapKey {TAB}"), wait(20), shot(f"ralph_{i}_goodbye_a"),
                                          wait(40), shot(f"ralph_{i}_goodbye_b")]
         steps += menus(f"ralph {i} after Tab") + close_menus() + [wait(120)]
     return job("22_dlg_random_end",
                "Ralph's goodbyes: does an unsayable Random End line close the pool (owner-review: #120, visual) (about 3 min)",
-               start_text(SAVE_TEST, "player to Ralph in Mick & Ralph's (Freeside); eight goodbyes; screenshots."), steps)
+               start_text(SAVE_TEST, "player to Ralph in Mick & Ralph's (Freeside); eight goodbyes; screenshots."), steps,
+               prelude=True)
 
 
 def all_jobs():

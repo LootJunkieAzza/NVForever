@@ -1551,6 +1551,7 @@ fn log_event(data: &GameData, e: &Event) {
         }
         EventKind::RefEnabled { reference } => info!("script: {} enabled", n(*reference)),
         EventKind::RefDisabled { reference } => info!("script: {} disabled", n(*reference)),
+        EventKind::Scaled { reference, scale } => info!("script: {} scaled to {scale}", n(*reference)),
         EventKind::Moved { reference, cell, pos } => info!("script: {} moved to {cell:?} {pos:?}", n(*reference)),
         EventKind::Activated { reference, by, outcome } => {
             info!("script: {} activated by {}: {}", n(*reference), n(*by), outcome.as_ref().map_or_else(String::new, |o| o.to_string()))

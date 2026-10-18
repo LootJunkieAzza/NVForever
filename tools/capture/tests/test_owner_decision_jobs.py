@@ -92,7 +92,8 @@ class OwnerDecisionJobs(Rules, unittest.TestCase):
 
     def test_every_job_moves_the_player_first(self):
         for j in self.jobs:
-            first = next(s for s in j["steps"] if s.get("label") != od.cs.MODINDEX_LABEL and s.get("console") != "tgm")
+            first = next(s for s in j["steps"] if s.get("label") != od.cs.MODINDEX_LABEL
+                         and s.get("console") not in ("tgm", "CloseAllMenus") and "frames" not in s)
             moves = first.get("console", "").startswith(("coc ", "cow ")) or "player.MoveTo" in first.get("script", "") \
                 or "GameHour" in first.get("script", "")
             self.assertTrue(moves or j["name"] == "od_10_stray_markers", f"{j['name']} starts with {first}")

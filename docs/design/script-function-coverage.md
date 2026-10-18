@@ -166,8 +166,8 @@ After the fixes 182 of the 281 probes give the same answer on both sides; of the
 the found marker, XP, first person), 16 are what only the engine measures, which the
 headless runner cannot (detection and line of sight 5, 3D one loop later 6, furniture and
 idles 3, menus 2; the player as a detector and the actor's own idle are also gaps of §5),
-and 3 are the Sandbox procedure gap. 39 "ours error" are GetPCMiscStat names whose codes no
-shipped script uses.
+and 3 are the Sandbox procedure gap. 39 "ours error" were GetPCMiscStat names whose codes no
+shipped script uses; all 43 compile since 2026-10-18 (misc-stats.md §1).
 
 Tests: `crates/fnv-game/tests/functions.rs` (`function_probe_round_two_fixes`),
 `crates/fnv-sim/src/clock.rs` (`rollover`); smoke `script-stubs` (counts).
@@ -206,7 +206,9 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
 6. ~~**Fast travel**~~ (60 quests, the whole VMQ line): built from the Pip-Boy's world map
    (PR #393; EnableFastTravel gates it).
 7. **Saves from scripts** (SystemSave, ForceSave; 29 quests): cheap, saves exist.
-8. **Look turning the body**, ~~**the engine's animation state**~~ (IsAnimPlaying,
+8. ~~**Look turning the body**~~ (built: the rotate-body flag turns the whole body to
+   the target until StopLook, `script_look.rs` and `fnv_ai`; docs/design/script-stubs.md §3),
+   ~~**the engine's animation state**~~ (IsAnimPlaying,
    IsIdlePlaying, IsMoving's directions, IsPlayerActionActive: told by the engine every
    frame since 2026-10-18, docs/spec-notes/anim-state.md) and **AI package codes**
    (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2): each a few dozen quests.
@@ -242,7 +244,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 2 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
 | 3 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
 | 4 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
-| 5 | Look turning the body | wrong | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
+| 5 | Look turning the body | built | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
 | 6 | animation state told to the rules | built | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
 | 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
 | 8 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
@@ -255,8 +257,8 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 15 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
 | 16 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
-| 18 | player statistics counters | wrong | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
-| 19 | drawn scale (SetScale) | wrong | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
+| 19 | drawn scale (SetScale) | match (2026-10-18, misc-stats.md §5) | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
 | 21 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
@@ -437,7 +439,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetParentRef | 0x1113 | 2 / 0 | match | - | - |  |
 | GetPCEnemyOfFaction | 0x10C5 | 7 / 2 | match | - | - |  |
 | GetPCIsSex | 0x1083 | 8 / 190 | match | - | - |  |
-| GetPCMiscStat | 0x1138 | 4 / 0 | wrong | player statistics counters | differs 2, ours error 39, same 4 | The two names the shipped scripts ask for now count: Locations Discovered the found map markers [hypothesis, one data point], Times Addicted the addiction rolls. People Killed read 1 after a kill in the original [observed]; the codes of the other wiki names are not known, so no script can ask for them. |
+| GetPCMiscStat | 0x1138 | 4 / 0 | match | - | differs 2, ours error 39, same 4 | All 43 New Vegas names have codes (the order of the original General list and saves, misc-stats.md §1) and compile; 26 are counted by the rules and the engine (kills, quests, locks, hacking, aid items, sleep, casino, crafting, repair, barter; misc-stats.md §3), the others only by ModPCMiscStat. People Killed read 1 after a kill in the original [observed]. |
 | GetPermanentActorValue | 0x11EF | 7 / 134 | match | - | - |  |
 | GetPlantedExplosive | 0x11AC | 0 / 1 | no-system | planted explosives (reverse pickpocket) | same 1 | 0 at rest matches [observed: probes]. |
 | GetPlayerControlsDisabled | 0x1062 | 5 / 0 | match | - | - |  |
@@ -530,7 +532,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsXBox | 0x1135 | 2 / 2 | match | - | - |  |
 | KillActor | 0x108B | 597 / 0 | match | - | - |  |
 | Lock | 0x1072 | 303 / 0 | match | - | - | On a terminal: locked at the level (at most 5), the terminal's own state, read by the opening [observed: probes; documented: GECK wiki Lock]. |
-| Look | 0x105C | 159 / 0 | wrong | Look turning the body | - | The rotate-body flag is kept, not drawn. |
+| Look | 0x105C | 159 / 0 | built | Look turning the body | - | With rotateBody 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: the AI's actors at the walker's turn rate (`fnv_ai` social.rs), standing ones on the spot with a conversation's turn (`script_look.rs`); the rate and the body keeping its heading after StopLook are [hypothesis] (no capture covers a Look; smoke `script-look-body`). |
 | MarkForDelete | 0x11BB | 602 / 0 | match | - | - |  |
 | MenuMode | 0x1024 | 13 / 11 | wrong | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | differs 2, same 3 | MenuMode 1 is compared as a literal code; 1007/1013 never set (audit §5). The sleep menu is 1012 [observed: probes]. |
 | ModActorValue | 0x1010 | 62 / 0 | match | - | - |  |
@@ -635,7 +637,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetReputation | 0x1238 | 255 / 0 | match | - | - |  |
 | SetRestrained | 0x10F3 | 281 / 0 | match | - | - |  |
 | SetRumble | 0x11FB | 17 / 0 | match | - | - | No-op (script-stubs.md §5); the controller workstream may take it. |
-| SetScale | 0x113C | 9 / 0 | wrong | drawn scale (SetScale) | - | GetScale is right; the drawn size does not change. |
+| SetScale | 0x113C | 9 / 0 | match | - | - | Drawn and collided at the new scale (objects; actors drawn only), kept on the reference and saved (misc-stats.md §5). |
 | SetSceneIsComplex | 0x115D | 2 / 0 | match | - | - | No-op (script-stubs.md §5). |
 | SetScreenSplatterFade | 0x1243 | 2 / 0 | no-system | screen blood splatter | - | Stub. |
 | SetSecuritronExpression | 0x1248 | 37 / 0 | match | - | - |  |

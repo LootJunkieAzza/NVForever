@@ -53,9 +53,9 @@ status = "match"
 note = "On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]."
 
 [function.GetPCMiscStat]
-status = "wrong"
+status = "match"
 system = "player statistics counters"
-note = "The two names the shipped scripts ask for now count: Locations Discovered the found map markers [hypothesis, one data point], Times Addicted the addiction rolls. People Killed read 1 after a kill in the original [observed]; the codes of the other wiki names are not known, so no script can ask for them."
+note = "All 43 New Vegas names have codes (the order of the original General list and saves, misc-stats.md §1) and compile; 26 are counted by the rules and the engine (kills, quests, locks, hacking, aid items, sleep, casino, crafting, repair, barter; misc-stats.md §3), the others only by ModPCMiscStat. People Killed read 1 after a kill in the original [observed]."
 
 [function.RewardXP]
 status = "match"
@@ -224,9 +224,9 @@ system = "power armour training"
 note = "Stored, never read: equipping power armour is not gated."
 
 [function.SetScale]
-status = "wrong"
+status = "match"
 system = "drawn scale (SetScale)"
-note = "GetScale is right; the drawn size does not change."
+note = "Drawn and collided at the new scale (objects; actors drawn only), kept on the reference and saved (misc-stats.md §5)."
 
 [function.SexChange]
 status = "wrong"

@@ -274,6 +274,11 @@ impl Game<'_> {
         let mods = Mods { potency, duration, rads, ..Mods::default() };
         self.emit(EventKind::Ingested { actor, item, potency });
         let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
+        if actor == FormId::PLAYER_REF {
+            for (code, n) in crate::misc_stats::ingest_counts(&def, &applied) {
+                self.count_stat(code, n);
+            }
+        }
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();
         let has_monitor = self.data.effect_items.get(&item).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
         let usage = has_monitor.then(|| self.spell_usage(actor, item));
@@ -292,7 +297,7 @@ impl Game<'_> {
                 if hit {
                     self.add_spell(actor, spell);
                     if actor == FormId::PLAYER_REF {
-                        *self.player.misc_stats.entry(crate::functions::player::STAT_TIMES_ADDICTED).or_default() += 1.0;
+                        self.count_stat(crate::misc_stats::TIMES_ADDICTED, 1.0);
                     }
                     self.emit(EventKind::Addicted { actor, item, spell });
                 }

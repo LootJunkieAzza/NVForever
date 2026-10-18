@@ -262,6 +262,10 @@ pub fn list(dir: &Path) -> Vec<(PathBuf, SaveHeader)> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginCheck {
     Same,
+    /// Plugins were added after all of the save's, which keep their places: every form ID
+    /// in the save means what it meant, so it loads as it is. The added plugins' objects
+    /// appear, as a save holds only the differences from the plugins (save-load.md §1).
+    Appended { added: Vec<String> },
     /// The plugins differ: those missing now, those added, and whether the common ones
     /// changed order. Form IDs are load-order IDs, so a save only loads into the same
     /// list (remapping by name is not built, docs/design/save-load.md §4).
@@ -273,6 +277,9 @@ pub fn check_plugins(saved: &[PluginEntry], current: &[PluginEntry]) -> PluginCh
     let (s, c) = (names(saved), names(current));
     if s == c {
         return PluginCheck::Same;
+    }
+    if c.starts_with(&s) {
+        return PluginCheck::Appended { added: current[s.len()..].iter().map(|p| p.name.clone()).collect() };
     }
     let missing = saved.iter().filter(|p| !c.contains(&p.name.to_ascii_lowercase())).map(|p| p.name.clone()).collect();
     let added = current.iter().filter(|p| !s.contains(&p.name.to_ascii_lowercase())).map(|p| p.name.clone()).collect();
@@ -356,5 +363,14 @@ mod tests {
             PluginCheck::Differs { missing: vec![], added: vec!["New.esp".into()], reordered: true }
         );
         assert_eq!(check_plugins(&a, &[e("FalloutNV.esm")]), PluginCheck::Differs { missing: vec!["DeadMoney.esm".into()], added: vec![], reordered: false });
+        // Added after the saved ones: loads; added before one of them: does not.
+        assert_eq!(
+            check_plugins(&a, &[e("FalloutNV.esm"), e("deadmoney.esm"), e("CM4A1.esp")]),
+            PluginCheck::Appended { added: vec!["CM4A1.esp".into()] }
+        );
+        assert_eq!(
+            check_plugins(&a, &[e("FalloutNV.esm"), e("New.esm"), e("DeadMoney.esm")]),
+            PluginCheck::Differs { missing: vec![], added: vec!["New.esm".into()], reordered: false }
+        );
     }
 }

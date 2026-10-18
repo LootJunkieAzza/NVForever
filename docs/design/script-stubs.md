@@ -54,7 +54,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | Function | Opcode | Calls | Conditions | Over | Engine hook |
 |---|---|---|---|---|---|
 | ResetAI | 0x11FA | 711 | 0 | packages (`crate::ai`): the script package dropped, goal and unreachable packages forgotten, a Look let go, packages chosen again | the residents take the new package |
-| StopLook / Look | 0x105D / 0x105C | 242 / 159 | 0 | `Game::script_look` | `nvforever` `script_look.rs`: a `LookOverride` over every other look (the player, an actor, or a marker's position); `rotateBody` kept, not acted on |
+| StopLook / Look | 0x105D / 0x105C | 242 / 159 | 0 | `Game::script_look` | `nvforever` `script_look.rs`: a `LookOverride` over every other look (the player, an actor, or a marker's position); with `rotateBody` 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: `fnv_ai` turns an actor it runs at the walker's turn rate (`Game::body_looks`), `script_look.rs` turns a standing one on the spot with a conversation's turn (`dialogue_look::BodyTurn`, again whenever the target is 30° off its front); after StopLook the body keeps its heading [hypothesis: no capture covers a Look] |
 | IncrementScriptedChallenge | 0x1275 | 134 | 0 | `PlayerState::challenges` progress against the CHAL DATA threshold; a recurring one starts again from 0 | none (no challenge page or message yet) |
 | GetCurrentAIProcedure | 0x108F | 32 | 64 | package type, goal met (17 DONE), furniture (8 SLEEP, 21 GET_UP, 48 SITTING), combat (13), search (36), conversation (4) | none |
 | ForceActiveQuest | 0x11DD | 82 | 0 | `UiRequests::active_quest` | the Pip-Boy DATA page takes it (`pipboy data: active quest … (ForceActiveQuest)`) |
@@ -260,6 +260,14 @@ action 9, iron sights, the only one the shipped scripts ask; the wiki export lac
 ActionIndex list, so the other indices read 0. Not answered: GetAnimAction 5, 6 (throw
 phases), 10–12, and 17 (seen on .357 revolvers before a reload, meaning unknown). 41 → 40
 stubs, 179 → 177 calls (after the knockdowns).
+
+### 3.14 Miscellaneous statistics and SetScale (claude/blockers-miscstat-scale, 2026-10-18)
+
+Not stubs, but half-built (outstanding.md §1 row 16): GetPCMiscStat now answers every New
+Vegas statistic by code, 26 of them counted by the rules and the engine, and SetScale's
+scale is drawn and collided ([misc-stats](../spec-notes/misc-stats.md)). Tests:
+`functions.rs` `misc_stats_count_and_set_scale_is_kept_on_the_reference`; smoke
+`misc-stats-scale`.
 
 ## 4. Every remaining stub
 

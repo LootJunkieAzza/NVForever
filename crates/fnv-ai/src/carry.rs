@@ -169,6 +169,15 @@ pub enum AiEvent {
     ChatApproach { partner: FormId, away: f32, length: f32 },
     /// It gave up the random conversation with `partner` before it began.
     ChatGaveUp { partner: FormId, why: &'static str },
+    /// A script's Look with `rotateBody` turns its body from heading `from` to `to`
+    /// (radians), facing `target` (`crate::social`, `Ai::face_looks`).
+    LookTurn { target: FormId, from: f32, to: f32 },
+    /// The body turned for a Look faces `target`, at `heading`.
+    LookFaced { target: FormId, heading: f32 },
+    /// A Look with `rotateBody` on it does not turn its body: why.
+    LookHeld { target: FormId, why: &'static str },
+    /// The Look turning its body is over (StopLook); the body keeps `heading`.
+    LookOver { heading: f32 },
     /// After a random conversation it goes back to its package's place, `away` units off.
     ChatBack { package: FormId, away: f32 },
     /// In Alert or Lost it sets off to search at `to`, `away` units from it, a way of

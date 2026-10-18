@@ -461,6 +461,9 @@ pub struct Applied {
     /// Items the player took out of the container, with their counts (`crate::crime`:
     /// taking owned items is theft).
     pub taken: Vec<(FormId, i32)>,
+    /// Caps that changed hands in an accepted trade (Barter Amount Traded,
+    /// `fnv_game::misc_stats`).
+    pub traded: u32,
 }
 
 const PLAYER: FormId = FormId::PLAYER_REF;
@@ -901,6 +904,7 @@ impl MenuModel {
         };
         t.offered = [BTreeMap::new(), BTreeMap::new()];
         out.changed = true;
+        out.traded = paid.unsigned_abs() as u32;
         Ok(match paid {
             p if p > 0 => format!("Traded: received {p} caps"),
             p if p < 0 => format!("Traded: paid {} caps", -p),

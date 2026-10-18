@@ -806,11 +806,17 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
     let mut g = game(&f);
     let (adult, child) = (FormId(ADULT_REF), FormId(CHILD_REF));
 
-    // Look holds the head on the target until StopLook; the body flag is kept.
+    // Look holds the head on the target until StopLook; with the flag the body turns
+    // to it too (`body_looks`, for the AI and the engine), without it only the head.
+    call(&mut g, 0x105C, Some(ADULT_REF), &[r(CHILD_REF)]);
+    assert_eq!(g.script_look(adult), Some(Look { target: child, rotate_body: false }));
+    assert!(g.body_looks().is_empty());
     call(&mut g, 0x105C, Some(ADULT_REF), &[r(CHILD_REF), n(1.0)]);
     assert_eq!(g.script_look(adult), Some(Look { target: child, rotate_body: true }));
+    assert_eq!(g.body_looks(), vec![(adult, child)]);
     call(&mut g, 0x105D, Some(ADULT_REF), &[]);
     assert_eq!(g.script_look(adult), None);
+    assert!(g.body_looks().is_empty());
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
@@ -1295,4 +1301,34 @@ fn animation_state_told_by_the_engine() {
     assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 0.0);
     g.set_furniture_use(adult, Some(FurnitureUse { reference: FormId(CONT_REF), marker_id: 11, state: 3 }));
     assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 1.0);
+}
+
+/// The miscellaneous statistics the rules count (docs/spec-notes/misc-stats.md), and
+/// SetScale kept on the reference's state.
+#[test]
+fn misc_stats_count_and_set_scale_is_kept_on_the_reference() {
+    use fnv_game::misc_stats::{code, CREATURES_KILLED, PEOPLE_KILLED, TOTAL_THINGS_KILLED};
+    let f = fixture();
+    let mut g = game(&f);
+    let stat = |g: &mut Game, c: u16| call(g, 0x1138, None, &[ArgValue::Enum(c)]);
+    // Every New Vegas name compiles to its code (the console's table).
+    let names = &g.data.table.enums["misc_stat"];
+    assert_eq!(names.len(), 43);
+    assert_eq!(names[&35], "Total Things Killed");
+    assert_eq!(code("Total Things Killed"), Some(35));
+    // The player kills a person and a creature; a kill by another counts nothing.
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(PLAYER)]);
+    call(&mut g, 0x108B, Some(CREA_REF), &[r(PLAYER)]);
+    assert_eq!((stat(&mut g, PEOPLE_KILLED), stat(&mut g, CREATURES_KILLED), stat(&mut g, TOTAL_THINGS_KILLED)), (1.0, 1.0, 2.0));
+    // ModPCMiscStat adds to the same counter.
+    call(&mut g, 0x1137, None, &[ArgValue::Enum(PEOPLE_KILLED), n(2.0)]);
+    assert_eq!(stat(&mut g, PEOPLE_KILLED), 3.0);
+    // SetScale: kept on the reference's state (saved with it), read by GetScale, and the
+    // reference is among this frame's redrawn ones; a Scaled event tells the engine.
+    assert_eq!(call(&mut g, 0x1018, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x113C, Some(ACTI_REF), &[n(0.25)]);
+    assert_eq!(g.world.peek(FormId(ACTI_REF)).unwrap().scale, Some(0.25));
+    assert_eq!(call(&mut g, 0x1018, Some(ACTI_REF), &[]), 0.25);
+    assert!(g.turned.contains(&FormId(ACTI_REF)));
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Scaled { reference, scale } if reference == FormId(ACTI_REF) && scale == 0.25)));
 }

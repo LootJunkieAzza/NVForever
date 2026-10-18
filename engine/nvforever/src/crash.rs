@@ -99,6 +99,21 @@ fn old_files(names: &[String], prefix: &str, ext: &str, keep: usize) -> Vec<Stri
     logs.into_iter().take(n).cloned().collect()
 }
 
+/// Why the run with process id `pid` stopped at the start, from its run log beside this
+/// run's (handoff.rs: a new run that ended before it was ready).
+pub fn stopped_at_start(pid: u32) -> Option<String> {
+    let dir = LOG_DIR.get()?;
+    let tail = format!("-{pid}.log");
+    let log = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
+        p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("nvforever-") && n.ends_with(&tail))
+    })?;
+    stop_reason(&std::fs::read_to_string(log).ok()?)
+}
+
+fn stop_reason(text: &str) -> Option<String> {
+    text.lines().find_map(|l| l.strip_prefix(ERROR_EXIT)).map(|r| r.trim().to_string())
+}
+
 /// Whether a run log's text shows a run that did not end normally.
 fn ended_abnormally(text: &str) -> bool {
     !text.contains(CLEAN_EXIT) && !text.contains(ERROR_EXIT) && !text.contains("crash report written to")
@@ -324,6 +339,8 @@ mod tests {
         assert!(!ended_abnormally(&format!("line\n{CLEAN_EXIT}\n")));
         assert!(!ended_abnormally("line\nERROR panic on thread 'main' at x: boom; crash report written to C:\\x\n"));
         assert!(ended_abnormally("line\nINFO streaming cell -2,26\n"));
+        assert_eq!(stop_reason(&format!("a\n{ERROR_EXIT} --load: x was made with other plugins\n")).as_deref(), Some("--load: x was made with other plugins"));
+        assert_eq!(stop_reason("a\nb\n"), None);
     }
 
     #[test]

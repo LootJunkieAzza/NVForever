@@ -60,6 +60,7 @@ pub mod idles;
 pub mod intro;
 pub mod levelup;
 pub mod lockpick;
+pub mod misc_stats;
 pub mod needs;
 pub mod package;
 pub mod perks;

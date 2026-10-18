@@ -46,6 +46,7 @@ fn state(cell: Option<u32>, pos: [f32; 3]) -> RefState {
         actor_values: Default::default(),
         last_restock: None,
         outfitted: false,
+        scale: None,
     }
 }
 

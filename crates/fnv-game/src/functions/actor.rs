@@ -849,7 +849,9 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     let r = ctx.subject()?;
     let p = a.form(0)?;
     // An actor holds one script package: a second call replaces the first
-    // [documented: catalogue notes on AddScriptPackage, actor-behaviour.md §1.4].
+    // [documented: catalogue notes on AddScriptPackage, actor-behaviour.md §1.4; observed:
+    // capture job `od_08_script_packages`, one RemoveScriptPackage after two adds brought
+    // back the list package].
     g.extra.entry(r).or_default().packages = vec![p];
     if g.runs_packages() {
         g.set_package(r, Some(p));

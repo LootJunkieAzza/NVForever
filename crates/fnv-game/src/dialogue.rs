@@ -769,6 +769,7 @@ impl<'a> Game<'a> {
         // flag) give none here: their pass lines' result scripts carry RewardXP (638 of
         // the 1,499 in the masters [observed]), which would count twice.
         if let Some(d) = self.data.infos.get(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
+            self.count_stat(crate::misc_stats::SPEECH_SUCCESSES, 1.0);
             let x = crate::experience::speech_challenge_xp(self, d);
             crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
         }
