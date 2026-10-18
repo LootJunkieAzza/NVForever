@@ -22,9 +22,9 @@ still stubs.
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
-| 1 | Knockdowns (knock-outs done 2026-10-17) | 64 (the intro chain among them) | Knock-outs are built ([unconscious](spec-notes/unconscious.md)): essential actors at zero health and actors out of fatigue drop as ragdolls, stay down (an essential while a fight goes on near it) and get up with the game's clips, and GetKnockedState, GetUnconscious, IsFacingUp and IsLeftUp answer for them. Left: a live actor knocked down without being knocked out (PushActorAway, explosions' knockdown) never lies down; SetUnconscious holds an actor's AI but does not lay it down | PushActorAway, SetUnconscious |
+| 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
 | 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
-| 3 | Look turning the body | 26 | Look's rotate-body flag is stored, never acted on | Look |
+| 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
 | 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber and the plastic surgeon are built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11. Not built: the tutorial menu | ShowTutorialMenu |
@@ -37,7 +37,7 @@ still stubs.
 | 13 | A leveled actor's level re-rolled | 4 | SetLevel sets the level but does not re-roll the NPC's inventory | SetLevel |
 | 14 | Cannibal and Mister Sandman | 3 | The perks' activate choices are not built | (perk entry points) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
-| 16 | Miscellaneous stats, scale | 3 each | Counters other than ModPCMiscStat's; SetScale not read by the engine | GetPCMiscStat, SetScale |
+| 16 | Miscellaneous stats, scale | 3 each | Built (misc-stats.md, 2026-10-18): all 43 statistics have codes, 26 counted by the rules and the engine, the Pip-Boy shows them; SetScale drawn and collided. Not counted: the 17 of misc-stats.md §3 (pickpocketing, dismemberment, Caravan, slots, skill books, New Vegas speech checks) | (GetPCMiscStat, SetScale) |
 | 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
 | 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, SetPCCanUsePowerArmor, ExitGame | |
 
@@ -66,6 +66,10 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **World**: skeleton collision still upright (playtest list 5 item 71).
 - **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
   package types and flags are carried out since #400).
+  - Find's Allow Killing is built, but only for actors whose inventory holds the food. In
+    the original a gecko on FindFood killed a radroach whose meat is only its death item
+    [observed 2026-10-18; the rule it implies is a hypothesis;
+    spec-notes/owner-decision-captures.md §4].
 
 ## 3. Decisions and checks waiting for the owner
 
@@ -75,10 +79,13 @@ how quests run, the rest are guessed constants and looks to compare in the game.
 **Quest-critical** (each needs a ruling):
 - Layer 5: the `L5.script.decode` choice, the `delay_*` scenario inputs, holdouts to
   demote and where `encodings.json` lives (lab rules); the runtime rules still to confirm
-  (stage conditions, timers, reputation tolerances, `ref` handling, disabled references,
-  Return, script packages).
+  (stage conditions, timers, reputation tolerances, `ref` handling, Return; disabled
+  references' GameMode and script packages were settled by captures on 2026-10-18).
 - Script stubs and the function audit: ResetAI and procedure codes, SetPackDuration,
-  SetActorsAI; package durations (about 358 packages restart every duration).
+  SetActorsAI; package durations (about 358 packages restart every duration). The
+  gecko captures contradict that rule: a duration ended a package only once its goal was
+  done, and the next choice came from the top of the list [observed 2026-10-18; the
+  reading is a hypothesis; owner-review "Package durations"].
 - EnablePlayerControls: a number left out now gives that control back.
 - Dialogue: Info Connection's shared lines, the end of a Random pool, actors without a
   greeting; whether walking away or an attack ends a conversation; force-greets; a generic
@@ -87,6 +94,12 @@ how quests run, the rest are guessed constants and looks to compare in the game.
   Fiends fight; whether an assault turns the victim's whole faction; IsInCombat while
   Alert.
 - Sleeping: whether E on a bed opens the sleep menu at once.
+
+Capture jobs that let the original game answer the factual ones (not the lab rules or the
+design choices) are in [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
+Its §4 has the first run's outcomes (2026-10-18), and its §5 has the jobs changed for the
+second round. The bed item is decided by the owner: a get-into-bed animation, then the
+sleep menu.
 
 **Looks and constants by area** (open, not quest-critical): rendering 29, menus and
 interface 27, combat 16, AI 11, dialogue 9, animation 9, world and physics 5, gameplay
@@ -105,13 +118,35 @@ item 22 (convict karma); Victor's and Sunny's stop-and-go (list 4 items 2–3). 
 
 ## 4. Found by today's comparisons with the original
 
+From the owner-decision captures (2026-10-18 [observed],
+[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). Both
+confirm rules the runtime already had; the owner-review wording that said otherwise was
+out of date (#441 adds tests):
+- **AddScriptPackage replaces** the actor's script package; it does not stack. One
+  RemoveScriptPackage brings back the list package.
+- **Disabled references still run their GameMode blocks** (the skull's timer kept falling
+  while it was disabled).
+
 From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) §8:
 - Fights end far sooner in ours (NCR against Fiends over in 32 s; the original's still
   going after 120 s).
 - Melee attackers against the player in god mode or with huge health keep away in the
   original and never swing; ours always close in (the rule is not understood).
-- The Strip's crowd was not observed (the `strip` campaign from the owner's save was
-  dropped); only Gomorrah's first 12 game hours of the casinos were.
+- **The Strip's crowd** was observed on 2026-10-18 [observed]: campaign `strip`, session
+  `strip_evening`, from `nvfstrip`, 5.9 game hours, 1,442 samples, 900 state changes. The
+  timeline is private, on the coordinator's desktop
+  (`C:\fnv-private\capture\observe\strip.timeline.json`). The crowd ran on its packages:
+  - Travellers and gamblers walk between Gomorrah, the Lucky 38 and the gate on
+    VStripFluff1PortRNDTo{Top,Gom}Package (90–107 segments each).
+  - Hookers 01 and 03 hold their Dance packages; 02 patrols.
+  - The NCR MPs patrol and check (VStripMPABPatrol38, VStripFluff1MPCheckA), with escorts
+    (VStripSS2Start*Escort).
+  - NCR troopers A–D ran the SS2 travel / drunk-wall chain for 0.3–1.0 h, then left the
+    sampled area.
+  - Mr. Holdout sat on VMrHoldoutHangOutSell, and the securitrons held their gates.
+
+  It is not compared with our engine yet. Of the casinos, only Gomorrah's first 12 game
+  hours were observed.
 - No spawn aid for creature fights in our engine's test runs.
 
 ## 5. Process

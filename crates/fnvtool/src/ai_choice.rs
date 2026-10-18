@@ -132,7 +132,7 @@ pub fn replay(data: &GameData, forms: &FormStore, refs: &RefTable, rows: &[Seen]
                 set_global(&mut g, clock::GAME_DAYS_PASSED, r.days)?;
                 let e = g.extra.entry(r.actor).or_default();
                 e.current_package = before;
-                e.packages.clear();
+                e.script_package = None;
                 e.package_chosen_at.clear();
                 let p = g.select_package(r.actor);
                 g.events.clear();

@@ -156,6 +156,22 @@ pub struct Instance {
     pub run_prev: Option<f64>,
 }
 
+/// [`RefExtra::script_package`] from a save: one package, none, or the list older saves
+/// kept (its last entry was the current one).
+fn one_script_package<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<FormId>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Slot {
+        One(FormId),
+        List(Vec<FormId>),
+    }
+    Ok(match Option::<Slot>::deserialize(d)? {
+        Some(Slot::One(p)) => Some(p),
+        Some(Slot::List(l)) => l.last().copied(),
+        None => None,
+    })
+}
+
 /// Per-reference state the Layer 4 world does not keep.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RefExtra {
@@ -204,9 +220,13 @@ pub struct RefExtra {
     /// Recover active on the actor (`crate::aid`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub av_temporary: BTreeMap<u16, f64>,
-    /// Packages added with AddScriptPackage (the last one is current).
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub packages: Vec<FormId>,
+    /// The package added with AddScriptPackage: one slot, a second call replaces the
+    /// first and RemoveScriptPackage empties it, giving the actor its own list back
+    /// [documented: GECK wiki AddScriptPackage notes, "only one script package at a
+    /// time"; observed: od_08_script_packages, owner-decision-captures.md item 8].
+    /// Saves from before the slot held a list (`packages`); its last entry is read.
+    #[serde(skip_serializing_if = "Option::is_none", default, alias = "packages", deserialize_with = "one_script_package")]
+    pub script_package: Option<FormId>,
     /// The AI package the actor chose when its packages were last evaluated
     /// ([`Game::evaluate_package`]); `None` until then.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -314,7 +334,8 @@ pub struct RefExtra {
     /// SetCriticalStage (0 none, 1 goo start, 2 goo end, 3 disintegrate start, 4 end).
     #[serde(skip_serializing_if = "is_zero", default)]
     pub critical_stage: u16,
-    /// SetScale.
+    /// SetScale in saves from before 2026-10-18 (it is now kept on the reference's state,
+    /// `fnv_sim::world::RefState::scale`); read by GetScale, cleared by the next SetScale.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scale: Option<f64>,
     /// SetLevel of an actor other than the player.
@@ -880,8 +901,8 @@ pub struct Game<'a> {
     /// Rotate: this frame's turn per reference (axis 0–2, degrees per second); the last
     /// call of the frame counts. Applied at the end of [`Game::tick`]. Not saved.
     pub rotations: BTreeMap<FormId, (usize, f64)>,
-    /// References Rotate turned in the latest [`Game::tick`], for the engine to draw at
-    /// their new angle. Not saved.
+    /// References Rotate turned or SetScale resized in the latest [`Game::tick`], for the
+    /// engine to draw at their new angle and size. Not saved.
     pub turned: BTreeSet<FormId>,
     /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
     /// (`Game::combat_blocks`). Not saved, as the combat states are not [documented:
@@ -1264,7 +1285,7 @@ impl<'a> Game<'a> {
                 let s = self.quest(q);
                 if !s.completed {
                     s.completed = true;
-                    self.emit(EventKind::QuestCompleted { quest: q });
+                    self.quest_completed(q);
                 }
             }
             if e.flags & STAGE_FAIL != 0 {
@@ -1979,7 +2000,8 @@ impl<'a> Game<'a> {
 
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
-    /// export: object scripts run even for disabled references]. OnLoad at a cell load
+    /// export: object scripts run even for disabled references; observed: capture job
+    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell load
     /// still needs the reference enabled (a disabled reference has no 3D to load)
     /// [hypothesis].
     fn active_refs(&self) -> Vec<FormId> {
@@ -2086,10 +2108,13 @@ impl<'a> Game<'a> {
     /// The default action of an activation (Layer 4), with its Layer 5 consequences:
     /// a picked-up item reaches the actor's inventory (OnAdd), a door moves the player, a
     /// dead actor opens its inventory (the loot menu) [observed: a scripted Activate of a
-    /// dead actor opened the container menu, `L5.quest.dead_activation`].
+    /// dead actor opened the container menu, `L5.quest.dead_activation`], and so does one
+    /// lying pushed down by PushActorAway [documented: GECK wiki PushActorAway notes, "can
+    /// have its inventory accessed by the player until the actor gets up again"].
     pub fn default_activation(&mut self, actor: FormId, target: FormId, by_hand: bool) -> Result<serde_json::Value, String> {
         let base = functions::base_of(self, target);
-        let dead_actor = self.extra.get(&target).is_some_and(|e| e.dead)
+        let pushed = self.knockout(target).is_some_and(|k| k.pushed && k.lying());
+        let dead_actor = (self.extra.get(&target).is_some_and(|e| e.dead) || pushed)
             && base.and_then(|b| self.data.sig(b)).is_some_and(|s| &s == b"NPC_" || &s == b"CREA");
         let act = if dead_actor && self.present(target) {
             let script = base.and_then(|b| self.world.forms.get(b)).and_then(|b| b.script);
@@ -2115,6 +2140,7 @@ impl<'a> Game<'a> {
             }
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
+                self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);
                 let x = crate::experience::mine_disarm_xp(self);
                 crate::experience::award(self, crate::experience::Source::DisarmMine, x);
             }

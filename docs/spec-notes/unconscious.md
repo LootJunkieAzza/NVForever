@@ -156,3 +156,81 @@ on screen).
   first turned and moved so that the clip's first frame lies where the ragdoll lay:
   pelvis on pelvis, the pelvis → head line along the ragdoll's [design]. Without a clip
   the actor simply stands again. After the clip the actor walks and fights as before.
+
+## 5. Knockdowns: PushActorAway, explosions and SetUnconscious
+
+Live actors knocked down without being knocked out (row 1 of docs/outstanding.md §1).
+Code: `crates/fnv-game/src/unconscious.rs` (`Game::push_actor_away`, `Game::knock_down`),
+`crates/fnv-game/src/functions/fighting.rs` (PushActorAway, GetKnockedState),
+`engine/nvf-play/src/combat.rs` (explosions), `engine/nvforever/src/knockouts.rs` and
+`ragdoll.rs` (the body thrown).
+
+### 5.1 What the documentation and the scripts say
+
+- **PushActorAway** `source.PushActorAway target force` "knocks down (ragdolls) one actor
+  and pushes it away from another with a given force"; a negative force pulls the target
+  towards the source; no calling reference launches the target "straight up"; it does not
+  work on dead actors, on actors "flagged as immobile", or on actors with the "No
+  Knockdowns" flag; "an actor that has been pushed can have its inventory accessed by the
+  player until the actor gets up again" [documented: GECK wiki PushActorAway, owner export
+  `C:\fnv-private\geckwiki\functions.xml`].
+- **GetKnockedState** is 2 for "knocked down", but "will return 0 if called on actors
+  knocked down by PushActorAway", and an essential actor knocked out before it recovers
+  from a push still reads 0 [documented: GECK wiki GetKnockedState notes].
+- **Explosions**: EXPL flags "Knock Down - Always" and "Knock Down - By Formula", and the
+  Explosion Knockdown Formula with its seven settings [documented: GECK wiki; already in
+  `fnv_combat::damage::knockdown_chance`].
+- **No Knockdowns** is ACBS flag bit 26 of NPC_ and CREA, **Immobile** bit 23 of CREA
+  [documented: xEdit flag names, `schemas/fnv/gameplay.json`]; template "Base Data" does
+  not carry No Knockdowns [documented: GECK wiki Category:NPC, Template Data].
+- **SetUnconscious** turns "conscious behavior" off: "Actors that are unconscious will not
+  use AI behavior" [documented: GECK wiki SetUnconscious]. In FalloutNV.esm it is called
+  107 times by 66 scripts and result scripts [observed 2026-10-18, `fnvtool script
+  decompile`]: robots standing in pods (SCPT 0x0005BB12: `SetUnconscious 1` OnLoad,
+  cleared when activated), scheduled sleepers (SCPT 0x00159A99), and the thugs that fake
+  death (SCPT 0x00118A77 and the trigger SCPT 0x00118A7C: `SetActorValue Fatigue -1`,
+  `SetUnconscious 1`, then `PushActorAway <thug> 1`; OnHit sets a variable and, once
+  `GetKnockedState == 0`, `SetUnconscious 0`). So SetUnconscious alone must not lay an
+  actor down; the lying comes from the push [hypothesis drawn from those scripts].
+- **PushActorAway** is called 21 times by 18 scripts, forces 1 to 20, six of them on the
+  player [observed 2026-10-18, the same decompile].
+
+### 5.2 Rules
+
+1. A knockdown is a knockout (§2) with cause **pushed** (PushActorAway) or **knocked
+   down** (an explosion). It lasts `KNOCKDOWN_DOWN` = 3 s of game time, fight or not,
+   then the actor gets up as in §2.5 (getting up stage, get-up clip) [design: no setting
+   in the data names it]. No KOed or Wake line, no corner message, no fatigue or health
+   restored [design: a knockdown is no unconsciousness].
+2. Refused (nothing happens) for the player [design: the player's own knockdown is not
+   built], dead actors, actors whose own record has No Knockdowns, and Immobile creatures
+   [documented: §5.1].
+3. **Order**: an essential knockout replaces a fatigue one, and either replaces a
+   knockdown (its time starts again); a knockdown never replaces a knockout. Knocked again
+   while getting up: down again (unless only out of fatigue again, §2) [design].
+4. **The push**: the body starts with a velocity of `PUSH_SPEED` = 30 game units a second
+   per point of force, along the ground from the source to the target (towards the source
+   for a negative force), plus `PUSH_LIFT` = 0.25 of that upwards; without a source, or
+   with the source on the target, straight up [documented: the direction rules, §5.1;
+   design: the numbers — the wiki's "Havok force" is not converted]. A push on an actor
+   already lying throws its body again and marks it pushed. An explosion throws the body
+   away from the blast at `BLAST_KNOCKDOWN_SPEED` = 300 units a second plus the same lift
+   [design].
+5. **Scripts**: GetKnockedState reads 0 while an actor pushed down lies, also once
+   knocked out meanwhile; 2 for an explosion's knockdown; the other values as §2.8
+   [documented: §5.1]. GetUnconscious still reads only SetUnconscious.
+6. **SetUnconscious holds a lying actor down**: while the flag is set, no knockout or
+   knockdown gets up, whatever its time; once cleared, it gets up at its next frame if its
+   time is past [hypothesis: the fake-death thugs, §5.1]. SetUnconscious alone lays nobody
+   down (pods, sleepers) [hypothesis, same scripts].
+7. **Searching**: activating an actor that lies pushed down opens its inventory, as a
+   corpse's does, until it begins to get up [documented: §5.1].
+
+### 5.3 On screen
+
+The body falls as §4 says (ragdoll, else the death pose); the ragdoll starts with the
+knockdown's velocity (`Game::take_shove`, `Corpse::velocity`); a push on a body already
+lying shoves the ragdoll at its pelvis (`ActorPush`). Log lines: `knockout: <name> <id>
+knocked down (pushed|knocked_down)`, `knockout: <id> thrown at (x, y, z) units/s`, the
+explosion's `…, knocked down` in its `combat: blast` line, and the exit count
+`knockouts: … N knocked down, …`.

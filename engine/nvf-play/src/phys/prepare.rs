@@ -153,12 +153,20 @@ pub struct Job {
     /// References the simulation holds at another pose than their placement (position,
     /// Euler angles; `SimState::moved_pose`), by FormID: their collision is built there.
     pub poses: Vec<(u32, [f32; 3], [f32; 3])>,
+    /// References a script scaled (SetScale; `SimState::script_scale`), by FormID: their
+    /// collision is built at that scale, none below `crate::sim::MIN_DRAWN_SCALE`.
+    pub scales: Vec<(u32, f32)>,
 }
 
 impl Job {
     /// The simulation's pose of `r`, when it overrides the placement.
     pub(crate) fn pose_of(&self, r: u32) -> Option<([f32; 3], [f32; 3])> {
         self.poses.binary_search_by_key(&r, |p| p.0).ok().map(|i| (self.poses[i].1, self.poses[i].2))
+    }
+
+    /// The scale a script set on `r`, when it overrides the placement's.
+    pub(crate) fn scale_of(&self, r: u32) -> Option<f32> {
+        self.scales.binary_search_by_key(&r, |p| p.0).ok().map(|i| self.scales[i].1)
     }
 }
 
@@ -246,7 +254,13 @@ pub fn cell(src: &Source, job: &Job) -> Prepared {
     }
     for &r in &job.refs {
         let t = Instant::now();
-        let pl = placement(d.lo, d.schema, r).map(|pl| at_pose(pl, job.pose_of(r)));
+        let mut pl = placement(d.lo, d.schema, r).map(|pl| at_pose(pl, job.pose_of(r)));
+        if let Some(s) = job.scale_of(r) {
+            pl = pl.filter(|_| s > crate::sim::MIN_DRAWN_SCALE).map(|mut pl| {
+                pl.scale = s;
+                pl
+            });
+        }
         times.records += ms_since(t);
         let shapes = pl.as_ref().map(|pl| reference(src, pl, &mut times));
         out.refs.push(Entry { form_id: r, placement: pl, shapes });

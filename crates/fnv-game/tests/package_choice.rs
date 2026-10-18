@@ -463,7 +463,7 @@ fn reset_ai_drops_the_script_package_and_the_codes_follow_the_package() {
     assert_eq!(call(&mut g, procedure, &[]), 17.0);
     // ResetAI: the script package is gone and the list is chosen from again.
     call(&mut g, 0x11FA, &[]);
-    assert!(g.extra[&a].packages.is_empty());
+    assert!(g.extra[&a].script_package.is_none());
     assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
     // Night: the sleep package, walking to the bed, lying on it, getting up; a chair.
     set(&mut g, G_HOUR, 23.0);

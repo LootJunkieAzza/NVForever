@@ -19,6 +19,7 @@ mod activators;
 mod actor_feet;
 mod anim_objects;
 mod actor_groups;
+mod actor_scale;
 mod actors;
 mod attack_anims;
 mod authored_pose;
@@ -41,6 +42,7 @@ mod draw_distance;
 mod doors;
 mod emittance;
 mod fade;
+mod face_morphs;
 mod facegen;
 mod flashlight;
 mod fly;
@@ -50,7 +52,6 @@ mod handoff;
 mod furniture;
 mod graphics;
 mod grass;
-mod face_morphs;
 mod head_look;
 mod idles;
 mod lights;
@@ -63,6 +64,7 @@ mod terminal_view;
 mod poker_view;
 mod lod;
 mod locomotion;
+mod combat_face;
 mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
@@ -1231,12 +1233,16 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Fighters look angry (combat_face.rs; lips.rs draws the face).
+            app.add_plugins(combat_face::CombatFacePlugin);
             // Alerted creatures raise their claws and hands (creature_stance.rs).
             app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
+            // Actors drawn at a script's scale (actor_scale.rs).
+            app.add_plugins(actor_scale::ActorScalePlugin);
             // Creatures' own speeds and alert stance (creature_pace.rs).
             app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).

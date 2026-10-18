@@ -5,6 +5,8 @@
 //! one file name per line [observed: the owner's PC], and orders them by the files'
 //! modified dates [hypothesis: modding tools' documentation, not checked]. NVForever never
 //! reads or writes that file, so turning a mod on for one game leaves the other as it was.
+//! The one exception is a start from Mod Organizer 2, which puts its profile's list at
+//! that path for the programs it starts ([`crate::mo2`]).
 //!
 //! The format here is our own choice:
 //!
