@@ -198,7 +198,7 @@ pub fn leave(
         Leaving::Covered(r, _) => {
             let file = ready_file();
             let _ = std::fs::remove_file(&file);
-            let keep = crate::restart_args(&std::env::args().skip(1).collect::<Vec<_>>());
+            let keep = crate::restart_args(&crate::command_line());
             let args = new_run_args(&keep, r.as_ref(), window.single().ok().map(|(e, w)| placement(w, e)), &file);
             let started = std::env::current_exe()
                 .map_err(|e| format!("cannot find this program to start it again: {e}"))

@@ -63,13 +63,14 @@ Details: [docs/design/install-layout.md](docs/design/install-layout.md).
 ## Download
 
 Pre-release builds for Windows and Linux are on the
-[releases page](https://github.com/LootJunkieAzza/NVForever/releases) (v0.1.0, 2026-10-13,
-built before saved games, crafting, the main menu, levelling up and the casino games). Unpack outside the game folder and
-start through the launchers beside the programs, which point them at the shipped schemas:
-`nvforever.cmd` (Windows) or `./nvforever.sh` (Linux); `README-release.md` in the archive
-explains the rest. v0.1.0 needs `NVFOREVER_DATA` set to your game's `Data` folder and has
-no `--menu`: start it with `--play` or `--play --new-game`. From the next release on, the
-first start asks for the game folder and remembers it, and `--play --menu` opens the main menu.
+[releases page](https://github.com/LootJunkieAzza/NVForever/releases). Unpack the archive
+outside the game folder (e.g. `C:\Games\NVForever`) and run `nvforever.exe`, or the launcher
+beside it (`nvforever.cmd` on Windows, `./nvforever.sh` on Linux). The first start asks for
+your Fallout: New Vegas folder and remembers it; then you are on the main menu (Continue,
+New Game, Load Game, Settings, Quit). The free-camera explorer, a developer's view, needs
+`--explore`. `README-release.md` in the archive explains the rest. The older v0.1.0 needs
+`NVFOREVER_DATA` set to your game's `Data` folder and has no main menu: start it with
+`--play` or `--play --new-game`.
 
 ## Build and test
 
@@ -107,7 +108,8 @@ From `engine/`, with `$D` your game's `Data` folder (Windows PowerShell shown):
 
 ```powershell
 $D = "F:\SteamLibrary\steamapps\common\Fallout New Vegas\Data"
-cargo run --release --bin nvforever -- --data $D --play --menu                 # the main menu
+cargo run --release --bin nvforever -- --data $D                               # the main menu (as --play --menu)
+cargo run --release --bin nvforever -- --data $D --explore                     # the free-camera explorer
 cargo run --release --bin nvforever -- --data $D --play --new-game             # straight into the opening at Doc Mitchell's
 cargo run --release --bin nvforever -- --data $D --play --load "Save 3"        # a saved game
 cargo run --release --bin nvforever -- --data $D --cell Goodsprings --play     # walk in Goodsprings
@@ -119,11 +121,13 @@ comes from `NVForever.ini`, and the first start asks for it in a folder dialog
 ([docs/design/install-layout.md](docs/design/install-layout.md)). For playtests, `tools/play/Play.ps1` starts
 the game at named places ([tools/play/README.md](tools/play/README.md)).
 
-- `--play --menu`: the main menu over the plugins' loading screens, with the original's
+- No argument that chooses a world or a mode (only `--data`, window, sound or graphics
+  switches), or `--play --menu`: the main menu over the plugins' loading screens, with the original's
   logo and theme. Continue loads the newest save; New Game plays `Video\FNVIntro.bik` (any
   key or click skips it) and then the opening; Load Game and Settings open the pause
   menu's pages.
-- `--play`: you are the player (without it the camera flies freely); NPCs live by their AI
+- `--play`: you are the player (without it, with `--cell`, `--pos` or `--explore`, the
+  camera flies freely: the explorer); NPCs live by their AI
   packages unless `--no-npc-packages` is given.
 - `--cell <EditorID or x,y>`: where to start (an interior's Editor ID such as
   `GSDocMitchellHouse` opens that interior); `--pos x,y,z`, `--heading` and `--hour`

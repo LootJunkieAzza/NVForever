@@ -9,7 +9,7 @@ NVForever only reads the game's `Data` folder and never writes into the game fol
 
 | File | What it is |
 |---|---|
-| `nvforever(.exe)` | the game: `--play` for the playable slice, without it a free-camera explorer |
+| `nvforever(.exe)` | the game: opens on the main menu; `--explore` for the free-camera explorer |
 | `nvf-viewer(.exe)` | the asset viewer: meshes, textures and animations from your data |
 | `fnvtool(.exe)` | the command-line tool: setup, paths, archive and plugin inspection as JSON |
 | `nvforever.cmd` / `.sh`, `nvf-viewer.cmd` / `.sh` | launchers that point the programs at `schemas/` beside them |
@@ -17,26 +17,33 @@ NVForever only reads the game's `Data` folder and never writes into the game fol
 
 ## Running
 
-Unpack anywhere outside the game folder (e.g. `C:\Games\NVForever`) and start it. At the
-first start NVForever asks for your Fallout: New Vegas folder (the one holding `Data`, e.g.
+Unpack anywhere outside the game folder (e.g. `C:\Games\NVForever`) and run `nvforever.exe`
+(double-click it) or `nvforever.cmd`. At the first start NVForever asks for your Fallout:
+New Vegas folder (the one holding `Data`, e.g.
 `F:\SteamLibrary\steamapps\common\Fallout New Vegas`), checks that the game files it needs
 are there and remembers the folder in `Documents\My Games\NVForever\NVForever.ini`
-(edit or delete that file to change it; `--data` overrides it for one run). Then:
+(edit or delete that file to change it; `--data` overrides it for one run). Then you are on
+the main menu: Continue, New Game, Load Game, Settings, Quit. Other starts:
 
 ```
-nvforever.cmd --play                     # Goodsprings, playing
-nvforever.cmd --play --cell Primm
+nvforever.cmd                            # the main menu (the same as no launcher)
+nvforever.cmd --play --new-game          # straight into the opening
+nvforever.cmd --play --cell Primm        # playing, starting in Primm
+nvforever.cmd --explore                  # the free-camera explorer (a developer's view)
 nvforever.cmd --help                     # every option
 nvf-viewer.cmd --mesh meshes\clutter\...
 ```
+
+The explorer used to be what `nvforever` opened without `--play`; it now needs `--explore`
+(or `--cell` / `--pos` without `--play`).
 
 On Linux use the `.sh` launchers and pass `--data` (or set `Path=` under `[Game]` in the
 home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 `Documents\My Games\NVForever` (or `NVFOREVER_HOME`); caches to `%LOCALAPPDATA%\NVForever\cache`.
 
-Run the programs through the launchers (or pass `--esm-schema`, `--nif-schema` and set
-`NVF_PLAY_SCRIPT_FUNCTIONS` yourself): the built-in schema defaults point at the build
-machine's checkout.
+`nvforever` finds `schemas/` beside itself, so it runs with or without its launcher.
+Run `nvf-viewer` through its launcher (or pass `--esm-schema` and `--nif-schema`): its
+built-in schema defaults point at the build machine's checkout.
 
 What works and what is not started yet: `docs/status.md` in the repository. Licence:
 GPL-3.0-or-later (`LICENSE`); legal notes in `LEGAL.md`.
