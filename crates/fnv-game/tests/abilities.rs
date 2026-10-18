@@ -27,6 +27,8 @@ const DT_ABILITY: u32 = 0x870;
 const RAD_IMMUNITY: u32 = 0x871;
 const AURA: u32 = 0x872;
 const GHOUL_RAD: u32 = 0x873;
+const REDUCE_PER: u32 = 0x854;
+const HEAD_CRIPPLED: u32 = 0x874;
 const ENCH_HAT: u32 = 0x880;
 const ENCH_GLASSES: u32 = 0x881;
 const ENCH_METAL: u32 = 0x882;
@@ -73,6 +75,18 @@ fn effect(base: u32, magnitude: u32, av: i32, conds: Vec<fnv_esm::raw::Subrecord
     let mut v = vec![sub(b"EFID", base.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[magnitude, 0, 0, 0]), av.to_le_bytes().to_vec()].concat())];
     v.extend(conds);
     v
+}
+
+/// A condition `GetActorValue PerceptionCondition <= 0` on the subject, as the masters'
+/// `HeadCrippleEffect` has it (comparison byte 0xA0).
+fn head_crippled() -> fnv_esm::raw::Subrecord {
+    let mut d = vec![0xA0, 0, 0, 0];
+    d.extend(0f32.to_le_bytes());
+    d.extend(14u16.to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(25u32.to_le_bytes());
+    d.extend([0; 12]);
+    sub(b"CTDA", d)
 }
 
 /// A condition `GetActorValue Luck >= value` on the subject.
@@ -134,12 +148,13 @@ fn placed(fid: u32, base: u32) -> Vec<u8> {
 
 fn plugin_bytes() -> Vec<u8> {
     // MGEF flag 2 Recover, 4 Detrimental.
-    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10)].concat();
+    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10), mgef(REDUCE_PER, "ReducePerception", 2 | 4, 6)].concat();
     let spels = [
         spel(DT_ABILITY, "RobotDT", 4, vec![effect(MOD_DT, 15, 76, vec![])]),
         spel(RAD_IMMUNITY, "RadImmunity", 4, vec![effect(MOD_RAD, 100, 20, vec![])]),
         spel(AURA, "Aura", 0, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(GHOUL_RAD, "GhoulRad", 4, vec![effect(MOD_RAD, 50, 20, vec![])]),
+        spel(HEAD_CRIPPLED, "HeadCrippleEffect", 4, vec![effect(REDUCE_PER, 4, 6, vec![head_crippled()])]),
     ]
     .concat();
     let enchs = [
@@ -457,4 +472,31 @@ fn abilities_and_worn_effects_are_saved() {
     assert_eq!(av(&mut h, P, PERCEPTION), 6.0);
     call(&mut h, P, UNEQUIP, &[form(HAT)]);
     assert_eq!(av(&mut h, P, PERCEPTION), 5.0);
+}
+
+/// Every actor but the player has the engine's "Head Crippled" ability
+/// (docs/spec-notes/crippled-limbs.md §2), though no record lists it: Perception −4 while
+/// the head's condition is at 0 or below, back when it heals. The player's comes from the
+/// masters' own script (`PlayerConcussed`).
+#[test]
+fn a_crippled_head_lowers_perception() {
+    use fnv_game::functions::{add_actor_value_damage, restore_actor_value_damage};
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    set_actor_value_current(&mut g, robot, PERCEPTION, 5.0).unwrap();
+    g.tick();
+    assert_eq!(target(&mut g, robot, HEAD_CRIPPLED), 1.0);
+    assert_eq!(target(&mut g, P, HEAD_CRIPPLED), 0.0);
+    assert_eq!(av(&mut g, robot, PERCEPTION), 5.0);
+    add_actor_value_damage(&mut g, robot, 25, 100.0);
+    for _ in 0..90 {
+        g.tick();
+    }
+    assert_eq!(av(&mut g, robot, PERCEPTION), 1.0);
+    restore_actor_value_damage(&mut g, robot, 25, 100.0);
+    for _ in 0..90 {
+        g.tick();
+    }
+    assert_eq!(av(&mut g, robot, PERCEPTION), 5.0);
 }

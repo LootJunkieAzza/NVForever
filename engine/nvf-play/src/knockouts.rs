@@ -4,9 +4,12 @@
 //! effects' way (`crate::script_events::unconscious_line`); the bodies falling and getting
 //! up are the renderer's (nvforever `knockouts.rs`).
 //!
-//! `NVF_PLAY_TEST_HIT=<seconds>:<reference>:<damage>[:<weapon>][,…]`: at that time the
-//! player hits the reference (an Editor ID, a hex FormID) for that much health damage,
-//! with that weapon (its OnHit block runs, as the boxing gloves' does) [test aid].
+//! `NVF_PLAY_TEST_HIT=<seconds>:<reference>:<damage>[:<weapon>][:limb=<condition>][,…]`: at
+//! that time the player hits the reference (an Editor ID, a hex FormID) for that much
+//! health damage, with that weapon (its OnHit block runs, as the boxing gloves' does), on
+//! the limb of that condition actor value (`limb=RightAttackCondition`: the damage is
+//! also limb damage on a part holding 1 % of the actor's health, so a hit of a few
+//! points cripples it; docs/spec-notes/crippled-limbs.md) [test aid].
 
 use crate::activate::HudMessage;
 use crate::combat::{apply_hit, ActorHit, CombatStats, HitFeedback};
@@ -53,6 +56,8 @@ pub struct TestHit {
     pub target: String,
     pub damage: f32,
     pub weapon: Option<String>,
+    /// The limb hit: its condition actor value's name.
+    pub limb: Option<String>,
 }
 
 /// The aid's hits still to come, soonest first.
@@ -66,15 +71,16 @@ pub fn parse_hits(v: &str) -> Result<Vec<TestHit>, String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|item| {
-            let parts: Vec<&str> = item.split(':').map(str::trim).collect();
+            let mut parts: Vec<&str> = item.split(':').map(str::trim).collect();
+            let limb = parts.iter().position(|p| p.starts_with("limb=")).map(|i| parts.remove(i)["limb=".len()..].to_string());
             let (t, target, damage, weapon) = match parts.as_slice() {
                 [t, r, d] => (t, r, d, None),
                 [t, r, d, w] => (t, r, d, Some(w.to_string())),
-                _ => return Err(format!("{item:?}: expected <seconds>:<reference>:<damage>[:<weapon>]")),
+                _ => return Err(format!("{item:?}: expected <seconds>:<reference>:<damage>[:<weapon>][:limb=<condition>]")),
             };
             let at = t.parse::<f32>().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
             let damage = damage.parse::<f32>().map_err(|_| format!("{item:?}: bad damage {damage:?}"))?;
-            Ok(TestHit { at, target: target.to_string(), damage, weapon })
+            Ok(TestHit { at, target: target.to_string(), damage, weapon, limb })
         })
         .collect::<Result<Vec<_>, String>>()?;
     out.sort_by(|a, b| a.at.total_cmp(&b.at));
@@ -92,7 +98,7 @@ fn test_hits(
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
 ) {
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     while hits.0.first().is_some_and(|h| h.at <= now) {
         // A hit due before the scripts run waits for them (a slow start-up dropped it).
         let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -110,7 +116,15 @@ fn test_hits(
                 continue;
             }
         };
-        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: 0, critical: false, limb: None };
+        let limb = match h.limb.as_deref().map(|l| fnv_game::combat::limb_condition(l).ok_or(l)) {
+            Some(Ok(condition)) => Some(fnv_game::combat::LimbHit { condition, health_percent: 1.0, damage: h.damage as f64 }),
+            Some(Err(l)) => {
+                warn!("test aid: hit {}: no limb condition {l:?}", h.target);
+                continue;
+            }
+            None => None,
+        };
+        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: 0, critical: false, limb };
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, h.damage, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false);
         match r {
             Some(r) => info!("test aid: the player hits {target} for {:.0}{}: health {:.0}/{:.0}", r.dealt, weapon.map_or(String::new(), |w| format!(" with {w}")), r.health, r.max_health),
@@ -157,8 +171,11 @@ mod tests {
     #[test]
     fn hits_parse_in_time_order() {
         let h = parse_hits("6:GSSunnySmilesREF:30:WeapNVBoxingGloves, 4:0x00104E87:500").unwrap();
-        assert_eq!(h[0], TestHit { at: 4.0, target: "0x00104E87".into(), damage: 500.0, weapon: None });
+        assert_eq!(h[0], TestHit { at: 4.0, target: "0x00104E87".into(), damage: 500.0, weapon: None, limb: None });
         assert_eq!(h[1].weapon.as_deref(), Some("WeapNVBoxingGloves"));
+        let h = parse_hits("5:GSChetRef:1000:limb=RightAttackCondition,6:GSChetRef:1:Weap10mmPistol:limb=LeftMobilityCondition").unwrap();
+        assert_eq!((h[0].weapon.as_deref(), h[0].limb.as_deref()), (None, Some("RightAttackCondition")));
+        assert_eq!((h[1].weapon.as_deref(), h[1].limb.as_deref()), (Some("Weap10mmPistol"), Some("LeftMobilityCondition")));
         assert!(parse_hits("4:x").is_err());
         assert!(parse_hits("a:x:1").is_err());
     }

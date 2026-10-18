@@ -310,11 +310,11 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             EventKind::QuestCompleted { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Completed(n)))),
             EventKind::QuestFailed { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Failed(n)))),
-            EventKind::ItemAdded { to, item, count } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
+            EventKind::ItemAdded { to, item, count, silent: false } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
                 Some((_, n)) => *n += count,
                 None => added.push((*item, *count)),
             },
-            EventKind::ItemRemoved { from, item, count } if *from == player => {
+            EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
                 let n = ctx.name(*item);
                 out.push(ScriptEffect::Notify(if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into()));
             }
@@ -840,9 +840,9 @@ mod tests {
             EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true },
             EventKind::ObjectiveDisplayed { quest: QUEST, index: 40, on: false },
             EventKind::QuestCompleted { quest: QUEST },
-            EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 5 },
-            EventKind::ItemAdded { to: FormId(0x77), item: FormId(0x15169), count: 5 },
-            EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x15169), count: 1 },
+            EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 5, silent: false },
+            EventKind::ItemAdded { to: FormId(0x77), item: FormId(0x15169), count: 5, silent: false },
+            EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false },
         ]);
         assert_eq!(
             e,
@@ -860,8 +860,14 @@ mod tests {
             ]
         );
         // Many items at once: one line.
-        let many: Vec<EventKind> = (0..10).map(|i| EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 2 }).collect();
+        let many: Vec<EventKind> = (0..10).map(|i| EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 2, silent: false }).collect();
         assert_eq!(run(many), vec![ScriptEffect::Notify("10 items added (20 in all)".into())]);
+        // A script's hide flag (the opening's `player.RemoveItem PipBoy 1 1`): no line.
+        let silent = vec![
+            EventKind::ItemRemoved { from: FormId::PLAYER_REF, item: FormId(0x15038), count: 1, silent: true },
+            EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: true },
+        ];
+        assert_eq!(run(silent), vec![]);
     }
 
     #[test]
@@ -888,7 +894,7 @@ mod tests {
         let pick = Activation { outcome: Outcome::PickedUp { item: FormId(0x15169), count: 1, owner: None }, unlocked_with: None, script: None };
         let events = vec![
             ev(EventKind::Activated { reference: FormId(0x55), by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&pick).unwrap()) }),
-            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1 }),
+            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false }),
             ev(EventKind::RefDisabled { reference: FormId(0x66) }),
         ];
         let e = effects(&events, &BTreeSet::from([0, 1]), &Fake);

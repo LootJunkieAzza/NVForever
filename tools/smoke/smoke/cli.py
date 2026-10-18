@@ -10,6 +10,9 @@ Selection (default --changed origin/main): --changed [BASE] | --all | --only NAM
 compact summary is printed. Exit code 1 when a scenario or check fails. A game that
 runs past its time leaves every thread's stack in <launch>.stacks.txt before it is
 killed (Windows; `python -m smoke.stacks PID` takes them from a game that hangs now).
+Every `--play` launch runs with NVF_PLAY_AIDS_FROM_SCRIPTS=1: the world test aids wait
+for the scripts' first frame, so a late start on a busy machine cannot run them first
+(scenarios.toml's header; engine/nvf-play/src/pause.rs WorldAidClock).
 """
 from __future__ import annotations
 
