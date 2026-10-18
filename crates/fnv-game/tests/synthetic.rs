@@ -959,22 +959,19 @@ fn the_runner_runs_the_round_4_operations() {
 }
 
 #[test]
-fn saving_functions_are_recorded_and_do_nothing() {
-    use fnv_game::functions::{is_stub, lookup, Kind};
-    // SaveGame-style functions: stubs, never a file write.
-    for (op, name) in [(0x127B, "SystemSave"), (0x1217, "ForceSave")] {
-        assert!(is_stub(op), "{name}");
-        assert!(matches!(lookup(op), Some(Kind::Stub(_))));
-    }
-    // Autosave asks the engine for an autosave (nvf_play::save); the game layer itself
-    // writes nothing.
-    assert!(!is_stub(0x115E));
+fn saving_functions_ask_the_engine() {
+    use fnv_game::functions::is_stub;
+    // Autosave, SystemSave and ForceSave ask the engine for a save (nvf_play::save); the
+    // game layer itself writes nothing.
     let f = fixture();
     let mut g = game(&f);
-    let ctx = Ctx { unit: "test".into(), opcode: 0x115E, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
-    g.call_function(&ctx, &[]);
-    g.call_function(&ctx, &[]);
-    assert_eq!(g.ui.autosaves, 2);
+    for op in [0x115E, 0x127B, 0x1217] {
+        assert!(!is_stub(op), "{op:#X}");
+        let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, &[]);
+        g.call_function(&ctx, &[]);
+    }
+    assert_eq!((g.ui.autosaves, g.ui.system_saves, g.ui.force_saves), (2, 2, 2));
 }
 
 #[test]
@@ -1083,6 +1080,33 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), false));
     // Health took only the hits' damage.
     assert_eq!(r.health, 65.0);
+}
+
+/// Crippled legs slow every actor by the game settings, the player's limbs take half the
+/// limb damage, and a sleep outside Hardcore heals them (docs/spec-notes/crippled-limbs.md).
+#[test]
+fn crippled_limbs_slow_and_heal() {
+    use fnv_game::combat::{HitInfo, LimbHit, LEFT_MOBILITY, RIGHT_MOBILITY};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // fCombatPlayerLimbDamageMult's default: half for the player, all for others.
+    assert_eq!(g.limb_damage(FormId::PLAYER_REF, 10.0), 5.0);
+    assert_eq!(g.limb_damage(npc, 10.0), 10.0);
+    let hit = |condition: u16| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { condition, health_percent: 25.0, damage: 1000.0 }) };
+    assert_eq!(g.leg_speed_mult(npc), 1.0);
+    assert!(g.hit(npc, 1.0, hit(LEFT_MOBILITY)).crippled);
+    assert_eq!(g.leg_speed_mult(npc), 0.85);
+    assert!(g.hit(npc, 1.0, hit(RIGHT_MOBILITY)).crippled);
+    assert_eq!(g.leg_speed_mult(npc), 0.75);
+    // The player's leg; an hour waited does not heal it, an hour slept does.
+    assert!(g.hit(FormId::PLAYER_REF, 1.0, hit(LEFT_MOBILITY)).crippled);
+    assert!(g.pass_hours(1.0, false).limbs_healed.is_empty());
+    assert!(g.is_crippled(FormId::PLAYER_REF, LEFT_MOBILITY));
+    assert_eq!(g.pass_hours(1.0, true).limbs_healed, vec![LEFT_MOBILITY]);
+    assert!(!g.is_crippled(FormId::PLAYER_REF, LEFT_MOBILITY));
+    assert_eq!(g.leg_speed_mult(FormId::PLAYER_REF), 1.0);
 }
 
 #[test]

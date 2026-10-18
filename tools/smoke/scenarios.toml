@@ -13,6 +13,15 @@
 #   are written here. `offset` moves a member's timed test aids in a shared run.
 # - Expectation syntax: tools/smoke/smoke/expect.py. "run finished" and exit code 0 are
 #   always expected of a game run.
+# - Test-aid times: the runner sets NVF_PLAY_AIDS_FROM_SCRIPTS=1 for every `--play`
+#   launch, so the aids that act on the world (console, script steps, keys, moves, looks,
+#   controls, activate, talk, wait, hits, the menus' and games' aids, screenshots) wait
+#   until the scripts first run and are held back by as long as that start came after
+#   6.5 s (engine/nvf-play/src/pause.rs WorldAidClock; `--run-seconds` grows by as much).
+#   On an unbusy machine the times mean what they did, and a step need not sit at 14 s or
+#   later to be safe from a late start. The main menu, intro, pause menu, settings, go-to
+#   and face aids keep the time since the start. `NVF_PLAY_AIDS_FROM_SCRIPTS = "0"` in a
+#   scenario's env keeps the old clock for all of them.
 
 # `{masters}` in a tool command: the ten masters ("the masters" of the docs), in load order.
 masters = [
@@ -25,6 +34,7 @@ untimed = [
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
   "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
+  "NVF_PLAY_AIDS_FROM_SCRIPTS",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -672,6 +682,39 @@ forbid = [
 ]
 
 [[scenario]]
+name = "combat-face"
+source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
+note = "the combat-target-killed setup: Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s, kills the player (health 10 by the console at 8 s) and goes back to Normal; her CombatAnger weight rises to 1 over 1 s on entering Combat and falls back to 0 on leaving it. lips.rs draws the weight (FaceMorphs, lipsync.md §5.4); combat-face-frames checks the drawn face"
+areas = ["combat", "alert", "faces"]
+paths = ["engine/nvforever/src/combat_face.rs", "engine/nvforever/src/face_morphs.rs", "engine/nvforever/src/lips.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger rises', label = "Violet's face turns angry as she enters Combat" },
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 1\.00', label = "her anger reaches full weight" },
+  { re = 'alert: \S*FiendViolet 000F570B Combat → Normal', label = "she leaves Combat once the player is dead" },
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger falls', label = "her face eases back after the fight" },
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 0\.00', label = "her face is at rest again" },
+]
+
+[[scenario]]
+name = "combat-face-frames"
+source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
+note = "god mode, so the fight with Violet (FiendVioletRef 0x000F570B, set on the player by the scripts' clock at 9 s) lasts the run; at 12 s on the test aids' clock (game time) the player is put 100 units in front of her (lips.rs moves faces within 840 units of the camera); frames combat_face_1..3.png in target/smoke at 14, 16 and 18 s show her angry face (combat_face_0.png at 6 s is from before the fight, about 1,000 units off)"
+areas = ["combat", "faces"]
+paths = ["engine/nvforever/src/combat_face.rs", "engine/nvforever/src/face_morphs.rs", "engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player", NVF_PLAY_TEST_FACE = "12:000F570B", NVF_PLAY_TEST_SHOTS = "6:combat_face_0.png,14:combat_face_1.png,16:combat_face_2.png,18:combat_face_3.png" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 25
+expect = [
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 1\.00', label = "her anger reaches full weight" },
+  { re = 'face: 000F570B shows asked morphs: CombatAnger [\d.]+$', label = "lips.rs shows it on her face (her head carries the morph)" },
+  "Screenshot saved to combat_face_3.png",
+]
+forbid = [{ re = 'face: \S*FiendViolet 000F570B mood CombatAnger falls', label = "her face eases back while she still fights" }]
+
+[[scenario]]
 name = "combat-voice"
 source = "owner requests 2026-10-17: the player's hurt and power attack sounds play (docs/spec-notes/combat-dialogue.md §2); the death music plays when the player dies (engine/nvf-play/src/music.rs)"
 note = "combat-lines with voice and music on: the player's Hit lines play their files, the power attack's line cuts the Hit grunt of the blow taken just before it, and the player's death plays MUSDeath"
@@ -991,8 +1034,27 @@ expect = [
   # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
   { text = "pointer: hidden (an idle drives the view)", label = "no mouse pointer while the wake-up drives the view (owner 2026-10-16)" },
+  # owner 2026-10-18 (idles.md §3, §10): the mirror is in Doc Mitchell's hand, moved by the idle's track, and handed over once.
+  { text = "anim object: 00104C0F VAODocGiveReflectron node ##Dummy01_Reflectron01 follows the idle's track", label = "the mirror follows the give-mirror clip's track" },
+  { re = 'idle: DocMitchellREF plays VCG01DocGiveMirror .* again: not started over \(Speaker\)', label = "the speaker idle of \"How'd I do?\" does not start the hand-over again" },
+  { re = 'anim object: 00104C0F holds .*nvpropreflectron\.nif', count = 1, label = "the mirror drawn once" },
   # owner 2026-10-16: let go at the start marker after the stand-up, the character rose onto the bed frame (z 7381); the floor is at 7361.
   { re = 'player view: a second after the idle the character stands at \(-?\d+, -?\d+, (?P<n>-?\d+)\)', range = [7355, 7366], label = "on the floor beside the bed after the stand-up, not on the bed frame" },
+]
+
+[[scenario]]
+name = "opening-hidden-item-lines"
+source = "owner report 2026-10-18: \"Pip-Boy 3000 removed\" showed at the start of a new game; the opening's player.RemoveItem passes HideMessageFlag 1 (docs/design/script-function-params.md)"
+areas = ["corner-messages", "script-params"]
+paths = ["crates/fnv-game/src/functions/items.rs", "crates/fnv-game/src/trace.rs", "engine/nvf-play/src/script_events.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 14
+expect = [
+  { text = "player controls: movement, Pip-Boy, looking disabled by scripts", label = "the opening script that takes the Pip-Boy ran" },
+]
+forbid = [
+  { re = 'on screen: Pip-Boy (3000|Glove) removed', label = "a corner line for the Pip-Boy the script removed silently" },
 ]
 
 [[scenario]]
@@ -1988,14 +2050,18 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
 # claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
 # 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
-# claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 40 stubs,
-# 177 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
+# claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
+# docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
+# fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
+# stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
+# with main 5a98cb50, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 40 },
+  { json = "summary.stubs", equals = 37 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 39 },
+  { json = "summary.by_status.needs_system", equals = 36 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 177 },
+  { json = "summary.stub_calls", equals = 167 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3025,6 +3091,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "script-saves-reticle"
+source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
+areas = ["save", "script"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-save/", "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVFOREVER_HOME = "script-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "10:0:-30", NVF_PLAY_TEST_CONSOLE = "12:player.placeatreticle Stimpak 2;12.5:player.placeatreticle Stimpak 1 0 1;13:systemsave;14:forcesave;16:systemsave;18:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  { re = 'console: PlaceAtReticle on player >> 0xFF[0-9A-F]{6}', label = "a reference is created where the crosshair hits the ground (the console names a created reference by its ID, as for PlaceAtMe)" },
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: meshes.clutter.health.stimpak01\.nif', label = "the placed Stimpak is drawn" },
+  { re = 'console: PlaceAtReticle on player >> none', label = "nothing is placed when the ground is beyond maxDistance" },
+  { text = "save: SystemSave asked by a script", min = 2, label = "both SystemSave calls are taken" },
+  { re = 'save: wrote .*systemsave\.nvfsave \(system, ', min = 2, label = "the system slot is written each time" },
+  { re = 'save: ForceSave asked by a script: "Save \d+"', label = "ForceSave names a new save" },
+  { re = 'save: wrote .*Save \d+\.nvfsave \(manual, ', label = "ForceSave's save is written" },
+]
+
+[[scenario]]
 name = "load-handoff"
 source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
 areas = ["save"]
@@ -3474,6 +3558,57 @@ expect = [
   { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
   { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
   { re = 'limping summary: actors started limping (?P<n>\d+) times and walked normally again (?P<m>\d+) times', range = [1, 1000], label = "limping summary" },
+  { re = 'limping: GSChetRef 0x00104C79 moves at 85% of its speed', label = "Chet slows on a crippled leg (fMoveOneCrippledLegSpeedMult, crippled-limbs.md §4)" },
+  { re = 'limping: GSChetRef 0x00104C79 moves at 100% of its speed', label = "... and is quick again once healed" },
+  { re = "movement: the player's legs allow 85% of the speed", label = "the player slows on a crippled leg" },
+]
+
+[[scenario]]
+name = "crippled-head-perception"
+source = "crippled limbs (docs/spec-notes/crippled-limbs.md §2): Perception -4 while the head's condition is at 0, the player's by the masters' PlayerConcussed [observed: FalloutNV.esm GenericScript, SPEL 0x0006533A], other actors' by HeadCrippleEffect"
+note = "the console sets the player's Perception to 6, cripples the head, reads Perception (2), heals the head and reads it again (6); the console is closed between, as the conditions are checked in game time. The player's -4 is the masters' own PlayerConcussed (GenericScript casts it), which must lift once healed"
+areas = ["combat", "abilities"]
+paths = ["crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.SetAV Perception 6;10.2:player.DamageAV PerceptionCondition 1000;10.5:close;13:player.GetAV Perception;13.5:close;14:player.RestoreAV PerceptionCondition 1000;14.5:close;17:player.GetAV Perception;17.5:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  "combat: player's head crippled",
+  { re = 'console: GetActorValue on player >> 2\.00', label = "Perception 6 - 4 with the head crippled" },
+  "combat: player's head healed",
+  { re = 'console: GetActorValue on player >> 6\.00', label = "Perception back to 6 once healed" },
+]
+
+[[scenario]]
+name = "crippled-torso-arms"
+source = "crippled limbs (docs/spec-notes/crippled-limbs.md §3): with the torso crippled any hit staggers (after the cooldown) [observed: HelpCrippling, 'Higher chance to be staggered'], the player flinches the same way, and an NPC whose arm a hit cripples drops its weapon [observed: HelpCrippling, 'Enemies will be disarmed']"
+note = "the console cripples the player's and Chet's torso; the hit aid hits Chet on the torso (staggers him: torso crippled), then his right arm on a part of 1 % of his health (he drops his revolver); Chet is set on the player, whose hits on the player make it flinch"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs", "crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV EnduranceCondition 1000;10.2:GSChetRef.DamageAV EnduranceCondition 1000;10.5:close", NVF_PLAY_TEST_SCRIPT = "12:combat:GSChetRef:player", NVF_PLAY_TEST_HIT = "14:GSChetRef:1,22:GSChetRef:2:limb=RightAttackCondition" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 28
+expect = [
+  "combat: player's torso crippled",
+  { re = 'hit reaction: 00104C79 staggers for .*\(location 0, torso crippled\)', label = "Chet staggers from a torso hit (his torso crippled)" },
+  { re = 'combat: the player flinches for 0\.6 s \(torso crippled\)', label = "the player flinches from Chet's hits" },
+  { re = "combat: 0x00104C79's arm crippled: it drops its", label = "Chet drops his weapon when an arm is crippled" },
+]
+
+[[scenario]]
+name = "crippled-sleep-heals"
+source = "crippled limbs (docs/spec-notes/crippled-limbs.md §6): a sleep heals crippled limbs outside Hardcore [observed: FalloutNV.esm MESG HelpHealingLimbs]"
+note = "the console cripples the player's left leg; the player lies on the Goodsprings house bed (as sleep-goodsprings-24h) and sleeps 2 hours"
+areas = ["wait", "combat"]
+paths = ["crates/fnv-game/src/needs.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV LeftMobilityCondition 1000;10.5:close", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=2,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22", "--no-voice"]
+run_seconds = 34
+expect = [
+  "combat: player's left leg crippled",
+  "wait menu: open as sleep (the player lies on a bed)",
+  { re = 'sleep: crippled limbs healed: Left Mobility Condition', label = "the first hour slept heals the leg" },
+  "combat: player's left leg healed",
 ]
 
 [[scenario]]
@@ -3639,6 +3774,38 @@ expect = [
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
 order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+
+[[scenario]]
+name = "resolution-revert"
+source = "owner 2026-10-18: a resolution dropdown first in the settings page's Display group, and a 20 s countdown back to the resolution before unless it is kept (engine/nvforever/src/window_mode.rs, nvf-play settings.rs ChoiceList); no home, so the player's INI is neither read nor written"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:36", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1024x768" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 38
+expect = [
+  { text = "settings: resolution 1024x768, until kept", label = "a resolution is chosen and waits to be kept" },
+  { text = "window: windowed, 1024x768", label = "the window takes it at once" },
+  { text = "settings: resolution back to 1280x800 (not kept)", label = "unanswered, it goes back after 20 s" },
+]
+order = [["window: windowed, 1280x800", "settings: resolution 1024x768, until kept", "window: windowed, 1024x768", "settings: resolution back to 1280x800 (not kept)", { text = "window: windowed, 1280x800" }]]
+
+[[scenario]]
+name = "resolution-keep"
+source = "owner 2026-10-18: the resolution dropdown's choice is kept when Keep is taken in time; the dropdown opens on the row and shows the monitor's sizes (pause_settings.png is taken with the keep question up, then with the dropdown open)"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:34", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1600x900", NVF_PLAY_TEST_PAUSE_MENU = "13:shot,15:keep,17:pick,18:down,19:shot,21:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 38
+expect = [
+  { text = "settings: resolution 1600x900, until kept", label = "a resolution is chosen" },
+  { text = "window: windowed, 1600x900", label = "the window takes it" },
+  { text = "settings: resolution kept", label = "Keep keeps it" },
+  { re = 'pause menu: the list of \d+ choice\(s\) open', label = "the dropdown opens on the row" },
+]
+order = [["settings: resolution 1600x900, until kept", "settings: resolution kept", "pause menu: the list of"]]
+forbid = [{ text = "(not kept)", label = "a kept resolution does not go back" }]
 
 [[scenario]]
 name = "controls-write"
@@ -4367,14 +4534,14 @@ order = [[
 manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"
 
 [[scenario]]
-name = "anim-state"
-source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
-note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
-areas = ["combat", "scripts", "actors"]
-paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
-args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 56
+name = "lip-eye-turns"
+kind = "tool"
+source = "docs/spec-notes/lipsync.md §3.3: an eye .tri's Look morphs are turns of the whole eye, about 22° down and to the sides and 14° up at weight 1 (fnvtool actor tri, best_rotation)"
+areas = ["lip"]
+paths = ["crates/fnv-actor/src/tri.rs", "crates/fnvtool/src/actor_tri.rs"]
+commands = [
+  ["actor", "tri", "{data}", "--nif-schema", "schemas/nif", "--path", 'meshes\characters\head\eyelefthuman.tri'],
+]
 expect = [
   { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
   { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },
@@ -4384,6 +4551,87 @@ expect = [
   { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
   { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
   { re = 'anim state summary: .*reload open \(17\) (?P<n>\d+)', range = [1, 100000], label = "the .357's reload opens with 17 (hypothesis: anim-state.md §1)" },
+  { json = "files.0.statistical_morphs.?label=LookDown.best_rotation.degrees", range = [21, 23], label = "LookDown turns the male left eye about 22°" },
+  { json = "files.0.statistical_morphs.?label=LookUp.best_rotation.degrees", range = [13, 14.5], label = "LookUp turns it about 14°" },
+  { json = "files.0.statistical_morphs.*.best_rotation.residual", range = [0, 0.1], count = 4, label = "all four Look morphs are turns (little left over after the best turn)" },
+]
+
+[[scenario]]
+name = "lip-head-turn"
+source = "docs/spec-notes/lipsync.md §5.1: a speaker's .lip head channels (HeadPitch, HeadRoll, HeadYaw) nod its head on top of the animation and head tracking; the Look channels move the eyes"
+note = "Chet's conversation of talk-gestures-menu (4 responses); --no-voice keeps each line's timing, so the face still moves"
+areas = ["lip", "dialogue"]
+paths = ["engine/nvforever/src/lips.rs", "crates/fnv-voice/src/lip.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave", NVF_PLAY_TEST_TALK_DELAY = "4" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'lip: animating \S+ \(\d+ tracks, \d+ applied; .*\) speaker \S+: \d+ shapes, \d+ morphs; head turn up to (?P<n>\d+\.\d)° \(pitch', range = [0.5, 15], min = 3, label = "Chet's responses animate with a head turn of a few degrees" },
+  { re = 'lip summary: (?P<n>\d+) responses animated', range = [3, 60], label = "responses counted" },
+  { re = 'lip summary: .* head turned on (?P<n>\d+) ', range = [3, 60], label = "the head turned on each" },
+]
+
+[[scenario]]
+name = "lip-emotion"
+source = "docs/spec-notes/lipsync.md §5.2: a response's emotion (INFO TRDT) adds the head's expression morph of its name"
+note = "Joe Cobb's angry line to Trudy of talk-gestures-npcs (line 0x00105219, emotion Anger)"
+areas = ["lip", "dialogue"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:start:VFreeformGoodsprings,3:enable:GSJoeCobbRef,3.1:enable:TrudyRef,6:call:GSJoeCobbRef:StartConversation:TrudyRef:GSJoeCobbIntro" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'lip: animating \S+_00105219_\d\.lip .* speaker \S+: .*; emotion Anger \d+$', label = "Joe Cobb's angry line shows the Anger morph" },
+  { re = 'lip summary: .* emotions shown on (?P<n>\d+) \(.*Anger \d+', range = [1, 60], label = "emotions counted" },
+]
+
+[[scenario]]
+name = "face-idle"
+source = "docs/spec-notes/lipsync.md §5.3 (design): drawn NPCs near the camera blink about every 3 s and their eyes move between lines"
+note = "the saloon with Sunny Smiles, Easy Pete and Trudy near the player's start"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvforever/src/head_look.rs"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'face idle summary: (?P<n>\d+) actors had an idle face', range = [1, 40], label = "faces near the camera were given an idle face" },
+  { re = 'face idle summary: .*; (?P<n>\d+) blinks', range = [3, 2000], label = "they blinked" },
+  { re = 'face idle summary: .* (?P<n>\d+) glances', range = [3, 2000], label = "their eyes glanced" },
+]
+
+[[scenario]]
+name = "lip-face-held"
+source = "docs/spec-notes/lipsync.md §5 (test aid NVF_LIP_TEST_HOLD): held head channels nod the head, Look moves the eyes, an expression shows; frames lip_face_rest.png (nothing held, idle face off) and lip_face_held.png in target/smoke, Sunny Smiles from 100 units"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_LIP_TEST_HOLD = "HeadPitch=0.17,HeadYaw=0.15,LookLeft=0.5,Anger=0.6", NVF_PLAY_TEST_SHOTS = "9:lip_face_held.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = [
+  { re = 'lip test: holding the given weights on \d+ shapes \((?P<n>\d+) morphs\)', range = [20, 400], label = "faces hold the weights" },
+]
+
+[[scenario]]
+name = "lip-face-rest"
+source = "the rest frame for lip-face-held: the same view with nothing held (lip_face_rest.png)"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SHOTS = "9:lip_face_rest.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = ["face idle: off (--no-face-idle)"]
+
+[[scenario]]
+name = "face-morphs-asked"
+source = "docs/spec-notes/lipsync.md §5.4: morphs other systems ask for through FaceMorphs (the combat face's CombatAnger) are shown on a face between lines; frame face_morphs_asked.png in target/smoke (compare lip_face_rest.png)"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvforever/src/face_morphs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_FACE_TEST_MORPHS = "CombatAnger=0.8", NVF_PLAY_TEST_SHOTS = "9:face_morphs_asked.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = [
+  { re = 'face test: \w+ asks for CombatAnger 0\.80', label = "the test aid asks for CombatAnger" },
+  { re = 'face: \w+ shows asked morphs: CombatAnger 0\.80$', label = "a face shows it (its head carries the morph)" },
 ]
 
 [[scenario]]
@@ -4441,4 +4689,20 @@ run_seconds = 26
 expect = [
   { re = 'anim state summary: .*throw wind-up \(5\) (?P<n>\d+)', range = [1, 100000], label = "gearing up to throw reads 5" },
   { re = 'anim state summary: .*thrown \(6\) (?P<n>\d+)', range = [1, 100000], label = "the grenade leaving the hand reads 6" },
+name = "anim-state"
+source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
+note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
+areas = ["combat", "scripts", "actors"]
+paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 56
+expect = [
+  { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
+  { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'anim state summary: .*attack \(2\) (?P<n>\d+)', range = [6, 100000], label = "his shots begin 2" },
+  { re = 'anim state summary: .*follow-through \(3\) (?P<n>\d+)', range = [6, 100000], label = "then 3" },
+  { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
+  { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
 ]

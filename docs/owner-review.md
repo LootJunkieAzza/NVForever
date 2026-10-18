@@ -5666,6 +5666,77 @@ observer's gunfight and melee runs. My choices, to check against the game:
   (and 8, standing on a table or chair, which NVForever's player never does); the
   others read 0. The wiki export lacks the ActionIndex list; a capture of indices 1–10
   while firing, sneaking and aiming would give it.
+## Saves from scripts and PlaceAtReticle (2026-10-18, branch claude/blockers-save-reticle-d710e4)
+
+SystemSave, ForceSave and PlaceAtReticle are built (docs/spec-notes/script-saves-and-reticle.md;
+smoke `script-saves-reticle`). The wiki leaves these open; my choices:
+
+- **SystemSave waits** for a moment saving is allowed (after a conversation, a menu or a
+  loading screen), as an autosave does, rather than being dropped: the one base-game use
+  is the save before the battle for Hoover Dam. It writes the slot `systemsave` (load page
+  kind "system"); the previous one is kept as `.bak`.
+- **ForceSave fails** when saving is not allowed at that moment, as a save by hand does
+  (the wiki: it fails while a message box shows). It names the save `Save <n>` as the
+  pause menu's Save button does.
+- Both follow the **"Save when a script asks"** switch (formerly "Autosave when a script
+  asks"; INI key unchanged).
+- **PlaceAtReticle**: the crosshair's ray out to 50000 units; left out, maxDistance is
+  50000; nothing hit within it places nothing and returns 0; the new reference goes in the
+  player's cell, turned to the player's heading, exactly at the hit (not lifted off the
+  surface). A game check of where `player.placeatreticle Stimpak 1` lands, and what it
+  returns while looking at the sky, would settle these.
+
+## Angry faces in combat (2026-10-18, branch claude/compassionate-mendel-e1faec)
+
+An actor in Combat shows its heads' `CombatAnger` morph, fading in over 1 s and back out
+over 1 s when the fight ends (docs/spec-notes/combat-face.md; smoke `combat-face`). The
+weight is handed to lips.rs, which draws faces (lipsync.md §5.4); frames
+`combat_face_1..3.png` (smoke `combat-face-frames`) in `target/smoke/` show Violet
+during the fight, `combat_face_0.png` before it. No game animation
+carries the combat face (none of 2,450 character `.kf` files names it), so everything
+about when and how strongly it shows is my guess:
+
+- **When**: only in the Combat state, not while Alert or searching (Lost).
+- **Strength**: the whole morph (MFG 100).
+- **Timing**: 1 s in and 1 s out, linear (the GECK wiki says MFG faces "take a second or
+  two" to come on; the way out is not described).
+- **Who**: every human and ghoul with a head, children too; the player's own face is not
+  changed; a corpse's face eases back to rest.
+- **With dialogue emotions**: a response with an emotion (Anger, Fear …) takes over from
+  combat anger while it is said ("one expression at a time", GECK wiki); a Neutral bark
+  keeps the angry face and the mouth moves on top of it.
+
+A short video of a Fiend turning hostile, from about the dialogue camera's distance,
+would settle when the face changes and how fast.
+## Faces in conversation: head nods, eyes, emotions, blinks (2026-10-18, branch claude/youthful-nash-9421f5)
+
+Speakers' heads now nod from their `.lip` files, their eyes move with them, a line's
+emotion shows on the face, and faces near the camera blink and move their eyes between
+lines (docs/spec-notes/lipsync.md §3.3, §5.1–§5.3; smoke `lip-head-turn`, `lip-emotion`,
+`face-idle`, `lip-eye-turns`). My guesses to check against the game:
+
+- **How far a head nods.** The files give the head turns in a unit nothing documents. I
+  took **one unit = one radian**: a typical swing is 2–4°, the largest about 10°. The
+  other reading the files allow would make the nods about a fifth of that (1°, hardly
+  visible). A capture job is queued to settle it with the console's `mfg` command:
+  `tools/capture/jobs/lip_head_units.steps.json` (save `nvfdoc`, about 2 minutes,
+  pictures of Doc Mitchell in profile and from the front with HeadPitch, HeadRoll,
+  HeadYaw, LookDown, LookLeft and Anger at 100). Not run yet; it also checks that `mfg`
+  works the way I wrote it.
+- **Which way.** Positive pitch nods down, positive yaw turns to the actor's right,
+  positive roll tips the head to the right. Pitch and yaw follow from the eyes, which
+  the files turn the opposite way; roll is a coin toss.
+- **Emotions**: the head morph of the emotion's name (Anger, Disgust, Fear, Sad, Happy,
+  Surprise, Pained) at the response's value ÷ 100 × 0.6 (so the usual 50 shows at 0.3),
+  coming in over 0.3 s and added on top of the mouth shapes. The 0.6 is mine: at full
+  weight the expressions pull the mouth so far that the phonemes look wrong. Whether
+  the game shows emotions this strongly, at all for value 50, or uses the mood morphs
+  instead, I could not find out.
+- **Blinks and eyes between lines** are my design: a 0.2 s blink every 1.5–5 s (the
+  length and the mean spacing of the blinks in the `.lip` files), small glances every
+  0.6–2.5 s, and the eyes making up what head tracking's turn stops short of (up to about
+  13° to the side), for NPCs within about 10 m of the camera. Actors with head
+  tracking switched off (asleep, scenes) keep a still face. `--no-face-idle` switches it off.
 
 ## Miscellaneous statistics and SetScale (2026-10-18, branch claude/blockers-miscstat-scale-d2c0d2)
 
@@ -5810,3 +5881,66 @@ Captures that settle these (nvfstrip): AI observer campaign
 `tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
 dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
 player's own codes and IsPlayerActionActive 1–10 every frame).
+## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
+
+What each crippled limb does, for the player and for NPCs, is in
+docs/spec-notes/crippled-limbs.md. It draws on the ESM (the game's own help text
+`HelpCrippling` and `HelpHealingLimbs`, the `HeadCrippleEffect` ability, the leg-speed
+settings) and your wiki notes. Smoke: `crippled-head-perception`, `crippled-torso-arms`,
+`crippled-sleep-heals`, and new checks in `crippled-limp`. My choices to check against
+the game:
+
+- **Melee with a crippled arm.** The two sources differ. The game's formula with its own
+  settings takes 40 % of the weapon's damage at a fully crippled arm condition and 20 %
+  at half. Your notes say −10 % (one-handed, right arm) and −5 % per arm (two-handed,
+  unarmed). *Decision:* the formula's numbers, with your notes' rule for which arm
+  counts. *Check:* a knife's damage with a crippled right arm; if it is only 10 % lower,
+  I switch to your numbers.
+- **The player's limbs take half the limb damage** (`fCombatPlayerLimbDamageMult` 0.5).
+  *Guess:* it scales the damage the player's limbs take, not the damage the player does
+  to others' limbs. *Check:* how many 10mm hits to the leg cripple the player, and an NPC.
+- **Legs**: 0.85 of the speed with one crippled leg, 0.75 with both, for everyone (the
+  game's two settings; it was 0.7 and 0.5 for the player before). A creature with a
+  crippled leg makes no forward power attack (the deathclaw's leap). With both legs
+  crippled the player's power attack is always the standing one.
+- **Torso**: any hit staggers an NPC (after the 3 s cooldown) while its torso is
+  crippled. This extends your rule of "only the crippling hit and later hits on the
+  crippled part". The player flinches by the same rule: the view jumps by up to 4°, a
+  swing is broken off, and no attack starts for 0.6 s (my numbers). It also happens in
+  god mode. *Check:* does the original stagger on every hit or only some?
+- **Arms**: an NPC drops its weapon when a hit cripples either arm. The help text says
+  "enemies", so the player keeps theirs. While aiming with a crippled arm the player's
+  view sways in a slow figure of eight, 1.5° (one arm) or 3° (both) every 2.5 s (my
+  numbers). VATS mode shots keep the crippled arms' spread.
+- **Head**: Perception −4 for every actor, plus 0.2 spread (my number for "lower
+  accuracy"). The player's −4 is the game's own `PlayerConcussed`, which a master
+  script keeps on the player. Until now it never lifted after the first head crippling
+  (fixed: effect conditions are checked again every second). *Check:* Perception after
+  a crippled head is healed. The "concussion effect" the help text names is not built.
+- **Sleeping heals crippled limbs** outside Hardcore, on the first hour slept. In
+  Hardcore it does not: the game's help text says only Doctor's Bags and doctors heal
+  limbs there, while your notes say an owned bed does. I followed the help text.
+- **Not built**: a Stimpak on one limb from the Pip-Boy (using items from the CND page
+  is not built), frenzy from crippled antennae, hit explosives going off, and the
+  concussion screen effect.
+
+## Doc Mitchell's mirror (2026-10-18, branch claude/doc-mirror)
+
+Your report: the mirror Doc hands you before "How'd I do?" was not shown, and the
+hand-over played twice.
+
+- **Not shown.** The mirror (`animobjects\NVPropReflectron.NIF`, record
+  `VAODocGiveReflectron`) hangs from his right hand, but the part that is the mirror is
+  stored about 2 m away and is brought into the hand by a track of its own in the
+  hand-over clip. We drew the model as it is stored and never played that track, so the
+  mirror floated out of sight. Now the parts of a held object that the idle's clip has
+  tracks for follow those tracks (idles.md §10). This affects any held prop whose clip
+  moves it; the broom and the cigarette have no such tracks and are unchanged.
+- **Twice.** The game's data asks Doc for the hand-over twice, 3 s apart: the quest's
+  stage 30 plays it, then the line "How'd I do?" names the same animation. We started it
+  over the second time. Now an animation asked for by a script or a line while that same
+  animation still shows is not started over: Doc keeps holding the mirror out through
+  "How'd I do?" (idles.md §3).
+- **Guess.** That the game carries on instead of starting over, and that he holds the
+  pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
+  Doc keep the mirror held out until the face screen opens, or lower his arm?

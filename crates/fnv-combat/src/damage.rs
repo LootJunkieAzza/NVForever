@@ -308,9 +308,27 @@ pub fn from_front(facing: [f32; 2], dir: [f32; 3]) -> bool {
 /// 2026-10-11]. The hit that cripples a body part always does. A later hit on a part
 /// that is already crippled does when the actor's last reaction ended at least
 /// [`CombatTuning::stagger_cooldown`] seconds ago (`since_last`: negative while it
-/// plays; `None`: it has not reacted yet). Any other hit does not.
-pub fn staggers(t: &CombatTuning, crippled_now: bool, part_crippled: bool, since_last: Option<f32>) -> bool {
-    crippled_now || (part_crippled && since_last.is_none_or(|s| s >= t.stagger_cooldown))
+/// plays; `None`: it has not reacted yet); so does any hit, wherever it lands, while the
+/// torso is crippled [observed: FalloutNV.esm MESG `HelpCrippling`, "Chest: Higher
+/// chance to be staggered when taking damage"; documented: Fallout wiki crippling text,
+/// owner chat 2026-10-18, "the target flinches from hits much more often"; design: every
+/// hit after the cooldown]. Any other hit does not.
+pub fn staggers(t: &CombatTuning, crippled_now: bool, part_crippled: bool, torso_crippled: bool, since_last: Option<f32>) -> bool {
+    crippled_now || ((part_crippled || torso_crippled) && since_last.is_none_or(|s| s >= t.stagger_cooldown))
+}
+
+/// Arm condition as the melee formula takes it ([`Attacker::arm_condition`]), from which
+/// arms are crippled: with a one-handed weapon only the right arm counts (0 crippled, 1
+/// whole); with a two-handed weapon or unarmed each crippled arm takes half [documented:
+/// Fallout wiki crippling text, owner chat 2026-10-18: a crippled right arm with a
+/// one-handed weapon, one or two crippled arms with two-handed weapons and unarmed;
+/// docs/spec-notes/crippled-limbs.md §3 has where its percentages and the formula's
+/// differ].
+pub fn arm_condition(w: &WeaponStats, left_crippled: bool, right_crippled: bool) -> f32 {
+    if crate::spread::one_handed(w) {
+        return if right_crippled { 0.0 } else { 1.0 };
+    }
+    1.0 - 0.5 * (left_crippled as u8 + right_crippled as u8) as f32
 }
 
 /// Knockdown chance (0..=1) for explosion damage [documented: Explosion Knockdown

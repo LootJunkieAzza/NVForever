@@ -103,7 +103,9 @@ fn row(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, path: &str, detail: bool) -> V
                 return json!(m.label);
             }
             let far = tri.displacements(&m.label, None).unwrap_or_default().iter().map(|(_, d)| d.iter().map(|c| c * c).sum::<f32>().sqrt()).fold(0.0f32, f32::max);
-            json!({"label": m.label, "vertices_moved": m.indices.len(), "largest_displacement": far})
+            // How far the morph turns what it moves, if it is a turn (an eye's Look).
+            let turn = tri.rotation_fit(&m.label).map(|r| json!({"degrees": r.angle.to_degrees(), "axis": r.axis, "residual": r.residual}));
+            json!({"label": m.label, "vertices_moved": m.indices.len(), "largest_displacement": far, "best_rotation": turn})
         })
         .collect();
     json!({

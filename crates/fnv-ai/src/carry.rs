@@ -190,8 +190,8 @@ pub enum AiEvent {
     /// In Combat it runs up to `target`, `away` units off, a way of `length` units to
     /// `to` (`crate::alert`); `aiming`: it aims down its sights and walks.
     Close { target: FormId, to: [f32; 3], away: f32, length: f32, aiming: bool },
-    /// Closing in on `target`, it slows to a walk as it raises its sights (`aiming`), or
-    /// runs again as it lowers them (`crate::alert`).
+    /// Closing in on `target`, or running to a post while fighting it, it slows to a walk
+    /// as it raises its sights (`aiming`), or runs again as it lowers them (`crate::alert`).
     Pace { target: FormId, aiming: bool },
     /// In Combat it goes to the post the combat AI chose (`crate::alert`): `to`, `away`
     /// units off, a way of `length` units.
@@ -399,6 +399,9 @@ pub struct Ai {
     /// Actors with speeds of their own (creatures, from their clips); the others move at
     /// [`AiConfig::walk_speed`] and [`AiConfig::run_speed`].
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
+    /// Actors slowed by crippled legs: the share of their speed they keep
+    /// ([`Ai::set_pace`]; `fnv_game::Game::leg_speed_mult`).
+    pub paces: BTreeMap<FormId, f32>,
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -417,7 +420,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new() }
     }
 
     /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
@@ -425,6 +428,20 @@ impl Ai {
         self.speeds.insert(actor, speeds);
         if let Some(a) = self.agents.get_mut(&actor) {
             own_turning(&mut a.walker, &speeds);
+        }
+    }
+
+    /// The share of its speed `actor` moves at from now on, whatever it does (crippled
+    /// legs; 1 for all of it).
+    pub fn set_pace(&mut self, actor: FormId, pace: f32) {
+        let pace = pace.clamp(0.0, 1.0);
+        if pace < 1.0 {
+            self.paces.insert(actor, pace);
+        } else {
+            self.paces.remove(&actor);
+        }
+        if let Some(a) = self.agents.get_mut(&actor) {
+            a.walker.pace = pace;
         }
     }
 
@@ -446,6 +463,7 @@ impl Ai {
         if let Some(s) = self.speeds.get(&actor) {
             own_turning(&mut walker, s);
         }
+        walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
         self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None });
         Ok(())
     }

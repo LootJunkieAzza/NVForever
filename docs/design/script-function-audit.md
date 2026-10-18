@@ -385,7 +385,7 @@ what writes it now).
 | PipBoyRadio | 0x11A7 | 6/- | `radio.pipboy` | rules / radio.rs | matches |  |
 | PipBoyRadioOff | 0x1224 | 11/- | `radio.pipboy` | rules / pipboy, radio.rs:596 | matches |  |
 | PlaceAtMe | 0x1025 | 468/- | `w.place` | rules / dropped & actor spawn | matches | Position exact [hypothesis]. |
-| PlaceAtReticle | 0x1263 | 3/0 | stub | engine has the crosshair ray | stub | implementable |
+| PlaceAtReticle | 0x1263 | 3/0 | stub | engine has the crosshair ray | stub | implemented 2026-10-18 |
 | PlaceLeveledActorAtMe | 0x11D1 | 5/- | as PlaceAtMe | rules | matches | Level mod/zone ignored [noted in code]. |
 | PlayBink | 0x1114 | 4/0 | stub | — | stub | intro decoder exists elsewhere (licence note) — could play now |
 | PlayerInRegion | 0x1264 | -/74 | as IsPlayerInRegion | sync_sim | matches |  |
@@ -511,7 +511,7 @@ what writes it now).
 | StopLook | 0x105D | 242/16 | `senses.looks` | rules | matches |  |
 | StopQuest | 0x1037 | 466/- | writes running | rules | matches |  |
 | SwapTexture | 0x1269 | 0(383 decoded)/0 | writes | engine texture_swap.rs | matches |  |
-| SystemSave / ForceSave | 0x127B / 0x1217 | 5/0, 2/0 | stub | saves exist (Autosave implemented) | stub | implementable now (script-stubs.md §4) |
+| SystemSave / ForceSave | 0x127B / 0x1217 | 5/0, 2/0 | stub | saves exist (Autosave implemented) | stub | implemented 2026-10-18 |
 | ToggleActorsAI | console | - | `toggles.actors_ai_off` | rules / AI | matches | Global [hypothesis]. |
 | ToggleCollision | console | - | `toggles.asked` | console.rs:428 | matches |  |
 | ToggleDetection | console | - | `toggles.detection_off` | rules | matches | Player-only detection [hypothesis vs cat "each other"]. |

@@ -16,7 +16,7 @@
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
 //!
 //! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
-//! after start (unattended in-game checks).
+//! on the world aids' clock (`crate::pause::WorldAidClock`; unattended in-game checks).
 //!
 //! With Layer 5 scripts running, E goes through `script::activate_by_hand`: a target
 //! whose script has an OnActivate block runs it instead of the default action (whose
@@ -180,10 +180,13 @@ fn find_target(
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
     let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
+    // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
+    let mut far = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].
         filter.exclude_layers.insert(layers::TRIGGER);
+        far = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter).map(|h| h.distance);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
         let form_id = match h.owner {
             // An actor's hit volume (combat C3) targets the actor.
@@ -203,6 +206,9 @@ fn find_target(
         }
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+    }
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's
@@ -299,7 +305,8 @@ fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, a
     judged && g.ownership_in(&sim.world, FormId(form_id)).is_some_and(|o| !g.counts_as_owner(FormId::PLAYER_REF, &o))
 }
 
-/// Test aid: times (seconds after start) at which E counts as pressed.
+/// Test aid: times (seconds on the world aids' clock, `crate::pause::WorldAidClock`) at
+/// which E counts as pressed.
 #[derive(Resource, Default)]
 struct AutoActivate {
     times: Vec<f32>,
@@ -321,12 +328,15 @@ impl AutoActivate {
     }
 }
 
+/// The clocks of the activate aid: time, the stopped-clock time and the world aids' clock
+/// (each absent in tests that build without them).
+type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
+
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
 fn activate(
     input: crate::bindings::ControlInput,
-    time: Option<Res<Time>>,
-    clock: Option<Res<crate::pause::PlayClock>>,
+    (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
     (target, next, vats): (Res<Target>, Option<ResMut<ActivateNext>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut sim: ResMut<SimState>,
@@ -353,8 +363,12 @@ fn activate(
         Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
     });
     let fired = match (auto, time) {
-        // The aids' clock goes on while a menu holds the picture (`crate::pause`).
-        (Some(mut a), Some(t)) => a.fire(t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs())),
+        // The aids' clock goes on while a menu holds the picture (`crate::pause`); a world
+        // aid, it waits for the scripts with NVF_PLAY_AIDS_FROM_SCRIPTS (`WorldAidClock`).
+        (Some(mut a), Some(t)) => {
+            let now = t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs());
+            world.map_or(Some(now), |w| w.at(now)).is_some_and(|now| a.fire(now))
+        }
         _ => false,
     };
     if !input.just_pressed(crate::bindings::Control::Activate) && !fired && queued.is_none() {
