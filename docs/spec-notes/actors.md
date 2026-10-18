@@ -1948,7 +1948,10 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
 - **A forced target** (§12.3) is looked at whatever its distance and direction; the
   turn limits and the easing still hold.
 - **No stare breaking**: an actor looks at its target for as long as the target counts.
-  Glancing away, blinking and eye movement are not built.
+  Glancing away is not built. Blinks, the eyes making up what the head's turn stops
+  short of, and small glances of the eyes are the idle face of
+  docs/spec-notes/lipsync.md §5.3 (`lips.rs`); a speaker's `.lip` head channels nod
+  the head on top of the turn (lipsync.md §5.1).
 
 ### 12.3 Engine
 
