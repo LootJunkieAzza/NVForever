@@ -28,11 +28,14 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// How long a `Disable 1` leaves its reference enabled (GetDisabled 0) while it fades
-/// out, seconds of game time; then it is disabled [observed: GetDisabled stayed 0 for all
-/// 240 game loops, about 3.5 s, after `Disable 1`, and a plain Disable read 1 the next
-/// loop, capture `disable_fade_getdisabled`, 2026-10-18; hypothesis: that it then turns 1,
-/// and when].
-pub const FADE_OUT_HOLD: f64 = 4.0;
+/// out, seconds; then it is disabled [observed: with the player 110 units away facing the
+/// Prospector Saloon's terminal, GetDisabled turned 1 after 111 game loops, 1.96–1.97 s
+/// of the game's clock, capture `disable_fade_long`, 2026-10-18; a plain Disable read 1
+/// the next loop, capture `disable_fade_getdisabled`]. That capture's own `Disable 1`,
+/// from the cell's arrival spot, read 0 for all 240 loops sampled (about 3.5 s): not
+/// explained [hypothesis: the original fades only what it draws, and the terminal was
+/// not in view]; here the hold is the same wherever the player looks.
+pub const FADE_OUT_HOLD: f64 = 2.0;
 
 /// `ref.Disable [FadeOut]`: the reference is no longer drawn; it fades out only when
 /// FadeOut is non-zero [documented: GECK wiki Disable, "Default = 0"]. A plain Disable

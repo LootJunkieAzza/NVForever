@@ -5920,14 +5920,15 @@ Every parameter docs/design/script-function-params.md §3 listed as ignored is n
 (the table there says what each does now). The GECK wiki pages settle most of them; these
 are my guesses, each with what would settle it:
 
-- **Fade length and shape** (Enable/Disable, 544 shipped calls): 1 second, a straight
-  line of the reference's alpha: still a guess, the capture's screenshots failed.
-  **GetDisabled** is settled in part [observed: captures 2026-10-18]: a plain Disable reads
-  1 at once, Enable 0 at once, but after `Disable 1` the original kept reading 0 for the
-  whole 3.5 s sampled. So ours now keeps a `Disable 1` reference enabled (GetDisabled 0,
-  collision on) while it fades out, and disables it after 4 s (*guess*: that it turns 1 at
-  all, and when). *Look for*: a script that disables something with a fade and checks
-  GetDisabled right after; and things that appear by script fading in.
+- **Fade length and shape** (Enable/Disable, 544 shipped calls). Settled in part
+  [observed: captures 2026-10-18]: a plain Disable reads GetDisabled 1 at once and Enable
+  0 at once; after `Disable 1`, facing the object, the original kept it enabled for about
+  2 s and then disabled it. Ours now fades out over 2 s, keeping the reference enabled
+  (collision on) meanwhile, then disables it. *Guesses*: the fade's shape (a straight line
+  of alpha) and the fade in's length (2 s too); all screenshots failed, so a rerun with
+  the window in front is needed to see them. *Not explained*: one earlier `Disable 1`,
+  from the cell's arrival spot, stayed enabled for all 3.5 s sampled. Perhaps the
+  original fades only what it draws.
 - **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
   unequipped" (my wording; the original's message is not known). Companions ignore
   NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.

@@ -4843,7 +4843,7 @@ expect = [
 [[scenario]]
 name = "enable-disable-fade"
 source = "docs/design/script-function-params.md §3: Enable fades in unless FadeIn is 0, Disable fades out only with FadeOut 1 (GECK wiki Enable, Disable; 544 shipped calls pass the flag)"
-note = "Sunny (SunnyRef 00104E85) is disabled with a fade at 14 s, enabled with the default fade at 17 s, then disabled and enabled without one at 20 s and 22 s: one fade each way. The fade's length (1 s) is a guess awaiting capture job enable_fade_timing"
+note = "Sunny (SunnyRef 00104E85) is disabled with a fade at 14 s, enabled with the default fade at 17 s, then disabled and enabled without one at 20 s and 22 s: one fade each way. A fade lasts 2 s: the time the original kept a Disable 1 reference enabled (capture disable_fade_long); the fade in's length is a guess"
 areas = ["script-params", "scripts"]
 paths = ["engine/nvf-play/src/fade.rs", "engine/nvf-play/src/script_events.rs", "crates/fnv-game/src/functions/refs.rs"]
 env = { NVF_PLAY_TEST_CONSOLE = "14:SunnyRef.disable 1;14.3:close;17:SunnyRef.enable;17.3:close;20:SunnyRef.disable;20.3:close;22:SunnyRef.enable 0;22.3:close" }
@@ -4851,10 +4851,10 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 25
 expect = [
   { re = 'script: \S*Sunny\S* disabled \(fading out\)', label = "Disable 1 asks for a fade" },
-  { re = 'fade: 0x00104E85 out over 1 s', count = 1, label = "one fade out" },
+  { re = 'fade: 0x00104E85 out over 2 s', count = 1, label = "one fade out" },
   { re = 'fade: 0x00104E85 out done', count = 1, label = "the fade out ends" },
   { re = 'script: \S*Sunny\S* enabled \(fading in\)', label = "a plain Enable fades in" },
-  { re = 'fade: 0x00104E85 in over 1 s', count = 1, label = "one fade in: Enable 0 pops" },
+  { re = 'fade: 0x00104E85 in over 2 s', count = 1, label = "one fade in: Enable 0 pops" },
   { re = 'fade: 0x00104E85 in done', count = 1, label = "the fade in ends" },
 ]
 

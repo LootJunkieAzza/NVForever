@@ -32,9 +32,11 @@ use fnv_sim::FormId;
 use nvf_assets::NifMaterial;
 use std::collections::HashMap;
 
-/// How long a fade lasts, seconds [hypothesis: not measured; capture job
-/// `enable_fade_timing`].
-pub const FADE_SECONDS: f32 = 1.0;
+/// How long a fade lasts, seconds: a fade out as long as the original kept the reference
+/// enabled while it faded (`fnv_game::functions::FADE_OUT_HOLD`, 2 s [observed: capture
+/// `disable_fade_long`]), and a fade in the same [hypothesis: not measured; every
+/// screenshot of the fade captures failed].
+pub const FADE_SECONDS: f32 = 2.0;
 
 /// Fade a reference in or out (sent by `script` after the reference's `RefChanged`).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
