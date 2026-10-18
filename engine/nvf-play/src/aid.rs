@@ -196,6 +196,10 @@ pub fn hour_passed(rt: &mut Runtime, sleeping: bool, hour: u32) {
     let p = rt.game.pass_hours(1.0, sleeping);
     rt.aid.hours += 1;
     let needs: Vec<String> = p.needs.iter().map(|&(c, a, b)| format!("{} {} → {}", av_name(c), whole(a), whole(b))).collect();
+    if !p.limbs_healed.is_empty() {
+        let names: Vec<&str> = p.limbs_healed.iter().map(|&c| av_name(c)).collect();
+        info!("sleep: crippled limbs healed: {}", names.join(", "));
+    }
     info!(
         "wait: hour {hour} passed for the player ({:.0} s of effects): {} effect(s) ended{}",
         p.seconds,
