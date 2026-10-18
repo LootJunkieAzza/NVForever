@@ -4335,9 +4335,9 @@ commands = [
   ["actor", "tri", "{data}", "--nif-schema", "schemas/nif", "--path", 'meshes\characters\head\eyelefthuman.tri'],
 ]
 expect = [
-  { json = "files.0.statistical_morphs.?label=LookDown.best_rotation.degrees", schema = "fnv.actor.tri/1", range = [21, 23], label = "LookDown turns the male left eye about 22°" },
-  { json = "files.0.statistical_morphs.?label=LookUp.best_rotation.degrees", schema = "fnv.actor.tri/1", range = [13, 14.5], label = "LookUp turns it about 14°" },
-  { json = "files.0.statistical_morphs.*.best_rotation.residual", schema = "fnv.actor.tri/1", range = [0, 0.1], count = 4, label = "all four Look morphs are turns (little left over after the best turn)" },
+  { json = "files.0.statistical_morphs.?label=LookDown.best_rotation.degrees", range = [21, 23], label = "LookDown turns the male left eye about 22°" },
+  { json = "files.0.statistical_morphs.?label=LookUp.best_rotation.degrees", range = [13, 14.5], label = "LookUp turns it about 14°" },
+  { json = "files.0.statistical_morphs.*.best_rotation.residual", range = [0, 0.1], count = 4, label = "all four Look morphs are turns (little left over after the best turn)" },
 ]
 
 [[scenario]]
@@ -4382,3 +4382,25 @@ expect = [
   { re = 'face idle summary: .*; (?P<n>\d+) blinks', range = [3, 2000], label = "they blinked" },
   { re = 'face idle summary: .* (?P<n>\d+) glances', range = [3, 2000], label = "their eyes glanced" },
 ]
+
+[[scenario]]
+name = "lip-face-held"
+source = "docs/spec-notes/lipsync.md §5 (test aid NVF_LIP_TEST_HOLD): held head channels nod the head, Look moves the eyes, an expression shows; frames lip_face_rest.png (nothing held, idle face off) and lip_face_held.png in target/smoke, Sunny Smiles from 100 units"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_LIP_TEST_HOLD = "HeadPitch=0.17,HeadYaw=0.15,LookLeft=0.5,Anger=0.6", NVF_PLAY_TEST_SHOTS = "9:lip_face_held.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = [
+  { re = 'lip test: holding the given weights on \d+ shapes \((?P<n>\d+) morphs\)', range = [20, 400], label = "faces hold the weights" },
+]
+
+[[scenario]]
+name = "lip-face-rest"
+source = "the rest frame for lip-face-held: the same view with nothing held (lip_face_rest.png)"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SHOTS = "9:lip_face_rest.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages", "--no-face-idle"]
+run_seconds = 12
+expect = ["face idle: off (--no-face-idle)"]

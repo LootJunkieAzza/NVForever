@@ -527,3 +527,23 @@ Screenshots are kept privately, outside the repository.
 - Not checked: sync by ear (the runs were silent; the owner's to judge), child and ghoul
   heads on screen (their `.tri` files parse and fit their models, §4.3), a speaker
   whose cell unloads mid-line.
+
+## 9. Checks (2026-10-18): head, eyes, emotions, idle face
+
+Windowed `--play --no-voice` runs by the smoke runner (scenarios `lip-head-turn`,
+`lip-emotion`, `face-idle`, `lip-face-held`, `lip-face-rest`, and the tool check
+`lip-eye-turns`); all passed.
+
+- Chet's conversation (GSGeneralStore): 4 responses animated, head turns of 1.9° to 4.7°
+  on each; the greeting's third response showed Surprise.
+- Joe Cobb's angry line to Trudy (saloon): `emotion Anger 50` on his line and Trudy's
+  answer; 3 idle faces, 25 blinks and 46 glances in 40 s, the eyes following a
+  head-tracking target on all 3.
+- The saloon for 30 s: 1 idle face (Sunny Smiles), 9 blinks, 16 glances.
+- Held weights (`HeadPitch=0.17, HeadYaw=0.15, LookLeft=0.5, Anger=0.6`, Sunny Smiles
+  from 100 units, against the same view at rest; frames kept privately): the head turns
+  to her right and dips, the brows draw down, the eyes go to the side; head, neck, hair
+  and eyes stay together.
+- Not checked: the original's own head nods beside ours (the capture job of §3.3), the
+  head turn on a talking actor in close-up frame by frame, female, old, child and ghoul
+  heads in close-up.
