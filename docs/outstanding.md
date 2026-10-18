@@ -17,13 +17,14 @@ abilities and worn enchantments (80, #377), corpses stood up again (76, #391), f
 travel (60, #393), knock-outs (essential and fatigue, #403; row 1 below keeps what is
 left of knockdowns), used items and the remaining package types and flags (#400),
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
-(#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413). 42 functions are
-still stubs.
+(#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413). 38 functions are
+still stubs. Saves from scripts and PlaceAtReticle are built (rows 2 and 12,
+2026-10-18, [script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)).
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
 | 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
-| 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
+| 2 | Saves from scripts (done 2026-10-18) | 29 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)): SystemSave writes the one system slot, ForceSave a new save as by hand; both behind the scripts' save switch | (none) |
 | 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
@@ -33,7 +34,7 @@ still stubs.
 | 9 | Menu codes | 6 | MenuMode does not report every menu's code (the Pip-Boy's 1 and the loading codes) | MenuMode |
 | 10 | Caravan | 5 | The card game is not built | ShowCaravanMenu and its functions |
 | 11 | Race and sex changes on NPCs | 5 | AgeRace is a stub; SexChange errors on NPCs (the player's works) | AgeRace, SexChange |
-| 12 | Placing at the crosshair | 5 | Cheap | PlaceAtReticle |
+| 12 | Placing at the crosshair (done 2026-10-18) | 5 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md) §4): the new reference goes where the crosshair's ray first hits, within maxDistance | (none) |
 | 13 | A leveled actor's level re-rolled | 4 | SetLevel sets the level but does not re-roll the NPC's inventory | SetLevel |
 | 14 | Cannibal and Mister Sandman | 3 | The perks' activate choices are not built | (perk entry points) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |

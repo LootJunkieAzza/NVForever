@@ -31,6 +31,8 @@ pub const EXTENSION: &str = "nvfsave";
 /// The rolling slots' names.
 pub const QUICK_NAME: &str = "quicksave";
 pub const AUTO_NAME: &str = "autosave";
+/// SystemSave's one slot (the original labels it SYS [documented: GECK wiki SystemSave]).
+pub const SYSTEM_NAME: &str = "systemsave";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SaveError {
@@ -58,6 +60,8 @@ pub enum SaveKind {
     Manual,
     Quick,
     Auto,
+    /// A script's SystemSave: one rolling slot, offered for loading only.
+    System,
 }
 
 /// One plugin of the load order a save was made with.
