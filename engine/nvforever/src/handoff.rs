@@ -168,12 +168,18 @@ fn tell_player(why: &str) {
     if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_"))) {
         return;
     }
-    let text = format!("The save could not be loaded.
+    // rfd is a Windows-only dependency; elsewhere the log line carries the reason.
+    #[cfg(windows)]
+    {
+        let text = format!("The save could not be loaded.
 
 {why}");
-    std::thread::spawn(move || {
-        rfd::MessageDialog::new().set_title("NVForever").set_level(rfd::MessageLevel::Warning).set_description(text).show();
-    });
+        std::thread::spawn(move || {
+            rfd::MessageDialog::new().set_title("NVForever").set_level(rfd::MessageLevel::Warning).set_description(text).show();
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = why;
 }
 
 /// A file name no other handoff uses.
