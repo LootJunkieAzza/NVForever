@@ -19,13 +19,13 @@ left of knockdowns), used items and the remaining package types and flags (#400)
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
 (#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413), race and sex
 changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking activators
-(claude/actor-changes). 26 functions are still stubs. Saves from scripts and PlaceAtReticle
+(claude/actor-changes). 23 functions are still stubs. Saves from scripts and PlaceAtReticle
 are built (rows 2 and 12, 2026-10-18,
 [script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)).
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
-| 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
+| 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. The player is knocked down too (§5.4, 2026-10-18): ragdoll, camera on the body (first person goes to third person for it), controls held, the get-up idle. Left: the push's force scale and the NPCs' 3 s down are guesses (owner-review); the player's camera and 2.4 s down are from the capture `kd_player_knockdown` | (none) |
 | 2 | Saves from scripts (done 2026-10-18) | 29 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)): SystemSave writes the one system slot, ForceSave a new save as by hand; both behind the scripts' save switch | (none) |
 | 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
 | 4 | Animation state told to the rules (done 2026-10-18) | 22 | Built ([anim state](spec-notes/anim-state.md)): the engine tells each drawn actor's and the player's body every frame; GetAnimAction answers shots (2, 3, 4), blows, reloads (9), blocks and special idles by the New Vegas codes, checked against the AI observer; IsMoving gives the way, IsAnimPlaying an actor's movement group, IsIdlePlaying an actor on furniture, IsPlayerActionActive action 9 (iron sights). Left: GetAnimAction's throw phases (5, 6) and the unexplained 17; IsPlayerActionActive's other indices (no list in the wiki export) | (none) |
@@ -42,7 +42,7 @@ are built (rows 2 and 12, 2026-10-18,
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
 | 16 | Miscellaneous stats, scale | 3 each | Built (misc-stats.md, 2026-10-18): all 43 statistics have codes, 26 counted by the rules and the engine, the Pip-Boy shows them; SetScale drawn and collided. Not counted: the 17 of misc-stats.md §3 (pickpocketing, dismemberment, Caravan, slots, skill books, New Vegas speech checks) | (GetPCMiscStat, SetScale) |
 | 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
-| 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), navmesh switches. Done 2026-10-18 (script-stubs.md §3.15): AutoDisplayObjectives (the HUD keeps the objectives on screen), ExitGame (back to the main menu; no credits); SetPCCanUsePowerArmor (power armour needs the training, appearance-changes.md §4) | |
+| 18 | One quest each | 1 each | Screen splatter. Done 2026-10-18: AutoDisplayObjectives (the HUD keeps the objectives on screen), ExitGame (back to the main menu; no credits) (script-stubs.md §3.15); the AI package codes (Sandbox, Travel-at-goal) and the navmesh switches (script-stubs.md §3.16); SetPCCanUsePowerArmor (power armour needs the training, appearance-changes.md §4) | |
 
 Rows the coverage table ranks with 0 quests are not listed. The table's own §3.3 lists
 six functions still waiting for an in-game capture to settle their answers.

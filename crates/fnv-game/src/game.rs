@@ -275,6 +275,10 @@ pub struct RefExtra {
     /// GetIsUsedItem and its kin read (`functions::furniture`). Not saved.
     #[serde(skip)]
     pub used_item: Option<FormId>,
+    /// What the AI layer has the actor do within its package (`crate::ai::AiPhase`),
+    /// for GetCurrentAIProcedure. Not saved.
+    #[serde(skip)]
+    pub ai_phase: Option<crate::ai::AiPhase>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
@@ -927,6 +931,9 @@ pub struct Game<'a> {
     /// Fights started by being hit, friendly hits, yields and allies joining
     /// (`crate::provocation`). Not part of the saved state.
     pub provocations: crate::provocation::Provocations,
+    /// Navmeshes the scripts enabled or disabled, and setAllReachable
+    /// (`functions::navigation`). Saved.
+    pub nav_switches: crate::functions::navigation::NavSwitches,
     /// Combat-tab lines: attack timers, health marks, DeathResponse lines due
     /// (`crate::combat_lines`). Not part of the saved state.
     pub combat_lines: crate::combat_lines::CombatLines,
@@ -1154,6 +1161,9 @@ pub struct GameSnapshot {
     pub grudges: Vec<((FormId, FormId), crate::provocation::Grudge)>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub forgiven: BTreeMap<FormId, f64>,
+    /// Navmeshes the scripts switched, and setAllReachable (`functions::navigation`).
+    #[serde(default, skip_serializing_if = "crate::functions::navigation::NavSwitches::is_empty")]
+    pub nav_switches: crate::functions::navigation::NavSwitches,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -1221,6 +1231,7 @@ impl<'a> Game<'a> {
             detection: Default::default(),
             awareness: Default::default(),
             provocations: Default::default(),
+            nav_switches: Default::default(),
             combat_lines: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
@@ -2906,6 +2917,7 @@ impl<'a> Game<'a> {
             raining: self.weather.raining,
             grudges: self.provocations.grudges.iter().map(|(k, v)| (*k, *v)).collect(),
             forgiven: self.provocations.forgiven.clone(),
+            nav_switches: self.nav_switches.clone(),
         }
     }
 
@@ -2946,6 +2958,7 @@ impl<'a> Game<'a> {
         g.weather.raining = s.raining;
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
+        g.nav_switches = s.nav_switches.clone();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

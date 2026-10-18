@@ -523,7 +523,9 @@ impl Game<'_> {
             return false;
         }
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
-        if out(self, actor) || out(self, other) || self.is_dead(other) {
+        // A knocked-down player stays a target (unconscious.md §5.4) [design].
+        let player_down = other == FormId::PLAYER_REF && self.extra.get(&other).is_some_and(|e| e.knocked_out.is_some() && !e.unconscious && !e.restrained);
+        if out(self, actor) || (out(self, other) && !player_down) || self.is_dead(other) {
             return false;
         }
         if self.awareness.forced.contains(&(actor, other)) || self.provocations.holds(actor, other) {

@@ -142,7 +142,7 @@ changed. Jobs and outputs are private (`C:\fnv-private\capture\probe\audit2`, `�
 
 Attended, from the audit's §4 (the plugin cannot script them): GetActionRef/IsActionRef
 when an NPC opens a scripted door; IsInCombat of two hostile NPCs out of the player's
-reach; ResetAI on an actor in combat; GetCurrentAIProcedure at a Travel destination;
+reach; ResetAI on an actor in combat; ~~GetCurrentAIProcedure at a Travel destination~~ (17, settled by the AI observer's samples, packages.md §4);
 IsInCriticalStage after a plasma critical kill; GetUnconscious/GetKnockedState of an
 essential knocked out; whether cashing chips counts for GetCasinoWinningsLevel. Unattended
 but not run yet: GetSleeping while the player sleeps (the Wait menu), MenuMode codes in
@@ -212,7 +212,7 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
    ~~**the engine's animation state**~~ (IsAnimPlaying,
    IsIdlePlaying, IsMoving's directions, IsPlayerActionActive: told by the engine every
    frame since 2026-10-18, docs/spec-notes/anim-state.md) and **AI package codes**
-   (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2): each a few dozen quests.
+   (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2; built 2026-10-18, script-stubs.md §3.16): each a few dozen quests.
 9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan**,
    **slot machines**.
 
@@ -264,9 +264,9 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 21 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
 | 23 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 24 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
+| 24 | AI package codes | match (2026-10-18, packages.md §4 procedure codes) | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
 | 25 | objective display switch | built | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
-| 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
+| 26 | navmesh switches | match (2026-10-18, script-stubs.md §3.16) | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
 | 27 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
 | 28 | power armour training | built | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
 | 29 | quitting from scripts | built | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
@@ -326,7 +326,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | DamageObject | 0x116C | 89 / 0 | match | - | - |  |
 | DetonatePlacedExplosives | 0x124D | 1 / 0 | match | - | - |  |
 | Disable | 0x1022 | 3336 / 0 | match | - | - |  |
-| DisableNavmesh | 0x11BF | 2 / 0 | no-system | navmesh switches | - | Stub. |
+| DisableNavmesh | 0x11BF | 2 / 0 | match | navmesh switches | - | The navmesh leaves the AI's paths until enabled; saved (script-stubs.md §3.16). |
 | DisablePlayerControls | 0x1061 | 220 / 0 | match | - | - |  |
 | Dispel | 0x1142 | 56 / 0 | match | - | - |  |
 | DispelAllSpells | 0x1148 | 11 / 0 | match | - | - |  |
@@ -335,7 +335,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | Enable | 0x1021 | 3324 / 0 | match | - | - |  |
 | EnableFastTravel | 0x1111 | 83 / 0 | no-system | fast travel | - | The switch is kept; fast travel itself is not built. |
 | EnableLoadingMenu | 0x1270 | 2 / 0 | no-system | loading screen control | - | Stub. |
-| EnableNavMesh | 0x11C0 | 5 / 0 | no-system | navmesh switches | - | Stub. |
+| EnableNavMesh | 0x11C0 | 5 / 0 | match | navmesh switches | - | The navmesh takes part in the AI's paths again; saved (script-stubs.md §3.16). |
 | EnablePlayerControls | 0x1060 | 177 / 0 | match | - | - |  |
 | EnterTrigger | 0x11BA | 160 / 0 | match | - | - |  |
 | EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
@@ -370,7 +370,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetContainer | 0x10CF | 11 / 0 | match | - | - |  |
 | GetContainerInventoryCount | 0x127A | 3 / 0 | match | - | - |  |
 | GetCurrentAIPackage | 0x106E | 15 / 15 | match | - | differs 11, same 4 | Codes agree where both run the same package: Sandbox 36, Dialogue 34, Travel 14, Patrol 37; 0 with no package (was -1) [observed: probes fp7 with GetIsCurrentPackage]. Other differences were different package choices (the save's hour and quest state). |
-| GetCurrentAIProcedure | 0x108F | 16 / 64 | wrong | AI package codes | differs 6 | A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Still apart: a loaded actor sandboxing read 0 (ours 45), an unloaded one 45; a Travel package at its chair 17 [observed: probes]. |
+| GetCurrentAIProcedure | 0x108F | 16 / 64 | match | AI package codes | differs 6 | A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Since 2026-10-18 by what the actor does, from the AI observer's samples (packages.md §4, procedure codes): a loaded sandboxing actor 0, 7, 46, 48, 10, 8 or 21, an unloaded one 45; a Travel package 0 on the way and 17 at its goal, seated too; 17 only for the package types that end [observed]. |
 | GetCurrentTime | 0x1012 | 89 / 138 | match | - | - |  |
 | GetDayOfWeek | 0x10AA | 24 / 11 | match | - | same 2 |  |
 | GetDead | 0x102E | 1120 / 725 | match | - | same 3 |  |
@@ -596,7 +596,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetActorsAI | 0x118B | 3 / 0 | match | - | - |  |
 | SetActorValue | 0x100F | 730 / 0 | match | - | - |  |
 | SetAlert | 0x105A | 39 / 0 | match | - | - |  |
-| setAllReachable | 0x1159 | 2 / 0 | no-system | navmesh switches | - | Stub. |
+| setAllReachable | 0x1159 | 2 / 0 | match | navmesh switches | - | Kept and saved; ways are planned in full here, so nothing is skipped (script-stubs.md §3.16). |
 | SetAllVisible | 0x115A | 5 / 0 | match | - | - | A performance switch: nothing to do here. |
 | SetAlly | 0x1079 | 127 / 0 | match | - | - |  |
 | SetAngle | 0x1009 | 50 / 0 | match | - | - |  |
