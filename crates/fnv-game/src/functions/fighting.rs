@@ -102,19 +102,36 @@ pub fn force_flee(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// `actor.GetKnockedState`: −1 knocked out by fatigue, 0 normal, 1 knocked out
 /// (unconscious essentials, paralysis, negative fatigue), 2 knocked down [documented:
 /// GECK wiki GetKnockedState]. Here −1 for a fatigue knockout, 1 for an essential one
-/// (`crate::unconscious`) and for SetUnconscious [hypothesis for SetUnconscious], else 0:
-/// live knockdowns are not built (PushActorAway is a stub), and an actor pushed away
-/// gives 0 anyway [documented: catalogue notes].
+/// (`crate::unconscious`) and for SetUnconscious [hypothesis for SetUnconscious], 2 for
+/// an explosion's knockdown, else 0. An actor PushActorAway laid down reads 0 until it is
+/// up, also when it is knocked out meanwhile [documented: the page's notes].
 pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     use crate::unconscious::Cause;
     let r = ctx.subject()?;
-    let state = match g.knockout(r).map(|k| k.cause) {
-        Some(Cause::Fatigue) => -1.0,
-        Some(Cause::Essential) => 1.0,
+    let state = match g.knockout(r) {
+        Some(k) if k.pushed && k.lying() => 0.0,
+        Some(k) => match k.cause {
+            Cause::Fatigue => -1.0,
+            Cause::Essential => 1.0,
+            Cause::KnockedDown => 2.0,
+            Cause::Pushed => 0.0,
+        },
         None if g.extra.get(&r).is_some_and(|e| e.unconscious) => 1.0,
         None => 0.0,
     };
     Ok(Value::Num(state))
+}
+
+/// `source.PushActorAway target force`: knocks the target down and throws it away from
+/// the source with the force (towards it when negative; straight up without a source); no
+/// effect on the dead, immobile creatures or actors flagged No Knockdowns [documented:
+/// GECK wiki PushActorAway]. The rules are [`Game::push_actor_away`]. The player is not
+/// knocked down [design: not built].
+pub fn push_actor_away(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let target = a.form(0)?;
+    let force = a.num_or(1, 0.0);
+    g.push_actor_away(ctx.subject().ok(), target, force);
+    none()
 }
 
 /// The GetCauseofDeath code of a death by a weapon of WEAP DNAM animation type

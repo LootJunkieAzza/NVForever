@@ -18,6 +18,19 @@ Microsoft or Obsidian Entertainment. See [LEGAL.md](LEGAL.md).
 NVForever never writes into the game folder. Its settings, saves and logs live in
 `Documents\My Games\NVForever`.
 
+## Mods
+
+- **Mod Organizer 2:** add `nvforever.exe` to MO2's executables (the drop-down beside
+  **Run**, then **<Edit…>**) and start it from there. It loads the plugins ticked in MO2,
+  in MO2's order, and the game folder MO2 manages. See
+  [docs/mod-organizer-2.md](docs/mod-organizer-2.md).
+- **Without a mod manager:** put the mod in the game's `Data` folder, then turn its plugin
+  on in `Documents\My Games\NVForever\plugins.txt` with a `*` in front of its line. The
+  order of the lines is the load order. NVForever keeps its own list, so the original
+  game's mod list is not changed.
+
+Mods that need NVSE may not work yet: NVSE plugins (`.dll`) do not run in NVForever.
+
 ## Building from source
 
 Needs [Rust](https://rustup.rs) and Python 3.11+.

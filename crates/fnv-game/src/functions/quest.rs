@@ -147,7 +147,7 @@ pub fn complete_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     let s = g.quest(q);
     if !s.completed {
         s.completed = true;
-        g.emit(crate::trace::EventKind::QuestCompleted { quest: q });
+        g.quest_completed(q);
     }
     none()
 }

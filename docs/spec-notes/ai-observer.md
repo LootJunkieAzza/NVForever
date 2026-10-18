@@ -509,7 +509,11 @@ taught about running them:
   units short; sessions now move the player onto an actor's spot first.
 - **Disabled crowds**: arriving by `coc` from the early-game save left the Strip's
   trigger-enabled NPCs disabled (the owner saw them missing); the scan skips disabled
-  actors. Campaign `strip` starts from the owner's save `nvfstrip` instead (not run).
+  actors. Campaign `strip` starts from the owner's save `nvfstrip` instead; its
+  `strip_evening` session ran on 2026-10-18 (5.9 game hours, no problems; docs/outstanding.md
+  §4). In `nvfstrip`, Cook-Cook's camp is already cleared, so sessions that need living Fiends
+  there (npc_battles, owner_decisions' `alert_noise`) run from `nvftest` [observed
+  2026-10-18].
 - **Stopping a run without freeing the game too early**: when a campaign is cut short,
   remove its pending jobs, stop the supervisor (it would restart the game for the rest),
   and keep the locks until the game has quit.

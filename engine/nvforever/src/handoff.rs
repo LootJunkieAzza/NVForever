@@ -15,7 +15,9 @@
 //!    old one, takes the focus and writes the file.
 //! 3. This run sees the file and ends.
 //!
-//! If the new run ends before it is ready, the screen comes down and this game goes on.
+//! If the new run ends before it is ready, the screen comes down and this game goes on;
+//! when the new run's log says why it stopped (a save made with other plugins, say), the
+//! player is told in a message box (not in unattended runs) and the log line carries it.
 //! Closing this window while it waits ends the new run too. A new run still hidden after
 //! [`SHOW_AFTER_SECS`] shows itself anyway.
 //!
@@ -27,7 +29,7 @@
 //! Log: `load: handing over to a new run with --load <path>` (`with --menu`), `handoff:
 //! window shown after <s> s` (`, before the world was in` past the time limit), `load: the
 //! new run is up after <s> s; ending this one`, `load: the new run ended (<status>) before
-//! it was ready; staying`.
+//! it was ready[: <why>]; staying`.
 
 use bevy::audio::{AudioSink, AudioSinkPlayback, SpatialAudioSink};
 use bevy::ecs::system::NonSendMarker;
@@ -159,6 +161,27 @@ fn placement(window: &Window, entity: Entity) -> Placement {
     })
 }
 
+/// A message box saying why a load did not happen, on its own thread so the game goes on
+/// drawing behind it; none in unattended runs, which would wait on it.
+fn tell_player(why: &str) {
+    // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
+    if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NVF_PLAY_TEST_"))) {
+        return;
+    }
+    // rfd is a Windows-only dependency; elsewhere the log line carries the reason.
+    #[cfg(windows)]
+    {
+        let text = format!("The save could not be loaded.
+
+{why}");
+        std::thread::spawn(move || {
+            rfd::MessageDialog::new().set_title("NVForever").set_level(rfd::MessageLevel::Warning).set_description(text).show();
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = why;
+}
+
 /// A file name no other handoff uses.
 fn ready_file() -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
@@ -237,7 +260,13 @@ pub fn leave(
                     *h = Leaving::Waiting(s);
                     return;
                 }
-                Ok(Some(status)) => format!("the new run ended ({status}) before it was ready"),
+                Ok(Some(status)) => match crate::crash::stopped_at_start(s.child.id()) {
+                    Some(why) => {
+                        tell_player(&why);
+                        format!("the new run ended ({status}) before it was ready: {why}")
+                    }
+                    None => format!("the new run ended ({status}) before it was ready"),
+                },
                 Err(e) => format!("cannot tell whether the new run is still going ({e})"),
             };
             warn!("load: {ended}; staying");

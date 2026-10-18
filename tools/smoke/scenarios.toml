@@ -1986,15 +1986,17 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
 # [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
+# claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
+# 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
 # claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
-# docs/spec-notes/script-saves-and-reticle.md) [observed: the coordinator's run of #430,
-# 2026-10-18]: 42 → 39 stubs, 214 → 204 calls.
+# docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
+# fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 39 },
+  { json = "summary.stubs", equals = 38 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 38 },
+  { json = "summary.by_status.needs_system", equals = 37 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 204 },
+  { json = "summary.stub_calls", equals = 169 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2027,6 +2029,37 @@ order = [
   ],
 ]
 expect = ["script look summary: 1 looks started, 1 stopped"]
+
+[[scenario]]
+name = "script-look-body"
+source = "docs/design/script-stubs.md §3, crates/fnv-ai/src/social.rs (Ai::face_looks): Look with rotateBody 1 turns Sunny's whole body, first to Cheyenne, then to the player, until StopLook, with the AI running her (GECK wiki Look)"
+areas = ["scripts", "speech-look", "ai"]
+paths = [
+  "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/social.rs",
+  "engine/nvforever/src/script_look.rs", "engine/nvforever/src/speech_look.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:Look:0x0010588E:1,13:call:SunnyRef:Look:player:1,20:call:SunnyRef:StopLook" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+# The AI runs Sunny (packages are on with --play): fnv_ai turns her, standing at her
+# place, at her walker's turn rate; the engine leaves her body to it. Cheyenne and the
+# player stand in different directions from her (speech-look: Cheyenne -160 degrees off
+# her front, the player +50), so each Look turns her.
+order = [
+  [
+    { re = 'script look: SunnyRef looks at ', label = "script look: Sunny looks at Cheyenne" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: turns its body to CheyenneREF for a script.s Look', label = "ai: Sunny turns her body to Cheyenne" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: faces CheyenneREF for a script.s Look', label = "ai: Sunny faces Cheyenne" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: turns its body to the player for a script.s Look', label = "ai: Sunny turns her body to the player" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: faces the player for a script.s Look', label = "ai: Sunny faces the player" },
+    { re = 'script look: SunnyRef stops looking', label = "script look: StopLook ends it" },
+  ],
+]
+expect = [
+  { re = 'ai \[[0-9:]+\] SunnyRef: is let go by a script.s Look; the body keeps heading', count = 1 },
+  { re = "keeps its body for a script's Look", count = 0 },
+  "script look summary: 1 looks started, 1 stopped; 0 body turns, 2 bodies left to the AI, 0 stayed",
+]
 
 [[scenario]]
 name = "script-stubs-2-play"
@@ -3715,10 +3748,14 @@ order = [["controls: input device Controller", { re = 'rumble: first shot' }]]
 name = "death-cam-first"
 source = "owner 2026-10-16: when the player dies the body drops as a ragdoll with the first-person view fixed to its head, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
-paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/imagespace.rs", "engine/nvf-play/src/script.rs"]
+paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/imagespace.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/audio_out.rs"]
 env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
+order = [[
+  { re = 'sound speed: 1\.00 -> 0\.\d\d', label = "sounds slow with the death camera's slow motion (owner 2026-10-18)" },
+  { re = 'sound speed: 0\.\d\d -> 1\.00', label = "and come back to speed when it ends" },
+]]
 expect = [
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
@@ -3751,7 +3788,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays on it",
-  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest", known_failing = "flaky, the same cause as death-cam-first's: on 2026-10-18 the desktop ran it on f161b419 (before #432: PASS, then FAIL), 94f94ffc (#432 merged: PASS) and main bc13755b (FAIL twice), and the laptop failed it twice on b4e8fea4 (main 94f94ffc with #433 and #434); when it fails the player's ragdoll is still turning about 1.4 rad/s at exit and stayed calm 0.86 s of the 1.5 s that sets it ('ragdoll: actor 00000014 not at rest at exit')" },
 ]
 
 [[scenario]]
@@ -3923,7 +3960,7 @@ expect = [
 name = "roulette"
 source = "docs/spec-notes/roulette.md §7: The Tops' roulette table (0x0011ED93 in TOPSCasino) activated with 500 Tops chips: the help the first time, a straight-up on 17 and red, the ball made to stop in 17 (black): 25 x 36 back, 10 lost; screenshots of the felt and the wheel"
 areas = ["roulette"]
-paths = ["crates/fnv-game/src/roulette.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/roulette*", "engine/nvf-play/src/roulette/**", "engine/nvforever/src/roulette_view.rs", "crates/fnv-nif/src/anim.rs"]
+paths = ["crates/fnv-game/src/roulette.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/roulette*", "engine/nvf-play/src/roulette/**", "engine/nvforever/src/roulette_view.rs", "crates/fnv-nif/src/anim.rs", "engine/nvf-play/src/lockpick/help.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0011ED93", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0011ED93", NVF_PLAY_TEST_ROULETTE = "18:chips:500,36:help,37:bet:25,37.2:at:D12,37.4:place,37.6:bet:10,37.8:at:S08,38:place,38.2:at:C13,39:pocket:17,39.2:spin,53.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:roulette_help.png,38.8:roulette_bets.png,42:roulette_spin.png,46:roulette_ball.png,48:roulette_ball2.png,49.3:roulette_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
 run_seconds = 56
@@ -3947,7 +3984,7 @@ expect = [
 name = "blackjack"
 source = "docs/spec-notes/blackjack.md: ShowBlackJackMenuParams GomorrahCasinoData 1 200 0 (as the tables' script) refused without chips; with 500 the Gomorrah table opens with its help; a stacked natural pays 3 to 2, a split pair loses both hands to the dealer's 21, then rounds play by themselves and the player leaves"
 areas = ["blackjack", "menus"]
-paths = ["crates/fnv-game/src/blackjack.rs", "engine/nvf-play/src/blackjack.rs", "engine/nvf-play/src/blackjack/**", "engine/nvforever/src/blackjack_view.rs"]
+paths = ["crates/fnv-game/src/blackjack.rs", "engine/nvf-play/src/blackjack.rs", "engine/nvf-play/src/blackjack/**", "engine/nvforever/src/blackjack_view.rs", "engine/nvf-play/src/lockpick/help.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "13:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;13.2:close;16:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;16.2:close", NVF_PLAY_TEST_BLACKJACK = "1:seed:7,12:chips:140521:0,15:chips:140521:500,15.5:stack:Ah-9c-Kd-7s-8h-10c-8d-6s-3c-10d-9h-5c,19:help,20:bet:25,21:deal,25:deal,29:split,32:hit,34:stay,36:stay,40:auto,52:exit", NVF_PLAY_TEST_SHOTS = "18:blackjack_help.png,24:blackjack_natural.png,38.5:blackjack_split.png" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
 run_seconds = 60
@@ -4236,18 +4273,20 @@ name = "vats-mode-two-marks"
 source = "owner's todo 6: VATS mode, a Dead Eye-style mark and fire (docs/design/vats-mode.md §13)"
 note = "the two Goodsprings dogs (combat-dogs' spot) attack the player, who cannot die (GOD) and holds a .357 (WeapNV357Revolver 0008F216: 26 AP a shot from its DNAM override, 6 rounds; god mode keeps the magazine full). V at 10 s enters VATS mode (after the add-on packs' start-up boxes, about 6.5 s of game time: any menu ends the mode, and one cut the firing short at 6 s, coordinator run 2026-10-18); the clock then runs at 0.05, so the aids 10.3-10.42 s (game time) come about 1 s apart in real time; aimvats turns to the nearest unmarked living actor, the left button marks it, twice; E fires both at half speed. 2 x 26 = 52 AP"
 areas = ["combat", "vats"]
-paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/control.rs"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/control.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
   { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot, 6 rounds loaded', label = "V enters VATS mode with the .357: 26 AP a shot, 6 rounds" },
+  { re = 'sound speed: 1\.00 -> 0\.\d\d', label = "sounds slow with the mode (owner 2026-10-18)" },
   { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "the first mark reserves 26 AP" },
   { re = 'vats mode: marked .* mark 2; 52 AP reserved', label = "the second mark reserves 52 AP" },
   "vats mode: firing 2 marked shots",
   { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent', label = "the first shot" },
   { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent', label = "the second shot" },
   { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "the mode ends after both shots, 52 AP spent" },
+  { re = 'sound speed: 0\.\d\d -> 1\.00', label = "sounds are back at speed after the mode" },
 ]]
 expect = [
   { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the summary: two marks, two shots, 52 AP" },
@@ -4345,3 +4384,46 @@ order = [[
   "creator: closed",
 ]]
 manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"
+
+[[scenario]]
+name = "misc-stats-scale"
+source = "outstanding.md §1 row 16 (docs/spec-notes/misc-stats.md): every New Vegas statistic name compiles at the console and ModPCMiscStat adds to its counter; SetScale on an actor draws it at that scale and GetScale reads it back"
+areas = ["scripts", "console", "pipboy"]
+paths = ["crates/fnv-game/src/misc_stats.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvforever/src/actor_scale.rs", "engine/nvf-play/src/moved.rs", "engine/nvf-play/src/script_draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:getpcmiscstat \"Barter Amount Traded\";14.3:modpcmiscstat \"Barter Amount Traded\" 7;14.6:getpcmiscstat \"barter amount traded\";15:prid DocMitchellREF;15.3:setscale 1.5;15.6:getscale;16:close", NVF_PLAY_TEST_SHOTS = "18:misc_scale_doc.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "console: GetPCMiscStat >> 0.00",
+  "console: GetPCMiscStat >> 7.00",
+]]
+expect = [
+  { text = "console: GetScale on DocMitchellREF >> 1.50", label = "GetScale reads SetScale's value" },
+  { re = 'actor scale: [0-9A-F]{8} drawn at script scale 1\.5', label = "Doc is drawn at the script's scale" },
+]
+manual = "misc_scale_doc.png: Doc Mitchell half again as tall as before"
+
+[[scenario]]
+name = "knockdown-push"
+source = "playthrough blocker row 1 (docs/outstanding.md): PushActorAway knocks a live actor down as a ragdoll thrown from the source, GetKnockedState reads 0 for it, and it gets up again (docs/spec-notes/unconscious.md §5)"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s (once the scripts run); at 16 s the console pushes him with force 10 from the player and reads his GetKnockedState (0 for a pushed actor, the wiki's note); he lies 3 s of game time (a design value), plays his get-up clip and is up"
+areas = ["combat", "knockouts", "scripts"]
+paths = ["crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/fighting.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:player.pushactoraway EasyPeteRef 10;16.3:EasyPeteRef.getknockedstate;16.6:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  "console: > player.pushactoraway EasyPeteRef 10",
+  "knockout: Easy Pete … knocked down (pushed)",
+  "knockout: Easy Pete … gets up (pushed knockout over)",
+]]
+expect = [
+  { re = 'knockout: Easy Pete \S+ knocked down \(pushed\)', label = "Easy Pete is knocked down by the push" },
+  { re = 'knockout: [0-9A-F]{8} thrown at \(-?\d+, -?\d+, \d+\) units/s', label = "his body is thrown" },
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "he drops as a ragdoll" },
+  { re = 'console: GetKnockedState on EasyPeteRef >> 0\.00\b', label = "GetKnockedState reads 0 for a pushed actor" },
+  { re = 'knockout: Easy Pete \S+ gets up \(pushed knockout over\)', label = "he gets up after his time down" },
+  { re = 'knockout: [0-9A-F]{8} is up: it may move again', label = "his get-up clip ends" },
+  { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
+  { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
+]

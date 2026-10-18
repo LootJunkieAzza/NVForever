@@ -456,6 +456,11 @@ impl<'a> Game<'a> {
         // Knocked out or set unconscious: no conversation (docs/spec-notes/unconscious.md
         // §3); the player's attempt is told (`EventKind::TalkedToUnconscious`).
         if self.is_out_cold(actor) {
+            // Knocked down for a moment (unconscious.md §5): no conversation, but not
+            // told as unconscious [design].
+            if self.knockout(actor).is_some_and(|k| k.cause.knockdown()) && !self.extra.get(&actor).is_some_and(|e| e.unconscious) {
+                return Err(format!("{} is knocked down", data.name(actor)));
+            }
             if !forced {
                 self.emit(EventKind::TalkedToUnconscious { actor });
             }
@@ -764,6 +769,7 @@ impl<'a> Game<'a> {
         // flag) give none here: their pass lines' result scripts carry RewardXP (638 of
         // the 1,499 in the masters [observed]), which would count twice.
         if let Some(d) = self.data.infos.get(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
+            self.count_stat(crate::misc_stats::SPEECH_SUCCESSES, 1.0);
             let x = crate::experience::speech_challenge_xp(self, d);
             crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
         }

@@ -294,15 +294,29 @@ pub fn has_loaded_3d(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
 /// The reference's scale: SetScale's, else its placement's (XSCL), else 1
 /// [documented: catalogue summary of GetScale].
 pub fn get_scale(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    let r = ctx.subject()?;
-    let s = g.extra.get(&r).and_then(|e| e.scale).or_else(|| g.world.placed.get(r).and_then(|p| p.scale).map(|s| s as f64));
-    Ok(Value::Num(s.unwrap_or(1.0)))
+    Ok(Value::Num(scale_of(g, ctx.subject()?)))
 }
 
-/// SetScale keeps the value for GetScale (drawing it is the engine's).
+/// A reference's scale as GetScale reads it: SetScale's (on the reference's state; a save
+/// from before 2026-10-18 kept it in `ExtraState::scale`), else its placement's, else 1.
+pub fn scale_of(g: &Game, r: FormId) -> f64 {
+    let set = g.world.peek(r).and_then(|s| s.scale).map(f64::from).or_else(|| g.extra.get(&r).and_then(|e| e.scale));
+    set.or_else(|| g.world.placed.get(r).and_then(|p| p.scale).map(f64::from)).unwrap_or(1.0)
+}
+
+/// `SetScale scale`: the reference is drawn, and collides, at `scale` in place of its
+/// placement's (docs/spec-notes/misc-stats.md §5). The scale is kept on the reference's
+/// state, which saves keep; the reference joins [`Game::turned`] so the engine redraws it
+/// this frame, and a `Scaled` event makes its collision follow.
 pub fn set_scale(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().scale = Some(a.num(0)?);
+    let s = a.num(0)?.max(0.0);
+    g.world.get(r).map_err(|e| e.to_string())?.scale = Some(s as f32);
+    if let Some(e) = g.extra.get_mut(&r) {
+        e.scale = None;
+    }
+    g.turned.insert(r);
+    g.emit(crate::trace::EventKind::Scaled { reference: r, scale: s });
     none()
 }
 

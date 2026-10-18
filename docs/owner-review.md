@@ -195,7 +195,9 @@ sessions. You already had it from an earlier playthrough.
     - OR binds tighter than AND in condition lists.
     - IsInCombat and IsTalking read 0 until Layer 6; IsXBox and IsPS3 read 0.
     - Stray Else/ElseIf/EndIf markers: one capture of SCPT 0x00123191 would settle the
-      rule.
+      rule. **Settled in game 2026-10-18 [observed]:** activating the hostage left its
+      variables unchanged, and the dead one opened its loot menu through the stray
+      ElseIf, as the runtime does (spec-notes/owner-decision-captures.md §4).
     - GetSecondsPassed after a long gap returns the whole gap, so timers can expire at
       once after a pause.
 17. **Where M5 stands (headless).** With scripted stand-ins for dialogue lines, packages,
@@ -334,7 +336,20 @@ sessions. You already had it from an earlier playthrough.
       containers' inventories don't run; Return ends one block, not the frame (matters
       in 5 shipped scripts); result-script variables don't overwrite the quest script's;
       script packages stack instead of replacing each other; EvaluatePackage keeps a
-      script package.
+      script package. **Captured 2026-10-18 [observed]:**
+      - A second AddScriptPackage **replaces** the first.
+      - EvaluatePackage keeps a script package.
+      - A disabled reference's GameMode **runs**.
+
+      **No runtime fix was needed:** the runtime already did all three; see "Script
+      packages and disabled references: the 2026-10-18 captures" at the end of this file.
+      The actor now holds one script-package slot instead of a one-entry list (older
+      saves load). Scripted items in other inventories are still to be captured
+      (spec-notes/owner-decision-captures.md §4).
+      All three confirm the runtime's rules. The runtime has replaced script packages
+      since 2026-10-10 and run disabled references' GameMode since 2026-10-09, so this
+      item's wording on those two points was out of date (#441). Scripted items in other
+      inventories are still to be captured (spec-notes/owner-decision-captures.md §4).
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
 26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
@@ -461,6 +476,9 @@ sessions. You already had it from an earlier playthrough.
       and the quest's own conditions must pass as well as the line's (113 of 640 quests
       have such conditions, covering 8,151 lines; the runtime already checked them).
       Still assumed: an actor with no eligible greeting cannot be talked to.
+      **Partly captured 2026-10-18 [observed]:** two such actors could not be talked to.
+      HVRangerREF could; his screenshot decides whether he had a greeting after all
+      (spec-notes/owner-decision-captures.md §4).
 
     **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
     packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
@@ -2105,7 +2123,7 @@ NVForever's; `nvf-sleep.png` is the bed version).
    - **People moving during the wait.** They stand still while the menu is up and set
      off for where they should be when it closes, so after a long wait you can watch
      them walk there. The original may put them in place; I do not know.
-   - **Pressing E on a bed still lies you down** rather than opening the sleep menu
+   - **(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
      directly. You asked for lying down first; T does the rest.
    - **Scripts asking "is the player asleep?" or opening this menu themselves.** The
      Well Rested beds need the first.
@@ -2284,7 +2302,7 @@ I can measure your picture. Please attach it again, or drop it in
    `docs/spec-notes/hud.md`.
 ## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
 
-7. **Pressing E on a bed.** You lie down as before, and when you are lying the sleep
+7. **Pressing E on a bed.** **Decided by the owner 2026-10-18:** a get-into-bed animation, then the sleep menu (NVForever's own design, not a parity question). Earlier text: You lie down as before, and when you are lying the sleep
    menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
    movement key or E gets you up.
    - **For you to decide.** The original most likely opens the menu the moment you
@@ -2774,7 +2792,11 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    moves within 256 (indoors) or 512 (outdoors) units. A bullet's impact is as loud as
    the gun. Actors with a faction in common, or of the same kind, never turn on each
    other.
-4. **Scripts see it:** IsInCombat is 1 for an NPC on Alert, in Combat or Lost, and for
+4. **Scripts see it** (partly captured 2026-10-18 [observed]: GetIsAlerted/SetAlert is
+   an animation state, with IsInCombat 0. The detection Alert is the campaign session
+   `alert_noise`, not settled: its Fiends were already dead in `nvfstrip`, so it needs a
+   rerun from `nvftest` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
+   and for
    you while one hunts you (the documentation says so). This can change quest scripts
    that test IsInCombat; nothing showed in the runs, but watch for it.
 5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
@@ -2950,7 +2972,9 @@ Branch `claude/playtest-controls`. One commit per item.
    and we read a left-out number as "leave it off". Now a left-out number of
    `EnablePlayerControls` gives that control back, as the form with no numbers does.
    **Guess:** that this is the game's rule (no other script gives sneaking back, so it
-   must be). **Check:** after leaving Doc's house, Ctrl crouches; inside his house before
+   must be). **Supported in game 2026-10-18 [observed]:** after `EnablePlayerControls 1 1
+   1 1 1 1`, GetPlayerControlsDisabled reads 0 for sneaking. The crouch tap itself did
+   not register in the job, so IsSneaking was not shown (spec-notes/owner-decision-captures.md §4). **Check:** after leaving Doc's house, Ctrl crouches; inside his house before
    that, it does not (as the scripts ask).
 3. **Wake-up camera.** While the opening's wake-up/sit-up/stand-up idles drive the view,
    the mouse, the look test aid and movement keys are ignored; the camera is the
@@ -4033,7 +4057,10 @@ is our own design is said so.
    factions name the other an enemy, and a shared faction that names no reactions (a
    utility faction such as GeneralIdleFaction) only counts when one of the two has no
    faction that does. *Check:* NCR patrols near Fiend ground should fight them; no new
-   fights among townsfolk and their animals.
+   fights among townsfolk and their animals. **Captured 2026-10-18 [observed]:** NCR
+   troopers and Fiends spawned together with nobody provoking them fought each other
+   when within about 500 units; two spawns about 3,000 units off never did. This supports
+   the changed rule (spec-notes/owner-decision-captures.md §4).
 7. **Watching fights at scale.** Test aids: `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<ref>:player:x:y:z`
    moves any actor next to you; `NVF_PLAY_TEST_UNSEEN=1` makes you invisible to everyone.
    Every fight logs `battle: X killed by Y`, `battle over after … s` and a `battle summary`
@@ -4086,14 +4113,23 @@ Decisions where the sources were unclear:
   the package counts as done (end script, OnPackageDone) and the actor chooses again,
   which may pick the same package and start it afresh. Check: the Hidden Valley bunker
   Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
-  minutes rather than staying all day.
+  minutes rather than staying all day. **Note 2026-10-18:** those packages belong to
+  the bunker's initiates and knights, not the paladins [observed: `fnvtool ai show`]. The
+  observer sessions for them crashed from the save `nvfstrip`. **Captured from `nvftest`
+  2026-10-18 [observed]:** over 12 game hours the initiates switched activity often, and
+  the paladins every few hours, so the check's direction holds. The knights on L2 needed
+  `SetAlly` with the player's faction to be watched (spec-notes/owner-decision-captures.md §4).
 - **Rotate** turns a reference for one frame per call (the shipped callers call it
   every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
   their linked references) spin steadily.
 - **SetActorsAI 0** stops package choice, walking and detection, not animation or
   collision: the actor stands in its idle. Check the ambusher of `SCPT 0x000F9D8F/90`.
 - **SetGlobalTimeMultiplier** slows the whole virtual clock (animations, physics, NPCs,
-  scripts' frame time, the game clock); sound is never slowed or pitched.
+  scripts' frame time, the game clock); its sound is never slowed or pitched. The
+  engine's own slow motion (VATS mode, the death camera) does slow sound since
+  2026-10-18 (owner): longer and lower, at the square root of the clock's speed, no
+  lower than 0.4; music, radio and `UI…` sounds keep their speed. Check by ear that
+  the amount and what stays at speed sound like the base game's kill camera.
 - **ShowAllMapMarkers 0** forgets ShowMap's markers but leaves found and Visible ones.
   The Explorer perk (`1 0 0`) shows the hidden-flagged markers too, as the wiki reads.
   Smoke run: 183 of the 188 Mojave markers on the world map (5 are disabled).
@@ -4124,6 +4160,10 @@ Decisions where the sources were unclear:
   (not those told to wait) [hypothesis], put **64 units to the player's right** (a second
   one to the left, then further out) facing the player's way [guess]. Check: go through a
   door with a companion; does the original put them behind you, beside you, or at the door?
+  **Captured 2026-10-18 [observed]:** going out of his Novac room, Boone (following)
+  arrived about 168 units to the player's **left** and 12 ahead, and settled about 153 left
+  and 13 ahead. The player arrives on the door's teleport marker. Boone told to wait
+  stayed behind. The way back in is still to be captured (spec-notes/owner-decision-captures.md §4).
 - **Teammates in combat** ("as if in the player faction"): anyone attacks a teammate exactly
   when it would attack the player; a teammate attacks whoever would attack the player and
   also whomever its own records have it attack (so Boone keeps his Legion enmity) [design].
@@ -4579,6 +4619,23 @@ Skip Fallout Behavior without the aggro flag) is the first package of their list
 duration without a starting hour was ignored: the package ran all day, so the next one,
 which allows aggro, never came.
 
+**Contradicted by captures (2026-10-18 [observed]):** the rule below does not hold as
+written.
+- **First run.** Both geckos held the patrol package (3 h duration, no start hour, Once
+  Per Day) for 4.7 game hours.
+- **Rerun, with the player two cells away.**
+  - Both geckos held the patrol for about 8 h, from 17:04 to 01:01.
+  - Then both took FindFood, the **first** package of their list, not FindFood02, the
+    next one.
+  - One gecko's find reached DONE at 02:01 and it went back to the patrol at 03:01,
+    exactly 2 h after FindFood began. The other's find never completed, and it ran over
+    4 h on its 2 h duration.
+- **Reading [hypothesis].** A duration ends a package only once its goal is met (DONE).
+  When a package ends, the choice starts again from the top of the list.
+- **What it bears on.** The "restart every duration" behaviour of about 358 packages
+  (outstanding.md §3).
+- **Status.** The runtime is unchanged until the owner rules (spec-notes/owner-decision-captures.md §4).
+
 **Fix.** A list package with a duration and no starting hour now ends that many game
 hours after the actor chose it, the same way a SetPackDuration time ends (#250's
 `end_timed_packages`: end script and OnPackageDone, then the actor chooses again). Once
@@ -4606,6 +4663,14 @@ terminate" before its goal) [documented]. The export has no Find package page.
   (AddScriptPackage) are not ended by a duration [our choice].
 - A Find package is not ended early by finding food: Find is not carried out yet, and no
   source read says what "found" ends.
+- **Find with Allow Killing, captured 2026-10-18 [observed]:** a gecko on VCrGeckoFindFood
+  (Find, target Food, Allow Killing) attacked a radroach placed 256 units away, for about
+  a game minute, and then went back to its find. The control gecko fought nothing.
+  - **Reading [hypothesis].** Allow Killing makes the actor kill a creature within reach,
+    then resume the find.
+  - **How ours differs.** Our Find attacks a living actor only if its inventory holds the
+    food, and the radroach's meat is only its death item, so ours would not attack it.
+  - **Status.** The runtime is unchanged (spec-notes/owner-decision-captures.md §4).
 - Hours passed in the Wait menu: packages are chosen once per waited hour, so each step of
   a chain can start up to an hour late during a wait.
 
@@ -4617,7 +4682,9 @@ scenario. Whether a warning count should survive a short loss of sight is the ow
 
 *Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
-after about 10, then warn when the player is within 650 units. Smoke
+after about 10, then warn when the player is within 650 units. (The observer session
+`geckos_package_chain` from `nvftest`, 2026-10-18, and its rerun: the patrol ran 4.7 h
+and then 8 h on its 3 h duration; see "Contradicted" above.) Smoke
 `package-duration-geckos`.
 
 ## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)
@@ -5590,3 +5657,117 @@ smoke `script-saves-reticle`). The wiki leaves these open; my choices:
   player's cell, turned to the player's heading, exactly at the hit (not lifted off the
   surface). A game check of where `player.placeatreticle Stimpak 1` lands, and what it
   returns while looking at the sky, would settle these.
+## Miscellaneous statistics and SetScale (2026-10-18, branch claude/blockers-miscstat-scale-d2c0d2)
+
+Playthrough blocker row 16 (docs/spec-notes/misc-stats.md). What I decided:
+
+- **The codes of the 43 statistics** are the order your Pip-Boy screenshot of 2026-10-14
+  shows (Quests Completed, Locations Discovered, People Killed, …). The first eleven, and
+  a few later ones, are backed by your screenshot, the five codes in the shipped scripts
+  and the counters in your saves (Total Things Killed = People + Creatures Killed in
+  Save 22). From Health From Stimpaks (16) on, the order is a guess. A screenshot of the
+  whole General list (scrolled to the bottom) would settle it.
+- **The Pip-Boy's General list** now shows the 43 in that order with their numbers, in
+  place of an alphabetical list with "--".
+- **What counts** (guesses where marked in the note): every completed quest, hidden ones
+  too; kills by the player only (not by companions); locks picked, not forced; Rad-X and
+  RadAway not also counted as chems; a doctor's bag is an item that only restores limbs;
+  Water Consumed is one per drink that lowers dehydration; Times Slept counts when a
+  sleep starts; Items Crafted is one per recipe made; Items Repaired only the Pip-Boy's
+  own repairs (not a vendor's); **Barter Amount Traded is the caps that changed hands**
+  (it may be the goods' value in the original); a challenge counts each time it
+  completes.
+- **Not counted** (no system yet): pickpocketing, dismemberment, disintegrations,
+  Caravan, slot machines, skill books, New Vegas speech-check successes and failures,
+  weapon mods, Pants Exploded, Paralyzing Punches, Mysterious Stranger, Miss Fortunate.
+  Sandman Kills, Robots Disabled and Corpses Eaten are counted by the game's own scripts.
+- **SetScale** draws placed objects and actors at the new scale and rebuilds an object's
+  collision; an actor's collision capsule stays as it was. `SetScale 0` (the game uses it
+  to hide an artillery piece) draws the object at 0.001 with no collision. The player is
+  not resized (the game only ever sets the player to 1).
+- **To check in game**: the General list against the original's, after a short session
+  of killing, picking a lock, using a stimpak and sleeping; `prid DocMitchellREF` then
+  `setscale 1.5` at the console (Doc should be half again as tall).
+
+## Look turning the whole body (2026-10-18, branch claude/blockers-look-body-33d444)
+
+A script's `Look target 1` now turns the actor's whole body to the target until StopLook
+(docs/design/script-stubs.md §3; smoke `script-look-body`: Sunny turns to the player in
+the Prospector Saloon). The wiki says only that the actor "will rotate his entire body";
+the observer's captures hold no Look call, so these are my guesses to check in the game:
+
+- **The rate.** An actor the AI runs turns at its walker's turn rate (as when it turns to
+  someone saying a line); a standing actor nobody runs turns on the spot like an actor
+  you talk to (about 150°/s, 0.5 to 1.4 s, and only when the target is more than 30° off
+  its front; the head covers the rest).
+- **A moving target.** The body turns again whenever the target gets 30° off its front,
+  until StopLook.
+- **After StopLook** the body keeps the heading it has; nothing turns it back.
+- **Walking actors** (a package walking them, a traveller) keep their route's heading;
+  only their head turns. A Look on Sunny or Easy Pete followed by a capture of their
+  heading (the observer) would settle the rate and whether the original stops a walker.
+
+## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
+
+Row 1 of docs/outstanding.md §1 (docs/spec-notes/unconscious.md §5; smoke
+`knockdown-push`). PushActorAway now lays the target down as a ragdoll thrown away from the
+source, and it gets up with the get-up clip; explosions' knockdown rolls now lay the actor
+down too (GetKnockedState 2). Guesses to check against the game:
+
+- **Time down**: 3 s of game time for a knockdown, then the get-up clip. No setting names
+  it. *Check:* `player.PushActorAway <NPC> 10` at the console; time how long it lies.
+- **Force scale**: 30 units a second per point of force, a quarter of it upwards (force 10
+  throws a body at 300 units/s, about 4 m/s). The wiki's "Havok force" is not converted.
+  *Check:* the same push; how far does the body slide?
+- **SetUnconscious alone does not lay anyone down.** Read from the scripts: robots standing
+  in pods and scheduled sleepers use it, and the thugs that fake death push their actor
+  down as well. It now also keeps a lying actor down until it is cleared (those thugs get
+  up only after being hit).
+- **The player is never knocked down** (six scripts push the player); building the
+  player's own knockdown is a separate job.
+- **No KOed/Wake line and no corner message** for a knockdown (it is no unconsciousness).
+- **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
+  the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
+  only pushes].
+
+## Script packages and disabled references: the 2026-10-18 captures (branch claude/gifted-nightingale-0cc6ae)
+
+Capture jobs `od_08_script_packages` and `od_09a_disabled_ref_script` (readings in
+docs/spec-notes/owner-decision-captures.md) answer two lines of item 25, "Runtime differs
+from the wiki". **Both rules were already in the runtime**; item 25's text was written
+before they changed, so it was out of date, not the runtime:
+
+- **A second AddScriptPackage replaces the first** (since 2026-10-10, the opening's
+  wake-up fix): one RemoveScriptPackage returns the actor to its own list, and
+  EvaluatePackage keeps a script package on. That is what Ringo did in the original.
+  The `fnvtool ai run` option that forces packages now replaces too.
+- **Disabled references run GameMode** (since 2026-10-09, `Game::active_refs`): the
+  skull's timer fell at the same rate while disabled, as it does in ours.
+
+What was done: the rules are written into actor-behaviour.md and script-language.md with
+the capture names; two new unit tests call AddScriptPackage/RemoveScriptPackage and tick
+a disabled scripted reference. No smoke scenario: the game shows neither in a log line
+without a new test aid, and the unit tests cover the rule.
+
+Kept as they were (not captured): OnLoad at a cell load still needs the reference
+enabled; Enable still queues one OnLoad; OnActivate, OnHit and the other event blocks run
+as before; MenuMode runs for disabled references along with GameMode [hypothesis].
+
+**What relies on it, and the risk.** Of the 14,907 decompiled script units of the masters,
+the GameMode blocks of 45 read their own GetDisabled, 12 enable themselves and 87 disable
+themselves:
+
+- **Needs the rule** (they could never come back without it): time-of-day lights that
+  enable and disable themselves (`daynightenable`, `FreesideLightsScript`,
+  `FireBarrelSwitchingScript`), the Prospector spawns (`VProspectorScript15/30/50`), the
+  B29 ballast (`B29BallastScript`) and Lonesome Road's tunnelers that wait disabled and
+  appear (`NVDLC04Tunneler*SCRIPT`).
+- **Guarded**: most Lonesome Road code holders and triggers check GetDisabled before
+  acting, so running while disabled does nothing for them.
+- **Risk**: an object script whose GameMode does not check GetDisabled now runs while its
+  reference is waiting disabled (an Initially Disabled actor, or an enable child of a
+  quest marker). The original does the same, but our functions may act on a disabled
+  reference where the original ignores it (for example a disabled actor's MoveTo,
+  StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
+  2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
+  world, this is the first place to look.

@@ -104,12 +104,11 @@ function, with the system each gap needs, is now docs/design/script-function-cov
   (`fnv_sim::World::equipment`, engine/nvforever/src/outfits.rs) and redraws when that
   changes; combat's worn armour reads the same; smoke `npc-equip-drawn` [design]. NPCs
   whose cell the rules have not loaded keep the engine's own roll until they are.
-- **SetUnconscious in the engine**: an unconscious actor does not lie down (ragdolls are
-  for corpses only). (ResurrectActor's corpse is stood up again since
+- ~~**SetUnconscious in the engine**: an unconscious actor does not lie down~~: right as it
+  is (pods, sleepers); it now holds a pushed-down actor down (unconscious.md §5, 2026-10-18). (ResurrectActor's corpse is stood up again since
   docs/spec-notes/resurrect.md.)
-- **GetKnockedState / GetUnconscious**: an essential knocked out by damage sets the same
-  flag as SetUnconscious, never cleared; explosion knockdowns are rolled in the engine and
-  not told.
+- ~~**GetKnockedState / GetUnconscious**~~: fixed by knock-outs (#403) and knockdowns
+  (2026-10-18, unconscious.md §5): explosion knockdowns are told and read 2.
 - **GetAnimAction for attacks and reloads, and for the player**: the engine knows them
   (combat, nvf-play) but does not tell the rules.
 - **IsMoving** gives no direction (2–4); **Look**'s rotate-body flag is kept, not acted on;
@@ -120,9 +119,10 @@ function, with the system each gap needs, is now docs/design/script-function-cov
 - **Terminals** (GetLocked, GetLockLevel, Lock, Unlock): terminal locks live apart from the
   world's lock data (hacking.md §6).
 - **GetChallengeCompleted** for kill challenges (only scripted challenges progress);
-  **GetPCMiscStat** counters other than ModPCMiscStat's (4 calls); **MenuMode** 1 (the
-  Pip-Boy, per the wiki example) and the loading codes; **SetScale** / **SetMinimalUse**
-  not read by the engine; **SetPCCanUsePowerArmor** not read.
+  **MenuMode** 1 (the Pip-Boy, per the wiki example) and the loading codes;
+  **SetMinimalUse** not read by the engine; **SetPCCanUsePowerArmor** not read.
+  (GetPCMiscStat's counters and SetScale's drawn size: done 2026-10-18,
+  spec-notes/misc-stats.md.)
 - **IsInCombat / GetDetected** for pairs out of the player's detection reach, and the player
   as detector: measured only near the player (performance choice of the engine).
 
@@ -280,7 +280,7 @@ what writes it now).
 | GetParentRef | 0x1113 | 2/- | `placed.enable_parent` | ESM / - | matches |  |
 | GetPCEnemyOfFaction | 0x10C5 | 7/2 | `player.enemy_of` | rules | matches |  |
 | GetPCIsSex | 0x1083 | 8/190 | `player.female` | chargen | matches |  |
-| GetPCMiscStat | 0x1138 | 4/0 | `misc_stats` | rules: ModPCMiscStat only | fixed round 2 (2026-10-17) (partly) | "locations discovered" counts the found markers [hypothesis: 1 in nvftest with Goodsprings found], "times addicted" the addictions. Only these two names occur in shipped scripts; the other names' codes are not known. Original read People Killed 1 after a kill [observed]. |
+| GetPCMiscStat | 0x1138 | 4/0 | `misc_stats` | rules and engine counters (`misc_stats.rs`) | fixed 2026-10-18 | All 43 names have codes and compile; 26 statistics are counted where the rules or the engine see the event, the rest only by ModPCMiscStat (spec-notes/misc-stats.md). Original read People Killed 1 after a kill [observed]. |
 | GetPermanentActorValue | 0x11EF | 7/134 | base+permanent | rules | matches |  |
 | GetPlayerControlsDisabled | 0x1062 | 5/0 | `controls_disabled` | rules only (scripts) | matches | wiki examples match `controls()` |
 | GetPlayerName / ShowRaceMenu / SetTagSkills / ShowTraitMenu | 0x11E1 / 0x10DA / 0x121A / 0x1268 | 3/3/3/5 | open menus | engine chargen | matches |  |
@@ -296,7 +296,7 @@ what writes it now).
 | GetReputationPct | 0x123E | 0/2 | rep / scale | — | matches |  |
 | GetReputationThreshold | 0x123F | 143/1643 | levels → tiers grid | — | matches | grid [observed] |
 | GetRestrained | 0x10F4 | 5/2 | `extra.restrained` | SetRestrained | matches |  |
-| GetScale | 0x1018 | 1/1 | `x.scale` else XSCL | SetScale | matches |  |
+| GetScale | 0x1018 | 1/1 | `RefState::scale` else XSCL | SetScale | matches |  |
 | GetScriptVariable | 0x1035 | -/1756 | ref instance var | scripts / - | matches | Errors (reads 0) for a ref without a script. |
 | GetSecondsPassed | 0x100C | 821/0 | instance run times | rules tick | matches | [observed] §10.7 |
 | GetSelf | 0x10CE | 367/- | `ctx.self_ref` | runner | matches |  |
@@ -395,7 +395,7 @@ what writes it now).
 | PlayMusic | 0x11FF | 38/- | `music_requests` | rules / music.rs | matches |  |
 | PlaySound | 0x1026 | 502/- | `sound_requests` | rules / world_sounds.rs:648 | matches |  |
 | PlaySound3D | 0x10B2 | 120/- | `sound_requests` | rules / world_sounds.rs | matches |  |
-| PushActorAway | 0x118A | 35/0 | stub | — | stub | no live knockdown |
+| PushActorAway | 0x118A | 35/0 | `Game::push_actor_away` | `RefExtra::knocked_out` → engine ragdoll | fixed 2026-10-18 | knockdown, unconscious.md §5 |
 | ReleaseWeatherOverride | 0x1158 | 11/- | `weather.release` | rules / main.rs:1430 | matches |  |
 | RemoveAllItems | 0x10AD | 59/- | `w.transfer_all/remove_all_items` | rules | matches |  |
 | RemoveAllTypedItems | 0x1249 | 295/- | inventory | rules | matches | Type codes partly [hypothesis]. |
@@ -474,7 +474,7 @@ what writes it now).
 | SetQuestObject | 0x110D | 7/- | `w.set_quest_object` | rules | matches |  |
 | SetReputation | 0x1238 | 255/0 | writes | — | matches | [observed captures §9.3] |
 | SetRestrained | 0x10F3 | 281/117 | `extra.restrained` | `RefExtra::restrained` → fnv-ai | fixed here | Restrained actors kept walking their packages. Now they stay in place [documented: catalogue summary]; GetRestrained 1 [observed]. |
-| SetScale | 0x113C | 9/- | writes `x.scale` | rules / engine never reads `x.scale` | gap left | GetScale is right; the drawn size does not change. |
+| SetScale | 0x113C | 9/- | writes `RefState::scale` | drawn (moved.rs, script_draw.rs, actor_scale.rs) and collided (phys.rs) | fixed 2026-10-18 | spec-notes/misc-stats.md §5. |
 | SetSceneIsComplex / SetRumble / PurgeCellBuffers / PreloadMagicEffect | 0x115D / 0x11FB / 0x1189 / 0x1163 | 2/17/32/1 | NoOp | — | stub | script-stubs.md §5 |
 | SetSecuritronExpression | 0x1248 | 37/0 | texture swap | engine | matches |  |
 | SetSPECIALPoints | 0x1218 | 2/- | `ui.special`, open menu | rules / chargen | matches |  |

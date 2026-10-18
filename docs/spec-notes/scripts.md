@@ -713,7 +713,9 @@ that). The frames right after a door's cell load are the engine's to mark with
 `loading` (the captures saw about 22 frames without script runs after a `coc`).
 
 Disabled references run their per-frame blocks [documented: GECK wiki Object scripts,
-owner export 2026-10-09; round 3 had them stopped, a hypothesis]; deleted ones do not, and OnLoad at a cell
+owner export 2026-10-09; observed for GameMode: capture job `od_09a_disabled_ref_script`,
+2026-10-18, the skull's timer fell at its enabled rate while disabled,
+owner-decision-captures.md; round 3 had them stopped, a hypothesis]; deleted ones do not, and OnLoad at a cell
 load needs the reference enabled (a disabled reference has no 3D to load) [hypothesis].
 Return ends the script for the run, later blocks of the same event included (§4.2).
 

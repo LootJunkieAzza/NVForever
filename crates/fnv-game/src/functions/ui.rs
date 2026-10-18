@@ -64,6 +64,7 @@ pub fn increment_scripted_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
     if s.progress >= threshold {
         s.completed = true;
         s.progress = if recurring { 0 } else { threshold };
+        g.count_stat(crate::misc_stats::CHALLENGES_COMPLETED, 1.0);
         tracing::info!(challenge = %g.data.name(c), "challenge completed");
     }
     none()

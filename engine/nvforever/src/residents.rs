@@ -1062,6 +1062,10 @@ impl Core {
                 | AiEvent::ChatApproach { .. }
                 | AiEvent::ChatGaveUp { .. }
                 | AiEvent::ChatBack { .. }
+                | AiEvent::LookTurn { .. }
+                | AiEvent::LookFaced { .. }
+                | AiEvent::LookHeld { .. }
+                | AiEvent::LookOver { .. }
                 | AiEvent::Search { .. }
                 | AiEvent::Hold { .. }
                 | AiEvent::Close { .. }
@@ -1206,6 +1210,22 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
         AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),
         AiEvent::ChatGaveUp { partner, why } => format!("gives up talking to {}: {why}", n(partner)),
+        AiEvent::LookTurn { target, from, to } => format!(
+            "turns its body to {} for a script's Look: from heading {:.0}° to {:.0}°",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
+            from.to_degrees(),
+            to.to_degrees()
+        ),
+        AiEvent::LookFaced { target, heading } => format!(
+            "faces {} for a script's Look, at heading {:.0}°",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
+            heading.to_degrees()
+        ),
+        AiEvent::LookHeld { target, why } => format!(
+            "keeps its body for a script's Look at {}: {why}",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
+        ),
+        AiEvent::LookOver { heading } => format!("is let go by a script's Look; the body keeps heading {:.0}°", heading.to_degrees()),
         AiEvent::ChatBack { package, away } => format!("has talked: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::Search { about, to, away, length } => format!(
             "searches for {} at ({:.0}, {:.0}, {:.0}): {away:.0} units away, {length:.0} units to go",

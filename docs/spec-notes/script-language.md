@@ -214,8 +214,12 @@ Where the documentation and a capture disagree, the capture wins; every differen
   references in loaded cells and for the player's items: agrees for those; items in other
   inventories are §7.2 row 6.
 - **Disabled references still run their object scripts** [documented: Object scripts].
-  The runtime does not run GameMode, or OnLoad at a cell load, for a disabled reference
-  [hypothesis in `Game::active_refs`]; see §7.2 row 5.
+  GameMode runs for a disabled reference at the same rate as while it is enabled
+  [observed: capture job `od_09a_disabled_ref_script`, 2026-10-18: the skull's `timer`
+  fell from 998.19 to 992.94 over 300 loops while disabled, owner-decision-captures.md].
+  Runtime: `Game::active_refs` runs GameMode and MenuMode for disabled references
+  (MenuMode with them is [hypothesis]); OnLoad at a cell load still needs the reference
+  enabled [hypothesis]; see §7.2 row 5.
 - **Quest scripts** run only while the quest runs, at its delay; a tiny delay (0.01, or
   0.001 in another page) amounts to every frame [documented: Quest scripts; Scripting for
   Beginners]. Captured the same (quests-dialogue.md §5).
@@ -342,7 +346,7 @@ function results as arguments.
 | 2 | Float variable precision | single, about 7 digits (Category:Variables) | double: 16777217, 0.1, 123456789.123 unchanged [observed: §5.5] | double (follows the capture) |
 | 3 | Out-of-range and literal integers | not covered | out of range → −2147483648; whole literals saturate at 2147483647 [observed: §5.5] | as captured |
 | 4 | Declarations inside a block | not allowed (Scripting for Beginners) | six SCPT units compile with one, skip count one too large [observed: scripts.md §2.6] | structured reading |
-| 5 | Disabled references | object scripts run even when disabled (Object scripts) | OnActivate ran on disabled, dead ED-E when activated with the run-OnActivate flag [observed: §8.3 c]; GameMode of a disabled reference not captured | no GameMode and no cell-load OnLoad for disabled references [hypothesis]; OnActivate runs. **Candidate to change after a capture** (§8 item 1) |
+| 5 | Disabled references | object scripts run even when disabled (Object scripts) | OnActivate ran on disabled, dead ED-E when activated with the run-OnActivate flag [observed: §8.3 c]; GameMode ran for the disabled skull at its enabled rate [observed: `od_09a_disabled_ref_script`, 2026-10-18, owner-decision-captures.md] | GameMode runs for disabled references (agrees; since 2026-10-09, test `a_disabled_reference_runs_its_game_mode_block`); no cell-load OnLoad for them [hypothesis, not captured]; OnActivate runs |
 | 6 | Scripted items in inventories | run while the holder is loaded (Scripting for Beginners) | captured only for the player's inventory [observed: §8.3 d] | only the player's items run GameMode. **Candidate** (§8 item 2) |
 
 ### 7.3 Documented rules the runtime does not implement or contradicts (no capture yet)
@@ -363,7 +367,8 @@ delay flag) stands.
 Candidates for the capture plugin (`nvf_capture`, layer5-captures.md). Job scripts are
 compiled by the game, so plain `set`/`if` statements in a job behave as vanilla.
 
-1. **Disabled references' GameMode**: disable the skull in Doc Mitchell's house (FalloutNV
+1. **Disabled references' GameMode** (settled for GameMode by `od_09a_disabled_ref_script`,
+   §7.2 row 5; OnLoad on a cell load is still open): disable the skull in Doc Mitchell's house (FalloutNV
    0x00104C10, the round 4 stopwatch, layer5-captures.md §10.4), start its timer and
    sample `timer`. Settles §7.2 row 5 for GameMode; OnLoad of a disabled reference on a
    cell load is a second job.

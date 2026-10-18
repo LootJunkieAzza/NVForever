@@ -123,6 +123,13 @@ impl Game<'_> {
     pub fn script_look(&self, actor: FormId) -> Option<Look> {
         self.senses.looks.get(&actor).copied()
     }
+
+    /// The actors a script's Look turns whole (`rotateBody` 1), each with its target, in
+    /// reference order: the body faces the target until StopLook (`fnv_ai` turns those
+    /// it runs, the engine's `script_look.rs` the others).
+    pub fn body_looks(&self) -> Vec<(FormId, FormId)> {
+        self.senses.looks.iter().filter(|(_, l)| l.rotate_body).map(|(a, l)| (*a, l.target)).collect()
+    }
 }
 
 /// `actor.IsSneaking`: 1 while the actor is sneaking (crouched) [documented: GECK wiki
