@@ -22,7 +22,7 @@ still stubs.
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
-| 1 | Knockdowns (knock-outs done 2026-10-17) | 64 (the intro chain among them) | Knock-outs are built ([unconscious](spec-notes/unconscious.md)): essential actors at zero health and actors out of fatigue drop as ragdolls, stay down (an essential while a fight goes on near it) and get up with the game's clips, and GetKnockedState, GetUnconscious, IsFacingUp and IsLeftUp answer for them. Left: a live actor knocked down without being knocked out (PushActorAway, explosions' knockdown) never lies down; SetUnconscious holds an actor's AI but does not lay it down | PushActorAway, SetUnconscious |
+| 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
 | 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
 | 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
@@ -87,6 +87,9 @@ how quests run, the rest are guessed constants and looks to compare in the game.
   Fiends fight; whether an assault turns the victim's whole faction; IsInCombat while
   Alert.
 - Sleeping: whether E on a bed opens the sleep menu at once.
+
+Capture jobs that let the original game answer the factual ones (not the lab rules or the
+design choices) are ready to run: [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
 
 **Looks and constants by area** (open, not quest-critical): rendering 29, menus and
 interface 27, combat 16, AI 11, dialogue 9, animation 9, world and physics 5, gameplay

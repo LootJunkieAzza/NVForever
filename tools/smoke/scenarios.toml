@@ -1986,12 +1986,14 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
 # [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
+# claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
+# 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 42 },
+  { json = "summary.stubs", equals = 41 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 41 },
+  { json = "summary.by_status.needs_system", equals = 40 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 214 },
+  { json = "summary.stub_calls", equals = 179 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -4355,3 +4357,28 @@ order = [[
   "creator: closed",
 ]]
 manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"
+
+[[scenario]]
+name = "knockdown-push"
+source = "playthrough blocker row 1 (docs/outstanding.md): PushActorAway knocks a live actor down as a ragdoll thrown from the source, GetKnockedState reads 0 for it, and it gets up again (docs/spec-notes/unconscious.md §5)"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s (once the scripts run); at 16 s the console pushes him with force 10 from the player and reads his GetKnockedState (0 for a pushed actor, the wiki's note); he lies 3 s of game time (a design value), plays his get-up clip and is up"
+areas = ["combat", "knockouts", "scripts"]
+paths = ["crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/fighting.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:player.pushactoraway EasyPeteRef 10;16.3:EasyPeteRef.getknockedstate;16.6:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  "console: > player.pushactoraway EasyPeteRef 10",
+  "knockout: Easy Pete … knocked down (pushed)",
+  "knockout: Easy Pete … gets up (pushed knockout over)",
+]]
+expect = [
+  { re = 'knockout: Easy Pete \S+ knocked down \(pushed\)', label = "Easy Pete is knocked down by the push" },
+  { re = 'knockout: [0-9A-F]{8} thrown at \(-?\d+, -?\d+, \d+\) units/s', label = "his body is thrown" },
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "he drops as a ragdoll" },
+  { re = 'console: GetKnockedState on EasyPeteRef >> 0\.00\b', label = "GetKnockedState reads 0 for a pushed actor" },
+  { re = 'knockout: Easy Pete \S+ gets up \(pushed knockout over\)', label = "he gets up after his time down" },
+  { re = 'knockout: [0-9A-F]{8} is up: it may move again', label = "his get-up clip ends" },
+  { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
+  { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
+]

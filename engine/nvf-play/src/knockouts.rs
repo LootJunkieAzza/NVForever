@@ -1,5 +1,5 @@
 //! Unconscious actors in play (docs/spec-notes/unconscious.md §4): one log line per
-//! knockout and per getting up (`fnv_game::unconscious`), a count at exit, and the test
+//! knockout, knockdown and getting up (`fnv_game::unconscious`), a count at exit, and the test
 //! aid `NVF_PLAY_TEST_HIT`. The corner message of an essential knockout goes the script
 //! effects' way (`crate::script_events::unconscious_line`); the bodies falling and getting
 //! up are the renderer's (nvforever `knockouts.rs`).
@@ -41,6 +41,8 @@ impl Plugin for KnockoutsPlugin {
 pub struct KnockoutStats {
     pub essential: u32,
     pub fatigue: u32,
+    /// Knockdowns: PushActorAway and explosions.
+    pub knocked_down: u32,
     pub got_up: u32,
 }
 
@@ -132,18 +134,20 @@ fn report_news(mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, mut 
                 match n.cause {
                     Cause::Essential => stats.essential += 1,
                     Cause::Fatigue => stats.fatigue += 1,
+                    Cause::Pushed | Cause::KnockedDown => stats.knocked_down += 1,
                 }
-                info!("knockout: {name} {} knocked out ({})", n.actor, n.cause.name());
+                let how = if n.cause.knockdown() { "knocked down" } else { "knocked out" };
+                info!("knockout: {name} {} {how} ({})", n.actor, n.cause.name());
             }
         }
     }
 }
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<KnockoutStats>) {
-    if exit.read().last().is_none() || stats.essential + stats.fatigue == 0 {
+    if exit.read().last().is_none() || stats.essential + stats.fatigue + stats.knocked_down == 0 {
         return;
     }
-    info!("knockouts: {} essential, {} by fatigue, {} got up", stats.essential, stats.fatigue, stats.got_up);
+    info!("knockouts: {} essential, {} by fatigue, {} knocked down, {} got up", stats.essential, stats.fatigue, stats.knocked_down, stats.got_up);
 }
 
 #[cfg(test)]
