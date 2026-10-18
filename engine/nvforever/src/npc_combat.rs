@@ -182,7 +182,9 @@ pub const GUN_RANGE_SHARE: f32 = 0.8;
 pub const GUN_ENGAGE_MIN: f32 = 400.0;
 pub const GUN_ENGAGE_MAX: f32 = 2500.0;
 /// A gun never stops farther than this share of its reach ([`GunReach`]), so the
-/// lower bound above and the blast's clearance do not put it out of reach [design].
+/// lower bound above and the blast's clearance do not put it out of reach; and it sets
+/// off again once its target is beyond this share, while it can still fire, so it walks
+/// in aiming instead of standing until the target is out of reach [design].
 pub const GUN_REACH_EDGE: f32 = 0.9;
 /// A gun with an explosive projectile stands at least this much beyond the explosion's
 /// radius from its target, and steps back from a target nearer than that, game units
@@ -674,14 +676,14 @@ impl GunReach {
     /// [`GUN_ENGAGE_MIN`] (not for a flame) and [`GUN_ENGAGE_MAX`], clear of its blast
     /// (an area weapon, [`AREA_BLAST_SHARE`]: just clear of it), never beyond
     /// [`GUN_REACH_EDGE`] of its reach; it closes in again beyond the stop over the
-    /// share, never beyond its reach.
+    /// share, never beyond [`GUN_REACH_EDGE`] of its reach (nor nearer than the stop).
     pub fn engage(&self) -> (f32, f32) {
         let Some(r) = self.reach else { return (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE) };
         let edge = r * GUN_REACH_EDGE;
         let (share, floor) = if self.flame { (FLAME_RANGE_SHARE, 0.0) } else { (GUN_RANGE_SHARE, GUN_ENGAGE_MIN.min(edge)) };
         let clear = self.clearance().min(edge);
         let stop = if self.blast >= r * AREA_BLAST_SHARE { clear.max(floor) } else { (r * share).max(floor).min(GUN_ENGAGE_MAX).max(clear) };
-        (stop, (stop / share).min(GUN_ENGAGE_MAX / GUN_RANGE_SHARE).min(r).max(stop))
+        (stop, (stop / share).min(GUN_ENGAGE_MAX / GUN_RANGE_SHARE).min(edge).max(stop))
     }
 }
 
@@ -2044,12 +2046,14 @@ mod tests {
     #[test]
     fn guns_engage_within_their_range_and_melee_within_reach() {
         let gun = |max: f32| Some(gun_reach(max, 1.0, 10_000.0, 0.0));
-        assert_eq!(engage(None, gun(1000.0)), (800.0, 1000.0));
+        // It sets off again at the edge of its reach, while it can still fire.
+        assert_eq!(engage(None, gun(1000.0)), (800.0, 900.0));
         // A short gun stops at the lower bound when that is within its reach …
-        assert_eq!(engage(None, gun(480.0)), (GUN_ENGAGE_MIN, 480.0));
+        let (stop, resume) = engage(None, gun(480.0));
+        assert!((stop - GUN_ENGAGE_MIN).abs() < 1e-4 && (resume - 432.0).abs() < 1e-3);
         // … and never beyond the edge of its reach.
         let (stop, resume) = engage(None, gun(100.0));
-        assert!((stop - 90.0).abs() < 1e-4 && (resume - 100.0).abs() < 1e-4);
+        assert!((stop - 90.0).abs() < 1e-4 && (resume - 90.0).abs() < 1e-4);
         assert_eq!(engage(None, gun(10_000.0)), (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE));
         assert_eq!(engage(None, Some(gun_reach(0.0, 1.0, 0.0, 0.0))).0, GUN_ENGAGE_MAX);
         let (stop, resume) = engage(Some(100.0), None);
@@ -2065,7 +2069,7 @@ mod tests {
         assert_eq!(flamer.holds(641.0), Some(RangeHold::Far));
         assert_eq!(flamer.holds(640.0), None);
         // A flame closes in to half its reach (the original's trooper: 164–320).
-        assert_eq!(flamer.engage(), (320.0, 640.0));
+        assert_eq!(flamer.engage(), (320.0, 576.0));
         // The style's Ranged Weapon Max Range Mult scales the weapon's range.
         assert_eq!(gun_reach(1000.0, 1.5, 10_000.0, 0.0).reach, Some(1500.0));
         // No range in the data: no limit; a projectile range alone limits.
@@ -2078,7 +2082,7 @@ mod tests {
         // Max ranges of FalloutNV.esm [observed]: hunting shotgun 600, sniper rifle 3548.
         let shotgun = gun_reach(600.0, 1.0, 10_000.0, 0.0).engage();
         let sniper = gun_reach(3548.0, 1.0, 53_000.0, 0.0).engage();
-        assert_eq!(shotgun, (480.0, 600.0));
+        assert_eq!(shotgun, (480.0, 540.0));
         assert_eq!(sniper, (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE));
         assert!(sniper.1 <= 3548.0);
     }
@@ -2093,13 +2097,13 @@ mod tests {
         // An area weapon stops just clear of its blast, not at 80 % of its reach.
         let (stop, resume) = missile.engage();
         assert_eq!(stop, 1000.0 + BLAST_MARGIN);
-        assert!(resume <= 1536.0 && resume > stop);
+        assert!(resume <= 1536.0 * GUN_REACH_EDGE && resume > stop);
         // A small blast (the Gauss rifle's 40 of 2,000) changes nothing.
-        assert_eq!(gun_reach(2000.0, 1.0, 60_000.0, 40.0).engage(), (1600.0, 2000.0));
+        assert_eq!(gun_reach(2000.0, 1.0, 60_000.0, 40.0).engage(), (1600.0, 1800.0));
         let fatman = gun_reach(2000.0, 1.0, 10_000.0, 1700.0);
         let (stop, resume) = fatman.engage();
         assert_eq!(stop, 1700.0 + BLAST_MARGIN);
-        assert_eq!(resume, 2000.0);
+        assert_eq!(resume, 1800.0);
         // A blast wider than the reach: it stops at the edge of its reach.
         assert_eq!(gun_reach(1000.0, 1.0, 10_000.0, 1500.0).engage().0, 900.0);
     }

@@ -1146,8 +1146,9 @@ fire: … is within its weapon's blast (… units, radius …)`. It does not cha
 its reach, between 400 and 2,500 units, at least the explosion's radius plus
 `BLAST_MARGIN` (64) for an explosive projectile, and never farther than
 `GUN_REACH_EDGE` (90 %) of its reach; it closes in again once the target is beyond the
-stop ÷ the share, never beyond its reach (before, a gun under 500 units stopped at 400 and
-could stand beyond its reach) [design]. Two kinds stop otherwise, after the original was
+stop ÷ the share, never beyond 90 % of its reach, so it sets off while it can still fire
+and walks in aiming (before, it stood until the target was out of reach, and a gun under
+500 units stopped at 400 and could stand beyond its reach) [design]. Two kinds stop otherwise, after the original was
 watched (below):
 
 - a **flame** (PROJ type Flame) stops at half its reach (`FLAME_RANGE_SHARE`), without the
@@ -1162,15 +1163,15 @@ Radius]:
 
 | Weapon | Max Range | Reach | Stops at | Closes in beyond |
 |---|---|---|---|---|
-| Sawed-off shotgun | 500 | 500 | 400 | 500 |
-| Hunting shotgun, caravan shotgun | 600 | 600 | 480 | 600 |
-| Flamer (flame 640) | 650 | 640 | 320 | 640 |
-| 10mm pistol | 768 | 768 | 614 | 768 |
-| Laser rifle | 1750 | 1750 | 1400 | 1750 |
+| Sawed-off shotgun | 500 | 500 | 400 | 450 |
+| Hunting shotgun, caravan shotgun | 600 | 600 | 480 | 540 |
+| Flamer (flame 640) | 650 | 640 | 320 | 576 |
+| 10mm pistol | 768 | 768 | 614 | 691 |
+| Laser rifle | 1750 | 1750 | 1400 | 1575 |
 | Sniper rifle, service rifle | 3548 | 3548 | 2500 | 3125 |
 | Grenade rifle (blast 750) | 1536 | 1536 | 814 | 1017 |
 | Missile launcher (blast 1000) | 1536 | 1536 | 1064 | 1330 |
-| Fat Man (blast 1700) | 2000 | 2000 | 1764 | 2000 |
+| Fat Man (blast 1700) | 2000 | 2000 | 1764 | 1800 |
 
 So shotguns and flamers close in, rifles hang back, launchers keep clear of their blast;
 melee is unchanged (§5, §14.4).

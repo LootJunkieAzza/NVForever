@@ -5664,6 +5664,10 @@ docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reac
   its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
   shoots at you from cover while you are far off.
 - **Min Range** stays unused (it is not a back-off distance; §12.6).
+- **Setting off again at 90 % of its reach** (`GUN_REACH_EDGE`): a gunman standing at its
+  stop sets off again once you are beyond 90 % of its reach, while it can still fire, so
+  it walks in aiming rather than standing until you are out of reach (hunting rifle:
+  stops at 1,600, sets off beyond 1,800, reach 2,000) [design].
 - **Out of reach, a gunman runs straight in**: no flank place and no step aside for a
   friend in its line of fire while its target is beyond its reach (it has no shot to
   line up), so Cook-Cook runs at you instead of circling to a flank first [design].
