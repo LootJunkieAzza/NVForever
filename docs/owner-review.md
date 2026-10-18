@@ -5752,3 +5752,34 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
+
+Every parameter docs/design/script-function-params.md §3 listed as ignored is now read
+(the table there says what each does now). The GECK wiki pages settle most of them; these
+are my guesses, each with what would settle it:
+
+- **Fade length and shape** (Enable/Disable, 544 shipped calls): 1 second, a straight
+  line of the reference's alpha. Capture job `tools/capture/jobs/enable_fade_timing.steps.json`
+  (nvfstrip) disables and enables the Prospector Saloon's terminal with screenshots and
+  GameDaysPassed every two frames; it also asks GetDisabled right after `Disable 1`
+  (mine: 1 at once). *Look for*: things that appear by script (quest markers' children,
+  Victor at the start) now fade in; tell me if one should pop.
+- **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
+  unequipped" (my wording; the original's message is not known). Companions ignore
+  NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
+- **Say's ForceSubtitles** (18 calls, all 1): read as "show the subtitle even out of
+  hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
+  not read, nothing documents them and no shipped script passes them.
+- **SexChange resetAppearance**: "the default preset for their race+gender" taken as the
+  race's first starting face (the one the race menu shows on a change of sex).
+- **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
+  play at the multiplier (music and radio do not), as with the engine's own slow motion.
+  The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
+- **StartConversation allowMovement**: left out, the two actors stand while they talk, as
+  before; only an explicit 1 lets them walk.
+- **AddItemToLeveledList health**: the wiki says New Vegas reads 0–100, so Honest Hearts'
+  eleven calls with 1 give items at 1 % condition. Capture job
+  `tools/capture/jobs/leveled_list_health.steps.json` (nvfstrip) adds Vance's 9mm SMG to a
+  list at 50 and at 1 and reads the drawn gun's health. *If* the game gives 1 → whole items,
+  the rule is "values up to 1 are fractions".

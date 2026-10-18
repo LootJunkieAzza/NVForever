@@ -1,0 +1,218 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "leveled_list_health",
+ "title": "AddItemToLeveledList health: is 1 one percent (Honest Hearts passes 1) and 50 half? (docs/design/script-function-params.md, under 1 min)",
+ "start": "nvfstrip. Adds Vance's 9mm SMG to a base leveled list at the player's level, draws the list, equips the gun and reads its health; never saved; unattended (capture_run.py --save nvfstrip).",
+ "forms": {
+  "list": "FalloutNV.esm:0014DE57",
+  "smg": "FalloutNV.esm:000E32F4"
+ },
+ "steps": [
+  {
+   "console": "tgm"
+  },
+  {
+   "remember": "player.GetLevel",
+   "as": "lvl"
+  },
+  {
+   "query": "player.GetItemCount @smg",
+   "field": "smg_before"
+  },
+  {
+   "script": "AddItemToLeveledList @list @smg %{lvl} 1 50"
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "player.GetItemCount @smg",
+   "field": "smg_after_50"
+  },
+  {
+   "script": "player.EquipItem @smg 0 1"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "player.GetEquippedCurrentHealth 5",
+   "field": "health_points_50"
+  },
+  {
+   "query": "player.GetWeaponHealthPerc",
+   "field": "health_perc_50"
+  },
+  {
+   "script": [
+    "player.UnequipItem @smg 0 1",
+    "player.RemoveItem @smg 99 1"
+   ]
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "AddItemToLeveledList @list @smg %{lvl} 1 1"
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "script": "player.AddItem @list 1 1"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "player.GetItemCount @smg",
+   "field": "smg_after_1"
+  },
+  {
+   "script": "player.EquipItem @smg 0 1"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "player.GetEquippedCurrentHealth 5",
+   "field": "health_points_1"
+  },
+  {
+   "query": "player.GetWeaponHealthPerc",
+   "field": "health_perc_1"
+  }
+ ]
+}

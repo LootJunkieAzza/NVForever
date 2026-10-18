@@ -295,7 +295,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | AddFormToFormList | 0x1233 | 651 / 0 | match | - | - |  |
 | AddItem | 0x1002 | 1720 / 0 | match | - | - |  |
 | AddItemHealthPercent | 0x11BC | 166 / 0 | match | - | - |  |
-| AddItemToLeveledList | 0x1236 | 20 / 0 | match | - | - |  |
+| AddItemToLeveledList | 0x1236 | 20 / 0 | match | - | - | fHealthPercent100 (0-100) is the condition of the items the entry gives [documented]; capture job leveled_list_health checks Honest Hearts' 1. |
 | AddNote | 0x117C | 192 / 0 | match | - | - |  |
 | AddPerk | 0x1176 | 188 / 0 | match | - | - |  |
 | AddReputation | 0x1239 | 504 / 0 | match | - | - |  |
@@ -323,20 +323,20 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | DamageActorValue | 0x1181 | 138 / 0 | match | - | - |  |
 | DamageObject | 0x116C | 89 / 0 | match | - | - |  |
 | DetonatePlacedExplosives | 0x124D | 1 / 0 | match | - | - |  |
-| Disable | 0x1022 | 3336 / 0 | match | - | - |  |
+| Disable | 0x1022 | 3336 / 0 | match | - | - | FadeOut 1 fades the reference out; children pop out [documented]. |
 | DisableNavmesh | 0x11BF | 2 / 0 | no-system | navmesh switches | - | Stub. |
 | DisablePlayerControls | 0x1061 | 220 / 0 | match | - | - |  |
 | Dispel | 0x1142 | 56 / 0 | match | - | - |  |
 | DispelAllSpells | 0x1148 | 11 / 0 | match | - | - |  |
 | Drop | 0x1057 | 4 / 0 | match | - | - |  |
 | DropMe | 0x10A6 | 58 / 0 | match | - | - |  |
-| Enable | 0x1021 | 3324 / 0 | match | - | - |  |
+| Enable | 0x1021 | 3324 / 0 | match | - | - | FadeIn (default 1) fades the reference in over 1 s [hypothesis: the length]; enable children fade unless Pop In (script-function-params.md §3, smoke enable-disable-fade). |
 | EnableFastTravel | 0x1111 | 83 / 0 | no-system | fast travel | - | The switch is kept; fast travel itself is not built. |
 | EnableLoadingMenu | 0x1270 | 2 / 0 | no-system | loading screen control | - | Stub. |
 | EnableNavMesh | 0x11C0 | 5 / 0 | no-system | navmesh switches | - | Stub. |
 | EnablePlayerControls | 0x1060 | 177 / 0 | match | - | - |  |
 | EnterTrigger | 0x11BA | 160 / 0 | match | - | - |  |
-| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
+| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. NoUnequipFlag locks the item on (fnv_sim EquipLock; smoke equip-lock-inventory) [documented]. |
 | EvaluatePackage | 0x105E | 2285 / 0 | match | - | - |  |
 | Exists | 0x119F | 0 / 21 | match | - | - |  |
 | ExitGame | 0x11B5 | 1 / 0 | wrong | quitting from scripts | - | Stub, 1 call; the console's qqq exists. |
@@ -543,7 +543,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PickIdle | 0x1064 | 2 / 0 | wrong | IDLE-tree idles picked by scripts | - | Stub; furniture and weapon fidgets use the IDLE tree already. |
 | PipBoyRadio | 0x11A7 | 6 / 0 | match | - | - |  |
 | PipBoyRadioOff | 0x1224 | 11 / 0 | match | - | - |  |
-| PlaceAtMe | 0x1025 | 468 / 0 | match | - | - |  |
+| PlaceAtMe | 0x1025 | 468 / 0 | match | - | - | Distance and Direction do nothing in the original [documented: wiki notes]. |
 | PlaceAtReticle | 0x1263 | 3 / 0 | wrong | crosshair placement | - | Stub; the engine has the crosshair ray. |
 | PlaceLeveledActorAtMe | 0x11D1 | 5 / 0 | match | - | - |  |
 | PlayBink | 0x1114 | 4 / 0 | wrong | Bink videos | - | Stub; the intro decoder exists (licence note). |
@@ -558,7 +558,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PurgeCellBuffers | 0x1189 | 32 / 0 | match | - | - | No-op (script-stubs.md §5). |
 | PushActorAway | 0x118A | 35 / 0 | open | knockdowns and knock-outs | - | Built 2026-10-18 (unconscious.md §5); force scale and time down are design guesses. |
 | ReleaseWeatherOverride | 0x1158 | 11 / 0 | match | - | - |  |
-| RemoveAllItems | 0x10AD | 59 / 0 | match | - | - |  |
+| RemoveAllItems | 0x10AD | 59 / 0 | match | - | - | retainOwnershipFlag 0 clears moved items' owner [documented]. |
 | RemoveAllTypedItems | 0x1249 | 295 / 0 | match | - | - |  |
 | RemoveFromAllFactions | 0x1214 | 19 / 0 | match | - | - |  |
 | RemoveFromFaction | 0x1180 | 683 / 0 | match | - | - |  |
@@ -583,7 +583,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | RewardKarma | 0x1204 | 163 / 0 | match | - | - |  |
 | RewardXP | 0x1177 | 1303 / 0 | match | - | - | Levelling by experience exists now (experience.rs, levelup.rs); the audit's gap is closed. |
 | Rotate | 0x1004 | 4 / 0 | match | - | - |  |
-| Say | 0x1033 | 623 / 0 | match | - | - |  |
+| Say | 0x1033 | 623 / 0 | match | - | - | ForceSubtitles shows the subtitle out of hearing; is2D heard flat anywhere [hypothesis]; Actor and isVoice not read (undocumented, never passed). |
 | SayTo | 0x1034 | 994 / 0 | match | - | - |  |
 | ScriptEffectElapsedSeconds | 0x10BA | 20 / 0 | match | - | - |  |
 | SendAssaultAlarm | 0x105F | 93 / 0 | match | - | - |  |
@@ -611,7 +611,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetFactionRank | 0x1089 | 34 / 0 | match | - | - |  |
 | SetForceSneak | 0x10D3 | 3 / 0 | match | - | - |  |
 | SetGhost | 0x10EC | 357 / 0 | match | - | - |  |
-| SetGlobalTimeMultiplier | 0x1186 | 7 / 0 | match | - | - |  |
+| SetGlobalTimeMultiplier | 0x1186 | 7 / 0 | match | - | - | Sounds follow the multiplier unless keepSoundUnchanged [documented; hypothesis: which sounds]. |
 | SetHardcore | 0x124B | 2 / 0 | match | - | - |  |
 | SetIgnoreFriendlyHits | 0x1151 | 132 / 0 | match | - | - |  |
 | SetInCharGen | 0x10E7 | 16 / 0 | match | - | - |  |
@@ -628,7 +628,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetPCCanUsePowerArmor | 0x1229 | 2 / 0 | wrong | power armour training | - | Stored, never read: equipping power armour is not gated. |
 | SetPCEnemyOfFaction | 0x10C6 | 24 / 0 | match | - | - |  |
 | SetPCSleepHours | 0x10BD | 3 / 0 | match | - | - |  |
-| SetPlayerTagSkill | 0x11CD | 23 / 0 | match | - | - |  |
+| SetPlayerTagSkill | 0x11CD | 23 / 0 | match | - | - | Four slots; a slot's old skill is untagged; index above 3 ignored [documented]. |
 | SetPlayerTeammate | 0x11C5 | 189 / 0 | match | - | - |  |
 | SetPos | 0x1007 | 148 / 0 | match | - | - |  |
 | SetQuestDelay | 0x11DC | 167 / 0 | match | - | - |  |
@@ -642,19 +642,19 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetSecuritronExpression | 0x1248 | 37 / 0 | match | - | - |  |
 | SetSPECIALPoints | 0x1218 | 2 / 0 | match | - | - |  |
 | SetStage | 0x1039 | 2449 / 0 | match | - | - |  |
-| SetTagSkills | 0x121A | 3 / 0 | match | - | - |  |
+| SetTagSkills | 0x121A | 3 / 0 | match | - | - | addedPoints is the menu's count in all; showInitialTaggedSkills 0 hides the tags before [documented]. |
 | SetTalkingActivatorActor | 0x1171 | 31 / 0 | match | - | - |  |
 | SetUnconscious | 0x10F1 | 199 / 0 | open | knockdowns and knock-outs | - | AI off; holds a lying actor down until cleared; alone lays nobody down (unconscious.md §5.1). |
 | SetVatsTarget | 0x11EB | 10 / 0 | no-system | VATS | - | Stub. |
 | SetWeaponHealthPerc | 0x11F5 | 1 / 0 | match | - | - |  |
 | SetWeather | 0x1104 | 14 / 0 | match | - | - |  |
-| SexChange | 0x11E7 | 12 / 0 | wrong | race and sex change on NPCs | - | Errors on NPCs; all base-game callers are the player. |
+| SexChange | 0x11E7 | 12 / 0 | wrong | race and sex change on NPCs | - | Errors on NPCs; all base-game callers are the player. resetAppearance sets the race's first starting face (script-function-params.md §3). |
 | ShowAllMapMarkers | 0x11F8 | 2 / 0 | match | - | - |  |
 | ShowBarberMenu | 0x11F1 | 4 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
 | ShowBarterMenu | 0x1173 | 168 / 0 | match | - | - |  |
 | ShowBlackJackMenuParams | 0x1254 | 6 / 0 | match | - | - |  |
 | ShowCaravanMenu | 0x125A | 29 / 0 | no-system | Caravan card game | - | Stub. |
-| ShowLoveTesterMenuParams | 0x1245 | 1 / 0 | match | - | - |  |
+| ShowLoveTesterMenuParams | 0x1245 | 1 / 0 | match | - | - | iPoints is the attributes' total, as SetSPECIALPoints [documented]. |
 | ShowMap | 0x1055 | 244 / 0 | match | - | - |  |
 | ShowMessage | 0x1059 | 1717 / 0 | match | - | - |  |
 | ShowPlasticSurgeonMenu | 0x11F2 | 2 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
@@ -670,7 +670,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | Sqrt | 0x121F | 2 / 0 | match | - | - |  |
 | StartCannibal | 0x107E | 4 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |
 | StartCombat | 0x1016 | 938 / 0 | match | - | - |  |
-| StartConversation | 0x1056 | 135 / 0 | match | - | - |  |
+| StartConversation | 0x1056 | 135 / 0 | match | - | - | allowMovement 1 lets two actors walk while they talk; left out they stand [hypothesis: the default]. |
 | StartMisterSandman | 0x107C | 1 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |
 | StartQuest | 0x1036 | 423 / 0 | match | - | - |  |
 | StartRadioConversation | 0x11D6 | 16 / 0 | match | - | - |  |
@@ -683,7 +683,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SystemSave | 0x127B | 5 / 0 | wrong | saves from scripts | - | Stub; saves and Autosave exist. |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
 | TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
-| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
+| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem; NoEquipFlag locks the item off [documented]. |
 | Unlock | 0x1073 | 450 / 0 | match | - | - | On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]. |
 | UnlockChallenge | 0x125E | 44 / 0 | match | - | - |  |
 | UseWeapon | 0x119C | 13 / 0 | match | - | - |  |

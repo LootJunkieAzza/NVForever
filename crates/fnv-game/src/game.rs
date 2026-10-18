@@ -537,6 +537,10 @@ pub struct PlayerState {
     pub look: Option<crate::chargen::Look>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
+    /// The tag skills SetPlayerTagSkill put in its four slots, by slot (0–3); the
+    /// tag-skill menu's choice replaces them.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub tag_slots: BTreeMap<u8, u16>,
     /// The points spent on each skill in the level-up menu (`crate::levelup`), added to
     /// the skill's formula [documented: GECK wiki ActorValue, the player's spent skill
     /// points sit on top of the derived base; docs/spec-notes/levelup.md §4].
@@ -727,6 +731,12 @@ pub struct Speech {
     /// last asked for (`crate::idles`); not part of the saved state.
     #[serde(skip)]
     pub response: usize,
+    /// Say's ForceSubtitles: the subtitle shows whatever the setting and the distance.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force_subtitles: bool,
+    /// Say's is2D: heard as a 2D sound (full volume, not panned, anywhere).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_d: bool,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -939,6 +949,9 @@ pub struct Game<'a> {
     pub boxes: Vec<FormId>,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
+    /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
+    /// they talk to each other ([`Game::conversation_moves`]); not saved.
+    pub moving_talkers: BTreeSet<FormId>,
     /// (speaker, line) pairs of the Say Once lines already said, and of every line said
     /// in a conversation with the player (the shading of choices).
     pub said: BTreeSet<(FormId, FormId)>,
@@ -1161,6 +1174,7 @@ impl<'a> Game<'a> {
             message_box: None,
             boxes: Vec::new(),
             speech: Vec::new(),
+            moving_talkers: BTreeSet::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
@@ -1785,6 +1799,15 @@ impl<'a> Game<'a> {
         Some(info)
     }
 
+    /// Say's flags on the line `speaker` is saying ([`Speech::force_subtitles`],
+    /// [`Speech::two_d`]).
+    pub fn set_line_flags(&mut self, speaker: FormId, force_subtitles: bool, two_d: bool) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+            s.force_subtitles = force_subtitles;
+            s.two_d = two_d;
+        }
+    }
+
     /// Set who the line `speaker` is saying turns to whom ([`LineLook`]).
     pub fn set_line_look(&mut self, speaker: FormId, look: LineLook) {
         if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
@@ -1839,7 +1862,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0 });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }

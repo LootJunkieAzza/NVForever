@@ -1285,3 +1285,74 @@ fn misc_stats_count_and_set_scale_is_kept_on_the_reference() {
     assert!(g.turned.contains(&FormId(ACTI_REF)));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Scaled { reference, scale } if reference == FormId(ACTI_REF) && scale == 0.25)));
 }
+
+/// The parameters scripts pass that were ignored until 2026-10-18
+/// (docs/design/script-function-params.md §3).
+#[test]
+fn ignored_parameters_are_honoured() {
+    use fnv_game::chargen::{SpecialSheet, TagSheet};
+    use fnv_sim::world::{EquipLock, SimError};
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let fades = |g: &Game| -> Vec<(bool, bool)> {
+        g.events
+            .iter()
+            .filter_map(|e| match e.kind {
+                EventKind::RefEnabled { fade, .. } => Some((true, fade)),
+                EventKind::RefDisabled { fade, .. } => Some((false, fade)),
+                _ => None,
+            })
+            .collect()
+    };
+    // Enable fades in by default, Disable does not; each flag turns it round.
+    for (op, arg) in [(0x1022, None), (0x1021, None), (0x1022, Some(1.0)), (0x1021, Some(0.0))] {
+        let args: Vec<ArgValue> = arg.map(n).into_iter().collect();
+        call(&mut g, op, Some(ACTI_REF), &args);
+    }
+    assert_eq!(fades(&g), vec![(false, false), (true, true), (false, true), (true, false)]);
+
+    // EquipItem's NoUnequipFlag: the inventory cannot take it off; UnequipItem can, and
+    // its NoEquipFlag keeps it off until EquipItem.
+    g.world.add_item(p, FormId(WEAP), 1).unwrap();
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP), n(1.0)]);
+    assert_eq!(g.world.equip_lock(p, FormId(WEAP)), Some(EquipLock::NoUnequip));
+    assert!(matches!(g.world.unequip(p, FormId(WEAP)), Err(SimError::EquipLocked { on: true, .. })));
+    call(&mut g, 0x10EF, Some(PLAYER), &[r(WEAP), n(1.0), n(1.0)]);
+    assert_eq!(g.world.equip_lock(p, FormId(WEAP)), Some(EquipLock::NoEquip));
+    assert!(!g.world.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(FormId(WEAP)));
+    assert!(matches!(g.world.equip(p, FormId(WEAP)), Err(SimError::EquipLocked { on: false, .. })));
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP)]);
+    assert_eq!(g.world.equip_lock(p, FormId(WEAP)), None, "a plain EquipItem frees it");
+    assert!(g.world.unequip(p, FormId(WEAP)).unwrap());
+
+    // SetPlayerTagSkill: four slots; a slot's old skill is untagged; above 3 nothing.
+    call(&mut g, 0x11CD, None, &[n(41.0), n(2.0)]);
+    call(&mut g, 0x11CD, None, &[n(43.0), n(2.0)]);
+    call(&mut g, 0x11CD, None, &[n(44.0), n(4.0)]);
+    assert_eq!(g.player.tag_skills.iter().copied().collect::<Vec<_>>(), vec![43]);
+    // SetTagSkills: the count in all; with 0 the tags before are not shown.
+    call(&mut g, 0x121A, None, &[n(4.0)]);
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.remaining(), t.locked.len()), (4, 3, 0));
+    call(&mut g, 0x121A, None, &[n(3.0), n(0.0)]);
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.tagged.len()), (3, 0));
+    t.apply(&mut g);
+    assert!(g.player.tag_slots.is_empty(), "the menu's choice replaces the slots");
+    // ShowLoveTesterMenuParams: the attributes add up to the points.
+    call(&mut g, 0x1245, None, &[n(33.0)]);
+    assert_eq!(SpecialSheet::for_menu(&mut g).total, 33);
+
+    // SexChange with resetAppearance asks the engine for the starting look, only on a change.
+    call(&mut g, 0x11E7, None, &[n(0.0), n(1.0)]);
+    assert!(!g.ui.reset_look, "a man already");
+    call(&mut g, 0x11E7, None, &[n(1.0), n(1.0)]);
+    assert!(g.ui.reset_look && g.player.female == Some(true));
+
+    // SetGlobalTimeMultiplier: the sound flag is kept for the engine.
+    call(&mut g, 0x1186, None, &[n(0.5)]);
+    assert!(!g.ui.time_keeps_sound);
+    call(&mut g, 0x1186, None, &[n(0.5), n(1.0)]);
+    assert!(g.ui.time_keeps_sound);
+}

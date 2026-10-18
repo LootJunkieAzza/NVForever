@@ -966,6 +966,20 @@ mod tests {
     }
 
     #[test]
+    fn the_starting_look_is_the_first_preset_else_the_race_defaults() {
+        let d = data();
+        let cat = &d.catalogue;
+        let man = cat.starting_look(FormId(1), false).unwrap();
+        assert_eq!(man.facegen.fggs[0], 2.0, "the first preset's face");
+        assert_eq!((man.hair, man.eyes, man.head_parts.clone()), (Some(FormId(11)), Some(FormId(31)), vec![FormId(40)]));
+        // No preset for a woman: the race's default hair and first eyes, a plain face.
+        let woman = cat.starting_look(FormId(1), true).unwrap();
+        assert_eq!((woman.hair, woman.eyes, woman.head_parts.len()), (Some(FormId(20)), Some(FormId(30)), 0));
+        assert_eq!(woman.facegen.fggs, vec![0.0; 50]);
+        assert!(cat.starting_look(FormId(9), false).is_none());
+    }
+
+    #[test]
     fn randomise_keeps_the_race() {
         let mut m = Model::new(data(), look());
         let mut rng = <rand_chacha::ChaCha8Rng as rand_core::SeedableRng>::seed_from_u64(3);

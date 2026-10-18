@@ -41,21 +41,35 @@ The hide flag is carried on the trace events (`ItemAdded`/`ItemRemoved` `silent`
 serialised, so traces and goldens are unchanged) and `engine/nvf-play/src/script_events.rs`
 skips silent ones.
 
-## 3. Still ignored
+## 3. Honoured on 2026-10-18 (branch claude/script-params-honoured)
 
-| Function | Parameter(s) | Shipped calls passing them | What it needs |
+The list §3 had after the first round, each now read and acted on. Sources: the GECK wiki
+export (`C:\fnv-private\geckwiki`, owner's) [documented] unless tagged otherwise; the
+shipped calls are counted over FalloutNV.esm with `tools/script_param_audit.py`, the
+add-ons' by hand.
+
+| Function | Parameter(s) | Shipped calls | Now |
 |---|---|---|---|
-| Enable / Disable | FadeIn / FadeOut | 276 / 268 | an engine fade of the reference's look (Enable fades by default, Disable does not [documented: catalogue]) |
-| EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | the player's inventory refusing to unequip/equip the item |
-| SetPlayerTagSkill | iSkillIndex | 23 | tag skills kept as four slots instead of a set |
-| Say | ForceSubtitles, Actor, is2D, isVoice | 18 | subtitles shown regardless of the setting, a stand-in speaker, 2D sound |
-| PlaceAtMe | Distance, Direction | 8 | the spawn offset |
-| SexChange | resetAppearance | 6 | |
-| PlaceLeveledActorAtMe | levelMod, encounterZoneID | 5 | leveled actor levels |
-| RemoveAllItems | retainOwnershipFlag | 5 | moved items keep their owner either way now |
-| SetTagSkills | addedPoints, showInitialTaggedSkills | 2 | the tag menu's point count |
-| ShowLoveTesterMenuParams | iPoints | 1 | |
-| SetGlobalTimeMultiplier | keepSoundUnchanged | 1 | |
-| StartConversation | allowMovement | 1 | |
-| AddItemToLeveledList | fHealthPercent100 | 0 | |
+| Enable / Disable | FadeIn (default 1) / FadeOut (default 0) | 276 / 268 | the reference fades in or out over 1 s instead of popping (`nvf_play::fade`); enable children fade in unless their XESP "Pop In" flag is set, and pop out [documented: Enable, Disable notes]. GetDisabled is 1 at once [hypothesis]; length and shape [hypothesis], capture job `enable_fade_timing` |
+| EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | `fnv_sim::world::EquipLock` on the actor, kept in snapshots: a locked-on item cannot be unequipped (inventory menu: "… can't be unequipped") and nothing else takes its slot; a locked-off one cannot be equipped; the other function takes the lock away |
+| SetPlayerTagSkill | iSkillIndex | 23 | four slots (`PlayerState::tag_slots`): the slot's old skill is untagged unless another slot holds it; an index above 3 does nothing |
+| Say | ForceSubtitles | 18 (all pass 1, nothing after it) | the subtitle shows even out of hearing (NVForever has no subtitle setting to override) [hypothesis: the name's meaning] |
+| Say | is2D | 0 | heard flat and whole wherever the player is, subtitle included [hypothesis] |
+| Say | Actor, isVoice | 0 | **not read**: the wiki gives only the names and no shipped script passes them |
+| PlaceAtMe | Distance, Direction | 8 | nothing to do: "The Distance and Direction parameters do not work. No matter what is specified for them, the created reference will be placed in safe location nearby" [documented: PlaceAtMe notes] |
+| SexChange | resetAppearance | 6 (all pass 1) | on a change of sex the player's look becomes the race's first starting face for the new sex, what the race menu shows (`Catalogue::starting_look`, engine `creator::reset_look`) ["the default preset" being the first is hypothesis]; without it the face stays and the look's sex follows |
+| PlaceLeveledActorAtMe | levelMod, encounterZoneID | 0 (the 5 calls pass the actor only) | nothing to do for the shipped scripts: levelMod defaults to 4, "None" [documented]. A level modifier would need leveled actors resolved at the player's level, which they are not (docs/spec-notes/actors.md §2.1) |
+| RemoveAllItems | retainOwnershipFlag | 5 | moved items lose their owner unless it is non-zero (`World::transfer_all_owned`) |
+| SetTagSkills | addedPoints, showInitialTaggedSkills | 2 (`3`, `3 1`) | the menu's count is addedPoints in all, those tagged before counting; with 0 the tags before are not shown and may be chosen over |
+| ShowLoveTesterMenuParams | iPoints | 1 (40) | the seven attributes add up to iPoints, as SetSPECIALPoints |
+| SetGlobalTimeMultiplier | keepSoundUnchanged | 1 (`0.5 1`) | without it the sounds the engine's slow motion slows play at the multiplier too (`audio_out::SoundSpeed`) [hypothesis: which sounds, and the factor itself] |
+| StartConversation | allowMovement | 1 (`0`) | between actors, 1 lets both go on with their packages while they talk (`Game::conversation_moves`); 0, or left out, keeps them standing as before [hypothesis for the default] |
+| AddItemToLeveledList | fHealthPercent100 | 0 here; 11 in Honest Hearts pass 1, 5 in Old World Blues pass 100 | the items the entry gives have that condition, 0–100 % (`LeveledEntry::condition`); Honest Hearts' 1 thus gives items at 1 % as the page reads [hypothesis until capture job `leveled_list_health`] |
 | EquipItem / UnequipItem | HideEquipMessage | (see above) | nothing to hide: the engine shows no equip lines |
+
+## 4. Still ignored
+
+Rerun of `tools/script_param_audit.py` after this branch, candidates read by hand as in §1:
+Say's Actor and isVoice (above). The other rows it prints read their parameters through
+a helper (false hits, §1); Look's rotateBody is read as its second argument (the
+catalogue lists three parameters: a false hit too).

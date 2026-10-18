@@ -473,7 +473,7 @@ type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibi
 /// Hide or show `RefVisual` entities from the simulation's state: every entity of a
 /// reference named by `RefChanged`, and new entities as cells stream in (a taken item
 /// must not come back when its cell reloads).
-fn sync_visuals(
+pub(crate) fn sync_visuals(
     sim: Res<SimState>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,

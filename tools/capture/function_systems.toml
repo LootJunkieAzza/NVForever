@@ -145,11 +145,11 @@ note = "As GetCasinoWinningsLevel."
 
 [function.EquipItem]
 status = "match"
-note = "The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]."
+note = "The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. NoUnequipFlag locks the item on (fnv_sim EquipLock; smoke equip-lock-inventory) [documented]."
 
 [function.UnequipItem]
 status = "match"
-note = "As EquipItem."
+note = "As EquipItem; NoEquipFlag locks the item off [documented]."
 
 [function.GetChallengeCompleted]
 status = "wrong"
@@ -231,7 +231,7 @@ note = "Drawn and collided at the new scale (objects; actors drawn only), kept o
 [function.SexChange]
 status = "wrong"
 system = "race and sex change on NPCs"
-note = "Errors on NPCs; all base-game callers are the player."
+note = "Errors on NPCs; all base-game callers are the player. resetAppearance sets the race's first starting face (script-function-params.md §3)."
 
 [function.PlaceAtReticle]
 status = "wrong"
@@ -522,3 +522,50 @@ note = "Rules state right (dead, cause, health) [observed: probes]; the engine d
 status = "open"
 system = "knockdowns and knock-outs"
 note = "AI off (no walking, packages, talk) and holds a lying actor down until cleared; alone it lays nobody down, as the pods and the fake-death thugs need (unconscious.md §5.1) [hypothesis]."
+
+# ---------------------------------------------------------------- parameters honoured 2026-10-18
+# (docs/design/script-function-params.md §3)
+
+[function.Enable]
+status = "match"
+note = "FadeIn (default 1) fades the reference in over 1 s [hypothesis: the length]; enable children fade unless Pop In (script-function-params.md §3, smoke enable-disable-fade)."
+
+[function.Disable]
+status = "match"
+note = "FadeOut 1 fades the reference out; children pop out [documented]."
+
+[function.Say]
+status = "match"
+note = "ForceSubtitles shows the subtitle out of hearing; is2D heard flat anywhere [hypothesis]; Actor and isVoice not read (undocumented, never passed)."
+
+[function.SetPlayerTagSkill]
+status = "match"
+note = "Four slots; a slot's old skill is untagged; index above 3 ignored [documented]."
+
+[function.SetTagSkills]
+status = "match"
+note = "addedPoints is the menu's count in all; showInitialTaggedSkills 0 hides the tags before [documented]."
+
+[function.ShowLoveTesterMenuParams]
+status = "match"
+note = "iPoints is the attributes' total, as SetSPECIALPoints [documented]."
+
+[function.RemoveAllItems]
+status = "match"
+note = "retainOwnershipFlag 0 clears moved items' owner [documented]."
+
+[function.AddItemToLeveledList]
+status = "match"
+note = "fHealthPercent100 (0-100) is the condition of the items the entry gives [documented]; capture job leveled_list_health checks Honest Hearts' 1."
+
+[function.SetGlobalTimeMultiplier]
+status = "match"
+note = "Sounds follow the multiplier unless keepSoundUnchanged [documented; hypothesis: which sounds]."
+
+[function.StartConversation]
+status = "match"
+note = "allowMovement 1 lets two actors walk while they talk; left out they stand [hypothesis: the default]."
+
+[function.PlaceAtMe]
+status = "match"
+note = "Distance and Direction do nothing in the original [documented: wiki notes]."

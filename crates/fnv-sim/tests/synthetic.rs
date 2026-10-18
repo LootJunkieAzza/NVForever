@@ -597,6 +597,73 @@ fn leveled_lists_follow_level_and_chance_none() {
 
 /// AddItemToLeveledList: an entry added at run time takes part in the choice as an
 /// authored one, is kept in snapshots, and only leveled item lists take entries.
+/// EquipItem's NoUnequipFlag and UnequipItem's NoEquipFlag as the world keeps them: a
+/// locked-on item cannot be taken off nor its slot taken; a locked-off one cannot be put
+/// on; taking the lock away (what the script functions do first) frees it; snapshots keep
+/// it [documented: GECK wiki EquipItem, UnequipItem].
+#[test]
+fn script_locks_hold_items_on_and_off() {
+    use fnv_sim::world::EquipLock;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    for it in [PISTOL, RIFLE, HAT, HELMET] {
+        w.add_item(p, id(it), 1).unwrap();
+    }
+    w.equip(p, id(PISTOL)).unwrap();
+    w.lock_equip(p, id(PISTOL), Some(EquipLock::NoUnequip)).unwrap();
+    assert_eq!(w.unequip(p, id(PISTOL)), Err(SimError::EquipLocked { item: id(PISTOL), on: true }));
+    assert_eq!(w.equip(p, id(RIFLE)).map(|e| e.unequipped), Err(SimError::EquipLocked { item: id(PISTOL), on: true }), "the slot is held");
+    // Other slots are free.
+    assert!(w.equip(p, id(HAT)).is_ok());
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let mut back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(back.equip_lock(p, id(PISTOL)), Some(EquipLock::NoUnequip));
+    w.lock_equip(p, id(PISTOL), None).unwrap();
+    assert!(w.unequip(p, id(PISTOL)).unwrap());
+    // Locked off: not put on until the lock goes.
+    w.lock_equip(p, id(HELMET), Some(EquipLock::NoEquip)).unwrap();
+    assert_eq!(w.equip(p, id(HELMET)).map(|e| e.consumed), Err(SimError::EquipLocked { item: id(HELMET), on: false }));
+    w.lock_equip(p, id(HELMET), None).unwrap();
+    assert_eq!(w.equip(p, id(HELMET)).unwrap().unequipped, vec![id(HAT)]);
+    assert!(back.unequip(p, id(HAT)).is_ok(), "a lock on one item leaves the others");
+}
+
+/// RemoveAllItems' retain-ownership flag: moved items keep their owner only when asked
+/// [documented: GECK wiki RemoveAllItems].
+#[test]
+fn moving_everything_keeps_the_owner_only_when_asked() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let p = FormId::PLAYER_REF;
+    let owned = Extra { owner: Some(id(GUARD)), ..Extra::default() };
+    for keep in [true, false] {
+        let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+        w.get(id(SAFE_REF)).unwrap().inventory.get_or_insert_with(Default::default).add_extra(id(STIMPAK), 2, owned);
+        w.transfer_all_owned(id(SAFE_REF), p, keep).unwrap();
+        let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+        // (The safe's leveled entry may give plain stimpaks too.)
+        let owned = inv.groups().any(|g| g.0 == id(STIMPAK) && g.1.owner == Some(id(GUARD)));
+        assert_eq!(owned, keep, "keep {keep}");
+        assert!(inv.count(id(STIMPAK)) >= 2);
+    }
+}
+
+/// AddItemToLeveledList's health: the items the entry gives have that condition, also
+/// through a nested list [documented: GECK wiki AddItemToLeveledList].
+#[test]
+fn a_scripts_leveled_entry_gives_items_at_its_condition() {
+    use fnv_sim::forms::LeveledEntry;
+    let f = fixture();
+    let cfg = SimConfig { seed: 3, player_level: 10, ..SimConfig::default() };
+    let mut w = World::new(&f.forms, &f.refs, cfg);
+    let p = FormId::PLAYER_REF;
+    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(PISTOL), count: 1, condition: Some(0.6) }).unwrap();
+    assert_eq!(w.add_item(p, id(LL_LOOT), 1).unwrap(), vec![(id(PISTOL), 1)]);
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!(inv.groups().find(|g| g.0 == id(PISTOL)).unwrap().1.condition, Some(0.6));
+}
+
 #[test]
 fn entries_added_to_a_leveled_list_count_and_persist() {
     use fnv_sim::forms::LeveledEntry;
@@ -605,14 +672,14 @@ fn entries_added_to_a_leveled_list_count_and_persist() {
     let mut w = World::new(&f.forms, &f.refs, cfg);
     // LL_LOOT picks among its highest eligible level (5: CAPS x10); an entry at level 7
     // becomes the only one of the highest level.
-    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(KEY), count: 2 }).unwrap();
+    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(KEY), count: 2, condition: None }).unwrap();
     assert_eq!(w.add_item(FormId::PLAYER_REF, id(LL_LOOT), 1).unwrap(), vec![(id(KEY), 2)]);
     let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
     let mut again = World::restore(&f.forms, &f.refs, &snap).unwrap();
     assert_eq!(again.leveled_added(id(LL_LOOT)).len(), 1);
     assert_eq!(again.add_item(FormId::PLAYER_REF, id(LL_LOOT), 1).unwrap(), vec![(id(KEY), 2)]);
-    assert!(w.add_to_leveled_list(id(STIMPAK), LeveledEntry { level: 1, item: id(KEY), count: 1 }).is_err(), "not a leveled list");
-    assert!(w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 1, item: id(0xDEAD), count: 1 }).is_err(), "unknown form");
+    assert!(w.add_to_leveled_list(id(STIMPAK), LeveledEntry { level: 1, item: id(KEY), count: 1, condition: None }).is_err(), "not a leveled list");
+    assert!(w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 1, item: id(0xDEAD), count: 1, condition: None }).is_err(), "unknown form");
 }
 
 #[test]

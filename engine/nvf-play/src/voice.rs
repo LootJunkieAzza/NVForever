@@ -263,16 +263,19 @@ struct Said {
     remaining: f64,
     /// A line of the conversation with the player.
     conversation: bool,
+    /// Said as a 2D sound (Say's is2D, `fnv_game::game::Speech::two_d`): heard flat and
+    /// whole wherever the player is, as the conversation's line is.
+    two_d: bool,
 }
 
 /// Every response being said: the SayTo and Say lines, and the conversation's line.
 fn said_now(g: &Game, sim: &SimState) -> Vec<Said> {
     let mut out: Vec<Said> =
-        g.speech.iter().map(|s| Said { speaker: s.speaker, info: s.info, response: speech_response(g, sim, s), remaining: s.remaining, conversation: false }).collect();
+        g.speech.iter().map(|s| Said { speaker: s.speaker, info: s.info, response: speech_response(g, sim, s), remaining: s.remaining, conversation: false, two_d: s.two_d }).collect();
     if let Some((c, line)) = g.dialogue.as_ref().and_then(|c| Some((c, c.line.as_ref()?))) {
         let order = g.data.infos.get(&line.info).map(|d| d.response_order()).unwrap_or_default();
         if let Some(&r) = order.get(line.response) {
-            out.push(Said { speaker: c.actor, info: line.info, response: r, remaining: line.remaining, conversation: true });
+            out.push(Said { speaker: c.actor, info: line.info, response: r, remaining: line.remaining, conversation: true, two_d: false });
         }
     }
     out
@@ -451,8 +454,9 @@ fn play(
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
         let file = base.and_then(|b| bank.file(s.info.0, k, b.0));
-        // A line outside the conversation is heard from where it is said, or not at all.
-        let heard = if s.conversation { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
+        // A line outside the conversation is heard from where it is said, or not at all;
+        // a 2D one (Say's is2D) as the conversation's.
+        let heard = if s.conversation || s.two_d { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
         let out_of_hearing = match heard {
             Some(Some((_, d))) if d >= DIALOG_MAX_DISTANCE => Some(format!("{d:.0} units away")),
             Some(None) if player.is_some() => {

@@ -4421,3 +4421,48 @@ expect = [
   { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
   { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
 ]
+
+[[scenario]]
+name = "enable-disable-fade"
+source = "docs/design/script-function-params.md §3: Enable fades in unless FadeIn is 0, Disable fades out only with FadeOut 1 (GECK wiki Enable, Disable; 544 shipped calls pass the flag)"
+note = "Sunny (SunnyRef 00104E85) is disabled with a fade at 14 s, enabled with the default fade at 17 s, then disabled and enabled without one at 20 s and 22 s: one fade each way. The fade's length (1 s) is a guess awaiting capture job enable_fade_timing"
+areas = ["script-params", "scripts"]
+paths = ["engine/nvf-play/src/fade.rs", "engine/nvf-play/src/script_events.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "14:SunnyRef.disable 1;14.3:close;17:SunnyRef.enable;17.3:close;20:SunnyRef.disable;20.3:close;22:SunnyRef.enable 0;22.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'script: \S*Sunny\S* disabled \(fading out\)', label = "Disable 1 asks for a fade" },
+  { re = 'fade: 0x00104E85 out over 1 s', count = 1, label = "one fade out" },
+  { re = 'fade: 0x00104E85 out done', count = 1, label = "the fade out ends" },
+  { re = 'script: \S*Sunny\S* enabled \(fading in\)', label = "a plain Enable fades in" },
+  { re = 'fade: 0x00104E85 in over 1 s', count = 1, label = "one fade in: Enable 0 pops" },
+  { re = 'fade: 0x00104E85 in done', count = 1, label = "the fade in ends" },
+]
+
+[[scenario]]
+name = "equip-lock-inventory"
+source = "docs/design/script-function-params.md §3: EquipItem's NoUnequipFlag locks the item on and UnequipItem's NoEquipFlag locks it off, for the player too (GECK wiki EquipItem, UnequipItem)"
+note = "The console gives and equips a 9mm Pistol (000E3778) locked on; the inventory's Enter on it is refused; UnequipItem 1 takes it off locked off and Enter is refused again; a plain EquipItem frees it and Enter takes it off"
+areas = ["script-params", "menus"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-game/src/functions/items.rs", "engine/nvf-play/src/menu/model.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "14:player.additem 000E3778 1;14.3:player.equipitem 000E3778 1;14.6:close;19:player.unequipitem 000E3778 1;19.3:close;23:player.equipitem 000E3778;23.3:close", NVF_PLAY_TEST_DROP = "16:000E3778:use,20.5:000E3778:use,25:000E3778:use" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 29
+expect = [
+  { text = "menu: One: 9mm Pistol can't be unequipped", label = "locked on: the inventory cannot take it off" },
+  { text = "menu: One: 9mm Pistol can't be equipped", label = "locked off: the inventory cannot put it on" },
+  { text = "menu: One: Unequipped 9mm Pistol", label = "a plain EquipItem freed it" },
+]
+
+[[scenario]]
+name = "sexchange-reset-look"
+source = "docs/design/script-function-params.md §3: SexChange with resetAppearance sets the player's look to the default preset of the race and new sex (GECK wiki SexChange; the six shipped calls pass 1)"
+areas = ["script-params", "chargen"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/creator.rs", "crates/fnv-actor/src/creator.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "14:player.sexchange female 1;14.3:close;16:player.sexchange female 1;16.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 19
+expect = [
+  { re = "creator: SexChange reset the look to .*'s starting face for a woman", count = 1, label = "reset once: the second call changes no sex" },
+]

@@ -1,0 +1,997 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "enable_fade_timing",
+ "title": "Enable/Disable fades: how long and in what shape a reference fades (docs/design/script-function-params.md, about 1 min)",
+ "start": "nvfstrip (any save). The job travels to the Prospector Saloon, faces the terminal and hides the HUD; never saved; unattended (capture_run.py --save nvfstrip).",
+ "forms": {
+  "term": "FalloutNV.esm:0010872F"
+ },
+ "steps": [
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "coc GSProspectorSaloonInterior"
+  },
+  {
+   "until": "@term.HasLoaded3D",
+   "max_frames": 1200
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "player.MoveTo @term 0 -110 0"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "remember": "player.GetAngle Z + player.GetHeadingAngle @term",
+   "as": "face"
+  },
+  {
+   "script": [
+    "player.SetAngle Z %{face}",
+    "player.SetAngle X 10"
+   ]
+  },
+  {
+   "console": "tm"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "TimeScale",
+   "field": "timescale"
+  },
+  {
+   "screenshot": "before"
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_start",
+   "field": "days"
+  },
+  {
+   "script": "@term.Disable 1"
+  },
+  {
+   "query": "@term.GetDisabled",
+   "label": "disabled_at_once",
+   "field": "disabled"
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_00_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_00"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_01_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_01"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_02_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_02"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_03_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_03"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_04_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_04"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_05_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_05"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_06_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_06"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_07_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_07"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_08_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_08"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_09_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_09"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_10_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_10"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_11_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_11"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_12_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_12"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_13_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_13"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_14_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_14"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_15_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_15"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_16_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_16"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_17_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_17"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_18_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_18"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_19_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_19"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_20_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_20"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_21_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_21"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_22_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_22"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_23_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_23"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_24_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_24"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_25_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_25"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_26_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_26"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_27_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_27"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_28_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_28"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_29_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_29"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_30_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_30"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_31_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_31"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_32_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_32"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_33_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_33"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_34_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_34"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_35_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_35"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_36_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_36"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_37_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_37"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_38_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_38"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "out_39_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "out_39"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_start",
+   "field": "days"
+  },
+  {
+   "script": "@term.Enable"
+  },
+  {
+   "query": "@term.GetDisabled",
+   "label": "enabled_at_once",
+   "field": "disabled"
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_00_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_00"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_01_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_01"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_02_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_02"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_03_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_03"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_04_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_04"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_05_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_05"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_06_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_06"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_07_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_07"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_08_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_08"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_09_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_09"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_10_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_10"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_11_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_11"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_12_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_12"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_13_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_13"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_14_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_14"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_15_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_15"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_16_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_16"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_17_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_17"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_18_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_18"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_19_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_19"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_20_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_20"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_21_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_21"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_22_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_22"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_23_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_23"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_24_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_24"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_25_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_25"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_26_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_26"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_27_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_27"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_28_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_28"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_29_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_29"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_30_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_30"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_31_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_31"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_32_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_32"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_33_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_33"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_34_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_34"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_35_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_35"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_36_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_36"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_37_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_37"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_38_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_38"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "in_39_t",
+   "field": "days"
+  },
+  {
+   "screenshot": "in_39"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "GameDaysPassed",
+   "label": "pop_start",
+   "field": "days"
+  },
+  {
+   "script": "@term.Disable"
+  },
+  {
+   "screenshot": "pop_out_0"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "screenshot": "pop_out_1"
+  },
+  {
+   "script": "@term.Enable 0"
+  },
+  {
+   "screenshot": "pop_in_0"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "screenshot": "pop_in_1"
+  },
+  {
+   "console": "tm"
+  }
+ ]
+}
