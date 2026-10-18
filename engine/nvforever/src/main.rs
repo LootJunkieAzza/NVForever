@@ -1092,6 +1092,9 @@ fn main() -> AppExit {
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
+    // Cached models, actor parts and textures no live entity uses go after a grace time
+    // (nvf_assets::release): otherwise every visited cell's GPU assets stay.
+    .add_plugins(nvf_assets::AssetReleasePlugin)
     .insert_resource(StartPose {
         position: start,
         heading: args.heading,

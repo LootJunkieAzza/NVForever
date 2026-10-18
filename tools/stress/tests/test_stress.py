@@ -154,6 +154,25 @@ class TourTest(unittest.TestCase):
         self.assertEqual(leaks["entities"]["grew_at"][0]["first"], 10000)
         self.assertNotIn("meshes", leaks)
 
+    def test_meshes_kept_at_a_laps_end_are_not_released(self):
+        # Lap 1: meshes rise in a town and stay up back at the start; lap 2: they fall back.
+        held = [800] * 5 + [4000] * 10 + [4700] * 5
+        freed = [800] * 5 + [4000] * 10 + [850] * 5
+        samples = ([{"lap": 1, "meshes": v, "images": 600} for v in held]
+                   + [{"lap": 2, "meshes": v, "images": 600} for v in freed])
+        bad = tour.not_released(samples)
+        self.assertEqual(list(bad), ["meshes"])
+        self.assertEqual(bad["meshes"], [{"lap": 1, "start": 800, "end": 4700, "peak": 4700}])
+
+    def test_start_up_and_hitches_read_from_the_log(self):
+        lines = ["INFO nvforever::stress_sample: stress start-up: 61 frames, 4210 ms, slowest 2545.84 ms",
+                 "INFO stress hitch: 300 ms at t 1633.2 s, 2 cells loaded in it (180 ms), at WastelandNV cell -4,-12, position 1, 2, 3",
+                 "INFO stress hitch: 340 ms at t 1663.3 s, 0 cells loaded in it (0 ms), at WastelandNV cell 2,-13"]
+        startup, hitches = tour.startup_and_hitches(lines)
+        self.assertEqual(startup, {"frames": 61, "ms": 4210.0, "slowest_ms": 2545.84})
+        self.assertEqual([(h["ms"], h["cells"]) for h in hitches], [(340.0, 0), (300.0, 2)])
+        self.assertTrue(hitches[1]["at"].endswith("position 1, 2, 3"))
+
     def test_memory_goes_on_the_nearest_sample(self):
         samples = [{"t": 1.0}, {"t": 10.0}]
         tour.add_memory(samples, [(0.5, 100, 200), (9.0, 300, 400)])

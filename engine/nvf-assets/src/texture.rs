@@ -105,6 +105,30 @@ pub fn pc_texture(path: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
 }
 
 impl TextureCache {
+    /// Drop the textures nothing else holds (no live material uses them), after their
+    /// grace time (`crate::release`); the number dropped. Keys: (path, sRGB, clamped).
+    pub fn release(&mut self, idle: &mut crate::release::Unused<(String, bool, bool)>, now: f64) -> usize {
+        use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+        let entries: Vec<_> = [(false, &self.map), (true, &self.clamped)]
+            .into_iter()
+            .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), held_beyond(h, 1)))))
+            .collect();
+        let drop = idle.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
+        for (p, srgb, clamp) in &drop {
+            (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *srgb));
+        }
+        drop.len()
+    }
+
+    /// Textures loaded and held now (failures not counted).
+    pub fn len(&self) -> usize {
+        self.map.values().chain(self.clamped.values()).filter(|h| h.is_some()).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Load (once) the texture at a NIF texture path (the PC's own form of it, if any:
     /// [`pc_texture`]).
     pub fn get(
