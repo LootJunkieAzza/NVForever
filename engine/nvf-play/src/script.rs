@@ -1193,9 +1193,11 @@ fn due_aids(st: &mut ScriptState, now: f32) -> Vec<ScriptAid> {
 
 /// Start the world aids' clock ([`crate::pause::WorldAidClock`]) in the first frame the
 /// scripts ran (as [`run_scripts`] lets them: the player in the world, no pause menu, no
-/// loading screen), or, with the scripts off, the first such frame.
-fn start_world_aids(
-    time: crate::pause::AidTime,
+/// loading screen), or, with the scripts off, the first such frame. It reads the aids'
+/// clock from its parts, not through `AidTime`, which holds the clock this system writes
+/// (one system may not have both: Bevy's B0002, every `--play` run panicked on it).
+pub(crate) fn start_world_aids(
+    (time, play_clock): (Res<Time>, Res<crate::pause::PlayClock>),
     script: Res<ScriptState>,
     phys: Res<PhysState>,
     paused: Res<crate::pause::Paused>,
@@ -1207,7 +1209,8 @@ fn start_world_aids(
     if !ran || paused.0 || loading.active() || phys.player.is_none() {
         return;
     }
-    let now = time.elapsed_secs();
+    // The aids' clock (`AidTime::elapsed_secs`).
+    let now = time.elapsed_secs() + play_clock.stopped_secs();
     if let Some(held) = clock.start(now) {
         let why = if script.rt.is_some() { "the scripts first run" } else { "the player first stands in the world (scripts are off)" };
         if held > 0.0 {

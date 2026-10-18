@@ -1925,6 +1925,24 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
 mod tests {
     use super::*;
 
+    /// The systems that read or write the world aids' clock (directly or through
+    /// [`AidTime`]) build into a schedule: Bevy checks each system's parameters for a
+    /// resource taken twice (B0002) when it is initialized, which unit tests of the clock
+    /// alone never do. `start_world_aids` once took the clock in `AidTime` and as
+    /// `ResMut` and every `--play` run panicked (2026-10-18). The parameters are the same
+    /// whatever NVF_PLAY_AIDS_FROM_SCRIPTS says; it is set as the smoke runner sets it.
+    #[test]
+    fn the_world_aids_clock_systems_build_into_a_schedule() {
+        // SAFETY: this test's own variable; no other test reads it.
+        unsafe { std::env::set_var("NVF_PLAY_AIDS_FROM_SCRIPTS", "1") };
+        let mut world = World::new();
+        world.insert_resource(WorldAidClock::from_env());
+        let mut schedule = Schedule::default();
+        schedule.add_systems((crate::script::run_scripts, crate::script::start_world_aids, tick_play_clock).chain());
+        schedule.initialize(&mut world).expect("the schedule builds");
+        assert!(world.resource::<WorldAidClock>().from_scripts);
+    }
+
     #[test]
     fn the_world_aids_clock_waits_for_the_scripts_and_is_held_back_only_by_a_late_start() {
         // Without the switch: the aids' clock, from the start.
