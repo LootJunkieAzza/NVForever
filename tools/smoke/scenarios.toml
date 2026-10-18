@@ -1986,12 +1986,14 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
 # [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
+# claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
+# 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 42 },
+  { json = "summary.stubs", equals = 41 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 41 },
+  { json = "summary.by_status.needs_system", equals = 40 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 214 },
+  { json = "summary.stub_calls", equals = 179 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
