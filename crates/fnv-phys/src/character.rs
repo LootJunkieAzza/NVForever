@@ -51,6 +51,16 @@ pub struct CharacterParams {
     /// ground starts to swim [observed: a fall into Lake Mead stopped between 94.5 and
     /// 100.2 below the surface; physics.md §6.6].
     pub swim_depth: f32,
+    /// Depth of the feet below a water surface at which a character on the ground starts
+    /// to swim (walking into deep water), and below which a swimmer that reaches the
+    /// ground keeps swimming. The game's player swims when it wades in deep enough
+    /// [observed: the owner's play of the game, 2026-10-18], although no capture saw it
+    /// (`sw_trial`, `sw_walkin`: the scripted player walked the bed to 308-355 below the
+    /// surface; physics.md §6.6); the depth is [hypothesis]: deeper than the floating
+    /// heights seen (102.5-107.4), so a swimmer that meets a bank walks out as the
+    /// captures show and does not start swimming again; the eye is then just above the
+    /// surface (about 123 above the feet, §6.3).
+    pub wade_depth: f32,
     /// Depth of the feet below the surface where a swimming character floats; swimming up
     /// moves it only from this height or deeper [observed: 102.52; swimming up at 45° the
     /// feet rose one loop's step past it and sank back to it, physics.md §6.6].
@@ -94,6 +104,7 @@ impl Default for CharacterParams {
             max_fall_speed: None,
             push_mass: 80.0,
             swim_depth: 100.0,
+            wade_depth: 115.0,
             float_depth: 102.5,
             swim_sink_speed: 12.1,
             swim_jump_mult: 2.0,
@@ -654,9 +665,18 @@ impl PhysWorld {
         let mut landed_speed = None;
         if c.swimming {
             // Swimming down onto the ground ends swimming, with no landing [observed: a
-            // swimmer reaching the bed walked up it; no landing is [hypothesis]].
+            // swimmer reaching the bed walked up it; no landing is [hypothesis]], where
+            // the ground is shallower than `wade_depth`; deeper (a dive to the bed) the
+            // character swims on, held at the bed [hypothesis: sw_breath's swimmer stayed
+            // pressed against the bed 800 down, its state not readable].
             if moved.grounded && c.vertical_speed <= 0.0 {
-                c.swimming = false;
+                let wading = surface.is_some_and(|s| c.feet[2] + moved.translation.z / k <= s - c.params.wade_depth);
+                if wading {
+                    // A swimmer is never on the ground [design].
+                    c.grounded = false;
+                } else {
+                    c.swimming = false;
+                }
                 c.vertical_speed = 0.0;
             }
         } else if moved.grounded && c.vertical_speed <= 0.0 {
@@ -677,6 +697,18 @@ impl PhysWorld {
             if water.is_some_and(|s| c.feet[2] <= s - c.params.swim_depth) {
                 c.swimming = true;
                 c.vertical_speed = 0.0;
+            }
+        }
+        // On the ground with the feet `wade_depth` below the surface (walked in): swimming
+        // starts where the character is, with no buoyancy to lift it (§6.6) [hypothesis,
+        // `CharacterParams::wade_depth`].
+        if !c.swimming && c.grounded && !jumping && c.vertical_speed <= 0.0 {
+            let water = self.water_surface_for(c.feet);
+            if water.is_some_and(|s| c.feet[2] <= s - c.params.wade_depth) {
+                c.swimming = true;
+                c.grounded = false;
+                c.vertical_speed = 0.0;
+                c.since_landing = None;
             }
         }
         self.w.bodies[c.body].set_next_kinematic_translation(c.center(k));
