@@ -2030,6 +2030,37 @@ order = [
 expect = ["script look summary: 1 looks started, 1 stopped"]
 
 [[scenario]]
+name = "script-look-body"
+source = "docs/design/script-stubs.md §3, crates/fnv-ai/src/social.rs (Ai::face_looks): Look with rotateBody 1 turns Sunny's whole body, first to Cheyenne, then to the player, until StopLook, with the AI running her (GECK wiki Look)"
+areas = ["scripts", "speech-look", "ai"]
+paths = [
+  "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/social.rs",
+  "engine/nvforever/src/script_look.rs", "engine/nvforever/src/speech_look.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:Look:0x0010588E:1,13:call:SunnyRef:Look:player:1,20:call:SunnyRef:StopLook" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+# The AI runs Sunny (packages are on with --play): fnv_ai turns her, standing at her
+# place, at her walker's turn rate; the engine leaves her body to it. Cheyenne and the
+# player stand in different directions from her (speech-look: Cheyenne -160 degrees off
+# her front, the player +50), so each Look turns her.
+order = [
+  [
+    { re = 'script look: SunnyRef looks at ', label = "script look: Sunny looks at Cheyenne" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: turns its body to CheyenneREF for a script.s Look', label = "ai: Sunny turns her body to Cheyenne" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: faces CheyenneREF for a script.s Look', label = "ai: Sunny faces Cheyenne" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: turns its body to the player for a script.s Look', label = "ai: Sunny turns her body to the player" },
+    { re = 'ai \[[0-9:]+\] SunnyRef: faces the player for a script.s Look', label = "ai: Sunny faces the player" },
+    { re = 'script look: SunnyRef stops looking', label = "script look: StopLook ends it" },
+  ],
+]
+expect = [
+  { re = 'ai \[[0-9:]+\] SunnyRef: is let go by a script.s Look; the body keeps heading', count = 1 },
+  { re = "keeps its body for a script's Look", count = 0 },
+  "script look summary: 1 looks started, 1 stopped; 0 body turns, 2 bodies left to the AI, 0 stayed",
+]
+
+[[scenario]]
 name = "script-stubs-2-play"
 source = "docs/design/script-stubs.md §3.2: SetGlobalTimeMultiplier slows the clock and puts it back; ShowAllMapMarkers 1 0 0 (the Explorer perk) puts the markers on the Pip-Boy's world map (the test aid call:)"
 areas = ["scripts", "stubs", "pipboy"]

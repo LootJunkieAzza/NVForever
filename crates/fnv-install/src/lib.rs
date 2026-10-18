@@ -11,10 +11,12 @@
 //! - The game's location is kept in the home's `NVForever.ini`; before a run,
 //!   [`GameInstall::missing_files`] names any base game file NVForever needs that is absent.
 //! - Which plugins load, and in what order, is NVForever's own `plugins.txt` in the home
-//!   ([`plugins`]), never the original game's list.
+//!   ([`plugins`]), never the original game's list; a start from Mod Organizer 2 takes the
+//!   list of MO2's profile instead ([`mo2`]).
 //!
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
 
+pub mod mo2;
 pub mod plugins;
 
 use serde::Deserialize;

@@ -55,6 +55,12 @@
    "field": "CaravanPack.esm"
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
    "console": "tgm"
   },
   {
@@ -575,12 +581,7 @@
    "field": "teammate"
   },
   {
-   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet rX := rF1.GetLinkedDoor\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
-   "label": "outside",
-   "field": "linked_door"
-  },
-  {
-   "script": "float fM1\nref rF1\nref rD\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet rD := rF1.GetLinkedDoor\nrD.Activate player\nSetFunctionValue 1\nEnd\n"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831397\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
   },
   {
    "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831107\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",

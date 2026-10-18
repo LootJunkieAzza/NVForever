@@ -24,7 +24,7 @@ still stubs.
 |---|---|---|---|---|
 | 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
 | 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
-| 3 | Look turning the body | 26 | Look's rotate-body flag is stored, never acted on | Look |
+| 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
 | 4 | Animation state told to the rules (done 2026-10-18) | 22 | Built ([anim state](spec-notes/anim-state.md)): the engine tells each drawn actor's and the player's body every frame; GetAnimAction answers shots (2, 3, 4), blows, reloads (9), blocks and special idles by the New Vegas codes, checked against the AI observer; IsMoving gives the way, IsAnimPlaying an actor's movement group, IsIdlePlaying an actor on furniture, IsPlayerActionActive action 9 (iron sights). Left: GetAnimAction's throw phases (5, 6) and the unexplained 17; IsPlayerActionActive's other indices (no list in the wiki export) | (none) |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
 | 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber and the plastic surgeon are built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11. Not built: the tutorial menu | ShowTutorialMenu |
@@ -89,7 +89,10 @@ how quests run, the rest are guessed constants and looks to compare in the game.
 - Sleeping: whether E on a bed opens the sleep menu at once.
 
 Capture jobs that let the original game answer the factual ones (not the lab rules or the
-design choices) are ready to run: [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
+design choices) are in [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
+Its §4 has the first run's outcomes (2026-10-18), and its §5 has the jobs changed for the
+second round. The bed item is decided by the owner: a get-into-bed animation, then the
+sleep menu.
 
 **Looks and constants by area** (open, not quest-critical): rendering 29, menus and
 interface 27, combat 16, AI 11, dialogue 9, animation 9, world and physics 5, gameplay
@@ -107,6 +110,14 @@ item 22 (convict karma); Victor's and Sunny's stop-and-go (list 4 items 2–3). 
 `combat-violet` and `combat-dogs` known-failing marks need the owner's word.
 
 ## 4. Found by today's comparisons with the original
+
+From the owner-decision captures (2026-10-18 [observed],
+[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). The
+runtime is not fixed yet in either case:
+- **AddScriptPackage replaces** the actor's script package; it does not stack. One
+  RemoveScriptPackage brings back the list package. Our script runtime stacks them.
+- **Disabled references still run their GameMode blocks** (the skull's timer kept falling
+  while it was disabled). Our runtime skips disabled references.
 
 From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) §8:
 - Fights end far sooner in ours (NCR against Fiends over in 32 s; the original's still
