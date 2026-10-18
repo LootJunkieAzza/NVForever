@@ -44,6 +44,8 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--dwell", type=float, default=2.0, help="seconds in each cell once it is in")
     c.add_argument("--hang", type=float, default=180.0, help="seconds without progress that count as a hang")
     c.add_argument("--start", default="GSGeneralStore", help="the cell each launch starts in (--cell)")
+    c.add_argument("--resume", default=None, metavar="RUN",
+                   help="go on with an earlier run (its folder name under target/stress/cells/): cells it has done are skipped")
 
     t = tests.add_parser("tour", help=TESTS["tour"])
     common(t)
@@ -77,7 +79,10 @@ def context(a, test: str) -> lib.Ctx:
         raise SystemExit("no game data: pass --data or set NVF_DATA")
     if not Path(exe).exists():
         raise SystemExit(f"no nvforever at {exe}: build it (engine workspace) or pass --exe / NVF_EXE")
-    out = lib.run_folder(repo, test, a.name)
+    resume = getattr(a, "resume", None)
+    if resume and not (repo / "target" / "stress" / test / resume).is_dir():
+        raise SystemExit(f"no run {resume} to resume under target/stress/{test}/")
+    out = lib.run_folder(repo, test, resume or a.name)
     locks = None if a.no_locks else lib.Locks(lib.default_lock_paths(repo))
     return lib.Ctx(repo, Path(exe), data, Path(tool), out, print, locks, lib.masters(repo))
 
@@ -95,7 +100,10 @@ def main(argv=None) -> int:
         everything = cells.enumerate_cells(ctx)
         chosen = cells.choose(everything, a.kinds, a.stride, a.worlds, a.limit)
         print(f"cells: {len(chosen)} of {len(everything)} cells, {a.batch} a launch")
-        res = cells.run(ctx, chosen, a.batch, a.dwell, a.hang, ["--cell", a.start])
+        # The results and report are rewritten after every batch, so a long sweep can be
+        # read while it runs and nothing is lost if the runner stops.
+        res = cells.run(ctx, chosen, a.batch, a.dwell, a.hang, ["--cell", a.start],
+                        on_batch=lambda r: lib.write_results(ctx.out, r, cells.report(r)))
         lines = cells.report(res)
         bad = res["crashed"] + res["hung"]
     elif a.test == "tour":

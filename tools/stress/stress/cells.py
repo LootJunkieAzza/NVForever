@@ -111,11 +111,38 @@ def enumerate_cells(ctx: lib.Ctx) -> list[Cell]:
     return cells_from_json(wl, per, tool("cells"))
 
 
-def run(ctx: lib.Ctx, cells: list[Cell], batch: int, dwell: float, hang: float, start_args: list[str]) -> dict:
-    todo = list(cells)
-    rows: list[dict] = []
-    crashes: list[tuple[str, lib.Crash]] = []
-    n_launch = 0
+STATE = "state.json"
+
+
+def save_state(out: Path, rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: int) -> None:
+    """The run so far (written after every batch): what `--resume` goes on from."""
+    doc = {"rows": rows, "launches": launches,
+           "crashes": [{"where": w, "message": c.message, "location": c.location, "frames": c.frames, "path": c.path} for w, c in crashes]}
+    tmp = out / (STATE + ".tmp")
+    tmp.write_text(json.dumps(doc), encoding="utf-8")
+    tmp.replace(out / STATE)
+
+
+def load_state(out: Path) -> tuple[list[dict], list[tuple[str, lib.Crash]], int]:
+    p = out / STATE
+    if not p.exists():
+        return [], [], 0
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    crashes = [(c["where"], lib.Crash(c["message"], c["location"], c["frames"], "", c.get("path", ""))) for c in doc["crashes"]]
+    return doc["rows"], crashes, doc["launches"]
+
+
+def run(ctx: lib.Ctx, cells: list[Cell], batch: int, dwell: float, hang: float, start_args: list[str],
+        on_batch=None) -> dict:
+    """Visit `cells` in batches. A run folder that holds a saved state (an earlier run of
+    the same sweep, `--resume`) goes on from it: cells it has a row for are not visited
+    again, and its rows and crashes stay in the results. After every batch the state is
+    saved and `on_batch(results)` is called (the CLI rewrites results.json and report.md)."""
+    rows, crashes, n_launch = load_state(ctx.out)
+    seen_names = {r["cell"] for r in rows}
+    todo = [c for c in cells if c.name() not in seen_names]
+    if rows:
+        ctx.say(f"cells: resuming: {len(rows)} cells done in {n_launch} launches, {len(todo)} to go")
     while todo:
         n_launch += 1
         part = todo[:batch]
@@ -133,31 +160,35 @@ def run(ctx: lib.Ctx, cells: list[Cell], batch: int, dwell: float, hang: float, 
             elif i in seen["skipped"]:
                 rows.append({"cell": c.name(), "status": "skipped", "why": seen["skipped"][i], "batch": name})
         stop = seen["last_started"]
-        broken = r.status != "ok" and stop is not None and stop not in seen["loaded"]
-        if broken:
+        if r.status != "ok" and stop is not None:
+            # On the cell it last went to: loading it, or in it (a crash while it was in,
+            # after its load line, is still that cell's).
             c = part[stop - 1]
+            rows[:] = [x for x in rows if not (x["batch"] == name and x["cell"] == c.name())]
             row = {"cell": c.name(), "status": "crashed" if r.status == "crashed" else "hung", "batch": name,
                    "log": str(r.log), "tail": r.tail(15)}
+            if stop in seen["loaded"]:
+                row["loaded_in"] = seen["loaded"][stop]
             if r.stacks:
                 row["stacks"] = str(r.stacks)
             rows.append(row)
             for cr in r.crashes or [lib.Crash(f"no panic report ({r.status}, exit {r.exit})", "", [], "")]:
                 crashes.append((c.name(), cr))
             todo = todo[stop:]
-        elif r.status != "ok" and not broken:
-            # Ended badly between cells (or before the first): the rest of the batch again,
-            # from the first cell not yet visited.
-            done = max([*seen["loaded"], *seen["skipped"], 0])
-            crashes.append((f"{name} after cell {done}", (r.crashes or [lib.Crash(f"{r.status}, exit {r.exit}", "", [], "")])[0]))
-            if done == 0:
-                rows.append({"cell": part[0].name(), "status": r.status, "batch": name, "log": str(r.log), "tail": r.tail(15)})
-                done = 1
-            todo = todo[done:]
+        elif r.status != "ok":
+            # Ended badly before its first cell: that cell counts as failed and the sweep
+            # goes on after it (a start that always fails would otherwise loop).
+            crashes.append((f"{name} before its first cell", (r.crashes or [lib.Crash(f"{r.status}, exit {r.exit}", "", [], "")])[0]))
+            rows.append({"cell": part[0].name(), "status": r.status, "batch": name, "log": str(r.log), "tail": r.tail(15)})
+            todo = todo[1:]
         else:
             todo = todo[len(part):]
             missing = [c for i, c in enumerate(part, 1) if i not in seen["loaded"] and i not in seen["skipped"]]
             for c in missing:
                 rows.append({"cell": c.name(), "status": "not reached", "batch": name})
+        save_state(ctx.out, rows, crashes, n_launch)
+        if on_batch:
+            on_batch(summarize(rows, crashes, n_launch))
     return summarize(rows, crashes, n_launch)
 
 

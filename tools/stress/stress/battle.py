@@ -24,12 +24,13 @@ THIRD = "VCrTier1CoyoteMed"
 CENTRE = (-68375.0, 4800.0)
 
 STARTED = re.compile(r"stress battle: (\d+) groups, (\d+) fighters")
-PLACED = re.compile(r"stress battle: group (\d+) (\S+) \(([^)]*)\): (\d+) of (\d+) placed")
-KILLED = re.compile(r"battle: (\S+) (0x[0-9A-F]+) killed by (\S+) (0x[0-9A-F]+)")
+PLACED = re.compile(r"stress battle: group (\d+) (\S+) \(([^)]*)\): (\d+) of (\d+) placed[^:]*(?:: (0x[0-9A-F]+)\.\.(0x[0-9A-F]+))?")
+# Created actors have no Editor ID: their kill lines give the FormIDs alone.
+KILLED = re.compile(r"battle: (?:(\S+) )?(0x[0-9A-F]+) killed by (?:(\S+) )?(0x[0-9A-F]+)")
 SUMMARY = re.compile(r"battle summary: (.*)$")
 SIDE = re.compile(r"(\w+) \((\d+)\): (\d+) standing, (\d+) dead, (\d+) hits, (\d+) kills, (\d+) flights")
 NPC_SUMMARY = re.compile(r"npc combat summary: (\d+) actors fought .*?; (\d+) shots .*?, (\d+) blows .*?, (\d+) reloads; (\d+) flee checks, (\d+) fled")
-COMBAT = re.compile(r"combat: (\d+) shots .*?, (\d+) projectiles, (\d+) actor hits, (\d+) world hits")
+COMBAT = re.compile(r"combat: (\d+) shots .*?, (\d+) projectiles, (\d+) actor hits, (\d+) world hits.*?(\d+) melee impacts")
 RAGDOLLS = re.compile(r"ragdolls: (\d+) started")
 LINE = re.compile(r"combat line: (\S+) says (\w+) line")
 COVER = re.compile(r"npc combat: .* takes cover")
@@ -57,12 +58,21 @@ def analyse(lines: list[str]) -> dict:
     start = next((lib.stamp_secs(ln) for ln in lines if STARTED.search(ln)), None)
     last = next((lib.stamp_secs(ln) for ln in reversed(lines) if lib.stamp_secs(ln)), None)
     minutes = max(((last or 0) - (start or 0)) / 60.0, 1e-6)
-    ttk, kills_by, lines_by, fights, swings, stuck = [], {}, {}, {}, [], set()
+    placed = [{"group": int(m.group(1)), "base": m.group(2), "placed": int(m.group(4)), "asked": int(m.group(5)),
+               "ids": [int(m.group(6), 16), int(m.group(7), 16)] if m.group(6) else None}
+              for ln in lines if (m := PLACED.search(ln))]
+
+    def group_of(fid: str):
+        v = int(fid, 16)
+        return next((g["base"] for g in placed if g["ids"] and g["ids"][0] <= v <= g["ids"][1]), None)
+
+    ttk, by_group, lines_by, fights, swings, stuck = [], {}, {}, {}, [], set()
     for ln in lines:
         t = lib.stamp_secs(ln)
         if (m := KILLED.search(ln)) and start and t:
             ttk.append(t - start)
-            kills_by[m.group(3)] = kills_by.get(m.group(3), 0) + 1
+            victim = group_of(m.group(2)) or m.group(1) or "other"
+            by_group.setdefault(victim, []).append(t - start)
         elif m := LINE.search(ln):
             lines_by[m.group(2)] = lines_by.get(m.group(2), 0) + 1
         elif m := FIGHTS.search(ln):
@@ -80,8 +90,6 @@ def analyse(lines: list[str]) -> dict:
     shots = int(npc.group(2)) if npc else 0
     hits = int(cmb.group(3)) if cmb else 0
     switches = sum(max(len(set(v)) - 1, 0) for v in fights.values())
-    placed = [{"group": int(m.group(1)), "base": m.group(2), "placed": int(m.group(4)), "asked": int(m.group(5))}
-              for ln in lines if (m := PLACED.search(ln))]
     timings = {}
     for ln in lines:
         if "summary" in ln or "at the end" in ln or "per frame" in ln:
@@ -93,9 +101,12 @@ def analyse(lines: list[str]) -> dict:
         "sides": sides,
         "time_to_kill_s": {"count": len(ttk), "median": round(statistics.median(ttk), 1) if ttk else None,
                            "first": round(min(ttk), 1) if ttk else None, "last": round(max(ttk), 1) if ttk else None},
+        "deaths_by_group": {g: {"dead": len(v), "median_s": round(statistics.median(v), 1), "last_s": round(max(v), 1)}
+                            for g, v in sorted(by_group.items())},
         "shots": shots,
         "blows": int(npc.group(3)) if npc else 0,
         "actor_hits": hits,
+        "melee_impacts": int(cmb.group(5)) if cmb else 0,
         "hit_rate": round(hits / shots, 3) if shots else None,
         "projectiles": int(cmb.group(2)) if cmb else 0,
         "reloads": int(npc.group(4)) if npc else 0,
@@ -157,7 +168,9 @@ def report(res: dict) -> list[str]:
     out += ["", "## Combat", "",
             f"- placed: " + ", ".join(f"{g['base']} {g['placed']}/{g['asked']}" for g in c["placed"]),
             f"- time to kill (from the placing): {c['time_to_kill_s']}",
-            f"- shots {c['shots']}, actor hits {c['actor_hits']} (hit rate {c['hit_rate']}), blows {c['blows']}, reloads {c['reloads']}",
+            f"- deaths by group: {c['deaths_by_group']}",
+            f"- guns: shots {c['shots']}, projectile hits on actors {c['actor_hits']} (hit rate {c['hit_rate']}), reloads {c['reloads']}",
+            f"- melee: blows {c['blows']}, impacts {c['melee_impacts']} (the sides' hits in the table count both)",
             f"- cover taken {c['cover_taken']}, flee checks {c['flee_checks']}, fled {c['fled']}, target switches {c['target_switches']}",
             f"- combat lines a minute: {c['combat_lines_per_minute']}",
             f"- melee spacing (swing distance, feet to feet): {c['melee_spacing']}",

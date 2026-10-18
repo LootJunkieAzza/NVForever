@@ -240,6 +240,7 @@ def run(ctx: Ctx, launch: Launch) -> Result:
                 time.sleep(0.5)
             p.wait()
             t.join(timeout=10)
+            p.stdout.close()
     finally:
         if ctx.locks:
             ctx.locks.release()

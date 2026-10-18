@@ -1161,6 +1161,24 @@ impl<'a> World<'a> {
         Ok(self.inventory(to)?.add_extra(item, count, extra))
     }
 
+    /// A reference created at run time whose base stands for another actor base's carried
+    /// items (a leveled actor list's pick, a template's Inventory source: the game layer
+    /// finds `source`, as it does for placed actors, `set_inventory_sources`): those items,
+    /// rolled now, with the armour and weapon an actor starts with equipped, as [`World::place`]
+    /// outfits an actor base of its own. Without this a created leveled actor carried
+    /// nothing and was drawn unarmed (the stress tests' battle, 2026-10-18: ten
+    /// LvlNCRTrooper fought with their fists).
+    pub fn give_items_of(&mut self, id: FormId, source: FormId) -> Result<(), SimError> {
+        self.get(id)?;
+        self.set_inventory_source(id, Some(source));
+        let mut inv = self.roll_inventory(source)?;
+        let outfitted = self.equip_default(source, &mut inv);
+        let s = self.get(id)?;
+        s.inventory = inv;
+        s.outfitted = outfitted;
+        Ok(())
+    }
+
     /// A fresh roll of the base's carried items replaces the reference's inventory
     /// (ResetInventory, Layer 5). `false` when the base carries no items.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
