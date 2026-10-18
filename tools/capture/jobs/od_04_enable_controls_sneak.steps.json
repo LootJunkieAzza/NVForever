@@ -1,0 +1,410 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_04_enable_controls_sneak",
+ "title": "EnablePlayerControls with sneaking left out: does crouch work again (owner-review: Ctrl crouch) (about 1 min)",
+ "start": "nvftest: coc GSGasStation; player controls only. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc GSGasStation"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085496\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nif player.IsSneaking\n  TapControl 8\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: disabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: disabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: disabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: enabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: enabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: enabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: crouch tapped",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: crouch tapped",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable with no numbers: crouch tapped",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsSneaking\n  TapControl 8\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: disabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: disabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: disabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: enabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: enabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: enabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: crouch tapped",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: crouch tapped",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after all seven off: crouch tapped",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsSneaking\n  TapControl 8\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 0 0 0 0 0 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: disabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: disabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: disabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: enabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: enabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: enabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: crouch tapped",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: crouch tapped",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "enable 1 1 1 1 1 1 after sneaking off: crouch tapped",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsSneaking\n  TapControl 8\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nDisablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: disabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: disabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: disabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls 1 1 1 1 1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: enabled",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: enabled",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: enabled",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: crouch tapped",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: crouch tapped",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "control: enable 1 1 1 1 1 1 1 after all seven off: crouch tapped",
+   "field": "sneaking"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsSneaking\n  TapControl 8\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "Begin Function { }\nEnablePlayerControls\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 0 0 0 0 0 0 1\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.sneaking"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetPlayerControlsDisabled 1 0 0 0 0 0 0\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "disabled.movement"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsSneaking\nSetFunctionValue fV\nEnd\n",
+   "label": "end",
+   "field": "sneaking"
+  }
+ ]
+}

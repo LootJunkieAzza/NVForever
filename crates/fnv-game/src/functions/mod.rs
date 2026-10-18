@@ -38,6 +38,7 @@ pub use reputation::{crime_infamy, reputations_of, store as reputation_store, ti
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, restore as restore_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
+pub use objects::scale_of;
 pub use refs::{list_members, repair_list};
 pub use fighting::cause_code;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
@@ -543,7 +544,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1166, "IsPlayerMovingIntoNewSpace", Impl(senses::is_player_moving_into_new_space)),
         (0x1170, "IsPlayerActionActive", Stub("player input")),
         (0x1188, "IsPC1stPerson", Impl(senses::is_pc_1st_person)),
-        (0x118A, "PushActorAway", Stub("physics (a live actor knocked down and getting up; ragdolls are for corpses only)")),
+        (0x118A, "PushActorAway", Impl(fighting::push_actor_away)),
         (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
         (0x110C, "trapUpdate", Stub("physics (traps)")),
         (0x11C0, "EnableNavMesh", Stub("navigation")),

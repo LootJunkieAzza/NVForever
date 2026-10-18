@@ -1,0 +1,130 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "owner_decisions",
+ "title": "Owner-review AI questions that need game time (docs/spec-notes/owner-decision-captures.md): the detection Alert against IsInCombat (shots heard by hidden Fiends), whether spawned NCR troopers and Fiends fight unprovoked, and package durations (Hidden Valley's initiates and knights, whose packages 0x000D76E4-0x000D781C have durations and begin scripts; the two geckos at cell -17,-6 with their 2 h / 3 h chain). One game load serves all sessions in this order: god mode (tgm, a toggle) is in the first session only; the player is hidden for the first three and visible again from hv_initiates. All forms by FormID, so no --data is needed to write the jobs. Save caveat [observed 2026-10-18]: in nvfstrip Cook-Cook's camp is already dead, so alert_noise is not valid from it; the Hidden Valley and gecko sessions crashed from nvfstrip. Run this campaign from nvftest, its save.",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1
+ },
+ "sessions": [
+  {
+   "name": "alert_noise",
+   "note": "Item 15. South of Cook-Cook's Fiend camp (the npc_battles spot), the player crouched, Sneak 100 and under a Stealth Boy, draws and fires three times: Fiends that hear it but do not see the player should go to the detection Alert (searching, weapon out, GetDetected 0). The sample fields in_combat, detects_player, procedure, weapon_out and alerted show what IsInCombat reads then. Needs the living Fiends of nvftest: in nvfstrip they are dead from the start [observed 2026-10-18].",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 0.5,
+   "every": 5,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do": [
+    [
+     "TapControl 7"
+    ],
+    [
+     "TapControl 4"
+    ],
+    [
+     "TapControl 4"
+    ],
+    [
+     "TapControl 4"
+    ]
+   ]
+  },
+  {
+   "name": "clear_ground",
+   "note": "Empties the loaded area (killall) for the next session; a short observation only.",
+   "hours": 0.05,
+   "every": 30,
+   "do": [
+    "killall"
+   ]
+  },
+  {
+   "name": "ncr_fiends_placed",
+   "note": "Item 14. Three NCR troopers (LvlNCRTrooper) and three Fiends (LvlFiendRandom) spawned together by PlaceAtMe, 1,500 and 1,900 units in front of the hidden player: do they fight with nobody provoking them?",
+   "hours": 0.5,
+   "fields": "fight",
+   "every": 2,
+   "settle_frames": 120,
+   "place": [
+    {
+     "base": "0x001543E0",
+     "count": 3,
+     "distance": 1500,
+     "direction": 0
+    },
+    {
+     "base": "0x000F1C7D",
+     "count": 3,
+     "distance": 1900,
+     "direction": 0
+    }
+   ]
+  },
+  {
+   "name": "hv_initiates",
+   "note": "Item 7. Hidden Valley bunker L1: the three initiates (packages Matrix, Running, Exercise, Sandbox of 0x000D76E4-0x000D76E9) and the paladins, from 06:00 for 12 game hours: when each package starts and ends.",
+   "go": {
+    "coc": "HiddenValley01"
+   },
+   "hour": 6,
+   "hours": 12,
+   "console_first": [
+    "player.SetForceSneak 0"
+   ],
+   "track": [
+    "0x000E2809",
+    "0x000E280A",
+    "0x000E280E",
+    "0x000E2973",
+    "0x000E2975",
+    "0x000E2979"
+   ]
+  },
+  {
+   "name": "hv_knights",
+   "note": "Item 7. Hidden Valley bunker L2: the knights (HVKnightWeaponRepair, HVKnightWeaponRepair2, HVKnightFloorRepair, HVKnightRepair, HVKnightSleep), from the next 06:00 for 12 game hours. Needs the console line `SetAlly 0001D3FE 0001B2A4` (BrotherhoodSteelFaction and PlayerFaction made allies): the ESM lists PlayerFaction as an enemy of the Brotherhood, AddToFaction VBrotherhoodOfSteelFaction did not help, and tdetect is not used because it also stops NPCs detecting each other (owner's ruling) [observed 2026-10-18, run from nvftest].",
+   "go": {
+    "coc": "HiddenValley02"
+   },
+   "hour": 6,
+   "hours": 12,
+   "track": [
+    "0x000A41D9",
+    "0x000A41DA",
+    "0x000A41DB",
+    "0x000A41DC",
+    "0x000A41DD",
+    "0x000A46C5"
+   ]
+  },
+  {
+   "name": "geckos_package_chain",
+   "note": "Item 7. The owner's two geckos at cell -17,-6 (0x0016518B, 0x0016518C): from 17:00 for 14 game hours (find food 2 h, patrol 3 h, find food 2 h, patrol 3 h, then a sandbox that allows aggro, by our reading of their list). The 2026-10-18 run put the player on a gecko's spot (go: moveto) and they fought from 21:43; the rerun stands two cells away (cow WastelandNV -15 -6).",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -15,
+     -6
+    ]
+   },
+   "hour": 17,
+   "hours": 14,
+   "track": [
+    "0x0016518B",
+    "0x0016518C"
+   ]
+  }
+ ]
+}

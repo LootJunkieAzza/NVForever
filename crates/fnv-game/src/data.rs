@@ -438,6 +438,14 @@ pub struct ActorDef {
     pub template_stats: bool,
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
+    /// ACBS flag "No Knockdowns" (NPC_ and CREA): PushActorAway and explosions do not
+    /// knock the actor down [documented: GECK wiki PushActorAway notes]. Never from the
+    /// template: "Base Data does not include … No Knockdowns" [documented: GECK wiki
+    /// Category:NPC, Template Data].
+    pub no_knockdowns: bool,
+    /// CREA ACBS flag "Immobile": PushActorAway does not work on it [documented: GECK
+    /// wiki PushActorAway notes, "flagged as immobile"].
+    pub immobile: bool,
     /// ACBS flag "No Low Level Processing": the actor's AI is not updated outside the
     /// loaded area [documented: GECK wiki Category:NPC]. With the template flag "Base
     /// Data" the template's counts, as for Essential and Invulnerable (`Game::base_data_def`).
@@ -2194,6 +2202,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
+                        a.no_knockdowns = has_flag(f, "No Knockdowns");
+                        a.immobile = &sig == b"CREA" && has_flag(f, "Immobile");
                         a.no_low_level = has_flag(f, "No Low Level Processing");
                         a.respawn = has_flag(f, "Respawn");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");

@@ -348,6 +348,10 @@ pub struct ActorPush {
     pub dv: [f32; 3],
 }
 
+/// How fast an explosion's knockdown throws the body away from the blast, game units per
+/// second [design: the EXPL force is not converted].
+pub const BLAST_KNOCKDOWN_SPEED: f32 = 300.0;
+
 /// How fast a shot and a melee blow shove the body part they strike, game units per
 /// second, and the share of a melee shove that goes upwards [design].
 pub const SHOT_PUSH: f32 = 140.0;
@@ -2272,7 +2276,11 @@ fn fly(
                 } else {
                     0.0
                 };
-                let down = chance > 0.0 && c.rng.next_f32() < chance;
+                let rolled = chance > 0.0 && c.rng.next_f32() < chance;
+                // The rules lay it down (unconscious.md §5); refused for the player and
+                // actors flagged No Knockdowns.
+                let shove = [b.push[0] * BLAST_KNOCKDOWN_SPEED, b.push[1] * BLAST_KNOCKDOWN_SPEED, b.push[2].max(0.0) * BLAST_KNOCKDOWN_SPEED + BLAST_KNOCKDOWN_SPEED * fnv_game::unconscious::PUSH_LIFT];
+                let down = rolled && script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, info.attacker, shove));
                 if down {
                     stats.knockdowns += 1;
                 }
@@ -2283,7 +2291,7 @@ fn fly(
                     r.dealt,
                     r.health,
                     r.max_health,
-                    if down { ", knocked down (not animated yet)" } else { "" }
+                    if down { ", knocked down" } else if rolled { ", knockdown refused (player or No Knockdowns)" } else { "" }
                 );
             }
         }

@@ -289,7 +289,7 @@ fn a_package_asks_for_its_begin_and_change_idles() {
     call(&mut g, REMOVE_SCRIPT_PACKAGE, player, &[]);
     assert_eq!(asked(&mut g), [(player.0, IDLE_WAKE, IdleSource::PackageChange)]);
     assert_eq!(g.extra[&player].current_package, None);
-    assert!(g.extra[&player].packages.is_empty());
+    assert!(g.extra[&player].script_package.is_none());
 }
 
 /// The tree's root idles that want the flee procedure play on a fleeing actor standing

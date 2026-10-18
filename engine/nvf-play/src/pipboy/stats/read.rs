@@ -216,6 +216,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let value = |g: &mut fnv_game::Game<'static>, code: u16| shown_and_permanent(g, t, code);
         let level = g.player_level();
         s.level = Some(level as i64);
+        // The statistics' counters (`fnv_game::misc_stats`), by name.
+        for row in &mut s.general {
+            if let Some(code) = fnv_game::misc_stats::code(&row.name) {
+                row.value = Some(format!("{}", g.misc_stat(code).round() as i64));
+            }
+        }
         // HP and AP out of a whole that an aid item's temporary modifier raises with them
         // (Buffout, Jet) [hypothesis].
         let whole = |g: &mut fnv_game::Game<'static>, code: u16| {

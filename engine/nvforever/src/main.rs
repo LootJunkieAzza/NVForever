@@ -19,6 +19,7 @@ mod activators;
 mod actor_feet;
 mod anim_objects;
 mod actor_groups;
+mod actor_scale;
 mod actors;
 mod attack_anims;
 mod authored_pose;
@@ -1240,6 +1241,8 @@ fn main() -> AppExit {
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
+            // Actors drawn at a script's scale (actor_scale.rs).
+            app.add_plugins(actor_scale::ActorScalePlugin);
             // Creatures' own speeds and alert stance (creature_pace.rs).
             app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).
