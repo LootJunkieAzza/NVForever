@@ -9,7 +9,7 @@ use fnv_esm::raw::Subrecord;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::activate_choices::Picked;
 use fnv_game::functions::Ctx;
-use fnv_game::game::{menus, Game, GameConfig};
+use fnv_game::game::{menus, FurnitureUse, Game, GameConfig};
 use fnv_game::trace::EventKind;
 use fnv_game::GameData;
 use fnv_script::vm::{ArgValue, Value};
@@ -232,20 +232,35 @@ fn cannibal_devours_a_corpse() {
     assert!(!g.is_dead(sleeper));
 }
 
-/// Murder kills the target by the player at once; the player is in the act.
+/// Murder on a sleeper: the player in the act at once, the victim killed by the player
+/// when it ends (capture ac5c); an awake victim is refused and lives (the original
+/// crashed, ac5).
 #[test]
-fn mister_sandman_kills_silently() {
+fn mister_sandman_kills_a_sleeper_at_the_acts_end() {
     let f = fixture();
     let mut g = game(&f);
     g.player.perks.insert(FormId(SANDMAN), 1);
     let sleeper = FormId(SLEEPER_REF);
     let c = g.activate_choices(sleeper);
     assert_eq!(c.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), ["Murder"]);
+    // Awake: refused, nothing happens.
+    assert!(!g.start_mister_sandman(sleeper, P));
+    assert!(!g.is_dead(sleeper));
+    assert_eq!(call(&mut g, P, OP_GET_SANDMAN, &[]), 0.0);
+    // Asleep in a bed (marker 1, lying: GetSleeping 3).
+    g.set_furniture_use(sleeper, Some(FurnitureUse { reference: FormId(INTERCOM_REF), marker_id: 1, state: 3 }));
     assert!(g.run_activate_choice(sleeper, &c[0]));
     no_errors(&g);
-    assert!(g.is_dead(sleeper));
-    assert_eq!(g.extra[&sleeper].killer, Some(P));
+    assert!(!g.is_dead(sleeper), "alive while the act lasts");
     assert_eq!(call(&mut g, P, OP_GET_SANDMAN, &[]), 1.0);
+    g.time += 3.0;
+    g.tick();
+    assert!(!g.is_dead(sleeper));
+    g.time += 4.0;
+    g.tick();
+    assert!(g.is_dead(sleeper), "killed when the act ends");
+    assert_eq!(g.extra[&sleeper].killer, Some(P));
+    assert_eq!(call(&mut g, P, OP_GET_SANDMAN, &[]), 0.0);
     assert!(g.activate_choices(sleeper).is_empty(), "the dead are not murdered");
 }
 

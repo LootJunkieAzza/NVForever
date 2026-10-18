@@ -981,11 +981,15 @@ pub fn start_cannibal(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 }
 
 /// `victim.StartMisterSandman killer`: the sleeping calling actor is killed by `killer`
-/// [observed: Mister Sandman's entry script `StartMisterSandman Player`].
+/// at the act's end [observed: Mister Sandman's entry script `StartMisterSandman Player`,
+/// capture ac5c]. A victim not asleep is refused (the original crashed,
+/// `crate::activate_choices`).
 pub fn start_mister_sandman(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let victim = ctx.subject()?;
     let killer = a.opt_form(0).unwrap_or(FormId::PLAYER_REF);
-    g.start_mister_sandman(victim, killer);
+    if !g.start_mister_sandman(victim, killer) {
+        return Err(format!("{} is not asleep: StartMisterSandman refused", g.data.name(victim)));
+    }
     none()
 }
 

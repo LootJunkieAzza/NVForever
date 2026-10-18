@@ -12,8 +12,9 @@ Code: `fnv_game::activate_choices` (the choices, the acts), `fnv_game::data::Ent
 `script.rs` (`Runtime::by_hand` opens the list, `Runtime::pick_activate_choice`),
 `script_hud.rs` (`activate_panel`), `activate.rs` (the default action activated again).
 Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke: `perk-cannibal-devour`,
-`perk-sandman-kill`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5 (run
-2026-10-18; ac5 and ac5b crashed the game, so no more Mister Sandman probes are run).
+`perk-sandman-refused-awake`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5 (run
+2026-10-18; ac5 and ac5b crashed the game on an awake and an unconscious victim; ac5c, on
+a sleeping one, did not).
 
 ## 1. The records [observed]
 
@@ -73,15 +74,18 @@ Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash" (FalloutNV.esm), Miste
   The catalogue says the eater "regains some health" [documented], but StartCannibal
   itself changed neither health nor karma [observed: ac4]: both come from the perk
   scripts' RestoreAV and RewardKarma [observed].
-- **StartMisterSandman killer** on a victim: killed by the killer at once [hypothesis],
-  silently (no alarm of its own [documented: "the silent sleeping-NPC kill"]); karma and
-  murder are judged as for any kill by the player; GetSandman 1 for the clips' 5.967 s
-  [observed: the four `SandMan*.kf`; hypothesis: that the act lasts the clip]. A script's
-  StartMisterSandman crashed the original both on an awake actor and on one a script
-  had made unconscious [observed: captures ac5 and ac5b, 2026-10-18, once each, on Joe
-  Cobb in Goodsprings, GetUnconscious 1 and GetDead 0 before the call]. So what it does
-  is only to be seen through the perk's own activation on a sleeping NPC, which needs a
-  player in the game; NVForever's rule (killed at once, the act for the clip) stays
-  [hypothesis], and on a victim that is not asleep it kills too [design].
-  killer plays the SandMan child idle whose GetFurnitureMarkerID condition holds on the
+- **StartMisterSandman killer** needs a victim asleep in a bed (GetSleeping 3). On Ringo,
+  asleep in his bed at 23:00 (GetSleeping 3, the player MoveTo'd beside him), it worked:
+  GetSandman 1 at once and after 60 and 180 frames, 0 after 420; Ringo alive (GetDead 0)
+  at once and after 60 and 180 frames, dead after 420 [observed: capture ac5c,
+  2026-10-18, nvftest]. So the victim dies, silently [documented: "the silent
+  sleeping-NPC kill"], when the act ends, which NVForever puts at the SandMan clips'
+  5.967 s [observed: the four `SandMan*.kf`; hypothesis: the end is the clip's, the
+  capture bounds it between 3 and 7 s]; the kill is the killer's, so karma and murder are
+  judged as for any kill by the player (who the original records as the killer is not
+  captured: the GetKiller step did not compile). Called by a script on an awake actor,
+  and on one a script made unconscious, it crashed the original [observed: captures ac5
+  and ac5b, once each, on Joe Cobb]: NVForever refuses it on any victim not asleep in a
+  bed, and nothing happens (the call fails in the trace) [design: the crash is not
+  copied]. The killer plays the SandMan child idle whose GetFurnitureMarkerID condition holds on the
   victim, else the first [hypothesis], and the sound.

@@ -457,7 +457,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetReputationPct | 0x123E | 0 / 2 | match | - | - |  |
 | GetReputationThreshold | 0x123F | 143 / 1643 | match | - | - |  |
 | GetRestrained | 0x10F4 | 5 / 2 | match | - | - |  |
-| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for the clips' 5.967 s after StartMisterSandman [hypothesis; scripted StartMisterSandman crashed the original on an awake and on an unconscious victim, captures ac5, ac5b]. |
+| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 from StartMisterSandman on a sleeper until the act ends, 1 at 180 frames and 0 at 420 [observed: ac5c]; NVForever ends it with the clip's 5.967 s [hypothesis]. |
 | GetScale | 0x1018 | 1 / 1 | match | - | - |  |
 | GetScriptVariable | 0x1035 | 0 / 1756 | match | - | - |  |
 | GetSecondsPassed | 0x100C | 821 / 0 | match | - | - |  |
@@ -673,7 +673,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | StartCannibal | 0x107E | 4 / 0 | built | Cannibal and Mister Sandman | - | The victim eaten, the eater in the act with the StartCannibal idle; witnesses turn on the player [hypothesis] (perk-activation.md; smoke `perk-cannibal-devour`). |
 | StartCombat | 0x1016 | 938 / 0 | match | - | - |  |
 | StartConversation | 0x1056 | 135 / 0 | match | - | - |  |
-| StartMisterSandman | 0x107C | 1 / 0 | built | Cannibal and Mister Sandman | - | The victim killed by the killer at once [hypothesis, probe ac5]; the SandMan idle for its furniture marker (perk-activation.md; smoke `perk-sandman-kill`). |
+| StartMisterSandman | 0x107C | 1 / 0 | built | Cannibal and Mister Sandman | - | On a sleeping victim the act runs and the victim dies at its end [observed: capture ac5c]; on an awake or unconscious one the original crashed (ac5, ac5b), NVForever refuses (perk-activation.md §3; smoke `perk-sandman-refused-awake`). |
 | StartQuest | 0x1036 | 423 / 0 | match | - | - |  |
 | StartRadioConversation | 0x11D6 | 16 / 0 | match | - | - |  |
 | StopCombat | 0x1017 | 282 / 0 | match | - | - |  |

@@ -5882,10 +5882,10 @@ the original can answer it:
 - **The acts**: GetCannibal and GetSandman hold for their clips' length (7.7 s and 6 s);
   the corpse counts as eaten (HasBeenEaten) only when the act is over (capture ac4: still
   0 while GetCannibal was 1); StartCannibal adds no health or karma of its own (ac4
-  confirmed it). Mister Sandman kills at once [guess]; a script calling it crashed the original, on an
-  awake NPC (ac5) and on one made unconscious (ac5b), so only the perk's own use on a
-  sleeping NPC can show it: *please try it once in the original* (sneak up on a sleeper
-  with Mister Sandman: killed at once or at the clip's end?). NVForever just kills;
+  confirmed it). Mister Sandman, settled by capture ac5c on Ringo asleep in his bed: the victim dies
+  when the act ends (alive at 3 s, dead at 7 s; NVForever uses the clip's 6 s). On an
+  awake NPC (ac5) or one made unconscious (ac5b) the original crashed; NVForever refuses
+  there and nothing happens;
   a witnessed cannibalism turns every witness hostile as an assault ("a crime against
   nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
   bed or floor marker, with the two perk sounds.

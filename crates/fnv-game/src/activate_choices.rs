@@ -37,13 +37,16 @@
 //! Corpses Eaten statistic and Meat of Champions are the perk scripts' own [observed:
 //! SCTX].
 //!
-//! **Mister Sandman** (`victim.StartMisterSandman killer`): the sleeping victim is killed
-//! by the killer at once, silently [documented: GetSandman, "the silent sleeping-NPC
-//! kill"; hypothesis: at once rather than at the clip's end]. Called by a script on an
-//! awake actor, and on one a script made unconscious, the original crashed [observed:
-//! captures ac5 and ac5b, 2026-10-18, once each, on Joe Cobb]; NVForever kills it as a
-//! sleeping one [design]. The killer is in the act for
-//! [`SANDMAN_SECONDS`] (GetSandman 1) and plays the IDLE `SandMan` tree's clip for
+//! **Mister Sandman** (`victim.StartMisterSandman killer`) needs a victim asleep in a bed
+//! (GetSleeping 3): on Ringo asleep in his bed it worked; called by a script on an awake
+//! actor, and on one a script made unconscious, the original crashed [observed: captures
+//! ac5c, and ac5 and ac5b on Joe Cobb, 2026-10-18, once each]. So on any other victim it
+//! is refused and nothing happens [design: the crash is not copied]. The killer is in the
+//! act for [`SANDMAN_SECONDS`] (GetSandman 1 at once) and the victim dies at the act's
+//! end, silently [observed: ac5c, GetDead 0 at once and after 60 and 180 frames, 1
+//! after 420 frames, GetSandman 1 until then and 0 at 420; documented: GetSandman, "the
+//! silent sleeping-NPC kill"; hypothesis: that the end is the clip's 5.967 s]. The killer
+//! plays the IDLE `SandMan` tree's clip for
 //! the victim's furniture marker (bed left 1, bed right 2, floor left 3, floor right 4:
 //! the children's GetFurnitureMarkerID conditions, judged on the victim [hypothesis]),
 //! and the sound `NPCHumanPerkMrSandman`. The kill is the player's: karma and murder are
@@ -209,8 +212,13 @@ impl Game<'_> {
         let now = self.time;
         let (over, going): (Vec<PerkAct>, Vec<PerkAct>) = self.perk_acts.drain(..).partition(|a| a.until <= now);
         self.perk_acts = going;
-        for a in over.iter().filter(|a| a.act == Act::Cannibal) {
-            self.extra.entry(a.victim).or_default().eaten = true;
+        for a in over {
+            match a.act {
+                Act::Cannibal => self.extra.entry(a.victim).or_default().eaten = true,
+                Act::Sandman => {
+                    self.kill(a.victim, Some(a.actor));
+                }
+            }
         }
     }
 
@@ -238,13 +246,18 @@ impl Game<'_> {
     }
 
     /// `victim.StartMisterSandman killer` (module notes).
-    pub fn start_mister_sandman(&mut self, victim: FormId, killer: FormId) {
+    /// Whether it began: a victim that is not asleep in a bed (GetSleeping 3,
+    /// `Game::asleep`), or dead already, is refused.
+    pub fn start_mister_sandman(&mut self, victim: FormId, killer: FormId) -> bool {
+        if !self.asleep(victim) || self.is_dead(victim) {
+            return false;
+        }
         self.begin_act(killer, victim, Act::Sandman, SANDMAN_SECONDS);
         if let Some(idle) = self.sandman_idle(victim) {
             self.ask_idle(killer, idle, IdleSource::Script);
         }
         self.act_sound("NPCHumanPerkMrSandman", killer);
-        self.kill(victim, Some(killer));
+        true
     }
 
     /// The Mister Sandman clip for where the victim lies: the first child of the

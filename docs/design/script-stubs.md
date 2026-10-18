@@ -285,7 +285,7 @@ SystemSave, ForceSave, PlaceAtReticle and IsPlayerActionActive), 167 → 154 cal
 condition uses [observed: the branch's `fnvtool script stubs`, merged with main d13109f3,
 on the ten masters]. Tests: `appearance.rs`, `perk_talk.rs`; smoke `agerace-sexchange-npc`,
 `sexchange-player-reset`, `setlevel-npc-reroll`, `power-armor-training`,
-`perk-cannibal-devour`, `perk-sandman-kill`, `talking-activator-intercom`; capture probes
+`perk-cannibal-devour`, `perk-sandman-refused-awake`, `talking-activator-intercom`; capture probes
 `tools/capture/probes/actor_changes.toml`.
 
 ## 4. Every remaining stub

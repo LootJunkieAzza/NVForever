@@ -4757,16 +4757,18 @@ expect = [
 ]
 
 [[scenario]]
-name = "perk-sandman-kill"
-source = "outstanding.md §1 row 14: StartMisterSandman kills its calling actor by the player at once and puts the player in the act (GetSandman 1) (docs/spec-notes/perk-activation.md)"
+name = "perk-sandman-refused-awake"
+source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md §3): StartMisterSandman on an NPC that is not asleep is refused: it lives and the player is not in the act (the original crashed on an awake and on an unconscious NPC, captures ac5 and ac5b; on a sleeping one it killed at the act's end, ac5c)"
+note = "Easy Pete at noon is awake; the sleeping case (killed when the 6 s act ends) is the unit test perk_talk.rs mister_sandman_kills_a_sleeper_at_the_acts_end"
 areas = ["scripts", "console", "perks"]
 paths = ["crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/functions/actor.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid EasyPeteRef;14.3:startmistersandman player;14.6:getdead;15:player.getsandman;15.3:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid EasyPeteRef;14.3:startmistersandman player;14.6:getdead;15:player.getsandman;22:EasyPeteRef.getdead;22.3:close" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 18
+run_seconds = 24
 expect = [
-  { text = "console: GetDead on EasyPeteRef >> 1.00", label = "the victim is dead" },
-  { re = 'GetSandman.*>> 1\.00', label = "the player is in the Mister Sandman act" },
+  { text = "console: GetDead on EasyPeteRef >> 0.00", label = "the awake victim lives" },
+  { re = 'GetSandman.*>> 0\.00', label = "the player is not in the Mister Sandman act" },
+  { re = 'GetDead.*>> 1\.00', count = 0, label = "nobody dies, not even when an act would have ended" },
 ]
 
 [[scenario]]
