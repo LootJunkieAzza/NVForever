@@ -456,7 +456,7 @@ fn attach(
 }
 
 /// A living, drawn actor near the camera this frame.
-struct Person {
+pub(crate) struct Person {
     reference: u32,
     npc: bool,
     /// Its eyes (Bevy world space).
@@ -486,7 +486,7 @@ fn describe(t: LookAt) -> String {
 
 /// Choose every near actor's target and turn its head (the module notes).
 #[allow(clippy::too_many_arguments)]
-fn track(
+pub(crate) fn track(
     time: Res<Time>,
     settings: Res<HeadLookSettings>,
     player: Option<Res<Player>>,

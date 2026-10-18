@@ -4324,3 +4324,61 @@ order = [[
   "creator: closed",
 ]]
 manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"
+
+[[scenario]]
+name = "lip-eye-turns"
+kind = "tool"
+source = "docs/spec-notes/lipsync.md §3.3: an eye .tri's Look morphs are turns of the whole eye, about 22° down and to the sides and 14° up at weight 1 (fnvtool actor tri, best_rotation)"
+areas = ["lip"]
+paths = ["crates/fnv-actor/src/tri.rs", "crates/fnvtool/src/actor_tri.rs"]
+commands = [
+  ["actor", "tri", "{data}", "--nif-schema", "schemas/nif", "--path", 'meshes\characters\head\eyelefthuman.tri'],
+]
+expect = [
+  { json = "files.0.statistical_morphs.?label=LookDown.best_rotation.degrees", schema = "fnv.actor.tri/1", range = [21, 23], label = "LookDown turns the male left eye about 22°" },
+  { json = "files.0.statistical_morphs.?label=LookUp.best_rotation.degrees", schema = "fnv.actor.tri/1", range = [13, 14.5], label = "LookUp turns it about 14°" },
+  { json = "files.0.statistical_morphs.*.best_rotation.residual", schema = "fnv.actor.tri/1", range = [0, 0.1], count = 4, label = "all four Look morphs are turns (little left over after the best turn)" },
+]
+
+[[scenario]]
+name = "lip-head-turn"
+source = "docs/spec-notes/lipsync.md §5.1: a speaker's .lip head channels (HeadPitch, HeadRoll, HeadYaw) nod its head on top of the animation and head tracking; the Look channels move the eyes"
+note = "Chet's conversation of talk-gestures-menu (4 responses); --no-voice keeps each line's timing, so the face still moves"
+areas = ["lip", "dialogue"]
+paths = ["engine/nvforever/src/lips.rs", "crates/fnv-voice/src/lip.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave", NVF_PLAY_TEST_TALK_DELAY = "4" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'lip: animating \S+ \(\d+ tracks, \d+ applied; .*\) speaker \S+: \d+ shapes, \d+ morphs; head turn up to (?P<n>\d+\.\d)° \(pitch', range = [0.5, 15], min = 3, label = "Chet's responses animate with a head turn of a few degrees" },
+  { re = 'lip summary: (?P<n>\d+) responses animated', range = [3, 60], label = "responses counted" },
+  { re = 'lip summary: .* head turned on (?P<n>\d+) ', range = [3, 60], label = "the head turned on each" },
+]
+
+[[scenario]]
+name = "lip-emotion"
+source = "docs/spec-notes/lipsync.md §5.2: a response's emotion (INFO TRDT) adds the head's expression morph of its name"
+note = "Joe Cobb's angry line to Trudy of talk-gestures-npcs (line 0x00105219, emotion Anger)"
+areas = ["lip", "dialogue"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:start:VFreeformGoodsprings,3:enable:GSJoeCobbRef,3.1:enable:TrudyRef,6:call:GSJoeCobbRef:StartConversation:TrudyRef:GSJoeCobbIntro" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'lip: animating \S+_00105219_\d\.lip .* speaker \S+: .*; emotion Anger \d+$', label = "Joe Cobb's angry line shows the Anger morph" },
+  { re = 'lip summary: .* emotions shown on (?P<n>\d+) \(.*Anger \d+', range = [1, 60], label = "emotions counted" },
+]
+
+[[scenario]]
+name = "face-idle"
+source = "docs/spec-notes/lipsync.md §5.3 (design): drawn NPCs near the camera blink about every 3 s and their eyes move between lines"
+note = "the saloon with Sunny Smiles, Easy Pete and Trudy near the player's start"
+areas = ["lip"]
+paths = ["engine/nvforever/src/lips.rs", "engine/nvforever/src/head_look.rs"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'face idle summary: (?P<n>\d+) actors had an idle face', range = [1, 40], label = "faces near the camera were given an idle face" },
+  { re = 'face idle summary: .*; (?P<n>\d+) blinks', range = [3, 2000], label = "they blinked" },
+  { re = 'face idle summary: .* (?P<n>\d+) glances', range = [3, 2000], label = "their eyes glanced" },
+]

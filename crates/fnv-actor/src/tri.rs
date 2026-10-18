@@ -234,10 +234,97 @@ impl Tri {
         )
     }
 
+    /// The rotation that best carries the vertices a morph moves onto where it moves
+    /// them at full weight (least squares, about their centroid; Horn's quaternion
+    /// method): the angle in radians, the unit axis, and the root-mean-square distance
+    /// left over. An eye's Look morph is a turn of the whole eye (lipsync.md §3.3), so
+    /// this measures how far a weight of 1 turns it. `None` without the morph or with
+    /// fewer than three moved vertices.
+    pub fn rotation_fit(&self, label: &str) -> Option<RotationFit> {
+        let d = self.displacements(label, None)?;
+        if d.len() < 3 {
+            return None;
+        }
+        let from: Vec<[f64; 3]> = d.iter().map(|&(v, _)| self.positions[v as usize].map(f64::from)).collect();
+        let to: Vec<[f64; 3]> = d.iter().map(|&(v, dd)| [0, 1, 2].map(|k| f64::from(self.positions[v as usize][k] + dd[k]))).collect();
+        Some(fit_rotation(&from, &to))
+    }
+
     /// The labels of all morphs, difference morphs first.
     pub fn labels(&self) -> Vec<&str> {
         self.morphs.iter().map(|m| m.label.as_str()).chain(self.modifiers.iter().map(|m| m.label.as_str())).collect()
     }
+}
+
+/// A fitted rotation ([`Tri::rotation_fit`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RotationFit {
+    /// Radians, 0 to π.
+    pub angle: f64,
+    pub axis: [f64; 3],
+    /// Root-mean-square distance between the turned points and their targets.
+    pub residual: f64,
+}
+
+/// The rotation about the centroids that best carries `from` onto `to` (Horn 1987,
+/// "Closed-form solution of absolute orientation using unit quaternions": the
+/// eigenvector of the largest eigenvalue of a 4 × 4 matrix, found here by power
+/// iteration on the matrix shifted to be positive).
+pub fn fit_rotation(from: &[[f64; 3]], to: &[[f64; 3]]) -> RotationFit {
+    let n = from.len().max(1) as f64;
+    let centroid = |p: &[[f64; 3]]| [0, 1, 2].map(|k| p.iter().map(|x| x[k]).sum::<f64>() / n);
+    let (ca, cb) = (centroid(from), centroid(to));
+    let mut s = [[0.0f64; 3]; 3];
+    for (a, b) in from.iter().zip(to) {
+        for i in 0..3 {
+            for j in 0..3 {
+                s[i][j] += (a[i] - ca[i]) * (b[j] - cb[j]);
+            }
+        }
+    }
+    let [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = s;
+    let m = [
+        [xx + yy + zz, yz - zy, zx - xz, xy - yx],
+        [yz - zy, xx - yy - zz, xy + yx, zx + xz],
+        [zx - xz, xy + yx, -xx + yy - zz, yz + zy],
+        [xy - yx, zx + xz, yz + zy, -xx - yy + zz],
+    ];
+    let shift: f64 = m.iter().map(|r| r.iter().map(|x| x.abs()).sum::<f64>()).fold(0.0, f64::max);
+    let mut q = [1.0f64, 0.0, 0.0, 0.0];
+    for _ in 0..500 {
+        let mut next = [0.0f64; 4];
+        for i in 0..4 {
+            next[i] = shift * q[i] + (0..4).map(|j| m[i][j] * q[j]).sum::<f64>();
+        }
+        let len = next.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if len == 0.0 {
+            break;
+        }
+        q = next.map(|x| x / len);
+    }
+    let [w, x, y, z] = if q[0] < 0.0 { q.map(|c| -c) } else { q };
+    let sin = (x * x + y * y + z * z).sqrt();
+    let angle = 2.0 * sin.atan2(w);
+    let axis = if sin > 1e-12 { [x / sin, y / sin, z / sin] } else { [0.0, 0.0, 1.0] };
+    // Rotate each centred point (q p q*) and measure what is left.
+    let rot = |p: [f64; 3]| {
+        let u = [x, y, z];
+        let cross = |a: [f64; 3], b: [f64; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        let t = cross(u, p).map(|c| 2.0 * c);
+        let ut = cross(u, t);
+        [0, 1, 2].map(|k| p[k] + w * t[k] + ut[k])
+    };
+    let residual = (from
+        .iter()
+        .zip(to)
+        .map(|(a, b)| {
+            let r = rot([0, 1, 2].map(|k| a[k] - ca[k]));
+            (0..3).map(|k| (r[k] + cb[k] - b[k]).powi(2)).sum::<f64>()
+        })
+        .sum::<f64>()
+        / n)
+        .sqrt();
+    RotationFit { angle, axis, residual }
 }
 
 /// The labels a `.lip` channel can have in a `.tri` file [observed: the heads call the
@@ -354,6 +441,23 @@ pub(crate) mod tests {
         let mut neg = sample();
         neg[8..12].copy_from_slice(&(-1i32).to_le_bytes());
         assert!(matches!(Tri::parse(&neg), Err(TriError::Count { .. })));
+    }
+
+    #[test]
+    fn a_turn_is_measured() {
+        // Points of a ball turned 30 degrees about z, around a centre away from the origin.
+        let a = 30f64.to_radians();
+        let from: Vec<[f64; 3]> = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [-1.0, 0.5, 0.2], [0.3, -1.0, -0.4]].iter().map(|p| [p[0] + 5.0, p[1] - 2.0, p[2] + 7.0]).collect();
+        let to: Vec<[f64; 3]> = from.iter().map(|p| {
+            let (x, y) = (p[0] - 5.0, p[1] + 2.0);
+            [x * a.cos() - y * a.sin() + 5.0, x * a.sin() + y * a.cos() - 2.0, p[2]]
+        }).collect();
+        let r = fit_rotation(&from, &to);
+        assert!((r.angle - a).abs() < 1e-9, "{r:?}");
+        assert!((r.axis[2] - 1.0).abs() < 1e-9 && r.residual < 1e-9);
+        // No turn at all.
+        let r = fit_rotation(&from, &from);
+        assert!(r.angle.abs() < 1e-9 && r.residual < 1e-9);
     }
 
     #[test]
