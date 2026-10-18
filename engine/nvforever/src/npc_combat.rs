@@ -314,7 +314,7 @@ struct Fighter {
     /// from the hip), for the log: it may lower its sights while not ready (going to
     /// cover) and come back ready near enough to fire from the hip.
     sights: bool,
-    ready_sights: bool,
+    ready_sights: Option<bool>,
     /// Seconds before a semi-automatic gun may be fired again (its combat style's
     /// firing delay).
     pull_in: f32,
@@ -969,7 +969,7 @@ fn fight(
                         pulled: false,
                         blows: Vec::new(),
                         sights: false,
-                        ready_sights: false,
+                        ready_sights: None,
                         pull_in: 0.0,
                         confidence_mod: 0.0,
                         flee_check_in: 0.0,
@@ -1609,8 +1609,10 @@ fn fight(
             if sights && !fighter.sights {
                 f.stats.sights_raised += 1;
             }
-            if sights != fighter.ready_sights && ready {
-                fighter.ready_sights = sights;
+            // The first time it is ready in a fight is logged too (a new fight after a
+            // search may begin from the hip).
+            if Some(sights) != fighter.ready_sights && ready {
+                fighter.ready_sights = Some(sights);
                 let name = g.data.name(me);
                 if sights {
                     info!("npc combat: {name} {me} aims down the sights, its target {away:.0} units away (beyond {HIP_FIRE_WITHIN:.0}): walks while aiming");
