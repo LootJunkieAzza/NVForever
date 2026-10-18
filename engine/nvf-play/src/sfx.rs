@@ -43,7 +43,7 @@
 use crate::player::Player;
 use crate::PlayWorld;
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
-use crate::audio_out::{AddAudioSource, SoundCategory};
+use crate::audio_out::{AddAudioSource, KeepsSpeed, SoundCategory};
 use bevy::prelude::*;
 use fnv_combat::fx::{FxForms, Sound};
 use fnv_combat::rng::SplitMix;
@@ -497,7 +497,10 @@ fn play(
         debug!("sfx: {name} {path} looping, gain {gain:.3}");
         if settings.play {
             sfx.played += 1;
-            commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::LOOP.with_volume(Volume::Linear(gain)), Looping(l.sound), SfxSound, SoundCategory::of_effect(s.edid.as_deref())));
+            let mut e = commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::LOOP.with_volume(Volume::Linear(gain)), Looping(l.sound), SfxSound, SoundCategory::of_effect(s.edid.as_deref())));
+            if is_interface(s.edid.as_deref()) {
+                e.insert(KeepsSpeed);
+            }
         } else {
             sfx.silent += 1;
         }
@@ -578,16 +581,22 @@ fn one_shot_at(
     sfx.played += 1;
     let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed);
     let category = SoundCategory::of_effect(s.edid.as_deref());
-    match placed.and_then(|p| assets.get(&handle).map(|pcm| (PcmSound { pan: Some(p.pan.clone()), ..pcm.clone() }, p))) {
+    let mut e = match placed.and_then(|p| assets.get(&handle).map(|pcm| (PcmSound { pan: Some(p.pan.clone()), ..pcm.clone() }, p))) {
         // This playing's own asset: the samples are shared, the pan is its own.
-        Some((pcm, placed)) => {
-            commands.spawn((AudioPlayer::<PcmSound>(assets.add(pcm)), playback, placed, SfxSound, category));
-        }
-        None => {
-            commands.spawn((AudioPlayer::<PcmSound>(handle), playback, SfxSound, category));
-        }
+        Some((pcm, placed)) => commands.spawn((AudioPlayer::<PcmSound>(assets.add(pcm)), playback, placed, SfxSound, category)),
+        None => commands.spawn((AudioPlayer::<PcmSound>(handle), playback, SfxSound, category)),
+    };
+    if is_interface(s.edid.as_deref()) {
+        e.insert(KeepsSpeed);
     }
     Some(seconds)
+}
+
+/// An interface sound by its SOUN editor ID (`UI…`: menus, VATS, the Pip-Boy), which keeps
+/// its speed in slow motion (`audio_out::SoundSpeed`) [hypothesis: the base game's
+/// interface records are named so, docs/spec-notes/audio.md].
+fn is_interface(edid: Option<&str>) -> bool {
+    edid.and_then(|e| e.get(..2)).is_some_and(|p| p.eq_ignore_ascii_case("UI"))
 }
 
 fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
@@ -647,6 +656,12 @@ mod tests {
         // ADPCM (tag 2) is named, not played as noise.
         assert!(PcmSound::from_wav(&wav(2, 1, 22050, 4, &[1, 2])).unwrap_err().contains("format tag 2"));
         assert!(PcmSound::from_wav(b"OggS").is_err());
+    }
+
+    #[test]
+    fn interface_sounds_are_the_ui_records() {
+        assert!(is_interface(Some("UIVATSEnter")) && is_interface(Some("uiMenuOK")));
+        assert!(!is_interface(Some("WPNPistol10mmFire3D")) && !is_interface(Some("U")) && !is_interface(None));
     }
 
     #[test]
