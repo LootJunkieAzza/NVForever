@@ -281,8 +281,10 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         warn!("creator: {p}; no sliders");
     }
     info!("creator: open on {} ({} sliders, {} races, {} beards, {} starting faces)", m.caption(), m.sliders().len(), data.0.catalogue.races.len(), data.0.catalogue.facial_hair.len(), data.0.catalogue.presets(m.look.race, m.look.female).len());
-    if kind == model::RaceMenu::Barber {
-        info!("creator: as the barber (ShowBarberMenu): the hair, its colour and the beard only");
+    match kind {
+        model::RaceMenu::Barber => info!("creator: as the barber (ShowBarberMenu): the hair, its colour and the beard only"),
+        model::RaceMenu::Surgeon => info!("creator: as the plastic surgeon (ShowPlasticSurgeonMenu): the face, eyes and brows only"),
+        model::RaceMenu::Creator => {}
     }
     let mut m = m;
     let c = m.camera();

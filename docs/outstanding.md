@@ -25,7 +25,7 @@ GetOwnerLastTarget (#403). About 50 functions are still stubs.
 | 3 | Look turning the body | 26 | Look's rotate-body flag is stored, never acted on | Look |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
-| 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber is built: the character creator as the barber, hair, colour and beard only (character-creator.md §10). Not built: the plastic surgeon, the tutorial menu | ShowPlasticSurgeonMenu, ShowTutorialMenu |
+| 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber and the plastic surgeon are built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11. Not built: the tutorial menu | ShowTutorialMenu |
 | 7 | Pip-Boy reset | 8 | Not built | ResetPipboyManager |
 | 8 | Talking activators | 6 | Activators that speak (radios with lines, intercoms) do not talk | IsActorTalkingThroughActivator |
 | 9 | Menu codes | 6 | MenuMode does not report every menu's code (the Pip-Boy's 1 and the loading codes) | MenuMode |
