@@ -114,31 +114,43 @@ def enumerate_cells(ctx: lib.Ctx) -> list[Cell]:
 STATE = "state.json"
 
 
-def save_state(out: Path, rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: int) -> None:
+def save_state(out: Path, rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: int,
+               start_failures: list[dict] | None = None) -> None:
     """The run so far (written after every batch): what `--resume` goes on from."""
-    doc = {"rows": rows, "launches": launches,
+    doc = {"rows": rows, "launches": launches, "start_failures": start_failures or [],
            "crashes": [{"where": w, "message": c.message, "location": c.location, "frames": c.frames, "path": c.path} for w, c in crashes]}
     tmp = out / (STATE + ".tmp")
     tmp.write_text(json.dumps(doc), encoding="utf-8")
     tmp.replace(out / STATE)
 
 
-def load_state(out: Path) -> tuple[list[dict], list[tuple[str, lib.Crash]], int]:
+def load_state(out: Path) -> tuple[list[dict], list[tuple[str, lib.Crash]], int, list[dict]]:
     p = out / STATE
     if not p.exists():
-        return [], [], 0
+        return [], [], 0, []
     doc = json.loads(p.read_text(encoding="utf-8"))
     crashes = [(c["where"], lib.Crash(c["message"], c["location"], c["frames"], "", c.get("path", ""))) for c in doc["crashes"]]
-    return doc["rows"], crashes, doc["launches"]
+    return doc["rows"], crashes, doc["launches"], doc.get("start_failures", [])
+
+
+# Launches in a row that end before their first cell (the game does not start: an exe
+# being rebuilt, 0xC0000142 "DLL init failed", 2026-10-18) after which a sweep stops.
+ABORT_AFTER = 3
 
 
 def run(ctx: lib.Ctx, cells: list[Cell], batch: int, dwell: float, hang: float, start_args: list[str],
-        on_batch=None) -> dict:
+        on_batch=None, abort_after: int = ABORT_AFTER) -> dict:
     """Visit `cells` in batches. A run folder that holds a saved state (an earlier run of
     the same sweep, `--resume`) goes on from it: cells it has a row for are not visited
     again, and its rows and crashes stay in the results. After every batch the state is
-    saved and `on_batch(results)` is called (the CLI rewrites results.json and report.md)."""
-    rows, crashes, n_launch = load_state(ctx.out)
+    saved and `on_batch(results)` is called (the CLI rewrites results.json and report.md).
+
+    A launch that ends before its first cell is the game failing to start, not a cell's
+    fault: no cell gets a row from it, and the batch is tried again. After `abort_after`
+    such launches in a row the sweep stops with status "aborted": its state is saved,
+    the cells left stay not reached, and `--resume` goes on with them."""
+    rows, crashes, n_launch, start_failures = load_state(ctx.out)
+    failed_starts = 0
     seen_names = {r["cell"] for r in rows}
     todo = [c for c in cells if c.name() not in seen_names]
     if rows:
@@ -176,34 +188,51 @@ def run(ctx: lib.Ctx, cells: list[Cell], batch: int, dwell: float, hang: float, 
                 crashes.append((c.name(), cr))
             todo = todo[stop:]
         elif r.status != "ok":
-            # Ended badly before its first cell: that cell counts as failed and the sweep
-            # goes on after it (a start that always fails would otherwise loop).
-            crashes.append((f"{name} before its first cell", (r.crashes or [lib.Crash(f"{r.status}, exit {r.exit}", "", [], "")])[0]))
-            rows.append({"cell": part[0].name(), "status": r.status, "batch": name, "log": str(r.log), "tail": r.tail(15)})
-            todo = todo[1:]
+            # Ended before its first cell: the game did not start. No cell's fault: the
+            # same cells again, unless it keeps happening.
+            failed_starts += 1
+            start_failures.append({"batch": name, "status": r.status, "exit": r.exit, "log": str(r.log), "tail": r.tail(10)})
+            ctx.say(f"cells: {name} ended before its first cell ({r.status}, exit {r.exit}); {failed_starts} in a row")
+            save_state(ctx.out, rows, crashes, n_launch, start_failures)
+            if failed_starts >= abort_after:
+                why = (f"{failed_starts} launches in a row ended before their first cell (last: {r.status}, exit {r.exit}): "
+                       "the game does not start; fix that and go on with --resume")
+                ctx.say(f"cells: aborted: {why}")
+                res = summarize(rows, crashes, n_launch, start_failures, remaining=len(todo), aborted=why)
+                if on_batch:
+                    on_batch(res)
+                return res
+            continue
         else:
             todo = todo[len(part):]
             missing = [c for i, c in enumerate(part, 1) if i not in seen["loaded"] and i not in seen["skipped"]]
             for c in missing:
                 rows.append({"cell": c.name(), "status": "not reached", "batch": name})
-        save_state(ctx.out, rows, crashes, n_launch)
+        failed_starts = 0
+        save_state(ctx.out, rows, crashes, n_launch, start_failures)
         if on_batch:
-            on_batch(summarize(rows, crashes, n_launch))
-    return summarize(rows, crashes, n_launch)
+            on_batch(summarize(rows, crashes, n_launch, start_failures))
+    return summarize(rows, crashes, n_launch, start_failures)
 
 
-def summarize(rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: int) -> dict:
+def summarize(rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: int,
+              start_failures: list[dict] | None = None, remaining: int = 0, aborted: str = "") -> dict:
+    """`remaining`: cells not visited yet (an aborted sweep's), counted as not reached."""
     by = lambda s: [r for r in rows if r["status"] == s]  # noqa: E731
     ok = by("ok")
     return {
         "test": "cells",
-        "total": len(rows),
+        "status": "aborted" if aborted else "done",
+        "abort_reason": aborted,
+        "total": len(rows) + remaining,
         "ok": len(ok),
         "crashed": len(by("crashed")),
         "hung": len(by("hung")),
         "skipped": len(by("skipped")),
-        "not_reached": len(by("not reached")),
+        "not_reached": len(by("not reached")) + remaining,
+        "remaining": remaining,
         "launches": launches,
+        "start_failures": start_failures or [],
         "slowest": sorted(ok, key=lambda r: -r["seconds"])[:20],
         "mean_load_seconds": round(sum(r["seconds"] for r in ok) / len(ok), 3) if ok else None,
         "crash_groups": lib.group_crashes(crashes),
@@ -212,10 +241,15 @@ def summarize(rows: list[dict], crashes: list[tuple[str, lib.Crash]], launches: 
 
 
 def report(res: dict) -> list[str]:
-    out = [f"# Stress test: cells", "",
-           f"{res['total']} cells: {res['ok']} OK, {res['crashed']} crashed, {res['hung']} hung, "
-           f"{res['skipped']} skipped, {res['not_reached']} not reached, in {res['launches']} launches; "
-           f"mean load {res['mean_load_seconds']} s", ""]
+    out = ["# Stress test: cells", ""]
+    if res.get("status") == "aborted":
+        out += [f"**ABORTED**: {res['abort_reason']}. {res['remaining']} cells left (not reached).", ""]
+    out += [f"{res['total']} cells: {res['ok']} OK, {res['crashed']} crashed, {res['hung']} hung, "
+            f"{res['skipped']} skipped, {res['not_reached']} not reached, in {res['launches']} launches; "
+            f"mean load {res['mean_load_seconds']} s", ""]
+    if res.get("start_failures"):
+        out += [f"{len(res['start_failures'])} launches ended before their first cell (the game did not start; "
+                "no cell counted): " + ", ".join(f"{f['batch']} ({f['status']}, exit {f['exit']})" for f in res["start_failures"][-5:]), ""]
     if res["crash_groups"]:
         out += ["## Crash groups", ""]
         for i, g in enumerate(res["crash_groups"], 1):

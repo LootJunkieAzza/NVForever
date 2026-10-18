@@ -44,6 +44,8 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--dwell", type=float, default=2.0, help="seconds in each cell once it is in")
     c.add_argument("--hang", type=float, default=180.0, help="seconds without progress that count as a hang")
     c.add_argument("--start", default="GSGeneralStore", help="the cell each launch starts in (--cell)")
+    c.add_argument("--abort-after", type=int, default=cells.ABORT_AFTER,
+                   help="stop after this many launches in a row end before their first cell (the game does not start)")
     c.add_argument("--resume", default=None, metavar="RUN",
                    help="go on with an earlier run (its folder name under target/stress/cells/): cells it has done are skipped")
 
@@ -103,9 +105,9 @@ def main(argv=None) -> int:
         # The results and report are rewritten after every batch, so a long sweep can be
         # read while it runs and nothing is lost if the runner stops.
         res = cells.run(ctx, chosen, a.batch, a.dwell, a.hang, ["--cell", a.start],
-                        on_batch=lambda r: lib.write_results(ctx.out, r, cells.report(r)))
+                        on_batch=lambda r: lib.write_results(ctx.out, r, cells.report(r)), abort_after=a.abort_after)
         lines = cells.report(res)
-        bad = res["crashed"] + res["hung"]
+        bad = res["crashed"] + res["hung"] + (1 if res["status"] == "aborted" else 0)
     elif a.test == "tour":
         if a.route:
             route = a.route.read_text(encoding="utf-8")

@@ -198,6 +198,53 @@ class SweepTest(unittest.TestCase):
         self.assertEqual(len({r["cell"] for r in res["cells"]}), 9)
 
 
+def no_start(failures: list[int]):
+    """A game that does not start (0xC0000142, DLL init failed) for the launches whose
+    numbers are listed (1-based), and works on the others."""
+    count = [0]
+    good = fake_game(set())
+
+    def run(ctx, launch):
+        count[0] += 1
+        if count[0] in failures:
+            return lib.Result(launch.name, 3221225794, 0.5, "failed", Path("x.log"), ["(nothing)"], [], [])
+        return good(ctx, launch)
+    return run
+
+
+class StartFailureTest(unittest.TestCase):
+    def sweep(self, out: Path, cs, game, abort_after=3):
+        ctx = lib.Ctx(out, Path("nvforever"), "Data", Path("fnvtool"), out, say=lambda *_: None)
+        real, lib.run = lib.run, game
+        try:
+            return cells.run(ctx, cs, batch=4, dwell=0, hang=10, start_args=[], abort_after=abort_after)
+        finally:
+            lib.run = real
+
+    def test_a_game_that_does_not_start_aborts_and_blames_no_cell(self):
+        cs = many_cells(10)
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            res = self.sweep(out, cs, no_start(list(range(1, 100))))
+            self.assertEqual((res["status"], res["launches"], res["crashed"], res["ok"]), ("aborted", 3, 0, 0))
+            self.assertEqual((res["not_reached"], res["remaining"], res["total"], res["cells"]), (10, 10, 10, []))
+            self.assertEqual(len(res["start_failures"]), 3)
+            self.assertEqual(res["crash_groups"], [])
+            self.assertIn("ABORTED", cells.report(res)[2])
+            # Fixed, and resumed: every cell is visited, the earlier launches are kept.
+            res = self.sweep(out, cs, no_start([]))
+        self.assertEqual((res["status"], res["ok"], res["crashed"], res["launches"]), ("done", 10, 0, 6))
+        self.assertEqual(len(res["start_failures"]), 3)
+
+    def test_starts_that_fail_now_and_then_are_tried_again(self):
+        cs = many_cells(8)
+        with tempfile.TemporaryDirectory() as d:
+            # Launches 1, 2 and 4 fail to start: never three in a row.
+            res = self.sweep(Path(d), cs, no_start([1, 2, 4]))
+        self.assertEqual((res["status"], res["ok"], res["not_reached"], res["launches"]), ("done", 8, 0, 5))
+        self.assertEqual([f["batch"] for f in res["start_failures"]], ["batch-001", "batch-002", "batch-004"])
+
+
 class TourTest(unittest.TestCase):
     def test_the_ring_lies_inside_the_grid(self):
         pts = tour.ring((-30, -30), (29, 29), n=4, inset=0.5)
