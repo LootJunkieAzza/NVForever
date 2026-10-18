@@ -1,0 +1,1478 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_03_teammate_door",
+ "title": "Teammates through a door: where Boone arrives, following and waiting (owner-review: Followers) (about 2 min)",
+ "start": "nvftest: coc NovacBoonesRoom; hires Boone by his quest variable and SetPlayerTeammate. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "coc NovacBoonesRoom"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831107\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nrF1.MoveTo player 0 150 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "console": "set VNPCFollowers.bBooneHired to 1"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nrF1.SetPlayerTeammate 1\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rX := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "hired",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "hired",
+   "field": "package_type"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIProcedure\nSetFunctionValue fV\nEnd\n",
+   "label": "hired",
+   "field": "procedure"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetPlayerTeammate\nSetFunctionValue fV\nEnd\n",
+   "label": "hired",
+   "field": "teammate"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rF2 := BuildRef fM1 726537\nlet rP := rF1.GetCurrentPackage\nif rP != rF2\n  rF1.AddScriptPackage rF2\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rX := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "follow package",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "follow package",
+   "field": "package_type"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIProcedure\nSetFunctionValue fV\nEnd\n",
+   "label": "follow package",
+   "field": "procedure"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetPlayerTeammate\nSetFunctionValue fV\nEnd\n",
+   "label": "follow package",
+   "field": "teammate"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nplayer.MoveTo rF1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "before the door out",
+   "field": "poses"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet fV0 := rF1.GetPos X\nlet fV1 := rF1.GetPos Y\nlet fV2 := rF1.GetPos Z\nlet fV3 := rF1.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
+   "label": "before the door out",
+   "field": "door"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 00",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 01",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 02",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 03",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 04",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 05",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 06",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 07",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 08",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 09",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 10",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 11",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 12",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 13",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 14",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 15",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 16",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 17",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 18",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 19",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 20",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 21",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 22",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 23",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 24",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 25",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 26",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 27",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 28",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 29",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 30",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 31",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 32",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 33",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 34",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 35",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 36",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 37",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 38",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 39",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 40",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 41",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 42",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 43",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 44",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 45",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 46",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 47",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 48",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, following 49",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rX := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "outside",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "package_type"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIProcedure\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "procedure"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetPlayerTeammate\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "teammate"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet rX := rF1.GetLinkedDoor\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "outside",
+   "field": "linked_door"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rD\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet rD := rF1.GetLinkedDoor\nrD.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831107\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 00",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 01",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 02",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 03",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 04",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 05",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 06",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 07",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 08",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 09",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 10",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 11",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 12",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 13",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 14",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 15",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 16",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 17",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 18",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 19",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 20",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 21",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 22",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 23",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 24",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 25",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 26",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 27",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 28",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 29",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 30",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 31",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 32",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 33",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 34",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 35",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 36",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 37",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 38",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 39",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 40",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 41",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 42",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 43",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 44",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 45",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 46",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 47",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 48",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "in, following 49",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rX := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "back inside",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "back inside",
+   "field": "package_type"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIProcedure\nSetFunctionValue fV\nEnd\n",
+   "label": "back inside",
+   "field": "procedure"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetPlayerTeammate\nSetFunctionValue fV\nEnd\n",
+   "label": "back inside",
+   "field": "teammate"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nrF1.RemoveScriptPackage\nrF1.SetVariable \"Waiting\" 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rX := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "told to wait",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "told to wait",
+   "field": "package_type"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIProcedure\nSetFunctionValue fV\nEnd\n",
+   "label": "told to wait",
+   "field": "procedure"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetPlayerTeammate\nSetFunctionValue fV\nEnd\n",
+   "label": "told to wait",
+   "field": "teammate"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nplayer.MoveTo rF1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 00",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 01",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 02",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 03",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 04",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 05",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 06",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 07",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 08",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 09",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 10",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 11",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 12",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 13",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 14",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 15",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 16",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 17",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 18",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 19",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 20",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 21",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 22",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 23",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 24",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 25",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 26",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 27",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 28",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 29",
+   "field": "poses"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 30",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 31",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 32",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 33",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 34",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 35",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 36",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 37",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 38",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 39",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 40",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 41",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 42",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 43",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 44",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 45",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 46",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 47",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 48",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nref rV9\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nlet fV4 := rF1.GetPos X\nlet fV5 := rF1.GetPos Y\nlet fV6 := rF1.GetPos Z\nlet fV7 := rF1.GetAngle Z\nlet fV8 := player.GetInSameCell rF1\nlet rV9 := rF1.GetParentCell\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + (GetFormIDString rV9))\nEnd\n",
+   "label": "out, waiting 49",
+   "field": "poses"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet rX := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "outside, waiting",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIPackage\nSetFunctionValue fV\nEnd\n",
+   "label": "outside, waiting",
+   "field": "package_type"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetCurrentAIProcedure\nSetFunctionValue fV\nEnd\n",
+   "label": "outside, waiting",
+   "field": "procedure"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 617422\nlet fV := rF1.GetPlayerTeammate\nSetFunctionValue fV\nEnd\n",
+   "label": "outside, waiting",
+   "field": "teammate"
+  },
+  {
+   "console": "tgm"
+  }
+ ]
+}

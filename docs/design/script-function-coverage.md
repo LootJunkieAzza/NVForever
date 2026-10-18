@@ -555,7 +555,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PlaySound3D | 0x10B2 | 120 / 0 | match | - | - |  |
 | PreloadMagicEffect | 0x1163 | 1 / 0 | match | - | - | No-op (script-stubs.md §5). |
 | PurgeCellBuffers | 0x1189 | 32 / 0 | match | - | - | No-op (script-stubs.md §5). |
-| PushActorAway | 0x118A | 35 / 0 | no-system | knockdowns and knock-outs | - | Stub. |
+| PushActorAway | 0x118A | 35 / 0 | open | knockdowns and knock-outs | - | Built 2026-10-18 (unconscious.md §5); force scale and time down are design guesses. |
 | ReleaseWeatherOverride | 0x1158 | 11 / 0 | match | - | - |  |
 | RemoveAllItems | 0x10AD | 59 / 0 | match | - | - |  |
 | RemoveAllTypedItems | 0x1249 | 295 / 0 | match | - | - |  |
@@ -643,7 +643,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetStage | 0x1039 | 2449 / 0 | match | - | - |  |
 | SetTagSkills | 0x121A | 3 / 0 | match | - | - |  |
 | SetTalkingActivatorActor | 0x1171 | 31 / 0 | match | - | - |  |
-| SetUnconscious | 0x10F1 | 199 / 0 | no-system | knockdowns and knock-outs | - | Unconscious actors stop walking; lying down is not built. |
+| SetUnconscious | 0x10F1 | 199 / 0 | open | knockdowns and knock-outs | - | AI off; holds a lying actor down until cleared; alone lays nobody down (unconscious.md §5.1). |
 | SetVatsTarget | 0x11EB | 10 / 0 | no-system | VATS | - | Stub. |
 | SetWeaponHealthPerc | 0x11F5 | 1 / 0 | match | - | - |  |
 | SetWeather | 0x1104 | 14 / 0 | match | - | - |  |

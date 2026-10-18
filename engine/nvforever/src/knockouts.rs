@@ -15,6 +15,9 @@
 //!   first pose is on the bones, the actor is turned and moved so that the clip's pelvis
 //!   and pelvis → head line lie where the ragdoll's did. When the clip is over the actor
 //!   is itself again.
+//! - **Knockdowns** (PushActorAway, explosions; unconscious.md §5) fall the same way,
+//!   the ragdoll thrown with the knockdown's velocity (`Game::take_shove`); a body
+//!   already lying that is pushed again is shoved as a hit shoves a corpse.
 //! - Killed while down: it stays a corpse.
 
 use crate::limbs::ActorRig;
@@ -111,6 +114,7 @@ fn show_knockouts(
     globals: Query<&GlobalTransform>,
     parents: Query<&ChildOf>,
     mut residents: Option<ResMut<crate::residents::Residents>>,
+    mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let now = time.elapsed_secs();
@@ -123,7 +127,13 @@ fn show_knockouts(
             if !down || dying || rt.game.is_dead(id) {
                 continue;
             }
-            let body = data.as_deref().and_then(|d| ragdolls.corpse(d, rig));
+            let mut body = data.as_deref().and_then(|d| ragdolls.corpse(d, rig));
+            if let Some(v) = rt.game.take_shove(id) {
+                if let Some(b) = body.as_mut() {
+                    b.velocity = v;
+                }
+                info!("knockout: {:08X} thrown at ({:.0}, {:.0}, {:.0}) units/s", r.0, v[0], v[1], v[2]);
+            }
             let falls = body.is_some() && phys.as_deref().is_some_and(|p| p.ready_at(nvf_play::space::to_game(gt.translation())));
             let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
             let stood = *t;
@@ -148,6 +158,12 @@ fn show_knockouts(
         }
         match ko.phase {
             Phase::Down if down => {
+                // Pushed again while it lies: shove the body.
+                if let Some(dv) = rt.game.take_shove(id) {
+                    if let Some((pelvis, _)) = pelvis_head(rig, &globals) {
+                        pushes.write(nvf_play::combat::ActorPush { form_id: r.0, point: nvf_play::space::to_game(pelvis), dv });
+                    }
+                }
                 // The side it lies on, for IsFacingUp.
                 if let Some(up) = face_up(rig, &globals) {
                     if ko.face_up != Some(up) {

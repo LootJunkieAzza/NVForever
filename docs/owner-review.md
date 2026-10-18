@@ -2105,7 +2105,7 @@ NVForever's; `nvf-sleep.png` is the bed version).
    - **People moving during the wait.** They stand still while the menu is up and set
      off for where they should be when it closes, so after a long wait you can watch
      them walk there. The original may put them in place; I do not know.
-   - **Pressing E on a bed still lies you down** rather than opening the sleep menu
+   - **(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
      directly. You asked for lying down first; T does the rest.
    - **Scripts asking "is the player asleep?" or opening this menu themselves.** The
      Well Rested beds need the first.
@@ -2284,7 +2284,7 @@ I can measure your picture. Please attach it again, or drop it in
    `docs/spec-notes/hud.md`.
 ## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
 
-7. **Pressing E on a bed.** You lie down as before, and when you are lying the sleep
+7. **Pressing E on a bed.** **Decided by the owner 2026-10-18:** a get-into-bed animation, then the sleep menu (NVForever's own design, not a parity question). Earlier text: You lie down as before, and when you are lying the sleep
    menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
    movement key or E gets you up.
    - **For you to decide.** The original most likely opens the menu the moment you
@@ -5598,3 +5598,26 @@ observer's gunfight and melee runs. My choices, to check against the game:
   (and 8, standing on a table or chair, which NVForever's player never does); the
   others read 0. The wiki export lacks the ActionIndex list; a capture of indices 1–10
   while firing, sneaking and aiming would give it.
+
+## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
+
+Row 1 of docs/outstanding.md §1 (docs/spec-notes/unconscious.md §5; smoke
+`knockdown-push`). PushActorAway now lays the target down as a ragdoll thrown away from the
+source, and it gets up with the get-up clip; explosions' knockdown rolls now lay the actor
+down too (GetKnockedState 2). Guesses to check against the game:
+
+- **Time down**: 3 s of game time for a knockdown, then the get-up clip. No setting names
+  it. *Check:* `player.PushActorAway <NPC> 10` at the console; time how long it lies.
+- **Force scale**: 30 units a second per point of force, a quarter of it upwards (force 10
+  throws a body at 300 units/s, about 4 m/s). The wiki's "Havok force" is not converted.
+  *Check:* the same push; how far does the body slide?
+- **SetUnconscious alone does not lay anyone down.** Read from the scripts: robots standing
+  in pods and scheduled sleepers use it, and the thugs that fake death push their actor
+  down as well. It now also keeps a lying actor down until it is cleared (those thugs get
+  up only after being hit).
+- **The player is never knocked down** (six scripts push the player); building the
+  player's own knockdown is a separate job.
+- **No KOed/Wake line and no corner message** for a knockdown (it is no unconsciousness).
+- **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
+  the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
+  only pushes].
