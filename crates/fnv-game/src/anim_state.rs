@@ -16,8 +16,8 @@
 //! The codes are New Vegas's [documented: GECK wiki GetAnimAction, the table "revised for
 //! GECK NV"], checked against the AI observer's campaigns [observed: `anim_action` of the
 //! Goodsprings gunfight and the melee-spacing runs, C:\fnv-private\capture,
-//! docs/spec-notes/anim-state.md]. 10–12 are never answered, and 17, which no source
-//! explains, as a hypothesis (notes of [`AnimAction`]).
+//! docs/spec-notes/anim-state.md]. 10 and 11 are never answered; 12 (the player's
+//! landing) and 17, which no source explains, as hypotheses (notes of [`AnimAction`]).
 
 use crate::functions::{none, yes, Args, Ctx};
 use crate::game::Game;
@@ -25,10 +25,10 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 /// GetAnimAction's codes [documented: GECK wiki GetAnimAction, New Vegas table]. Never
-/// answered: 10 (dodge), 11 and 12 (wait for the lower body, for a special idle): the
-/// page says they "may be left overs", and none of the observer's samples read them
-/// [observed: Goodsprings gunfight and the 15 melee-spacing runs,
-/// docs/spec-notes/anim-state.md §1]. 17, which the observer saw on .357 revolvers before
+/// answered: 10 (dodge) and 11 (wait for the lower body): the page says 10–12 "may be
+/// left overs", and no actor of the observer's fights read them [observed: Goodsprings
+/// gunfight and the 15 melee-spacing runs, docs/spec-notes/anim-state.md §1]. 12 the
+/// player read after a jump ([`AnimAction::WaitForSpecialIdle`]). 17, which the observer saw on .357 revolvers before
 /// a reload's 9, has no documented meaning: NVForever answers it while a round-by-round
 /// reload opens the weapon ([`AnimAction::ReloadOpen`], hypothesis; the observer
 /// campaign `anim_actions` settles it).
@@ -65,6 +65,12 @@ pub enum AnimAction {
     /// 9: reloading [documented; observed: about two seconds after a magazine's last
     /// shot, every gun of the gunfight].
     Reload,
+    /// 12: ANIM_ACTION_WAIT_FOR_SPECIAL_IDLE [documented: the name]. The player read 12
+    /// for about 49 frames, starting about 50 frames after a jump [observed: capture
+    /// `player_actions_anim`, 2026-10-18]: NVForever answers it while the player's landing
+    /// clip plays [hypothesis: that the landing is what 12 marks; the timing fits a jump's
+    /// time in the air].
+    WaitForSpecialIdle,
     /// 13: "every action not included in the ones above": furniture, PlayIdle idles,
     /// staggering from crippled limbs, getting up [documented].
     ForceScriptAnim,
@@ -90,6 +96,7 @@ impl AnimAction {
             AnimAction::Block => 7,
             AnimAction::Stagger => 8,
             AnimAction::Reload => 9,
+            AnimAction::WaitForSpecialIdle => 12,
             AnimAction::ForceScriptAnim => 13,
             AnimAction::ReloadOpen => 17,
         }
@@ -320,6 +327,7 @@ mod tests {
             (AnimAction::Block, 7),
             (AnimAction::Stagger, 8),
             (AnimAction::Reload, 9),
+            (AnimAction::WaitForSpecialIdle, 12),
             (AnimAction::ForceScriptAnim, 13),
             (AnimAction::ReloadOpen, 17),
         ];

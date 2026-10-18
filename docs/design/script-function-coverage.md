@@ -354,7 +354,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetActorValue | 0x100E | 431 / 2074 | match | - | same 2 |  |
 | GetAlarmed | 0x103D | 1 / 0 | match | - | same 1 | 0 at rest [observed: probes]; meaning still hypothesis. |
 | GetAngle | 0x1008 | 10 / 0 | match | - | - |  |
-| GetAnimAction | 0x10DB | 42 / 1 | match | - | same 1 | New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-12 never (none observed); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions). |
+| GetAnimAction | 0x10DB | 42 / 1 | match | - | same 1 | New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-11 never (none observed); 12 the player's landing (12 observed after a jump); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions). |
 | GetArmorRating | 0x1051 | 1 / 1 | match | - | - |  |
 | GetAttacked | 0x103F | 0 / 11 | match | - | - |  |
 | GetBaseActorValue | 0x1115 | 6 / 16 | match | - | - |  |

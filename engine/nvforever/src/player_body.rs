@@ -635,6 +635,11 @@ pub struct PlayerBody {
 }
 
 impl PlayerBody {
+    /// The landing clip after a jump or fall is playing (GetAnimAction 12, `anim_state`).
+    pub fn landing(&self) -> bool {
+        self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))
+    }
+
     /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
     pub fn first_person_drawn(&self) -> bool {
         self.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true))

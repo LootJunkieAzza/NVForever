@@ -188,7 +188,7 @@ note = "The way told by the engine: the player's movement keys, an NPC's walk in
 
 [function.GetAnimAction]
 status = "match"
-note = "New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-12 never (none observed); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions)."
+note = "New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-11 never (none observed); 12 the player's landing (12 observed after a jump); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions)."
 
 [function.IsPlayerActionActive]
 status = "match"

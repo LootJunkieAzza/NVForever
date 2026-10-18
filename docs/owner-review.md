@@ -5791,8 +5791,10 @@ guesses in it:
   throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. *Guess*: that 6
   lasts one frame, as 3 does after a shot. NPCs throw nothing yet in NVForever, so only
   the player reads them.
-- **10–12**: never answered. The wiki calls them probable left-overs, and none of the
-  observer's samples showed them.
+- **10–11**: never answered. The wiki calls them probable left-overs, and none of the
+  observer's samples showed them. **12**: the original's player read it for about 0.8 s
+  after a jump's time in the air [observed: capture player_actions_anim]; NVForever
+  answers it while the player's landing clip plays (*guess*: that 12 is the landing).
 - **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
   it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
   answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.

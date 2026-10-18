@@ -27,7 +27,8 @@ extensive testing"]:
 | 7 | block | blocking, a block's reaction |
 | 8 | stagger: "staggered by an npc that is blocking" | a blocked blow's recoil |
 | 9 | reload | any reload, round by round included |
-| 10–12 | dodge, wait for lower body, wait for special idle ("may be left overs") | never: none of the observer's samples read them [observed] |
+| 10–11 | dodge, wait for lower body ("may be left overs") | never: no observer sample read them [observed] |
+| 12 | wait for special idle | the player's landing clip after a jump or fall [hypothesis; observed: the player read 12 after a jump, below] |
 | 13 | "every action not included above": furniture, PlayIdle idles, crippled-limb staggers, getting up | PlayIdle and package begin/end/change idles, cowering, PlayGroup groups, crippled-limb staggers, a jam (player) |
 | 17 | not in the table | a round-by-round reload (.357 revolver, lever-actions, hunting shotgun) while its opening clip plays, player and NPCs [hypothesis, below] |
 
@@ -59,7 +60,12 @@ named with `fnvtool combat form`]:
 - 5 (79 samples) and 6 (10) appeared in combat only, on throwers. NVForever reads a
   throw as a shot: 5 until the weapon leaves the hand (the clip's fire time), 6 the frame
   after, then 4 (`anim_state::throw_action`); the length of 6 is a hypothesis.
-- 10, 11 and 12 never appeared in any sample.
+- 10, 11 and 12 never appeared on the actors of the fights.
+- **The player** [observed: capture `player_actions_anim`, 2026-10-18, save nvfstrip, every
+  game loop at about 60 a second]: −1 at rest and with a weapon in hand; drawing read 0
+  for 46 (9mm pistol), 47 (.357), 61 (Cowboy Repeater), 86 (frag grenade) and 79 (knife)
+  samples, holstering 1 for 79; after a jump, −1 for about 50 samples (in the air), then
+  **12** for about 49. NVForever answers 12 while the player's landing clip plays.
 
 ## 2. IsMoving
 
@@ -94,6 +100,12 @@ is an action that stays active about two game minutes, its index not given. Both
 calls (Old World Blues) ask 9 [observed: decompiled scripts,
 docs/design/script-function-audit.md]. NVForever answers 9 (aiming down a gun's sights, not
 while the player is hunted) and reads 0 for the others [not answered].
+
+What the same capture read [observed]: IsPlayerActionActive 1–10 all 0 at rest, while
+drawing and holstering, after the sneak key and after a jump; GetLastPlayerAction 0
+throughout. The job's aiming, firing, throwing, swinging and blocking never happened:
+`HoldControl` and `ReleaseControl` did not compile in the runtime compiler (`TapControl`
+did). The follow-up `player_actions_anim2` taps instead.
 
 ## 5. Open, and the captures that settle it
 

@@ -107,6 +107,7 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<AnimStats>) {
         7 => "block",
         8 => "stagger",
         9 => "reload",
+        12 => "wait for special idle",
         17 => "reload open",
         _ => "script anim",
     };
@@ -147,6 +148,7 @@ fn tell(
     control: Option<Res<PlayerControl>>,
     intent: Option<Res<MoveIntent>>,
     player_idles: Option<Res<PlayerIdles>>,
+    body: Option<Res<crate::player_body::PlayerBody>>,
     mut stats: ResMut<AnimStats>,
     mut told: Local<HashSet<u32>>,
 ) {
@@ -203,7 +205,9 @@ fn tell(
         .map(|_| AnimAction::ForceScriptAnim);
     let moving = intent.as_deref().map_or(MoveDir::None, |i| MoveDir::of(i.right, i.forward, 0.01));
     let iron_sights = combat.as_deref().zip(weapon.as_deref()).is_some_and(|(c, w)| c.player_sights_up(w, aiming));
-    let st = AnimState { action: weapon_action.or(idle_action), moving, group: Some(group(moving, !walk)), iron_sights, at: 0.0 };
+    // Landing after a jump reads 12 (`AnimAction::WaitForSpecialIdle`, hypothesis).
+    let landing = body.as_deref().is_some_and(|b| b.landing()).then_some(AnimAction::WaitForSpecialIdle);
+    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, at: 0.0 };
     stats.note(FormId::PLAYER_REF.0, &st);
     g.set_anim_state(FormId::PLAYER_REF, st);
     // Actors no longer drawn are forgotten (they read as doing nothing).
