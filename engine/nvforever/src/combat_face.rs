@@ -42,38 +42,40 @@ pub fn step(weight: f32, target: f32, dt: f32) -> f32 {
     }
 }
 
-/// On an actor's root while this module's weight is not at rest: the target it fades to.
+/// On an actor's root while this module shows anger on it: the weight it set and the
+/// weight it fades to. An actor without it is left alone, so a CombatAnger weight set by
+/// something else (a test aid) is not taken over.
 #[derive(Component)]
-struct Fading {
+struct CombatFace {
+    weight: f32,
     target: f32,
 }
 
-type Actors<'w> = (Entity, &'w ActorRig, Option<&'w Name>, Option<&'w mut FaceMorphs>, Option<&'w mut Fading>);
+type Actors<'w> = (Entity, &'w ActorRig, Option<&'w Name>, Option<&'w mut FaceMorphs>, Option<&'w mut CombatFace>);
 
 fn drive(mut commands: Commands, time: Res<Time>, script: Option<Res<ScriptState>>, mut actors: Query<Actors, With<LipRig>>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let dt = time.delta_secs();
-    for (e, rig, name, morphs, fading) in &mut actors {
+    for (e, rig, name, morphs, own) in &mut actors {
         let id = FormId(rig.reference);
         let fighting = game.awareness.state(id).in_combat() && !game.is_dead(id);
-        let target = if fighting { FULL } else { 0.0 };
-        let weight = morphs.as_ref().map_or(0.0, |m| m.get(LABEL));
-        // As the alert lines name it (detection.rs): "Actor 000F570B 1EFiendViolet" → "1EFiendViolet 000F570B".
-        let who = || format!("{} {:08X}", name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or(""), rig.reference).trim().to_string();
-        // Changes of target, once each.
-        let was = fading.as_ref().map(|f| f.target);
-        if was != Some(target) && (was.is_some() || weight != target) {
-            info!("face: {} mood {LABEL} {}", who(), if target > weight { "rises" } else { "falls" });
-            match fading {
-                Some(mut f) => f.target = target,
-                None => {
-                    commands.entity(e).try_insert(Fading { target });
-                }
-            }
-        } else if was.is_none() {
+        if own.is_none() && !fighting {
             continue;
         }
+        let target = if fighting { FULL } else { 0.0 };
+        // As the alert lines name it (detection.rs): "Actor 000F570B 1EFiendViolet" → "1EFiendViolet 000F570B".
+        let who = || format!("{} {:08X}", name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or(""), rig.reference).trim().to_string();
+        let (weight, was) = own.as_ref().map_or((0.0, None), |o| (o.weight, Some(o.target)));
+        if was != Some(target) {
+            info!("face: {} mood {LABEL} {}", who(), if target > weight { "rises" } else { "falls" });
+        }
         let next = step(weight, target, dt);
+        match own {
+            Some(mut o) => (o.weight, o.target) = (next, target),
+            None => {
+                commands.entity(e).try_insert(CombatFace { weight: next, target });
+            }
+        }
         match morphs {
             Some(mut m) => {
                 if m.get(LABEL) != next {
@@ -86,9 +88,11 @@ fn drive(mut commands: Commands, time: Res<Time>, script: Option<Res<ScriptState
                 commands.entity(e).try_insert(m);
             }
         }
-        if next == target {
+        if next == target && weight != target {
             info!("face: {} mood {LABEL} {next:.2}", who());
-            commands.entity(e).remove::<Fading>();
+        }
+        if next == 0.0 && target == 0.0 {
+            commands.entity(e).remove::<CombatFace>();
         }
     }
 }

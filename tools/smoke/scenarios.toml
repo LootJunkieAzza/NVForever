@@ -674,20 +674,35 @@ forbid = [
 [[scenario]]
 name = "combat-face"
 source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
-note = "the combat-target-killed setup: Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s, kills the player (health 10 by the console at 8 s) and goes back to Normal; her CombatAnger weight rises to 1 over 1 s on entering Combat and falls back to 0 on leaving it. At 10.6 s the player is put 100 units in front of her and frame combat_face_angry.png in target/smoke is taken at 11 s (her face at full anger; compare lip_face_rest.png). lips.rs draws the weight (FaceMorphs, lipsync.md §5.4)"
+note = "the combat-target-killed setup: Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s, kills the player (health 10 by the console at 8 s) and goes back to Normal; her CombatAnger weight rises to 1 over 1 s on entering Combat and falls back to 0 on leaving it. lips.rs draws the weight (FaceMorphs, lipsync.md §5.4); combat-face-frames checks the drawn face"
 areas = ["combat", "alert", "faces"]
 paths = ["engine/nvforever/src/combat_face.rs", "engine/nvforever/src/face_morphs.rs", "engine/nvforever/src/lips.rs", "crates/fnv-game/src/awareness.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player", NVF_PLAY_TEST_FACE = "10.6:000F570B", NVF_PLAY_TEST_SHOTS = "11:combat_face_angry.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player" }
 args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
 run_seconds = 30
 expect = [
   { re = 'face: \S*FiendViolet 000F570B mood CombatAnger rises', label = "Violet's face turns angry as she enters Combat" },
   { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 1\.00', label = "her anger reaches full weight" },
-  { re = 'face: 000F570B shows asked morphs: CombatAnger [\d.]+$', label = "lips.rs shows it on her face (her head carries the morph)" },
   { re = 'alert: \S*FiendViolet 000F570B Combat → Normal', label = "she leaves Combat once the player is dead" },
   { re = 'face: \S*FiendViolet 000F570B mood CombatAnger falls', label = "her face eases back after the fight" },
   { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 0\.00', label = "her face is at rest again" },
 ]
+
+[[scenario]]
+name = "combat-face-frames"
+source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
+note = "god mode, so the fight with Violet (FiendVioletRef 0x000F570B, set on the player by the scripts' clock at 9 s) lasts the run; at 12 s on the test aids' clock (game time) the player is put 100 units in front of her (lips.rs moves faces within 840 units of the camera); frames combat_face_1..3.png in target/smoke at 14, 16 and 18 s show her angry face (combat_face_0.png at 6 s is from before the fight, about 1,000 units off)"
+areas = ["combat", "faces"]
+paths = ["engine/nvforever/src/combat_face.rs", "engine/nvforever/src/face_morphs.rs", "engine/nvforever/src/lips.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player", NVF_PLAY_TEST_FACE = "12:000F570B", NVF_PLAY_TEST_SHOTS = "6:combat_face_0.png,14:combat_face_1.png,16:combat_face_2.png,18:combat_face_3.png" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 25
+expect = [
+  { re = 'face: \S*FiendViolet 000F570B mood CombatAnger 1\.00', label = "her anger reaches full weight" },
+  { re = 'face: 000F570B shows asked morphs: CombatAnger [\d.]+$', label = "lips.rs shows it on her face (her head carries the morph)" },
+  "Screenshot saved to combat_face_3.png",
+]
+forbid = [{ re = 'face: \S*FiendViolet 000F570B mood CombatAnger falls', label = "her face eases back while she still fights" }]
 
 [[scenario]]
 name = "combat-voice"

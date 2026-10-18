@@ -5575,8 +5575,9 @@ guesses to check against the game:
 
 An actor in Combat shows its heads' `CombatAnger` morph, fading in over 1 s and back out
 over 1 s when the fight ends (docs/spec-notes/combat-face.md; smoke `combat-face`). The
-weight is handed to lips.rs, which draws faces (lipsync.md §5.4); frame
-`combat_face_angry.png` in `target/smoke/` shows Violet at full anger. No game animation
+weight is handed to lips.rs, which draws faces (lipsync.md §5.4); frames
+`combat_face_1..3.png` (smoke `combat-face-frames`) in `target/smoke/` show Violet
+during the fight, `combat_face_0.png` before it. No game animation
 carries the combat face (none of 2,450 character `.kf` files names it), so everything
 about when and how strongly it shows is my guess:
 
