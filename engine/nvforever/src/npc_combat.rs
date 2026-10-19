@@ -1155,7 +1155,7 @@ pub(crate) fn fight(
                 // cover it could not reach is not looked at again.
                 if let (Some(k), false) = (t.last_post, g.awareness.tactics.posts.contains_key(&me)) {
                     t.no_post = Some((k, clock + tactics::NO_POST_SECONDS));
-                    if matches!(k, PostKind::Cover | PostKind::Peek) {
+                    if matches!(k, PostKind::Cover | PostKind::Duck | PostKind::Peek) {
                         if let Some(cv) = t.cover.take() {
                             t.bad_cover.push(cv.behind);
                         }
@@ -1246,10 +1246,7 @@ pub(crate) fn fight(
                             }
                         }
                     }
-                    let (at, kind) = match cv.phase {
-                        Phase::Going | Phase::Hiding { .. } => (cv.behind, PostKind::Cover),
-                        _ => (cv.peek, PostKind::Peek),
-                    };
+                    let (at, kind) = tactics::cover_post(cv);
                     if !barred(t, kind) {
                         want_post = Some(Post { at, kind, run: true });
                     }

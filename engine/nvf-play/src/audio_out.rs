@@ -54,7 +54,8 @@
 //!   category follows it at once, as tape played slower: longer and lower together.
 //!   Effects, footsteps and voices slow; music and radio do not, nor interface sounds
 //!   ([`KeepsSpeed`]) [hypothesis: what the original leaves at speed]. A script's
-//!   SetGlobalTimeMultiplier slows only the clock, never sound (`script::time_multiplier`).
+//!   SetGlobalTimeMultiplier changes the same sounds by its multiplier unless it asked
+//!   for sound unchanged (`script::time_multiplier`).
 //! - Spatial `PlaybackSettings` (Bevy's `SpatialAudioSink`) are not built: NVForever pans
 //!   its own sounds (`sfx::Panned`); a spatial request plays plain, with a warning.
 //!
