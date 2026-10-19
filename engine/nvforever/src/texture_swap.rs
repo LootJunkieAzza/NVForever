@@ -43,7 +43,7 @@ impl Plugin for TextureSwapPlugin {
 /// The materials made for swaps: (original material, texture) → copy, and each copy's
 /// original.
 #[derive(Resource, Default)]
-struct Swapped {
+pub(crate) struct Swapped {
     made: HashMap<(AssetId<NifMaterial>, String), Handle<NifMaterial>>,
     original: HashMap<AssetId<NifMaterial>, AssetId<NifMaterial>>,
     generation: u64,
