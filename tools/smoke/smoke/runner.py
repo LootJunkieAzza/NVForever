@@ -63,18 +63,78 @@ def game_running() -> bool:
     return any(name in out for name in GAME_PROCESSES)
 
 
+QUEUE = "smoke-queue"
+
+
+class Queue:
+    """First come, first served among smoke runners (docs/outstanding.md §5): a runner
+    that has to wait for the game locks puts a ticket in a folder beside the first lock
+    (`smoke-queue`, named by the time it came and its process id) and only tries the
+    locks while its ticket is the oldest. It keeps the ticket until its whole run is
+    over, so a run of several launches is not split up by other runners' launches.
+    Tickets of processes that are gone are cleared. Plain `mkdir` lockers (captures)
+    take no ticket and are not held back by the queue."""
+
+    def __init__(self, folder: Path, pid: int | None = None, alive=None):
+        self.folder = Path(folder)
+        self.pid = os.getpid() if pid is None else pid
+        self.alive = alive or pid_alive
+        self.ticket: Path | None = None
+
+    def join(self) -> None:
+        if self.ticket is not None and self.ticket.exists():
+            return
+        self.folder.mkdir(parents=True, exist_ok=True)
+        self.ticket = self.folder / f"{time.time_ns():020d}-{self.pid}.ticket"
+        self.ticket.write_text(f"{self.pid} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+    def leave(self) -> None:
+        if self.ticket is not None:
+            try:
+                self.ticket.unlink()
+            except OSError:
+                pass
+            self.ticket = None
+
+    def ahead(self) -> list[Path]:
+        """The live tickets before this runner's, oldest first (dead ones cleared)."""
+        if self.ticket is None:
+            return []
+        out = []
+        for t in sorted(self.folder.glob("*.ticket")):
+            if t == self.ticket:
+                break
+            try:
+                pid = int(t.stem.split("-")[1])
+            except (IndexError, ValueError):
+                continue
+            if pid == self.pid:
+                continue  # this process's own older ticket (another Locks of the same run)
+            if not self.alive(pid):
+                try:
+                    t.unlink()
+                except OSError:
+                    pass
+                continue
+            out.append(t)
+        return out
+
+
 class Locks:
     """The game-window locks every agent takes by `mkdir` (CLAUDE.md, the agents' brief).
     Taken all or none, in order; released only if this runner made them. A lock left by
-    a smoke runner that died (its owner file names a process that is gone) is cleared."""
+    a smoke runner that died (its owner file names a process that is gone) is cleared.
+    Smoke runners wait their turn in a first-come, first-served [`Queue`]; `finish` gives
+    up the place at the end of the run."""
 
     def __init__(self, paths: list[Path], poll: float = 30.0, wait_max: float = 4 * 3600.0, say=print,
-                 stale_after: float = 900.0, running=game_running):
+                 stale_after: float = 900.0, running=game_running, queue: Queue | None = None):
         self.paths = [Path(p) for p in paths]
         self.poll, self.wait_max, self.say = poll, wait_max, say
         self.stale_after, self.running = stale_after, running
         self.held: list[Path] = []
         self.warned: set[tuple[Path, float]] = set()
+        self.queue = queue if queue is not None else (Queue(self.paths[0].parent / QUEUE) if self.paths else None)
 
     def warn_if_abandoned(self, p: Path) -> None:
         """Another session's plain mkdir lock that is old while no game runs: say so loudly
@@ -137,30 +197,49 @@ class Locks:
         return None
 
     def acquire(self) -> None:
-        start, told = time.monotonic(), None
+        start, told, queued = time.monotonic(), None, None
+        if self.queue is not None:
+            self.queue.join()
         while True:
-            busy = self.try_take()
-            if busy is None:
-                return
-            if busy != told:
-                self.say(f"waiting for {busy}: {self.holder(busy)}")
-                told = busy
-            self.warn_if_abandoned(busy)
+            ahead = self.queue.ahead() if self.queue is not None else []
+            if ahead:
+                if len(ahead) != queued:
+                    self.say(f"waiting in the smoke queue: {len(ahead)} runner(s) first")
+                    queued = len(ahead)
+                busy = None
+            else:
+                busy = self.try_take()
+                if busy is None:
+                    return
+                if busy != told:
+                    self.say(f"waiting for {busy}: {self.holder(busy)}")
+                    told = busy
+                self.warn_if_abandoned(busy)
             if time.monotonic() - start > self.wait_max:
-                raise TimeoutError(f"lock {busy} still held after {self.wait_max:.0f} s")
-            time.sleep(self.poll)
+                what = f"lock {busy} still held" if busy else f"{len(ahead)} runner(s) still ahead in the smoke queue"
+                raise TimeoutError(f"{what} after {self.wait_max:.0f} s")
+            # First in the queue: look more often, so a plain mkdir locker that waits
+            # without a ticket does not keep winning the race.
+            time.sleep(self.poll if ahead else min(self.poll, 5.0))
 
     def release(self) -> None:
+        """Give the locks back between launches; the place in the queue is kept."""
         for p in reversed(self.held):
             shutil.rmtree(p, ignore_errors=True)
         self.held.clear()
+
+    def finish(self) -> None:
+        """The run is over: the locks and the place in the queue."""
+        self.release()
+        if self.queue is not None:
+            self.queue.leave()
 
     def __enter__(self):
         self.acquire()
         return self
 
     def __exit__(self, *exc):
-        self.release()
+        self.finish()
 
 
 def default_lock_paths(repo: Path) -> list[Path]:

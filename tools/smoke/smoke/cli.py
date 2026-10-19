@@ -239,7 +239,7 @@ def cmd_run(a, suite: Suite, say) -> int:
             judge_launch(x, env, code, err, secs, a, say, verdicts)
     finally:
         if locks:
-            locks.release()
+            locks.finish()
     checks_ok = run_checks(checks, env, say) if (a.checks and checks) else True
     return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
 
