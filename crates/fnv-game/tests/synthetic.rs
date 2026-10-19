@@ -1198,6 +1198,10 @@ fn a_level_is_earned_by_experience_and_waits_for_no_one_hunting_the_player() {
     assert!(!experience::level_up_due(&g));
     g.player.xp = 204.0;
     assert!(experience::level_up_due(&g));
+    // Not in character generation (SetInCharGen 1): the XP stays, the level waits.
+    g.player.in_chargen = true;
+    assert!(!experience::level_up_due(&g));
+    g.player.in_chargen = false;
     // An actor searching for the player (Alert, the [CAUTION] state) keeps the menu shut.
     let npc = FormId(NPC_REF);
     let target = Target { band: Band::Detected, value: 10.0, at: [0.0; 3], detected: Some(0.0), hidden_since: None };

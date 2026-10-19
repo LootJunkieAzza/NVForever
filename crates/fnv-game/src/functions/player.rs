@@ -314,6 +314,13 @@ pub fn enable_fast_travel(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     let travel = a.num_or(0, 1.0) != 0.0;
     let wait = travel || a.num_or(1, 1.0) != 0.0;
     let keep = a.num_or(2, 0.0) != 0.0;
+    // `0 0 1` then `0 0 0`: "Effectively, the second function call is ignored"
+    // [documented: GECK wiki EnableFastTravel example]; that a kept ban ignores any later
+    // ban without keep is [hypothesis].
+    let now = g.player.fast_travel;
+    if !travel && !keep && now.keep && now.travel_disabled {
+        return none();
+    }
     g.player.fast_travel = FastTravel { travel_disabled: !travel, wait_disabled: !wait, keep };
     none()
 }
@@ -350,8 +357,8 @@ pub fn remove_recurring_from_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Re
     none()
 }
 
-/// `SetInCharGen flag` [documented: catalogue summary]; withholding level-ups is the
-/// levelling system's (not modelled).
+/// `SetInCharGen flag` [documented: catalogue summary]; while it is set no level-up is
+/// offered ([`crate::experience::level_up_due`]).
 pub fn set_in_chargen(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.player.in_chargen = a.num(0)? != 0.0;
     none()

@@ -1465,7 +1465,12 @@ impl<'a> Game<'a> {
             self.emit(EventKind::ObjectiveDisplayed { quest: q, index, on: d1 });
         }
         if c0 != c1 {
-            self.emit(EventKind::ObjectiveCompleted { quest: q, index, on: c1 });
+            // The message shows only for an objective on display of a quest not yet
+            // completed [documented: GECK wiki SetObjectiveCompleted notes, "If the quest
+            // itself is not complete, AND the objective is currently being displayed";
+            // "If the quest itself is already complete, no message will be displayed"].
+            let silent = !d1 || self.quest(q).completed;
+            self.emit(EventKind::ObjectiveCompleted { quest: q, index, on: c1, silent });
         }
         true
     }
@@ -2385,8 +2390,11 @@ impl<'a> Game<'a> {
             // EnableFastTravel].
             let placed = self.world.placed;
             let was_interior = !self.loaded_cells.is_empty() && self.loaded_cells.iter().all(|&l| placed.world_of(l).is_none());
+            // Only travel comes back: "the transition won't allow them to wait; this
+            // will have to be manually re-enabled" [documented: GECK wiki
+            // EnableFastTravel, example `0 0 0`].
             if was_interior && placed.world_of(c).is_some() && !self.player.fast_travel.keep {
-                self.player.fast_travel = crate::game::FastTravel::default();
+                self.player.fast_travel.travel_disabled = false;
             }
             let cells = self.cells_around(c);
             self.set_loaded(cells);

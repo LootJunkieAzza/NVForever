@@ -1694,7 +1694,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::QuestCompleted { quest } => info!("script: quest {} completed", n(*quest)),
         EventKind::QuestStopped { quest } => debug!("script: quest {} stopped", n(*quest)),
         EventKind::ObjectiveDisplayed { quest, index, on } => info!("script: {} objective {index} displayed {on}", n(*quest)),
-        EventKind::ObjectiveCompleted { quest, index, on } => info!("script: {} objective {index} completed {on}", n(*quest)),
+        EventKind::ObjectiveCompleted { quest, index, on, .. } => info!("script: {} objective {index} completed {on}", n(*quest)),
         EventKind::MessageShown { message, text, buttons, hidden } => {
             let hidden = if hidden.is_empty() { String::new() } else { format!(" (hidden by their conditions: {hidden:?})") };
             info!("script: message {} {:?}{}{hidden}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })

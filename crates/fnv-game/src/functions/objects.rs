@@ -107,7 +107,7 @@ pub fn drop_me(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let Some(key @ InstKey::Item { holder, item }) = ctx.inst else {
         return Err("DropMe outside the script of an inventory item".into());
     };
-    let made = g.world.drop_item(holder, item, 1).map_err(|e| e.to_string())?;
+    let made = g.world.drop_item_fresh(holder, item, 1).map_err(|e| e.to_string())?;
     if !made.is_empty() {
         g.emit(EventKind::ItemRemoved { from: holder, item, count: 1, silent: false });
     }
@@ -162,8 +162,11 @@ pub fn clear_ownership(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 /// owner; the player by default [documented: catalogue notes].
 pub fn is_owner(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    // An actor reference stands for its base, as owners are stored [documented: GECK
+    // wiki IsOwner, parameter ActorRefID, example `SpecialRef.IsOwner SaraLyonsRef`].
     let want = match a.opt_form(0) {
         Some(FormId::PLAYER_REF) | None => FormId::PLAYER_BASE,
+        Some(f) if matches!(super::base_of(g, f).and_then(|b| g.data.sig(b)).as_ref(), Some(b"NPC_") | Some(b"CREA")) => super::base_of(g, f).unwrap_or(f),
         Some(f) => f,
     };
     let owner = g.world.get(r).map_err(|e| e.to_string())?.extra.owner;

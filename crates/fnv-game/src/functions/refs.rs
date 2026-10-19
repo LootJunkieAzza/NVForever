@@ -13,6 +13,9 @@ use fnv_sim::FormId;
 /// `Disable 1` holds the reference ([`FADE_OUT_HOLD`]) ends the hold and fades it back.
 pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if has_enable_parent(g, r) {
+        return none();
+    }
     let fade = a.num_or(0, 1.0) != 0.0;
     if g.script_looks.fading_out.remove(&r).is_some() {
         g.emit(EventKind::RefEnabled { reference: r, fade });
@@ -44,6 +47,9 @@ pub const FADE_OUT_HOLD: f64 = 2.0;
 /// `ScriptLooks::disabled_after_fade`). A plain Disable during the hold disables at once.
 pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if has_enable_parent(g, r) {
+        return none();
+    }
     let fade = a.num_or(0, 0.0) != 0.0;
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
@@ -61,6 +67,15 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         g.emit(EventKind::RefDisabled { reference: r, fade });
     }
     none()
+}
+
+/// A reference whose enable state is its enable parent's: Enable and Disable called on
+/// it have no effect [documented: GECK wiki Enable and Disable notes, "If Enable is
+/// called on a reference with an Enable Parent, it will have no effect"]. A parent that
+/// does not exist leaves the reference its own state (`World::is_enabled`), so it does
+/// not count.
+fn has_enable_parent(g: &Game, r: FormId) -> bool {
+    g.world.placed.get(r).and_then(|p| p.enable_parent).is_some_and(|ep| g.world.is_enabled(ep.reference).is_ok())
 }
 
 pub fn get_disabled(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -274,7 +289,9 @@ pub fn lock(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         crate::terminal::lock(g, r, a.num_or(0, 0.0) as i32);
         return none();
     }
-    let level = a.num(0).ok().map(|l| l.clamp(0.0, 255.0) as u8);
+    // 0, the default, locks without changing the level [documented: GECK wiki Lock,
+    // "Lock 0 (default) will lock it but NOT change the lock level"].
+    let level = a.num(0).ok().filter(|&l| l != 0.0).map(|l| l.clamp(0.0, 255.0) as u8);
     g.world.lock(r, level).map_err(|e| e.to_string())?;
     none()
 }
@@ -327,6 +344,11 @@ pub fn get_is_lock_broken(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, S
 pub fn activate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let target = ctx.subject()?;
     let actor = a.opt_form(0).or(ctx.action_ref).ok_or("no action reference")?;
+    // "Disabled actors cannot be forced to activate objects via Activate" [documented:
+    // GECK wiki Disable notes].
+    if matches!(base_sig(g, actor).as_ref(), Some(b"NPC_") | Some(b"CREA")) && !g.world.is_enabled(actor).unwrap_or(true) {
+        return none();
+    }
     let mode = if a.num_or(1, 0.0) != 0.0 { ActMode::Block } else { ActMode::Default };
     g.activate(actor, target, mode)?;
     none()
@@ -373,17 +395,27 @@ pub fn is_in_list(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let b = base_of(g, r);
     let m = list_members(g, list);
-    yes(m.contains(&r) || b.is_some_and(|b| m.contains(&b)))
+    // The base form only: a list holding the reference itself reads 0 [documented: GECK
+    // wiki IsInList, "Will return False (0) if the form list contains the object's
+    // reference itself, rather than its base form"].
+    yes(b.is_some_and(|b| m.contains(&b)))
 }
 
-/// Inserts at index 0 [documented: catalogue summary].
+/// Inserts at index 0 [documented: catalogue summary]. A form a script added before moves
+/// to index 0; one the record lists stays where it is [documented: GECK wiki
+/// AddFormToFormList, "will simply move it to the 0th index (Will do nothing if the form
+/// already exists via hard edit)"].
 pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let f = a.form(1)?;
     if g.data.sig(list).as_ref() != Some(b"FLST") {
         return Err(format!("{} is not a form list", g.data.name(list)));
     }
-    if !list_members(g, list).contains(&f) {
+    let added = g.form_lists.entry(list).or_default();
+    if let Some(i) = added.iter().position(|&x| x == f) {
+        added.remove(i);
+        added.insert(0, f);
+    } else if !list_members(g, list).contains(&f) {
         g.form_lists.entry(list).or_default().insert(0, f);
     }
     none()
