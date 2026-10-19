@@ -1,0 +1,235 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "creature_spacing",
+ "title": "npc-behaviour-compare.md section 8.2 (plugin version 9, save nvftest; run each session alone with --only, the troopers die): the melee spacing of creatures far longer or shorter than the ones the rule (RNAM + 59) x scale was fitted to, fighting NPCs rather than a god-mode player. South of Cook-Cook's camp, killall (the camp), the four persistent NCR troopers moved 600 units in front of the hidden player, then the creature spawned 1,200 units beyond them and set on one trooper: an adult deathclaw, a young deathclaw, three radroaches, two cazadors. Every game loop, the fight field set and the fight events; swing distances from observe_map.py (2D, centre to centre).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight"
+ },
+ "sessions": [
+  {
+   "name": "deathclaw",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 0.25,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier4DeathClawMed",
+     "count": 1,
+     "distance": 1500,
+     "offset": [
+      0,
+      1800,
+      0
+     ],
+     "attack": "0x000F36F6"
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ]
+  },
+  {
+   "name": "young_deathclaw",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 0.25,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier3DeathClawSmall",
+     "count": 1,
+     "distance": 1500,
+     "offset": [
+      0,
+      1800,
+      0
+     ],
+     "attack": "0x000F36F6"
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ]
+  },
+  {
+   "name": "radroaches",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 0.25,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier1RadroachMed",
+     "count": 3,
+     "distance": 1500,
+     "offset": [
+      0,
+      1800,
+      0
+     ],
+     "attack": "0x000F36F6"
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ]
+  },
+  {
+   "name": "cazadors",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 0.25,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier4CazadorMed",
+     "count": 2,
+     "distance": 1500,
+     "offset": [
+      0,
+      1800,
+      0
+     ],
+     "attack": "0x000F36F6"
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ]
+  }
+ ]
+}

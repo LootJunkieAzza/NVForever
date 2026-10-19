@@ -115,9 +115,20 @@ each the identity by default. Reading PERK records is a later step.
 
 - **Interval.**
   - Automatic weapons: 1 ÷ `fire_rate`.
-  - Semi-automatic weapons: the attack clip's length ÷ (attack multiplier × animation
-    multiplier) when the engine passes it, else 1 ÷ "Attack Shots/Sec" [documented:
-    GECK wiki Weapons].
+  - Semi-automatic weapons: the time of the attack clip's `a:` key ÷ (attack multiplier
+    × animation multiplier) when the engine passes the clip (the clip's length when it
+    has no `a:` key), else 1 ÷ "Attack Shots/Sec" [documented: GECK wiki Weapons].
+    The `a:` key, not the clip's end [observed 2026-10-19, the base meshes archive and
+    FalloutNV.esm]: the record's Attack Shots/Sec is exactly speed ÷ that key's time.
+
+    | weapon | clip | `a:` key | end | speed | Attack Shots/Sec |
+    |---|---|---|---|---|---|
+    | 9mm pistol | `1hpattackright.kf` | 0.400 | 0.500 | 1.25 | 3.125 (1.25 ÷ 0.400) |
+    | 10mm pistol | `1hpattackright.kf` | 0.400 | 0.500 | 1.1 | 2.75 (1.1 ÷ 0.400) |
+    | varmint rifle | `2hrattack8.kf` | 1.267 | 1.333 | 1.4 × 1.1 | 1.216 (1.54 ÷ 1.267) |
+
+    Timing shots by the clip's end made them 5–20 % slower than the original (owner
+    playtest 2026-10-19). NPCs use 1 ÷ Attack Shots/Sec, already the same rate.
 - **When the shot leaves.** At the attack clip's `Hit` key [documented:
   NiTextKeyExtraData]. Automatic weapons fire at once, except those that spin up.
 - **Spin-up** [owner decision 2026-10-10]. An automatic weapon whose attack clip has

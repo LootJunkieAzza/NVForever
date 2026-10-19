@@ -100,6 +100,8 @@ pub struct Gravity {
     pub origin: Vec3,
     pub strength: f32,
     pub spherical: bool,
+    /// When it acts ([`ModifierActive`]).
+    pub active: ModifierActive,
 }
 
 /// `NiPSysDragModifier`: the share of the velocity along `axis` lost per step.
@@ -107,6 +109,29 @@ pub struct Gravity {
 pub struct Drag {
     pub axis: Vec3,
     pub percentage: f32,
+    /// When it acts ([`ModifierActive`]).
+    pub active: ModifierActive,
+}
+
+/// A modifier switched on and off over time by a `NiPSysModifierActiveCtlr` (its own
+/// bool keys, or those of the model's sequence when the controller carries a blend
+/// interpolator) [documented: nif.xml block names; observed: `explosiongrenadefrag.nif`'s
+/// smoke drags are on from 0 s and off at 0.33 s of its `SpecialIdle_AreaEffect`].
+/// Reading [hypothesis]: the keys are on the emitter's time, as the emitter's own on/off
+/// keys are, and a particle feels the modifier while the emitter it came from is at a
+/// time the keys say on; empty keys: always on.
+#[derive(Debug, Clone, Default)]
+pub struct ModifierActive {
+    pub keys: Vec<(f32, bool)>,
+}
+
+impl ModifierActive {
+    /// Whether the modifier acts at the emitter's time `t` (`period` > 0 with `loops`:
+    /// the keys repeat).
+    pub fn on(&self, t: f32, period: f32, loops: bool) -> bool {
+        let t = if loops && period > 0.0 { t.rem_euclid(period) } else { t };
+        self.keys.iter().rev().find(|(k, _)| *k <= t + 1e-4).or(self.keys.first()).is_none_or(|(_, on)| *on)
+    }
 }
 
 /// One `NiParticleSystem`.
@@ -249,6 +274,30 @@ fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<Seque
     None
 }
 
+/// The bool keys a sequence of the file gives the `NiPSysModifierActiveCtlr` of the
+/// modifier named `modifier` of the particle system named `system` (controlled blocks
+/// whose controller ID is the modifier's name [observed: `explosiongrenadefrag.nif`]).
+fn sequence_modifier_active(file: &NifFile, dec: &Decoded, system: &str, modifier: &str) -> Option<Vec<(f32, bool)>> {
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    for (i, b) in file.blocks.iter().enumerate() {
+        if b.type_name != "NiControllerSequence" {
+            continue;
+        }
+        let Ok(seq) = &dec.blocks[i] else { continue };
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() == Some(system)
+                && text(cb, "controller_type").as_deref() == Some("NiPSysModifierActiveCtlr")
+                && text(cb, "controller_id").as_deref() == Some(modifier)
+            {
+                let keys = fnv_nif::anim::bool_track(dec, cb.block_ref("interpolator").unwrap_or(-1)).map(|t| t.keys).unwrap_or_default();
+                return Some(keys);
+            }
+        }
+    }
+    None
+}
+
 fn affine(t: &NifTransform) -> Affine3A {
     let r = &t.rotation;
     let m = Mat3::from_cols(Vec3::new(r[0], r[3], r[6]), Vec3::new(r[1], r[4], r[7]), Vec3::new(r[2], r[5], r[8]));
@@ -363,6 +412,30 @@ impl ModelCtx<'_> {
                     .map(|f| f.as_chunks::<4>().0.to_vec())
                     .unwrap_or_default(),
             };
+            // The modifiers' on/off keys: a `NiPSysModifierActiveCtlr` in the system's
+            // controller chain names its modifier; a blend interpolator leaves the keys to
+            // the model's sequence.
+            let system_name = def.name.clone();
+            let mut switched: HashMap<String, Vec<(f32, bool)>> = HashMap::new();
+            {
+                let mut c = ps.block_ref("controller").unwrap_or(-1);
+                let mut steps = 0;
+                while let (Some(ty), Some(ctl)) = (type_of(c), dec.get(c)) {
+                    if ty == "NiPSysModifierActiveCtlr" {
+                        if let Some(name) = ctl.text("modifier_name").map(str::to_string) {
+                            let own = ctl.block_ref("interpolator").and_then(|r| fnv_nif::anim::bool_track(&dec, r)).map(|t| t.keys).unwrap_or_default();
+                            let keys = if own.is_empty() { sequence_modifier_active(&file, &dec, &system_name, &name).unwrap_or_default() } else { own };
+                            switched.insert(name, keys);
+                        }
+                    }
+                    c = ctl.block_ref("next_controller").unwrap_or(-1);
+                    steps += 1;
+                    if steps > 64 {
+                        break;
+                    }
+                }
+            }
+            let modifier_keys = |m: &Struct| m.text("name").and_then(|n| switched.get(n)).cloned().unwrap_or_default();
             let mut has_emitter = false;
             for &r in ps.refs("modifiers").unwrap_or_default() {
                 let (Some(ty), Some(m)) = (type_of(r), dec.get(r)) else { continue };
@@ -428,12 +501,13 @@ impl ModelCtx<'_> {
                             origin: frame.translation.into(),
                             strength: f("strength"),
                             spherical: m.int("force_type").unwrap_or(0) == 1,
+                            active: ModifierActive { keys: modifier_keys(m) },
                         });
                     }
                     "NiPSysDragModifier" => {
                         let frame = place(m.block_ref("drag_object").unwrap_or(-1));
                         let axis = m.floats("drag_axis").filter(|a| a.len() >= 3).map_or(Vec3::X, |a| Vec3::new(a[0], a[1], a[2]));
-                        def.drag.push(Drag { axis: frame.transform_vector3(axis).normalize_or_zero(), percentage: f("percentage") });
+                        def.drag.push(Drag { axis: frame.transform_vector3(axis).normalize_or_zero(), percentage: f("percentage"), active: ModifierActive { keys: modifier_keys(m) } });
                     }
                     // Ageing, moving and bounds are what any simulation does; a spawn
                     // modifier only acts when the age-death modifier spawns on death.
@@ -460,7 +534,8 @@ impl ModelCtx<'_> {
                         def.loops = (ctl.int("flags").unwrap_or(0) >> 1) & 3 == 0;
                         def.max_emitters = ctl.int("max_emitters").unwrap_or(0).max(0) as usize;
                     }
-                    "NiPSysUpdateCtlr" => {}
+                    // Read with the modifiers above.
+                    "NiPSysUpdateCtlr" | "NiPSysModifierActiveCtlr" => {}
                     other => {
                         if !out.unread.iter().any(|u| u == other) {
                             out.unread.push(other.to_string());
@@ -548,6 +623,18 @@ mod tests {
         assert_eq!(d.scale(1.0, 2.0), 1.0);
         assert!((d.scale(1.875, 2.0) - 0.6).abs() < 1e-6);
         assert!((d.scale(2.0, 2.0) - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_switched_modifier_acts_while_its_keys_say_on() {
+        // The frag grenade's smoke drags: on from 0, off at 0.33 s, clamped (5.03 s).
+        let drag = ModifierActive { keys: vec![(0.0, true), (0.333, false), (5.033, false)] };
+        assert!(drag.on(0.0, 5.033, false) && drag.on(0.3, 5.033, false));
+        assert!(!drag.on(0.4, 5.033, false) && !drag.on(9.0, 5.033, false));
+        // Looping keys repeat after the period.
+        assert!(drag.on(5.1, 5.033, true));
+        // No keys: always on.
+        assert!(ModifierActive::default().on(3.0, 0.0, false));
     }
 
     #[test]
