@@ -3,7 +3,7 @@
 
 use fnv_combat::condition::{self, Wear, Zone};
 use fnv_combat::data::{AmmoEffect, ArmorStats, BodyPart, WeaponStats};
-use fnv_combat::{CombatForms, CombatTuning, Rules};
+use fnv_combat::{CombatForms, Rules};
 use fnv_sim::inventory::{Extra, Inventory};
 use fnv_sim::FormId;
 
@@ -108,12 +108,14 @@ fn a_hit_wears_the_armour_where_it_lands() {
 #[test]
 fn worn_armour_protects_less() {
     let f = forms();
-    let t = CombatTuning::default();
-    assert!(close(condition::armor_mult(&t, 1.0), 1.0) && close(condition::armor_mult(&t, 0.5), 0.75) && close(condition::armor_mult(&t, 0.0), 0.5));
-    let (dt, _) = f.armor_values_worn(&t, &[(SUIT, 1.0), (HELMET, 1.0)]);
+    // Full DT and DR down to half condition, then 1 − (0.5 − condition): half at zero
+    // (GECK wiki SetArmorConditionPenalty).
+    assert!([(1.0, 1.0), (0.5, 1.0), (0.3, 0.8), (0.0, 0.5)].iter().all(|&(c, m)| close(condition::armor_mult(c), m)));
+    let (dt, _) = f.armor_values_worn(&[(SUIT, 1.0), (HELMET, 1.0)]);
     assert!(close(dt, 11.0));
     assert_eq!([0.0, 0.002, 0.456, 0.999, 1.0].map(condition::percent), [0, 1, 46, 99, 100]);
-    assert_eq!(f.armor_values_worn(&t, &[(SUIT, 1.0), (HELMET, 1.0)]), f.armor_values(&[SUIT, HELMET]));
-    let (dt, _) = f.armor_values_worn(&t, &[(SUIT, 0.0), (HELMET, 0.5)]);
-    assert!(close(dt, 3.0 + 3.75));
+    assert_eq!(f.armor_values_worn(&[(SUIT, 1.0), (HELMET, 1.0)]), f.armor_values(&[SUIT, HELMET]));
+    // A suit at zero gives half its 6; a helmet at half condition all its 5.
+    let (dt, _) = f.armor_values_worn(&[(SUIT, 0.0), (HELMET, 0.5)]);
+    assert!(close(dt, 3.0 + 5.0));
 }

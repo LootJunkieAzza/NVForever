@@ -19,9 +19,7 @@ them.
 | Value | Default | Shapes |
 |---|---|---|
 | `dt_floor` | 0.2 | DT never removes more than 80 % of a hit |
-| `condition_min_mult` | 0.5 | damage at zero condition (linear to 1 at full) |
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
-| `armor_condition_min_mult` | 0.5 | DT and DR of armour at zero condition (linear to 1 at full, §17) |
 | `bloom_per_shot`, `bloom_recovery`, `bloom_max` | 0.03 × Min Spread, 1.0 /s, 0.25 | spread added per shot (spread units) |
 | `jump_spread` | 0.3 | actor-spread penalty while airborne |
 | `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_recovery_deg` | 0.4°, 0.03°/damage, 12°/s | view kick |
@@ -358,13 +356,19 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 - **Health** (`crates/fnv-game/src/combat.rs`). Health's base (actor value 16) is the
   actor's maximum health whenever no script has set it, so `GetAV Health` and
   `GetHealthPercentage` see combat.
-  - NPC: Base Health + Endurance × `fAVDNPCHealthEnduranceMult` (5) + level ×
-    `fAVDNPCHealthLevelMult` (5).
+  - NPC: Base Health + (Endurance − 1) × `fAVDNPCHealthEnduranceMult` (5), plus
+    (level − 1) × `fAVDNPCHealthLevelMult` (5) for an NPC with "Auto-calc stats"; a
+    hand-set NPC's level adds nothing [observed: the AI observer's captures, fifteen
+    NPCs at full Health, all fit: auto-calculated the NCR troopers (level 5, Base 10,
+    Endurance 5: 50), Fiends 65–105, Joe Cobb 65, Sunny Smiles 90, Ringo 120, settlers
+    45, the Strip crowd 45, Violet 170; hand-set Cook-Cook 215 (level 14, Base 180,
+    Endurance 8), Doc Mitchell 65, Trudy 75, the Geckoman 70, Ramos 25;
+    npc-behaviour-compare.md §9]. Until 2026-10-19 this was Endurance × 5 + level × 5
+    for every NPC, 10 more for most and 75 more for Cook-Cook.
   - Creature: its DATA Health.
   - Player: `fAVDHealthEnduranceOffset` + Endurance × 20 + (level − 1) × 5 + Base
-    Health.
-  - The forms are hypotheses until captured; the settings' names and values are
-    observed (combat-data.md §3).
+    Health [hypothesis until captured].
+  - The settings' names and values are observed (combat-data.md §3).
   - Level comes from ACBS, or for "PC Level Mult" the player's level × the multiplier
     within the calculated bounds [documented: Stats Tab pages].
   - A template with the "Stats" flag supplies the stats.
@@ -1034,6 +1038,12 @@ Owner's request, 2026-10-11. Code: `fnv_combat::condition`, `fnv_sim::inventory`
   - Pieces struck together share the loss evenly. A head hit on a bare head, or a body
     hit on an actor with no body armour, wears nothing.
   - A target that takes no damage (dead, a child, invulnerable) does not wear.
+  - **Only the player's armour wears.** In the original an NPC's armour kept its
+    condition through a whole fight: Cook-Cook's stayed at health 85 and his Damage
+    Threshold at 13 through 60 hits, the troopers' and Fiends' likewise [observed: AI
+    observer campaign `fight_stats_round`, 2026-10-19, npc-behaviour-compare.md §9]. An
+    NPC's weapon does wear (Cook-Cook's Incinerator lost 2.19 health a shot) [observed,
+    same run].
 - **A weapon that is hit** [design: the owner's rule]. An actor holding its weapon
   drawn has a hit volume along the weapon (`hitvol::WEAPON_PART`: one capsule along the
   longest side of the model's bounds, `nvforever::limbs::weapon_segment`).
@@ -1043,13 +1053,21 @@ Owner's request, 2026-10-11. Code: `fnv_combat::condition`, `fnv_sim::inventory`
   - The weapon is the one the renderer put in the hand. The simulation rolls an
     actor's inventory on its own, so when it lacks that weapon one is added first
     [design; the two choices should become one].
-- **What a worn item is worth** [design]:
-  - a weapon's damage falls from 100 % at full condition to `condition_min_mult`
-    (50 %) at zero, linearly (§2). The player's shots and blows now use the equipped
-    weapon's real condition (they used 1 before);
-  - a piece of armour gives its DT and DR times `condition::armor_mult`: 100 % at full
-    condition down to `armor_condition_min_mult` (50 %) at zero. Armour at zero stays
-    worn.
+- **What a worn item is worth** [documented: GECK wiki SetConditionDamagePenalty and
+  SetArmorConditionPenalty (JIP), the hard-coded formulas those functions override]:
+  - a weapon deals all its damage at and above 75 % condition; below,
+    `1 − (0.75 − condition) × 0.67` of it (`damage::condition_mult`): 83 % at half
+    condition, 49.75 % at zero. The original's troopers' Service Rifles at 30, 45 and
+    50 % dealt 0.698, 0.799 and 0.832 of the full-condition hit [observed: §9 of
+    npc-behaviour-compare.md]. Every actor's shots and blows use its weapon's real
+    condition;
+  - a piece of armour gives all its DT and DR at and above half condition; below,
+    `1 − (0.5 − condition)` of them (`condition::armor_mult`): half at zero. Armour at
+    zero stays worn.
+  - An NPC's weapons and armour start at the condition its leveled lists give them:
+    the COED after an LVLO (the CondNV… lists, e.g. CondNVServiceRiflelLoot: a Service
+    Rifle at 30 to 60 %) [documented: GECK wiki Container, "Health %"; observed: the
+    original's troopers drew them at 30 to 50 %].
 - **A broken weapon** (zero condition) [design: the owner's rule]:
   - the player's is unequipped at once and stays in the inventory. `World::equip`
     refuses it (`SimError::Broken`) until it is repaired; a second, working one of the

@@ -127,6 +127,7 @@ const LL_LOOT: u32 = 0x110; // LVLI: level 1 -> STIMPAK x2, level 5 -> CAPS x10
 const LL_NONE: u32 = 0x111; // LVLI: chance none 100
 const LL_LOOP: u32 = 0x112; // LVLI naming itself
 const LL_ODDS: u32 = 0x113; // LVLI: chance none 0, LVLG TestOdds (100), STIMPAK x1
+const LL_WORN: u32 = 0x114; // LVLI: PISTOL x1 with COED condition 0.4, then STIMPAK x1 without
 const ODDS: u32 = 0x151; // GLOB TestOdds = 100
 const SAFE: u32 = 0x120; // CONT: CAPS x3, LL_LOOT x1, count-0 entry
 const DOOR: u32 = 0x130;
@@ -205,6 +206,19 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             LL_ODDS,
             &[sub(b"EDID", z("TestOddsList")), sub(b"LVLD", vec![0]), sub(b"LVLG", ODDS.to_le_bytes().to_vec()), lvlo(1, STIMPAK, 1)],
+        ),
+        &record(
+            b"LVLI",
+            0,
+            LL_WORN,
+            &[
+                sub(b"EDID", z("TestWornList")),
+                sub(b"LVLD", vec![0]),
+                sub(b"LVLF", vec![4]),
+                lvlo(1, PISTOL, 1),
+                sub(b"COED", cat(&[&0u32.to_le_bytes(), &0u32.to_le_bytes(), &0.4f32.to_le_bytes()])),
+                lvlo(1, STIMPAK, 1),
+            ],
         ),
     ]);
     let cont = record(
@@ -662,6 +676,20 @@ fn a_scripts_leveled_entry_gives_items_at_its_condition() {
     assert_eq!(w.add_item(p, id(LL_LOOT), 1).unwrap(), vec![(id(PISTOL), 1)]);
     let inv = w.peek(p).unwrap().inventory.clone().unwrap();
     assert_eq!(inv.groups().find(|g| g.0 == id(PISTOL)).unwrap().1.condition, Some(0.6));
+}
+
+#[test]
+fn a_leveled_entrys_coed_gives_items_at_its_condition() {
+    // The CondNV… lists of the masters: a COED after an LVLO is that entry's condition.
+    let f = fixture();
+    let l = f.forms.leveled(id(LL_WORN)).unwrap();
+    assert_eq!(l.entries.iter().map(|e| e.condition).collect::<Vec<_>>(), vec![Some(0.4), None]);
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(LL_WORN), 1).unwrap();
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!(inv.groups().find(|g| g.0 == id(PISTOL)).unwrap().1.condition, Some(0.4));
+    assert_eq!(inv.groups().find(|g| g.0 == id(STIMPAK)).unwrap().1.condition, None);
 }
 
 #[test]

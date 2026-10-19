@@ -152,12 +152,14 @@ const PACK_SCRIPTED: u32 = 0x912;
 const PACK_EVENTS: u32 = 0x913;
 const NPC: u32 = 0x920;
 const NPC_SCRIPT: u32 = 0x921;
+const NPC_AUTO: u32 = 0x922;
 const TOPIC: u32 = 0x930;
 const INFO_A: u32 = 0x931;
 const INFO_B: u32 = 0x932;
 const CELL: u32 = 0x200;
 const ACT_REF: u32 = 0x300;
 const NPC_REF: u32 = 0x320;
+const NPC_AUTO_REF: u32 = 0x321;
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -321,6 +323,24 @@ fn plugin_bytes() -> Vec<u8> {
         NPC_REF,
         &[sub(b"EDID", z("TestNpcREF")), sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])],
     );
+    // An NPC with "Auto-calc stats" (ACBS flag bit 4), level 5, Base Health 10, Endurance
+    // 5: the NCR troopers' template (NCRTrooperAAMTEMPLATE).
+    let npc_auto = record(
+        b"NPC_",
+        0,
+        NPC_AUTO,
+        &[
+            sub(b"EDID", z("TestAutoNpc")),
+            sub(b"ACBS", [&0x10u32.to_le_bytes()[..], &[0; 4], &5u16.to_le_bytes(), &[0; 6], &0f32.to_le_bytes(), &[0; 4]].concat()),
+            sub(b"DATA", [&10i32.to_le_bytes()[..], &[5, 5, 5, 5, 5, 5, 5]].concat()),
+        ],
+    );
+    let achr_auto = record(
+        b"ACHR",
+        0,
+        NPC_AUTO_REF,
+        &[sub(b"EDID", z("TestAutoNpcREF")), sub(b"NAME", NPC_AUTO.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])],
+    );
     // A topic with two Say Once lines of the quest; their end scripts set TestGlobal to
     // 3 and 4.
     let line = |id: u32, text: &str, value: &str| {
@@ -334,14 +354,14 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, achr].concat()));
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, achr, achr_auto].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
         top(b"ACTI", &acti),
-        top(b"NPC_", &npc),
+        top(b"NPC_", &[npc, npc_auto].concat()),
         top(b"PACK", &pack),
         top(b"QUST", &qust),
         top(b"DIAL", &dial),
@@ -987,16 +1007,19 @@ fn combat_hits_damage_health_kill_and_reward() {
     let mut g = game(&f);
     g.new_game();
     let npc = FormId(NPC_REF);
-    // Base Health 30 + Endurance 6 × 5 + level 4 × 5 (the settings' defaults).
+    // A hand-set NPC: Base Health 30 + (Endurance 6 − 1) × 5; its level adds nothing.
     assert_eq!(g.actor_level(npc), 4.0);
-    assert_eq!(g.max_health(npc), 80.0);
+    assert_eq!(g.max_health(npc), 55.0);
+    // An auto-calculated one: Base Health 10 + (Endurance 5 − 1) × 5 + (level 5 − 1) × 5,
+    // the original's NCR troopers' 50 (npc-behaviour-compare.md §9).
+    assert_eq!(g.max_health(FormId(NPC_AUTO_REF)), 50.0);
     let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true, limb: None };
     let r = g.hit(npc, 30.0, by_player);
-    assert_eq!((r.dealt, r.health, r.died), (30.0, 50.0, false));
+    assert_eq!((r.dealt, r.health, r.died), (30.0, 25.0, false));
     assert_eq!(g.extra[&npc].last_hit.map(|h| (h.location, h.critical)), Some((1, true)));
     // The killing hit takes what is left; level 4 is an average NPC: 20 XP.
     let r = g.hit(npc, 60.0, by_player);
-    assert_eq!((r.dealt, r.health, r.died, r.xp), (50.0, 0.0, true, 20.0));
+    assert_eq!((r.dealt, r.health, r.died, r.xp), (25.0, 0.0, true, 20.0));
     assert!(g.is_dead(npc) && g.extra[&npc].killer == Some(FormId::PLAYER_REF));
     assert_eq!(g.player.xp, 20.0);
     assert!(g.hit(npc, 10.0, by_player).immune);
@@ -1009,7 +1032,7 @@ fn combat_hits_damage_health_kill_and_reward() {
     // Others did most of the damage: no XP.
     let mut g = game(&f);
     g.new_game();
-    g.hit(npc, 70.0, HitInfo { attacker: None, ..by_player });
+    g.hit(npc, 45.0, HitInfo { attacker: None, ..by_player });
     let r = g.hit(npc, 10.0, by_player);
     assert!(r.died && r.xp == 0.0);
 }
@@ -1071,21 +1094,21 @@ fn limb_hits_lower_conditions_and_cripple() {
     let mut g = game(&f);
     g.new_game();
     let npc = FormId(NPC_REF);
-    // Maximum health 80; a leg at 25 %: a pool of 20. Left Mobility Condition is code 29.
+    // Maximum health 55; a leg at 25 %: a pool of 13.75. Left Mobility Condition is code 29.
     let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0 };
     let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
-    let r = g.hit(npc, 5.0, hit(5.0));
-    assert_eq!((r.limb, r.crippled), (Some((29, 75.0)), false));
+    let r = g.hit(npc, 5.0, hit(2.75));
+    assert_eq!((r.limb, r.crippled), (Some((29, 80.0)), false));
     assert!(!g.is_crippled(npc, 29));
-    // 15 more limb damage (the weapon's limb multiplier is the caller's): crippled.
-    let r = g.hit(npc, 5.0, hit(15.0));
+    // 11 more limb damage (the weapon's limb multiplier is the caller's): crippled.
+    let r = g.hit(npc, 5.0, hit(11.0));
     assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), true));
     assert!(g.is_crippled(npc, 29));
     // It stays at 0 and cripples once.
     let r = g.hit(npc, 5.0, hit(10.0));
     assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), false));
     // Health took only the hits' damage.
-    assert_eq!(r.health, 65.0);
+    assert_eq!(r.health, 40.0);
 }
 
 /// Crippled legs slow every actor by the game settings, the player's limbs take half the

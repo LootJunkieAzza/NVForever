@@ -1,0 +1,66 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "fight_stats_round",
+ "title": "docs/spec-notes/npc-behaviour-compare.md section 9 (plugin version 9, save nvftest; run alone): the four persistent NCR troopers against Cook-Cook's Fiends as fights_round's ncr_fiends, every 10 game loops, with each fighter's level, Health (current and base), Endurance, Agility, Guns, Damage Threshold and Resistance and the health of its equipped weapon and upper-body armour, and the player's level, for why ours deals more damage a hit between NPCs (the skill bonus, the leveled actors' Health, armour wear).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 10,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight"
+ },
+ "sessions": [
+  {
+   "name": "ncr_fiends_stats",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1,
+   "do": [
+    [
+     "{0}.MoveTo player -400 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -200 650 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 0 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 200 650 0",
+     "0x0015CE08"
+    ]
+   ],
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "extra": [
+    ["level", "num", "GetLevel"],
+    ["health_base", "num", "GetBaseAV Health"],
+    ["endurance", "num", "GetAV Endurance"],
+    ["agility", "num", "GetAV Agility"],
+    ["guns", "num", "GetAV Guns"],
+    ["guns_base", "num", "GetBaseAV Guns"],
+    ["dt", "num", "GetAV DamageThreshold"],
+    ["dr", "num", "GetAV DamageResist"],
+    ["weapon_health", "num", "GetEquippedCurrentHealth 5"],
+    ["body_health", "num", "GetEquippedCurrentHealth 2"],
+    ["head_health", "num", "GetEquippedCurrentHealth 0"]
+   ],
+   "extra_header": [
+    ["player_level", "num", "player.GetLevel"]
+   ]
+  }
+ ]
+}

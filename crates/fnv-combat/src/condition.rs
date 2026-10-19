@@ -17,8 +17,10 @@
 //!   the loss evenly [design: the owner's rule, 2026-10-11].
 //! - **A weapon that is struck** loses the hit's damage as health points [design: the
 //!   owner's rule].
-//! - **At zero** a weapon is broken (`fnv_sim::World::equip` refuses it). Worn armour
-//!   protects less as it wears ([`armor_mult`]) [design].
+//! - **At zero** a weapon is broken (`fnv_sim::World::equip` refuses it). Armour below
+//!   half condition protects less ([`armor_mult`]) and a weapon below 75 % deals less
+//!   (`damage::condition_mult`) [documented: GECK wiki SetArmorConditionPenalty and
+//!   SetConditionDamagePenalty].
 
 use fnv_sim::inventory::{Extra, Inventory};
 use fnv_sim::FormId;
@@ -39,10 +41,19 @@ pub fn armor_wear(r: &Rules, damage: f32) -> f32 {
     (damage * r.damage_to_armor_percentage).max(0.0)
 }
 
-/// The share of its DT and DR a piece of armour gives at `condition` [design:
-/// [`CombatTuning::armor_condition_min_mult`] at zero, all of it at full, linear between].
-pub fn armor_mult(t: &CombatTuning, condition: f32) -> f32 {
-    t.armor_condition_min_mult + (1.0 - t.armor_condition_min_mult) * condition.clamp(0.0, 1.0)
+/// Armour condition at and above which a piece gives all its DT and DR [documented:
+/// GECK wiki SetArmorConditionPenalty (JIP), "the 50% threshold"].
+pub const ARMOR_CONDITION_THRESHOLD: f32 = 0.5;
+/// How fast DT and DR fall below [`ARMOR_CONDITION_THRESHOLD`]: the engine's hard-coded
+/// multiplier [documented: GECK wiki SetArmorConditionPenalty, "1.0, by default"].
+pub const ARMOR_CONDITION_PENALTY: f32 = 1.0;
+
+/// The share of its DT and DR a piece of armour gives at `condition` (0..=1): all of it
+/// at or above half condition, below it `1 − (0.5 − condition) × 1.0`, half at zero
+/// [documented: GECK wiki SetArmorConditionPenalty, the formula the JIP function
+/// overrides].
+pub fn armor_mult(condition: f32) -> f32 {
+    1.0 - (ARMOR_CONDITION_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * ARMOR_CONDITION_PENALTY
 }
 
 /// The chance one shot jams a weapon at `condition` (the owner's playtest list 5 item 9)
@@ -104,8 +115,8 @@ impl CombatForms {
 
     /// DT and DR (percent) of worn armour, each piece at its condition
     /// ([`CombatForms::armor_values`] with [`armor_mult`]).
-    pub fn armor_values_worn(&self, t: &CombatTuning, worn: &[(FormId, f32)]) -> (f32, f32) {
-        worn.iter().filter_map(|(id, c)| Some((self.armor.get(id)?, armor_mult(t, *c)))).fold((0.0, 0.0), |(dt, dr), (a, m)| (dt + a.dt * m, dr + a.dr_raw as f32 / 100.0 * m))
+    pub fn armor_values_worn(&self, worn: &[(FormId, f32)]) -> (f32, f32) {
+        worn.iter().filter_map(|(id, c)| Some((self.armor.get(id)?, armor_mult(*c)))).fold((0.0, 0.0), |(dt, dr), (a, m)| (dt + a.dt * m, dr + a.dr_raw as f32 / 100.0 * m))
     }
 
     /// The full health of a weapon or a piece of armour (its record's `DATA` health); 0

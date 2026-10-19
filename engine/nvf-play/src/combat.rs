@@ -1630,7 +1630,7 @@ pub(crate) fn fire(
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
 /// Each piece protects by its condition (§17).
 fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
-    let (dt, dr) = c.forms.armor_values_worn(&c.tuning, &worn_armor(&c.forms, sim, target));
+    let (dt, dr) = c.forms.armor_values_worn(&worn_armor(&c.forms, sim, target));
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
@@ -1663,8 +1663,15 @@ fn item_name(sim: &SimState, item: FormId) -> String {
     sim.name(item).map_or_else(|| item.to_string(), str::to_string)
 }
 
-/// A hit of `damage` (before armour) wears the armour `target` wears in `zone` (§17).
+/// A hit of `damage` (before armour) wears the armour `target` wears in `zone` (§17):
+/// the player's only. Another actor's armour keeps its condition [observed: Cook-Cook's
+/// armour stayed at health 85 and his DT at 13 through 60 hits, and the troopers' and
+/// Fiends' through theirs, AI observer campaign fight_stats_round 2026-10-19,
+/// npc-behaviour-compare.md §9].
 fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: FormId, zone: Zone, damage: f32) {
+    if target != FormId::PLAYER_REF {
+        return;
+    }
     let worn: Vec<FormId> = worn_armor(&c.forms, sim, target).into_iter().map(|w| w.0).collect();
     let struck = c.forms.armor_struck(&worn, zone);
     if struck.is_empty() || damage <= 0.0 {

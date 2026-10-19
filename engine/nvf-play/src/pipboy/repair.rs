@@ -273,8 +273,8 @@ pub fn draw_hint(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Option<&Offer>) {
 fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
     let c = combat?;
     match o.gear {
-        Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| ("DAM", (w.base_damage as f32 * fnv_combat::damage::condition_mult(&c.tuning, condition)).round() as i32)),
-        Gear::Armor => c.forms.armor.get(&o.item).map(|a| ("DT", (a.dt * fnv_combat::condition::armor_mult(&c.tuning, condition)).round() as i32)),
+        Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| ("DAM", (w.base_damage as f32 * fnv_combat::damage::condition_mult(condition)).round() as i32)),
+        Gear::Armor => c.forms.armor.get(&o.item).map(|a| ("DT", (a.dt * fnv_combat::condition::armor_mult(condition)).round() as i32)),
     }
 }
 

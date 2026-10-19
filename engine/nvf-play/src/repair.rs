@@ -204,11 +204,11 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
             };
             let stat = combat.and_then(|c| match gear {
                 Gear::Weapon => c.forms.weapons.get(&item).filter(|w| w.base_damage > 0).map(|w| {
-                    let at = |k: f32| (w.base_damage as f32 * fnv_combat::damage::condition_mult(&c.tuning, k)).round() as i32;
+                    let at = |k: f32| (w.base_damage as f32 * fnv_combat::damage::condition_mult(k)).round() as i32;
                     ("DAM", at(condition), at(to))
                 }),
                 Gear::Armor => c.forms.armor.get(&item).map(|a| {
-                    let at = |k: f32| (a.dt * fnv_combat::condition::armor_mult(&c.tuning, k)).round() as i32;
+                    let at = |k: f32| (a.dt * fnv_combat::condition::armor_mult(k)).round() as i32;
                     ("DT", at(condition), at(to))
                 }),
             });
