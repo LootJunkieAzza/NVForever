@@ -20,10 +20,11 @@ use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 
 /// Base object types drawn as static models. NPCs and creatures are assembled from parts
-/// (`actors.rs`); sounds and idle markers have no model.
-const DRAWN: [&[u8; 4]; 24] = [
+/// (`actors.rs`); sounds and idle markers have no model. PROJ: placed mines and charges
+/// (PGRE), drawn with their projectile's model (`nvf_play::mines`).
+const DRAWN: [&[u8; 4]; 25] = [
     b"STAT", b"SCOL", b"MSTT", b"TREE", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC",
-    b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT", b"IMOD", b"CHIP", b"CCRD", b"CMNY",
+    b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT", b"IMOD", b"CHIP", b"CCRD", b"CMNY", b"PROJ",
 ];
 
 #[derive(Resource)]
@@ -682,7 +683,11 @@ pub fn spawn_model(
             .filter(|_| s.external_emittance)
             .and_then(|x| emittance.material(world, &mut models.materials, &s.material, x))
             .unwrap_or_else(|| s.material.clone());
-        commands.entity(parent).with_child((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r)));
+        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r), ChildOf(parent))).id();
+        // A mine's light parts: shown and hidden by its state (`nvf_play::mines`).
+        if let Some(l) = nvf_play::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
+            commands.entity(e).insert(l);
+        }
         stats.shapes += 1;
     }
     stats.refs_drawn += 1;

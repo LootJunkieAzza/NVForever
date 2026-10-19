@@ -181,6 +181,8 @@ enum OutcomeJson {
     },
     Disarmed {
         item: FormId,
+        #[serde(default)]
+        placed: Option<FormId>,
     },
     DoorToggled {
         open: bool,
@@ -213,7 +215,7 @@ pub fn activation_from_json(v: &serde_json::Value) -> Option<Activation> {
         OutcomeJson::OpenedContainer { container } => Outcome::OpenedContainer { container },
         OutcomeJson::Locked { level } => Outcome::Locked { level },
         OutcomeJson::Teleported { to_door, cell, pos, rot } => Outcome::Teleported { to_door, cell, pos, rot },
-        OutcomeJson::Disarmed { item } => Outcome::Disarmed { item },
+        OutcomeJson::Disarmed { item, placed } => Outcome::Disarmed { item, placed },
         OutcomeJson::DoorToggled { open } => Outcome::DoorToggled { open },
         OutcomeJson::Talk { actor } => Outcome::Talk { actor },
         OutcomeJson::Activated => Outcome::Activated,

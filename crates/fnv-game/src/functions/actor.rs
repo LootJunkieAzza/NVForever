@@ -755,6 +755,25 @@ pub fn factions_relation(g: &Game, mine: &[FormId], o: FormId) -> i64 {
     }
 }
 
+/// Whether a mine owned by `owner` spares `actor`: its owner itself; the player's
+/// teammates for a mine of the player's; for a faction's mine, a member of that faction
+/// or of a faction it counts as an ally or a friend [owner 2026-10-19: "anyone who is not
+/// part of or ally to the faction that the mine owner is will activate it"; documented:
+/// GECK wiki Traps, a faction's members do not set off its mines; hypothesis: which way
+/// the reaction is read, the owning faction's towards the actor's]. A mine without an
+/// owner spares nobody.
+pub fn mine_spares(g: &Game, owner: Option<FormId>, actor: FormId) -> bool {
+    let Some(owner) = owner else { return false };
+    if owner == actor {
+        return true;
+    }
+    if owner == FormId::PLAYER_REF {
+        return g.is_teammate(actor);
+    }
+    let theirs = factions_of(g, actor);
+    theirs.contains(&owner) || theirs.iter().any(|&f| matches!(reaction(g, owner, f), 2 | 3))
+}
+
 /// `actor.GetFactionRelation other` ([`faction_relation`]).
 pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;

@@ -56,6 +56,7 @@ pub mod companion_wheel;
 pub mod caravan;
 pub mod poker;
 pub mod menu;
+pub mod mines;
 pub mod message_menu;
 pub mod moved;
 pub mod music;
@@ -298,6 +299,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(mines::MinesPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin);

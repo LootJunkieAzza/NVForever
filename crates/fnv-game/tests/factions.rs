@@ -734,3 +734,22 @@ fn nobody_fights_or_detects_a_ghost_and_a_ghosted_player_is_still_hurt() {
     let (det, _) = g.detect(&s, own, player, &seen);
     assert_ne!(det.band, Band::Hidden, "{det:?}");
 }
+
+#[test]
+fn a_mine_spares_its_owners_side() {
+    let f = fixture();
+    let mut g = game(&f);
+    let spares = |g: &Game, owner: Option<u32>, actor: u32| fnv_game::functions::mine_spares(g, owner.map(FormId), FormId(actor));
+    // A raiders' mine: their members are spared, others and the player are not.
+    assert!(spares(&g, Some(RAIDERS), BANDIT_REF));
+    assert!(spares(&g, Some(RAIDERS), LEADER_REF));
+    assert!(!spares(&g, Some(RAIDERS), LOAFER_REF));
+    assert!(!spares(&g, Some(RAIDERS), 0x14));
+    // An ally of the owning faction is spared.
+    g.forms.faction_reactions.entry(FormId(RAIDERS)).or_default().insert(FormId(IDLERS), 2);
+    assert!(spares(&g, Some(RAIDERS), LOAFER_REF));
+    // The player's own mine spares the player; one without an owner spares nobody.
+    assert!(spares(&g, Some(0x14), 0x14));
+    assert!(!spares(&g, Some(0x14), LOAFER_REF));
+    assert!(!spares(&g, None, BANDIT_REF));
+}

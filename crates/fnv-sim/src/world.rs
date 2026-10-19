@@ -193,7 +193,9 @@ pub enum Outcome {
     OpenedContainer { container: FormId },
     Locked { level: u8 },
     Teleported { to_door: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3] },
-    Disarmed { item: FormId },
+    /// A placed explosive made safe: `item` is the weapon it is, left where the mine lay
+    /// as a loose item reference (`placed`, to be taken like any other).
+    Disarmed { item: FormId, placed: Option<FormId> },
     DoorToggled { open: bool },
     Talk { actor: FormId },
     Activated,
@@ -1462,13 +1464,20 @@ impl<'a> World<'a> {
             // placed frag mines in Nipton left them enabled and in place and gave no Frag
             // Mine (`bl_placed_mines`, `L4.sim.trace.nipton_placed_mines`)]
             BaseData::Projectile { .. } if scripted => Outcome::NoDefault { sig: "PROJ".into() },
-            // The player's own activation disarms it and gives the weapon that fires it.
-            // [hypothesis: in-game disarming of placed mines; the Explosives skill check
-            // and the chance to trigger are Layer 6]
+            // The player's own activation disarms it, even while its fuse burns: the mine
+            // becomes the weapon that fires it, a loose item where it lay, taken with the
+            // next activation [owner 2026-10-19: "one activate on a live mine will disarm
+            // it you can then pick it up like any other loose item"; every mine needs
+            // Explosives 1, so no skill check]. Its owner, unless the player, owns the
+            // item [hypothesis].
             BaseData::Projectile { item: Some(item) } => {
-                self.inventory(actor)?.add(*item, 1);
-                self.get(target)?.deleted = true;
-                Outcome::Disarmed { item: *item }
+                let owner = self.placed.get(target).and_then(|p| p.owner);
+                let s = self.get(target)?;
+                s.deleted = true;
+                let (cell, pos, rot, owner) = (s.cell, s.pos, s.rot, s.extra.owner.or(owner).filter(|&o| o != FormId::PLAYER_REF));
+                let placed = self.place(*item, cell, pos, rot, 1)?;
+                self.get(placed)?.extra.owner = owner;
+                Outcome::Disarmed { item: *item, placed: Some(placed) }
             }
             BaseData::Projectile { item: None } => Outcome::NoDefault { sig: "PROJ".into() },
         };

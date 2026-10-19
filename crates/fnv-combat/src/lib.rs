@@ -14,6 +14,8 @@
 //!   described in docs/spec-notes/combat-rules.md.
 //! - [`melee`]: melee and unarmed swings: combos by the clips' `a:` keys, power attacks
 //!   by the direction moved (docs/spec-notes/combat-rules.md §10).
+//! - [`mine`]: mines' trigger radius, fuse and ticking (docs/spec-notes/combat-rules.md
+//!   §11a).
 //! - [`condition`]: how weapons and armour wear and what a worn item is worth
 //!   (docs/spec-notes/combat-rules.md §17).
 
@@ -23,6 +25,7 @@ pub mod damage;
 pub mod data;
 pub mod fx;
 pub mod melee;
+pub mod mine;
 pub mod projectile;
 pub mod rng;
 pub mod shot;

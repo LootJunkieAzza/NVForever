@@ -493,7 +493,7 @@ pub struct PlayerHit {
 }
 
 /// Height above a destructible's position its stage explosions go off [design].
-const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
+pub(crate) const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
 
 /// Seconds the hit marker stays up [design]. (The target's health is the HUD's
 /// enemy health bar, `crate::hud`.)
@@ -700,6 +700,8 @@ pub struct Combat {
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
+    /// Thrown mines that came to rest this frame, for `crate::mines` to place.
+    settled: Vec<SettledMine>,
     ghosts: Vec<Ghost>,
     /// The weapon's looping shoot sound while it plays, and the seconds it has left
     /// unless another shot comes.
@@ -747,6 +749,27 @@ impl Combat {
     pub fn in_flight(&self) -> usize {
         self.flying.len()
     }
+
+    /// The thrown mines that came to rest since the last call (`crate::mines`).
+    pub(crate) fn take_settled(&mut self) -> Vec<SettledMine> {
+        std::mem::take(&mut self.settled)
+    }
+
+    /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
+    /// `by` (the actor who put it down and that weapon), when someone did.
+    pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
+        self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon })));
+    }
+}
+
+/// A thrown mine that came to rest ([`ProjEvent::Settled`]): its PROJ, where, the way it
+/// last flew, and who put it down.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SettledMine {
+    pub proj: FormId,
+    pub point: V3,
+    pub dir: V3,
+    pub actor: FormId,
 }
 
 impl Combat {
@@ -924,7 +947,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1097,6 +1120,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
+        settled: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
         next_visual: 0,
@@ -1333,7 +1357,7 @@ fn view(phys: &mut PhysState, ghosts: Vec<ActorId>) -> PhysView<'_> {
 /// 1–10, skills 0–100), from the script runtime's actor values (the record, the
 /// formulas and whatever scripts changed: docs/spec-notes/actor-values.md); `None`
 /// without a runtime.
-fn actor_av(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId, code: u16) -> Option<f32> {
+pub(crate) fn actor_av(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId, code: u16) -> Option<f32> {
     let rt = script.and_then(|s| s.rt.as_mut())?;
     Some(with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, actor, code)) as f32)
 }
@@ -2438,6 +2462,7 @@ fn fly(
                     // A harmless shot sets nothing off [design].
                     ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)))),
                     ProjEvent::Explode { .. } => {}
+                    ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
                         if f.tracer {
@@ -2562,7 +2587,9 @@ fn fly(
                 );
             }
         }
-        for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius) {
+        // Not one gone from the world this frame: a mine that went off is disabled
+        // before its explosion, so its blast does not set off its destruction stage too.
+        for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius).into_iter().filter(|(r, _)| sim.present(r.0)).collect::<Vec<_>>() {
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
         }

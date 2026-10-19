@@ -287,7 +287,7 @@ pub struct CombatTuning {
     pub melee_arc_deg: f32,
     /// Explosion damage at the edge of the radius as a share of the centre's.
     pub explosion_edge: f32,
-    /// Bounce multiplier for lobbers whose PROJ gives none.
+    /// The share of its speed a lobber keeps at a bounce, before its PROJ's Bouncy Mult.
     pub default_bounce: f32,
     /// Reload when the trigger is pulled on an empty magazine and ammo is carried.
     pub auto_reload: bool,

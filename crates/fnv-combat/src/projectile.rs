@@ -7,7 +7,10 @@
 //! bounces, a beam hits at once whatever its speed, a flame is a missile that actors do
 //! not stop; hitscan finds the hit at once and the damage arrives after distance ÷ speed;
 //! the explosion goes off on impact, or with Alt. Trigger on a timer or proximity, or on
-//! detonation for Detonates. How gravity scales is a hypothesis: the PROJ value
+//! detonation for Detonates. A mine (`crate::mine::is_mine`) does not trigger itself in
+//! flight: once it comes to rest it is [`ProjEvent::Settled`] and the engine places it
+//! as a mine in the world (`nvf_play::mines`), armed at once [owner 2026-10-19: "your own
+//! mines arm immediately after leaving the player hand"]. How gravity scales is a hypothesis: the PROJ value
 //! multiplies the world's gravity (9.81 m/s² at 70 units per metre, `fnv-phys`).
 
 use serde::Serialize;
@@ -69,6 +72,8 @@ pub enum ProjEvent {
     Explode { explosion: FormId, point: V3 },
     /// Out of range or out of time without a hit.
     Expired { point: V3 },
+    /// A mine came to rest here, on a surface with this normal: it leaves flight.
+    Settled { point: V3, normal: V3 },
 }
 
 /// A projectile in flight.
@@ -94,6 +99,8 @@ pub struct Projectile {
     pub bounce: f32,
     pub landed: bool,
     pub alive: bool,
+    /// A mine: it settles instead of triggering itself.
+    pub mine: bool,
     /// Actors a flame has already hit.
     hit_actors: Vec<ActorId>,
 }
@@ -133,9 +140,14 @@ impl Projectile {
             proximity: p.alt_trigger_proximity,
             detonates: p.has("Detonates"),
             pass_small_transparent: p.has("Pass Through Small Transparent"),
-            bounce: if p.bouncy_mult > 0.0 { p.bouncy_mult } else { t.default_bounce },
+            // The PROJ's Bouncy Mult multiplies the lobbers' bounce [hypothesis: from its
+            // name; taken as the share of speed kept, it was 1.0 for the frag grenade and
+            // the frag mine and they bounced at full speed until their fuse ran out or for
+            // ever, so a thrown mine never came to rest].
+            bounce: t.default_bounce * if p.bouncy_mult > 0.0 { p.bouncy_mult } else { 1.0 },
             landed: false,
             alive: true,
+            mine: crate::mine::is_mine(p),
             hit_actors: Vec::new(),
         }
     }
@@ -198,7 +210,7 @@ impl Projectile {
             return out;
         }
         // Triggers that do not need movement.
-        if let Some(e) = self.explosion.filter(|_| self.alt_trigger) {
+        if let Some(e) = self.explosion.filter(|_| self.alt_trigger && !self.mine) {
             let armed = self.age >= self.timer;
             if self.proximity > 0.0 {
                 if armed && world.actors_near(self.pos, self.proximity).iter().any(|(a, _)| Some(*a) != self.shooter) {
@@ -255,6 +267,10 @@ impl Projectile {
                     if vec::len(self.vel) < REST_SPEED {
                         self.vel = [0.0; 3];
                         self.landed = true;
+                        if self.mine {
+                            self.alive = false;
+                            out.push(ProjEvent::Settled { point: self.pos, normal: n });
+                        }
                     }
                     return out;
                 }
