@@ -6190,6 +6190,35 @@ Captures that settle these (nvfstrip): AI observer campaign
 dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
 player's own codes and IsPlayerActionActive 1–10 every frame).
 
+## Caravan (2026-10-19, branch claude/caravan)
+
+Built from your screenshots, the fandom page you pasted, the game's four help messages
+and your rulings (docs/spec-notes/caravan.md). A dialogue line's ShowCaravanMenu opens
+the bet, then the deck builder, the game and the results, over the game's own table and
+card textures, drawn flat (the original's table is 3D models).
+
+- **The opponent is NVForever's own.** Its skill comes from the share of face cards in
+  its deck, as you asked: Ringo's starter deck 0.27, Erwin and Mayes 0.30, Lacey 0.33,
+  Isaac 0.56, Barton and Crocker 0.60, Jules 0.64, Little Buster 0.88, Johnson Nash and
+  No-bark Noonan 1.0. It scores every legal move and takes the best; a low skill adds
+  noise and makes it slower to attack your caravans. The scripts' difficulty (0 or 1) is
+  not used. *Check:* do Ringo and Nash feel about right?
+- **The bet.** The opponent bids its caps (and its merchant container's) times the
+  script's share: Ringo's 54 in your screenshot fits a quarter of about 216. Raise adds a
+  tenth of the bid, up to one and a half times the bid (the fandom page's "about 50 %").
+  Only caps are bet; NCR dollars and Legion coins are not counted yet.
+- **Rules I had to choose.** Queens only on a caravan's last card. Discarding is allowed
+  in the opening (your screenshot had Discard Card lit then, and the help allows it; the
+  fandom page says no). The opponent goes first (your screenshots). Leaving at the bet or
+  the deck builder costs nothing; Cancel during the game asks to be pressed twice and
+  forfeits.
+- **Words of mine:** the refusal with fewer than 30 cards, "That card cannot be played
+  now.", the forfeit prompt, the game-over line, "… is thinking…".
+- **Not built:** the Caravan challenges, bets in other currencies, the 3D table and its
+  dealing animations; the deck builder's rows scroll with Left/Right or the wheel instead
+  of following the pointer.
+- *Check:* play a game with Ringo (the smoke `caravan` gives the player his deck's 30
+  cards): the layout against your screenshots, the keys, the payout.
 ## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
 
 Every parameter docs/design/script-function-params.md §3 listed as ignored is now read

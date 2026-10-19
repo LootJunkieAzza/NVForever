@@ -41,6 +41,7 @@ pub mod anim_state;
 pub mod anims;
 pub mod awareness;
 pub mod blackjack;
+pub mod caravan;
 pub mod casino;
 pub mod chargen;
 pub mod combat;

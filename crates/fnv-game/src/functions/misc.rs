@@ -410,6 +410,40 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
+/// `ShowCaravanMenu deck difficulty maxBetPercent`: a game of Caravan against the calling
+/// reference (`Game::caravan_requests`; the engine opens it) [documented: GECK wiki
+/// ShowCaravanMenu; docs/spec-notes/caravan.md §1]. Left out, the share is a quarter
+/// [hypothesis: the most common in the shipped calls].
+pub fn show_caravan_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let opponent = ctx.subject()?;
+    let deck = a.form(0)?;
+    if !g.data.caravan_decks.contains_key(&deck) {
+        return Err(format!("{deck} is not a Caravan deck"));
+    }
+    let difficulty = a.num_or(1, 0.0) as i32;
+    let max_bet_share = a.num_or(2, 0.25) as f32;
+    g.caravan_requests.push(crate::caravan::CaravanRequest { opponent, deck, difficulty, max_bet_share });
+    none()
+}
+
+/// `CardRef.AddCardToPlayer`: the card joins the player's Caravan cards [documented: GECK
+/// wiki AddCardToPlayer]. Every shipped call is in the cards' own script, on the card in
+/// the player's inventory (OnAdd) or in the world (OnActivate) [observed: SCPT
+/// 0x0015D7B0; caravan.md §2].
+pub fn add_card_to_player(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let card = match (ctx.on, ctx.inst) {
+        (None, Some(crate::game::InstKey::Item { item, .. })) => item,
+        _ => {
+            let r = ctx.subject()?;
+            g.world.get(r).map(|s| s.base).unwrap_or(r)
+        }
+    };
+    if !crate::caravan::add_card(g, card) {
+        return Err(format!("{card} is not a Caravan card"));
+    }
+    none()
+}
+
 /// `ShowLoveTesterMenuParams points`: the Vigor Tester's S.P.E.C.I.A.L. menu, the seven
 /// attributes adding up to `points` [documented: GECK wiki ShowLoveTesterMenuParams,
 /// "the total number of SPECIAL points the player will have to distribute"], as

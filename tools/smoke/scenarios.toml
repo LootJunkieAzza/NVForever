@@ -2120,12 +2120,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # SetScreenSplatterFade and ClearScreenSplatter (17 calls, §3.18): 23 → 18 stubs,
 # 136 → 119 calls [observed: fnvtool script stubs on the owner's masters, merged with main
 # e5ff06d0, 2026-10-18].
+# claude/caravan implemented ShowCaravanMenu and AddCardToPlayer (33 calls,
+# docs/spec-notes/caravan.md): 18 → 16 stubs, 119 → 86 calls [observed: the branch's
+# fnvtool on the owner's masters, 2026-10-19].
 expect = [
-  { json = "summary.stubs", equals = 18 },
+  { json = "summary.stubs", equals = 16 },
   { json = "summary.by_status.implementable", count = 0, label = "no implementable stub is left" },
-  { json = "summary.by_status.needs_system", equals = 18 },
+  { json = "summary.by_status.needs_system", equals = 16 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 119 },
+  { json = "summary.stub_calls", equals = 86 },
   { json = "summary.stub_condition_uses", equals = 26 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -5178,6 +5181,35 @@ expect = [
   { re = 'swimming summary: .* (?P<n>\d+) swam without swimming clips', range = [0, 0], label = "they swim on their folder's swimmt clips" },
 ]
 forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]
+
+[[scenario]]
+name = "caravan"
+source = "docs/spec-notes/caravan.md: ShowCaravanMenu against Ringo with his deck (as his dialogue line) is refused with no cards; given his deck's 30 cards the bet opens with its help, Auto Match and Accept, the deck builder's random deck of 30, then the game plays out by itself (the player's side by the opponent's rules) to a winner, the pot settles and the results close"
+areas = ["caravan", "menus"]
+paths = ["crates/fnv-game/src/caravan.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "17:caravan_bet.png,22.5:caravan_deck.png,33:caravan_game.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 130
+order = [[
+  "caravan: refused against 0x00104C7D: 0 cards owned",
+  "caravan: 30 cards of deck 0015D7A2 given to the player (30 owned)",
+  "caravan: open against Ringo (0x00104C7D)",
+  'caravan: help message 0x00000186 "Caravan: Betting" shown',
+  "caravan: bet accepted: ante",
+  'caravan: help message 0x00000187 "Caravan: Deck Building" shown',
+  "caravan: random deck of 30 cards",
+  "caravan: game 1 against Ringo: the player's deck 30 cards, the opponent's 30",
+  "caravan: the opening is over",
+  "caravan: game over:",
+  "caravan: results:",
+  "caravan: closed (the results were seen)",
+]]
+expect = [
+  { re = 'caravan: open against Ringo .* bid (?P<n>\d+) of', range = [0, 100000], label = "Ringo bids a quarter of his caps" },
+  { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
+  { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
+]
+forbid = [{ text = "move refused", label = "every move the sides choose is legal" }]
 
 [[scenario]]
 name = "enable-disable-fade"

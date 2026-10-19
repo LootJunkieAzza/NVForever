@@ -621,6 +621,10 @@ pub struct PlayerState {
     /// The blackjack help message has been shown (it comes the first time only).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub blackjack_help_shown: bool,
+    /// The Caravan cards owned, the last deck built and the record against each opponent
+    /// (`crate::caravan`).
+    #[serde(skip_serializing_if = "crate::caravan::CaravanState::is_empty", default)]
+    pub caravan: crate::caravan::CaravanState,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -919,6 +923,8 @@ pub struct Game<'a> {
     /// Blackjack menus asked for by ShowBlackJackMenuParams (`crate::blackjack`); the
     /// engine opens them.
     pub blackjack_requests: Vec<crate::blackjack::BlackjackRequest>,
+    /// Caravan games asked for by ShowCaravanMenu (`crate::caravan`); the engine opens them.
+    pub caravan_requests: Vec<crate::caravan::CaravanRequest>,
     /// Teammates' inventories scripts opened (OpenTeammateContainer,
     /// `crate::followers`), for the engine to show as a container menu. Not part of the
     /// saved state.
@@ -1240,6 +1246,7 @@ impl<'a> Game<'a> {
             repair_requests: Vec::new(),
             roulette_requests: Vec::new(),
             blackjack_requests: Vec::new(),
+            caravan_requests: Vec::new(),
             teammate_containers: Vec::new(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),

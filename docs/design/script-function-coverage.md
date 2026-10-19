@@ -213,8 +213,8 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
    IsIdlePlaying, IsMoving's directions, IsPlayerActionActive: told by the engine every
    frame since 2026-10-18, docs/spec-notes/anim-state.md) and **AI package codes**
    (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2; built 2026-10-18, script-stubs.md §3.16): each a few dozen quests.
-9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan**,
-   **slot machines**.
+9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan** (built
+   2026-10-19, docs/spec-notes/caravan.md), **slot machines**.
 
 Cheap fixes left (the system exists, little use): GetDialogueEmotion's
 current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, a loaded
@@ -251,7 +251,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 9 | Pip-Boy reset | built | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
 | 10 | talking activators | built | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
 | 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | built | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
-| 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
+| 12 | Caravan card game (built 2026-10-19, docs/spec-notes/caravan.md) | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
 | 13 | race and sex change on NPCs | built | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
 | 14 | crosshair placement | built | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
 | 15 | NPC inventory re-rolled on SetLevel | match (2026-10-18: the original keeps the inventory, capture ac1) | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
@@ -292,7 +292,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | Abs | 0x1221 | 67 / 0 | match | - | - |  |
 | Activate | 0x100D | 1309 / 0 | match | - | - |  |
 | AddAchievement | 0x114A | 152 / 0 | match | - | - |  |
-| AddCardToPlayer | 0x125B | 4 / 0 | no-system | Caravan card game | - | Stub. |
+| AddCardToPlayer | 0x125B | 4 / 0 | no-system | Caravan card game | - | Implemented 2026-10-19: the card joins the player's Caravan cards (caravan.md §2). |
 | AddFormToFormList | 0x1233 | 651 / 0 | match | - | - |  |
 | AddItem | 0x1002 | 1720 / 0 | match | - | - |  |
 | AddItemHealthPercent | 0x11BC | 166 / 0 | match | - | - |  |
@@ -654,7 +654,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ShowBarberMenu | 0x11F1 | 4 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
 | ShowBarterMenu | 0x1173 | 168 / 0 | match | - | - |  |
 | ShowBlackJackMenuParams | 0x1254 | 6 / 0 | match | - | - |  |
-| ShowCaravanMenu | 0x125A | 29 / 0 | no-system | Caravan card game | - | Stub. |
+| ShowCaravanMenu | 0x125A | 29 / 0 | no-system | Caravan card game | - | Implemented 2026-10-19: the Caravan menu against the calling reference (caravan.md). |
 | ShowLoveTesterMenuParams | 0x1245 | 1 / 0 | match | - | - | iPoints is the attributes' total, as SetSPECIALPoints [documented]. |
 | ShowMap | 0x1055 | 244 / 0 | match | - | - |  |
 | ShowMessage | 0x1059 | 1717 / 0 | match | - | - |  |
