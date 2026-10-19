@@ -6347,3 +6347,52 @@ docs/design/combat-ai.md §12.6.1. All [design]; the original's cover search is 
   that pins it down instead.
 - **When that gunman stops firing at it**, the cover is kept against its own target if
   the edge faces it, else given up.
+
+## Pip-Boy ITEMS extras and a clickable repair list (2026-10-19, branch claude/pipboy-items-extras)
+
+docs/spec-notes/pipboy.md §5, repair.md §5.
+- **DPS over DAM**: the menu file puts its DPS and DAM cards at the same place and picks
+  one in code. Your screenshots show DAM there, so DAM stays and DPS sits above it (as
+  STR sits above VAL). *Check:* say where DPS shows in your game, and whether DAM shows
+  at all.
+- **The DPS figure** is a guess: damage a shot at the item's condition times shots a
+  second (an automatic's fire rate, else its attack shots a second, else one). Melee
+  weapons get their damage once a second.
+- **The badge** at the picture's lower left is the ammunition's own inventory picture.
+- **"Mod X)"** shows for weapons with mod slots, bright when you carry a mod that fits,
+  dim otherwise. There is no mod menu yet and X still drops an item, so the hint does
+  nothing.
+- **The repair list** takes the pointer as the ITEMS list does: hovering chooses a row,
+  a click on a row chooses it, a click on the chosen part uses it.
+- **The "+10 XP" line and Locations Discovered** were already built (the HUD's XP meter shows any
+  rise of experience; the misc statistics, 2026-10-18): this branch only adds the smoke
+  scenario `pipboy-general-locations` and takes them off the outstanding list.
+
+## Crafting: the output's picture, its effects, several at once (2026-10-19, branch claude/crafting-icon-effects-batch)
+
+docs/spec-notes/crafting.md §3.
+- **How many?** Accept asks "How many?" (the barter prompt) only when the ingredients
+  allow more than one making; it starts at 1. *Check:* whether your game asks at all,
+  and whether it starts at 1 or at the most.
+- **The effects line** stands under the WG and VAL cards as "EFFECTS" and the text; the
+  menu file only says there is an effects card. *Check:* where your game shows it.
+- **Items Crafted** goes up by the number of makings (four Antivenom from two makings
+  count 2).
+
+## Caravan bets in NCR dollars and Legion coins (2026-10-19, branch claude/caravan-currency)
+
+docs/spec-notes/caravan.md §3.1. The game's own help says any currency may be bet; how it
+is counted and paid is NVForever's design:
+- **Worth**: notes and coins count at their records' value in caps.
+- **Paying**: caps first, then the least valued notes and coins; the overpay of the last
+  one comes back as caps. *Check:* whether your game takes notes before caps, or gives
+  them back after a win.
+- **The pot is paid in caps**, whatever the ante was paid in.
+
+## Saves deleted from the menu and several console statements (2026-10-19, branch claude/save-delete-console-lines)
+
+docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
+- **Delete** on the load page asks "Delete this save?" (Yes Y) / No N)) right of the
+  thumbnail, then removes the file and its `.bak`. The original shows its Delete hint only
+  with a controller. *Check:* the key you want for it.
+- **`;` separates console statements**; the original's console may not allow several.

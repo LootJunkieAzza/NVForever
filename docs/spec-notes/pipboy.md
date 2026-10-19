@@ -146,8 +146,26 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     weapon's enchantment's (EITM), written as the STATS EFF list writes them ("HP +40",
     "AGL -1") [observed: the owner's ITEMS screenshots, all five tabs]. WG and VAL are
     the stack's (the Stimpak's VAL 675 is 9 × 75; WG "--" for nothing) [observed: VAL;
-    hypothesis: WG]. Not built: DPS, the ammunition's picture badge (`IM_ItemIconBadge`),
-    the buttons and their key hints ("Maintain R)", "Mod X)", "Repair R)"), mods.
+    hypothesis: WG].
+  - Added 2026-10-19 (`items.rs`):
+    - **DPS** [documented: `item_stats_display.xml` `DPSInfo`, `sInventoryDamagePerSecond`;
+      hypothesis: formula and place]: a card "DPS" over DAM, as STR stands over VAL. The
+      file puts DPSInfo and DAMInfo both at the first card's place and sets which shows in
+      code; NVForever keeps DAM there (the owner's screenshots show DAM) and puts DPS in
+      the free place above it. The figure: the damage a shot does at the item's condition
+      (combat-rules.md §17) times its shots a second (an automatic weapon's fire rate,
+      else its attack shots a second, else one), rounded [hypothesis: the GECK wiki's
+      Weapons page names damage and fire rate as the DPS calculator's inputs].
+    - **The ammunition's badge** [documented: `IM_ItemIconBadge` at (390, 260), 64
+      square; hypothesis: the picture is the ammunition's own ICON, of the ammunition the
+      ammo card names].
+    - **"Mod X)"** [documented: `IM_ModButton`, 47 under the Repair hint, `sInventoryMod`,
+      PC key X; hypothesis: shown for weapons with mod slots (WMI1–3), bright when the
+      player carries a mod that fits, dim otherwise]. The item mod menu is not built, and
+      X still drops an item in NVForever [design], so the hint only tells.
+    - The repair hint ("Repair R)" / "Maintain R)") is built (repair.md §5), and the
+      repair list takes the pointer (repair.md §5).
+  - Not built: the mod menu.
   - The flat image (no model's screen) shows only once the Pip-Boy is all the way up:
     before, it flashed for a frame or more on every Tab while the body took the screen
     (the owner's list 5, item 2).

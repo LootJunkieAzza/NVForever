@@ -10,20 +10,32 @@
 //! name), the skill it needs with the player's value and the level ("Science (17/45)"),
 //! and each ingredient with how many the player has and needs ("Fission Battery (0/1)")
 //! [observed: the owner's screenshots, C:\fnv-private\Crafting]; under the list the
-//! first output's weight and value. Accept (A, Enter) makes it once: the ingredients
-//! leave the player's inventory and the outputs arrive, with an "added" line in the
-//! corner; a recipe the player cannot make yet stays in the list half bright and Accept
-//! refuses it. Exit (X, Esc, Tab) closes the menu.
+//! first output's weight and value. Accept (A, Enter) makes it: the ingredients leave the
+//! player's inventory and the outputs arrive, with an "added" line in the corner; a
+//! recipe the player cannot make yet stays in the list half bright and Accept refuses
+//! it. Exit (X, Esc, Tab) closes the menu.
+//!
+//! Making several at once (2026-10-19): when the player has what it takes to make the
+//! recipe more than once, Accept opens the "How many?" prompt of the other menus
+//! (`menus\quantity_menu.xml`, drawn by `menu::look::spawn_quantity`), from 1 up to the
+//! most the ingredients allow ([`times_possible`]); Left/Right (or the wheel, the arrows,
+//! a press on the meter) set the amount, Enter or A makes that many, E or Esc goes back
+//! [documented: the prompt's file; hypothesis: the original's recipe menu asks so]. Log
+//! `recipe menu: how many? 1 of <n>`, `recipe menu: made <n> x "<name>" (...)`.
+//!
+//! The output's picture and its effects (2026-10-19) [documented: `RM_ItemIcon` at the
+//! list box's left plus 22, 472 down, 256 square; the item stats display's EffectsInfo
+//! card in `RM_ItemData`; hypothesis: the effects text as the Pip-Boy's ITEMS page writes
+//! it, under the WG and VAL cards]: the first output's ICON, and an aid item's own effects
+//! or an apparel's or a weapon's enchantment's ("HP +40, RAD -10").
 //!
 //! The look [documented: the original's `menus\recipe_menu.xml`, layout in its units:
 //! the menu 1024 by 800 in the middle of the screen, the list's box at (20, 20) 464 wide,
 //! the recipe's box 560 further right; the titles in font 6, the values in font 3, the
 //! rows in font 2; Accept and Exit at y 670; observed: the screenshots for the rest].
-//! The output's icon and its effects line are not drawn.
-//!
 //! Test aid `NVF_PLAY_TEST_RECIPE=<seconds>:<action>[,…]`: `down`, `up`, `filter` (the
-//! right arrow), `accept`, `exit`, `shot` (a screenshot `recipe_menu.png` in the working
-//! folder). Open the menu through a script, e.g. the console aid's `player.craft
+//! right arrow), `accept`, `exit`, `more` and `less` (the prompt's amount), `cancel` (the
+//! prompt), `shot` (a screenshot `recipe_menu.png` in the working folder). Open the menu through a script, e.g. the console aid's `player.craft
 //! WorkbenchRecipes`.
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
@@ -53,6 +65,10 @@ const ROW: f32 = 52.0;
 const ROWS: usize = 7;
 /// The buttons' top [documented: `RM_ButtonRect` y 670].
 const BUTTONS_TOP: f32 = 670.0;
+/// The output's picture [documented: `RM_ItemIcon`, the list box's x plus 22, its y plus
+/// 472, 256 square].
+const ICON_AT: Vec2 = Vec2::new(ITEMS_AT.x + 22.0, ITEMS_AT.y + 472.0);
+const ICON_SIZE: f32 = 256.0;
 /// The dark sheet behind the menu [documented: `RM_Background` solid black at brightness
 /// 128 and the background fill alpha, 1144 by 970 from (-40, -105); the strength is the
 /// other menus' over the world, `crate::interface::MENU_BACKING`: the original blurs the
@@ -110,6 +126,14 @@ pub struct Open {
     filter: usize,
     selected: usize,
     drawn: Option<View>,
+    /// The "How many?" prompt: the amount and the most that can be made.
+    quantity: Option<(i32, i32)>,
+}
+
+/// How many times the player can make `r` with what it has: the fewest of each
+/// ingredient's count over what one making takes (no ingredients: once).
+pub fn times_possible(r: &RecipeDef, have: impl Fn(FormId) -> i64) -> u32 {
+    r.ingredients.iter().filter(|(_, n)| *n > 0).map(|&(i, n)| (have(i).max(0) as u64 / n as u64) as u32).min().unwrap_or(1)
 }
 
 #[derive(Component)]
@@ -148,6 +172,11 @@ struct View {
     ingredients: Vec<(String, u32, u32)>,
     weight: Option<f32>,
     value: Option<i32>,
+    /// The first output's picture and effects.
+    icon: Option<String>,
+    effects: Option<String>,
+    /// The "How many?" prompt: amount and most.
+    quantity: Option<(i32, i32)>,
 }
 
 /// The recipe's label: its name, and the number made after it when more than one and the
@@ -208,10 +237,11 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, open: &Open) -> Vie
         let skill = chosen.and_then(|r| r.skill).map(|(av, level)| (skill_name(av).to_string(), fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av).max(0.0).floor() as u32, level));
         let ingredients = chosen.map(|r| r.ingredients.iter().map(|&(i, n)| (name(i), have(rt, i).max(0) as u32, n)).collect()).unwrap_or_default();
         let item = chosen.and_then(|r| r.outputs.first()).and_then(|o| match forms.get(o.0).map(|b| &b.data) {
-            Some(fnv_sim::forms::BaseData::Item(it)) => Some((it.weight, it.value)),
+            Some(fnv_sim::forms::BaseData::Item(it)) => Some((it.weight, it.value, it.icon.clone())),
             _ => None,
         });
-        View { title, rows, filters: subs.len(), selected, made_at, skill, ingredients, weight: item.and_then(|i| i.0), value: item.and_then(|i| i.1) }
+        let (weight, value, icon) = item.map_or((None, None, None), |i| (i.0, i.1, i.2));
+        View { title, rows, filters: subs.len(), selected, made_at, skill, ingredients, weight, value, icon, effects: None, quantity: open.quantity }
     })
 }
 
@@ -232,7 +262,7 @@ fn scripts_open(
     }
     let Some(r) = rt.game.recipe_requests.pop() else { return };
     rt.game.recipe_requests.clear();
-    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, drawn: None };
+    let open = Open { category: r.category, station: r.station, filter: 0, selected: 0, drawn: None, quantity: None };
     let v = view(rt, &mut sim, &open);
     let name = rt.game.data.recipe_categories.get(&r.category).map_or_else(|| r.category.to_string(), |c| c.name.clone());
     let first: Vec<&str> = v.rows.iter().take(6).map(|r| r.label.as_str()).collect();
@@ -249,6 +279,12 @@ fn scripts_open(
     sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Opened });
 }
 
+/// The "How many?" prompt's buttons and its meter (`crate::menu`).
+type AmountButton = (&'static Interaction, &'static crate::menu::CmdButton);
+type AmountPress = (&'static Interaction, &'static bevy::ui::RelativeCursorPosition);
+/// The records the effects line is read from.
+type EffectForms = crate::pipboy::stats::read::Forms;
+
 #[allow(clippy::too_many_arguments)]
 fn keys(
     keys: Res<ButtonInput<KeyCode>>,
@@ -258,6 +294,7 @@ fn keys(
     script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     buttons: Query<(&Interaction, &RecipeButton), Changed<Interaction>>,
+    (amount_buttons, meter): (Query<AmountButton, Changed<Interaction>>, Query<AmountPress, With<crate::menu::AmountMeter>>),
     scroll: Option<Res<AccumulatedMouseScroll>>,
     mut next: ResMut<NextState<PlayState>>,
     mut sounds: MessageWriter<UiSound>,
@@ -280,6 +317,54 @@ fn keys(
         commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk("recipe_menu.png"));
     }
     let v = open.drawn.clone().unwrap_or_else(|| view(rt, &mut sim, open));
+    // The "How many?" prompt has the keys while it is open (module notes).
+    if let Some((amount, most)) = open.quantity {
+        use crate::menu::model::Command;
+        let mut to = amount;
+        let (mut make, mut back) = (false, false);
+        for (i, b) in &amount_buttons {
+            if *i == Interaction::Pressed {
+                match b.0 {
+                    Command::AmountStep(d) => to += d,
+                    Command::AmountOk => make = true,
+                    Command::AmountCancel => back = true,
+                    _ => {}
+                }
+            }
+        }
+        for (i, at) in &meter {
+            if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+                to = crate::menu::model::amount_at(p.x + 0.5, most);
+            }
+        }
+        let wheel = scroll.as_ref().map_or(0.0, |s| s.delta.y);
+        if keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) || wheel > 0.0 || act("more") {
+            to += 1;
+        }
+        if keys.just_pressed(KeyCode::ArrowLeft) || wheel < 0.0 || act("less") {
+            to -= 1;
+        }
+        let to = to.clamp(1, most.max(1));
+        if to != amount {
+            open.quantity = Some((to, most));
+            sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Focus });
+        }
+        if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape]) || back || act("cancel") || act("exit") {
+            info!("recipe menu: how many? cancelled");
+            open.quantity = None;
+            sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Back });
+            return;
+        }
+        if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || make || act("accept") {
+            open.quantity = None;
+            let chosen = v.rows.get(open.selected.min(v.rows.len().saturating_sub(1))).map(|r| r.recipe);
+            if let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) {
+                make_recipe(rt, &mut sim, recipe, to as u32, &mut sounds, corner.as_deref_mut());
+            }
+            open.drawn = None;
+        }
+        return;
+    }
     let n = v.rows.len();
     let before = (open.selected, open.filter);
     let mut clicked = None;
@@ -321,41 +406,68 @@ fn keys(
     if keys.any_just_pressed([KeyCode::KeyA, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(RecipeButton::Accept) || act("accept") {
         let chosen = v.rows.get(open.selected.min(n.saturating_sub(1))).map(|r| r.recipe);
         let Some(recipe) = chosen.and_then(|f| rt.game.data.recipes.get(&f)) else { return };
-        let forms = sim.forms;
-        let made = crate::script::with_world(rt, &mut sim, |rt| {
-            let lack = lacks(rt, recipe);
-            if !lack.is_empty() {
-                return Err(format!("{lack:?}"));
+        // More than one can be made: how many? (module notes)
+        let most = crate::script::with_world(rt, &mut sim, |rt| {
+            if !lacks(rt, recipe).is_empty() {
+                return 0;
             }
-            for &(i, k) in &recipe.ingredients {
-                rt.game.world.remove_item(FormId::PLAYER_REF, i, k as i32).map_err(|e| format!("{e:?}"))?;
-            }
-            let mut added = Vec::new();
-            for &(i, k) in &recipe.outputs {
-                rt.game.world.add_item(FormId::PLAYER_REF, i, k as i32).map_err(|e| format!("{e:?}"))?;
-                added.push((i, k));
-            }
-            Ok(added)
+            let counts: Vec<(FormId, i64)> = recipe.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
+            times_possible(recipe, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1))
         });
-        match made {
-            Ok(added) => {
-                rt.game.count_stat(fnv_game::misc_stats::ITEMS_CRAFTED, 1.0);
-                info!("recipe menu: made {:?} ({})", recipe.name, added.iter().map(|(i, k)| format!("{k} x {}", crate::menu::model::display_name(forms, *i))).collect::<Vec<_>>().join(", "));
-                sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Picked });
-                if let Some(c) = corner.as_deref_mut() {
-                    for (i, k) in added {
-                        let name = crate::menu::model::display_name(forms, i);
-                        c.push(if k > 1 { format!("{name} ({k}) added") } else { format!("{name} added") }.into());
-                    }
-                }
-            }
-            Err(why) => {
-                info!("recipe menu: cannot make {:?}: {why}", recipe.name);
-                sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Refused });
-            }
+        if most > 1 {
+            info!("recipe menu: how many? 1 of {most} ({:?})", recipe.name);
+            open.quantity = Some((1, most.min(i32::MAX as u32) as i32));
+            sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Opened });
+            return;
         }
+        make_recipe(rt, &mut sim, recipe, 1, &mut sounds, corner.as_deref_mut());
         // What the player has changed: draw it again.
         open.drawn = None;
+    }
+}
+
+/// Make `recipe` `times` times: the ingredients go, the outputs come, an "added" line
+/// each in the corner (module notes).
+fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &RecipeDef, times: u32, sounds: &mut MessageWriter<UiSound>, corner: Option<&mut crate::corner_messages::CornerMessages>) {
+    let forms = sim.forms;
+    let made = crate::script::with_world(rt, sim, |rt| {
+        let skill = recipe.skill.map_or(0.0, |(av, _)| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, av));
+        let counts: Vec<(FormId, i64)> = recipe.ingredients.iter().map(|&(i, _)| (i, rt.game.world.item_count(FormId::PLAYER_REF, i).unwrap_or(0) as i64)).collect();
+        let lack = missing(recipe, times, |_| skill, |i| counts.iter().find(|c| c.0 == i).map_or(0, |c| c.1));
+        if !lack.is_empty() {
+            return Err(format!("{lack:?}"));
+        }
+        for &(i, k) in &recipe.ingredients {
+            rt.game.world.remove_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+        }
+        let mut added = Vec::new();
+        for &(i, k) in &recipe.outputs {
+            rt.game.world.add_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+            added.push((i, k * times));
+        }
+        Ok(added)
+    });
+    match made {
+        Ok(added) => {
+            rt.game.count_stat(fnv_game::misc_stats::ITEMS_CRAFTED, times as f64);
+            let what = added.iter().map(|(i, k)| format!("{k} x {}", crate::menu::model::display_name(forms, *i))).collect::<Vec<_>>().join(", ");
+            if times > 1 {
+                info!("recipe menu: made {times} x {:?} ({what})", recipe.name);
+            } else {
+                info!("recipe menu: made {:?} ({what})", recipe.name);
+            }
+            sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Picked });
+            if let Some(c) = corner {
+                for (i, k) in added {
+                    let name = crate::menu::model::display_name(forms, i);
+                    c.push(if k > 1 { format!("{name} ({k}) added") } else { format!("{name} added") }.into());
+                }
+            }
+        }
+        Err(why) => {
+            info!("recipe menu: cannot make {:?}: {why}", recipe.name);
+            sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Refused });
+        }
     }
 }
 
@@ -404,7 +516,8 @@ fn brackets(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, bottom: f32, t
     rule(p, x + w - LINE, bottom - 40.0, LINE, 40.0);
 }
 
-fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View) {
+#[allow(clippy::too_many_arguments)]
+fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let left = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-MAIN.x / 2.0)), top: u((960.0 - MAIN.y) / 2.0), width: u(MAIN.x), height: u(MAIN.y), ..default() };
     commands.spawn((RecipeRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(105))).with_children(|root| {
         root.spawn(left).with_children(|m| {
@@ -430,6 +543,20 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View) {
             }
             if v.rows.is_empty() {
                 m.spawn(at(ITEMS_AT.x + 5.0, LIST_TOP, BOX_WIDTH, ROW)).with_children(|t| text(t, &look.row, "No recipes", 40.0, 6.0, color(Shade::Dim)));
+            }
+            // The output's picture.
+            if let Some(icon) = v.icon.as_deref() {
+                let path = format!("textures\\{}", icon.trim_start_matches("textures\\").trim_start_matches("Textures\\"));
+                if let Some((img, _)) = data.and_then(|d| crate::interface::texture(&path, d, images, bc)) {
+                    m.spawn((at(ICON_AT.x, ICON_AT.y, ICON_SIZE, ICON_SIZE), ImageNode { color: amber(255.0), ..ImageNode::new(img) }));
+                }
+            }
+            // Its effects, under the WG and VAL cards.
+            if let Some(e) = v.effects.as_deref() {
+                m.spawn(at(340.0, 690.0, 290.0, 100.0)).with_children(|t| {
+                    text(t, &look.row, "EFFECTS", 6.0, 0.0, bright);
+                    wrapped(t, &look.row, e, 6.0, 36.0, 280.0, bright);
+                });
             }
             // The output's weight and value.
             let wg = v.weight.map_or("--".to_string(), |w| format!("{w:.1}").trim_end_matches(".0").to_string());
@@ -472,6 +599,12 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View) {
                 });
             }
         });
+        // The "How many?" prompt over the menu (module notes).
+        if let Some((amount, most)) = v.quantity {
+            let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
+            let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
+            root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, kit, data, images, bc));
+        }
     });
 }
 
@@ -487,6 +620,8 @@ fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    play: Option<Res<crate::PlayWorld>>,
+    (mut forms, mut kit): (Local<Option<EffectForms>>, Local<Option<crate::menu::look::Kit>>),
 ) {
     let Some(open) = menu.0.as_mut() else { return };
     let Some(look) = look else {
@@ -498,16 +633,40 @@ fn draw(
         return;
     };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    let v = view(rt, &mut sim, open);
+    let mut v = view(rt, &mut sim, open);
+    if forms.is_none() {
+        *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
+    }
+    let output = v.rows.get(v.selected).and_then(|r| rt.game.data.recipes.get(&r.recipe)).and_then(|r| r.outputs.first()).map(|o| o.0);
+    v.effects = output.zip(forms.as_mut()).and_then(|(o, f)| effects_of(&sim, f, o));
     if open.drawn.as_ref() == Some(&v) && !roots.is_empty() {
         return;
     }
     for e in &roots {
         commands.entity(e).despawn();
     }
-    spawn(&mut commands, &look, &v);
+    let bc = bc_supported(formats.as_deref());
+    let kit = kit.get_or_insert_with(|| crate::menu::look::Kit::load(data.as_deref(), &mut images, bc));
+    spawn(&mut commands, &look, &v, kit, data.as_deref(), &mut images, bc);
+    if v.effects.is_some() && open.drawn.as_ref().is_none_or(|d| d.selected != v.selected) {
+        info!("recipe menu: {} effects: {}", v.rows.get(v.selected).map_or("", |r| r.label.as_str()), v.effects.as_deref().unwrap_or(""));
+    }
     open.selected = v.selected;
     open.drawn = Some(v);
+}
+
+/// An item's effects as the Pip-Boy's ITEMS page writes them: an aid item's own, an
+/// apparel's or a weapon's enchantment's.
+fn effects_of(sim: &SimState, forms: &mut crate::pipboy::stats::read::Forms, item: FormId) -> Option<String> {
+    use crate::pipboy::stats::model::{changes_text, Change};
+    let aid = sim.forms.item(item).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Aid);
+    let ench = if aid { Some(item.0) } else { forms.item_ench(item.0) }?;
+    let e = forms.ench(ench);
+    if e.changes.is_empty() {
+        return None;
+    }
+    let changes: Vec<Change> = e.changes.iter().map(|&(code, amount, detrimental)| Change { value: forms.short_name(code), amount, detrimental }).collect();
+    Some(changes_text(&changes))
 }
 
 fn close(mut commands: Commands, mut menu: ResMut<RecipeMenu>, roots: Query<Entity, With<RecipeRoot>>, script: Option<ResMut<ScriptState>>) {
@@ -528,6 +687,15 @@ fn close(mut commands: Commands, mut menu: ResMut<RecipeMenu>, roots: Query<Enti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_most_that_can_be_made_is_set_by_the_scarcest_ingredient() {
+        let r = RecipeDef { ingredients: vec![(FormId(1), 2), (FormId(2), 1)], ..Default::default() };
+        let have = |i: FormId| if i == FormId(1) { 7 } else { 5 };
+        assert_eq!(times_possible(&r, have), 3);
+        assert_eq!(times_possible(&r, |_| 0), 0);
+        assert_eq!(times_possible(&RecipeDef::default(), |_| 0), 1);
+    }
 
     #[test]
     fn a_label_says_how_many_are_made_once() {

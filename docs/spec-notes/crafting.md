@@ -56,9 +56,20 @@ menu: scripts see it as open until the player leaves it.
 - Accept A) and Exit X).
 - Making a recipe once removes its ingredients from the player and adds its outputs.
   Each output gets an "added" line in the corner.
+- **The output's picture** (2026-10-19) [documented: `RM_ItemIcon`, 22 right of the list
+  box's left and 472 below its top, 256 square]: the first output's ICON.
+- **Its effects** (2026-10-19) [documented: the item stats display (`RM_ItemData`) has an
+  EffectsInfo card; hypothesis: drawn as a line "EFFECTS" with the text under the WG and
+  VAL cards, written as the Pip-Boy's ITEMS page writes effects]: an aid item's own
+  effects, or an apparel's or a weapon's enchantment's ("HP +40, RAD -10").
+- **Several at once** (2026-10-19) [documented: `menus\quantity_menu.xml`, the prompt the
+  other menus use; hypothesis: the recipe menu asks it]: when the player has the
+  ingredients (and the skill) for more than one making, Accept opens "How many?" from 1
+  to the most the scarcest ingredient allows; Left/Right, the wheel, the prompt's arrows
+  or a press on its meter set the amount, Enter or A makes that many (each output's
+  "added" line gives the total; Items Crafted counts each making), E or Esc goes back to
+  the list.
 
 Not built:
-- the output's icon and its effects line;
-- making a recipe several times at once;
 - the "Made at" category for a recipe whose category differs from the bench's;
 - crafting experience (whether the original gives any is not known).

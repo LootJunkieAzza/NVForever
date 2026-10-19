@@ -3164,6 +3164,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "save-delete-console"
+source = "outstanding.md §2 Saves and Console (2026-10-19; docs/design/save-load.md §6.1, docs/design/console.md): a console line of several statements runs each in order; a save written from the console is deleted from the pause menu's load page (Delete, then Yes) and the page lists the saves again without it"
+areas = ["save", "console"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/console.rs"]
+env = { NVFOREVER_HOME = "save-delete-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav luck 7; player.getav luck;13:save delete-me;14:close", NVF_PLAY_TEST_PAUSE = "16:22", NVF_PLAY_TEST_PAUSE_MENU = "17:load,18:delete,18.5:shot,19:yes,21:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 24
+expect = [
+  "console: 2 statements on the line",
+  { re = 'console: GetActorValue on player >> 7\.00', label = "the second statement reads what the first set" },
+  { re = 'save: wrote .*delete-me\.nvfsave', label = "the save is written" },
+  "pause menu: delete delete-me?",
+  { re = 'pause menu: deleted .*delete-me\.nvfsave', label = "Yes deletes it" },
+]
+order = [["console: > player.setav luck 7", "console: > player.getav luck"], ["pause menu: delete delete-me?", "pause menu: deleted", "pause menu: load page:"]]
+
+[[scenario]]
 name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]
@@ -3321,6 +3338,22 @@ expect = [
 order = [["pause menu: open", "pause menu: quit?", "pause menu: quit cancelled", "settings: god-mode on", "pause menu: load page", "pause menu: resume", "wait menu: open"]]
 
 [[scenario]]
+name = "crafting-several"
+source = "outstanding.md §2 Gameplay (2026-10-19; docs/spec-notes/crafting.md §3): with ingredients for several, Accept asks How many?, the amount goes up by one and two Antivenom batches are made at once; Down to Atomic Cocktail shows its output's effects line (Antivenom's one effect changes no value: FalloutNV.esm NVAntivenom EFIT actor value None, magnitude 0 [observed]); frame recipe_menu.png in the working folder"
+areas = ["crafting", "menus"]
+paths = ["engine/nvf-play/src/crafting.rs", "engine/nvf-play/src/menu/look.rs"]
+env = { NVFOREVER_HOME = "crafting-several-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.3:player.additem 0002210F 10;12.6:player.additem 0013B2B8 10;13:player.ShowRecipeMenu CampfireRecipes;13.5:close", NVF_PLAY_TEST_RECIPE = "16:accept,17:more,18:shot,19:accept,20:down,21:exit" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 24
+expect = [
+  { re = 'recipe menu: Atomic Cocktail \(\d+\) effects: \S', label = "the output's effects line (Antivenom's only effect changes no value, so it has none)" },
+  { re = 'recipe menu: how many\? 1 of ([2-9]|\d\d+) \("Antivenom"\)', label = "Accept asks how many" },
+  { re = 'recipe menu: made 2 x "Antivenom" \(4 x Antivenom\)', label = "two batches made at once" },
+  "recipe menu: closed",
+]
+order = [["recipe menu: how many?", "recipe menu: made 2 x"]]
+
+[[scenario]]
 name = "crafting"
 source = "owner todo 5 item 72: the recipe menu (engine/nvf-play/src/crafting.rs, crates/fnv-game/src/crafting.rs) opened by ShowRecipeMenu, the campfire's recipes from the records, Antivenom refused without its ingredients then made with them; frame recipe_menu.png in the working folder"
 areas = ["crafting", "menus"]
@@ -3360,6 +3393,37 @@ expect = [
   "repair menu: closed",
 ]
 order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
+
+[[scenario]]
+name = "pipboy-items-extras"
+source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's DPS card, the ammunition's badge and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs"]
+env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:point=260:201,17.5:click=260:201,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_extras.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy items: 10mm Pistol selected: .*dps: Some\("[1-9]\d*"\)', label = "a DPS figure for the pistol" },
+  { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("', label = "the ammunition's badge" },
+  { re = 'pipboy items: 10mm Pistol Mod X\)', label = "Mod X) for a weapon with mod slots" },
+  "pipboy repair: clicked row 1",
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
+]
+order = [["pipboy repair: open", "pipboy repair: clicked row 1", "pipboy repair: 10mm Pistol"]]
+
+[[scenario]]
+name = "pipboy-general-locations"
+source = "outstanding.md §2 Interface (2026-10-19; hud.md §11, misc-stats.md): leaving the start finds Goodsprings: the HUD's XP meter shows +10 XP and the Pip-Boy's General list counts it under Locations Discovered (the tab opens on its Reputation list: mode, then down from Quests Completed)"
+areas = ["hud", "pipboy"]
+paths = ["engine/nvf-play/src/xp_meter.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/misc_stats.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=4,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:mode,23.5:down" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+expect = [
+  { re = 'compass: discovered .*\+10 XP', label = "the town found, 10 XP" },
+  { re = 'xp meter: \+10 XP', label = "the HUD's +10 XP line" },
+  { re = 'pipboy stats: General \(General\): Locations Discovered [1-9]\d* selected', label = "Locations Discovered counts it" },
+]
 
 [[scenario]]
 name = "pipboy-repair"
@@ -5171,6 +5235,21 @@ expect = [
   { re = 'swimming summary: .* (?P<n>\d+) swam without swimming clips', range = [0, 0], label = "they swim on their folder's swimmt clips" },
 ]
 forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]
+
+[[scenario]]
+name = "caravan-currency"
+source = "docs/spec-notes/caravan.md §3.1 (HelpCaravanBetting: NCR dollars and Legion coins may be bet): with 10 caps and ten $20 NCR notes the player's funds count the notes at their value; Auto Match against Ringo's bid, and Play Caravan pays the ante with the caps and then the notes, the change in caps; then the player forfeits"
+areas = ["caravan", "menus"]
+paths = ["engine/nvf-play/src/caravan.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "13:player.additem 0013A4D7 10;13.5:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:10,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,25:help,26:forfeit,26.5:forfeit,29:continue" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 32
+expect = [
+  { re = 'caravan: open against Ringo .*the player has (?P<n>\d+) caps \(10 in caps, [1-9]\d* in NCR dollars and Legion coins\)', range = [11, 100000], label = "the notes count in the player's funds" },
+  { re = '''caravan: the player's ante [1-9]\d* paid with 10 caps, [1-9]\d* x \$20 NCR''', label = "the ante paid with the caps, then the notes" },
+  { text = "caravan: game over:", label = "the game ends (forfeit)" },
+]
+order = [["caravan: bet accepted: ante", "caravan: the player's ante", "caravan: game over:"]]
 
 [[scenario]]
 name = "caravan"

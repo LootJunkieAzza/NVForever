@@ -141,11 +141,11 @@ struct RowButton(Side, usize);
 
 /// A clickable command in the button bar.
 #[derive(Component, Clone, Copy)]
-struct CmdButton(Command);
+pub(crate) struct CmdButton(pub(crate) Command);
 
 /// The "How many?" prompt's meter, which takes a press and a drag.
 #[derive(Component)]
-struct AmountMeter;
+pub(crate) struct AmountMeter;
 
 /// Whether the "How many?" prompt had the keys this frame: open when the menus' keys
 /// were read, or open now. Other key readers of the same frame (the Pip-Boy's) leave the

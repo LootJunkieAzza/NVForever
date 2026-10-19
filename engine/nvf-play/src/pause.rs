@@ -23,6 +23,14 @@
 //! mouse wheel choose, the pointer chooses the row it moves onto, Enter, Space or a click
 //! load it through `crate::save::LoadRequest` (nvforever starts again with `--load`); Esc,
 //! Backspace or Back go back. Only the chosen save's thumbnail is read and decoded.
+//! **Deleting a save** (2026-10-19; docs/design/save-load.md §6.1): Delete (or a click
+//! on "Delete  Del)" right of the thumbnail) asks "Delete this save?" there, with "Yes
+//! Y)" and "No  N)"; Y, Enter or a click on Yes deletes the chosen save's file from the
+//! saves folder and lists the saves again; N, Esc, Backspace or a click on No keep it
+//! [documented: the original's load and save menus have a Delete hint,
+//! `load_and_save_menus.xml` `save_delete_text`, shown with a controller; design: the key,
+//! the question and its place]. Log `pause menu: delete <name>?`, `pause menu: deleted
+//! <path>`, `pause menu: delete cancelled`.
 //!
 //! **The settings page** lists the on/off switches of [`crate::settings`] the original's
 //! way: their groups as categories left of the column (Gameplay, World, Display,
@@ -103,7 +111,8 @@
 //! `defaults` (the settings page's Defaults), `wheel-down`, `wheel-up` (a notch of the
 //! mouse wheel on the settings page or the Controls tab),
 //! `keep` and `revert` (the keep question's answers),
-//! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
+//! `quit` (the question), `delete`, `yes` and `no` (the load page's delete question),
+//! `shot` (a screenshot `pause_<page>.png` in the working folder).
 
 use crate::interface::{bc_supported, u, Face, Picture, Pictures};
 use crate::settings::{add_setting, Setting, Settings};
@@ -447,6 +456,18 @@ fn kind_name(k: SaveKind) -> &'static str {
     }
 }
 
+/// Delete a save: its file, which holds the header, the thumbnail and the game
+/// (`fnv_save`; docs/design/save-load.md §6.1), and the `.bak` a quick or auto slot keeps
+/// of the one before. Only files of the saves' own extension are removed.
+fn delete_save(path: &Path) -> std::io::Result<()> {
+    if path.extension().is_none_or(|x| x != fnv_save::EXTENSION) {
+        return Err(std::io::Error::other("not a save file"));
+    }
+    std::fs::remove_file(path)?;
+    let _ = std::fs::remove_file(path.with_extension(format!("{}.bak", fnv_save::EXTENSION)));
+    Ok(())
+}
+
 /// The name of a new save in the saves folder ([`next_save_name`] of the files there).
 pub fn new_save_name(cfg: &crate::save::SaveConfig) -> String {
     let stems: Vec<String> = cfg.dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == fnv_save::EXTENSION)).map(|p| stem(&p)).collect();
@@ -515,6 +536,10 @@ enum PauseButton {
     Choice(usize, usize),
     /// An answer of the keep question (its index in [`KEEP_ANSWERS`]).
     Keep(usize),
+    /// The load page's "Delete  Del)".
+    Delete,
+    /// An answer of the delete question: yes or no.
+    DeleteAnswer(bool),
 }
 
 /// A switch's state, kept as text too (tests read it).
@@ -642,6 +667,9 @@ const LOAD_TOP: f32 = 521.0;
 const THUMB_DRAWN: Vec2 = Vec2::new(448.0, 252.0);
 const DETAILS_TOP: f32 = 347.0;
 const DETAILS_STEP: f32 = 41.0;
+/// "Delete  Del)" and its question: right of the thumbnail, in what the panel leaves
+/// [design].
+const DELETE_WIDTH: f32 = LOAD_WIDTH - THUMB_DRAWN.x - 20.0;
 /// The page's Defaults and Back at the bottom right [observed: the owner's screenshots].
 const BACK_TOP: f32 = 960.0 - 30.0 - ITEM;
 /// The pause screen behind the menu in the world: the original shows a model,
@@ -727,6 +755,8 @@ struct PauseView {
     dropdown: Option<Dropdown>,
     /// The keep question's chosen answer.
     keep_selected: usize,
+    /// The load page asks whether to delete the save at this row.
+    delete_ask: Option<usize>,
 }
 
 /// A list's open dropdown: its row, the choice the keys are on and the first shown.
@@ -765,6 +795,8 @@ struct Drawn {
     dropdown: Option<Dropdown>,
     /// The keep question: its row's label, the seconds left and the chosen answer.
     keep: Option<(&'static str, u32, usize)>,
+    /// The load page's delete question: the row it asks about.
+    delete_ask: Option<usize>,
 }
 
 impl Drawn {
@@ -1291,6 +1323,21 @@ fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &LoadL
             let face = if i == 0 { &f.entry } else { &f.small };
             root.spawn((DetailLine, Text::new(line.clone()), Node { display: Display::None, ..default() }));
             root.spawn(panel(DETAILS_TOP + i as f32 * DETAILS_STEP, DETAILS_STEP)).with_children(|t| sm_text(t, face, line, 10.0, 30.0, color(Shade::Bright)));
+        }
+    }
+    // Delete, right of the thumbnail; asked, the question and its answers under it.
+    let side = |top: f32, height: f32| from_right(RIGHT + COLUMN, top, DELETE_WIDTH, height);
+    let top = DETAILS_TOP - THUMB_DRAWN.y - 10.0;
+    match d.delete_ask.filter(|r| *r == selected) {
+        None => right_entry(root, &f.small, "Delete  Del)", side(top, ITEM), DELETE_WIDTH, Shade::Bright, false, PauseButton::Delete),
+        Some(_) => {
+            root.spawn((DetailLine, Text::new("Delete this save?"), Node { display: Display::None, ..default() }));
+            root.spawn(side(top, ITEM)).with_children(|t| {
+                let w = f.small.font.width("Delete this save?");
+                sm_text(t, &f.small, "Delete this save?", DELETE_WIDTH - w - 10.0, BASE, color(Shade::Bright));
+            });
+            right_entry(root, &f.small, "Yes  Y)", side(top + ITEM, ITEM), DELETE_WIDTH, Shade::Bright, true, PauseButton::DeleteAnswer(true));
+            right_entry(root, &f.small, "No  N)", side(top + 2.0 * ITEM, ITEM), DELETE_WIDTH, Shade::Bright, false, PauseButton::DeleteAnswer(false));
         }
     }
     for (row, (i, (path, h))) in list.saves.iter().enumerate().skip(first).take(LOAD_ROWS).enumerate() {
@@ -1950,11 +1997,33 @@ fn choose(
                 }
             }
         }
+        Page::Load { selected } if view.delete_ask.is_some() => {
+            // The delete question has the keys (module notes).
+            let yes = keys.any_just_pressed([KeyCode::KeyY, KeyCode::Enter, KeyCode::NumpadEnter]) || clicked == Some(PauseButton::DeleteAnswer(true)) || act("yes");
+            let no = keys.any_just_pressed([KeyCode::KeyN, KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::DeleteAnswer(false)) || act("no") || act("back");
+            if yes {
+                let row = view.delete_ask.take().unwrap_or(*selected);
+                if let Some((path, _)) = menu.list.saves.get(row).cloned() {
+                    match delete_save(&path) {
+                        Ok(()) => info!("pause menu: deleted {}", path.display()),
+                        Err(e) => warn!("pause menu: could not delete {}: {e}", path.display()),
+                    }
+                    menu.list.open(menu.cfg.dir.as_deref());
+                    *selected = (*selected).min(menu.list.saves.len().saturating_sub(1));
+                }
+            } else if no {
+                view.delete_ask = None;
+                info!("pause menu: delete cancelled");
+            }
+        }
         Page::Load { selected } => {
             let rows = menu.list.saves.len();
             let wheel = menu.scroll.as_ref().map_or(0.0, |s| s.delta.y);
             let mut pick = None;
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+            if (keys.just_pressed(KeyCode::Delete) || clicked == Some(PauseButton::Delete) || act("delete")) && *selected < rows {
+                view.delete_ask = Some(*selected);
+                info!("pause menu: delete {}?", menu.list.saves.get(*selected).map(|(p, _)| stem(p)).unwrap_or_default());
+            } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::LoadRow(i)) = clicked {
                 *selected = i;
@@ -2136,6 +2205,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         lists,
         dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
         keep,
+        delete_ask: view.delete_ask.filter(|_| matches!(page, Page::Load { .. })),
     }
 }
 
@@ -2362,7 +2432,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0, lists: vec![], dropdown: None, keep: None };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0, lists: vec![], dropdown: None, keep: None, delete_ask: None };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();

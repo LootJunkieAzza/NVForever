@@ -277,6 +277,17 @@ the pause menu that fails this way says so in a message box.
   next one shows where it stopped. The GRA boxes showing again after this load is
   expected: `save-write` saves before that quest shows them.
 
-Not built: deleting or renaming saves from the menu, remapping another load order, in-place loading
+### 6.1 Deleting a save (2026-10-19)
+
+On the pause menu's load page (also from the main menu's Load Game) Delete, or a click on
+"Delete  Del)" right of the thumbnail, asks "Delete this save?" with "Yes  Y)" and "No
+N)" under it. Yes (Y, Enter, a click) removes the chosen save's `.nvfsave` and the `.bak`
+its slot kept, then lists the saves again; No (N, Esc, Backspace, a click) keeps it. Only
+files with the saves' extension in the saves folder are removed [design: the original's
+load and save menus carry a Delete hint (`load_and_save_menus.xml`, `save_delete_text`,
+shown with a controller); the key, the question and its place are NVForever's]. Smoke
+`save-delete-console`.
+
+Not built: renaming saves from the menu, remapping another load order, in-place loading
 without a new run (by design, see above), AI agent progress, corpse poses beyond their position, the sitting or
 lying pose (the player stands up), playback positions of music and radio.

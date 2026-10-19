@@ -34,10 +34,16 @@
 //!   Editor ID, base form, cell, position, enabled, script, health of an actor.
 //! - Keys: Enter runs the line, Up/Down recall earlier lines, Page Up/Down scroll, `` ` ``
 //!   or Esc close it.
+//! - **Several statements on a line** (2026-10-19) [design; docs/design/console.md]: `;`
+//!   outside quotes ends a statement, so `player.additem f 100; tgm; coc Goodsprings` runs
+//!   three, in order, each echoed and answered as a line of its own ([`statements`]); the
+//!   whole line is one entry of the history. `close` among them closes the console and
+//!   drops the rest.
 //!
 //! Log: `console: > <line>` and `console: <reply line>` for each line. Test aid
 //! `NVF_PLAY_TEST_CONSOLE=<seconds>:<line>[;<seconds>:<line>…]` opens the console and runs
-//! the line at that time (on the world aids' clock, `crate::pause::WorldAidClock`: with
+//! the line at that time (a `;` not followed by `<seconds>:` stays in the line, so a line
+//! can hold several statements) (on the world aids' clock, `crate::pause::WorldAidClock`: with
 //! `NVF_PLAY_AIDS_FROM_SCRIPTS=1` the lines wait for the scripts to run); the line `click <x> <y>` clicks at that
 //! fraction of the window (0..1 from the top left), `close` closes the console.
 
@@ -129,9 +135,43 @@ impl Console {
 #[derive(Resource, Default)]
 struct ConsoleAid(Vec<(f32, String)>);
 
+/// The statements of a console line: split at `;` outside `"…"`, trimmed, empty ones
+/// left out.
+pub fn statements(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let (mut cur, mut quoted) = (String::new(), false);
+    for ch in line.chars() {
+        match ch {
+            '"' => {
+                quoted = !quoted;
+                cur.push(ch);
+            }
+            ';' if !quoted => out.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    out.push(cur);
+    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// Whether an aid part starts with `<seconds>:` (else it belongs to the line before).
+fn timed_part(p: &str) -> bool {
+    p.split_once(':').is_some_and(|(t, _)| t.trim().parse::<f32>().is_ok())
+}
+
 fn parse_aid(v: &str) -> Result<Vec<(f32, String)>, String> {
     let mut out = Vec::new();
-    for part in v.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+    let mut parts: Vec<String> = Vec::new();
+    for part in v.split(';') {
+        match parts.last_mut() {
+            Some(last) if !timed_part(part) => {
+                last.push(';');
+                last.push_str(part);
+            }
+            _ => parts.push(part.to_string()),
+        }
+    }
+    for part in parts.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
         let (t, line) = part.split_once(':').ok_or_else(|| format!("{part:?}: expected <seconds>:<line>"))?;
         let t: f32 = t.trim().parse().map_err(|_| format!("{part:?}: bad seconds"))?;
         out.push((t, line.trim().to_string()));
@@ -304,6 +344,8 @@ fn typing(
             }
         }
     }
+    // Each line once in the history, then its statements one by one.
+    let mut runs: Vec<String> = Vec::new();
     for line in submit {
         let line = line.trim().to_string();
         if line.is_empty() {
@@ -313,6 +355,13 @@ fn typing(
         if c.history.last() != Some(&line) {
             c.history.push(line.clone());
         }
+        let parts = statements(&line);
+        if parts.len() > 1 {
+            info!("console: {} statements on the line", parts.len());
+        }
+        runs.extend(parts);
+    }
+    for line in runs {
         c.print(format!("> {line}"));
         let (head, rest) = line.split_once(char::is_whitespace).map_or((line.as_str(), ""), |(h, r)| (h, r.trim()));
         match head.to_ascii_lowercase().as_str() {
@@ -943,6 +992,16 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_holds_several_statements() {
+        assert_eq!(statements("player.additem f 100; tgm;coc Goodsprings"), ["player.additem f 100", "tgm", "coc Goodsprings"]);
+        assert_eq!(statements(r#"help "a;b"; cls"#), [r#"help "a;b""#, "cls"]);
+        assert_eq!(statements(" ; tgm ;; "), ["tgm"]);
+        // The aid keeps a line's own statements together.
+        let aid = parse_aid("12:player.setav luck 9; tgm;12.5:close").unwrap();
+        assert_eq!(aid, vec![(12.0, "player.setav luck 9; tgm".to_string()), (12.5, "close".to_string())]);
+    }
 
     #[test]
     fn words_split_on_spaces_and_commas_and_keep_quotes() {
