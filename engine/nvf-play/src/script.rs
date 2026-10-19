@@ -1360,7 +1360,7 @@ pub(crate) fn run_scripts(
     mut used: MessageReader<ItemUsed>,
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
-    (loading, bindings): (Res<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>),
+    (mut screen, bindings): (ResMut<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>),
 ) {
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
@@ -1413,7 +1413,7 @@ pub(crate) fn run_scripts(
     // menu is known, so script time simply stops there [decision]. Nor do they run under
     // a loading screen (`crate::loading`) [observed: loading-screen time does not count,
     // layer5-captures.md §8.3 e].
-    if paused.0 || loading.active() {
+    if paused.0 || screen.active() {
         return;
     }
     let Some(character) = phys.player.as_ref() else { return };
@@ -1470,6 +1470,8 @@ pub(crate) fn run_scripts(
     let dt = time.delta_secs_f64();
     let t0 = Instant::now();
     let mut marked = Vec::new();
+    // EnableLoadingMenu this frame (`fnv_game::functions::ui::enable_loading_menu`).
+    let mut loading_menu = false;
     let mut aid_lines = Vec::new();
     let mut walks = Vec::new();
     with_world(rt, &mut sim, |rt| {
@@ -1522,6 +1524,7 @@ pub(crate) fn run_scripts(
         rt.finish_answer();
         rt.snapshot_inventory();
         marked = rt.newly_marked();
+        loading_menu = std::mem::take(&mut rt.game.ui.loading_menu);
     });
     st.walks.extend(walks);
     st.console_out.extend(console_out);
@@ -1591,6 +1594,9 @@ pub(crate) fn run_scripts(
             let _ = log.out.flush();
         }
     }
+    if loading_menu && !effects.iter().any(|e| matches!(e, ScriptEffect::Travel(_))) {
+        info!("script: EnableLoadingMenu with no move of the player: no loading screen (a screen without travel is not built)");
+    }
     let mut sent = BTreeSet::new();
     let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
@@ -1615,6 +1621,14 @@ pub(crate) fn run_scripts(
                     info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
                 } else {
                     info!("script: travel to {:?} / {:?} at {:?}", t.interior, t.world, t.feet);
+                    if loading_menu {
+                        // EnableLoadingMenu before the move: its screen is one for
+                        // anywhere, not the destination's [documented: GECK wiki
+                        // EnableLoadingMenu].
+                        info!("script: EnableLoadingMenu: the travel's loading screen is one for anywhere");
+                        screen.generic_next = true;
+                        loading_menu = false;
+                    }
                     travel.write(TravelRequest(t));
                 }
             }

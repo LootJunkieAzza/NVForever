@@ -25,6 +25,8 @@ pub struct Motion {
     pub turning: u8,
     /// Its speed mode is run, whether or not it moves (the player: Walk not toggled).
     pub run_mode: bool,
+    /// Its character swims (the physics' state: `fnv_phys` character `swimming`).
+    pub swimming: bool,
 }
 
 /// What the engine told the scripts, and the switches scripts set for it.
@@ -166,6 +168,21 @@ pub fn is_running(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let m = g.motion(r);
     yes(m.running || m.run_mode)
+}
+
+/// `actor.IsSwimming`: 1 while the calling actor swims [documented: GECK wiki
+/// IsSwimming]. The engine tells it with the rest of the movement ([`Game::set_motion`],
+/// `nvforever` detection.rs): the swimming state of the actor's physics character, which
+/// starts and stops as physics.md §6.6 describes. On the player it reads 0 whatever the
+/// player does [documented: GECK wiki IsSwimming notes, "will always return 0 if called
+/// on the player"; the extender's IsPlayerSwimming exists for that case]. An actor the
+/// engine does not measure (not drawn, far) reads 0 [engineering choice: the same "not
+/// measured is no" rule as IsMoving]. The shipped uses are idle conditions
+/// (`IsSwimming 0` beside the flee idles, `crate::idles`) [observed: catalogue use
+/// counts, 7 condition uses].
+pub fn is_swimming(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject_or_player();
+    yes(r != FormId::PLAYER_REF && g.motion(r).swimming)
 }
 
 /// `actor.GetLineOfSight target`: 1 when the calling actor can see the target: nothing

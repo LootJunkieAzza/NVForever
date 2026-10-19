@@ -1,5 +1,6 @@
 //! Navmesh switches: EnableNavMesh, DisableNavmesh and setAllReachable
-//! (docs/design/script-stubs.md §3.16). The rules keep what the scripts switched
+//! (docs/design/script-stubs.md §3.16), and the AI's per-frame switches SetAllVisible
+//! and SetNoAvoidance (§3.19, [`FrameSwitches`]). The rules keep what the scripts switched
 //! ([`NavSwitches`], saved); the layer that plans ways over the navmesh applies it to its
 //! graph (`fnv_ai::Ai::apply_navmesh_switches`): a disabled navmesh takes no part in
 //! paths until it is enabled again.
@@ -84,5 +85,46 @@ pub fn disable_navmesh(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// switch's effect: the flag is kept and saved, and the battle's script runs as written.
 pub fn set_all_reachable(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.nav_switches.all_reachable = a.num_or(0, 0.0) != 0.0;
+    none()
+}
+
+/// The two of the original's four performance switches for crowded fights
+/// [documented: GECK wiki SetAllVisible, SetNoAvoidance: "one of 4 functions which can
+/// be used to increase the game's performance"] that act for one frame only: "the flag
+/// is cleared every frame, so this function needs to be called in a script running on a
+/// reference in the loaded area" [documented: same pages]. The rules clear them at each
+/// [`Game::tick`] before the scripts run, so between two ticks they hold what that
+/// frame's scripts said; they are not saved. The shipped calls, all `... 1` from
+/// GameMode blocks [observed: decompiled scripts, 2026-10-19]: the Hoover Dam battle's
+/// optimiser quest (`VHDBattleOptimizerScript`, SCPT 0x001418DB, beside setAllReachable;
+/// a quest script, so on the frames its quest runs), an object script that starts a
+/// fight with the player (SCPT 0x0015E8F9, beside SetSceneIsComplex, once it has),
+/// `ComplexSceneScriptPS3SCRIPT` (SCPT 0x0017B714, PS3 only) and two Lonesome Road
+/// object scripts (LonesomeRoad.esm SCPT 0x0400DEBC and 0x0400974E, SetAllVisible alone).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FrameSwitches {
+    /// SetAllVisible: actors skip line-of-sight tests and take what they look at as seen
+    /// [documented: "they assume they can see its head"]. The engine's detection reads it
+    /// (`nvforever` detection.rs): an NPC's sight of an actor needs no ray then; the
+    /// field of view still applies [documented: only the line-of-sight check is named].
+    pub all_visible: bool,
+    /// SetNoAvoidance: actors skip their "avoid box movement": they "do not open doors
+    /// or angle away from each other" [documented: GECK wiki SetNoAvoidance]. Kept and
+    /// read by nothing: NVForever's walkers do no avoid-box steering, and its keeping
+    /// apart (`fnv_ai::apart`) stands for the character controllers' blocking, which the
+    /// flag does not name [hypothesis]; NPCs opening doors is left as it is [design: a
+    /// door kept shut in the Hoover Dam battle would strand the fight, unverified].
+    pub no_avoidance: bool,
+}
+
+/// `SetAllVisible flag`: this frame's [`FrameSwitches::all_visible`].
+pub fn set_all_visible(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.frame_switches.all_visible = a.num_or(0, 0.0) != 0.0;
+    none()
+}
+
+/// `SetNoAvoidance flag`: this frame's [`FrameSwitches::no_avoidance`].
+pub fn set_no_avoidance(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.frame_switches.no_avoidance = a.num_or(0, 0.0) != 0.0;
     none()
 }

@@ -890,6 +890,10 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// Actors a script's `PickIdle` asked to choose an idle from the idle tree
+    /// (`crate::idles::pick_idle`), for the layer that animates actors to take: it knows
+    /// their animation folder. Each actor once. Not part of the saved state.
+    pub idle_picks: Vec<FormId>,
     /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
     /// the last number given to one. Not part of the saved state.
     pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
@@ -962,6 +966,10 @@ pub struct Game<'a> {
     /// Navmeshes the scripts enabled or disabled, and setAllReachable
     /// (`functions::navigation`). Saved.
     pub nav_switches: crate::functions::navigation::NavSwitches,
+    /// SetAllVisible and SetNoAvoidance: this frame's word, cleared at each
+    /// [`Game::tick`] (`functions::navigation::FrameSwitches`). Not part of the saved
+    /// state: the original clears them every frame.
+    pub frame_switches: crate::functions::navigation::FrameSwitches,
     /// Combat-tab lines: attack timers, health marks, DeathResponse lines due
     /// (`crate::combat_lines`). Not part of the saved state.
     pub combat_lines: crate::combat_lines::CombatLines,
@@ -1252,6 +1260,7 @@ impl<'a> Game<'a> {
             destruction_changes: Vec::new(),
             knockout_news: Vec::new(),
             idle_requests: Vec::new(),
+            idle_picks: Vec::new(),
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
             sound_requests: Vec::new(),
@@ -1274,6 +1283,7 @@ impl<'a> Game<'a> {
             awareness: Default::default(),
             provocations: Default::default(),
             nav_switches: Default::default(),
+            frame_switches: Default::default(),
             combat_lines: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
@@ -1726,6 +1736,9 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.turned.clear();
+        // SetAllVisible and SetNoAvoidance last one frame: the scripts of this frame
+        // set them again (`functions::navigation::FrameSwitches`).
+        self.frame_switches = Default::default();
         // The world refuses power armour on an untrained player (a loaded game's flag
         // reaches it here too).
         self.world.set_power_armor_training(self.player.power_armor);

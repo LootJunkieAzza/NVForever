@@ -4250,6 +4250,25 @@ order = [[
 # progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
 
 [[scenario]]
+name = "script-stubs-round-3"
+source = "docs/design/script-stubs.md §3.19: PickIdle on Ringo has the engine walk the idle tree for him (log `pick idle: …`; GECK wiki PickIdle); IsSwimming on a standing Ringo reads 0; EnableLoadingMenu 1 just before a script moves the player makes that travel's loading screen one for anywhere (GECK wiki EnableLoadingMenu)"
+areas = ["scripts", "idles", "loading"]
+paths = [
+  "crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/functions/senses.rs",
+  "engine/nvf-play/src/loading.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "6:call:RingoRef:PickIdle,8:call:RingoRef:IsSwimming,12:call:-:EnableLoadingMenu:1,12:call:player:MoveTo:ProspectorSaloonDoor" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 24
+order = [[
+  "script: test aid calls PickIdle on …",
+  "pick idle: …",
+  "script: test aid calls IsSwimming on … = 0",
+  "script: EnableLoadingMenu: the travel's loading screen is one for anywhere",
+  "loading screen up: … for anywhere",
+]]
+
+[[scenario]]
 name = "destroyed-activator"
 source = "GECK wiki SetDestroyed: destroyed doors and activators give no rollover text and cannot be activated (fnv_game::Game::activation_refused); the saloon jukebox destroyed at 15 s loses its prompt and E at 20 s does nothing, cleared at 25 s it is offered again and E at 28 s switches it off"
 areas = ["scripts", "activators"]

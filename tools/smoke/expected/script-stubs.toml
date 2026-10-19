@@ -10,15 +10,15 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 16
-stub_calls = 86
-stub_condition_uses = 26
+stubs = 11
+stub_calls = 74
+stub_condition_uses = 19
 unhandled_used = 1
 
 [summary.by_status]  # every status, 0 when no stub has it
 assigned = 0
 implementable = 0
-needs_system = 16
+needs_system = 11
 no_op = 4
 
 # History (moved from scenarios.toml, 2026-10-19; the newest last):
@@ -87,3 +87,7 @@ no_op = 4
 # claude/caravan implemented ShowCaravanMenu and AddCardToPlayer (33 calls,
 # docs/spec-notes/caravan.md): 18 → 16 stubs, 119 → 86 calls [observed: the branch's
 # fnvtool on the owner's masters, 2026-10-19].
+# claude/adoring-bell-794a3b implemented IsSwimming (7 condition uses), PickIdle (2 calls),
+# SetAllVisible (5), SetNoAvoidance (3) and EnableLoadingMenu (2) (§3.19): 16 → 11 stubs,
+# 86 → 74 calls, 26 → 19 condition uses [observed: decoded calls of the ten masters with
+# fnvtool script decompile, 2026-10-19; the smoke run's fnvtool script stubs checks them].

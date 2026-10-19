@@ -26,6 +26,9 @@
 //!   window is still hidden, when streaming may take long frames as behind a screen.
 //!   An [`Uncover`] goes back to what the game was in when the cover came: the main
 //!   menu or the pause menu, still holding the game, after a load that came to nothing.
+//! - A script's EnableLoadingMenu before it moves the player makes that travel's screen
+//!   one for anywhere ([`Loading::generic_next`]). The original's few seconds of screen
+//!   for the call alone, with no travel, are not built (no shipped call is alone).
 
 use crate::phys::PhysState;
 use crate::{Location, PlaySet, PlayState, PlayWorld, Travel};
@@ -100,6 +103,11 @@ pub struct Loading {
     pub render_busy: bool,
     /// Loading screens shown so far.
     pub shown: u32,
+    /// The next travel's screen is one for anywhere, not one of its destination: a
+    /// script called EnableLoadingMenu before moving the player (`crate::script`)
+    /// [documented: GECK wiki EnableLoadingMenu, "does not use any loading screens
+    /// specific to the current location"].
+    pub generic_next: bool,
     /// Picture sizes by texture (the image's own data leaves the main world once it is on
     /// the graphics card).
     sizes: HashMap<AssetId<Image>, Vec2>,
@@ -214,8 +222,8 @@ fn begin(
         info!("loading screen: travel ignored under a screen held for a restart");
         return;
     }
-    let to = destination(&travel, *location);
-    spawn_screen(&mut commands, &mut loading, &mut art, Some(&to));
+    let to = (!std::mem::take(&mut loading.generic_next)).then(|| destination(&travel, *location));
+    spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
     clock.pause();
     next.set(PlayState::Loading);
     loading.trip = Some(Trip { travel, sent: false, frames: 0, started: real.elapsed_secs_f64(), ready: None });
@@ -477,6 +485,20 @@ mod tests {
         assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
         assert!(!app.world().resource::<Time<Virtual>>().is_paused());
         assert_eq!(app.world_mut().query::<&LoadingRoot>().iter(app.world()).count(), 0);
+    }
+
+    /// EnableLoadingMenu before a move (`crate::script`): that travel's screen, and only
+    /// that one, is one for anywhere.
+    #[test]
+    fn enable_loading_menu_screen_is_for_anywhere() {
+        let mut app = app();
+        app.update();
+        app.world_mut().resource_mut::<Loading>().generic_next = true;
+        let t = Travel { world: None, interior: Some(0x100), feet: [1.0, 2.0, 3.0], heading_deg: 90.0 };
+        app.world_mut().write_message(TravelRequest(t));
+        app.update();
+        let l = app.world().resource::<Loading>();
+        assert!(l.active() && !l.generic_next, "taken by the travel's screen");
     }
 
     #[test]
