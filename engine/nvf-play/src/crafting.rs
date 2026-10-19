@@ -69,11 +69,12 @@ const BUTTONS_TOP: f32 = 670.0;
 /// 472, 256 square].
 const ICON_AT: Vec2 = Vec2::new(ITEMS_AT.x + 22.0, ITEMS_AT.y + 472.0);
 const ICON_SIZE: f32 = 256.0;
-/// The dark sheet behind the menu [documented: `RM_Background` solid black at brightness
-/// 128 and the background fill alpha, 1144 by 970 from (-40, -105); the strength is the
-/// other menus' over the world, `crate::interface::MENU_BACKING`: the original blurs the
-/// world behind it instead].
-const SHEET_ALPHA: f32 = crate::interface::MENU_BACKING;
+/// The sheet behind the menu [documented: `RM_Background` solid black at brightness 128
+/// and the background fill alpha, 1144 by 970 from (-40, -105)]: faint, as the original's,
+/// which shows only the frame's lines over the world [observed: the owner's screenshot,
+/// 2026-10-19; the 0.75 of the other menus drew a dark box far past the frame]. The
+/// original also blurs the world behind the menu (not built).
+const SHEET_ALPHA: f32 = crate::interface::BACKGROUND_FILL_ALPHA;
 /// A recipe that cannot be made yet: a little dimmer than one that can [observed: the
 /// owner's screenshots, where no recipe could be made, show the rows a shade under the
 /// titles; the brightness is a guess].
@@ -299,8 +300,12 @@ fn keys(
     mut next: ResMut<NextState<PlayState>>,
     mut sounds: MessageWriter<UiSound>,
     mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
+    mut moved: MessageReader<bevy::window::CursorMoved>,
     mut commands: Commands,
 ) {
+    // Only a pointer that moves takes the selection: the rows drawn when the menu opens
+    // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
+    let pointer_moved = moved.read().count() > 0;
     let Some(open) = menu.0.as_mut() else { return };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // A world aid (`crate::pause::WorldAidClock`).
@@ -371,7 +376,7 @@ fn keys(
     for (i, b) in &buttons {
         match (i, b) {
             (Interaction::Pressed, b) => clicked = Some(*b),
-            (Interaction::Hovered, RecipeButton::Row(r)) => open.selected = *r,
+            (Interaction::Hovered, RecipeButton::Row(r)) if pointer_moved => open.selected = *r,
             _ => {}
         }
     }

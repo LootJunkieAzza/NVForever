@@ -83,9 +83,12 @@ const METER: Rect = Rect { min: Vec2::new(85.0, 17.0), max: Vec2::new(235.0, 37.
 /// The buttons' right end, top and spacing [documented: `RSM_ButtonRect`].
 const BUTTONS: Vec2 = Vec2::new(1010.0, 75.0);
 const BUTTON_STEP: f32 = 47.0;
-/// The dark sheet behind the menu [documented: `RSM_Background`, 1134 by 910 from (-55,
-/// -115); the strength is the other menus' over the world].
-const SHEET_ALPHA: f32 = crate::interface::MENU_BACKING;
+/// The sheet behind the menu [documented: `RSM_Background`, solid black at brightness 128
+/// and the background fill alpha, 1134 by 910 from (-55, -115)]: faint, as the original's,
+/// whose edge cannot be seen [observed: the owner's screenshot, 2026-10-19; the 0.75 of
+/// the other menus drew a dark box far past the frame]. The original also blurs the world
+/// behind the menu (not built).
+const SHEET_ALPHA: f32 = crate::interface::BACKGROUND_FILL_ALPHA;
 /// A row or a figure that cannot be had: dimmer than the rest [observed: the dim rows of
 /// the owner's screenshots stand at about two thirds of the bright ones].
 const DIM: f32 = 165.0;
@@ -293,8 +296,12 @@ fn keys(
     scroll: Option<Res<AccumulatedMouseScroll>>,
     mut next: ResMut<NextState<PlayState>>,
     mut sounds: MessageWriter<UiSound>,
+    mut moved: MessageReader<bevy::window::CursorMoved>,
     mut commands: Commands,
 ) {
+    // Only a pointer that moves takes the selection: the rows drawn when the menu opens
+    // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
+    let pointer_moved = moved.read().count() > 0;
     let Some(open) = menu.0.as_mut() else { return };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // A world aid (`crate::pause::WorldAidClock`).
@@ -317,7 +324,7 @@ fn keys(
     for (i, b) in &buttons {
         match (i, b) {
             (Interaction::Pressed, b) => clicked = Some(*b),
-            (Interaction::Hovered, RepairButton::Row(r)) => open.selected = *r,
+            (Interaction::Hovered, RepairButton::Row(r)) if pointer_moved => open.selected = *r,
             _ => {}
         }
     }

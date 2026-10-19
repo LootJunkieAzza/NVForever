@@ -6397,6 +6397,16 @@ docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
   with a controller. *Check:* the key you want for it.
 - **`;` separates console statements**; the original's console may not allow several.
 
+## Crafting and repair-services menus: no dark box (2026-10-19, branch claude/menu-sheet-fill)
+
+docs/spec-notes/crafting.md §3, repair.md §3. Both menus drew a 0.75 black sheet far past
+their frames; they now use the files' own fill, 32 of 255 black, over the same rectangle,
+which shows no edge, as in your screenshots.
+- **The blur is not built**: the world behind stays sharp. *Check:* whether the faint
+  sheet reads well enough over a bright world until the blur exists, or whether you want a
+  light full-screen dim meanwhile.
+- **Whether the original darkens the world as well as blurring it** could not be measured
+  (the screenshots show no unblurred world to compare). [hypothesis] it only blurs.
 ## Script function audit, second round (2026-10-19, branch claude/script-param-audit)
 
 docs/design/script-function-audit-2026-10-19.md. Each was fixed from the GECK wiki; these
