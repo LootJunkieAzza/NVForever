@@ -2501,7 +2501,7 @@ expect = [
 [[scenario]]
 name = "combat-cover"
 launch = "ncr-fiends"
-source = "owner's list 2: NPCs take cover (GECK wiki Combat Style, Cover; docs/design/combat-ai.md §12.6)"
+source = "owner's list 2: NPCs take cover (GECK wiki Combat Style, Cover; docs/design/combat-ai.md §12.6, §12.6.1 cover from the gunman firing at the fighter)"
 note = "the style's Take Cover Chance is rolled every 10 s, so which fighter takes cover and how often varies (1 to 10 times in four runs of 2026-10-12)"
 areas = ["combat", "combat-groups"]
 paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-ai/src/alert.rs"]
@@ -2509,9 +2509,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "#470 (2026-10-19) removed the target flicker that made troopers face 0x000F9CE7, the only target with a cover edge facing it. find_cover only covers from the fighter's own target. Needs cover from the gunman shooting at the fighter (follow-up PR)." },
-  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "#470 (2026-10-19) removed the target flicker that made troopers face 0x000F9CE7, the only target with a cover edge facing it. find_cover only covers from the fighter's own target. Needs cover from the gunman shooting at the fighter (follow-up PR)." },
-  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "#470 (2026-10-19) removed the target flicker that made troopers face 0x000F9CE7, the only target with a cover edge facing it. find_cover only covers from the fighter's own target. Needs cover from the gunman shooting at the fighter (follow-up PR)." },
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units" },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover" },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
 ]
 
 [[scenario]]

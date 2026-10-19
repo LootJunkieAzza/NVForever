@@ -6335,3 +6335,15 @@ health in the original's NCR–Fiend fight and settled it (npc-behaviour-compare
   The last trooper still dies about 40 s sooner than the original's.
 - Not done: NPC weapons wear from firing in the original (2.19 health a shot for the
   Incinerator) but not in ours.
+
+## Cover from the gunman firing at the fighter (2026-10-19, branch claude/cover-from-shooter)
+
+docs/design/combat-ai.md §12.6.1. All [design]; the original's cover search is not described.
+- **Whom it hides from**: the enemy gunmen firing at it, nearest first, then its own
+  target. A gunman "fires at it" once it has opened fire on it as its target; the player
+  counts only as the fighter's target.
+- **It still fires at its own target**: the peek point must see its own target, not the
+  gunman it hides from. *Check:* say if a fighter in the original turns to the gunman
+  that pins it down instead.
+- **When that gunman stops firing at it**, the cover is kept against its own target if
+  the edge faces it, else given up.
