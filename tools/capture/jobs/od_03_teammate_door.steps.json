@@ -581,7 +581,28 @@
    "field": "teammate"
   },
   {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831397\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831397\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 600
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nlet fV := player.GetInSameCell rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "way in",
+   "field": "by_activate"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 847168\nif player.GetInSameCell rF1 == 0\n  player.MoveTo rF1\nendif\nSetFunctionValue 1\nEnd\n"
   },
   {
    "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 831107\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
