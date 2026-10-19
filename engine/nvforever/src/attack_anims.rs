@@ -56,6 +56,16 @@
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
+//! - **Shots take priority over movement** [design: owner 2026-10-19, "shooting should
+//!   always take priority"]: a shot's clip does not fade out at its end but is held at its
+//!   last frame at full weight for [`SHOT_HOLD`] while the fight goes on, then fades out,
+//!   and a shot that comes while one is shown starts without a fade in. The attack clips'
+//!   arms and spine (priority 55) are above the armed run's (`2hafastforward.kf` 36) and
+//!   the aim's (35) [observed: kf_pose_compare, 2026-10-19], so the gun stays where the
+//!   shot puts it while the legs run. Before, the 9mm SMG's `2haattackloop.kf` (0.17 s)
+//!   faded in and out with every shot and never reached full weight, and between shots
+//!   the run's arms beat the aim's: a Powder Ganger running and firing showed the plain
+//!   armed run [observed in NVForever: owner's playtest 2026-10-19].
 //! - An attack clip is laid on blend layers 4 and 5 (the idles' layers: an idle stops for
 //!   the attack) over the aim, by track priority (attack clips 55, aim 50,
 //!   animation.md §9.6); the aim's up or down form takes layer 3 when the weapon's draw
@@ -102,6 +112,9 @@ pub const DEFAULT_HIT: f32 = 0.3;
 /// A looping attack clip goes round its repeated part while the shots come no further
 /// apart than this, seconds [engineering choice, as `player_body`'s].
 const LOOP_HOLD: f32 = 0.25;
+/// A shot's clip is held at its last frame, at full weight, this long after it ends,
+/// seconds [design: owner 2026-10-19, "shooting should always take priority"].
+const SHOT_HOLD: f32 = 1.0;
 
 /// An actor starts an attack (from `npc_combat`): a shot or a blow, with the weapon it
 /// uses (`None`: fists, or a creature's own attack).
@@ -270,6 +283,10 @@ fn loop_time(t: f32, from: f32, to: f32) -> f32 {
     from + (t - to).rem_euclid(to - from)
 }
 
+/// A shot's clip held at its last frame: the clip, its up and down forms, and the
+/// seconds since it ended.
+pub type HeldShot = (Arc<BoundClip>, Option<Arc<BoundClip>>, Option<Arc<BoundClip>>, f32);
+
 /// On a fighting actor's root: its aim's up and down forms, the pitch to its target and
 /// the attack playing (read by `locomotion::drive`).
 #[derive(Component, Debug, Clone, Default)]
@@ -301,6 +318,9 @@ pub struct CombatPose {
     /// pose after the fight.
     pub fighting: bool,
     pub attack: Option<Attack>,
+    /// A shot's clip that has played out, held at its last frame (module notes): with
+    /// its up and down forms and the seconds since it ended.
+    pub held: Option<HeldShot>,
     /// The clip the aim layer showed last frame, and the one it is fading from with the
     /// seconds since the change and the fade's length ([`CombatPose::fade_level`]).
     pub level_last: Option<Arc<BoundClip>>,
@@ -396,22 +416,46 @@ impl CombatPose {
             };
             player.layers[AIM_VARIANT_LAYER] = clip.map(|clip| Layer { clip, phase: 0.0, weight: w });
         }
-        let Some(a) = self.attack.as_mut() else { return };
+        let form_of = |up: &Option<Arc<BoundClip>>, down: &Option<Arc<BoundClip>>| if variant == Aim::Up { up.clone() } else { down.clone() };
+        let Some(a) = self.attack.as_mut() else {
+            // A shot played out: its last frame over the movement while the fight goes
+            // on, then faded out (module notes).
+            let Some((clip, up, down, since)) = self.held.as_mut() else { return };
+            *since += dt;
+            let fade = ((SHOT_HOLD + FADE_OUT - *since) / FADE_OUT).min(1.0);
+            if fade <= 0.0 || !can {
+                self.held = None;
+                return;
+            }
+            player.layers[ATTACK_LAYER] = Some(Layer { clip: clip.clone(), phase: 0.999, weight: fade });
+            player.layers[ATTACK_LAYER + 1] = form_of(up, down).filter(|_| w > 1e-3).map(|clip| Layer { clip, phase: 0.999, weight: w * fade });
+            return;
+        };
         a.t += dt;
         a.since += dt;
         if let Some((from, to)) = a.repeat.filter(|_| a.since <= LOOP_HOLD) {
             a.t = loop_time(a.t, from, to);
         }
+        let shot = a.kind == Move::Attack && !a.melee;
         if a.t >= a.len {
+            self.held = shot.then(|| (a.clip.clone(), a.up.clone(), a.down.clone(), 0.0));
             self.attack = None;
-            return;
+            return self.layers_held(player, w, variant);
         }
         let fade_in = if a.fade_in { ((a.t - a.repeat.map_or(0.0, |r| r.0)).max(0.0) / FADE_IN).min(1.0) } else { 1.0 };
-        let fade = fade_in * ((a.len - a.t) / FADE_OUT).min(1.0);
+        // A shot does not fade out at its end: it is held there (module notes).
+        let fade = fade_in * if shot { 1.0 } else { ((a.len - a.t) / FADE_OUT).min(1.0) };
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
         player.layers[ATTACK_LAYER] = Some(Layer { clip: a.clip.clone(), phase, weight: fade });
-        let form = if variant == Aim::Up { a.up.clone() } else { a.down.clone() };
-        player.layers[ATTACK_LAYER + 1] = form.filter(|_| w > 1e-3).map(|clip| Layer { clip, phase, weight: w * fade });
+        player.layers[ATTACK_LAYER + 1] = form_of(&a.up, &a.down).filter(|_| w > 1e-3).map(|clip| Layer { clip, phase, weight: w * fade });
+    }
+
+    /// The held shot's last frame at full weight, in the frame its clip ended.
+    fn layers_held(&mut self, player: &mut BlendPlayer, w: f32, variant: Aim) {
+        let Some((clip, up, down, _)) = self.held.as_ref() else { return };
+        player.layers[ATTACK_LAYER] = Some(Layer { clip: clip.clone(), phase: 0.999, weight: 1.0 });
+        let form = if variant == Aim::Up { up.clone() } else { down.clone() };
+        player.layers[ATTACK_LAYER + 1] = form.filter(|_| w > 1e-3).map(|clip| Layer { clip, phase: 0.999, weight: w });
     }
 }
 
@@ -448,6 +492,8 @@ struct Stats {
     /// Blows that went on a combo from the last one's `a:` key.
     chained: usize,    /// Reload clips started (an opening clip and each round count once).
     reloads: usize,
+    /// Shots that took over from a shot still shown, without a fade in (module notes).
+    followed: usize,
 }
 
 impl AttackClips {
@@ -682,7 +728,14 @@ fn start(
             let repeat = repeat_of(&clip).filter(|_| !a.melee && !reloads);
             let t = repeat.map_or(0.0, |(from, _)| from);
             let hit = if a.melee { hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len) } else { 0.0 };
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in: a.kind != Move::ReloadRound, reload: reloads, kind: a.kind, opening, melee: a.melee, hit });
+            // A shot that follows a shot still shown at full weight takes over without a
+            // fade in, so the arms stay on the shots (module notes).
+            let shot = a.kind == Move::Attack && !a.melee;
+            let follows = shot && (new_pose.held.take().is_some() || new_pose.attack.as_ref().is_some_and(|c| c.kind == Move::Attack && !c.melee));
+            new_pose.held = None;
+            clips.stats.followed += usize::from(follows);
+            let fade_in = a.kind != Move::ReloadRound && !follows;
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in, reload: reloads, kind: a.kind, opening, melee: a.melee, hit });
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -734,13 +787,14 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
     let s = &clips.stats;
     let list = |m: &BTreeMap<String, usize>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") };
     info!(
-        "attack anims summary: {} attack clips started ({} shots, {} blows, {} blows went on a combo, {} reload clips), {} shots went on with a looping clip: {}; without a clip: {}",
+        "attack anims summary: {} attack clips started ({} shots, {} blows, {} blows went on a combo, {} reload clips), {} shots went on with a looping clip, {} shots followed a shot still shown: {}; without a clip: {}",
         s.started,
         s.shots,
         s.blows,
         s.chained,
         s.reloads,
         s.kept,
+        s.followed,
         list(&s.clips),
         list(&s.missing)
     );
@@ -782,6 +836,42 @@ mod tests {
         assert_eq!(names, ["h2hattackleft_mid.kf", "h2hattackright.kf", "h2hattackleft2.kf"]);
         put_chained_first(&mut names, SwingPick { next: None, rolls: [0.0; 2] });
         assert_eq!(names[0], "h2hattackleft_mid.kf");
+    }
+
+    #[test]
+    fn a_shot_is_held_at_full_weight_between_shots() {
+        // The 9mm SMG's `2haattackloop.kf` is 0.17 s long.
+        let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new());
+        clip.stop = 0.167;
+        let clip = Arc::new(BoundClip::bind(Arc::new(clip), |_| None));
+        let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0 };
+        let mut player = BlendPlayer::new(Vec::new(), Arc::new(Vec::new()));
+        let mut pose = CombatPose { fighting: true, attack: Some(shot), ..Default::default() };
+        let weight = |p: &BlendPlayer| p.layers[ATTACK_LAYER].as_ref().map_or(0.0, |l| l.weight);
+        // Faded in, the clip does not fade out at its end.
+        for _ in 0..16 {
+            pose.layers(&mut player, true, 0.01);
+        }
+        assert_eq!(weight(&player), 1.0);
+        // Ended, it is held at its last frame at full weight.
+        for _ in 0..10 {
+            pose.layers(&mut player, true, 0.01);
+        }
+        assert!(pose.attack.is_none() && pose.held.is_some());
+        assert_eq!((weight(&player), player.layers[ATTACK_LAYER].as_ref().unwrap().phase), (1.0, 0.999));
+        // Then fades out once no shot follows, and goes.
+        player.layers = Default::default();
+        pose.held.as_mut().unwrap().3 = 0.0;
+        pose.layers(&mut player, true, SHOT_HOLD + FADE_OUT * 0.5);
+        assert!((weight(&player) - 0.5).abs() < 0.1, "{}", weight(&player));
+        pose.layers(&mut player, true, FADE_OUT);
+        assert!(pose.held.is_none());
+        // Out of the fight it goes at once.
+        pose.held = Some((clip.clone(), None, None, 0.0));
+        pose.fighting = false;
+        player.layers = Default::default();
+        pose.layers(&mut player, true, 0.01);
+        assert!(pose.held.is_none() && player.layers[ATTACK_LAYER].is_none());
     }
 
     #[test]
