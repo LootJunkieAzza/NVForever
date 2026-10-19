@@ -34,16 +34,25 @@
 //!   ([`casing_sound`]) where it lands, up to [`CASING_SOUNDS`] times a casing [design].
 //! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, upright, emitting
 //!   its own particle systems (flash, sparks, smoke, shrapnel: `crate::particles::
-//!   ModelEmitter`) for [`EXPLOSION_SECS`], and the EXPL's light (LIGH) fading out over
-//!   [`EXPLOSION_LIGHT_SECS`] [design: the LIGH's time is -1, no duration of its own].
-//!   The dirt thrown up is the impact of the EXPL's data set on the ground below
-//!   (`nvf_play::combat`), shown as any impact.
-//! - Not built: the controllers inside the flash and impact models (they grow and
-//!   fade), impact decals, NPCs' shots.
+//!   ModelEmitter`) for as long as its sequence runs (else [`EXPLOSION_SECS`]), and the
+//!   EXPL's light (LIGH) fading out over [`EXPLOSION_LIGHT_SECS`] [design: the LIGH's
+//!   time is -1, no duration of its own]. The dirt thrown up is the impact of the EXPL's
+//!   data set on the ground below (`nvf_play::combat`), shown as any impact. Seen from
+//!   within the EXPL's image-space radius, its image space modifier plays on the screen
+//!   (`crate::imagespace::ScreenModifiers::play`).
+//! - **The models' own animation** (docs/spec-notes/explosion-effects.md): a flash,
+//!   impact or explosion model plays its effect clip from when it appears
+//!   (`nvf_assets::model::Rig::effect`): its `SpecialIdle_AreaEffect` sequence and the
+//!   controllers no sequence drives, so fireballs and dust splashes grow, move, fade and
+//!   show and hide as their files say ([`spawn_effect`]).
+//! - Not built: impact decals, the models' refraction (heat haze) controllers, NPCs'
+//!   muzzles.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
+use fnv_nif::anim::BoolTrack;
+use nvf_assets::anim_play::Playing;
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisuals};
 use nvf_play::phys::PhysState;
@@ -106,9 +115,15 @@ struct Flash {
     left: f32,
 }
 
-/// How long an explosion's model stays and emits, and how long its light takes to fade,
-/// seconds [design: about the grenade explosion's sequence, 5.03 s, and its flash's
-/// emitter, on for 0.33 s].
+/// The nodes an effect model's clip shows and hides (`NiVisController` tracks), on the
+/// model's root with its [`Playing`].
+#[derive(Component)]
+struct EffectVisibility(Vec<(Entity, BoolTrack)>);
+
+/// How long an explosion's model stays and emits when it has no sequence, and how long
+/// its light takes to fade, seconds [design: about the grenade explosion's sequence,
+/// 5.03 s, and its flash's emitter, on for 0.33 s]. A model with a sequence stays for its
+/// length [hypothesis: the game removes the effect when its sequence has run].
 pub const EXPLOSION_SECS: f32 = 5.0;
 pub const EXPLOSION_LIGHT_SECS: f32 = 0.6;
 
@@ -139,6 +154,10 @@ struct ShotFx {
     casing_knocks: u32,
     impacts: u32,
     explosions: u32,
+    /// Effect models spawned playing their own clip, and of those, explosions whose
+    /// image space modifier went on the screen.
+    animated: u32,
+    screen_effects: u32,
 }
 
 pub struct ShotFxPlugin;
@@ -146,7 +165,7 @@ pub struct ShotFxPlugin;
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotFx>()
-            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera, effect_visibility).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -184,16 +203,77 @@ fn spawn_model(commands: &mut Commands, parent: Entity, pm: &PreparedModel, plac
     holder
 }
 
+/// Spawn an effect model under `parent` at `place`: its rig playing its effect clip when
+/// something in the file moves (`Rig::effect`), else its node tree ([`spawn_model`]).
+/// Its billboards turn and its add-on nodes emit either way. Returns the entity above it
+/// and the length of its clip in seconds (0: none).
+fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &PreparedModel, place: Transform, source: &str) -> (Entity, f32) {
+    let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.effect.as_ref()?))) else {
+        return (spawn_model(commands, parent, pm, place), 0.0);
+    };
+    // Under a holder at the place: a track of the clip may drive the file's root node.
+    let holder = commands.spawn((place, Visibility::Inherited, ChildOf(parent))).id();
+    let (root, drawn, by_name) = rig.spawn_playing(commands, holder, Transform::IDENTITY, source, 0.0, Some(clip));
+    for e in drawn {
+        commands.entity(e).insert(NotShadowCaster);
+    }
+    for n in &pm.nodes {
+        let Some(&e) = n.name.as_ref().and_then(|k| by_name.get(k)) else { continue };
+        if let Some(mode) = n.billboard {
+            commands.entity(e).insert(Billboard { mode, bind: local(&n.local).rotation });
+        }
+        if let Some(index) = n.addon {
+            commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
+        }
+    }
+    let shown: Vec<(Entity, BoolTrack)> = clip.visibility.iter().filter_map(|(n, _, t)| Some((*by_name.get(n)?, t.clone()))).collect();
+    if !shown.is_empty() {
+        commands.entity(root).insert(EffectVisibility(shown));
+    }
+    fx.animated += 1;
+    (holder, clip.length() / clip.frequency.max(1e-6))
+}
+
+/// Show and hide the nodes of effect models as their clips' visibility tracks say.
+fn effect_visibility(effects: Query<(&Playing, &EffectVisibility)>, mut visibility: Query<&mut Visibility>) {
+    for (p, ev) in &effects {
+        let t = p.sequence_time();
+        for (e, track) in &ev.0 {
+            let want = match track.at(t) {
+                Some(true) => Visibility::Inherited,
+                Some(false) => Visibility::Hidden,
+                None => continue,
+            };
+            if let Ok(mut v) = visibility.get_mut(*e) {
+                if *v != want {
+                    *v = want;
+                }
+            }
+        }
+    }
+}
+
 fn load(models: &mut ModelCtx, fx: &mut ShotFx, what: &str, model: &str) -> Option<Arc<PreparedModel>> {
     let path = fnv_actor::resolve::mesh_path(model);
     let pm = models.model(&path);
     if fx.reported.insert(path.clone()) {
         match &pm {
             Some(pm) => info!(
-                "shot fx: {what} {path}: {} shapes, {} nodes, {} billboards",
+                "shot fx: {what} {path}: {} shapes, {} nodes, {} billboards{}",
                 pm.shapes.len(),
                 pm.nodes.len(),
-                pm.nodes.iter().filter(|n| n.billboard.is_some()).count()
+                pm.nodes.iter().filter(|n| n.billboard.is_some()).count(),
+                match pm.rig.as_ref().and_then(|r| r.effect.as_ref()) {
+                    Some(c) => format!(
+                        "; plays {} ({:.2} s: {} node track(s), {} visibility, {} material)",
+                        c.name,
+                        c.length(),
+                        c.tracks.len(),
+                        c.visibility.len(),
+                        c.materials.len()
+                    ),
+                    None => String::new(),
+                }
             ),
             None => warn!("shot fx: {what} {path}: model not loaded"),
         }
@@ -253,7 +333,7 @@ fn flash(
         };
         let Some((parent, place)) = place else { continue };
         let Some(pm) = load(&mut models, &mut fx, "muzzle flash", model) else { continue };
-        let holder = spawn_model(&mut commands, parent, &pm, place);
+        let (holder, _) = spawn_effect(&mut commands, &mut fx, parent, &pm, place, model);
         // Made after this frame's flashes were aged: it is drawn this frame whatever
         // its duration, and goes in the first frame its time is up.
         commands.entity(holder).insert(Flash { left: p.muzzle_flash_duration });
@@ -430,24 +510,26 @@ fn impacts(
             _ => normal,
         };
         let place = Transform { translation: Vec3::from_array(hit.point), rotation: Quat::from_rotation_arc(Vec3::Z, along), scale: Vec3::ONE };
-        let holder = spawn_model(&mut commands, world_root, &pm, place);
+        let (holder, _) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, model);
         // Its own particle systems, if any (the debris of an explosion's dirt impact).
         commands.entity(holder).insert((Flash { left: i.effect_duration }, crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model))));
         fx.impacts += 1;
     }
 }
 
-/// Explosions: the EXPL's model emitting its particle systems, and its light fading.
+/// Explosions: the EXPL's model playing its sequence and emitting its particle systems,
+/// its light fading, and its image space modifier for an eye within its radius.
 #[allow(clippy::too_many_arguments)]
 fn explosions(
     mut commands: Commands,
     time: Res<Time>,
     mut boom: MessageReader<ExplosionFx>,
-    sfx: Option<Res<Sfx>>,
+    (sfx, combat, mut screen): (Option<Res<Sfx>>, Res<Combat>, Option<ResMut<crate::imagespace::ScreenModifiers>>),
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut fx: ResMut<ShotFx>,
-    root: Query<Entity, With<WorldRoot>>,
+    root: Query<(Entity, &Transform), With<WorldRoot>>,
+    camera: Query<&GlobalTransform, With<nvf_play::PlayerCamera>>,
     mut lights: Query<(Entity, &mut FadingLight, &mut PointLight)>,
 ) {
     let dt = time.delta_secs();
@@ -460,23 +542,36 @@ fn explosions(
             l.intensity = f.full * k;
         }
     }
-    let (Some(sfx), Ok(world_root)) = (sfx, root.single()) else {
+    let (Some(sfx), Ok((world_root, root_place))) = (sfx, root.single()) else {
         boom.clear();
         return;
     };
+    // The eye in game space.
+    let eye = camera.single().ok().map(|c| root_place.compute_affine().inverse().transform_point3(c.translation()));
     for b in boom.read() {
         let Some(x) = sfx.forms.explosions.get(&b.explosion) else { continue };
         let place = Transform::from_translation(Vec3::from_array(b.point));
-        let holder = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
+        let (holder, length) = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
             Some((m, pm)) => {
-                let h = spawn_model(&mut commands, world_root, &pm, place);
+                let (h, length) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, m);
                 commands.entity(h).insert(crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(m)));
-                h
+                (h, length)
             }
-            None => commands.spawn((place, Visibility::Inherited, ChildOf(world_root))).id(),
+            None => (commands.spawn((place, Visibility::Inherited, ChildOf(world_root))).id(), 0.0),
         };
-        commands.entity(holder).insert(Flash { left: EXPLOSION_SECS });
+        commands.entity(holder).insert(Flash { left: if length > 0.0 { length } else { EXPLOSION_SECS } });
         fx.explosions += 1;
+        // Its image space modifier, seen from within its image-space radius ("IS Radius:
+        // Radius of the area that will see the ImageSpace effect" [documented: GECK wiki
+        // Explosion]), at full strength [hypothesis: the IMAD's keys have no distance in
+        // them; nothing says the effect weakens towards the edge].
+        let stats = combat.forms.explosions.get(&b.explosion);
+        if let (Some(s), Some(eye), Some(screen)) = (stats, eye, screen.as_deref_mut()) {
+            if let Some(imod) = s.image_space_modifier.filter(|_| eye.distance(Vec3::from_array(b.point)) <= s.is_radius) {
+                screen.play(imod.0, time.elapsed_secs());
+                fx.screen_effects += 1;
+            }
+        }
         let light = x.light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
             let lin = l.color.map(fnv_world::sky::srgb_to_linear);
@@ -538,5 +633,6 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
             "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings, {} impact effects, {} explosions, {} casing knocks heard",
             fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
+        info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
     }
 }

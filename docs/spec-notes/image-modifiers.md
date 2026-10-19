@@ -197,8 +197,8 @@ at that time.
 - Whether a second apply restarts or stacks; whether animated modifiers go on behind
   menus (§3).
 - Depth of field and motion blur; "use target".
-- Other things that play modifiers are not built: explosions and weapons (their records
-  name an IMAD), the get-hit and night-eye blocks of the image space.
+- Explosions play theirs (explosion-effects.md §5, 2026-10-19). Other things that play
+  modifiers are not built: weapons (their records name an IMAD), the get-hit and night-eye blocks of the image space.
   (`TriggerScreenSplatter`: screen-splatter.md; `SetCellImageSpace`: bink-films.md §4.)
 - `ApplyImageSpaceModifier` given a form that is not an IMAD fails the call here; the
   game's behaviour is not known.

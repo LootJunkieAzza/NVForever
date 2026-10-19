@@ -19,8 +19,11 @@
 //!   with the system's own texture, blending and vertex colours.
 //! - **Model emitters** ([`ModelEmitter`]): a model's own particle systems, emitted from
 //!   where its emitter objects are in the file (explosions, `shot_fx`).
-//! - Not built: turbulence, spawn-on-death, modifier on/off controllers, strip and mesh
-//!   particle systems, particle systems of models placed in cells (fires, steam).
+//! - **Modifiers switched on and off** (`NiPSysModifierActiveCtlr`): a gravity or drag
+//!   modifier acts on a particle while the emitter it came from is at a time its keys
+//!   say on (`nvf_assets::particles::ModifierActive`).
+//! - Not built: turbulence, spawn-on-death, the bomb modifier, strip and mesh particle
+//!   systems, particle systems of models placed in cells (fires, steam).
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
@@ -81,6 +84,9 @@ enum Source {
 struct Particle {
     pos: Vec3,
     vel: Vec3,
+    /// Its emitter's time when it was born: the emitter's time now is this plus `age`
+    /// (for modifiers switched on and off on the emitter's time).
+    born_at: f32,
     age: f32,
     life: f32,
     radius: f32,
@@ -269,6 +275,7 @@ fn emit(
                 live.particles.push(Particle {
                     pos: origin + turn * offset,
                     vel: turn * dir * speed,
+                    born_at: age,
                     age: 0.0,
                     life: (m.life + m.life_variation * spread(&mut rng) * 0.5).max(0.02),
                     radius: (m.radius + m.radius_variation * spread(&mut rng)).max(0.0),
@@ -292,11 +299,12 @@ fn simulate(time: Res<Time>, mut p: ResMut<Particles>) {
         let d = &live.def;
         for q in &mut live.particles {
             q.age += dt;
-            for g in &d.gravity {
+            let at = q.born_at + q.age;
+            for g in d.gravity.iter().filter(|g| g.active.on(at, d.period, d.loops)) {
                 let pull = if g.spherical { (g.origin - q.pos).normalize_or_zero() } else { g.direction };
                 q.vel += pull * g.strength * dt;
             }
-            for drag in &d.drag {
+            for drag in d.drag.iter().filter(|g| g.active.on(at, d.period, d.loops)) {
                 // The share of the speed along the axis kept after `dt`.
                 let keep = (1.0 - drag.percentage.clamp(0.0, 1.0)).powf(dt * DRAG_STEPS_PER_SECOND);
                 let along = q.vel.dot(drag.axis);

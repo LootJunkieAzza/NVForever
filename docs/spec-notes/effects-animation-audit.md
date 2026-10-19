@@ -118,6 +118,14 @@ Owner review: docs/owner-review.md "Securitron screen".
 
 ## 3. Controllers that run by themselves
 
+One reader in `model.rs` takes every controller no sequence drives:
+`material_tracks_of_own` (material) and `node_tracks_of_own` (node transform and
+visibility). Placed objects play the Active ones looping, each on its own cycle
+(`free_material_tracks`, `free_transform_tracks`, `Clip::free`); effect models
+(explosions, impacts, muzzle flashes, PR #489, explosion-effects.md §2) take them all,
+Active or not, into `Rig::effect` and play them once (`effect_clip`). `OwnCycle::time`
+runs from 0 for both (#489).
+
 - **Material**: `model::free_material_tracks` now also takes `NiMaterialColorController`
   with target colour 3 (TC_SELF_ILLUM [documented: nif.xml MaterialColor]),
   `BSMaterialEmittanceMultController`, and texture operations 2-4 (TT_ROTATE,
