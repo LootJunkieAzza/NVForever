@@ -569,6 +569,85 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     before its fuse ran out. Throw arcs and bounce are part of the planned projectile
     captures.
 
+## 11a. Mines
+
+Mines are the placed explosives of the plugins (PGRE, 297 across the masters) and the ones
+the player puts down. Code: `fnv_combat::mine` (rules), `nvf_play::mines` (in play),
+`fnv_sim::World::activate` (disarming), `fnv_game::functions::mine_spares` (who is spared).
+
+- **The records** [observed: `fnvtool combat form`, `esm decode`, FalloutNV.esm]:
+  - `MineFragProjectile` (0x43FA): Lobber; flags Explosion, Alt. Trigger, Can Be Disabled,
+    Can Be Picked Up; proximity 100, timer 3; explosion `MineFragExplosion` (100 damage,
+    radius 192, Knock Down By Formula); countdown sound `WPNMineTick`, disable sound
+    `WPNMineDisarm`; Bouncy Mult 1.0; its weapon `WeapMineFrag` (0x433C, Land Mine).
+  - It is destructible: DEST health 5, one stage at 0 % that disables and destroys it and
+    sets off `MediumExplosion` (75 damage, radius 220).
+  - Settings: `fMineExteriorRadiusMult` 1.6, `fMinesDelayMin` 0.2,
+    `iProjectileMineShooterCanTrigger` 1, `iMineDisarmExperience` 5.
+  - The model (`MineFrag.NIF`) has a `##LightOn` node (a glow and a lit lens) and a
+    `##LightOff:0` lens beside the body `##FMine:0`, and a `BlastNode` 45 units up.
+- **Trigger** [owner 2026-10-19: it starts beeping at about 2 m; 1.4 m quoted for the frag
+  mine]: an actor within the proximity radius starts the fuse. Out of doors the radius is ×
+  `fMineExteriorRadiusMult` [hypothesis from the setting's name; it makes the Fallout 3
+  tutorial's 100 indoors and 160 outdoors, level-design.md]. Distance is measured to the
+  nearest point of the actor's upright body [design]. Dead actors set nothing off.
+- **Who sets it off** [owner 2026-10-19]: anyone who is not in the owning faction (XOWN) nor
+  in a faction it counts as an ally or a friend. A mine without an owner spares nobody. The
+  player's own mines never go off for the player. They spare the player's teammates too,
+  which is a hypothesis: they are the player's side. `iProjectileMineShooterCanTrigger` is
+  1 in the data, which the owner's rule overrides; what the setting does is open.
+- **Fuse** [owner 2026-10-19: the player's Explosives skill sets how long you have, about
+  3 s nominal]: the PROJ timer × the Explosives of whoever set it off ÷ 100, never below
+  `fMinesDelayMin` [hypothesis: linear]. That gives 3 s at 100 and 0.6 s at 20. It fits the
+  capture `cl_d_mines_live` (simulation.md §1), where a mine went off between 0.5 and
+  1.5 s after the player stepped on it. Once started, the fuse burns even if the actor
+  leaves [design].
+- **Tick and light** [owner 2026-10-19: live mines show the red-orange light; it blinks
+  once a mine is set off]:
+  - A live mine shows `##LightOn`. A loose or disarmed mine item shows `##LightOff`
+    [hypothesis].
+  - While the fuse burns, the light is lit for 0.25 s and dark for 0.25 s, and the
+    countdown sound plays each time it lights [design: the period].
+- **Goes off**: the mine is disabled (as the capture saw), and its explosion goes off 40
+  units above it. That is the height of the destruction stages' explosions; the model's
+  BlastNode is at 45. The blast is the hits of the actor who put it down; nobody's for
+  the plugins' mines [design].
+- **Shot, or caught in a blast** [owner 2026-10-19: "you can shoot a mine to blow it up"]:
+  through its destruction data, like any destructible (§11). A shot or a blast reaching 5
+  damage sets off `MediumExplosion`. So mines set each other off, as the Fallout 3 tutorial
+  says (level-design.md). A mine that goes off on its fuse is disabled first, so its own
+  blast does not also set off its destruction stage.
+- **Disarming** [owner 2026-10-19]: one activation by the player disarms a live mine, even
+  while it beeps. It becomes its weapon, a loose item in its place, which is taken with the
+  next activation like any other item. Every mine needs Explosives 1, so there is no
+  check. XP and the "Mines Disarmed" statistic as before (experience.md). The disable sound
+  plays. A faction's mine leaves an item that faction owns [hypothesis]. A scripted
+  Activate still does nothing (simulation.md §1).
+- **Putting one down** [owner 2026-10-19: armed "immediately after leaving the player
+  hand"]: the thrown mine flies as a lobber. When it comes to rest it leaves flight
+  (`ProjEvent::Settled`) and becomes a reference of its PROJ where it lies, owned by the
+  thrower. It is then a mine like the placed ones.
+  - **Lobber bounce, a fix that came with this:** a lobber keeps 0.3 × its Bouncy Mult of
+    its speed at each bounce [hypothesis: Bouncy Mult multiplies]. It used to keep the
+    Bouncy Mult itself, 1.0 for the frag grenade and the frag mine, so they bounced at
+    full speed until the fuse ran out (§11 "Checked") or, a mine, for ever.
+- **Drawn**: render streaming draws PGRE references (PROJ bases) with their projectile's
+  model. The drawing code marks the light meshes (`MineLight`).
+- **Checked** [observed 2026-10-19, smoke `mines-placed` and `mines-thrown`]:
+  - The three frag mines on the bridge north of Primm (0x00172DB5, DDA, DDC) are drawn
+    with their lights.
+  - At Explosives 100, the player 60 units away along the bridge set one off with a 3 s
+    fuse. Aimed at and activated while it ticked, it was disarmed into a Frag Mine lying
+    in its place (0xFF000000), and the next activation took it.
+  - The 10mm pistol's shot took 0x00172DDA to its destruction stage, and it blew up.
+  - Stood on at Explosives 20, a mine went off after 0.6 s with `MineFragExplosion`.
+  - A thrown frag mine came to rest, was drawn lit and was not set off by the player
+    walking over it.
+- Not built: NPCs putting mines down, NPCs seeing and avoiding mines, the HUD's mine
+  marker, mines owned by an actor base (XOWN naming an NPC_), `DisableAllMines`. Also the
+  Light Step perk (mines do not go off for the player), and the Explosives chance of
+  setting one off while disarming, which the owner's rule leaves out.
+
 ## 12. Limb hits (step C8)
 
 - **Which body part data** (`CombatForms::body_parts_for`):

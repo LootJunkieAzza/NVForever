@@ -5425,3 +5425,42 @@ order = [[
   "console: > EasyPeteRef.setcriticalstage gooend",
   "culled by its critical stage",
 ]]
+
+[[scenario]]
+name = "mines-placed"
+source = "owner 2026-10-19: the Primm bridge's mines were invisible and not armed; a mine starts beeping at about 2 m, the Explosives skill sets the fuse, one activation disarms it (even beeping) into a loose item, a shot blows it up (docs/spec-notes/combat-rules.md §11a)"
+note = "God mode, at the three frag mines on the bridge north of Primm (0x00172DB5, DDA, DDC). Explosives 100 (3 s fuse): put 60 units from DDC along the bridge (within reach), it starts its fuse; aimed at and activated at once, it is disarmed, and the Frag Mine left lying is taken. Then 450 units from DDA along the bridge, the 10mm pistol shoots it: its destruction stage sets off MediumExplosion. Then at Explosives 20, put on DB5: it goes off after 0.6 s"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-combat/src/mine.rs", "crates/fnv-combat/src/projectile.rs", "crates/fnv-sim/src/world.rs", "engine/nvforever/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONSOLE = "4:player.setav explosives 100;19:player.setav explosives 20", NVF_PLAY_TEST_SCRIPT = "5:moveto:player:0x00172DDC:-41:44:0,12:moveto:player:0x00172DDA:304:-332:0,20:moveto:player:0x00172DB5:0:0:0", NVF_PLAY_TEST_CONTROL = "7:aimref=00172DDC,13:weapon,16:aimref=00172DDA,16.5:fire,16.7:fire", NVF_PLAY_TEST_ACTIVATE = "7.3,8.3" }
+args = ["--play", "--pos=-61200,-52600,6300", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'mines: \d+ mine projectile\(s\), (?P<n>\d+) placed mine\(s\)', range = [150, 400], label = "the placed mines are listed" },
+  { re = 'mines: 0x00172DDC drawn with its light parts', label = "a bridge mine is drawn" },
+  { re = 'mines: 0x00000014 sets off mine 0x00172DDC at \d+ units \(trigger radius 160\): fuse 3\.00 s at Explosives 100', label = "the player sets one off out of doors; Explosives 100 gives 3 s" },
+  { re = 'mines: mine 0x00172DDC disarmed', label = "activated while it beeps, it is disarmed" },
+  { re = 'activate 0xFF[0-9A-F]{6} Frag Mine \(Take\): .*PickedUp', label = "the disarmed mine is taken as a loose item" },
+  { re = 'combat: 0x00172DDA destruction stage -?\d+ -> \d+.*explosion', label = "a shot mine reaches its destruction stage" },
+  { re = 'combat: explosion MediumExplosion at', label = "and its explosion goes off" },
+  { re = 'mines: 0x00000014 sets off mine 0x00172DB5 at \d+ units .*fuse 0\.60 s at Explosives 20', label = "stepped on at Explosives 20: a 0.6 s fuse" },
+  { re = 'mines: mine 0x00172DB5 goes off', label = "the fuse burns down" },
+  { re = 'combat: explosion MineFragExplosion at', label = "the frag mine's explosion" },
+]
+forbid = [{ re = 'mines: mine 0x00172DDC goes off', label = "the disarmed mine goes off" }]
+
+[[scenario]]
+name = "mines-thrown"
+source = "owner 2026-10-19: the player's own mines arm as soon as they leave the hand, can be disarmed and taken like the placed ones, and never go off for the player (docs/spec-notes/combat-rules.md §11a)"
+note = "God mode, in Goodsprings, the player is given three frag mines, draws them, throws one and walks over where it landed"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-combat/src/mine.rs", "crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0000433C:3", NVF_PLAY_TEST_EQUIP = "0000433C", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,18:fire", NVF_PLAY_TEST_MOVE = "21:1:0:walk,25:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 28
+expect = [
+  { re = 'mines: 0x00000014 put down mine 0xFF[0-9A-F]{6} \(0x000043FA\) at .*armed', label = "the thrown mine comes to rest and is armed" },
+  { re = 'mines: 0xFF[0-9A-F]{6} drawn with its light parts', label = "it is drawn with its light" },
+  { re = 'mines: [1-9]\d* live mine\(s\) in the loaded cells', label = "it counts as a live mine" },
+]
+forbid = [{ re = 'mines: 0x00000014 sets off mine 0xFF', label = "the player sets off its own mine" }]

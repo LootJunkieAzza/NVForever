@@ -68,6 +68,11 @@ pub struct WeaponFx {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ProjectileFx {
     pub sound: Option<FormId>,
+    /// `DATA` sound_countdown: a mine's tick while its fuse burns (`WPNMineTick` for the
+    /// frag mine) [documented: xEdit PROJ; observed: the frag mine's names it].
+    pub sound_countdown: Option<FormId>,
+    /// `DATA` sound_disable: a mine being disarmed (`WPNMineDisarm`).
+    pub sound_disable: Option<FormId>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -273,7 +278,10 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 impact_dataset: fid(first(d, b"INAM")),
             })
         }
-        b"PROJ" => Loaded::Projectile(ProjectileFx { sound: field(first(d, b"DATA"), "sound") }),
+        b"PROJ" => {
+            let v = first(d, b"DATA");
+            Loaded::Projectile(ProjectileFx { sound: field(v, "sound"), sound_countdown: field(v, "sound_countdown"), sound_disable: field(v, "sound_disable") })
+        }
         b"EXPL" => {
             let v = first(d, b"DATA");
             Loaded::Explosion(ExplosionFx {

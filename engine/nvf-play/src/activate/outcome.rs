@@ -149,9 +149,10 @@ pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, name
             let n = name_of(*item);
             out.push(Effect::Message(if *count > 1 { format!("{n} ({count}) added") } else { format!("{n} added") }));
         }
-        Outcome::Disarmed { item } => {
+        Outcome::Disarmed { item, placed } => {
             out.push(Effect::RefChanged(target));
-            out.push(Effect::Message(format!("{} added", name_of(*item))));
+            out.extend(placed.map(|p| Effect::RefChanged(p.0)));
+            out.push(Effect::Message(format!("{} disarmed", name_of(*item))));
         }
         Outcome::OpenedContainer { container } => out.push(Effect::OpenContainer(container.0)),
         Outcome::Locked { level } => out.push(Effect::Message(format!("{name} is locked ({})", lock_text(*level)))),
@@ -224,7 +225,7 @@ mod tests {
     fn pick_up_hides_the_reference() {
         let e = run(&act(Outcome::PickedUp { item: FormId(0x15169), count: 3, owner: None }));
         assert_eq!(e, vec![Effect::RefChanged(0x55), Effect::Message("form 15169 (3) added".into())]);
-        let e = run(&act(Outcome::Disarmed { item: FormId(0x77) }));
+        let e = run(&act(Outcome::Disarmed { item: FormId(0x77), placed: None }));
         assert_eq!(e[0], Effect::RefChanged(0x55));
     }
 

@@ -244,12 +244,10 @@ fn sync_drawn(
             }
             None => {
                 for s in &model.shapes {
-                    commands.entity(root).with_child((
-                        Mesh3d(s.mesh.clone()),
-                        MeshMaterial3d(s.material.clone()),
-                        Transform::from_matrix(Mat4::from(s.transform)),
-                        RefVisual(id),
-                    ));
+                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), RefVisual(id), ChildOf(root))).id();
+                    if let Some(l) = crate::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
+                        commands.entity(e).insert(l);
+                    }
                 }
                 model.shapes.len()
             }

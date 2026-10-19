@@ -1023,9 +1023,15 @@ fn placed_mines_disarm_into_their_weapon() {
     assert_eq!(f.forms.get(id(MINE_PROJ)).unwrap().data, BaseData::Projectile { item: Some(id(MINE)) });
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
     let p = FormId::PLAYER_REF;
-    assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disarmed { item: id(MINE) });
-    assert_eq!(w.item_count(p, id(MINE)).unwrap(), 1);
+    let Outcome::Disarmed { item, placed: Some(left) } = w.activate(p, id(MINE_REF)).unwrap().outcome else { panic!("not disarmed") };
+    assert_eq!(item, id(MINE));
+    // The mine is gone; the disarmed one lies where it was, as a loose item.
+    assert_eq!(w.item_count(p, id(MINE)).unwrap(), 0);
     assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disabled);
+    let (mine, loose) = (w.peek(id(MINE_REF)).unwrap().clone(), w.peek(left).unwrap().clone());
+    assert_eq!((loose.base, loose.pos, loose.cell), (id(MINE), mine.pos, mine.cell));
+    assert!(matches!(w.activate(p, left).unwrap().outcome, Outcome::PickedUp { count: 1, .. }));
+    assert_eq!(w.item_count(p, id(MINE)).unwrap(), 1);
 }
 
 #[test]
@@ -1039,7 +1045,7 @@ fn scripted_activation_leaves_placed_mines_alone() {
     assert_eq!(w.item_count(p, id(MINE)).unwrap(), 0);
     assert!(w.is_enabled(id(MINE_REF)).unwrap());
     // The player's own activation still disarms it afterwards.
-    assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disarmed { item: id(MINE) });
+    assert!(matches!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disarmed { placed: Some(_), .. }));
 }
 
 #[test]

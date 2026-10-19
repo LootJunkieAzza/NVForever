@@ -658,12 +658,16 @@ fn lobbers_timer_proximity_detonation() {
     let ev = fly(&mut g, &empty, 2.9);
     assert!(ev.is_empty() && g.alive);
     assert!(matches!(&fly(&mut g, &empty, 0.2)[..], [ProjEvent::Explode { .. }]));
-    // Proximity mine: armed after its timer, goes off when an actor comes near.
+    // Proximity mine: it does not trigger itself, even with an actor beside it; it comes
+    // to rest and leaves flight, for the engine to place as a mine.
     let mine = ProjectileStats { alt_trigger_timer: 1.0, alt_trigger_proximity: 100.0, ..proj("Lobber", &["Explosion", "Alt. Trigger"], 0.0, 1.0) };
     let mut m = Projectile::spawn(&mine, Some(BOOM), [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], Some(1), G, &t);
-    assert!(fly(&mut m, &empty, 3.0).is_empty() && m.alive);
     let walker = Toy { actors: vec![(7, [50.0, 0.0, 30.0], 30.0)], fence: false, wall: None };
-    assert!(matches!(&fly(&mut m, &walker, 0.1)[..], [ProjEvent::Explode { .. }]));
+    match &fly(&mut m, &walker, 3.0)[..] {
+        [ProjEvent::Settled { point, normal }] => assert!(point[2] < 1.0 && normal[2] > 0.9, "{point:?} {normal:?}"),
+        e => panic!("{e:?}"),
+    }
+    assert!(!m.alive);
     // C-4 (Explosion and Detonates, no Alt. Trigger, as WeapNVC4PlasticExplosive's
     // projectile): thrown at the floor it lands and waits for detonation.
     let c4 = proj("Lobber", &["Explosion", "Detonates"], 400.0, 1.0);

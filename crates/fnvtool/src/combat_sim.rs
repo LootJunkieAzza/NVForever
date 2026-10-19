@@ -218,7 +218,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                             }
                         }
                     }
-                    ProjEvent::Expired { .. } => {}
+                    ProjEvent::Expired { .. } | ProjEvent::Settled { .. } => {}
                 }
             }
         }

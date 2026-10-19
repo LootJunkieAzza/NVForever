@@ -36,8 +36,8 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   fires the base projectile — Frag Mine 219, Powder Charge 33, Satchel Charge 25, Plasma
   Mine 10, Bottlecap Mine 3, all with the Land Mine or Mine Drop animation type — and 7
   use projectiles that several weapons fire [observed]. They are armed mines and charges;
-  activating one disarms it and yields that weapon [hypothesis; the Explosives check and
-  the chance to set it off are Layer 6]. In game [observed 2026-10-08, `bl_placed_mines`, Nipton house 8,
+  the player's activation disarms one into that weapon, left lying where it was [owner
+  2026-10-19; how they trigger, burn and go off: combat-rules.md §11a]. In game [observed 2026-10-08, `bl_placed_mines`, Nipton house 8,
   god mode on]: the four frag mines stayed enabled and did not move for 600 game loops
   after the player arrived, and a scripted `<mine>.Activate player` changed nothing (no
   Frag Mine 0x0000433C in the inventory, the mine still enabled, same position); the

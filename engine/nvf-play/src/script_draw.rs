@@ -33,9 +33,9 @@ use nvf_assets::model::ModelCtx;
 use std::collections::{BTreeMap, HashMap};
 
 /// Base types render streaming draws (world.rs `DRAWN`), without TREE (SpeedTree).
-const DRAWN: [&[u8; 4]; 23] = [
+const DRAWN: [&[u8; 4]; 24] = [
     b"STAT", b"SCOL", b"MSTT", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC", b"WEAP", b"AMMO", b"ARMO",
-    b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT", b"IMOD", b"CHIP", b"CCRD", b"CMNY",
+    b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT", b"IMOD", b"CHIP", b"CCRD", b"CMNY", b"PROJ",
 ];
 
 /// A reference render streaming leaves out at the start but this module can draw.
@@ -190,12 +190,10 @@ fn sync(
                         }
                         None => {
                             for s in &model.shapes {
-                                commands.entity(root).with_child((
-                                    Mesh3d(s.mesh.clone()),
-                                    MeshMaterial3d(s.material.clone()),
-                                    Transform::from_matrix(Mat4::from(s.transform)),
-                                    RefVisual(id),
-                                ));
+                                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), RefVisual(id), ChildOf(root))).id();
+                                if let Some(l) = crate::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {
+                                    commands.entity(e).insert(l);
+                                }
                             }
                             model.shapes.len()
                         }
