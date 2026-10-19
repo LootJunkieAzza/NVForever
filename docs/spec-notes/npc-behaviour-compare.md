@@ -653,3 +653,149 @@ From 08:05 to 08:05 the next day (2,180 samples); the package events and the sam
 - **Boone's follow distance, sneaking and joining a fight.** They need him kept on his
   follow package after a door, and coyotes that reach the player.
 - **Radroaches against NPCs.** They never closed in.
+
+## 14. Round 4: what §13 left open, run (2026-10-19) [observed]
+
+**The run.** Owner's desktop, plugin version 9, both game locks held, save `nvftest`, one
+launch per campaign (per session where the campaign says so); `observe.py run … --data
+<Data>`. Campaigns in `tools/capture/observe/`: `melee_holdoff_npc` (run twice),
+`followers_follow`, `radroach_spacing`, `blast_knockdown`.
+- **Outputs.** `C:\fnv-private\capture\out\obs_{melee_holdoff_npc,followers_follow,radroach_spacing,blast_knockdown}_*`.
+- **Run reports and timelines.** `C:\fnv-private\capture\round4`.
+
+### Why the spawned troopers never fought (§13)
+
+- **What the first run showed.** In `nvftest` too, every trooper spawned with an `offset`
+  and `attack: player` stood still out of combat for the whole session. It was in
+  procedure 11 (FOLLOW) from its first sample. The radroaches of `radroach_spacing`'s
+  first sessions stood the same way (procedure 0, TRAVEL). This copy of `gun_reach`'s set-up did
+  the same, with killall in `console_first`. So neither the save nor where killall runs
+  is the cause.
+- **What fixed it.** The second run gave StartCombat its own scan 30 game loops after
+  the MoveTo (`place` key `attack_late`, ai-observer.md §12). Then all six troopers
+  engaged, and so did a trooper spawned without an offset (as `fights_round`'s).
+- **Why it fails.** That the queued MoveTo drops the StartCombat is a [hypothesis].
+  Creature sessions worked because the creatures were hostile to their targets anyway.
+
+### NPC melee hold-off (§8.4): troopers against a normal player outdoors
+
+Second run. Distance is to the player in 2D, over the trooper's samples in combat. Swings
+are GetAnimAction entering 2. Hits are OnHit events on the player.
+
+| Session | Spot | God mode | Distance median / p10 / least | Swings | Hits |
+|---|---|---|---|---|---|
+| a_knife_late | A (Violet's dog) | no | 104 / 83 / 49 | 14 | 10 |
+| a_sledge_late | A | no | 198 / 90 / 43 | 6 | 5 |
+| a_sledge_tgm_late | A | yes | 149 / 119 / 98 | 15 | 12 |
+| b_knife_nooffset | B (south of Cook-Cook's camp) | no | 107 / 72 / 39 | 16 | 10 |
+| b_sledge_late | B | no | 137 / 119 / 116 | 15 | 11 |
+| b_sledge_tgm_late | B | yes | 126 / 105 / 77 | 15 | 14 |
+| b_knife_late | B | no | 1,366 / 700 / 690 | 7 | 1 |
+
+- **Verdict.** Outdoors, at both spots, melee troopers close in on a player who is not in
+  god mode and swing at them, as they did indoors (§9). God mode changes neither the
+  distance nor how often they swing.
+- **What it means for §3.** §3's hold-off at 147–177 units without a swing is not
+  reproduced. A sledgehammer trooper did stand 126–149 units off, but swung 15 times.
+  NVForever's attackers close in, so nothing changes, and §8.4 is closed.
+- **The outlier.** b_knife_late's trooper was on the player the whole session (target
+  0x14) but never came nearer than 690 units. It was one run [hypothesis: its way to the
+  player was blocked].
+
+### Boone, kept on his follow package (`followers_follow`)
+
+- **Out through his door, again.** At the door the package changed to his PATROL, as in
+  od_03 and §13. The script added the Follow package back 120 samples later
+  (OnPackageStart 0x000B1609).
+  - **Where he came out.** This time he arrived 136 units to the player's **right** and
+    58 ahead: offset (−35, −144), player heading 126.8°.
+  - **Against the earlier runs.** od_03's two runs and §13 had him on the left (about 170
+    left, 12–30 ahead).
+  - **What differed.** Before the door he stood 95 units in front of the player, not
+    beside him. So the side is not fixed [observed]. What decides it is a [hypothesis to
+    test: his place before the door]. NVForever's `followers::BESIDE` (160 left) holds
+    for the earlier set-up only.
+- **Standing still on the follow package.** After the door he stood 383 units off and
+  did not set off. The package's distance is 330 (PTDT of
+  FollowersBooneFollowPlayerDEFAULT). That fits a margin before a follower sets off; ours
+  is 64 (`FOLLOW_SLACK`).
+- **The walk to Manny Vargas** (the player walked about 2,000 units, then stood):
+  - **On the way.** Boone kept 180–400 units behind and was running throughout. The
+    package has Always Run, which ours follows too.
+  - **Once the player stopped.** He came to 177 units behind (15 left) and stood there.
+    So he came in well inside his package's 330. Ours stops once within the distance, so
+    about 330 off [hypothesis: the original stops at about half the distance; one
+    arrival].
+- **Sneaking.** The player was force-sneaked for 600 samples (about 20 s, most of it
+  standing after the walk). Boone's IsSneaking stayed 0 throughout [observed]. A follower
+  does not crouch with the player, at least not when standing.
+- **Joining a fight.** Two coyotes spawned 600 units off started combat on the player.
+  - **When he joined.** Boone's OnStartCombat, on a coyote, came 9 samples (about 10
+    game seconds) after the first coyote's. His package became a combat package (0xFF…,
+    procedure 13).
+  - **How the fight went.** He hit each coyote once and killed both. His combat ended
+    at the second death, and the Follow package (0x000B1609, procedure 11) came back by
+    itself.
+  - **Unexplained.** IsInCombat read 1 for him from the session's first sample, before
+    either coyote's OnStartCombat.
+
+### Radroaches against NPCs (§8.2)
+
+- **First run.** The three radroaches were all moved to one spot by the offset and stood
+  out of combat, as above. In the unarmed session one radroach fought.
+- **Second run.** With one place item each, 150 units apart, and `attack_late`, all three
+  engaged. The troopers shot two dead within about 25 s.
+- **Hits.** The radroaches' hits on troopers landed at **107** and **112** units centre
+  to centre.
+- **Against our rule.** (RNAM + 59) × scale gives 123 for a radroach (CrRadroach RNAM 64,
+  scale 1.0).
+
+**§13's creature hits set against the rule.** The rule's figures are swing starts, the
+measures here are hit distances, so the rule should come out somewhat larger:
+
+| Creature (template, RNAM, scale) | (RNAM + 59) × scale | Hits seen (min / median / max) |
+|---|---|---|
+| Deathclaw (CrDeathClaw, 192, 1.0) | 251 | 136 / 215 / 270 |
+| Young deathclaw (CrDeathClawBaby, 100, 0.75) | 119 | 94 / 105 / 116 |
+| Cazador (NVCrCazador, 100, 1.0) | 159 | 86 / 93 / 100 |
+| Radroach (CrRadroach, 64, 1.0) | 123 | 107, 112 |
+
+- **Deathclaws and radroaches.** They fit the rule as it stands.
+- **Cazadors.** They hit from well inside it [hypothesis: a flyer closes in to strike].
+  This was too few hits to fit them a rule of their own.
+
+### An explosion's knockdown (`blast_knockdown`; docs/outstanding.md row 1) — not reproduced
+
+Each explosion was placed with PlaceAtMe on the actor (`<actor>.PlaceAtMe <EXPL> 1`). The
+player was in god mode. Every hit arrived (OnHit and OnHitWith with the explosion's
+form), but **no actor was knocked down**: GetKnockedState stayed 0, the body did not move
+and no get-up began.
+
+| Session | Explosion (flags) | Actor, what it was doing | Result |
+|---|---|---|---|
+| force | WeaponKnockdownExplosion 0x001535F0 (damage 0, Knock Down – Always, Push Explosion Source Ref Only), by Ringo's PlaceAtMe | Ringo walking (procedure TRAVEL) | hit, no damage, not knocked |
+| force_player | the same, by the player's PlaceAtMe, 125 units from Ringo | the player | the player hit; Ringo untouched |
+| frag | GrenadeFragExplosion 0x000179DA (damage 125, Knock Down – By Formula) | Ringo sitting (procedure 48) | 123 damage, not knocked |
+| frag_standing | the same, three times, 300 samples apart | Chet behind his counter on an idle marker (procedure 46) | 123 damage each, not knocked; WAIT then DIALOGUE procedure for a moment after each, then his marker again |
+
+What this leaves [hypothesis, to test]:
+- **"Source Ref Only".** A PlaceAtMe'd explosion may have no source reference, so it
+  pushes nobody.
+- **Furniture and idle markers.** Actors sitting or on an idle marker may not be knocked
+  down at all.
+- **The formula.** Its chance may simply not have come up in four tries.
+
+The test that would settle it: a frag on an actor standing free (a spawned NPC, out of
+furniture) with several tries. NVForever's rule (unconscious.md §5.2: knockdown by the
+EXPL flags and the formula) is unchanged.
+
+### What is still open after round 4
+
+- **Where a teammate comes out of a door.** The side changed with where Boone stood
+  before the door (left in three runs, right in one). It needs a run with him placed
+  beside, behind and in front of the player.
+- **The follower's stopping distance.** He came in to 177 against the package's 330,
+  from one arrival. Several arrivals (walks of different lengths) would show whether it is
+  about half the distance.
+- **An explosion's knockdown** on an actor standing free (above).
+- **Cazadors' reach.** It needs more hits.
