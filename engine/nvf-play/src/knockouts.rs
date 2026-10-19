@@ -137,7 +137,7 @@ fn test_hits(
 fn report_news(mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, mut stats: ResMut<KnockoutStats>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     for n in rt.game.take_knockout_news() {
-        let name = sim.ref_name(Some(rt.game.data), n.actor.0).map_or_else(|| n.actor.to_string(), str::to_string);
+        let name = sim.ref_name(Some(&rt.game), n.actor.0).map_or_else(|| n.actor.to_string(), str::to_string);
         match n.what {
             Happened::Up => {
                 stats.got_up += 1;

@@ -220,7 +220,7 @@ fn find_target(
             .or_insert_with(|| {
                 describe(&sim, play.index, id).map(|(n, a)| match a {
                     Action::Talk => {
-                        let name = sim.ref_name(rt.as_deref().map(|rt| rt.game.data), id).map_or(n, str::to_string);
+                        let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
                     }
                     a => (n, a),

@@ -556,8 +556,10 @@ fn open(
     let mut rng = ChaCha8Rng::seed_from_u64(aid.seed.unwrap_or_else(|| seed(r.opponent, now)));
     let opponent_deck = rules::cards_of(&rt.game, &deck_def.cards);
     let skill = rules::skill(&opponent_deck);
+    // The opponent's name as shown everywhere (`SimState::ref_name`: SetActorFullName,
+    // the template's name).
     let base = sim.world.get(r.opponent).map(|s| s.base).unwrap_or(r.opponent);
-    let opponent_name = sim.name(base).or_else(|| sim.name(r.opponent)).unwrap_or("Opponent").to_string();
+    let opponent_name = sim.ref_name(Some(&rt.game), r.opponent.0).or_else(|| sim.name(base)).or_else(|| sim.name(r.opponent)).unwrap_or("Opponent").to_string();
     let forms = sim.forms;
     let purse = purse_of(&mut sim.world, forms, &[FormId::PLAYER_REF]);
     let funds = purse.worth();
