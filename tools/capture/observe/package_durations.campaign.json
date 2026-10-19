@@ -1,0 +1,34 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "package_durations",
+ "title": "owner-review.md 'Package durations' (plugin version 9, save nvftest, one run of about 50 real minutes): a full game day in Novac from 08:00 with six residents tracked whose packages have a start hour and a duration, among them short travel and patrol packages whose goal can be met before or after the duration ends: Boone (PatrolToHome 9:00 for 2 h, Sandbox 9:00 for 12 h, PatrolToNest 21:00 for 12 h), Manny Vargas (PatrolToNest 9:00 for 12 h, PatrolToHome 21:00 for 2 h, Sandbox 21:00 for 12 h), Cliff Briscoe (shop sandbox 6:00 for 17 h, PatrolHome 22:00 for 1 h, Sleep 22:00 for 8 h), Andy (Sandbox 8:00 for 13 h, Sleep 22:00 for 10 h), No-bark (Patrol 9:00 for 12 h) and Jeannie May (Sleep 22:00 for 6 h) [the records, fnvtool ai show]. The package events (OnPackageStart/Change/Done) give when each package began, ended and reached its goal (Done); the samples give procedure DONE, position and cell. Compare each switch with the package's start + duration and with the moment its goal was done.",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "settle_frames": 300
+ },
+ "sessions": [
+  {
+   "name": "novac_day",
+   "hour": 8,
+   "hours": 24,
+   "go": {
+    "moveto": "JeannieMayCrawfordREF"
+   },
+   "console_first": [
+    "tgm"
+   ],
+   "track": [
+    "CraigBooneREF",
+    "MannyVargasREF",
+    "CliffBriscoeREF",
+    "AndyREF",
+    "NobarkREF",
+    "JeannieMayCrawfordREF"
+   ],
+   "events": "packages",
+   "note": "the player stands by Jeannie May at the motel office all day; the residents are in the loaded area most of the time"
+  }
+ ]
+}
