@@ -604,7 +604,19 @@ macro_rules! flag {
 
 flag!(set_ghost, get_ghost, ghost);
 flag!(set_restrained, get_restrained, restrained);
-flag!(set_unconscious, get_unconscious, unconscious);
+flag!(set_unconscious_flag, get_unconscious, unconscious);
+
+/// `SetUnconscious flag`. On a dead actor it brings it back first, with no get-up
+/// animation [documented: GECK wiki SetUnconscious notes, "Using this on dead actors will
+/// cause them to be resurrected, but will not cause them to play a "get up" animation"];
+/// that it then lies unconscious under a flag of 1 is [hypothesis].
+pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    if g.is_dead(r) {
+        g.resurrect(r, false);
+    }
+    set_unconscious_flag(g, ctx, a)
+}
 flag!(set_player_teammate, get_player_teammate, teammate);
 
 /// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
