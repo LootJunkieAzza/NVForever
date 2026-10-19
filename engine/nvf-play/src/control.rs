@@ -16,9 +16,9 @@
 //! - Toggle POV (F, middle mouse): a tap switches first and third person; held while the
 //!   mouse moves, it circles the camera around the player without turning them
 //!   ([`Orbit`]; from first person the view goes to third person meanwhile), and when it
-//!   is let go the camera swings back behind, or from first person goes straight back to
-//!   the eye [hypothesis: the game's hold-POV camera; design: the owner's playtest list 5
-//!   item 23].
+//!   is let go the camera swings back behind and the view stays third person [hypothesis:
+//!   the game's hold-POV camera; design: the owner 2026-10-19, replacing playtest list 5
+//!   item 23's return to first person].
 //!   The mouse wheel zooms the third-person camera.
 //! - VATS (V) is VATS mode's (`crate::vats_mode`, docs/design/vats-mode.md), which also
 //!   takes Use, Block and Activate while it is on.
@@ -70,15 +70,12 @@ impl Orbit {
         (self.held && self.moved) || self.yaw.abs() + self.pitch.abs() > 1e-3
     }
 
-    /// Toggle POV let go after circling, the view being `pov`: from first person the view
-    /// goes straight back to the eye; in third person the camera swings back behind the
-    /// player (the owner's playtest list 5 item 23: back to first person when the player
-    /// was in it) [design: the original's hold-POV camera is not captured].
-    pub fn released(self, pov: Pov) -> Orbit {
-        match pov {
-            Pov::First => Orbit::default(),
-            Pov::Third => Orbit { held: false, ..self },
-        }
+    /// Toggle POV let go after circling: the camera swings back behind the player, and a
+    /// view that was first person stays third person (the owner 2026-10-19, replacing
+    /// playtest list 5 item 23's return to first person) [design: the original's hold-POV
+    /// camera is not captured].
+    pub fn released(self) -> Orbit {
+        Orbit { held: false, ..self }
     }
 }
 
@@ -580,7 +577,8 @@ pub fn read_controls(
                 Pov::Third => Pov::First,
             };
         } else {
-            c.orbit = c.orbit.released(c.pov);
+            c.orbit = c.orbit.released();
+            c.pov = Pov::Third;
         }
     }
     if c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
@@ -862,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn orbit_does_not_switch_the_view() {
+    fn orbit_from_first_person_stays_third() {
         let mut app = app();
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Middle);
         app.update();
@@ -874,17 +872,16 @@ mod tests {
         m.clear();
         m.release(MouseButton::Middle);
         app.update();
-        // Let go in first person: straight back to the first-person view (item 23).
+        // Let go in first person: the view stays third person, the camera swinging back.
         let c = control(&app);
-        assert!(!c.orbit.held && c.pov == Pov::First && !c.orbit.active() && !c.third_person_view());
+        assert!(!c.orbit.held && c.pov == Pov::Third && c.orbit.active() && c.third_person_view());
     }
 
     #[test]
-    fn orbit_released_in_third_person_swings_back() {
+    fn orbit_released_swings_back() {
         let o = Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true };
-        assert_eq!(o.released(Pov::Third), Orbit { held: false, ..o });
-        assert!(o.released(Pov::Third).active());
-        assert_eq!(o.released(Pov::First), Orbit::default());
+        assert_eq!(o.released(), Orbit { held: false, ..o });
+        assert!(o.released().active());
     }
 
     #[test]
