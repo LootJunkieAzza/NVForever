@@ -171,10 +171,10 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
 - No spawn aid for creature fights in our engine's test runs.
 - **Owner-decision captures still open after the second run** (2026-10-19,
   owner-decision-captures.md §7). Each has the reason it could not be settled:
-  - **Teammates through doors.** A teammate on a PATROL package came along on a MoveTo,
-    and one with `Waiting` 1 did not come through a door. So "only those following come"
-    is not the rule, but whether `Waiting` or the door decides is open. Where they arrive
-    is settled: 160 units to the left.
+  - **Teammates through doors.** A teammate on a PATROL package came along by MoveTo and
+    through a door; one with `Waiting` 1 did not. Ours now brings every teammate not on a
+    Guard (Wait) package. That `Waiting` is the reason, and where they arrive through
+    other doors (left 160 through the room's door out, on the spot coming in), are open.
   - **SetActorsAI 0.** In the original the actor keeps walking on its last heading; ours
     stops. Carrying the movement on needs the engine's character movement (follow-up).
   - **Scripted items in NPC inventories.** The Legion aura token's script did nothing even

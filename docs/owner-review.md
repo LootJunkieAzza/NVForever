@@ -4218,6 +4218,10 @@ Decisions where the sources were unclear:
   the player's spot; with `Waiting` 1 on the same package he stayed behind. So "only
   those following come" is not the original's rule; whether `Waiting` or the door made
   the difference is open (spec-notes/owner-decision-captures.md §7).
+  **Round-3 `followers` campaign 2026-10-19 [observed]:** back in through the door, Boone
+  on PATROL came along onto the player's spot too, so it was not the door. **Runtime
+  changed:** every teammate comes now unless it was told to wait (a Guard package, the
+  companions' Wait packages) [hypothesis for that last part].
 - **Teammates in combat** ("as if in the player faction"): anyone attacks a teammate exactly
   when it would attack the player; a teammate attacks whoever would attack the player and
   also whomever its own records have it attack (so Boone keeps his Legion enmity) [design].

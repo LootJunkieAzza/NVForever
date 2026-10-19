@@ -697,6 +697,13 @@ fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
     assert_eq!(s.ai.agents[&mate].walker.space, B);
     s.run(2.0);
     assert!(s.game.follows_player(mate));
+    // On a package that does not follow (the original's Boone on his own PATROL), a
+    // teammate still comes along (od_03, the `followers` campaign).
+    s.game.extra.entry(mate).or_default().script_package = Some(FormId(P_DEFAULT));
+    s.game.evaluate_package(mate);
+    assert!(!s.game.follows_player(mate) && !s.game.told_to_wait(mate));
+    move_to(&mut s, MARK_A);
+    assert_eq!(s.game.world.peek(mate).and_then(|m| m.cell), s.game.world.peek(player).and_then(|p| p.cell));
     // Dead, it is no teammate any more and stays where it fell.
     s.game.kill(mate, None);
     assert!(!s.game.is_teammate(mate) && !s.game.extra[&mate].teammate);

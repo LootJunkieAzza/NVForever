@@ -60,17 +60,26 @@ impl Game<'_> {
         })
     }
 
-    /// The player has just changed cells (a load door, MoveTo): every teammate whose
-    /// package follows the player is put beside the player, in the player's cell, facing
-    /// the player's way [documented: "Changing cells will teleport the teammate to the
-    /// player"; hypothesis: only those following, not those told to wait, which keep a
-    /// Guard package where they stand]. They go to [`Game::teleported`] like a MoveTo and
+    /// Whether a teammate was told to wait: its current package is a Guard package (the
+    /// companions' Wait packages are, chosen by their `Waiting` variable) [hypothesis].
+    pub fn told_to_wait(&mut self, actor: FormId) -> bool {
+        let data = self.data;
+        self.current_package(actor).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.ty == PackageType::Guard)
+    }
+
+    /// The player has just changed cells (a load door, MoveTo): every teammate not told
+    /// to wait is put beside the player, in the player's cell, facing the player's way
+    /// [documented: "Changing cells will teleport the teammate to the player"; observed:
+    /// the original brought Boone along on his own PATROL package, not following, through
+    /// a door and by MoveTo, and left him behind with `Waiting` 1 (od_03 and the
+    /// `followers` campaign, owner-decision-captures.md §7, npc-behaviour-compare.md §13);
+    /// hypothesis: that waiting is what kept him, read here as a Guard package]. They go to [`Game::teleported`] like a MoveTo and
     /// to [`Game::brought_along`] for the log. Returns them.
     pub fn bring_teammates(&mut self) -> Vec<FormId> {
         let Some((Some(cell), pos, rot)) = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot)) else { return Vec::new() };
         let mut out = Vec::new();
         for t in self.teammates() {
-            if !self.present(t) || !self.follows_player(t) {
+            if !self.present(t) || self.told_to_wait(t) {
                 continue;
             }
             // To the player's left (as observed), then right, one step further for each.

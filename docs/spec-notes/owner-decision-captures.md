@@ -532,8 +532,11 @@ a picture is [observed].
     chosen), Boone stayed inside.
   - **What this means.** The rule "only teammates whose package follows come" does not
     describe it: a teammate on PATROL came. Waiting 1 or the way of leaving (door against
-    MoveTo) made the difference, and one run cannot tell which. The runtime's rule is
-    unchanged.
+    MoveTo) made the difference, and one run cannot tell which. **Later the same day**
+    the round-3 `followers` campaign brought Boone on PATROL back in **through the door**
+    onto the player's spot (npc-behaviour-compare.md §13), so the door is not it.
+    **Runtime changed:** every teammate comes unless told to wait, read as a Guard package
+    (`Game::told_to_wait`) [hypothesis for that reading].
 - **od_09b, a scripted item in an NPC's inventory.** Not settled, because the control
   failed in both tries:
   - the aura cast directly on the player read IsSpellTarget 1, so the reading works;
