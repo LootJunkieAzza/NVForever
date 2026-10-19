@@ -10,7 +10,7 @@ use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::functions::Ctx;
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::trace::EventKind;
-use fnv_game::unconscious::{Cause, GETUP_MAX, KNOCKDOWN_DOWN, PUSH_LIFT, PUSH_SPEED};
+use fnv_game::unconscious::{Cause, GETUP_MAX, KNOCKDOWN_DOWN, PUSH_RISE, PUSH_SPEED};
 use fnv_game::GameData;
 use fnv_script::vm::{ArgValue, Value};
 use fnv_script::FunctionTable;
@@ -130,7 +130,7 @@ fn push_actor_away_lays_an_actor_down_and_throws_it_away_from_the_source() {
     assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::KnockedOut { actor, cause: "pushed" } if actor == THUG_REF)).count(), 1);
     let v = g.take_shove(THUG_REF).expect("a shove for the engine");
     let speed = 10.0 * PUSH_SPEED;
-    assert!((v[0] - speed).abs() < 1e-3 && v[1].abs() < 1e-3 && (v[2] - speed * PUSH_LIFT).abs() < 1e-3, "{v:?}");
+    assert!((v[0] - speed).abs() < 1e-3 && v[1].abs() < 1e-3 && (v[2] - PUSH_RISE.min(speed)).abs() < 1e-3, "{v:?}");
     assert!(g.take_shove(THUG_REF).is_none(), "taken once");
     // The wiki: GetKnockedState reads 0 for a pushed actor; it does not fight or talk.
     assert_eq!(knocked_state(&mut g, THUG_REF), 0.0);

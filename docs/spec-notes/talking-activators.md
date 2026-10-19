@@ -55,3 +55,27 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   intercom are said by the activator as by any speaker); distance attenuation is not an
   issue in a conversation (heard whole) [documented: "talking activators configured by
   script have no distance attenuation"].
+
+## 3. The bunker intercom in the original (2026-10-19) [observed]
+
+AI observer campaign `intercom` (tools/capture/observe/intercom.campaign.json, plugin
+version 9), from the saves `nvftest` (early game) and `nvfstrip` (on the Strip): the
+player stands 110 units in front of HVBunkerIntercom2 (REFR 000ACD73) and a script runs
+`HVBunkerIntercom2.Activate player`; samples every 2 game loops, a screenshot every
+sample while a menu is open (the game in a 1,280 × 720 window).
+
+- xNVSE's OnActivate event names the intercom and the player as the activating reference.
+- A menu opens in the same sample and MenuMode 1009 (dialogue) reads 1 for one or two
+  samples; the clock stops. The pictures show the dialogue camera close on the intercom
+  (the view turns to the activator, as §2 has it), with the mouse cursor and **no line
+  and no topic list** on screen.
+- After about 10 game loops every menu is closed by itself (no hook ran), the clock goes
+  on, and RamosREF (tracked) never read IsTalking 1. In both saves.
+- So in these saves the original opens the conversation through the intercom and ends it
+  at once with nothing said. Ramos's GREETING "[You hear nothing.]" (INFO 000A3D0D, quest
+  VDialogueHiddenValley, conditions GetIsID Ramos and IsActorTalkingThroughActivator 1)
+  links to the four password topics, so it is not a goodbye line; why no line was chosen
+  is not readable (the observer cannot see which INFO the game tried) [hypothesis: one of
+  the two conditions is false in the original here, or the bunker quests must have
+  reached a stage]. NVForever says the line and keeps the conversation open (smoke
+  `talking-activator-intercom`): a difference left open for the owner (owner-review).

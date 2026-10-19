@@ -617,6 +617,9 @@ fn a_look_turning_the_body_faces_the_target_until_stop_look() {
     s.run_social(0.25);
     let first = s.agent(R_GREET).walker.heading;
     assert!(off(first).abs() < off(before).abs() && off(first).abs() > 0.05, "it turns over time: {first}");
+    // At the observed rate, about 145 degrees a second.
+    let turned = off(before).abs() - off(first).abs();
+    assert!((turned - fnv_ai::social::LOOK_TURN_RATE * 0.25).abs() < 0.02, "turned {turned} in 0.25 s");
     s.run_social(5.0);
     let heading = s.agent(R_GREET).walker.heading;
     assert!(off(heading).abs() < 0.05, "{heading} against {want}");

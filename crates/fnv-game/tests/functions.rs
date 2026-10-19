@@ -1408,7 +1408,12 @@ fn animation_state_told_by_the_engine() {
     // A grenade thrown: action 2 (observed), and not 9.
     g.set_anim_state(FormId::PLAYER_REF, AnimState { throwing: true, ..Default::default() });
     assert_eq!(call(&mut g, 0x1170, None, &[n(2.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x1170, None, &[n(4.0)]), 0.0);
     assert_eq!(call(&mut g, 0x1170, None, &[n(9.0)]), 0.0);
+    // A mine laid: action 4 (observed), not 2.
+    g.set_anim_state(FormId::PLAYER_REF, AnimState { throwing: true, mine: true, ..Default::default() });
+    assert_eq!(call(&mut g, 0x1170, None, &[n(4.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x1170, None, &[n(2.0)]), 0.0);
     g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
     // Seated on furniture: an idle plays (observed on Easy Pete); getting on does not.
     assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 0.0);

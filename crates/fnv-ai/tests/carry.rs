@@ -732,6 +732,27 @@ fn a_package_whose_place_is_furniture_gives_it_to_the_actor() {
     assert!(sitter.sandbox.is_none());
 }
 
+/// A script's Look turning the body keeps an actor from sitting down until StopLook; the
+/// seat stays kept for it meanwhile [observed: RingoRef, campaign `knockdown_look`
+/// 2026-10-19, docs/design/script-stubs.md §3].
+#[test]
+fn a_look_turning_the_body_keeps_an_actor_off_its_seat_until_stop_look() {
+    use fnv_game::functions::senses::Look;
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR]);
+    s.game.senses.looks.insert(FormId(R_TO_CHAIR), Look { target: FormId(R_SLEEP_C), rotate_body: true });
+    s.run(30.0);
+    let sitter = &s.ai.agents[&FormId(R_TO_CHAIR)];
+    assert_eq!(sitter.activity, Activity::There);
+    assert_eq!(sitter.using, None, "held standing by the chair");
+    assert!(!s.events(R_TO_CHAIR).iter().any(|e| matches!(e, AiEvent::Furniture { furniture: Some(_) })));
+    // StopLook: it sits at the next social update.
+    s.game.senses.looks.remove(&FormId(R_TO_CHAIR));
+    s.game.tick();
+    s.ai.social(&mut s.game, &s.nav, 0.5);
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+}
+
 /// What a sandboxing actor did, in order.
 fn doings(s: &Sim, actor: u32) -> Vec<Doing> {
     s.events(actor).iter().filter_map(|e| match e {

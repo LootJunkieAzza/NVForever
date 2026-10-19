@@ -578,5 +578,11 @@ can tap controls and keys but not pick a menu entry.
 Analysis: `tools/capture/fight_stats.py OUT.jsonl ...` gives per fighter the shots
 begun (GetAnimAction entering 2 or 3), the hits landed on actors (OnHit with it as the
 attacker), the damage they did (the event's Health less the next sample's) and the
-distances shot from. The campaigns that use these features, and what they settled, come
-with the changes they inform.
+distances shot from.
+
+Campaigns of 2026-10-19 (`tools/capture/observe/`): `knockdown_look`, `functions_round`,
+`player_kills`, `player_reload`, `gecko_find`, `fights_round`, `intercom`, and `strip` again with
+events;
+their findings are in the notes of the systems they settle (unconscious.md §5.5,
+script-stubs.md §3, anim-state.md §4, crime-karma.md, npc-behaviour-compare.md §9 and §10,
+talking-activators.md, owner-decision-captures.md §6).

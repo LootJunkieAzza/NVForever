@@ -39,7 +39,8 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
         "settings": settings(&g, &forms),
         "rules": {
             "stealing": s.stealing,
-            "killing_evil": s.killing_evil,
+            "killing_very_evil": s.killing_evil,
+            "killing_evil": 0.0,
             "killing_good": -s.killing_evil,
             "murdering_neutral": -s.killing_evil * NEUTRAL_MURDER_SHARE,
             "guard_warnings": s.guard_warnings,
@@ -92,7 +93,9 @@ fn kill_karma(a: Alignment, s: &Settings, npc: bool) -> (f64, f64) {
     // (as a kill in a fight the actor started, as a murder)
     match a {
         _ if !npc => (0.0, 0.0),
-        a if a.evil() => (s.killing_evil, s.killing_evil),
+        // An Evil kill gives nothing (crime-karma.md §4.1), a Very Evil one the setting.
+        Alignment::VeryEvil => (s.killing_evil, s.killing_evil),
+        Alignment::Evil => (0.0, 0.0),
         a if a.good() => (-s.killing_evil, -s.killing_evil),
         _ if npc => (0.0, -s.killing_evil * NEUTRAL_MURDER_SHARE),
         _ => (0.0, 0.0),

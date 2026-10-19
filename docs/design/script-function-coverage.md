@@ -138,15 +138,39 @@ changed. Jobs and outputs are private (`C:\fnv-private\capture\probe\audit2`, `�
   IsPlayerGrabbedRef. So do GetKnockedState, GetUnconscious, IsTalking, GetShouldAttack,
   GetAlarmed, IsTrespassing, MenuMode.
 
-### 3.3 Still open (captures needed)
+### 3.3 Settled by the AI observer (2026-10-19)
 
-Attended, from the audit's §4 (the plugin cannot script them): GetActionRef/IsActionRef
-when an NPC opens a scripted door; IsInCombat of two hostile NPCs out of the player's
-reach; ResetAI on an actor in combat; ~~GetCurrentAIProcedure at a Travel destination~~ (17, settled by the AI observer's samples, packages.md §4);
-IsInCriticalStage after a plasma critical kill; GetUnconscious/GetKnockedState of an
-essential knocked out; whether cashing chips counts for GetCasinoWinningsLevel. Unattended
-but not run yet: GetSleeping while the player sleeps (the Wait menu), MenuMode codes in
-the Pip-Boy.
+The functions this section listed as waiting for a capture, run with the observer's
+plugin version 9 (ai-observer.md §12) in the original game [observed unless said]:
+
+- **GetUnconscious / GetKnockedState of an essential knocked out**: RingoRef made
+  essential and knocked out by KillActor read GetKnockedState 1 for 10.0 s and 0 from the
+  start of his get-up, GetUnconscious 0 throughout (unconscious.md §2.10). NVForever's
+  getting up now reads 0.
+- **IsInCombat of two hostile NPCs out of the player's reach**: NCR troopers and Fiends
+  2,500–5,500 units from the player kept IsInCombat 1 and fought on until one side was
+  dead (npc-behaviour-compare.md §9); NVForever's IsInCombat reads the actor's own
+  awareness, whatever the player's distance: the same.
+- **ResetAI on an actor in combat**: the trooper left combat for one sample (2 game
+  loops, back on his FOLLOW package), was in combat again 2 loops later with a new combat
+  package and had a target within 0.25 s. NVForever leaves combat alone: the same to see.
+- **IsInCriticalStage after a plasma critical kill**: an NCRCF convict shot dead by the
+  player's plasma rifle at Critical Chance 100 read GooStart 1 for 96 game loops (about
+  1.6 s) from the kill, then GooEnd 1; Disintegrate 0 (crime-karma.md §4.1).
+- **MenuMode codes in the Pip-Boy**: TapControl 14 opened it on STATS: MenuMode 1003 and
+  MenuMode (any) 1 from the first sample, MenuMode 1 only 28 game loops later; the clock stopped. As
+  NVForever's codes (`fnv_game::game::menus`).
+- **GetActionRef / IsActionRef when an NPC opens a scripted door**: the observer cannot
+  run inside a door's own script, but xNVSE's OnActivate event, whose second argument is
+  the action reference [documented: NVSE Event Handling], named NPCs opening scripted
+  doors (HVLevel1To2Door, vCCHQDoor) all over the world while the player stood on the
+  Strip, in unloaded cells too. NVForever opens doors for walking NPCs without running the
+  door's OnActivate: a difference left for later (running it could hold NPCs at doors
+  whose scripts do not let them through).
+- **Not readable**: whether cashing chips counts for GetCasinoWinningsLevel, and GetSleeping
+  while the player sleeps: both need a menu entry chosen (the cashier's dialogue, the
+  sleep menu's hours), which the plugin cannot do: it taps controls and keys, but has no
+  function to pick a topic or a menu button.
 
 ## 4. Fixed in this round
 

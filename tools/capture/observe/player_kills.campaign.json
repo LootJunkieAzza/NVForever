@@ -1,0 +1,172 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "player_kills",
+ "title": "Kills by the player's own shots (KillActor credited to the player changed no karma, functions_round 2026-10-19): playtest list 5 item 22 (the karma for killing an NCRCF convict that attacks the player) and IsInCriticalStage after a plasma critical kill (script-function-coverage section 3.3). The player (god mode, first person, Critical Chance 100, a plasma rifle) is turned to the target every game loop by a script (heading by GetHeadingAngle, pitch from the height difference over GetDistance) and taps Attack every 30 loops. Save nvftest, outdoors in Goodsprings (coc Goodsprings): inside GSGasStation every plasma bolt hit the counter in front of the player (OffHallSm3Way02 0010903C), 2026-10-19. One convict covers both questions.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "more": true,
+  "events": "all",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "close_menus_after": 300,
+  "extra": [
+   [
+    "karma",
+    "num",
+    "GetAV Karma"
+   ],
+   [
+    "goo_start",
+    "num",
+    "IsInCriticalStage GooStart"
+   ],
+   [
+    "goo_end",
+    "num",
+    "IsInCriticalStage GooEnd"
+   ],
+   [
+    "dis_start",
+    "num",
+    "IsInCriticalStage DisintegrateStart"
+   ],
+   [
+    "dis_end",
+    "num",
+    "IsInCriticalStage DisintegrateEnd"
+   ]
+  ],
+  "extra_header": [
+   [
+    "player_anim",
+    "num",
+    "player.GetAnimAction"
+   ],
+   [
+    "first_person",
+    "num",
+    "IsPC1stPerson"
+   ]
+  ],
+  "shots": {
+   "label": "kill",
+   "when": [
+    "1"
+   ],
+   "gap": 60,
+   "max": 20
+  }
+ },
+ "sessions": [
+  {
+   "name": "convict",
+   "console_first": [
+    "tgm"
+   ],
+   "hours": 0.25,
+   "do_first": [
+    [
+     "player.AddItem {0} 1",
+     "WeapPlasmaRifle"
+    ],
+    [
+     "player.AddItem {0} 100",
+     "AmmoMicroFusionCell"
+    ],
+    [
+     "player.EquipItem {0}",
+     "WeapPlasmaRifle"
+    ],
+    [
+     "player.SetAV CritChance 100"
+    ]
+   ],
+   "place": [
+    {
+     "base": "LvlNCRCFPowderGangerMelee",
+     "count": 1,
+     "distance": 400,
+     "attack": "player"
+    }
+   ],
+   "timed": [
+    {
+     "after": 2,
+     "script": {
+      "lines": [
+       "if IsPC1stPerson == 0",
+       "  TapControl 13",
+       "endif"
+      ]
+     }
+    },
+    {
+     "after": 1,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "ref rA",
+       "ref rTg",
+       "float fA",
+       "float fD",
+       "float fZ",
+       "float fP"
+      ],
+      "lines": [
+       "let rTg := 0",
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      let rTg := rA",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop",
+       "if rTg",
+       "  let fA := player.GetAngle Z + player.GetHeadingAngle rTg",
+       "  player.SetAngle Z fA",
+       "  let fD := player.GetDistance rTg",
+       "  let fZ := rTg.GetPos Z - player.GetPos Z - 20",
+       "  if fD > 1",
+       "    let fP := 0 - fZ / fD * 57.3",
+       "    player.SetAngle X fP",
+       "  endif",
+       "endif"
+      ]
+     }
+    },
+    {
+     "after": 30,
+     "repeat": true,
+     "script": {
+      "decls": [
+       "ref rA",
+       "float fL"
+      ],
+      "lines": [
+       "let fL := 0",
+       "let rA := GetFirstRef 200 1",
+       "while rA != 0",
+       "  if rA.GetSourceModIndex == 255",
+       "    if rA.GetDead == 0",
+       "      let fL := 1",
+       "    endif",
+       "  endif",
+       "  let rA := GetNextRef",
+       "loop",
+       "if fL",
+       "  TapControl 4",
+       "endif"
+      ]
+     }
+    }
+   ],
+   "go": {
+    "coc": "Goodsprings"
+   }
+  }
+ ]
+}

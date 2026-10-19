@@ -25,14 +25,14 @@ are built (rows 2 and 12, 2026-10-18,
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
-| 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. The player is knocked down too (§5.4, 2026-10-18): ragdoll, camera on the body (first person goes to third person for it), controls held, the get-up idle. Left: the push's force scale and the NPCs' 3 s down are guesses (owner-review); the player's camera and 2.4 s down are from the capture `kd_player_knockdown` | (none) |
+| 1 | Knockdowns (done 2026-10-18; settled against the original 2026-10-19) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. The player is knocked down too (§5.4, 2026-10-18): ragdoll, camera on the body (first person goes to third person for it), controls held, the get-up idle. The push's speed (30 units/s a force point), its rise (220 units/s), NPCs' 2.4 s down and the 2.5 s get-up are now [observed] (AI observer `knockdown_look`, unconscious.md §5.5), as are an essential's 10 s down and GetKnockedState 0 while getting up (§2.10); the player's camera and 2.4 s down are from the capture `kd_player_knockdown`. Left: an explosion's knockdown, a body sliding on open ground | (none) |
 | 2 | Saves from scripts (done 2026-10-18) | 29 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)): SystemSave writes the one system slot, ForceSave a new save as by hand; both behind the scripts' save switch | (none) |
-| 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
-| 4 | Animation state told to the rules (done 2026-10-18) | 22 | Built ([anim state](spec-notes/anim-state.md)): the engine tells each drawn actor's and the player's body every frame; GetAnimAction answers shots (2, 3, 4), blows, reloads (9), blocks and special idles by the New Vegas codes, checked against the AI observer; IsMoving gives the way, IsAnimPlaying an actor's movement group, IsIdlePlaying an actor on furniture, IsPlayerActionActive action 9 (iron sights). Left: GetAnimAction's throw phases (5, 6) and the unexplained 17; IsPlayerActionActive's other indices (no list in the wiki export) | (none) |
+| 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). Settled 2026-10-19 [observed, AI observer `knockdown_look`]: 145°/s, the body kept on the target within a degree, a walker walks on facing it, no seat until StopLook, nothing turns it back after (script-stubs.md §3) | (none) |
+| 4 | Animation state told to the rules (done 2026-10-18) | 22 | Built ([anim state](spec-notes/anim-state.md)): the engine tells each drawn actor's and the player's body every frame; GetAnimAction answers shots (2, 3, 4), blows, reloads (9), blocks and special idles by the New Vegas codes, checked against the AI observer; IsMoving gives the way, IsAnimPlaying an actor's movement group, IsIdlePlaying an actor on furniture, IsPlayerActionActive action 9 (iron sights). 2026-10-19 [observed, AI observer]: IsPlayerActionActive 4 is laying a mine (3.0 s, as 2 for a grenade; built), and the player's Cowboy Repeater read 17 when its reload began, the NPCs' round-by-round reload code (anim-state.md §4). Left: indices 1, 3, 5–8, 10 (firing, jumping, swinging and sneaking answer none; standing on a table, grabbing and knocking things over were not tried) | (none) |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list, reporting MenuMode 1035 (2026-10-18). Left: the Pip-Boy's repair list is not clickable | (none) |
 | 6 | Barber, plastic surgeon and tutorial menus (done 2026-10-18) | 9 | Built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11; the tutorial menu from the game's menu file ([tutorial-menu](spec-notes/tutorial-menu.md)), over the Pip-Boy for CGTutorial's crippled-limb help. Its code 1059 is confirmed by capture (mh1_tutorial); its words are guesses (owner-review) | (none) |
 | 7 | Pip-Boy reset (done 2026-10-18) | 8 | Built (script-stubs.md §3.15): ResetPipboyManager puts the Pip-Boy's pages back to their defaults and its light off. The Pip-Boy can still be used without a reset (no "NPC Pip-Boy" state) | (none) |
-| 8 | Talking activators (done 2026-10-18, awaiting the game's comparison) | 6 | Built ([talking-activators](spec-notes/talking-activators.md)): activating a talking activator talks to it; its talking actor (SetTalkingActivatorActor) speaks through it with its own lines and voice, IsActorTalkingThroughActivator holds meanwhile, the view turns to the activator. Capture ac6 matched (IsTalkingActivatorActor 1 for a script-set actor, against the wiki); left: the conversation through the intercom against the original (smoke `talking-activator-intercom`) | (none) |
+| 8 | Talking activators (done 2026-10-18, awaiting the game's comparison) | 6 | Built ([talking-activators](spec-notes/talking-activators.md)): activating a talking activator talks to it; its talking actor (SetTalkingActivatorActor) speaks through it with its own lines and voice, IsActorTalkingThroughActivator holds meanwhile, the view turns to the activator. Capture ac6 matched (IsTalkingActivatorActor 1 for a script-set actor, against the wiki); the original's intercom, 2026-10-19 [observed]: the dialogue camera turns to the intercom, but no line is said and the conversation ends by itself within 10 game loops (saves nvftest and nvfstrip), where NVForever says "[You hear nothing.]" (talking-activators.md §3; open for the owner) | (none) |
 | 9 | Menu codes (done 2026-10-18) | 6 | Built (script-stubs.md §3.15, `fnv_game::game::menus`): MenuMode 1 for the Pip-Boy, its pages' codes (1002, 1003, 1023, the repair list 1035), loading screens 1007 (with their `Begin MenuMode 1007` blocks), VATS marking 1056, the tutorial 1059. Left: the pause menu's 1013 (scripts do not run under it); the codes of the menus not built (Caravan, slot machines, item mods, the companion wheel) | (none) |
 | 10 | Caravan (done 2026-10-19, awaiting the owner) | 5 | Built ([caravan](spec-notes/caravan.md)): ShowCaravanMenu opens the bet, the deck builder (30 cards at least), the game and the results against the speaker; the rules from the game's help messages and the owner's rulings (Kings double again, out of cards loses, caps paid out); AddCardToPlayer keeps the player's cards, saved. Guesses: the opponent (its skill from its deck's face cards, owner ruling), the raise step, the layout (drawn flat, the original's is 3D). Left: bets in NCR dollars and Legion coins, the Caravan challenges | (none) |
 | 11 | Race and sex changes (done 2026-10-18) | 5 | Built ([appearance-changes](spec-notes/appearance-changes.md) §2): AgeRace along the RACE age links and SexChange on any actor, drawn anew; SexChange's reset gives the player the first starting face (a guess). Every shipped call is on the player (the opening's VCG00 and VCG01) | (none) |
@@ -76,10 +76,12 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   rules follow it), then drop the marks.
 - **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
   package types and flags are carried out since #400).
-  - Find's Allow Killing is built, but only for actors whose inventory holds the food. In
-    the original a gecko on FindFood killed a radroach whose meat is only its death item
-    [observed 2026-10-18; the rule it implies is a hypothesis;
-    spec-notes/owner-decision-captures.md §4].
+  - Find's Allow Killing: settled 2026-10-19 [observed, AI observer `gecko_find`]: an
+    Unaggressive gecko on FindFood started fights with bloatflies, radroaches and a
+    protectron that carries no food at all, so a creature on Find with Allow Killing now
+    attacks any actor of its area that is not kin, ally or friend (`fnv_ai::errand`;
+    owner-decision-captures.md §6). People keep attacking only one carrying what they look
+    for [hypothesis].
 
 ## 3. Decisions and checks waiting for the owner
 
@@ -122,8 +124,10 @@ the wait menu's day of the week, and others). They should be struck through so t
 list reads true.
 
 **Not reproduced** from the playtest lists: the first-person shadow flicker after leaving
-an interior; the Crimson Caravan crash. **Never checked in the game** after fixing: list 5
-item 22 (convict karma); Victor's and Sunny's stop-and-go (list 4 items 2–3). The
+an interior; the Crimson Caravan crash. **Never checked in the game** after fixing: Victor's and Sunny's stop-and-go (list 4
+items 2–3). List 5 item 22 (convict karma) was checked in the original on 2026-10-19: the
+player shooting an Evil NCRCF convict dead changed no karma, so NVForever now gives none
+for an Evil kill (crime-karma.md §4.1; smoke `karma-convict`). The
 `combat-violet` and `combat-dogs` known-failing marks need the owner's word.
 
 ## 4. Found by today's comparisons with the original
@@ -139,9 +143,17 @@ out of date (#441 adds tests):
 
 From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) §8:
 - Fights end far sooner in ours (NCR against Fiends over in 32 s; the original's still
-  going after 120 s).
-- Melee attackers against the player in god mode or with huge health keep away in the
-  original and never swing; ours always close in (the rule is not understood).
+  going after 120 s). Measured again 2026-10-19 (npc-behaviour-compare.md §9): the
+  original's MoveTo reaches only four of the six troopers (two are non-persistent); with
+  the same four ours lasts 47 s and Cook-Cook dies, where the original's Cook-Cook (215
+  Health, a flamer) kills all four by 89–99 s. Hit rates are alike (0.28–0.49 a shot in
+  the original); but a hit does two to fifteen times the original's damage in ours (a
+  median 6.2 on Cook-Cook against 2.0; 22–30 a Fiend's shot on a trooper against under 2),
+  measured with smoke `battle-ncr-fiends-four`'s `npc hits summary`. The damage between
+  NPCs (threshold, resistance, the NPC formula) is the next thing to look at.
+- Melee attackers keeping away from a god-mode player: not god mode's doing. In the same
+  room a knife, a sledgehammer and a dog closed in and swung alike with and without god
+  mode (npc-behaviour-compare.md §9), as ours do; the outdoor hold-off is unexplained.
 - **The Strip's crowd** was observed on 2026-10-18 [observed]: campaign `strip`, session
   `strip_evening`, from `nvfstrip`, 5.9 game hours, 1,442 samples, 900 state changes. The
   timeline is private, on the coordinator's desktop

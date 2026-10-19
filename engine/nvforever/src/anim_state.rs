@@ -185,7 +185,7 @@ fn tell(
             // Drawn without a locomotion (posed by a test aid): standing.
             None => (MoveDir::None, Some("Idle")),
         };
-        let st = AnimState { action, moving, group, iron_sights: false, throwing: false, at: 0.0 };
+        let st = AnimState { action, moving, group, iron_sights: false, throwing: false, mine: false, at: 0.0 };
         if !told.contains(&rig.reference) && stats.actors.contains(&rig.reference) {
             stats.again += 1;
             if stats.again <= LOGGED_CHANGES {
@@ -218,7 +218,9 @@ fn tell(
     };
     *throw_began = Some((began, winding));
     let throwing = clock - began < fnv_game::anim_state::THROW_ACTION_SECONDS;
-    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, at: 0.0 };
+    // IsPlayerActionActive 4 instead of 2 for a mine (a land mine or mine drop weapon).
+    let mine = throwing && combat.as_deref().is_some_and(|c| c.player_weapon_is_mine());
+    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, mine, at: 0.0 };
     stats.note(FormId::PLAYER_REF.0, &st);
     g.set_anim_state(FormId::PLAYER_REF, st);
     // Actors no longer drawn are forgotten (they read as doing nothing).

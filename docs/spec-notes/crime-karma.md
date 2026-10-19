@@ -200,8 +200,9 @@ faction given) on the player and makes it say Assault [documented].
   its size (major from `fKarmaModKillingEvilActor`, 100, up) [hypothesis: the split], and
   `UIKarmaUp` or `UIKarmaDown` [hypothesis: by their names]; RewardKarma does the same
   [documented: "A corner message is shown in game indicating the change"].
-- Killing [documented for evil: the setting's name; hypothesis: the amount]: an Evil or
-  Very Evil NPC +`fKarmaModKillingEvilActor` (+100); a Good or Very
+- Killing [documented for evil: the setting's name; hypothesis: the amount]: a Very Evil
+  NPC +`fKarmaModKillingEvilActor` (+100), an Evil one nothing [observed: §4.1; HelpKarma
+  names only saintly or terrible enemies]; a Good or Very
   Good one −100 [design: the same setting]; a Neutral NPC murdered (§3.4) −25, a quarter
   [design: the owner asked that killing innocents cost karma; HelpKarma says only
   saintly or terrible enemies count]; a Neutral actor in a fight it started 0. Only kills
@@ -209,6 +210,23 @@ faction given) on the player and makes it say Assault [documented].
   Creatures give none [design: their karma values include plain animals, a dead radroach
   placed in FalloutNV.esm is Evil, observed].
 - Stealing and opening owned locks: §3.1, §3.2.
+
+### 4.1 Killing an Evil convict in the original (2026-10-19) [observed]
+
+The owner's playtest list 5 item 22 (karma lost for killing a convict outside the NCR
+highway patrol station; "should be good"). AI observer campaigns `functions_round` and
+`player_kills` (save `nvftest`, the player at karma 0, god mode):
+
+- A spawned **LvlNCRCFPowderGangerMelee** reads GetAV Karma **−500** and GetIsAlignment
+  Evil 1 (VeryEvil 0, Neutral 0): its template's karma, as `Game::alignment` has it. It
+  attacked the player at once, set on the player or not.
+- **Shot dead by the player** (a plasma rifle aimed by a script, outdoors in Goodsprings):
+  OnDeath named the player as the killer, no OnMurder, and the player's GetAV Karma read
+  **0 before and for the 15 s after**: no karma either way.
+- Killed by `KillActor player` (twice): OnDeath with the player as killer, no karma.
+- NVForever took karma for it before item 22's fix (it read the convict as Neutral) and
+  gave +100 after it (Evil); it now gives none for an Evil NPC. A Very Evil kill keeps
+  +100 and a Good kill −100 [hypothesis, not observed].
 - Limits: iKarmaMin/iKarmaMax when a plugin defines them [documented]; FalloutNV.esm does
   not.
 

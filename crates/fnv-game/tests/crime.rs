@@ -240,16 +240,17 @@ fn killing_by_alignment_and_murder() {
     let mut g = game(&f);
     assert_eq!(g.alignment(FormId(FIEND_REF)), Alignment::Evil);
     assert_eq!(g.alignment(FormId(TOWNSMAN_REF)), Alignment::Good);
-    // An Evil actor: karma, no murder.
+    // An Evil actor: no karma (observed: an Evil NCRCF convict shot dead in the
+    // original, crime-karma.md §4.1), no murder.
     assert!(g.kill(FormId(FIEND_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), 100.0);
+    assert_eq!(karma(&mut g), 0.0);
     assert_eq!(call(&mut g, IS_PC_A_MURDERER, None, &[]), 0.0);
     // A Good townsman, seen by the shopkeeper of the same crime-tracking faction: karma
     // lost, murder, the shopkeeper turns and the town becomes the player's enemy.
     sees(&mut g, SHOPKEEPER_REF);
     g.crimes.take_notes();
     assert!(g.kill(FormId(TOWNSMAN_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), 0.0);
+    assert_eq!(karma(&mut g), -100.0);
     assert_eq!(call(&mut g, IS_PC_A_MURDERER, None, &[]), 1.0);
     let notes = g.crimes.take_notes();
     assert!(notes.iter().any(|n| matches!(n, Note::FactionEnemy { faction } if *faction == FormId(TOWN))));
@@ -257,13 +258,14 @@ fn killing_by_alignment_and_murder() {
     assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
     // A Neutral stranger murdered unseen: a quarter of the setting.
     assert!(g.kill(FormId(STRANGER_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), -25.0);
-    // A convict made from the Fiend's template is as Evil as the Fiend: killing it gains
-    // karma (the owner's playtest list 5 item 22).
+    assert_eq!(karma(&mut g), -125.0);
+    // A convict made from the Fiend's template is as Evil as the Fiend: killing it costs
+    // no karma (the owner's playtest list 5 item 22: it took karma before; the original
+    // gives none).
     assert_eq!(g.alignment(FormId(CONVICT_REF)), Alignment::Evil);
     assert_eq!(g.alignment(FormId(CONVICT)), Alignment::Evil);
     assert!(g.kill(FormId(CONVICT_REF), Some(FormId::PLAYER_REF)));
-    assert_eq!(karma(&mut g), 75.0);
+    assert_eq!(karma(&mut g), -125.0);
 }
 
 #[test]

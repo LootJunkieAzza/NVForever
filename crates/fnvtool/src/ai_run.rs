@@ -17,6 +17,10 @@ pub struct RunArgs {
     pub actors: Vec<String>,
     /// `ACTOR=PACKAGE`: the actor runs this package as a script package.
     pub force: Vec<String>,
+    /// `QUEST:INDEX=VALUE`: a quest script variable set before the run (quest state the
+    /// run does not have, e.g. the Strip's VStreetFluffNPC variable 52 that every crowd
+    /// package's condition reads).
+    pub quest_vars: Vec<String>,
     pub start_hour: Option<f64>,
     pub hours: f64,
     /// Seconds per step.
@@ -45,6 +49,26 @@ fn force(game: &mut Game, forced: &[(FormId, FormId)]) {
     for &(actor, package) in forced {
         game.extra.entry(actor).or_default().script_package = Some(package);
     }
+}
+
+/// Set quest script variables (`--quest-var`).
+fn set_quest_vars(game: &mut Game, vars: &[(FormId, u16, f64)]) {
+    for &(quest, index, value) in vars {
+        let script = game.data.form_script.get(&quest).copied();
+        game.store(fnv_game::game::InstKey::Quest { quest }, script, index, fnv_script::vm::Value::Num(value), "ai run", false);
+    }
+}
+
+fn parse_quest_vars(args: &RunArgs, data: &GameData, find: &dyn Fn(&str) -> Option<FormId>) -> anyhow::Result<Vec<(FormId, u16, f64)>> {
+    let mut out = Vec::new();
+    for v in &args.quest_vars {
+        let bad = || anyhow::anyhow!("--quest-var takes QUEST:INDEX=VALUE, got {v}");
+        let (q, rest) = v.split_once(':').ok_or_else(bad)?;
+        let (i, x) = rest.split_once('=').ok_or_else(bad)?;
+        let quest = find(q).filter(|q| data.quests.contains_key(q)).ok_or_else(|| anyhow::anyhow!("{q} is not a quest"))?;
+        out.push((quest, i.trim().parse().map_err(|_| bad())?, x.trim().parse().map_err(|_| bad())?));
+    }
+    Ok(out)
 }
 
 struct Sim<'a> {
@@ -145,11 +169,13 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ar
         let package = find(p).filter(|x| data.package_defs.contains_key(x)).ok_or_else(|| anyhow::anyhow!("{p} is not a package"))?;
         forced.push((actor, package));
     }
+    let quest_vars = parse_quest_vars(args, data, find)?;
     if !args.samples.is_empty() {
-        return compare(&Loaded { lo, data, forms: &forms, refs, nav: &nav }, args, &actors, &forced);
+        return compare(&Loaded { lo, data, forms: &forms, refs, nav: &nav }, args, &actors, &forced, &quest_vars);
     }
     let mut sim = Sim::new(data, &forms, refs, args.step, args.timescale);
     force(&mut sim.game, &forced);
+    set_quest_vars(&mut sim.game, &quest_vars);
     if let Some(h) = args.start_hour {
         set_global(&mut sim.game, clock::GAME_HOUR, h)?;
     }
@@ -216,11 +242,13 @@ struct Obs {
     cell: FormId,
     pos: [f32; 3],
     package: Option<FormId>,
+    /// The capture saw it enabled (GetDisabled 0).
+    enabled: bool,
 }
 
 /// Start each actor where a capture first saw it, run the capture's hours, and compare
 /// at every sample: the cell, the distance when the cell is the same, the package.
-fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, FormId)]) -> anyhow::Result<Value> {
+fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, FormId)], quest_vars: &[(FormId, u16, f64)]) -> anyhow::Result<Value> {
     let Loaded { lo, data, forms, refs, nav } = *w;
     // Per file, per actor: the samples in order.
     let mut seen: BTreeMap<usize, BTreeMap<FormId, Vec<Obs>>> = BTreeMap::new();
@@ -232,7 +260,8 @@ fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, For
             Form::Mapped(p) => Some(FormId(p)),
             _ => None,
         };
-        seen.entry(row.file).or_default().entry(actor).or_default().push(Obs { days, hour, cell: FormId(cell), pos: [x, y, z], package });
+        let enabled = row.num("disabled") == Some(0.0);
+        seen.entry(row.file).or_default().entry(actor).or_default().push(Obs { days, hour, cell: FormId(cell), pos: [x, y, z], package, enabled });
     })?;
     let mut files = Vec::new();
     for (fi, by_actor) in &seen {
@@ -242,6 +271,7 @@ fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, For
         set_global(&mut sim.game, clock::GAME_DAYS_PASSED, first.days)?;
         let mut days = first.days;
         force(&mut sim.game, forced);
+        set_quest_vars(&mut sim.game, quest_vars);
         // The sample times of the file, in order; an actor joins the run where its
         // first sample saw it, when that sample comes.
         let mut times: Vec<f64> = by_actor.values().flatten().map(|o| o.days).collect();
@@ -264,6 +294,11 @@ fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, For
             let mut joined = false;
             for (&a, obs) in by_actor {
                 if !sim.ai.agents.contains_key(&a) && obs[0].days <= time {
+                    // An actor a trigger or a quest enabled in the game (the Strip's crowd
+                    // is placed disabled): enabled as the capture saw it.
+                    if obs[0].enabled {
+                        sim.game.world.set_enabled(a, true).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    }
                     sim.game.set_actor_place(a, Some(obs[0].cell), obs[0].pos, 0.0).map_err(anyhow::Error::msg)?;
                     sim.ai.add(&sim.game, a).map_err(anyhow::Error::msg)?;
                     joined = true;
@@ -328,7 +363,8 @@ fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, For
     }
     Ok(json!({
         "schema": "fnv.ai.run/1",
-        "state": "no quest started; each actor starts where its capture first saw it, at the capture's hour",
+        "state": "no quest started (but the --quest-var values); each actor starts where its capture first saw it, at the capture's hour, enabled when the capture saw it so",
+        "quest_vars": args.quest_vars,
         "compared": "at every sample: the package, the cell (outdoors, also within 1,024 units), and the distance when in the same cell",
         "step_seconds": args.step, "timescale": args.timescale,
         "files": files,

@@ -5792,6 +5792,11 @@ the observer's captures hold no Look call, so these are my guesses to check in t
 - **Walking actors** (a package walking them, a traveller) keep their route's heading;
   only their head turns. A Look on Sunny or Easy Pete followed by a capture of their
   heading (the observer) would settle the rate and whether the original stops a walker.
+- **Settled by capture (2026-10-19, AI observer `knockdown_look`) [observed]:** Ringo's
+  body turned at 140–145°/s (`LOOK_TURN_RATE` 145°/s), stayed within 1° of the player at
+  any angle (no 30° step), walked on to his chair with his body turned to the player, and
+  sat down only after StopLook; nothing turned him back. NVForever does the same now
+  (docs/design/script-stubs.md §3).
 
 ## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
 
@@ -5805,6 +5810,12 @@ down too (GetKnockedState 2). Guesses to check against the game:
 - **Force scale**: 30 units a second per point of force, a quarter of it upwards (force 10
   throws a body at 300 units/s, about 4 m/s). The wiki's "Havok force" is not converted.
   *Check:* the same push; how far does the body slide?
+- **Settled by capture (2026-10-19, AI observer `knockdown_look`) [observed]:** RingoRef
+  pushed by the player lay 2.38 s from the push to his get-up in four of five pushes
+  (`KNOCKDOWN_DOWN` 3 → 2.4 s, the player's own 2.4 s), got up in 2.4–2.5 s (`GETUP_MAX`
+  3 → 2.5 s), flew about 30 units/s per point of force (`PUSH_SPEED` kept) and rose
+  220–240 units/s whatever the force (`PUSH_RISE` 220 replaces the quarter of the speed);
+  docs/spec-notes/unconscious.md §5.5.
 - **SetUnconscious alone does not lay anyone down.** Read from the scripts: robots standing
   in pods and scheduled sleepers use it, and the thugs that fake death push their actor
   down as well. It now also keeps a lying actor down until it is cleared (those thugs get
@@ -6248,3 +6259,52 @@ are my guesses, each with what would settle it:
 - **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
   2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
   Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.
+
+## The AI observer at full capacity (2026-10-19, branches claude/observer-v9, claude/observer-full)
+
+The observer was extended (plugin version 9: game events, timed scene actions, screenshots
+on a condition, more fields; ai-observer.md §12) and nine campaigns settled guesses
+against the original. Decisions and what is still mine:
+
+- **The plugin DLL was copied into the game's `Data\NVSE\Plugins`** by the session (the
+  old version 6 DLL is kept in `C:\fnv-private\capture\plugin-backup`); before, the owner
+  copied it by hand. Say if you want that kept as an owner step.
+- **Settled and changed** [observed]: PushActorAway's 2.4 s down, 2.5 s get-up, speed and
+  rise (unconscious.md §5.5); an essential's 10 s down and GetKnockedState 0 while getting
+  up (§2.10); Look's body turn (145°/s, walkers walk on facing the target, no seat until
+  StopLook; script-stubs.md §3); IsPlayerActionActive 4 for a laid mine and 3.0 s for both
+  throws (anim-state.md §4); a creature on Find with Allow Killing attacks the actors of
+  its area (owner-decision-captures.md §6); killing an Evil NPC gives no karma
+  (crime-karma.md §4.1).
+- **List 5 item 22 (convict karma)**: the original gave **no** karma for shooting the Evil
+  NCRCF convict dead, not good karma as the item expected. NVForever now does the same.
+  Killing a Very Evil NPC keeps +100 and a Good one −100 (not observed). *Check:* if you
+  remember the original giving "+" for convicts, say where.
+- **Find with Allow Killing for people** keeps the old rule (attacks only one carrying
+  what it looks for): only creatures were observed; 17 shipped Find packages carry the
+  flag, among them prospectors looting containers and Freeside thugs.
+- **The bunker intercom** (row 8): in the original (saves nvftest and nvfstrip) the
+  dialogue camera turns to the intercom but no line is said and the conversation ends by
+  itself; NVForever says Ramos's "[You hear nothing.]" and waits. Left as is: why the
+  original chose no line is not readable (talking-activators.md §3). *Check:* use the
+  intercom outside Hidden Valley's bunker in your game and say what Ramos says.
+- **NPCs opening scripted doors** run the door's OnActivate in the original (xNVSE's
+  OnActivate named NPCs opening HVLevel1To2Door and vCCHQDoor); NVForever opens the door
+  without its script. Not changed (a door script that does not pass NPCs would hold them).
+- **Melee hold-off**: god mode is not the cause (attackers closed in alike with and
+  without it, indoors). The outdoor hold-off of 2026-10-17 stays unexplained.
+- **NCR against Fiends**: the original's MoveTo reaches only four of the six troopers;
+  with four, ours ends in 47 s with Cook-Cook dead, the original's Cook-Cook kills all
+  four (89–99 s). The engine now logs each target's hits and damage (`npc hits
+  summary`): hit rates are alike, but our hits between NPCs do two to fifteen times the
+  original's damage (Cook-Cook: median 6.2 a hit against 2.0; a Fiend's shot on a trooper
+  22–30 against under 2). Not fixed in this round: the damage formula between NPCs
+  (threshold, resistance) needs its own look (npc-behaviour-compare.md §9).
+- **The Strip**: our AI chose the same packages as the original for 97–100 % of the
+  samples once the comparison had the quest variable and the enabled crowd; the
+  travellers' walking back and forth and the troopers' scene come from scripts the
+  headless comparison does not run (npc-behaviour-compare.md §10).
+- **GetLastPlayerAction** read 4 while a mine's action lasted, 0 otherwise; no shipped
+  script or condition asks it, so it is not built.
+- **Screenshots in dialogue** came out black at 3,840 × 2,160 full screen; in the 1,280 ×
+  720 window you set they work. Keep the window for captures with pictures.

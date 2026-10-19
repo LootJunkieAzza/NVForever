@@ -104,12 +104,16 @@ pub fn force_flee(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// GECK wiki GetKnockedState]. Here −1 for a fatigue knockout, 1 for an essential one
 /// (`crate::unconscious`) and for SetUnconscious [hypothesis for SetUnconscious], 2 for
 /// an explosion's knockdown, else 0. An actor PushActorAway laid down reads 0 until it is
-/// up, also when it is knocked out meanwhile [documented: the page's notes].
+/// up, also when it is knocked out meanwhile [documented: the page's notes]. Getting up
+/// reads 0 [observed: an essential RingoRef knocked out by KillActor read 1 for 10 s and 0
+/// from the sample his get-up began, AI observer campaign `functions_round` 2026-10-19,
+/// docs/spec-notes/unconscious.md §2.10; the other causes' getting up assumed the same].
 pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     use crate::unconscious::Cause;
     let r = ctx.subject()?;
     let state = match g.knockout(r) {
-        Some(k) if k.pushed && k.lying() => 0.0,
+        Some(k) if !k.lying() => 0.0,
+        Some(k) if k.pushed => 0.0,
         Some(k) => match k.cause {
             Cause::Fatigue => -1.0,
             Cause::Essential => 1.0,

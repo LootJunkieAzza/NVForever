@@ -362,3 +362,33 @@ The test checks the same rules as before.
   the attack control for 10 loops. The victim's health is read after each swing.
 - **Unchanged.** od_02, 04, 08, 09a, 10 and 15. od_02 still waits only for the
   ranger's screenshots.
+
+## 6. The gecko food question answered (2026-10-19) [observed]
+
+AI observer campaign `gecko_find` (tools/capture/observe/gecko_find.campaign.json, plugin
+version 9 with xNVSE's OnStartCombat event, whose second argument is the actor that
+starts the fight [documented: GECK wiki NVSE Event Handling]), from `nvftest` at 00:00,
+the player hidden 1,500 units from gecko 0x0016518B:
+
+- **The gecko** (VSpawnSpecialTier1GeckoSmallGS02Hunter: its own AI data, not its
+  template's, says **Unaggressive**) stayed on VCrGeckoFindFood (Find, object type Food,
+  Allow Killing) past the package's 2 hours, never finding food, and **started** fights
+  with two bloatflies (VSpawnTier1BloatFlyMed50: inventory a bite weapon and darts, meat
+  only as a 25 % death item), the radroach VERT1GSRoachHuntedREF (placed as prey), a
+  radroach spawned 256 units from it (meat only as its death item), and in another run a
+  **protectron** spawned beside it (VCrTier0CrProtectron: no food in its inventory or
+  death item). It left the other gecko (its kin) alone. GeckoFaction names RadRoach and
+  others as enemies, but not robots.
+- **A control**: gecko 0x0016518A (VSpawnSpecialTier2GeckoMedGS02Hunter, Very Aggressive)
+  on its Patrol package also started fights with bloatflies, as its aggression lets it.
+  Whether an actor attacks one it detects "is determined by Aggression and whether the
+  actor is Enemy or Neutral", and Unaggressive actors are the ones that avoid Enemies
+  [documented: GECK wiki, the avoidance page in the Combat export], so for the
+  Unaggressive gecko 8B it is the Find package that makes it attack.
+- **Reading**: a creature on a Find package with Allow Killing attacks any actor of the
+  package's area that is not its kin, ally or friend, whatever that actor carries
+  [observed for creatures: four kinds of victim]. NVForever does so now
+  (`fnv_ai::errand`, test `a_find_package_with_allow_killing_attacks_an_actor_carrying_
+  nothing_it_wants`). People on such packages (prospectors looting containers, Freeside
+  thugs, slavers: 17 Find packages carry the flag) keep the old rule, attacking only an
+  actor carrying what they look for [hypothesis: no person was observed].

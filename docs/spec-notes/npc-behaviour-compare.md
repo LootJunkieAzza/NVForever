@@ -302,3 +302,104 @@ unchanged (6 in the battle).
 
 Gomorrah stopped early and the Strip run from `nvfstrip` was dropped when the owner needed
 the game for other sessions (2026-10-17).
+
+## 9. Fight length and melee hold-off, measured again (2026-10-19)
+
+AI observer campaign `fights_round` (tools/capture/observe/fights_round.campaign.json,
+plugin version 9: every game loop, the fight field set and xNVSE's OnHit / OnDeath /
+OnStartCombat events; `tools/capture/fight_stats.py` counts shots, hits and damage), save
+`nvftest` [observed].
+
+**NCR troopers against Fiends** (`ncr_fiends`, 1 game hour, 121 real s):
+
+- Only **four** troopers took part. `MoveTo` on 0x000FCEB1 and 0x000FD572 failed ("script
+  call failed"): both are non-persistent Camp McCarran sentries (NCRTrooperSentryCM) whose
+  cell was not loaded, which the original's scripts cannot reach. Our `battle-ncr-fiends`
+  aid moved all six.
+- Three Fiends died within 8 s; **Cook-Cook** (FiendCookCookRef 0x000F5704, 215 Health, a
+  flamer) killed the four troopers one by one (29.7, 51.5, 52.3 and 99.1 s) and lived
+  with 15 Health; a second run (`ncr_fiends_far_resetai`) ended the same way at 89 s.
+- Troopers: 36–138 shots each, **0.28–0.49 hits per shot**, a median **2.0–5.5 damage per
+  hit** (most 23–27), shots from a median 650–1,500 units; all fighters together 291
+  shots, 187 hits on actors (0.64 a shot), a median 2.0 damage a hit.
+- **Ours with the same four troopers** (smoke `battle-ncr-fiends-four`, the engine's new
+  `npc hits summary` line): over in 38–47 s, Cook-Cook dead. Hits from actors, by target:
+
+  | Target | Original: hits, median damage a hit | Ours: hits, median damage a hit |
+  |---|---|---|
+  | Cook-Cook | 60, 2.0 (200 in all, of 215 Health) | 46, 6.2 (290 in all, of 290 Health) |
+  | Fiends | 7–17 each, 4.2–11.1 | 3–10 each, 8.3–8.8 |
+  | NCR troopers | 5–13 each, 0.1–1.9 (most died of burning) | 2–12 each, 1.7–30.4 (three died of 2–3 hits) |
+
+  The hit rates are alike; **the damage a hit is two to fifteen times the original's** in
+  ours, most of all a Fiend's gun on the troopers, and the actors' maximum Health differs
+  too (Cook-Cook 290 against 215; the leveled actors' levels follow the player's, which
+  differs between the two saves). Not fixed here: the damage threshold and resistance or
+  the NPC damage formula between NPCs need their own look (owner-review).
+- The player moved 3,500 units off the fight at 52 s (the second run): the NPCs went on
+  fighting with **IsInCombat 1** while 2,500–5,500 units from the player, until the last
+  trooper died; then the rest left combat.
+
+**Melee against the player, with and without god mode** (inside GSGasStation; a MoveTo to
+the outdoor spot failed, so both are in the same room; 30 s each; "no god mode" is Damage
+Threshold 200 and Health restored every 2 s):
+
+| Attacker | God mode | Distance to the player, median (least) | Swings | Hits |
+|---|---|---|---|---|
+| NCR trooper, knife | no | 97 (56) | 24 | 19 |
+| NCR trooper, knife | yes | 95 (41) | 18 | 14 |
+| NCR trooper, sledgehammer | no | 119 (77) | 22 | 18 |
+| NCR trooper, sledgehammer | yes | 126 (98) | 19 | 16 |
+| Dog (VCrTier1DogMed) | no | 71 (65) | 16 | 16 |
+| Dog | yes | 70 (68) | 19 | 19 |
+
+God mode changes nothing here: every attacker closed in and swung. The outdoor hold-off of
+§3 (147–177 units, no swing) is therefore not god mode's doing [hypothesis left: something
+of the outdoor spot near Violet's dogs; not settled]. NVForever's
+attackers close in, as these do: no change.
+
+## 10. The Strip's crowd against ours (2026-10-19)
+
+The original [observed]: campaign `strip` (tools/capture/observe/strip.campaign.json),
+session `strip_evening` from `nvfstrip`, 6 game hours from 20:14, 1,238 samples every 30
+game loops, with xNVSE's events (plugin version 9): 21 actors (the crowd of §1's list and
+the securitrons), 5,682 events (2,504 OnPackageStart, 2,496 OnPackageDone, 236
+OnPackageChange, 348 OnTriggerEnter, 53 OnActivate). Timeline private
+(`C:\fnv-private\capture\observe\strip.timeline.json`).
+
+Ours: `fnvtool ai run --samples` on the same capture: each actor starts where the capture
+first saw it, at its hour, and is compared at every sample (smoke `ai-observed-strip`).
+
+**First run: nothing matched**, for two reasons in the comparison, not in the AI:
+
+1. Every crowd package (the travellers' and gamblers' ports, the MPs' patrol and check,
+   the securitron messenger's dialogue) has the condition GetQuestVariable
+   VStreetFluffNPC 52 == 1, which the game's own scripts set on the Strip; the headless run
+   had no quest state. `ai run` now takes `--quest-var QUEST:INDEX=VALUE`.
+2. Mr. Holdout and the dancers are placed initially disabled (a trigger enables them in
+   the game); the run left them disabled. It now enables an actor the capture saw enabled
+   (GetDisabled 0).
+
+**With both** (1,219 samples an actor): the package was the same for 97–100 % of the
+samples for Mr. Holdout (VMrHoldoutHangOutSell), the three dancers, the gamblers, the
+travellers, MP A and the securitrons; MP B 83 %.
+
+What still differs, and why [observed; the causes from the records]:
+
+- **The NCR troopers A–D and the MPs' escorts**: the original ran the SS2 chain
+  (VStripSS2Start1Trooper*Move, VStripSS2TravelEnd*, VStripSS2WallDrunk3,
+  VStripSS2StartMP*Escort), which is in none of their package lists: a scene script gives
+  it. Ours ran their own lists (VStreetSandbox38*, VStripFluff1HookerCheer*). The headless
+  run runs no scripts; not an AI difference.
+- **The travellers and gamblers walk back and forth in the original**: OnPackageDone and
+  OnPackageStart of their port packages came in pairs 550–590 times per actor in 6 hours
+  (bursts about a game second apart), and the timeline has 90–107 segments each. Ours made
+  one trip each and stayed. Their packages (VStripFluff1PortRNDToGomPackage, …ToTop…) have
+  an **end result script** [observed: the records] that, by the packages' names ("Port …
+  RND"), sends the actor on to another port [hypothesis: the script's text was not read];
+  the headless run does not run result scripts. Their positions therefore differ (median 630–1,040 units in the
+  same cell). To compare the walking itself, the next step is the same span in
+  `nvforever --play` with an engine-side sampler, which runs the scripts.
+- MP B's 17 % and MP A's 3 %: the SS2 escort, above.
+
+Nothing in the AI itself is shown wrong by this capture; the comparison tool was fixed.

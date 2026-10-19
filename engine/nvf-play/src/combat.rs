@@ -482,6 +482,10 @@ const MARKER_SECONDS: f32 = 0.18;
 pub struct CombatStats {
     /// The magic items hits applied and which are still active (`hit_effects`).
     pub hit_effects: hit_effects::HitEffects,
+    /// Hits between actors other than the player, by target: (name, the damage of each
+    /// hit, its maximum health), for the summary that sets a fight against the AI
+    /// observer's (docs/spec-notes/npc-behaviour-compare.md §9).
+    pub npc_hits: std::collections::BTreeMap<u32, (String, Vec<f32>, f32)>,
     pub shots: u32,
     pub projectiles: u32,
     pub actor_hits: u32,
@@ -810,6 +814,12 @@ impl Combat {
     /// throw_action`). A round-by-round reload reads 17 while it opens the weapon, 9 for
     /// its rounds and its close [hypothesis: `AnimAction::ReloadOpen`]. A jam reads 13
     /// [hypothesis: the page's catch-all, "every action not included in the ones above"].
+    /// The player's weapon is a mine: its WEAP animation type is "Land Mine (1 Hand)" or
+    /// "Mine Drop (1 Hand)" (IsPlayerActionActive 4 while one is laid).
+    pub fn player_weapon_is_mine(&self) -> bool {
+        self.weapon.and_then(|w| self.forms.weapons.get(&w)).and_then(|w| w.anim_type.as_deref()).is_some_and(|t| t.starts_with("Land Mine") || t.starts_with("Mine Drop"))
+    }
+
     pub fn player_anim_action(&self, anim: &WeaponAnim, trigger: bool, aiming: bool, dt: f32) -> Option<fnv_game::anim_state::AnimAction> {
         use fnv_game::anim_state::{swing_action, AnimAction};
         if anim.drawing {
@@ -1804,6 +1814,9 @@ pub(crate) fn apply_hit(
     let name = sim.ref_name(Some(rt.game.data), target.0).map_or_else(|| target.to_string(), str::to_string);
     if mine {
         stats.damage += r.dealt as f32;
+    } else if info.attacker.is_some() && !r.immune {
+        let e = stats.npc_hits.entry(target.0).or_insert_with(|| (name.clone(), Vec::new(), r.max_health as f32));
+        e.1.push(r.dealt as f32);
     }
     if r.died {
         if mine {
@@ -2709,6 +2722,17 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
         info!("{}", hit_effects::summary(&s.hit_effects));
         if s.disarmed > 0 {
             info!("crippled limbs summary: {} actors disarmed by a crippled arm", s.disarmed);
+        }
+        for (id, (name, hits, max)) in &s.npc_hits {
+            let mut d = hits.clone();
+            d.sort_by(f32::total_cmp);
+            info!(
+                "npc hits summary: {name} {id:08X} took {} hits from actors for {:.0} damage (median {:.1}, most {:.1}), maximum health {max:.0}",
+                d.len(),
+                d.iter().sum::<f32>(),
+                d[d.len() / 2],
+                d[d.len() - 1]
+            );
         }
     }
 }
