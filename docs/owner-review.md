@@ -2820,6 +2820,13 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    and for
    you while one hunts you (the documentation says so). This can change quest scripts
    that test IsInCombat; nothing showed in the runs, but watch for it.
+   **Captured 2026-10-19 [observed]:** `alert_noise` ran twice from `nvftest`. Fiends in
+   combat with the player kept IsInCombat 1 while they lost sight of the player (Lost),
+   which matches ours. The detection Alert itself never occurred: the hidden player was
+   in combat with part of the camp on arrival, and the rest joined combat directly. The
+   Alert row stays the wiki's reading (spec-notes/owner-decision-captures.md §7;
+   npc-behaviour-compare.md §11 of PR #486 found no alert without combat in 480,000
+   samples).
 5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
    body was in the way of the ray, and a small transparent fence hid you. Both changed
    (`docs/design/alert.md` §7).
@@ -4150,6 +4157,10 @@ Decisions where the sources were unclear:
   2026-10-18 [observed]:** over 12 game hours the initiates switched activity often, and
   the paladins every few hours, so the check's direction holds. The knights on L2 needed
   `SetAlly` with the player's faction to be watched (spec-notes/owner-decision-captures.md §4).
+  **Package events 2026-10-19 [observed]:** two L2 knights whose two Sandbox packages
+  both run `SetPackDuration 60` in their begin scripts changed package 41 times in 12 h,
+  10 to 70 game minutes apart (most 10 to 20), not every 60 game minutes as our reading
+  of the unit gives. What the 60 counts is open (spec-notes/owner-decision-captures.md §7).
 - **Rotate** turns a reference for one frame per call (the shipped callers call it
   every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
   their linked references) spin steadily.
@@ -4685,6 +4696,15 @@ written.
 - **What it bears on.** The "restart every duration" behaviour of about 358 packages
   (outstanding.md §3).
 - **Status.** The runtime is unchanged until the owner rules (spec-notes/owner-decision-captures.md §4).
+- **Third session, 2026-10-19 [observed]:** both geckos held FindFood (2 h, no start
+  hour) from 17:02 for 10 and 13 game hours, wandering and acquiring, never DONE.
+- **Runtime changed 2026-10-19.** With three sessions agreeing, a schedule duration now
+  ends a package only once its goal was met. Until then it runs on, and once the goal is
+  met after its time it ends at once (`Game::end_timed_packages`; test
+  `a_schedule_duration_ends_the_package_and_the_next_one_takes_over`). So the about 358
+  packages no longer restart every duration whatever they do. Still a hypothesis: that
+  the next choice starts from the top of the list (it does by our package choice
+  already) (spec-notes/owner-decision-captures.md §7).
 
 **Fix.** A list package with a duration and no starting hour now ends that many game
 hours after the actor chose it, the same way a SetPackDuration time ends (#250's

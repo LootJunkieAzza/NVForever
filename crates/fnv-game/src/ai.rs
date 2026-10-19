@@ -361,7 +361,7 @@ impl Game<'_> {
     }
 
     /// Packages whose time is up end (SetPackDuration's, or the schedule duration of
-    /// [`Game::start_schedule_duration`]): the package counts as done (its end script
+    /// [`Game::start_schedule_duration`] once the package's goal was met): the package counts as done (its end script
     /// and OnPackageDone run, as for a goal met), the actor lets it go and chooses again
     /// at once, by the usual rules [hypothesis: what "duration" ends into is not
     /// documented; choosing again may pick the same package, which then starts afresh
@@ -387,6 +387,14 @@ impl Game<'_> {
                 continue;
             }
             if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule) && self.package_held(a).is_some() {
+                continue;
+            }
+            // A schedule duration ends the package only once its goal was met; until then
+            // it runs on past its time, and ends as soon as the goal is met [observed:
+            // owner-decision-captures.md §4 and §7, the Goodsprings geckos' Once Per Day
+            // FindFood (2 h) and patrol (3 h) ran 4.7 to 13 h when they never finished,
+            // and a FindFood that reached DONE ended 2 h after it began].
+            if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule && !e.package_goal_met) {
                 continue;
             }
             self.extra.entry(a).or_default().package_ends = None;

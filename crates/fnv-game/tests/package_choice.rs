@@ -596,7 +596,17 @@ fn a_schedule_duration_ends_the_package_and_the_next_one_takes_over() {
     g.tick();
     assert_eq!(g.extra[&h].current_package, Some(id(P_FIND_2H)));
     assert!(g.extra[&h].package_ends_by_schedule);
-    for (days, want) in [(5.05, P_FIND_2H), (5.09, P_PATROL_3H), (5.2, P_PATROL_3H), (5.22, P_DEFAULT), (5.9, P_DEFAULT)] {
+    // Past its 2 hours with its goal not met it runs on (the original's geckos,
+    // owner-decision-captures.md §7); once the goal is met it ends at once.
+    set(&mut g, G_DAYS_PASSED, 5.3);
+    g.tick();
+    assert_eq!(g.extra[&h].current_package, Some(id(P_FIND_2H)), "a find not done runs on");
+    g.package_goal_met(h);
+    g.tick();
+    assert_eq!(g.extra[&h].current_package, Some(id(P_PATROL_3H)));
+    // The patrol's own 3 hours count from its choice; done before them, it waits for them.
+    g.package_goal_met(h);
+    for (days, want) in [(5.35, P_PATROL_3H), (5.43, P_DEFAULT), (5.9, P_DEFAULT)] {
         set(&mut g, G_DAYS_PASSED, days);
         g.tick();
         assert_eq!(g.extra[&h].current_package, Some(id(want)), "at day {days}");

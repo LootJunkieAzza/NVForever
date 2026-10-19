@@ -186,6 +186,10 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   - **ResetAI on a sleeper.** Ringo never lay down in the gas station.
   - **Actors with no greeting.** Two of the three had one after all, so the rule still
     has no clean test case.
+  - **SetPackDuration's unit.** Hidden Valley's knights, whose packages run
+    `SetPackDuration 60`, changed package every 10 to 70 game minutes, not every 60.
+  - **IsInCombat while on Alert.** The detection Alert was never seen. IsInCombat stays
+    1 while a fighter has lost sight of its target, as ours does.
   - **Force-greets' Goodbye camera.** No capture was designed for it.
   - **A quest's own conditions on the speaking actor.** No capture was designed for it.
 

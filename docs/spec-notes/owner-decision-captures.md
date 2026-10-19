@@ -557,3 +557,57 @@ a picture is [observed].
 
   Ralph spoke the GOODBYE topic twelve times by script. Telling INFO 0x00143A87 from
   0x00143A89 needs subtitles or the voice file named.
+
+### The campaign sessions, from `nvftest` (plugin 9)
+
+`observe.py run owner_decisions.campaign.json --only alert_noise hv_initiates hv_knights
+geckos_package_chain`. The package sessions now record xNVSE's OnPackageStart, Change and
+Done; alert_noise the fight events. Timeline: `C:\fnv-private\capture\observe\owner_decisions_round2.timeline.json`.
+
+- **`hv_initiates`: confirms the first run.** The game crashed once at 10:05 (sample 412)
+  and the session restarted from the save; the rerun ran 06:00–18:00, 1,120 samples. The
+  initiates changed package 35 to 40 times each in 12 hours, as in the first run.
+  - **Too many events.** Their packages made at run time sent about 81,900 OnPackage
+    events in one session. Most are OnPackageDone, as often as every sample. The crash may
+    come from that load [hypothesis]; `events: packages` is not worth it on such crowds.
+- **`hv_knights`: the knights switch every 10 to 70 game minutes.** Knights 000A41DB and
+  000A41DC alternated between HVKnightWeaponRepair (0x000D76E6) and
+  HVKnightWeaponRepair2 (0x000D781C), 41 package starts between them in 12 hours.
+  - **Both packages.** Each is a Sandbox scheduled 06:00 for 16 hours, and each begin
+    script is `SetPackDuration 60` [observed: `fnvtool ai show`, `script decompile`].
+  - **Start times of 000A41DB.** 7.00, 7.17, 7.33, 7.50, 8.00, 8.17, 8.50, 8.67, 8.98,
+    10.00, 10.35 and 11.50 h, with OnPackageDone between some of them. The gaps are 10,
+    10, 10, 30, 10, 20, 10, 19, 61, 21 and 69 minutes.
+  - **Verdict.** SetPackDuration makes these packages change "every 30–90 game minutes,
+    not all day", which settles the check's direction. But the periods do not match "60
+    game minutes from the call" (ours): most are shorter. What 60 counts, and whether the
+    sandbox's own Done ends them first, are open [hypothesis both]. The runtime is
+    unchanged.
+- **`geckos_package_chain`: the duration again did not end an unfinished package.** From
+  17:02 both geckos ran VCrGeckoFindFood (Find, 2 h, no start hour, Once Per Day), WANDER
+  with short ACQUIRE turns, and never reached DONE. 0x0016518C held it for all 13 game
+  hours; 0x0016518B held it for 10 h, then read no package from 03:21. That is the third
+  session in which a package with a duration and no start hour ran far past its duration
+  while its goal was not met (§4: the patrol for 4.7 and 8 h, a find for over 4 h); the
+  one find that reached DONE ended exactly at its 2 h. **Runtime changed:** a schedule
+  duration now ends a package only once its goal was met, and then at once
+  (`Game::end_timed_packages`; test
+  `a_schedule_duration_ends_the_package_and_the_next_one_takes_over`). The package events
+  add nothing here: the geckos changed no package, so none was sent.
+- **`alert_noise`: not settled, run twice.**
+  - **First try.** The three shots came from the session's `do` steps, which run before
+    the observation starts, so the Fiends were in combat with the hidden player at the
+    first sample.
+  - **Second try.** The shots were moved to timed hooks after 30 quiet samples. Three of
+    the Fiends (0x000F9CE6, 0x000F9CE7, 0x000F5704) were still in combat with the player
+    at the first sample, before any shot: the player arriving hidden at that spot is
+    enough. The other two (0x000F9CE8, 0x000F9CE9) went from WANDER to combat about 200
+    samples after the shots, with GetDetected 0. They read in_combat 1 with no target for
+    one sample, then the player as target, and drew their weapons a few samples later.
+  - **What both show.** In_combat stayed 1, and the target stayed the player, through
+    many changes of GetDetected between 1 and 0. So **IsInCombat stays 1 while the target
+    is out of sight** (the detection "Lost" state) [observed].
+  - **Not seen.** No sample had a weapon out with in_combat 0 and the procedure
+    searching, so the detection Alert never occurred. This agrees with
+    npc-behaviour-compare.md §11 (PR #486), which found no alert without combat in about
+    480,000 recorded samples. The "Alert" row of design/alert.md stays the wiki's reading.
