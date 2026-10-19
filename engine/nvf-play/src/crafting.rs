@@ -300,8 +300,12 @@ fn keys(
     mut next: ResMut<NextState<PlayState>>,
     mut sounds: MessageWriter<UiSound>,
     mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
+    mut moved: MessageReader<bevy::window::CursorMoved>,
     mut commands: Commands,
 ) {
+    // Only a pointer that moves takes the selection: the rows drawn when the menu opens
+    // (or redrawn) under a resting pointer leave the keys' choice alone (as `crate::menu`).
+    let pointer_moved = moved.read().count() > 0;
     let Some(open) = menu.0.as_mut() else { return };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     // A world aid (`crate::pause::WorldAidClock`).
@@ -372,7 +376,7 @@ fn keys(
     for (i, b) in &buttons {
         match (i, b) {
             (Interaction::Pressed, b) => clicked = Some(*b),
-            (Interaction::Hovered, RecipeButton::Row(r)) => open.selected = *r,
+            (Interaction::Hovered, RecipeButton::Row(r)) if pointer_moved => open.selected = *r,
             _ => {}
         }
     }
