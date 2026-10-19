@@ -3043,10 +3043,10 @@ order = [[
   { re = 'an hour passed in the wait menu', label = "the wait passes hours" },
   { re = '0x0016518[BC]: runs to .*patrol point VERT1GSPrimmGeckoRoute01b', label = "after its 2 hours of find food, the patrol takes over" },
   { re = 'wait menu: 14 hour\(s\) passed; closed', label = "the wait ends" },
-  { re = 'provocation: 0x0016518[BC] .*warns the player inside its aggro radius \(warning 1;', label = "a gecko, back on its sandbox, warns the player inside its aggro radius" },
+  { re = 'provocation: 0x0016518[BC] .*warns the player inside its aggro radius \(warning 1;', label = "a gecko, back on its sandbox, warns the player inside its aggro radius", known_failing = "since 2026-10-19 a schedule duration ends a package only once its goal was met (owner-decision-captures.md §7: the original's geckos held FindFood 10-13 h unfinished and never reached their sandbox in 14 h either); this check encodes the replaced rule, so the chain does not reach the sandbox in the wait. To rewrite for the new rule (follow-up)" },
 ]]
 expect = [
-  { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox" },
+  { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox", known_failing = "since 2026-10-19 a schedule duration ends a package only once its goal was met (owner-decision-captures.md §7: the original's geckos held FindFood 10-13 h unfinished and never reached their sandbox in 14 h either); this check encodes the replaced rule, so the chain does not reach the sandbox in the wait. To rewrite for the new rule (follow-up)" },
   { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings", known_failing = "fails on main too (F:/nvf-target/audit-rerun-main.txt, 2026-10-17 00:28): the geckos come back from 7,400 units in the last waited hour and are still on their way when the run ends; warned once at 645-647 of 650" },
 ]
 
