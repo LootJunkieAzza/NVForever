@@ -908,8 +908,55 @@ animation.md §9.9.
   - Before the flash time was the record's alone it was held to at least 0.05 s, and
     the test aid held it for seconds: the owner saw the minigun's flash "sticking
     around way too long". Now 0.04 s is one frame at 25 frames a second.
-- **Not built:** the controllers inside the flash models, the PROJ's own light, NPCs'
-  shots. Add-on nodes are docs/spec-notes/particles.md; sounds, impacts and shell
+- **Controllers of the effect models** (2026-10-19; the owner: the laser rifle's beam
+  "looks static" beside the game's). Every beam PROJ of FalloutNV.esm and its models,
+  base archives only [observed: `fnvtool combat form`, `fnvtool nif decode`; flags as
+  nif.xml TimeControllerFlags: bit 0 APP_INIT, bits 1-2 cycle (0 loop, 2 clamp), bit 3
+  Active, bit 5 manager controlled]:
+
+  | PROJ (used by) | Fade Duration | Beam model | Its controllers |
+  |---|---|---|---|
+  | `BeamLaserProjectile` (laser rifle and others), `BeamLaserAutoProjectile` (0.10 s), `ARCHIMEDESIIProjectile` (10 s) | 0.14 s | `projectiles	estlaserbeamsteady.nif` | `LaserGeometry:1` (`FXEnerygTiler.dds`): `NiTextureTransformController` TT_TRANSLATE_V 0 → 1 over 3.67 s and TT_TRANSLATE_U 0 → −1 over 0.5 s, flags 72 (Active, loop). No alpha controller; material alpha 1 |
+  | `BeamPewPewProjectile` | 0.14 s | `testlaserbeamsteadyyellow.nif` | the same two as the rifle's |
+  | `ProtectronHeadLaserProjectile` | 0.10 s | `laserprotectronhead01.nif` | V 0 → 1 / 0.5 s on one shape, V 0 → 1 / 3.67 s and U 0 → −1 / 0.5 s on the other; flags 72 |
+  | `DLC03TeslaChainProjectile` (×4) | 0.5 s | `dlc03teslachainbeam.nif` | the rifle's pair, and V 0 → 1 / 0.23 s on the glow; flags 72 |
+  | `DLC03TeslaCannonProjectile` | 0.25 s | `dlc03teslamainbeam.nif` | V 0 → 1 / 0.5 s, V 0 → 1 / 0.1 s and U 0 → −1 / 2.83 s; flags 72 |
+  | `ARCHIMEDESIProjectile` | 1.0 s | `fxhelios_laserbeam.nif` | the rifle's pair on two shapes; flags 72 |
+  | `BeamLaserGreenProjectile` | 0.14 s | `nv\weaponeffects\lasergreenprojectile.nif` | V 0 → −1 / 0.67 s and `NiAlphaController` 1 (to 0.033 s) → 0 (0.2 s); flags 69 (APP_INIT, clamp, **not** Active) |
+  | `PulseGunProjectile` | 0.75 s | `nv\weaponeffects\pulsegunprojectile.nif` | alpha 1 → 0 by 0.2 s on both beam shapes, V 0 → −1 / 0.47 s; flags 69 |
+  | `DLC03ScatterBeam` | 0.14 s | `dlc03scatterbeam.nif` | none |
+
+  The flash models have them too (played since the explosion-effects work):
+  `laserriflemuzzleflash.nif` shrinks its glow's billboard node (scale 1 → 0.8 by
+  0.13 s, an `NiTransformController`, flags 72) and scrolls two burst planes along U and
+  V; `lasergreenmflash.nif` moves its root (flags 69). The Gauss rifle's, the plasma and the sonic PROJs are Missiles, not beams.
+  The beam is scaled along y by its length ÷ 2048 (`BeamEnd`); the V of
+  `LaserGeometry:1` runs along it (about 1.9 repeats of the texture over the 2048 units)
+  and U across it (about 0.32 over the 9 units of each half).
+- **Readings** [hypothesis]: an effect model plays all its controllers from the moment
+  it is made, the inactive APP_INIT ones included (docs/spec-notes/explosion-effects.md
+  §2; the green laser's and pulse gun's alpha fades are shaped as the beam's own short
+  life), each material controller on its own cycle (`OwnCycle`), so the beams' looping
+  scrolls keep scrolling while the beam shows; a texture offset moves the texture by its
+  value (`uv + offset`, as for placed models, activators.md §2). The game stretches the
+  beam's model as we do, so the texture and its scroll along the beam stretch with it (a
+  500-unit beam shows the same 1.9 repeats as a 2048-unit one, and scrolls 0.24 times as
+  fast in units per second); whether the game rescales the UVs to keep the texture's
+  size instead is not known. **Fade Duration** is the time a beam stays after the shot,
+  over which it fades from full to nothing in a straight line (alpha × left ÷ Fade
+  Duration; the beams are additive, so all they add fades with it); a beam whose model
+  fades itself (an alpha controller) is drawn at the model's alpha alone. The meaning of
+  Fade Duration is from its name and the beam staying that long; the straight line is
+  [design].
+- **Engine** (2026-10-19, `nvforever::shot_fx`): a projectile's model is spawned as an
+  effect (`spawn_effect`, its rig playing `Rig::effect` as flashes, impacts and
+  explosions do), so the beams scroll. Combat gives each drawn shot a strength
+  (`ShotVisual::strength`, `beam_strength`); for a beam whose clip has no alpha track,
+  every shape of the model gets a material slot and `RigMaterials::fade` multiplies the
+  strength into their alpha. A beam model with no controllers at all
+  (`dlc03scatterbeam.nif`) has no rig and is drawn at full strength until it goes. The
+  exit summary counts the beams played and faded (smoke `combat-beam`).
+- **Not built:** the PROJ's own light, NPCs' shots. Add-on nodes are docs/spec-notes/particles.md; sounds, impacts and shell
   casings are §16. Not looked at in a run: the 10mm bullet, plasma bolt and grenade
   models (their PROJs go the same way).
 - A model is not shown until it has flown the length it reaches behind its origin

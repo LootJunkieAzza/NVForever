@@ -155,10 +155,20 @@ pub struct RigShape {
     pub material: Handle<NifMaterial>,
     /// Inverse bind poses and the joint nodes, for skinned shapes.
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<usize>)>,
-    /// A clip of the rig drives the shape's material (`crate::material_anim`): its name
-    /// and stored emissive colour and multiplier.
-    /// (shape name, stored emissive colour, emissive multiplier, alpha).
-    pub animated: Option<(String, [f32; 3], f32, f32)>,
+    /// The shape's name and its material's stored emissive colour, emissive multiplier
+    /// and alpha: what a track that drives one of them leaves the others at
+    /// (`crate::material_anim`).
+    pub look: (String, [f32; 3], f32, f32),
+    /// A clip of the rig drives the shape's material.
+    pub animated: bool,
+}
+
+impl RigShape {
+    /// The shape's material slot ([`RigMaterials`]), drawn on `entity`.
+    pub fn slot(&self, entity: Entity) -> MaterialSlot {
+        let (name, emissive, mult, alpha) = self.look.clone();
+        MaterialSlot::new(name, entity, self.material.clone(), emissive, mult, alpha)
+    }
 }
 
 /// A door model's "Open" and "Close" sequences (docs/spec-notes/doors.md).
@@ -278,17 +288,10 @@ impl Rig {
             let playing = Playing::new(source, idle, |n| by_name.get(n).copied()).at_phase(phase);
             commands.entity(entities[0]).insert(playing);
         }
-        let slots: Vec<MaterialSlot> = self
-            .shapes
-            .iter()
-            .filter_map(|s| {
-                let (name, emissive, mult, alpha) = s.animated.clone()?;
-                Some(MaterialSlot::new(name, entities[s.node], s.material.clone(), emissive, mult, alpha))
-            })
-            .collect();
+        let slots: Vec<MaterialSlot> = self.shapes.iter().filter(|s| s.animated).map(|s| s.slot(entities[s.node])).collect();
         if !slots.is_empty() {
             let idle = Arc::new(clip.map(|c| c.materials.clone()).unwrap_or_default());
-            commands.entity(entities[0]).insert(RigMaterials { slots, idle, dark: false });
+            commands.entity(entities[0]).insert(RigMaterials { slots, idle, dark: false, fade: 1.0 });
         }
         (entities[0], drawn, by_name)
     }
@@ -777,11 +780,10 @@ impl ModelCtx<'_> {
                         Some((m, binds, joints)) => (m, Some((binds, joints))),
                         None => (mesh.clone(), None),
                     };
-                    let animated = animated_shapes.contains(&shape_name).then(|| {
-                        let (e, m) = props.emissive_parts();
-                        (shape_name.clone(), e, m, props.alpha_part())
-                    });
-                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, animated });
+                    let animated = animated_shapes.contains(&shape_name);
+                    let (e, m) = props.emissive_parts();
+                    let look = (shape_name.clone(), e, m, props.alpha_part());
+                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, animated });
                 }
             }
             // A shape only a visibility track shows is the rig's alone.

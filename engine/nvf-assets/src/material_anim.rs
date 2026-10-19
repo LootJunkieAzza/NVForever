@@ -40,13 +40,14 @@ pub struct MaterialSlot {
     pub emissive_mult: f32,
     /// Stored material alpha.
     pub alpha: f32,
-    /// What was last written.
+    /// What was last written, before the rig's fade, and the fade it was written with.
     last: Option<Look>,
+    faded: f32,
 }
 
 impl MaterialSlot {
     pub fn new(shape: String, entity: Entity, handle: Handle<NifMaterial>, emissive: [f32; 3], emissive_mult: f32, alpha: f32) -> MaterialSlot {
-        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, last: None }
+        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, last: None, faded: 1.0 }
     }
 }
 
@@ -68,6 +69,9 @@ pub struct RigMaterials {
     /// Draw the idle's lights dark (emissive tracks' shapes at black) and keep its
     /// texture offsets where they are: a radio switched off (activators.md §3).
     pub dark: bool,
+    /// What the alpha of every slot is multiplied by, 1 to 0: a shot's beam fading out
+    /// (nvforever `shot_fx`, docs/spec-notes/combat-rules.md §15); 1 for everything else.
+    pub fade: f32,
 }
 
 /// The values of `tracks` at `t` for each slot; `dark` blacks out the emissive of
@@ -102,8 +106,9 @@ impl RigMaterials {
     /// seconds of play (see [`sample`]).
     pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, materials: &mut Assets<NifMaterial>) {
         let values = sample(&self.slots, tracks, t, clock, dark);
+        let fade = self.fade.clamp(0.0, 1.0);
         for (slot, v) in self.slots.iter_mut().zip(values) {
-            if !slot.own || slot.last == Some(v) {
+            if !slot.own || (slot.last == Some(v) && slot.faded == fade) {
                 continue;
             }
             let Some(mut m) = materials.get_mut(&slot.handle) else { continue };
@@ -111,8 +116,9 @@ impl RigMaterials {
             let value = |c: f32| if matches!(m.base.alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * mult) } else { c * mult };
             m.base.emissive = LinearRgba::rgb(value(colour[0]), value(colour[1]), value(colour[2]));
             m.base.uv_transform = Affine2::from_translation(Vec2::from_array(uv));
-            m.base.base_color.set_alpha(alpha);
+            m.base.base_color.set_alpha(alpha * fade);
             slot.last = Some(v);
+            slot.faded = fade;
         }
     }
 }
@@ -136,10 +142,11 @@ pub fn bind_rig_materials(
     }
 }
 
-/// Pose the materials of rigs playing their idle clip at its time (or dark).
+/// Pose the materials of rigs playing their idle clip at its time (or dark), and fade
+/// those that fade.
 pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut materials: ResMut<Assets<NifMaterial>>) {
     for (p, mut rig) in &mut rigs {
-        if rig.idle.is_empty() {
+        if rig.idle.is_empty() && rig.fade >= 1.0 {
             continue;
         }
         let idle = rig.idle.clone();
