@@ -508,7 +508,7 @@ one sample in every recording; a capture that should show an Alert has to give a
 sound with no sight line at all (the shots of `alert_noise` came after the Fiends had seen
 the player). No new run is planned for it in this round.
 
-## 12. The next round of observer campaigns (2026-10-19, written, not yet run)
+## 12. The next round of observer campaigns (2026-10-19; run the same day, §13)
 
 Written on the desktop; run on the other machine (owner's request), one at a time with both
 game locks, each once. Generated jobs were checked against the masters (`observe.py jobs
@@ -523,3 +523,133 @@ game locks, each once. Generated jobs were checked against the masters (`observe
 | `followers` | nvftest | Boone: through doors (both ways), follow distance, sneaking, joining combat | one run |
 
 Findings go here (§8.2–8.4), into docs/spec-notes/packages.md (durations) and a followers note.
+
+## 13. The §12 campaigns, run (2026-10-19) [observed]
+
+**The run.** Run on the owner's desktop by the session that ran the second owner-decision
+round, with both game locks held and one game launch per campaign (one per session where
+§12 says so). Plugin version 9; `observe.py run … --data <Data>`. The jobs that name forms
+by Editor ID need `--data`; without it they stop at once.
+- **Outputs.** `C:\fnv-private\capture\out\obs_{fight_spacing,creature_spacing,melee_holdoff,followers,package_durations}_*`.
+- **Timelines and run reports.** `C:\fnv-private\capture\round3`.
+- **Per-fighter tables.** `round3\*.stats.json` (`fight_stats.py --json`).
+
+### `fight_spacing` (§8.3): four troopers against four Fiends, guns only
+
+| Start distance | Fight (s) | Shots | Hits | Hits per shot | Damage per hit (median, p90, max) | Shot range (median, max) | Deaths |
+|---|---|---|---|---|---|---|---|
+| 500 | 0.2–20.3 | 161 | 67 | 0.42 | 4.6, 11.0, 22.6 | 715, 1,690 | the four Fiends (4.5–14.0 s) |
+| 1,000 | 0.3–39.5 | 154 | 72 | 0.47 | 5.2, 11.9, 24.6 | 492, 1,264 | four Fiends (5.0–36.4 s), two troopers (7.5, 8.5 s) |
+| 2,000 | 0.3–28.1 | 233 | 56 | 0.24 | 5.5, 15.6, 47.0 | 1,282, 2,044 | the four Fiends (5.4–23.8 s) |
+
+- **The troopers' damage.** Their hits did a median of 4.2 to 10.1 per hit (by trooper),
+  and the troopers fired 10 to 59 shots each.
+- **The Fiends' shots.** The Fiends fired 0 to 24 times each before dying. Their hits on
+  troopers did a median of 1.6 to 21.2.
+- **The verdict.** Without Cook-Cook a trooper squad kills the camp's Fiends in 20 to 40 s
+  from any of the three start distances. The hit rate falls to about half at 2,000 units.
+  Damage per hit stays at single figures, as in §9 [observed].
+- **What it means for §8.3.** The original's long fights of §9 (89–99 s) are Cook-Cook's
+  doing (215 Health, a flamer), not the distance.
+
+### `creature_spacing` (§8.2): creatures set on four NCR troopers
+
+The distance below is centre to centre at each OnHit by the creature on a trooper, taken
+from the sample at or before the event (`hitdist` in this session's scratch, not
+committed).
+
+| Session | Creature hits seen | Distance at the hit (min / median / max) | Outcome |
+|---|---|---|---|
+| deathclaw (0x0014F42C) | 4 | 136 / 215 / 270 | killed all four troopers in 15 s, survived |
+| young deathclaw (0x0014F42D) | 2 | 94 / 105 / 116 | killed one trooper, died at 15.4 s |
+| radroaches | 0 | none | never closed in; three trooper shots at about 220 units, no hit |
+| cazadors (0x0014F3FE) | 2 | 86 / 93 / 100 | four deaths in 13 s |
+
+- **Few samples.** xNVSE drops repeated OnHit pairs within a frame (ai-observer.md §12),
+  and many blows landed between the 1-loop samples' events, so these are few.
+- **The adult deathclaw.** It strikes from about 215 units centre to centre, about twice
+  a young one's reach.
+- **Our rule.** `(RNAM + 59) × scale` (§3) was not recomputed here for these bases
+  [hypothesis left for the next comparison].
+
+### `melee_holdoff` (§8.4), from `nvfstrip`
+
+- **NPC sessions: not settled.** In all four, the NPC attackers never engaged
+  (sledgehammer, lead pipe, power fist, knife):
+  - the spawned trooper stood still for the whole session (in_combat 0, Health 50);
+  - the place's `attack: player` (StartCombat right after PlaceAtMe) did not take, in
+    this save at this spot.
+- **Creature sessions.** Distance of the in-combat creature to the player (median, p10),
+  with its swings and hits on the player:
+
+| Session | Samples in combat | Distance median / p10 | Swings | Hits on the player |
+|---|---|---|---|---|
+| coyote, no god mode | 903 | 127 / 84 | 5 | 5 |
+| mantis, no god mode | 1,775 | 189 / 160 | 12 | 12 |
+| mantis, god mode | 1,806 | 164 / 162 | 18 | 18 |
+
+- **The mantis comparison.** The mantis kept the same distance with and without god mode
+  and hit as often or more with it. So god mode does not make it hold off, as §9 found
+  for the knife, sledgehammer and dog indoors.
+- **The dog sessions** (normal and tgm) recorded no dog in combat either; the spawn did
+  not engage.
+
+### `followers`: Boone hired in his room (od_03's hire)
+
+- **Out through his door, following.** He arrived about 200 units to the player's
+  **left**, level with the player. This is the third run, and agrees with od_03's two
+  (owner-decision-captures.md §7): NVForever now puts a teammate 160 to the left.
+- **His package at the door.** At the door his Follow script package
+  (0x000B1609) changed to his own PATROL (0x000CB118): OnPackageChange and OnPackageStart
+  in the door's sample. So the cell change drops the script package, as od_03 also saw.
+- **Back in through the outside door.** The script's `Activate player` on 0x000CAFA5 took
+  the player in this time. Boone, on PATROL and no longer following, came along and stood
+  on the player's spot: offset 0, then 50 units after a few loops.
+  - **Second case.** It is the second case of a teammate on a non-following package
+    brought along, after od_03's MoveTo.
+  - **What it rules out.** The door against MoveTo is not what kept od_03's waiting Boone
+    behind; his `Waiting` 1 is the remaining difference [hypothesis].
+- **Not measured.**
+  - **The walk.** In `follow_walk` Boone was on his patrol in another cell, so no follow
+    distance or sneaking could be read.
+  - **The coyotes.** In `combat` they never set on the player: one was seen, entered
+    combat at 11:12 with another actor, and died. Boone's own combat at 10:53 (package
+    FF001317) came before that and had no coyote as its target.
+  - **To measure them, the session needs** Boone kept on his follow package after the
+    door (re-adding it as `timed`) and coyotes placed nearer.
+
+### `package_durations`: a Novac day, packages with a start hour
+
+From 08:05 to 08:05 the next day (2,180 samples); the package events and the samples agree.
+
+| Actor | Package (schedule) | What happened |
+|---|---|---|
+| Boone | PatrolToHome 0x000CB118 (9:00, 2 h) | began 9:00; still on its patrol procedure (41) at 11:00, when the Sandbox took over |
+| Boone | Sandbox 0x000CAFC7 (9:00, 12 h) | 11:00 to 21:00 |
+| Boone | PatrolToNest 0x000CB136 (21:00, 12 h) | began 21:00, DONE (17) at 0:00, held on |
+| Manny Vargas | PatrolToNest 0x000CB144 (9:00, 12 h) | began 9:00, DONE at 12:00, held until 21:00 |
+| Manny Vargas | PatrolToHome 0x000CB135 (21:00, 2 h) | 21:00 to 23:00, then his Sandbox 0x000CAFA6 |
+| Cliff Briscoe | shop sandbox 0x000CD214 (6:00, 17 h) | held until 23:00 (past PatrolHome's and Sleep's 22:00 start), then 0x000CD215 until 6:02 |
+
+- **Verdict [observed].** A package with a start hour runs exactly its window, start to
+  start plus duration:
+  - a goal met early does not end it (Manny's patrol, DONE at 12:00, held until 21:00);
+  - a goal not met does not keep it past its end (Boone's PatrolToHome ended at 11:00
+    mid-patrol).
+- **Against our runtime.** This is NVForever's window rule, so it needs no change. It is
+  the opposite of the packages with no start hour: the Goodsprings geckos' ran past their
+  duration until their goal was met (owner-decision-captures.md §7; NVForever follows
+  that since 2026-10-19).
+- **Cliff Briscoe.** At 22:00 he kept his shop sandbox, still within its window, over
+  PatrolHome and Sleep, which come later in his list. So the first valid package of the
+  list wins [observed], as in our choice.
+- **Not compared one by one.** Andy, No-bark and Jeannie May's switches are in the events
+  file (`round3\package_durations.events.txt`).
+
+### What is still open from §12
+
+- **NPC melee hold-off.** It needs a spawn that engages: the trooper placed with
+  `attack: player` never fought in `nvfstrip`.
+- **Boone's follow distance, sneaking and joining a fight.** They need him kept on his
+  follow package after a door, and coyotes that reach the player.
+- **Radroaches against NPCs.** They never closed in.
