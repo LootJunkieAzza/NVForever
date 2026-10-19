@@ -499,6 +499,7 @@ mod tests {
             text_keys: Vec::new(),
             visibility: Vec::new(),
             materials: Vec::new(),
+            free: Vec::new(),
         })
     }
 

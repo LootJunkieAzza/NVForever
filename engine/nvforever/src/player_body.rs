@@ -80,6 +80,7 @@ use fnv_actor::Appearance;
 use fnv_sim::FormId;
 use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse, PreparedSkeleton};
 use nvf_assets::anim_blend::{Animator, ExtraNode, Mode, DEFAULT_FADE};
+use nvf_assets::material_anim::StoredLook;
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::nif_material::NifMaterial;
@@ -643,6 +644,13 @@ impl PlayerBody {
         self.body.as_ref().is_some_and(|b| b.third.animator.layers.iter().any(|l| l.tag == TAG_LAND && !l.finished()))
     }
 
+    /// The rigs built, root entity and animator (the body's, then the arms rig's): their
+    /// clips drive the materials of their shapes too (`actor_materials.rs`).
+    pub fn animators(&self) -> Vec<(Entity, &Animator)> {
+        let Some(b) = self.body.as_ref() else { return Vec::new() };
+        std::iter::once((b.third.root, &b.third.animator)).chain(b.first.as_ref().map(|f| (f.root, &f.animator))).collect()
+    }
+
     /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
     pub fn first_person_drawn(&self) -> bool {
         self.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true))
@@ -919,6 +927,11 @@ fn ensure_body(
                         }
                     };
                     commands.entity(parent).add_child(e);
+                    // Named, so the clips can drive its glow (`##Bulbs:0` in `1hpaim.kf`;
+                    // actor_materials.rs).
+                    if let Some(name) = &s.name {
+                        commands.entity(e).insert((nvf_assets::actor::ShapeName(name.to_ascii_lowercase()), StoredLook(s.look)));
+                    }
                     if let (None, Some(name)) = (bone, &s.name) {
                         extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
                     }

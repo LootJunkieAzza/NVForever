@@ -30,7 +30,82 @@ pub struct LightsPlugin;
 impl Plugin for LightsPlugin {
     fn build(&self, app: &mut App) {
         let handle: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_LIGHTING);
-        app.insert_resource(LightingShader { handle, patched: false }).add_systems(Update, patch_attenuation);
+        app.insert_resource(LightingShader { handle, patched: false }).add_systems(Update, (patch_attenuation, animate_lights));
+    }
+}
+
+/// How a light's brightness moves by itself: LIGH DATA flags 3 "Flicker", 6 "Flicker
+/// Slow", 7 "Pulse" and 8 "Pulse Slow" [documented: xEdit LIGH DATA flags; GECK wiki
+/// Light: "Pulse and Pulse Slow makes the light pulsate, growing brighter and dimming.
+/// Flicker and Flicker Slow gives the light a flickering effect, such as a candle would
+/// emit"]. 655 placed lights of FalloutNV.esm flicker (fire barrels, broken tubes) and
+/// 209 pulse [observed: `crates/fnv-world/examples/light_flags_survey.rs`,
+/// docs/spec-notes/effects-animation-audit.md §4].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightMotion {
+    Flicker,
+    FlickerSlow,
+    Pulse,
+    PulseSlow,
+}
+
+impl LightMotion {
+    /// The motion a LIGH's DATA flags give it (the first of the four flags set).
+    pub fn of(flags: u32) -> Option<LightMotion> {
+        [(light_flags::FLICKER, LightMotion::Flicker), (1 << 6, LightMotion::FlickerSlow), (1 << 7, LightMotion::Pulse), (1 << 8, LightMotion::PulseSlow)]
+            .into_iter()
+            .find(|(f, _)| flags & f != 0)
+            .map(|(_, m)| m)
+    }
+
+    /// The share of its brightness the light gives at `t` seconds, `seed` keeping
+    /// lights out of step [hypothesis: the curves are not documented; a flicker is
+    /// smoothed random steps between 0.55 and 1, 12 a second (slow: 3), a pulse a sine
+    /// between 0.5 and 1 over 1.5 s (slow: 4 s); the record's fade is the brightest it
+    /// gets. Owner review: docs/owner-review.md, "Light flicker and pulse"].
+    pub fn factor(self, t: f32, seed: f32) -> f32 {
+        match self {
+            LightMotion::Flicker => 0.55 + 0.45 * noise(t * 12.0 + seed * 97.0),
+            LightMotion::FlickerSlow => 0.55 + 0.45 * noise(t * 3.0 + seed * 97.0),
+            LightMotion::Pulse => 0.75 + 0.25 * (std::f32::consts::TAU * (t / 1.5 + seed)).sin(),
+            LightMotion::PulseSlow => 0.75 + 0.25 * (std::f32::consts::TAU * (t / 4.0 + seed)).sin(),
+        }
+    }
+}
+
+/// Smoothed random steps in 0..1: a value per whole `x`, eased between neighbours.
+fn noise(x: f32) -> f32 {
+    let hash = |i: f32| ((i * 12.9898).sin() * 43_758.547).rem_euclid(1.0);
+    let i = x.floor();
+    let f = x - i;
+    let f = f * f * (3.0 - 2.0 * f);
+    hash(i) + (hash(i + 1.0) - hash(i)) * f
+}
+
+/// On a placed light that flickers or pulses: its motion, full intensity and phase.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MovingLight {
+    pub motion: LightMotion,
+    pub full: f32,
+    pub seed: f32,
+}
+
+/// Flicker and pulse the lights that do so.
+fn animate_lights(time: Res<Time>, mut lights: Query<(&MovingLight, Option<&mut PointLight>, Option<&mut SpotLight>)>, mut seen: Local<usize>) {
+    let t = time.elapsed_secs_wrapped();
+    let n = lights.iter().len();
+    if n != *seen {
+        *seen = n;
+        info!("lights: {n} flickering or pulsing");
+    }
+    for (m, point, spot) in &mut lights {
+        let i = m.full * m.motion.factor(t, m.seed);
+        if let Some(mut p) = point {
+            p.intensity = i;
+        }
+        if let Some(mut s) = spot {
+            s.intensity = i;
+        }
     }
 }
 
@@ -106,6 +181,8 @@ pub fn spawn_light(
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, linear));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
     let t = Transform::from_translation(at);
+    // Lights out of step with each other: a phase from the reference.
+    let moving = LightMotion::of(l.flags).map(|motion| MovingLight { motion, full: intensity, seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0 });
     // Neither kind casts shadows. If one ever does, give it the sun's render layers
     // (`sky::SHADOW_LAYER`), or the player's body casts none from it in first person.
     if l.flags & light_flags::SPOT != 0 {
@@ -119,10 +196,16 @@ pub fn spawn_light(
         if let Some(d) = driven {
             e.insert(d);
         }
+        if let Some(m) = moving {
+            e.insert(m);
+        }
     } else {
         let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e)));
         if let Some(d) = driven {
             e.insert(d);
+        }
+        if let Some(m) = moving {
+            e.insert(m);
         }
     }
     true
@@ -131,6 +214,21 @@ pub fn spawn_light(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flicker_and_pulse_stay_within_the_light() {
+        assert_eq!(LightMotion::of(light_flags::FLICKER), Some(LightMotion::Flicker));
+        assert_eq!(LightMotion::of(1 << 8), Some(LightMotion::PulseSlow));
+        assert_eq!(LightMotion::of(light_flags::SPOT), None);
+        for m in [LightMotion::Flicker, LightMotion::FlickerSlow, LightMotion::Pulse, LightMotion::PulseSlow] {
+            let v: Vec<f32> = (0..400).map(|k| m.factor(k as f32 * 0.01, 0.3)).collect();
+            assert!(v.iter().all(|f| (0.5..=1.0).contains(f)), "{m:?}");
+            let (lo, hi) = v.iter().fold((1.0f32, 0.0f32), |(a, b), f| (a.min(*f), b.max(*f)));
+            assert!(hi - lo > 0.1, "{m:?} moves");
+        }
+        // Two lights out of step.
+        assert_ne!(LightMotion::Pulse.factor(1.0, 0.1), LightMotion::Pulse.factor(1.0, 0.6));
+    }
 
     #[test]
     fn display_units() {

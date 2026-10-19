@@ -298,6 +298,11 @@ pub fn spawn_model(
         let bone = names().find_map(|n| skel.by_name.get(bones.get(n)?.trim()).copied());
         let tr = Transform::from_matrix(Mat4::from(part.root * s.transform));
         let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), tr)).id();
+        // Named, so the holder's clips can drive its glow (`##FrontBulbs:0` in
+        // `1hpattack3.kf`; actor_materials.rs).
+        if let Some(n) = &s.name {
+            commands.entity(e).insert((nvf_assets::actor::ShapeName(n.to_ascii_lowercase()), s.stored_look()));
+        }
         commands.entity(actor.nodes[bone.unwrap_or(weapon_node)]).add_child(e);
         if bone.is_some() {
             commands.entity(e).insert(OnBack);
@@ -400,7 +405,7 @@ mod tests {
         // As `2hhholster.kf` / `2hhequip.kf` / `2hhunequip.kf` (animation.md §9.7): off,
         // on from half way through the draw, off from half way through putting it away.
         let clip = |stop: f32, keys: Vec<(f32, bool)>| {
-            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new());
+            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new());
             c.stop = stop;
             if !keys.is_empty() {
                 c.visibility.push(("##FlamerGun".into(), 0, BoolTrack { value: None, keys }));

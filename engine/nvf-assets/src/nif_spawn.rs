@@ -319,6 +319,14 @@ pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
     }
 }
 
+/// Whether a shape is additive with source factor ONE (NiAlphaProperty blend on, source
+/// and destination blend modes 0, ONE [documented: nif.xml AlphaFlags]): 182 shapes in
+/// `Fallout - Meshes.bsa` (docs/spec-notes/nif.md §6 "Additive blend"), among them the
+/// Securitron's screen noise (effects-animation-audit.md §2).
+pub(crate) fn adds_whole(props: &Props) -> bool {
+    props.alpha.is_some_and(|(flags, _)| flags & 1 != 0 && (flags >> 1) & 0xF == 0 && (flags >> 5) & 0xF == 0)
+}
+
 /// Alpha cutoff for object LOD geometry: alpha above 128 is drawn [hypothesis: the game's
 /// value is not known; 128 with TEST_GREATER is the most common setting of the
 /// alpha-tested `*_lod.nif` meshes, 45 of 128 shapes, and `watertower01_lod.nif` has 127;
@@ -540,6 +548,7 @@ pub(crate) fn shape_material(
         material.extension.falloff = f.params;
     }
     material.extension.alpha_cut = cut.unwrap_or(0.0);
+    material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.

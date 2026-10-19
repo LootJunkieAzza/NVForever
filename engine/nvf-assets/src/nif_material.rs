@@ -140,6 +140,12 @@ pub struct NifSurface {
     /// nothing.
     #[uniform(100)]
     pub alpha_cut: f32,
+    /// 1 for an additive shape whose source factor is ONE (NiAlphaProperty ONE / ONE): its
+    /// colour is added whole, whatever its alpha [documented: nif.xml AlphaFlags, source
+    /// blend mode 0 ONE]; the view-angle falloff still fades it [hypothesis]. 0 for every
+    /// other shape (an additive SRC_ALPHA / ONE shape adds colour × [`add_alpha`]).
+    #[uniform(100)]
+    pub add_whole: f32,
     /// The shape lies on another surface (a decal shader flag is set): drawn with
     /// [`decal_bias`].
     pub decal: bool,
@@ -152,7 +158,7 @@ pub struct NifSurface {
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, decal: false, hard_edges: false, shade_light: false }
+        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, add_whole: 0.0, decal: false, hard_edges: false, shade_light: false }
     }
 }
 

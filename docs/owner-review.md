@@ -6527,6 +6527,30 @@ parts are guesses. Captures asked of the observer session are in its §3.
 - **SetFactionRank** below −1 reads −1; **EnableFastTravel**: any kept ban ignores a later
   ban without keep (the wiki shows only `0 0 1` then `0 0 0`).
 - **SetUnconscious 1 on a corpse** brings it back lying unconscious.
+## Securitron screens, self-running controllers, light flicker (2026-10-19, branch claude/effects-animation-audit)
+
+docs/spec-notes/effects-animation-audit.md. The Securitron's own idle clip drives its screen
+(the face wavers in brightness, now and then squashes and rolls over like a TV losing
+vertical hold, and a white-noise layer drifts over it all the time); NVForever now plays
+it, and also plays the controllers that run by themselves in placed models (blinking
+console lights, Mr. House's screens, the circling vultures, light-ray fans) and makes
+flagged lights flicker and pulse. Frames: smoke `securitron-screen` (28 frames over one
+idle cycle), `light-flicker`. Guesses:
+- **Screen brightness** [hypothesis]: an unlit shape's glow is taken as its colour (texture
+  × glow value × 30 here: about the texture's own brightness in the idle, a white flash
+  when the face changes). *Check:* a frame of a Securitron in the original next to ours at
+  the same hour; whether the face change flashes white.
+- **Texture squash and roll** [hypothesis]: scaled and turned about the screen's centre.
+  *Check:* a short recording of a Securitron's face in the original (a glitch comes about
+  every 13 s).
+- **When the idle stops** (the Securitron rolls along) the screen goes back to its still
+  look [hypothesis]; the original may keep the last glitch frame.
+- **Light flicker and pulse** [hypothesis, every number]: flicker = random steps between
+  55 % and full brightness, 12 a second (slow: 3); pulse = a smooth swell between half and
+  full over 1.5 s (slow: 4 s). *Check:* a few seconds of a fire barrel at night and of
+  Vault 19's pulsing lights in the original.
+- **Items on the ground** keep still: guns and hats have parts that move by themselves in
+  their files (slides, magazines), which only the holder's clips should move [design].
 
 ## Explosions play their own files (2026-10-19, branch claude/confident-shamir-392515)
 
