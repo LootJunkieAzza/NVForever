@@ -75,6 +75,7 @@ impl Game<'_> {
         e.last_hit = None;
         e.player_damage = 0.0;
         e.total_damage = 0.0;
+        let was_culled = crate::functions::critical_stage_culls(e.critical_stage);
         e.critical_stage = 0;
         e.furniture = None;
         e.weapon_out = false;
@@ -82,6 +83,9 @@ impl Game<'_> {
             e.rolls += 1;
         }
         let rolls = e.rolls;
+        if was_culled {
+            self.script_looks.critical_changed.push(r);
+        }
         if regenerated {
             self.roll_again(r, rolls);
             self.stop_combat(r);

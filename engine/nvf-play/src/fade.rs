@@ -20,6 +20,12 @@
 //!   Disable during a fade in) ends its fade at once and is drawn as it now is.
 //! - References scripts draw (`script_draw`) are kept while they fade out
 //!   ([`Fades::fading_out`]).
+//! - **MoveToMarkerWithFade** (`fnv_game::functions::refs::move_to_marker_with_fade`):
+//!   the reference fades out while the simulation holds its move
+//!   (`ScriptLooks::fade_moves`), stays hidden ([`FadeHidden`]) until the move, then fades
+//!   in where it went. It is never disabled.
+//! - A reference its critical stage culls (`crate::activate::drawn`) is not shown by a
+//!   fade.
 //!
 //! Log: `fade: <id> in|out over <s> s (<n> meshes)` when one starts (meshes drawn then;
 //! a cell loaded later joins in) and `fade: <id> in|out done` at its end.
@@ -108,11 +114,21 @@ pub fn fade_alpha(fade_in: bool, t: f32) -> f32 {
     }
 }
 
-/// Whether a reference is (still) on its way out: disabled, or held enabled by a
-/// `Disable 1` (`ScriptLooks::fading_out`).
+/// Whether a reference is (still) on its way out: disabled, held enabled by a
+/// `Disable 1` (`ScriptLooks::fading_out`), or waiting for a MoveToMarkerWithFade move
+/// (`ScriptLooks::fade_moves`).
 fn going_out(sim: &SimState, script: Option<&ScriptState>, id: u32) -> bool {
-    !sim.present(id) || script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.script_looks.fading_out.contains_key(&FormId(id)))
+    !sim.present(id)
+        || script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| {
+            let looks = &rt.game.script_looks;
+            looks.fading_out.contains_key(&FormId(id)) || looks.fade_moves.contains_key(&FormId(id))
+        })
 }
+
+/// On a mesh a fade out hid although its reference is still present (a
+/// MoveToMarkerWithFade waiting for its move): the fade in after the move shows it again.
+#[derive(Component)]
+pub struct FadeHidden;
 
 fn start(mut fades: MessageReader<RefFade>, sim: Res<SimState>, script: Option<Res<ScriptState>>, time: Res<Time<Virtual>>, mut st: ResMut<Fades>, visuals: Query<&RefVisual>) {
     for f in fades.read() {
@@ -133,7 +149,7 @@ fn step(
     time: Res<Time<Virtual>>,
     mut st: ResMut<Fades>,
     mut materials: ResMut<Assets<NifMaterial>>,
-    mut meshes: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&Fading>, &mut Visibility)>,
+    mut meshes: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&Fading>, &mut Visibility, Has<FadeHidden>)>,
 ) {
     if st.active.is_empty() {
         return;
@@ -142,7 +158,8 @@ fn step(
     // A presence that turned back ends the fade (module notes).
     let out = |id: u32| going_out(&sim, script.as_deref(), id);
     let over = |id: u32, a: &Active| now - a.since >= FADE_SECONDS || out(id) == a.fade_in;
-    for (e, rv, mat, fading, mut vis) in &mut meshes {
+    let culled = |id: u32| sim.present(id) && !crate::activate::drawn(&sim, script.as_deref(), id);
+    for (e, rv, mat, fading, mut vis, fade_hidden) in &mut meshes {
         let Some(a) = st.active.get(&rv.0) else { continue };
         let t = now - a.since;
         if over(rv.0, a) {
@@ -150,12 +167,26 @@ fn step(
                 commands.entity(e).insert(MeshMaterial3d(f.original.clone())).remove::<Fading>();
                 materials.remove(&f.copy);
             }
-            vis.set_if_neq(if out(rv.0) { Visibility::Hidden } else { Visibility::Inherited });
+            let hide = out(rv.0) || culled(rv.0);
+            vis.set_if_neq(if hide { Visibility::Hidden } else { Visibility::Inherited });
+            if hide && sim.present(rv.0) && !fade_hidden {
+                commands.entity(e).insert(FadeHidden);
+            } else if !hide && fade_hidden {
+                commands.entity(e).remove::<FadeHidden>();
+            }
+            continue;
+        }
+        if culled(rv.0) {
             continue;
         }
         if !a.fade_in && !sim.present(rv.0) {
             // Hidden by `sync_visuals`; drawn while it fades out.
             vis.set_if_neq(Visibility::Inherited);
+        }
+        if a.fade_in && fade_hidden {
+            // Hidden by the end of the fade out before a move; drawn while it fades in.
+            vis.set_if_neq(Visibility::Inherited);
+            commands.entity(e).remove::<FadeHidden>();
         }
         let alpha = fade_alpha(a.fade_in, t);
         let copy = match fading {

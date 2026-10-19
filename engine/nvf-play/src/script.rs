@@ -1514,12 +1514,24 @@ pub(crate) fn run_scripts(
     // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
     // collision and enable children follow.
     let late = std::mem::take(&mut rt.game.script_looks.disabled_after_fade);
+    // References a critical stage culled or brought back (SetCriticalStage,
+    // `activate::drawn`), and MoveToMarkerWithFade's fades (`fade`).
+    let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
+    let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
     for r in late {
         info!("script: {} disabled after its fade", rt.game.data.name(r));
         effects.push(ScriptEffect::RefChanged(r.0));
         effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
+    }
+    for r in culled {
+        info!("script: {} {} by its critical stage", rt.game.data.name(r), if rt.game.culled(r) { "culled" } else { "drawn again" });
+        effects.push(ScriptEffect::RefChanged(r.0));
+    }
+    for (r, fade_in) in move_fades {
+        info!("script: {} fades {} for MoveToMarkerWithFade", rt.game.data.name(r), if fade_in { "in after its move" } else { "out before its move" });
+        effects.push(ScriptEffect::Fade { form_id: r.0, fade_in });
     }
     for r in marked {
         info!("script: {r} marked for delete");

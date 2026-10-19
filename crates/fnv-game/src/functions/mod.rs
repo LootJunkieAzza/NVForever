@@ -26,10 +26,11 @@ mod items;
 mod magic;
 pub mod misc;
 pub mod navigation;
-mod objects;
+pub(crate) mod objects;
+pub use objects::{critical_stage_culls, CRITICAL_DISINTEGRATE_END, CRITICAL_GOO_END};
 pub(crate) mod player;
 mod quest;
-mod refs;
+pub(crate) mod refs;
 pub use refs::FADE_OUT_HOLD;
 mod reputation;
 pub mod senses;
@@ -194,7 +195,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1022, "Disable", Impl(refs::disable)),
         (0x1023, "GetDisabled", Impl(refs::get_disabled)),
         (0x109E, "MoveTo", Impl(refs::move_to)),
-        (0x124F, "MoveToMarkerWithFade", Impl(refs::move_to)),
+        (0x124F, "MoveToMarkerWithFade", Impl(refs::move_to_marker_with_fade)),
         (0x10CE, "GetSelf", Impl(refs::get_self)),
         (0x1048, "GetIsID", Impl(refs::get_is_id)),
         (0x1088, "GetIsReference", Impl(refs::get_is_reference)),
