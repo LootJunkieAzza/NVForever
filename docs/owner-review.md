@@ -6396,3 +6396,18 @@ docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
   thumbnail, then removes the file and its `.bak`. The original shows its Delete hint only
   with a controller. *Check:* the key you want for it.
 - **`;` separates console statements**; the original's console may not allow several.
+
+## Script function audit, second round (2026-10-19, branch claude/script-param-audit)
+
+docs/design/script-function-audit-2026-10-19.md. Each was fixed from the GECK wiki; these
+parts are guesses. Captures asked of the observer session are in its §3.
+- **RemoveMe to a container** shows no "added" line either. *Check:* a `RemoveMe player`.
+- **SetDestroyed** also switches off terminals and talking activators (the wiki names doors
+  and activators). NPCs still walk through destroyed doors on their way.
+- **SetGhost**: melee blows pass through a ghost as shots do; enemies ignore a ghosted
+  player too (they can still hurt them, as the wiki says).
+- **MoveToMarkerWithFade** fades out over 2 s, as `Disable 1`; the player moves at once.
+- **SetCriticalStage GooEnd/DisintegrateEnd** hides the body but leaves it enabled.
+- **SetFactionRank** below −1 reads −1; **EnableFastTravel**: any kept ban ignores a later
+  ban without keep (the wiki shows only `0 0 1` then `0 0 0`).
+- **SetUnconscious 1 on a corpse** brings it back lying unconscious.

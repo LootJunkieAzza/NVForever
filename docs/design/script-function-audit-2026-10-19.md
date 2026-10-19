@@ -56,6 +56,13 @@ observer session 2026-10-19), §4 what is left and why.
 | SetQuestDelay | 0 fell back to the quest's DATA delay | 5 s | wiki: "Setting delay to 0 tells the quest to process at the INI setting default (5 seconds)" |
 | EnableFastTravel | a cell change gave waiting back too; `0 0 1` then `0 0 0` overwrote the keep | only travel comes back; a kept ban ignores a later ban without keep (the general rule [hypothesis]) | wiki EnableFastTravel examples |
 | ShowQuests | printed "1 running" with none | the running count | code |
+| SetGhost | only damage immunity | enemies neither fight nor detect a ghost (held in the Hidden band); shots, melee rays [hypothesis] and blasts pass through ghost NPCs; a ghosted player can be hurt; nobody targets a ghosted player either (the wiki's player exception reads as damage only) | wiki SetGhost notes |
+| SetActorFullName | stored, never shown | the crosshair, HUD target, dialogue speaker, subtitles, barter/container titles and caravan opponent take the message's title (`Game::script_name`); kept in saves | wiki SetActorFullName |
+| SetUnconscious | on a dead actor only set the flag | brings it back first, no get-up animation | wiki SetUnconscious notes |
+| SetCriticalStage | stored only | GooEnd and DisintegrateEnd hide the reference and take its hit volume and ragdoll out (it stays enabled [hypothesis]); GooStart/DisintegrateStart ragdoll effects and static collision of culled non-actors not built | wiki SetCriticalStage |
+| GetAngle X on the player | always 0 | the view pitch, −89 looking up, 89 at the feet; things placed at or moved onto the player stay upright [hypothesis] | wiki GetAngle |
+| SetSecuritronExpression | lost on load | kept in saves (`GameSnapshot::securitron_faces`, old saves load) | wiki: "persists across saves and game restarts" |
+| MoveToMarkerWithFade | a plain MoveTo (273 shipped calls) | fades out, waits `FADE_OUT_HOLD` [hypothesis, capture asked], moves, fades in; the player and disabled references move at once [hypothesis]; pending moves are saved | wiki MoveToMarkerWithFade |
 
 ## 3. Waiting for game captures
 
@@ -78,11 +85,7 @@ stays as it is until the answer comes back.
 
 ## 4. Left, with the reason
 
-- **Being fixed on their own branches** (2026-10-19): SetGhost (enemies ignore a ghost,
-  shots pass through; the player can still be hurt) and SetActorFullName (the new name
-  shown everywhere); SetCriticalStage (Goo/Disintegrate end hides the body), the player's
-  pitch for `GetAngle X`, SetSecuritronExpression kept in saves, MoveToMarkerWithFade's fade.
-- **Low, not done here**: SetUnconscious on a dead actor (should resurrect), RemoveScriptPackage
+- **Low, not done here**: player SetAngle read back into the view, RemoveScriptPackage
   ending a ForceFlee, AddSpell and SetFactionRank on the base of non-unique actors,
   SetItemValue and SetMinimalUse (stored, never read), GetCombatTarget on the player,
   GetLineOfSight from the player to objects, PlayBink `muteAudio 0`, StartConversation's
