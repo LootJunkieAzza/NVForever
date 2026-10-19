@@ -168,6 +168,7 @@ fn lit(on: bool) -> Color {
 }
 
 /// A button: its label right-aligned at `right`, its key after it; clickable when lit.
+#[allow(clippy::too_many_arguments)]
 fn button(p: &mut ChildSpawnerCommands, c: &mut Ctx, label: &str, key: &str, right: f32, top: f32, cmd: CaravanInput, on: bool) {
     let w = c.text_in(p, FontKind::Menu, label, right - HINT_GAP - 34.0, top, true, lit(on));
     c.text_in(p, FontKind::Menu, key, right - 34.0, top, false, lit(on));
