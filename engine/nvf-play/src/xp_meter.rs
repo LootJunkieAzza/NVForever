@@ -219,7 +219,10 @@ pub struct XpMeterPlugin;
 
 impl Plugin for XpMeterPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Meter>().add_systems(Update, (watch, level_up, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet));
+        // The standing is read before the compass's finds of the frame: on the first frame
+        // the scripts run, the start's place found would otherwise be taken as where the
+        // meter began, and its +10 XP never shown.
+        app.init_resource::<Meter>().add_systems(Update, (watch.before(crate::compass::discover), level_up, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet));
     }
 }
 

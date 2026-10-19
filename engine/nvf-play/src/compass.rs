@@ -116,7 +116,7 @@ const SAVE_HOOK: SaveHook = SaveHook {
 };
 
 /// Markers found since the last frame: the message, the experience, the log.
-fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, messages: Option<ResMut<QuestMessages>>) {
+pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, messages: Option<ResMut<QuestMessages>>) {
     let Some(mut state) = state else { return };
     // Found before the game runs (the first frames): kept until it does, for the XP.
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
