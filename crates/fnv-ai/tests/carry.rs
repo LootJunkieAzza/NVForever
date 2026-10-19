@@ -688,6 +688,10 @@ fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
     let st = s.game.world.peek(mate).unwrap();
     assert_eq!(st.cell, Some(FormId(CELL_B)));
     assert!((dist(st.pos, [5250.0, 5250.0, 50.0]) - fnv_game::followers::BESIDE).abs() < 1.0, "{:?}", st.pos);
+    // On the player's left (the original's Boone through a door, od_03).
+    let (pp, h) = s.game.world.peek(player).map(|p| (p.pos, p.rot[2])).unwrap();
+    let left = [pp[0] - h.cos() * fnv_game::followers::BESIDE, pp[1] + h.sin() * fnv_game::followers::BESIDE];
+    assert!((st.pos[0] - left[0]).hypot(st.pos[1] - left[1]) < 1.0, "{:?} not left of {:?} at {h}", st.pos, pp);
     assert!(s.game.brought_along.contains(&mate));
     s.ai.moved_by_scripts(&mut s.game);
     assert_eq!(s.ai.agents[&mate].walker.space, B);

@@ -32,9 +32,13 @@ use crate::package::{PackageType, TargetKind};
 use crate::provocation::Note;
 
 /// How far beside the player a teammate is put when the player changes cells, and the
-/// step between several teammates [design: the wiki says "teleport to the player"; standing
-/// in the player's place would push the two apart].
-pub const BESIDE: f32 = 64.0;
+/// step between several teammates. Through a load door the original put a following
+/// Boone about 170 units to the player's left and 12 to 30 ahead, settling about 145 to
+/// 155 left [observed: od_03_teammate_door 2026-10-18 and 2026-10-19, Novac's motel
+/// door, owner-decision-captures.md §7]; was 64 to the right [design: the wiki says only
+/// "teleport to the player"]. One door was measured: the side and distance may depend on
+/// where the door's marker stands [hypothesis].
+pub const BESIDE: f32 = 160.0;
 
 impl Game<'_> {
     /// Whether `r` is the player's teammate now (SetPlayerTeammate 1, alive).
@@ -69,9 +73,9 @@ impl Game<'_> {
             if !self.present(t) || !self.follows_player(t) {
                 continue;
             }
-            // To the player's right, then left, one step further for each.
+            // To the player's left (as observed), then right, one step further for each.
             let n = out.len();
-            let side = if n % 2 == 0 { 1.0 } else { -1.0 } * BESIDE * (1 + n / 2) as f32;
+            let side = if n % 2 == 0 { -1.0 } else { 1.0 } * BESIDE * (1 + n / 2) as f32;
             let h = rot[2];
             let at = [pos[0] + h.cos() * side, pos[1] - h.sin() * side, pos[2]];
             let cell = self.world.placed.exterior_cell_at(cell, at).unwrap_or(cell);

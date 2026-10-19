@@ -514,6 +514,32 @@ fn reset_ai_drops_the_script_package_and_the_codes_follow_the_package() {
     assert_eq!(call(&mut g, procedure, &[]), 13.0);
 }
 
+/// A script package stays chosen until its goal is met; the next choice after that
+/// removes it and goes back to the list (owner-decision-captures.md §7, od_06: Ringo's
+/// DefaultStayAtEditorLocation read DONE, then his list package with no ResetAI).
+#[test]
+fn a_script_package_whose_goal_was_met_is_removed_at_the_next_choice() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, None);
+    let a = id(REF_A);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| -> f64 {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args).num()
+    };
+    let (package, procedure) = (0x106E, 0x108F);
+    call(&mut g, 0x1097, &[ArgValue::Value(Value::Ref(P_MORNING))]);
+    // Not done yet: a choice keeps it (od_08: EvaluatePackage keeps a script package).
+    assert_eq!(g.evaluate_package(a), Some(id(P_MORNING)));
+    g.package_goal_met(a);
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (14.0, 17.0));
+    // The next choice: back to the noon sandbox of the list.
+    g.evaluate_package(a);
+    assert!(g.extra[&a].script_package.is_none());
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
+}
+
 /// SetPackDuration ends the current package that many game minutes after the call (it
 /// is chosen again, here the same one, which starts afresh); SetActorsAI 0 keeps the
 /// periodic choice away from the actor until SetActorsAI 1 (docs/design/script-stubs.md

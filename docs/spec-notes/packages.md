@@ -772,7 +772,13 @@ packages, packages in no list, placed actors whose base lists packages).
 - How Once Per Day, Must Complete and Continue If PC Near interact with the periodic
   choice (implemented as documented; not yet seen in a capture), and whether a package
   needing a linked reference is skipped for types other than Patrol.
-- Script packages: one or several, and when one without Must Complete ends (§4).
+- Script packages: **answered in part.** One at a time (od_08, owner-decision-captures.md
+  §4). One whose goal was met is let go at a later choice: Ringo's travel package read
+  DONE for at least 600 game loops and his list package 1,500 loops after it was given,
+  with no ResetAI (od_06, owner-decision-captures.md §7), as the Use Item At package
+  above did after 0.12 game hours [observed]. The runtime now drops it at the next
+  choice (`Game::select_package`). Whether one that is not done ever goes without
+  ResetAI or RemoveScriptPackage is open: EvaluatePackage kept a sandbox one (od_08).
 - The meaning of the type-specific bits on package types without such flags (§2), and of
   Fallout behaviour bit 3.
 - The run-time type code of Follow, Wander and Use Weapon packages (paired by name, not

@@ -86,9 +86,9 @@ sessions. You already had it from an earlier playthrough.
 4. **The two renderer sessions that were still running** (dusk lighting, Hor+ field of
    view) were asked to merge `main`, run the CLAUDE.md checks and open a PR each, which
    the coordinator merges. Their results are added below when they land.
-5. **The suggested "sky and cloud look" task** (from the screenshot session) was never
+5. ~~**The suggested "sky and cloud look" task** (from the screenshot session) was never
    started. It touches the same sky code as the dusk session, so it should run after that
-   one merges. Start it when you're back, or tell a session to.
+   one merges. Start it when you're back, or tell a session to.~~ *(stale 2026-10-19: superseded by the same section (2d: "Sky and cloud look" started; 2e: #69 merged).)*
 
 ## Layer 5 (scripting), plan in `docs/design/layer5.md`
 
@@ -225,8 +225,8 @@ sessions. You already had it from an earlier playthrough.
       the grouping;
     - (c) xnvse-capture.md §5 says the clock runs in menus, but it stopped in the
       container menu. The doc was left unchanged for you to rule on.
-    Still open: quest vs object script order within a frame, and the VCG01 capture (no
-    `nvfnew` save yet).
+    ~~Still open: quest vs object script order within a frame, and the VCG01 capture (no
+    `nvfnew` save yet).~~ *(stale 2026-10-19: superseded by item 22 ("Order: one quest script ran before object scripts in the same frame") and item 10 (`nvfnew` exists).)*
 
 19. **5D: scripts run in `nvforever --play` (PR #62).** Quest and object scripts tick each
     frame. Activation, triggers, OnLoad and inventory events reach them, and Enable,
@@ -239,15 +239,15 @@ sessions. You already had it from an earlier playthrough.
     Decisions for you:
     - message boxes don't pause the player;
     - queued boxes;
-    - a new game doesn't start VCG00 (no waking in Doc's bed yet);
+    - ~~a new game doesn't start VCG00 (no waking in Doc's bed yet);~~ *(stale 2026-10-19: superseded by item 28 (`--new-game` runs the opening, sets VCG00 stage 0) and "Idle animations…" (you wake in Doc's bed).)*
     - inventory MenuMode code 1002 is a guess;
     - trigger tests against the player are a guess;
     - the overlay's wording and layout are our own.
 
-    **For the NPC coordinator:** NPCs that start disabled are never built, so a script
+    ~~**For the NPC coordinator:** NPCs that start disabled are never built, so a script
     that enables them later shows nothing. Spawning them hidden, or one shared "spawn
     disabled" rule in `world.rs` / `actors.rs`, would fix it for NPCs and lights.
-    `RefVisual` is already on actor entities.
+    `RefVisual` is already on actor entities.~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" ("disabled NPCs, creatures and lights are now spawned hidden, so a script's Enable shows them").)*
 
 20. **Function coverage (#66) and effect scripts in the game (#67).** Script uses
     handled: 95.0% → 99.98% (implemented 88.1% → 92.6%). New features:
@@ -350,6 +350,9 @@ sessions. You already had it from an earlier playthrough.
       since 2026-10-10 and run disabled references' GameMode since 2026-10-09, so this
       item's wording on those two points was out of date (#441). Scripted items in other
       inventories are still to be captured (spec-notes/owner-decision-captures.md §4).
+      **2026-10-19:** not settled; the Legion aura token's script cast nothing even in
+      the player's inventory (the control), so it cannot answer for NPCs
+      (spec-notes/owner-decision-captures.md §7).
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
 26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
@@ -358,10 +361,10 @@ sessions. You already had it from an earlier playthrough.
       it's taken.** Nothing read a quest-item record flag, so `--play` let you drop
       anything. A session on `claude/quest-items` is adding the flag (from xEdit's
       definitions, confirmed in the data) and the rule.
-    - **"Random Anim Start":** world objects with it start their idle animation at a
+    - ~~**"Random Anim Start":** world objects with it start their idle animation at a
       random time, so copies don't animate in step. Nothing reads it yet. **For the
       NPC/animation coordinator:** this belongs with the placed-model animation of #47
-      (`engine/nvf-assets` model.rs).
+      (`engine/nvf-assets` model.rs).~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" ("Random Anim Start" objects no longer animate in step).)*
     - **Leveled lists pick by the player's level relative to the encounter zone.**
       `fnv-sim` uses the player's level only (no ECZN). This matters for leveled actors
       (Layer 6); noted, not changed.
@@ -378,10 +381,10 @@ sessions. You already had it from an earlier playthrough.
     - **Triggers (for the `--play` session):** any actor can fire a trigger (and, without
       the "ActorZone" flag, any object); OnTrigger runs every frame. Ours tests the player
       only, as three points on the player's axis.
-    - **Lights (for the renderer):** a placed light's radius can differ from its base.
+    - ~~**Lights (for the renderer):** a placed light's radius can differ from its base.
       6,484 of 7,742 interior lights carry `XRDS`, which looks like an offset added to the
       base radius; the renderer ignores it. Emittance from a light should also carry its
-      brightness, and objects should fade in by size. None of this is changed yet.
+      brightness, and objects should fade in by size. None of this is changed yet.~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" (a placed light's radius is its base radius plus XRDS, settled with seven interior frames).)*
     - **Culling:** rooms, portals and occlusion planes are described in detail. The
       renderer has none of them; that costs speed, not looks, except in rare cases.
     - **Encounter zones:** a zone's level is fixed the first time you enter it. This
@@ -409,16 +412,16 @@ sessions. You already had it from an earlier playthrough.
     (`--play` says so). A scripted `Drop` still drops them, as tested in game, and
     storing them in containers is allowed [hypothesis] until checked by hand
     (layer4-captures.md B14). Record-header flags are now schema data (`header_flags`).
-30. **Lock trouble and a proposal.** Twice today the shared lock folders got stuck:
-    - a session that hit the usage limit died holding them;
-    - at 14:22 an unknown session created both and never used them;
-    - once they vanished while the coordinator held them, cause unknown.
+30. ~~**Lock trouble and a proposal.** Twice today the shared lock folders got stuck:~~
+    - ~~a session that hit the usage limit died holding them;~~
+    - ~~at 14:22 an unknown session created both and never used them;~~
+    - ~~once they vanished while the coordinator held them, cause unknown.
 
     The coordinator removed stale locks only after checking that no FalloutNV or
     nvforever process was running. Proposal: one shared helper (e.g.
     `tools/capture/locks.py`) that writes an owner file (session, PID, time) into each
     lock, treats a lock as stale when its PID is gone, and is used by every runner. Say
-    if you want it built.
+    if you want it built.~~ *(stale 2026-10-19: superseded by "Smoke tests reworked" and tools/smoke/smoke/runner.py:30-131 (owner/ticket files with the PID, a dead runner's lock cleared, the first-come queue).)*
 31. **Dialogue started (2026-10-10), plan in `docs/design/dialogue.md`.** You asked
     whether dialogue lines can be worked on now; they can, and no other session had
     taken it. Decisions taken, each reversible:
@@ -468,6 +471,11 @@ sessions. You already had it from an earlier playthrough.
       lists four lines stored under `VMS07Greeting`): not used, because nothing we have
       says what the game does with them. If the GECK shows these as lines shared
       between two topics, they should also count as greetings.
+      (Since then the runtime counts shared lines as the topic's own, `GameData::shared_lines`.)
+      **Captured 2026-10-19 [observed], not settled:** Red Lucy's list starts with the
+      same three entries as ours; the topic with only a shared line has the same prompt as
+      one with a line of its own, and the list could not be scrolled to see a second one
+      (spec-notes/owner-decision-captures.md §7).
     - (f) **Skill checks:** New Vegas marks a line with a skill or perk and uses ordinary
       conditions in pass/fail pairs (1,499 lines). The Fallout 3 percentage roll exists
       on 3 left-over lines only and is not modelled. The numbers shown ("Speech 35",
@@ -479,6 +487,11 @@ sessions. You already had it from an earlier playthrough.
       **Partly captured 2026-10-18 [observed]:** two such actors could not be talked to.
       HVRangerREF could; his screenshot decides whether he had a greeting after all
       (spec-notes/owner-decision-captures.md §4).
+      **Second run 2026-10-19 [observed]:** the ranger had a greeting: his picture shows
+      his name and a GREETING subtitle, and our runtime picks the same line (0x000ACD4D)
+      once he is enabled. The three actors were "without greeting" only because they are
+      disabled in a new game, where our tool cannot talk to them. Nothing contradicts the
+      runtime; the rule still has no clean test case (spec-notes/owner-decision-captures.md §7).
 
     **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
     packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
@@ -492,6 +505,9 @@ sessions. You already had it from an earlier playthrough.
     carries "Random End" but the actor cannot say that line, does the pool still end
     there (assumed yes); and do a quest's own conditions run on the speaking actor, like
     a line's conditions (assumed yes).
+    **Not settled by the 2026-10-19 captures:** Ralph spoke GOODBYE twelve times by
+    script, but the plugin could not see which line (Tab does not reach the dialogue
+    menu, SayToDone names the topic, no subtitle in the pictures) (spec-notes/owner-decision-captures.md §7).
 33. **Dialogue voice (#119, 2026-10-10).** Lines last as long as their voice files and
     are heard in `--play`; 97.3 % of the masters' 37,403 responses have a sound
     (`docs/spec-notes/voice.md`). Nobody has listened to it yet: playback is confirmed
@@ -511,7 +527,7 @@ sessions. You already had it from an earlier playthrough.
       the 40 lines that have both; what a response's sound form does (228 responses;
       reported, not played); the voice of actors templated on a levelled list; whether
       a line with no file shows its subtitle for some fixed time.
-    - (e) Voices play flat (no 3D placement).
+    - ~~(e) Voices play flat (no 3D placement).~~ *(stale 2026-10-19: superseded by "Playtest fixes: Sunny, dialogue and voices by distance" (volume by distance, panned left/right); status.md:100.)*
 34. **Pausing in conversations: "living pause" now, a live world later (your request,
     2026-10-10).** You said the original pauses during a conversation but that you would
     prefer no pause if scripts and outside NPCs can be kept from causing trouble.
@@ -534,6 +550,11 @@ sessions. You already had it from an earlier playthrough.
       you leave; (2) should the game clock keep moving while you talk (frozen for now);
       (3) should being attacked break the conversation, or is the pair untouchable
       (proposed: untouchable, because a broken line could skip a quest result).
+    - **Captured 2026-10-19 [observed]:** the original stops the game clock during a
+      conversation (GameHour steady for six samples), and an attack does not end it: a
+      gecko set on the player, and Ringo himself, read in combat with no target and did
+      not move while the menu stayed open. Both are what NVForever already does, so (2)
+      and (3) are only your choice now (spec-notes/owner-decision-captures.md §7).
 35. **Lip sync started at your request (2026-10-10, `claude/dialogue-lip`).** Goal: the
     `.lip` file of a spoken line moves the speaker's mouth and face in `--play`. The
     format has no official documentation, so the work uses public documentation and
@@ -589,18 +610,18 @@ sessions. You already had it from an earlier playthrough.
     game** (Doc Mitchell's lines, with sound). Recorded in `docs/spec-notes/lipsync.md`
     §6 as your observation. The `.lip` format had no public documentation; all 60,702
     files decode and re-encode byte for byte. `--no-lip` turns it off. Left open:
-    - (a) **Head and eye movement while talking is not shown.** The files carry look and
+    - ~~(a) **Head and eye movement while talking is not shown.** The files carry look and
       head pitch/roll/yaw channels whose unit could not be established. A frame-by-frame
-      video of one line in the original game would show how far the head turns.
+      video of one line in the original game would show how far the head turns.~~ *(stale 2026-10-19: superseded by "Faces in conversation: head nods, eyes, emotions, blinks" (heads nod from the `.lip` files, eyes move with them; the unit is a capture still queued).)*
     - (b) **Channel names by position.** The vowel shapes and the brow, look and squint
       names follow the order of the game's `MFG` console lists and are not confirmed one
       by one. In the original, `MFG phoneme <n> 100` and `MFG modifier <n> 100` on an
       NPC with a screenshot each would confirm them; an export of the GECK wiki page
       "ModifyFaceGen" would help too (it could not be fetched directly).
-    - (c) **Emotions.** A response's emotion type and value and the heads' expression
+    - ~~(c) **Emotions.** A response's emotion type and value and the heads' expression
       morphs are not applied; how the game blends them with speech is unknown. Is a
       plain design acceptable (the emotion morph at its value while the response is
-      said), or do you want a capture first?
+      said), or do you want a capture first?~~ *(stale 2026-10-19: superseded by "Faces in conversation…" (the emotion morph at value ÷ 100 × 0.6).)*
     - (d) **Speakers without a human head** (robots, Mr. House, creatures) have `.lip`
       files but nothing moves for them.
     - (e) Child and ghoul heads were not looked at on screen (their morph files parse
@@ -635,14 +656,14 @@ sessions. You already had it from an earlier playthrough.
       0.6 s to ease back. A body more than 30° off turns at about 150° a second and
       **keeps facing you after the conversation**. Say if any of it looks wrong (too
       fast, too stiff, should turn back afterwards).
-    - **Sitting NPCs.** A sitting or lying NPC is meant to turn its head only. Nothing
+    - ~~**Sitting NPCs.** A sitting or lying NPC is meant to turn its head only. Nothing
       in the engine seats anyone yet (every NPC is drawn standing, Doc Mitchell during
       the psych test included, so he turned on the spot standing by his bed), so today
-      only the hook exists (`BodyHeld`); the furniture work has to set it.
-    - **Seen and left as it is:** NPCs are still drawn where the plugins place them, so
+      only the hook exists (`BodyHeld`); the furniture work has to set it.~~ *(stale 2026-10-19: superseded by "Furniture: sitting" (NPCs sit) and "NPCs turn to whom they talk to" (sitting NPCs turn their heads only).)*
+    - ~~**Seen and left as it is:** NPCs are still drawn where the plugins place them, so
       a conversation a script starts from afar turns your view to where the NPC stands,
       even through a wall (Doc Mitchell's farewell, which in the original he walks over
-      for). This goes away when AI packages move NPCs.
+      for). This goes away when AI packages move NPCs.~~ *(stale 2026-10-19: superseded by "AI packages" (NPCs live by their packages in `nvforever`, step 4c).)*
     - **Not included:** the eyes do not move in the head (at 60° the face is turned to
       you but the eyes look straight out of it); no zoom or dialogue camera (the wiki
       export does not describe the original's; tell us what it does, or we capture it);
@@ -704,10 +725,10 @@ coordinators could not message each other, so this section is how they share sta
      `ActorPose::Bind` and move `#[default]` in `actors.rs`. Two doc lines also need
      changing back.
 8. **Still open for NPCs:**
-   - Creatures (part D) are not started.
-   - Clips are not chosen by situation (walk, sit, talk); that is Layer 6.
+   - ~~Creatures (part D) are not started.~~ *(stale 2026-10-19: superseded by "Layers 1–4 close-out" (creatures drawn with their idle animation); status.md:50.)*
+   - ~~Clips are not chosen by situation (walk, sit, talk); that is Layer 6.~~ *(stale 2026-10-19: superseded by status.md:51 (locomotion, furniture, talking gestures, weapon stances) and "Furniture: sitting", "Talking gestures" .)*
    - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
-   - The body skin `.egt` and race FaceGen data are unused.
+   - ~~The body skin `.egt` and race FaceGen data are unused.~~ *(stale 2026-10-19: superseded by "Skin tone by race" and "Sunny Smiles' face shape…" (race FaceGen values added); "The player's unclothed body" (skin tint on the body).)*
 
 ## Layers 1–4 close-out (coordinator "Layers 1–4 and housekeeping", 2026-10-09 afternoon)
 
@@ -904,13 +925,13 @@ Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken
     - 112 are behind doors a quest unlocks; game-side lock changes do not reach the nav
       graph yet.
     - 186 actors are placed with no navmesh within 512 units.
-    - Patrols do not wait at their points (Victor matches his capture only a third of
+    - ~~Patrols do not wait at their points (Victor matches his capture only a third of
       the time); sandboxing is "go there and stay" (no wandering, sitting, sleeping in
-      beds).
+      beds).~~ *(stale 2026-10-19: superseded by item 18 of the same section (sandboxing walks, sits, sleeps; "Patrols now wait at their points").)*
     - What the game does when a package cannot be carried out is unknown; we set it
       aside for an hour and take the next one.
-    - Not carried out yet: Follow, Accompany, Escort, Find, Use Item At, Use Weapon,
-      Dialogue, Ambush and Flee packages (1,107 actor/package pairs).
+    - ~~Not carried out yet: Follow, Accompany, Escort, Find, Use Item At, Use Weapon,
+      Dialogue, Ambush and Flee packages (1,107 actor/package pairs).~~ *(stale 2026-10-19: superseded by status.md:78 ("every package type carried out: Escort, Find, Use Item At, Ambush and Flee Not Combat since 2026-10-17"); "Scripted weapon use".)*
 12. **Step 4b, done: NPCs live by their packages in `nvforever`.** Try
     `nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef --hour 11.8
     --follow-npc`: at noon Easy Pete gets up from his chair and walks into the saloon to
@@ -1040,10 +1061,10 @@ shading. Facts and rules: `docs/spec-notes/actors.md` §3.1 and §4.1.
    applies the shift is a hypothesis (it fits the files well, see §4.1) and I could not
    see your picture. If the skin is still too dark against the original, please put the
    picture where sessions can read it; `--no-facegen` shows the body without the shift.
-4. **Found, not changed:** African American NPCs (about 280) are probably drawn too
+4. ~~**Found, not changed:** African American NPCs (about 280) are probably drawn too
    light: their own face values barely darken the shared skin texture, while their
    race's values would. The game most likely adds the two (actors.md §4.2). Joe Cobb in
-   Goodsprings is the nearest case to compare with the original.
+   Goodsprings is the nearest case to compare with the original.~~ *(stale 2026-10-19: superseded by "Skin tone by race" (an NPC's tint is now its own values plus its race's).)*
 5. **Fixed in the next session ("worn skin", below):** ghoul and raider-race NPCs showed
    human skin where an outfit leaves skin bare.
 
@@ -1187,9 +1208,9 @@ Follows item 4 of "The player's unclothed body" above. Numbers and reasons:
    - Sunny Smiles: no visible change (her record's race is Hispanic).
 
    `--no-race-facegen` shows the old look for comparison.
-3. **Not changed: the face shape.** The data suggests the race's shape values are meant
+3. ~~**Not changed: the face shape.** The data suggests the race's shape values are meant
    to be added the same way, but I have nothing to check a face shape against. An
-   in-game picture of Joe Cobb's face from the front and from the side would settle it.
+   in-game picture of Joe Cobb's face from the front and from the side would settle it.~~ *(stale 2026-10-19: superseded by "Sunny Smiles' face shape and shiny hair" ("answers its item 3": race shape values now added).)*
 4. **Added, off by default:** `--show-disabled-actors` draws the actors a script has not
    enabled yet. Joe Cobb is one of them (hidden in the saloon until the story shows
    him), so the pictures needed it.
@@ -1616,10 +1637,10 @@ the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
    only the backpack shows, on the back, as in your screenshot; the gun appears half
    way through the draw and goes half way through putting it away; drawn, the gun is in
    the hands and the backpack stays on the back.
-5. **Not done:** the flamer and gatling laser were not looked at in ours (same
+5. ~~**Not done:** the flamer and gatling laser were not looked at in ours (same
    animations, so the gun part should behave the same; whether their models have a
    back part like the minigun's I did not check). NPCs carrying these weapons still
-   draw them the old way. In first person the backpack is not drawn at all.
+   draw them the old way. In first person the backpack is not drawn at all.~~ *(stale 2026-10-19: superseded by "NPCs' holstered flamer: tank on the back, no gun" and "Cook-Cook's flamer…" (NPCs' heavy weapons drawn and holstered as the player's).)*
 
 ## Weapons' moving parts: slides, magazines, the minigun's barrel (2026-10-10, session "weapon parts")
 
@@ -1701,10 +1722,10 @@ vision) should play in our engine. Branch `claude/imagespace-modifiers`. Facts:
 7. **Odd thing in the files:** the wake-up effect is named "fade in from black" but its
    colour in the file is white, and a capture of your new-game save shows a white
    screen at that point, so white it is.
-8. **Still wrong in the opening, not touched here:** you can walk and look around while
+8. ~~**Still wrong in the opening, not touched here:** you can walk and look around while
    Doc is talking. The scripts ask for the controls to be locked; we do not obey that
    yet. Before the opening's scripts have loaded (3 to 6 seconds) I hold the screen
-   white so the room does not show early.
+   white so the room does not show early.~~ *(stale 2026-10-19: superseded by "Waiting and sleeping", "The HUD" and "Playtest fixes: controls…" (the opening's DisablePlayerControls is obeyed; engine/nvf-play/src/control.rs:247-250). (Not the EnablePlayerControls left-out-number question.))*
 
 ## Body in first person: a switch (2026-10-10, session "first-person body")
 
@@ -1730,9 +1751,9 @@ Your request: an option to toggle the body rendering in first person. Branch
      and not turned by the body as it sits down (no body is drawn, so nothing looks
      wrong). Should the neck limit and the turning apply there too?
    - 80° and 75° are my guesses at a comfortable limit. Say if it feels too tight.
-5. **Not done:** your shadow. With the switch on it is a body without a head (and
+5. ~~**Not done:** your shadow. With the switch on it is a body without a head (and
    without its own arms while the weapon is out). Fixing that means letting hidden
-   parts still cast shadows; it is a separate piece of work.
+   parts still cast shadows; it is a separate piece of work.~~ *(stale 2026-10-19: superseded by "Your shadow in first person" ("This replaces point 5 of 'Body in first person: a switch' above").)*
 
 ## Actors can be pushed (2026-10-10, session "actor push")
 
@@ -1821,8 +1842,8 @@ and you thought something in the weapon model controls it. Both were right. Bran
    before. The fix
    would be to aim from the camera's own line in third person; that changes where
    shots land, so I left it.
-8. **Not done:** shell casings (the models have a marker for those too) and NPCs'
-   shots (they do not shoot yet). Weapons without the marker still draw from the eye.
+8. ~~**Not done:** shell casings (the models have a marker for those too) and NPCs'
+   shots (they do not shoot yet). Weapons without the marker still draw from the eye.~~ *(stale 2026-10-19: superseded by "Added 2026-10-11…" (shell casings) and "NPCs aim, fire and bite visibly" (NPC shots leave their ProjectileNode).)*
 
 ### Added the same day: bullets you can see, and muzzle flashes
 
@@ -1861,9 +1882,9 @@ arent invisible along with the muzzle flash effects". Same branch. Facts:
    choices are to slow the drawn bullet down (it would arrive after the hit lands) or
    to give every bullet a streak like the minigun's. Both are our invention, so I
    left them.
-8. **Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
+8. ~~**Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
    the files), impact effects, sounds. The flamer shows its flash but no flame, because
-   its flame is made only of that kind of effect.
+   its flame is made only of that kind of effect.~~ *(stale 2026-10-19: superseded by "Added 2026-10-11: sounds, smoke and sparks, impact effects, shell casings" (the request "build the 'not built' list").)*
 
 ### Added 2026-10-11: sounds, smoke and sparks, impact effects, shell casings
 
@@ -1895,10 +1916,10 @@ flamer's flame; impact effects, sounds, shell casings and NPCs' shots). Branch
    does from the name and from how the effect should look. Nothing was compared with
    the game. If an effect looks wrong to you (too big, too fast, wrong colour), say
    which and I will look at that one.
-7. **NPCs' shots: not done, and it needs something else first.** NPCs do not attack
+7. ~~**NPCs' shots: not done, and it needs something else first.** NPCs do not attack
    yet. That is the combat-AI work (detection, combat behaviour), which is its own
    project. Everything built here (flash, projectile, casing, sounds, impacts) is
-   written so NPC shots can use it when they exist. Say if you want NPC combat started.
+   written so NPC shots can use it when they exist. Say if you want NPC combat started.~~ *(stale 2026-10-19: superseded by "NPCs in Combat attack" and "NPCs aim, fire and bite visibly".)*
 8. **The minigun may sound thin:** its record names no firing sound at all, only a
    looping "spin" sound, which ours now plays while you fire. I think the gunfire
    itself is triggered from the firing animation, which is a kind of sound cue not
@@ -2005,10 +2026,10 @@ as a sleeping NPC; and, while I was testing, "sideways the camera when laying". 
    - I checked one bed in Goodsprings (Easy Pete's). Bedrolls and mattresses on the
      floor use other animations from the same family; they should work the same way
      but I did not look at them.
-8. **Not done:** actually sleeping. No sleep menu, no time passes, no healing, no
+8. ~~**Not done:** actually sleeping. No sleep menu, no time passes, no healing, no
    "well rested". You only lie down. A bed someone else owns can be used freely, and a
    bed an NPC is already lying on says it is in use. Tell me if you want the sleep
-   menu next.
+   menu next.~~ *(stale 2026-10-19: superseded by "Waiting and sleeping: the T menu" and "Sleeping, refusals…" (sleep menu, Well Rested); status.md:87.)*
 
 ## Your shadow in first person (2026-10-11, session "player shadow")
 
@@ -2094,41 +2115,41 @@ NVForever's; `nvf-sleep.png` is the bed version).
    - **The sleep wording.** Your screenshot is of the wait menu. For sleep I used the
      same sentence with "sleep" and a "Sleep" button. A screenshot of the original's
      sleep menu would settle it.
-   - **The day of the week.** Your screenshot says Saturday on 19.10.81. I count days so
+   - ~~**The day of the week.** Your screenshot says Saturday on 19.10.81. I count days so
      that it comes out that way (the game's day counter starts on 13 October 2281, and
-     I took that day as a Sunday). One screenshot is all that backs it.
+     I took that day as a Sunday). One screenshot is all that backs it.~~ *(stale 2026-10-19: superseded by "Script function audit" (the original read Friday on 25 October 2281, consistent with the wait menu's count).)*
 6. **Where the words come from.** The original keeps this menu's text inside its
    program, not in the data files, so NVForever cannot read it from your install. The
    title, "Wait", "Cancel", "hours" and "Saturday" are typed in from your screenshot.
    That is a handful of words, but they are the original's: say if you would rather
    have NVForever's own wording there.
-7. **Something this turned up, for you to decide.** Quest scripts and the townspeople's
+7. ~~**Something this turned up, for you to decide.** Quest scripts and the townspeople's
    weekday schedules ask "what day of the week is it" through another part of the game
    code, which works it out the way a real-world calendar would. By that rule 19.10.81
    is a Wednesday, and your screenshot says Saturday. So that older rule is probably
    wrong by three days. I did not change it here, because it would move who does what
    on which day and the earlier checks of the schedules were made with it. If you type
    `GetDayOfWeek` in the original's console with the wait menu's date line in view, one
-   number settles it (0 is Sunday, 6 is Saturday).
-8. **Not built** (the first five points were taken up later the same day: see the next
-   entry, "Sleeping, refusals and people during a wait"):
-   - **The original's refusals.** Its message list names these: enemies nearby, in
+   number settles it (0 is Sunday, 6 is Saturday).~~ *(stale 2026-10-19: superseded by "Script function audit" (GetDayOfWeek now counts from Sunday 13 October 2281, as the wait menu; package schedules follow).)*
+8. ~~**Not built** (the first five points were taken up later the same day: see the next
+   entry, "Sleeping, refusals and people during a wait"):~~
+   - ~~**The original's refusals.** Its message list names these: enemies nearby, in
      combat, under water, an alarm sounding, a bed someone else owns, and places or
      quests that forbid waiting. I found the names, not the rules, so NVForever lets
-     you wait anywhere.
-   - **What sleep does besides passing time.** The data files show "Well Rested" (10%
+     you wait anywhere.~~
+   - ~~**What sleep does besides passing time.** The data files show "Well Rested" (10%
      more experience for a while, and full health and limbs) given by nine particular
      safe beds, and a sleep need in hardcore mode. None of that happens yet. Plain
-     healing per hour of sleep is not in anything I could read.
-   - **People moving during the wait.** They stand still while the menu is up and set
+     healing per hour of sleep is not in anything I could read.~~
+   - ~~**People moving during the wait.** They stand still while the menu is up and set
      off for where they should be when it closes, so after a long wait you can watch
-     them walk there. The original may put them in place; I do not know.
-   - **(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
-     directly. You asked for lying down first; T does the rest.
-   - **Scripts asking "is the player asleep?" or opening this menu themselves.** The
-     Well Rested beds need the first.
-   - **The game's own font, slider picture and menu sounds.** The menu is drawn with
-     NVForever's font and plain shapes, measured from your screenshot.
+     them walk there. The original may put them in place; I do not know.~~
+   - ~~**(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
+     directly. You asked for lying down first; T does the rest.~~
+   - ~~**Scripts asking "is the player asleep?" or opening this menu themselves.** The
+     Well Rested beds need the first.~~
+   - ~~**The game's own font, slider picture and menu sounds.** The menu is drawn with
+     NVForever's font and plain shapes, measured from your screenshot.~~ *(stale 2026-10-19: superseded by "Sleeping, refusals and people during a wait" (refusals, Well Rested, people moving, scripts asking "is the player asleep"), the owner's bed decision and "Pause, settings and main menus…" (the game's fonts and colour for the wait menu).)*
 
 ## Message boxes drawn as the original's (2026-10-11, session "message box")
 
@@ -2163,8 +2184,8 @@ You asked for the placeholder message boxes to be swapped for the game's own, li
      read yet.
 5. **Not built:** the icon some boxes show beside the text, scrolling for a box with
    more buttons than fit, the two menu sounds, the blur of the world behind the box.
-6. **Other menus use the same fonts.** The Wait menu, dialogue and the rest are still
-   in NVForever's stand-in font. The font reader is there now for them.
+6. ~~**Other menus use the same fonts.** The Wait menu, dialogue and the rest are still
+   in NVForever's stand-in font. The font reader is there now for them.~~ *(stale 2026-10-19: superseded by "Dialogue menu as the original's", "Barter and container menus…", "Pause, settings and main menus…" (wait menu in the game's fonts).)*
 7. **To look at any message:** set `NVF_PLAY_TEST_SCRIPT=20:message:PrimmMuseumPlaqueMessage`
    and `NVF_PLAY_TEST_SCRIPT_MENUS=off` before starting with `--play` (the name is the
    message's Editor ID).
@@ -2213,8 +2234,8 @@ gives.
 6. **Not built:** a sound when a message appears; the original's own messages that do
    not come from scripts (experience, karma, picking things up by hand); the other HUD
    text areas (quest added, location names). The bottom HUD is the other session's.
-7. **The debug text gets in the way.** NVForever's own status text is also at the top
-   left and lies over the message. Start with `--no-overlay` to look.
+7. ~~**The debug text gets in the way.** NVForever's own status text is also at the top
+   left and lies over the message. Start with `--no-overlay` to look.~~ *(stale 2026-10-19: superseded by "List 5 — claude/l5-ui-text-sounds" (item 68: the overlay is off by default in `--play`).)*
 8. **To look at any message:** set
    `NVF_PLAY_TEST_SCRIPT=20:message:AbilityWellRestedStartMsg` before starting with
    `--play --no-overlay` (the name is the message's Editor ID; `FactionReminderNCR` has
@@ -2246,9 +2267,9 @@ Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.
    - Weapon damage still falls to half at zero condition (the rule from before). The
      game file has settings that look like the original's rule (66 % + 34 %); I did
      not use them because nothing we can cite says how they combine.
-3. **Not testable in play yet:** your own armour wearing and your weapon being hit,
+3. ~~**Not testable in play yet:** your own armour wearing and your weapon being hit,
    because nobody attacks you yet. The code handles any actor and is tested without
-   the engine.
+   the engine.~~ *(stale 2026-10-19: superseded by "NPCs in Combat attack" (their shots hit you, your armour counts).)*
 4. **To see it yourself:** NPC weapons are only drawn with `--actor-weapons drawn`.
    Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
 5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
@@ -2257,12 +2278,12 @@ Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.
 ## The HUD: health, compass, action points, condition, ammo (2026-10-11, session "hud")
 
 You asked for the other things on the screen to look like the original's, after your
-labelled Goodsprings screenshot. **That screenshot did not reach this session as a
+~~labelled Goodsprings screenshot. **That screenshot did not reach this session as a
 file** (only a description of it in words), so the HUD is built from the game's own
 interface files and pictures, and everything those files leave open is my guess until
 I can measure your picture. Please attach it again, or drop it in
-`C:\fnv-private\references\hud\`.
-
+`C:\fnv-private\references\hud\`.~~
+ *(stale 2026-10-19: superseded by "HUD: bars, enemy health, sneak word, dialogue" and spec-notes/hud.md:27-32 (the owner's list-5 HUD screenshots arrived and the bars, labels and condition bar were measured on them).)*
 1. **What you get.** In `--play`, at the bottom left: "HP", the health bar of small
    upright ticks on the game's bracket, and under it the compass strip, which turns as
    you turn. At the bottom right: the action points bar with "AP", and under it "CND"
@@ -2317,8 +2338,8 @@ I can measure your picture. Please attach it again, or drop it in
    game says "You are now Well Rested!", your health and limbs are restored, and you
    have the perk until its time runs out. I did not write any of that by hand: the
    game's own bed script does it, now that it can ask "is the player asleep".
-   - The perk's actual bonus (10% more experience) is not applied yet. That belongs to
-     perks in general, which are not built.
+   - ~~The perk's actual bonus (10% more experience) is not applied yet. That belongs to
+     perks in general, which are not built.~~ *(stale 2026-10-19: superseded by status.md:89 (experience through the perks' Adjust Experience Points entry point: Swift Learner, Skilled, Well Rested, Lessons Learned).)*
    - Quest scripts can now put you to sleep, wake you, and open the menu themselves.
      Three quests use the first and one the second; I could not test them in a real
      quest, only in small tests.
@@ -2326,12 +2347,12 @@ I can measure your picture. Please attach it again, or drop it in
    ordinary bed heals you, or how much per hour. I would rather not make a number up.
    If you sleep one hour in a plain bed in the original while hurt and tell me your
    health before and after (and the same for eight hours), I can build it properly.
-10. **Hardcore sleep need: not built.** The game files have the need itself, its five
+10. ~~**Hardcore sleep need: not built.** The game files have the need itself, its five
    stages and a rate number (50), but not what the rate is measured in or how much an
    hour of sleep takes off. NVForever does not build up any of the hardcore needs yet
    (food, water, sleep), so there is nothing for sleep to lower. My proposal: build the
    three needs together in their own piece of work, from numbers captured in the
-   original.
+   original.~~ *(stale 2026-10-19: superseded by "Aid leftovers: waiting, Hardcore needs…" (needs rise with time; an hour slept takes 100 off sleep deprivation).)*
 11. **When you cannot wait or sleep.** Instead of the menu you now get a line on the
    screen in these cases:
    - **Enemies nearby**, with the original's own sentence (it is in the game files).
@@ -2349,10 +2370,10 @@ I can measure your picture. Please attach it again, or drop it in
    - **Whose bed:** I look at the bed's own owner. A bed with no owner of its own in an
      owned house still lets you sleep.
    - **The wording** of all lines except the enemies one is mine.
-   - **A weakness you will notice:** most wild animals do not count as enemies yet.
+   - ~~**A weakness you will notice:** most wild animals do not count as enemies yet.
      Standing next to two coyotes I could still wait; next to a Fiend I could not. The
      reason is a gap elsewhere (animals get their faction from a template that
-     NVForever does not read yet). I have flagged it as its own task.
+     NVForever does not read yet). I have flagged it as its own task.~~ *(stale 2026-10-19: superseded by "Who is in which faction, and who is hostile to you" (template factions read; the refusal knows spawned animals' factions).)*
    - **Not built:** "in combat" and "alarm sounding". Combat needs enemies that fight;
      for the alarm I found no description of what it is.
 12. **People move on while you wait.** Before, everyone stood still during a wait and
@@ -2370,8 +2391,8 @@ I can measure your picture. Please attach it again, or drop it in
      the standing-up animation, since it happens behind the menu.
    - People who were wandering about with nothing scheduled stay as they were until
      the wait ends.
-13. **Still open from before:** the day-of-the-week question (item 7 of "Waiting and
-   sleeping: the T menu") is untouched. I did not change that rule.
+13. ~~**Still open from before:** the day-of-the-week question (item 7 of "Waiting and
+   sleeping: the T menu") is untouched. I did not change that rule.~~ *(stale 2026-10-19: superseded by "Script function audit".)*
 
 ## Who is in which faction, and who is hostile to you (2026-10-11, session "actor factions")
 
@@ -2483,9 +2504,9 @@ the groundwork for combat encounters. Scripts' GetDetected now answers from it.
 3. **Would help me tune:** a few `GetDetected` readings in the game with you standing,
    walking, running and sneaking at set distances from one NPC, at noon and at
    midnight, and the game's fSneak* settings (`GetNumericGameSetting`).
-4. **Not built yet:** the alert, combat and lost states with their timers (so bands can
+4. ~~**Not built yet:** the alert, combat and lost states with their timers (so bands can
    flicker as an actor turns its head), noise events from explosions and
-   CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.
+   CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.~~ *(stale 2026-10-19: superseded by "NPCs on alert: Normal, Alert, Combat, Lost", "HUD: bars…" (sneak word on the HUD), "List 5 — claude/l5-npc-ai" (NPCs sneak).)*
 
 ## Reloading one round at a time (2026-10-11, session "looping reload")
 
@@ -3221,8 +3242,8 @@ on this machine (11.4 min).
 2. *Decision:* "held back by the group cooldown above 0" is a number ≥ 1 (27 in the run).
 3. *Decision:* Chet's broom runs at noon (`--hour 12`): the note gave no hour, and at noon
    his package sweeps. *Check:* the hour you saw him sweep at.
-4. *Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
-   16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.
+4. ~~*Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
+   16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.~~ *(stale 2026-10-19: superseded by "Playtest fixes: combat rules" ("After: no Combat → Lost at all in the same 45 s"; smoke `cook-cook-camp` forbids it).)*
 
 ## Playtest fixes: lockpicking (2026-10-12, session "lockpick")
 
@@ -3267,9 +3288,9 @@ first session noted from them is kept (lockpicking.md §1).
 9. *Crime hook:* picking or forcing a lock sends `LockOpened { reference, owner, forced }`
    and logs "lockpick: crime hook: …" with the owner (the reference's, else the cell's as
    a script set it; a cell's own XOWN is not read yet). No crime rules.
-10. *Not built:* the help message the first time, the debug meter, hiding the pointer over
+10. ~~*Not built:* the help message the first time, the debug meter, hiding the pointer over
    the lock, the lock's `Backward` and the pin's `Backward`/`Left` sequences, saving broken
-   locks.
+   locks.~~ *(stale 2026-10-19: superseded by "Lockpicking leftovers" (help message, debug meter, pointer, Backward/Left sequences, broken locks in the snapshot).)*
 
 ## Playtest fixes: far world (crash log, distant actors, floating troopers, dead on spawn) (2026-10-12, session "far")
 
@@ -3325,7 +3346,7 @@ List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
    talk; walk back to Goodsprings after a while: the residents are where their packages
    would have taken them.
 
-3. **NCR troopers floating outside Camp McCarran (item 24): not reproduced.** Checked in
+3. ~~**NCR troopers floating outside Camp McCarran (item 24): not reproduced.** Checked in
    the masters [observed]: the troopers there are placed on what is under them (rays and
    probes with `fnvtool phys cell`): the gate patrols on the road (4,336-4,345, road
    statics), the sentry at the gate on a sidewalk static (4,352), the four
@@ -3338,7 +3359,7 @@ List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
    tower or ground, near or far, after what) and, if you can, a screenshot with the
    overlay's `pos` line; one candidate left untested is the McCarran wall imposters
    (`McCarranWallTowerImposter`, drawn by region at any distance) standing in for the
-   towers while the troopers on them are drawn.
+   towers while the troopers on them are drawn.~~ *(stale 2026-10-19: superseded by "Floating NCR troopers" (found at Camp Golf and fixed: the Holster clips' accumulation root). McCarran itself was not re-run .)*
 
 4. **Tribal village corpses (item 28).** You were right: "If Base Health is set to 0 the
    actor will spawn as a corpse" [documented: GECK wiki Stats Tab - NPC and Category:NPC].
@@ -3351,10 +3372,10 @@ List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
    `docs/spec-notes/dead-on-spawn.md`; tests `crates/fnv-game/tests/dead_on_spawn.rs`;
    scenario `dead-on-spawn`.
    *Guess:* creatures with Health 0 start dead too (DeadMoleRat, DeadBrahmin,
-   NightkinMeleeDEAD; the wiki speaks of NPCs only). *Not done:* the "Respawn" flag
+   ~~NightkinMeleeDEAD; the wiki speaks of NPCs only). *Not done:* the "Respawn" flag
    (TCFiend01DEAD has it) bringing them back alive after three days, and the references'
    `XRGD` "Ragdoll Bones" (probably the pose the designer's Havok Sim left) which would lay
-   each body exactly as authored; ours fall where they stand. *Check:* the village's bodies
+   each body exactly as authored; ours fall where they stand. *Check:* the village's bodies~~ *(stale 2026-10-19: superseded by "Far-world leftovers: corpses respawning, their stored poses…" (Respawn flag and XRGD poses built).)*
    lie on the ground, can be searched, and do not get up.
 
 ## Playtest fixes: combat rules from the GECK wiki (2026-10-12, session "pt-combat")
@@ -3577,17 +3598,23 @@ and the smoke scenario `script-stubs` checks the counts.
    29/36, talking to the player 6/4; a package whose goal was met reads procedure 17 DONE
    (eight package end scripts in FalloutNV.esm wait for four actors' 17). *Check:* scripted scenes
    that wait for an actor to finish, and scripts that check an actor sleeps (code 4).
+   **Captured 2026-10-19 [observed]:** Ringo's travel script package read 17 at its end;
+   ResetAI removed a script package at once, and got a seated actor up (procedure 21);
+   his sleep package read 4. **Runtime changed:** a script package whose goal was met
+   now goes at the next package choice, as the original let Ringo's go with no ResetAI.
+   Whether ResetAI wakes a sleeper is not settled: Ringo never lay down
+   (spec-notes/owner-decision-captures.md §7).
 
 3. **Look / StopLook (401 calls).** A script's Look now turns the actor's head over every
    other look (conversation, alert); a marker as the target is looked at at eye height.
-   *Not done:* Look's "rotate the whole body" flag. *Check:* scenes where an NPC is told to
+   ~~*Not done:* Look's "rotate the whole body" flag. *Check:* scenes where an NPC is told to~~ *(stale 2026-10-19: superseded by "Look turning the whole body" (built, rate measured in the original).)*
    look at someone or something (159 Look calls in 30 scripts).
 
 4. **Movement, sneaking, sight, camera.** IsSneaking, IsMoving, IsRunning, GetLineOfSight and
    IsPC1stPerson read what the engine measures (detection every 0.25 s, the player's
    controls every frame). *Guess:* a moving actor reads IsMoving 1 (forward): the
-   direction is not told apart yet; NPCs never sneak yet; GetLineOfSight from the player
-   reads 0 (the player is not measured as a detector).
+   ~~direction is not told apart yet; NPCs never sneak yet; GetLineOfSight from the player
+   reads 0 (the player is not measured as a detector).~~ *(stale 2026-10-19: superseded by "List 5 — claude/l5-npc-ai" (NPCs sneak), status.md:80 (the player measures actors: player.GetDetected / GetLineOfSight), "Animation state told to the rules" (IsMoving's direction).)*
 
 5. **The weather (SetWeather, ForceWeather, ReleaseWeatherOverride, IsRaining,
    GetIsCurrentWeather).** The sky takes a script's weather (a fade, or at once) and holds
@@ -3662,9 +3689,9 @@ is still the default of every test run, smoke scenario and lab frame.
    the picture stayed at 60 Hz whatever was asked, so the per-pass GPU times are the figures;
    the GTX 1050 was not measured. *Check:* your frame rate with `--graphics enhanced` and with
    TAA on instead of MSAA.
-7. *Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
+7. ~~*Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
    --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
-   possibly your floating-troopers item 24.
+   possibly your floating-troopers item 24.~~ *(stale 2026-10-19: superseded by "Floating NCR troopers" (reproduced at Camp Golf from this sighting and fixed).)*
 
 ## Aid leftovers: waiting, Hardcore needs, Stealth Boy, perks, carry weight (2026-10-12, session "aid-2")
 
@@ -3782,8 +3809,8 @@ Item 4 of the handoff list (leftovers of #232). Your ten screenshots in
    *Guess:* the 0.5 s fade and pull-out. *Check:* the break and the leaving in game.
 5. **Broken locks saved.** *Decision:* broken locks (and whether the help was shown) are
    part of the game state's snapshot (`GameSnapshot.locks`, written only when not empty).
-   NVForever has no save files yet, so today a broken lock stays broken for the session
-   and in any snapshot; it will be saved when saving is built.
+   ~~NVForever has no save files yet, so today a broken lock stays broken for the session
+   and in any snapshot; it will be saved when saving is built.~~ *(stale 2026-10-19: superseded by status.md:64 (save files built) and design/save-load.md:91 (broken locks saved: "have").)*
 6. **Ringo's floor safe.** *Finding:* not a collision fault: the safe's collision is
    whole and the crosshair finds it (standing on it 123 units straight down, or from the
    mattress's edge looking 65° down at 145). The safe lies half under the edge of the
@@ -3866,6 +3893,10 @@ victim and its friends.
    victim's whole faction (the wiki's enemy flag is for any major crime): one punch would
    turn every NCR trooper in the Mojave. Allies who see it still help (assistance).
    Please decide.
+   **Captured 2026-10-19 [observed]:** two lead-pipe hits on a trooper with no witnesses
+   made him fight back and counted two major crimes, but GetActorFactionPlayerEnemy stayed
+   0 and a Primm trooper that saw the player afterwards did not fight. The original
+   agrees with the decision (spec-notes/owner-decision-captures.md §7).
 9. **The prompt.** Over an owned item, container or lock the crosshair and its prompt are
    drawn in the crime colour, and an item reads "E) Steal". *Guess:* the colour is the
    HUD's "alt" colour from Fallout_default.ini (255, 67, 42); the word "Steal".
@@ -4124,6 +4155,10 @@ Decisions where the sources were unclear:
   their linked references) spin steadily.
 - **SetActorsAI 0** stops package choice, walking and detection, not animation or
   collision: the actor stands in its idle. Check the ambusher of `SCPT 0x000F9D8F/90`.
+  **Captured 2026-10-19 [observed]:** in the original a settler switched off mid-walk kept
+  walking straight on his heading (about 1,100 units, past his goal), with his package,
+  procedure and heading frozen. Ours stops him. Not changed yet: it needs the engine's
+  movement to carry the last velocity (spec-notes/owner-decision-captures.md §7).
 - **SetGlobalTimeMultiplier** slows the whole virtual clock (animations, physics, NPCs,
   scripts' frame time, the game clock); its sound is never slowed or pitched. The
   engine's own slow motion (VATS mode, the death camera) does slow sound since
@@ -4164,6 +4199,12 @@ Decisions where the sources were unclear:
   arrived about 168 units to the player's **left** and 12 ahead, and settled about 153 left
   and 13 ahead. The player arrives on the door's teleport marker. Boone told to wait
   stayed behind. The way back in is still to be captured (spec-notes/owner-decision-captures.md §4).
+  **Second run 2026-10-19 [observed]:** the door out gave the same place again (about 171
+  left, 30 ahead), so **teammates now arrive 160 units to the player's left**. Brought back
+  in by MoveTo, Boone (on his own PATROL package, not following) came along and stood on
+  the player's spot; with `Waiting` 1 on the same package he stayed behind. So "only
+  those following come" is not the original's rule; whether `Waiting` or the door made
+  the difference is open (spec-notes/owner-decision-captures.md §7).
 - **Teammates in combat** ("as if in the player faction"): anyone attacks a teammate exactly
   when it would attack the player; a teammate attacks whoever would attack the player and
   also whomever its own records have it attack (so Boone keeps his Legion enmity) [design].
@@ -4283,6 +4324,10 @@ scripts (some quest topics do; 100+ top-level Goodbye lines of FalloutNV.esm hav
 *Check:* Johnson Nash, Ringo and another Caravan player each show one Goodbye; check an NPC
 whose quest Goodbye topic runs a script, to see whether the original also adds a generic
 Goodbye there.
+**Captured 2026-10-19 [observed], not settled:** the original's lists for Nash and Ringo
+show the same first three entries as ours, with a scroll arrow below; the capture plugin
+could not scroll, so whether the fourth is a Goodbye needs a look by hand
+(spec-notes/owner-decision-captures.md §7).
 
 Smoke scenarios added: `voice-opening`, `message-button-conditions`, `goodbye-after-caravan`
 (its actions file is `tools/smoke/actions/nash-goodbye.actions.json`). The trace event
@@ -4679,11 +4724,12 @@ terminate" before its goal) [documented]. The export has no Find package page.
 - Hours passed in the Wait menu: packages are chosen once per waited hour, so each step of
   a chain can start up to an hour late during a wait.
 
-*Not fixed:* in the smoke run the geckos come back on their sandbox and warn the player
+~~*Not fixed:* in the smoke run the geckos come back on their sandbox and warn the player
 twice, but the count starts afresh whenever the gecko stops detecting the player
 (`aggro.rs` needs Detected within the last second), and the wandering gecko lost sight of
 the player before the attack in each run (at 06:00–07:00 game time). Marked known in the
-scenario. Whether a warning count should survive a short loss of sight is the owner's call.
+scenario. Whether a warning count should survive a short loss of sight is the owner's call.~~
+*(stale 2026-10-19: superseded by "Aggro warnings that outlast a short loss of sight" below.)*
 
 *Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
@@ -4978,8 +5024,8 @@ what they could not settle is a guess:
   damage (not condition- or perk-scaled); WG and VAL are the whole stack's (VAL matches
   your Stimpak 9 × 75 = 675; WG is a guess); the ammo card reads "<short name>
   (clip/carried)" with clip = what a clip holds of what you carry; armour shows its class
-  word (Light/Medium/Heavy) beside CND; EFFECTS uses the STATS EFF wording. Not built: DPS,
-  the small ammo badge, the Maintain/Mod/Repair hints. Sub-tab hover: the hovered tab gets
+  ~~word (Light/Medium/Heavy) beside CND; EFFECTS uses the STATS EFF wording. Not built: DPS,
+  the small ammo badge, the Maintain/Mod/Repair hints. Sub-tab hover: the hovered tab gets~~ *(stale 2026-10-19: superseded by "Pip-Boy ITEMS extras and a clickable repair list" (DPS, ammo badge, Mod hint) and status.md:99 (Repair/Maintain hint).)*
   an unfilled box and `UIMenuFocus`; switching tabs plays `UIPipBoyTab`. Check the box
   look against the game.
 - **30 (scroll bar):** at the list's left only when rows are hidden, arrows at both ends
@@ -5044,8 +5090,8 @@ Items 17, 71 and 63 of list 5. Items 59, 65, 64 and 4 of D6's queue are the lapt
   Cave. A new place shows "You have discovered" over the name where "Quest added" stands
   (same fonts and place as your screenshot) with `UIPopUpMapMarkerAdded` (guessed by its
   name) and gives `iXPRewardDiscoverMapMarker` (10) XP. Saves now keep the places found
-  (they were forgotten on load before). Not built: the "+10 XP" bar at the right and the
-  "Locations Discovered" statistic; interiors show no markers.
+  ~~(they were forgotten on load before). Not built: the "+10 XP" bar at the right and the
+  "Locations Discovered" statistic; interiors show no markers.~~ *(stale 2026-10-19: superseded by "Pip-Boy ITEMS extras…" (both "were already built"; XP meter and misc statistics).)*
 - **15 (dynamic crosshair):** with a gun, energy weapon, launcher or thrown weapon drawn
   the two arrows part so each tip sits on the edge of the cone a shot would leave in now
   (the combat model's spread with bloom: wider running, after shots, with crippled arms,
@@ -5407,8 +5453,8 @@ To check with a controller in the original, my guesses:
 3. The left stick walks under 0.6 of a full push (Always Run on), runs beyond.
 4. With Controller chosen the keyboard and mouse no longer work the controls (Esc and
    the console still do). Should both work at once instead?
-5. The prompt under the crosshair shows "A)" as text; the original shows the A button's
-   picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.
+5. ~~The prompt under the crosshair shows "A)" as text; the original shows the A button's
+   picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.~~ *(stale 2026-10-19: superseded by status.md:62 ("button pictures, each menu's own buttons and hints that follow the device (#345)").)*
 6. **Rumble** (branch claude/controller-rumble; docs/design/controller.md §4): `Rumble=1`
    in `[Controller]`, a Rumble row at the end of the Controls tab with Controller chosen.
    All my guesses, to feel with a pad against the original:
@@ -5544,7 +5590,7 @@ worth a look in the original:
   dialogue screen or a conversation. Doc Mitchell's SayTo lines in the opening therefore
   still use only their own speaker idles.
 - **Replay delays** are read as seconds (as for the weapon fidgets).
-- Not done: the `.lip` files' head and look channels.
+- ~~Not done: the `.lip` files' head and look channels.~~ *(stale 2026-10-19: superseded by "Faces in conversation: head nods, eyes, emotions, blinks".)*
 ## Script function audit (2026-10-16, branch claude/serene-chaplygin-ee2772)
 
 Every registered script function checked for "the engine knows it, the rules never hear it"
@@ -5564,8 +5610,8 @@ captures, what is left). Fixed 35, matching 283, 25 gaps left, 18 open.
    0 for actors, as nine objects and Ringo did in the original.
 4. **SetPos / SetAngle / MoveTo** now move what is drawn at once (actors teleport, objects
    redraw, the player travels); before, the stored value was overwritten.
-5. **Unconscious actors no longer walk** (a guess); they still stand, as lying down is not
-   built.
+5. ~~**Unconscious actors no longer walk** (a guess); they still stand, as lying down is not
+   built.~~ *(stale 2026-10-19: superseded by status.md:52 (knocked-out actors drop as ragdolls and get up with the get-up clips, 2026-10-17) and "Knockdowns".)*
 6. **IsWeaponOut** of an NPC the engine is not drawing follows the draw rule (alerted, Weapon
    Drawn package, a weapon use), so it reads 1 at once where a drawn NPC reads 1 only once
    the draw animation ends (the original: 0 three frames after SetAlert 1, 1 by 180 frames).
@@ -5575,8 +5621,8 @@ Trudy (our stub returns 0; 15 dialogue conditions test it); GetCurrentAIPackage 
 for Sunny while unloaded and 6 once loaded; GetCauseofDeath of a live unloaded coyote
 read 0 where the wiki lists −1 for none; NPC door use and OnActivate; far NPC fights.
 
-*Follow-up proposed:* make the engine dress and arm NPCs from the items the rules have
-equipped, so scripted EquipItem/UnequipItem show and the two leveled rolls agree.
+~~*Follow-up proposed:* make the engine dress and arm NPCs from the items the rules have
+equipped, so scripted EquipItem/UnequipItem show and the two leveled rolls agree.~~ *(stale 2026-10-19: superseded by "NPCs drawn as the rules equip them".)*
 
 ## Blackjack at the casino tables (2026-10-17, branch claude/blackjack)
 
@@ -5820,8 +5866,8 @@ down too (GetKnockedState 2). Guesses to check against the game:
   in pods and scheduled sleepers use it, and the thugs that fake death push their actor
   down as well. It now also keeps a lying actor down until it is cleared (those thugs get
   up only after being hit).
-- **The player is never knocked down** (six scripts push the player); building the
-  player's own knockdown is a separate job.
+- ~~**The player is never knocked down** (six scripts push the player); building the
+  player's own knockdown is a separate job.~~ *(stale 2026-10-19: superseded by "Navmesh switches, AI procedure codes, the player knocked down"; status.md:52.)*
 - **No KOed/Wake line and no corner message** for a knockdown (it is no unconsciousness).
 - **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
   the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names

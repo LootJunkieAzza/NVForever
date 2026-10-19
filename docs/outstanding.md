@@ -79,52 +79,40 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
     owner-decision-captures.md §6). People keep attacking only one carrying what they look
     for [hypothesis].
 
-## 3. Decisions and checks waiting for the owner
+## 3. Decisions waiting for the owner
 
-[owner-review.md](owner-review.md) holds about 146 open items; about 26 of them can change
-how quests run, the rest are guessed constants and looks to compare in the game.
+[owner-review.md](owner-review.md) is the full list. On 2026-10-19, 54 items that later
+work had overtaken were struck through, each with what overtook it, and the second run of
+owner-decision captures ([spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md)
+§7) answered or narrowed the factual ones. Those still open are listed in §4. What is left
+here needs your ruling: a lab rule, or a choice the original's behaviour does not make for us.
 
-**Quest-critical** (each needs a ruling):
-- Layer 5: the `L5.script.decode` choice, the `delay_*` scenario inputs, holdouts to
-  demote and where `encodings.json` lives (lab rules); the runtime rules still to confirm
-  (stage conditions, timers, reputation tolerances, `ref` handling, Return; disabled
-  references' GameMode and script packages were settled by captures on 2026-10-18).
-- Script stubs and the function audit: ResetAI and procedure codes, SetPackDuration,
-  SetActorsAI; package durations (about 358 packages restart every duration). The
-  gecko captures contradict that rule: a duration ended a package only once its goal was
-  done, and the next choice came from the top of the list [observed 2026-10-18; the
-  reading is a hypothesis; owner-review "Package durations"].
-- EnablePlayerControls: a number left out now gives that control back.
-- Dialogue: Info Connection's shared lines, the end of a Random pool, actors without a
-  greeting; whether walking away or an attack ends a conversation; force-greets; a generic
-  Goodbye beside Goodbye lines with scripts.
-- AI: where teammates arrive through a door; the shared-faction change that makes NCR and
-  Fiends fight; whether an assault turns the victim's whole faction; IsInCombat while
-  Alert.
-- Sleeping: whether E on a bed opens the sleep menu at once.
+**Lab rules** (only you may change them, parity-lab/AGENT.md):
+- the `L5.script.decode` choice;
+- the `delay_*` scenario inputs;
+- the holdouts to demote;
+- where `encodings.json` lives;
+- the `combat-violet` and `combat-dogs` known-failing marks.
 
-Capture jobs that let the original game answer the factual ones (not the lab rules or the
-design choices) are in [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
-Its §4 has the first run's outcomes (2026-10-18), and its §5 has the jobs changed for the
-second round. The bed item is decided by the owner: a get-into-bed animation, then the
-sleep menu.
-
-**Looks and constants by area** (open, not quest-critical): rendering 29, menus and
-interface 27, combat 16, AI 11, dialogue 9, animation 9, world and physics 5, gameplay
-3, sound 3; the repository and install 8 (old remote branches to delete, figures to
-place in docs).
-
-**About 25 owner-review items are stale** (overtaken by later work: the sky task, the
-HUD's screenshot request, the barter "How many?" box, the crosshair's not-built list,
-the wait menu's day of the week, and others). They should be struck through so the open
-list reads true.
+**Your choice** (the original's behaviour is known, or does not decide it):
+- **Pausing in conversations** (owner-review item 34).
+  - **What the original does.** It stops the game clock, and an attacker does not act
+    while the menu is open (captured 2026-10-19). NVForever does the same now.
+  - **To decide.** Whether the "live world" proposal should change that, and whether
+    walking away ends a conversation.
+- **Layer 5's runtime rules where the sources were unclear:** stage conditions, timers,
+  reputation tolerances, `ref` handling and Return. Each is a reading of the wiki;
+  no capture was designed for them.
+- **Assault and the faction** (owner-review "Karma and crime" item 8). The original agrees
+  with our decision (captured 2026-10-19); only your sign-off is left.
+- **Looks and constants by area** (not quest-critical), to compare by eye in the game:
+  - rendering, menus and interface, combat, AI, dialogue, animation, world and physics,
+    gameplay, sound;
+  - the repository and install: old remote branches to delete, figures to place in docs.
 
 **Not reproduced** from the playtest lists: the first-person shadow flicker after leaving
-an interior; the Crimson Caravan crash. **Never checked in the game** after fixing: Victor's and Sunny's stop-and-go (list 4
-items 2–3). List 5 item 22 (convict karma) was checked in the original on 2026-10-19: the
-player shooting an Evil NCRCF convict dead changed no karma, so NVForever now gives none
-for an Evil kill (crime-karma.md §4.1; smoke `karma-convict`). The
-`combat-violet` and `combat-dogs` known-failing marks need the owner's word.
+an interior; the Crimson Caravan crash. **Never checked in the game** after fixing: Victor's
+and Sunny's stop-and-go (list 4 items 2–3).
 
 ## 4. Found by today's comparisons with the original
 
@@ -166,6 +154,26 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   It is not compared with our engine yet. Of the casinos, only Gomorrah's first 12 game
   hours were observed.
 - No spawn aid for creature fights in our engine's test runs.
+- **Owner-decision captures still open after the second run** (2026-10-19,
+  owner-decision-captures.md §7). Each has the reason it could not be settled:
+  - **Teammates through doors.** A teammate on a PATROL package came along on a MoveTo,
+    and one with `Waiting` 1 did not come through a door. So "only those following come"
+    is not the rule, but whether `Waiting` or the door decides is open. Where they arrive
+    is settled: 160 units to the left.
+  - **SetActorsAI 0.** In the original the actor keeps walking on its last heading; ours
+    stops. Carrying the movement on needs the engine's character movement (follow-up).
+  - **Scripted items in NPC inventories.** The Legion aura token's script did nothing even
+    in the player's inventory, so it cannot answer; another item is needed.
+  - **Topic lists: a generic Goodbye beside a scripted one; Info Connection's shared
+    lines.** The original's lists match ours in their first three entries, but the plugin
+    cannot scroll the list. A look by hand at Johnson Nash and Red Lucy settles both.
+  - **The end of a Random pool (#120).** The plugin could not see which GOODBYE line Ralph
+    said: no subtitle, and SayToDone names the topic only. A look by hand settles it.
+  - **ResetAI on a sleeper.** Ringo never lay down in the gas station.
+  - **Actors with no greeting.** Two of the three had one after all, so the rule still
+    has no clean test case.
+  - **Force-greets' Goodbye camera.** No capture was designed for it.
+  - **A quest's own conditions on the speaking actor.** No capture was designed for it.
 
 ## 5. Process
 

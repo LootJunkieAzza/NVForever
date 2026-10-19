@@ -59,9 +59,12 @@ are not built.
 - **"Changing cells will teleport the teammate to the player."** `Game::bring_teammates`,
   run when the player goes through a load door (`Game::default_activation`) or is moved by
   MoveTo: each teammate whose current package follows the player is put beside the player, in
-  the player's cell, facing the player's way, 64 units to the right (a second one to the left,
-  then 128 units …) [hypothesis: only those following, not those told to wait; design: the
-  place beside the player]. It is a MoveTo for the AI (`Game::teleported`): the walker starts
+  the player's cell, facing the player's way, 160 units to the left (a second one to the right,
+  then 320 units …) [hypothesis: only those following, not those told to wait; observed
+  for the place: od_03 put a following Boone about 170 units left of the player and a
+  little ahead through Novac's motel door, owner-decision-captures.md §7; the original also
+  brought a teammate on a Patrol package along on a MoveTo, on the player's own spot, which
+  the "only those following" rule does not cover]. It is a MoveTo for the AI (`Game::teleported`): the walker starts
   again there. Log: `ai [h] CraigBooneREF: put at (x, y, z) in <cell> with the player
   (teammate): goes on from there`.
 - **"The actor will act and react as if he is in the player faction for the purposes of

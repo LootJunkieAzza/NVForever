@@ -26,6 +26,10 @@ STEPS = {
 OBSERVE = ({"label", "every", "max_samples"},
            {"fields", "header", "groups", "until", "drive", "drive_frames", "drive_end", "hooks"})
 JOB = ({"format", "name", "steps"}, {"title", "start"})
+# Jobs written for plugin version 9 (installed 2026-10-19, ai-observer.md section 12): their
+# observe steps may also carry xNVSE game events and triggered screenshots.
+V9_JOBS = {"od_13_assault_faction.steps.json", "od_22_dlg_random_end.steps.json"}
+OBSERVE_V9 = (OBSERVE[0], OBSERVE[1] | {"events", "shots"})
 
 
 def shape_errors(keys, need, may):
@@ -38,7 +42,7 @@ def shape_errors(keys, need, may):
     return out
 
 
-def step_errors(step):
+def step_errors(step, observe=OBSERVE):
     if not isinstance(step, dict):
         return ["not an object"]
     kinds = [k for k in STEPS if k in step]
@@ -53,7 +57,7 @@ def step_errors(step):
             if not isinstance(v, int) or isinstance(v, bool) or v < 0:
                 errs.append(f"{k} is not a whole number")
         elif k == "observe":
-            errs += [f"observe {e}" for e in shape_errors(v, *OBSERVE)] if isinstance(v, dict) else ["observe is not an object"]
+            errs += [f"observe {e}" for e in shape_errors(v, *observe)] if isinstance(v, dict) else ["observe is not an object"]
         elif not isinstance(v, str):
             errs.append(f"{k} is not a string")
     return errs
@@ -76,7 +80,7 @@ class JobsLoadInVersion7(unittest.TestCase):
             for e in shape_errors(job, *JOB):
                 bad.append(f"{f}: job {e}")
             for i, s in enumerate(job.get("steps", [])):
-                for e in step_errors(s):
+                for e in step_errors(s, OBSERVE_V9 if f in V9_JOBS else OBSERVE):
                     bad.append(f"{f}: step {i}: {e}")
                 for k in ("query", "script", "until", "remember"):
                     if isinstance(s, dict) and isinstance(s.get(k), str) and short_script(s[k]):
