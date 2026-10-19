@@ -878,6 +878,10 @@ pub struct Game<'a> {
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
+    /// Destruction stage changes made by scripts (`DamageObject`), with their
+    /// references, for the engine to set off as it does a hit's (explosions, model).
+    /// Not part of the saved state.
+    pub destruction_changes: Vec<(FormId, crate::combat::DestructionChange)>,
     /// Knockouts and getting up since the engine last took them
     /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
     pub knockout_news: Vec<crate::unconscious::News>,
@@ -1232,6 +1236,7 @@ impl<'a> Game<'a> {
             data,
             toggles: Default::default(),
             combat_requests: Vec::new(),
+            destruction_changes: Vec::new(),
             knockout_news: Vec::new(),
             idle_requests: Vec::new(),
             weapon_uses: BTreeMap::new(),
@@ -2395,8 +2400,27 @@ impl<'a> Game<'a> {
 
     // ---- activation and other events -------------------------------------------
 
-    /// `actor` activates `target`.
+    /// Whether `target` refuses every activation: a door or activator marked destroyed
+    /// (`SetDestroyed 1`, or a destruction stage with the Destroy flag)
+    /// [documented: GECK wiki SetDestroyed, "Destroyed doors/activators will no longer
+    /// give rollover text and cannot be activated"]. Terminals and talking activators
+    /// count as activators [hypothesis: they are activator-like records; the wiki names
+    /// only doors and activators]. Other references (actors, containers, items) keep
+    /// their activation: the wiki names only doors and activators.
+    pub fn activation_refused(&self, target: FormId) -> bool {
+        if !self.extra.get(&target).is_some_and(|e| e.destroyed) {
+            return false;
+        }
+        let sig = functions::base_of(self, target).and_then(|b| self.data.sig(b));
+        matches!(sig.as_ref(), Some(b"DOOR") | Some(b"ACTI") | Some(b"TACT") | Some(b"TERM"))
+    }
+
+    /// `actor` activates `target`. A destroyed door or activator
+    /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
+        if self.activation_refused(target) {
+            return Ok(serde_json::json!({"result": "destroyed"}));
+        }
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
         match mode {
             ActMode::Hand | ActMode::Block if has_block => {

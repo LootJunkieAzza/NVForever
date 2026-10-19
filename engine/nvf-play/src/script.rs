@@ -662,6 +662,10 @@ impl Runtime {
     }
 
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // A destroyed door or activator cannot be activated (`Game::activation_refused`).
+        if self.game.activation_refused(target) {
+            return Ok(ByHand::Refused);
+        }
         // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
         // opens first, unless it was just answered with the default action.
         if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
@@ -1006,6 +1010,9 @@ pub enum ByHand {
     /// The player's perks offer choices on the target: their list opened
     /// (`fnv_game::activate_choices`, `crate::script_hud`).
     Choices,
+    /// The target is a destroyed door or activator: nothing happened
+    /// (`fnv_game::Game::activation_refused`).
+    Refused,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.

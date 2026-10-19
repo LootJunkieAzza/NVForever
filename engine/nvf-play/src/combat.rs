@@ -2313,9 +2313,14 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
-    // What scripts asked (DetonatePlacedExplosives) and what burns down (self-damage).
+    // What scripts asked (DetonatePlacedExplosives, DamageObject's stage changes) and
+    // what burns down (self-damage).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        let (requests, burning) = with_world(rt, &mut sim, |rt| (std::mem::take(&mut rt.game.combat_requests), rt.game.destruction_tick(dt as f64)));
+        let (requests, burning) = with_world(rt, &mut sim, |rt| {
+            let mut changes = std::mem::take(&mut rt.game.destruction_changes);
+            changes.extend(rt.game.destruction_tick(dt as f64));
+            (std::mem::take(&mut rt.game.combat_requests), changes)
+        });
         for req in requests {
             let actor = match req {
                 CombatRequest::Detonate(actor) => actor,
