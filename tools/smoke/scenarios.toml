@@ -706,6 +706,22 @@ forbid = [
 ]
 
 [[scenario]]
+name = "combat-ghost-player"
+source = "script-function audit 2026-10-19: SetGhost, GECK wiki notes 'Enemies of this calling ref will not go into combat or detect an actor with this flag' (Game::would_attack, Game::ghost_hidden_from)"
+note = "the combat-target-killed setup with the player made a ghost by the console at 8 s before Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s: StartCombat on a ghost is forgotten at the next measurement, so she never shoots the player down (health 10; a ghosted player is still hurt, so a shot would kill)"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setghost 1;8.1:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  { re = '(?i)console: SetGhost on player', label = "the console makes the player a ghost" },
+]
+forbid = [
+  { re = "combat: the player died", label = "Violet kills a ghosted player" },
+]
+
+[[scenario]]
 name = "combat-face"
 source = "owner request 2026-10-18: fighters look angry, as in the base game (docs/spec-notes/combat-face.md)"
 note = "the combat-target-killed setup: Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s, kills the player (health 10 by the console at 8 s) and goes back to Normal; her CombatAnger weight rises to 1 over 1 s on entering Combat and falls back to 0 on leaving it. lips.rs draws the weight (FaceMorphs, lipsync.md §5.4); combat-face-frames checks the drawn face"

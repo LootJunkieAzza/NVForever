@@ -173,7 +173,7 @@ fn plugin_bytes() -> Vec<u8> {
         b"MESG",
         0,
         MESSAGE,
-        &[sub(b"EDID", z("TestMsg")), sub(b"DESC", z("Hello")), sub(b"ITXT", z("Yes")), sub(b"ITXT", z("No"))],
+        &[sub(b"EDID", z("TestMsg")), sub(b"FULL", z("Renamed One")), sub(b"DESC", z("Hello")), sub(b"ITXT", z("Yes")), sub(b"ITXT", z("No"))],
     );
     // Quest script: fTimer (1, float), bRun (2, short).
     //   begin GameMode
@@ -1355,4 +1355,22 @@ fn pipboy_reset_exit_and_objective_display_requests() {
     ui_call(&mut g, 0x1225, &[ArgValue::Value(Value::Num(0.0))]);
     assert!(!g.player.auto_objectives);
     assert!(serde_json::to_value(&g.player).unwrap().get("auto_objectives").is_none());
+}
+
+#[test]
+fn set_actor_full_name_renames_the_base_and_is_saved() {
+    // GECK wiki SetActorFullName: the base's name becomes the message's title (FULL, not
+    // the text), for every reference of the base; kept in the save with `Game::forms`.
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    assert_eq!(g.script_name(FormId(NPC)), None);
+    let ctx = Ctx { unit: "test".into(), opcode: 0x111C, on: Some(FormId(NPC_REF)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(MESSAGE))]);
+    assert_eq!(g.script_name(FormId(NPC)), Some("Renamed One"));
+    let s = g.snapshot();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.script_name(FormId(NPC)), Some("Renamed One"));
 }

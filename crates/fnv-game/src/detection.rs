@@ -463,10 +463,17 @@ impl Game<'_> {
     }
 
     /// The detection of `target` by `detector` in situation `s`, recorded for the script
-    /// functions at the current game time.
+    /// functions at the current game time. An enemy of a ghost does not detect it
+    /// ([`Game::ghost_hidden_from`]): the value is held at the top of the Hidden band
+    /// [engineering choice: the note says only that it is not detected], sight
+    /// (GetLineOfSight) as measured.
     pub fn detect(&mut self, settings: &Settings, detector: FormId, target: FormId, s: &Situation) -> (Detection, Option<Band>) {
         let p = self.detection_pair(detector, target);
-        let d = settings.evaluate(&p, s);
+        let mut d = settings.evaluate(&p, s);
+        if self.ghost_hidden_from(detector, target) {
+            d.value = d.value.min(settings.noticed_min);
+            d.band = Band::Hidden;
+        }
         let before = self.detection.record(detector, target, d, self.time);
         (d, before)
     }

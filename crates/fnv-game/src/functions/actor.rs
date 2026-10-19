@@ -655,13 +655,26 @@ pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
 }
 
 /// `actor.SetActorFullName message`: the base's name becomes the message's title, for
-/// every reference [documented: catalogue notes]; kept for the engine's name display.
+/// every reference [documented: catalogue notes; GECK wiki SetActorFullName: "changes
+/// the name of the base object, so all instances of that NPC/creature will have a new
+/// name", and it works on talking activators too]. Shown through
+/// [`Game::script_name`]; saved with the rest of `Game::forms`.
 pub fn set_actor_full_name(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let m = a.form(0)?;
     let b = base_of(g, r).unwrap_or(r);
     g.forms.names.insert(b, m);
     none()
+}
+
+impl<'a> Game<'a> {
+    /// The name SetActorFullName gave a base form: the title (FULL), not the text, of the
+    /// message it named [documented: GECK wiki SetActorFullName summary]. `None` when no
+    /// script renamed the base, or the message has no title.
+    pub fn script_name(&self, base: FormId) -> Option<&'a str> {
+        let data: &'a crate::data::GameData = self.data;
+        self.forms.names.get(&base).and_then(|m| data.messages.get(m)).and_then(|d| d.title.as_deref())
+    }
 }
 
 /// 1 when the given actor killed the caller (KillActor's killer) [documented:

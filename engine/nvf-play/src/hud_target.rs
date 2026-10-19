@@ -133,7 +133,7 @@ fn aim(
     });
     aim_hostile.set_if_neq(AimHostile(foe));
     let now = found.map(|(form_id, health)| {
-        let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data), form_id).unwrap_or_default().to_string();
+        let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
         TargetHealth { form_id, name, health }
     });
     let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32));

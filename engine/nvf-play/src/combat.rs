@@ -1221,6 +1221,9 @@ struct PhysView<'a> {
     actors: Vec<(ActorId, V3, f32)>,
     /// Each actor's body part capsule centres, widest first.
     aims: HashMap<ActorId, Vec<V3>>,
+    /// The ghosts (SetGhost 1) other than the player: rays pass their hit volumes
+    /// ([`ghosts`]).
+    ghosts: Vec<ActorId>,
 }
 
 impl CombatWorld for PhysView<'_> {
@@ -1245,6 +1248,7 @@ impl CombatWorld for PhysView<'_> {
         // wall, dust and no damage, and one past a flying or low creature's capsule
         // missed its body (the owner's playtest list 5 items 16 and 25) [design].
         f.exclude.extend(self.npcs.iter().copied());
+        f.exclude.extend(self.ghosts.iter().map(|&a| Key::Actor(a as u32)));
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
         Some(WorldHit {
@@ -1270,7 +1274,10 @@ impl CombatWorld for PhysView<'_> {
     }
 
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
-        self.actors.iter().filter(|(_, c, r)| vec::len(vec::sub(*c, point)) <= radius + r).map(|&(id, c, _)| (id, c)).collect()
+        // A blast passes a ghost too: it "cannot be harmed by a weapon or spell/magic
+        // effect in any way" [documented: GECK wiki SetGhost notes] (no knock-down either).
+        let near = |&&(id, c, r): &&(ActorId, V3, f32)| vec::len(vec::sub(c, point)) <= radius + r && !self.ghosts.contains(&id);
+        self.actors.iter().filter(near).map(|&(id, c, _)| (id, c)).collect()
     }
 
     fn aim_points(&self, actor: ActorId) -> Vec<V3> {
@@ -1278,14 +1285,25 @@ impl CombatWorld for PhysView<'_> {
     }
 }
 
-fn view(phys: &mut PhysState) -> PhysView<'_> {
+/// The actors shots and blows pass through: ghosts (SetGhost 1), "Projectiles pass
+/// through them" [documented: GECK wiki SetGhost notes]; a blow passes as a shot does
+/// [hypothesis: the note names projectiles; a ghost "cannot be harmed by a weapon" in any
+/// way, so a blow that stopped on it would only be wasted]. A ghosted player is still
+/// struck, as "the player can" be damaged [documented: same notes; hypothesis: that its
+/// body still stops projectiles].
+fn ghosts(script: Option<&ScriptState>) -> Vec<ActorId> {
+    let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
+    rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect()
+}
+
+fn view(phys: &mut PhysState, ghosts: Vec<ActorId>) -> PhysView<'_> {
     let actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
     let player = phys.player.as_ref().map(|c| c.key());
     let npcs = phys.npcs.values().map(|b| b.ch.key()).collect();
     let aims = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, aims }
+    PhysView { q: phys.world.queries(), player, npcs, actors, aims, ghosts }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -1508,7 +1526,7 @@ pub(crate) fn fire(
                 // the shoulder: the shot aims from the eye at what lies under it, as the
                 // eye's view ray does in first person (playtest list 4, item 12).
                 let leaving = {
-                    let world = view(&mut phys);
+                    let world = view(&mut phys, ghosts(script.as_deref()));
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
                         _ if vats_shot.is_some() => {
@@ -1818,7 +1836,7 @@ pub(crate) fn apply_hit(
     // The hit's effects go on before its damage (`hit_effects`).
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
-    let name = sim.ref_name(Some(rt.game.data), target.0).map_or_else(|| target.to_string(), str::to_string);
+    let name = sim.ref_name(Some(&rt.game), target.0).map_or_else(|| target.to_string(), str::to_string);
     if mine {
         stats.damage += r.dealt as f32;
     } else if info.attacker.is_some() && !r.immune {
@@ -1883,7 +1901,7 @@ pub fn set_god_mode(on: bool) {
 /// through `Game::hit`, and at 0 the player dies.
 #[allow(clippy::too_many_arguments)]
 fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId], feedback: &mut HitFeedback) -> Option<HitResult> {
-    let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(rt.game.data), a.0).map_or_else(|| a.to_string(), str::to_string));
+    let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(&rt.game), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
         info!("combat: {by} hits the player for {dealt:.1} (god mode: no damage taken)");
@@ -1984,7 +2002,7 @@ fn melee(
         // ground ahead) shows its impact there.
         let mut struck_world: Option<WorldHit> = None;
         let hits = {
-            let world = view(&mut phys);
+            let world = view(&mut phys, ghosts(script.as_deref()));
             // Low and high: a short creature at the player's feet is struck within the
             // reach across the ground (`swing_reaching`).
             let hits = fnv_combat::projectile::swing_reaching(&world, &c.tuning, eye, player.feet[2], player.look_dir(), reach, PLAYER);
@@ -2191,7 +2209,7 @@ fn actor_attacks(
         let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
-            let world = view(&mut phys);
+            let world = view(&mut phys, ghosts(script.as_deref()));
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -2354,7 +2372,7 @@ fn fly(
         return;
     }
     {
-        let world = view(&mut phys);
+        let world = view(&mut phys, ghosts(script.as_deref()));
         let hold = c.tracer_hold;
         for f in &mut c.flying {
             let before = f.p.pos;
@@ -2474,7 +2492,7 @@ fn fly(
             }
         }
         let hits = {
-            let world = view(&mut phys);
+            let world = view(&mut phys, ghosts(script.as_deref()));
             blast(&world, &c.tuning, &x, at)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
@@ -2879,7 +2897,7 @@ mod tests {
     fn shots_pass_an_npcs_character_and_strike_its_body() {
         // The playtest list 5 item 16: the character was struck as a wall (dust, no damage).
         let mut phys = npc_world();
-        let world = view(&mut phys);
+        let world = view(&mut phys, Vec::new());
         let h = world.ray([-300.0, 0.0, 45.0], [300.0, 0.0, 45.0], &[PLAYER]).expect("the body is struck");
         assert_eq!(h.actor, Some(0x1234));
         assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);

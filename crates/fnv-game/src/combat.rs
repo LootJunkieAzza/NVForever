@@ -248,10 +248,12 @@ impl Game<'_> {
 
     /// Whether the actor takes no damage: its race has the Child flag, the creature is
     /// Invulnerable, or a script made it a ghost (SetGhost: "cannot be harmed by a weapon
-    /// or spell/magic effect in any way" [documented: GECK wiki SetGhost notes]).
+    /// or spell/magic effect in any way" [documented: GECK wiki SetGhost notes]). A
+    /// ghosted player is still hurt: "Though NPCs and creatures can not be damaged in this
+    /// state, the player can" [documented: GECK wiki SetGhost notes].
     pub fn is_immune(&self, r: FormId) -> bool {
         let invulnerable = self.base_data_def(r).is_some_and(|d| d.invulnerable);
-        let ghost = self.extra.get(&r).is_some_and(|e| e.ghost);
+        let ghost = r != FormId::PLAYER_REF && self.is_ghost(r);
         invulnerable || ghost || self.actor_race(r).is_some_and(|race| self.data.child_races.contains(&race))
     }
 

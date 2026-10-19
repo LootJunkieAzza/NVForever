@@ -711,3 +711,26 @@ fn the_template_supplies_the_name_and_inventory_it_is_flagged_for() {
     assert_eq!(sources.get(&FormId(LIST_REF)), Some(&FormId(WOLF)));
     assert!(!sources.contains_key(&FormId(LEADER_REF)) && !sources.contains_key(&FormId(SPAWN_REF)));
 }
+
+#[test]
+fn nobody_fights_or_detects_a_ghost_and_a_ghosted_player_is_still_hurt() {
+    // GECK wiki SetGhost notes: "Enemies of this calling ref will not go into combat or
+    // detect an actor with this flag"; "the player can" be damaged.
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, player) = (FormId(OWN_REF), FormId::PLAYER_REF);
+    assert!(g.attacked_by(own, player), "a grudge");
+    assert!(g.would_attack(own, player));
+    g.extra.entry(player).or_default().ghost = true;
+    assert!(!g.would_attack(own, player), "a ghost is no target");
+    assert!(g.ghost_hidden_from(own, player));
+    let s = fnv_game::detection::Settings::default();
+    let seen = fnv_game::detection::Situation { distance: 100.0, line_of_sight: true, in_view: true, light: 100.0, ..Default::default() };
+    let (det, _) = g.detect(&s, own, player, &seen);
+    assert_eq!(det.band, Band::Hidden, "an enemy does not detect a ghost: {det:?}");
+    assert!(!g.is_immune(player), "a ghosted player is still hurt");
+    g.extra.entry(player).or_default().ghost = false;
+    assert!(g.would_attack(own, player));
+    let (det, _) = g.detect(&s, own, player, &seen);
+    assert_ne!(det.band, Band::Hidden, "{det:?}");
+}
