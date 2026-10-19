@@ -727,6 +727,10 @@ pub struct GameData {
     pub enchantment_types: HashMap<FormId, u32>,
     /// Races with the Child flag (RACE DATA).
     pub child_races: HashSet<FormId>,
+    /// RACE ONAM and YNAM: the older and the younger race of a race (AgeRace)
+    /// [documented: xEdit wbDefinitionsFNV.pas RACE "Older", "Younger"].
+    pub race_older: HashMap<FormId, FormId>,
+    pub race_younger: HashMap<FormId, FormId>,
     /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
     /// 3 friend).
     pub faction_reactions: HashMap<FormId, Vec<(FormId, i64)>>,
@@ -777,6 +781,10 @@ pub struct GameData {
     pub recipe_categories: HashMap<FormId, crate::crafting::RecipeCategoryDef>,
     /// CSNO: the casinos (`crate::casino`).
     pub casinos: HashMap<FormId, crate::casino::CasinoDef>,
+    /// CCRD: the Caravan cards (`crate::caravan`).
+    pub caravan_cards: HashMap<FormId, crate::caravan::CardDef>,
+    /// CDCK: the Caravan decks.
+    pub caravan_decks: HashMap<FormId, crate::caravan::DeckDef>,
     /// RADS, DEHY, HUNG, SLPD: the stages of rads and of Hardcore's needs by actor value
     /// code, lowest threshold first (`crate::needs`).
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
@@ -903,6 +911,9 @@ pub struct PerkEntry {
     pub rank: u8,
     pub priority: u8,
     pub effect: PerkEffect,
+    /// Its place among the record's effects (PRKE), 0-based: the script unit of an
+    /// entry is keyed by it (`fnv_script::unit::UnitOwner::Perk`).
+    pub ordinal: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -938,6 +949,14 @@ pub struct EntryPointDef {
     /// The CTDA with the PRKC tab before them (0 the perk owner); `None` when one could
     /// not be read.
     pub conditions: Option<Vec<(i8, Condition)>>,
+    /// EPF2 "Button Label" of an activate choice ("Devour", "Murder") [documented: xEdit
+    /// wbDefinitionsFNV.pas PERK; observed: the four entries of the masters with one,
+    /// `crate::activate_choices`].
+    pub button: Option<String>,
+    /// EPF3 "Script Flags" bit 0, Run Immediately [documented: xEdit].
+    pub run_immediately: bool,
+    /// The entry's script (EPFT 4, SCHR/SCDA after it).
+    pub unit: Option<UnitId>,
 }
 
 impl PerkDef {
@@ -1073,6 +1092,8 @@ struct Read {
     repair_list: Option<FormId>,
     enchantment_type: Option<u32>,
     child_race: bool,
+    race_older: Option<FormId>,
+    race_younger: Option<FormId>,
     faction: Option<Vec<(FormId, i64)>>,
     faction_flags: Option<u16>,
     faction_reputation: Option<FormId>,
@@ -1090,13 +1111,15 @@ struct Read {
     recipe: Option<crate::crafting::RecipeDef>,
     recipe_category: Option<crate::crafting::RecipeCategoryDef>,
     casino: Option<crate::casino::CasinoDef>,
+    caravan_card: Option<crate::caravan::CardDef>,
+    caravan_deck: Option<crate::caravan::DeckDef>,
     need_stage: Option<(u16, u32, FormId)>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
 }
 
-const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM"];
+const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM", b"PERK"];
 
 impl GameData {
     /// Build from a load order. `functions` is the parsed `functions.json` (for the
@@ -1159,6 +1182,8 @@ impl GameData {
             armor_enchantments: HashMap::new(),
             enchantment_types: HashMap::new(),
             child_races: HashSet::new(),
+            race_older: HashMap::new(),
+            race_younger: HashMap::new(),
             faction_reactions: HashMap::new(),
             faction_flags: HashMap::new(),
             faction_reputations: HashMap::new(),
@@ -1178,6 +1203,8 @@ impl GameData {
             recipes: HashMap::new(),
             recipe_categories: HashMap::new(),
             casinos: HashMap::new(),
+            caravan_cards: HashMap::new(),
+            caravan_decks: HashMap::new(),
             need_stages: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
@@ -1335,6 +1362,12 @@ impl GameData {
             if r.child_race {
                 d.child_races.insert(id);
             }
+            if let Some(v) = r.race_older {
+                d.race_older.insert(id, v);
+            }
+            if let Some(v) = r.race_younger {
+                d.race_younger.insert(id, v);
+            }
             if let Some(v) = r.faction {
                 d.faction_reactions.insert(id, v);
             }
@@ -1359,7 +1392,13 @@ impl GameData {
             if let Some(v) = r.image_modifier {
                 d.image_modifiers.insert(id, v);
             }
-            if let Some(v) = r.perk {
+            if let Some(mut v) = r.perk {
+                // An entry's script (an activate choice's, `crate::activate_choices`).
+                for e in &mut v.entries {
+                    if let PerkEffect::EntryPoint(ep) = &mut e.effect {
+                        ep.unit = unit_of.get(&label(UnitOwner::Perk { form: id.0, entry: e.ordinal })).copied().filter(|&u| d.units[u].unit.has_scda);
+                    }
+                }
                 d.perks.insert(id, v);
             }
             if let Some(v) = r.av_info {
@@ -1373,6 +1412,12 @@ impl GameData {
             }
             if let Some(v) = r.casino {
                 d.casinos.insert(id, v);
+            }
+            if let Some(v) = r.caravan_card {
+                d.caravan_cards.insert(id, v);
+            }
+            if let Some(v) = r.caravan_deck {
+                d.caravan_decks.insert(id, v);
             }
             if let Some(v) = r.faction_flags {
                 d.faction_flags.insert(id, v);
@@ -1719,6 +1764,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     }
     if &sig == b"CSNO" {
         out.casino = Some(crate::casino::CasinoDef::from_raw(&subs, &map));
+    }
+    if &sig == b"CCRD" {
+        out.caravan_card = crate::caravan::CardDef::from_raw(&subs);
+    }
+    if &sig == b"CDCK" {
+        out.caravan_deck = Some(crate::caravan::DeckDef::from_raw(&subs, &map));
     }
     if &sig == b"IMAD" {
         let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());
@@ -2356,6 +2407,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 .iter()
                 .find(|(s, _)| *s == b"DATA")
                 .is_some_and(|(_, v)| has_flag(v.as_ref().and_then(|v| v.get("flags")), "Child"));
+            let link = |sub: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sub).and_then(|(_, v)| fid(v)).filter(|f| f.0 != 0);
+            out.race_older = link(b"ONAM");
+            out.race_younger = link(b"YNAM");
         }
         b"FACT" => {
             out.faction = Some(
@@ -2386,6 +2440,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             p.icon = text(b"ICON").filter(|i| !i.trim().is_empty());
             p.conditions = conds.into_iter().collect();
             let mut entry: Option<PerkEntry> = None;
+            let mut ordinal: u32 = 0;
             let mut tab: i8 = 0;
             let mut epft: Option<u8> = None;
             for (i, s) in subs.iter().enumerate().skip(head) {
@@ -2398,7 +2453,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                             2 => PerkEffect::EntryPoint(EntryPointDef { conditions: Some(Vec::new()), ..Default::default() }),
                             _ => PerkEffect::Other,
                         };
-                        entry = Some(PerkEntry { rank: b(1), priority: b(2), effect });
+                        entry = Some(PerkEntry { rank: b(1), priority: b(2), effect, ordinal });
+                        ordinal += 1;
                         tab = 0;
                         epft = None;
                     }
@@ -2433,6 +2489,16 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         }
                     }
                     b"EPFT" => epft = s.data.first().copied(),
+                    b"EPF2" => {
+                        if let Some(PerkEffect::EntryPoint(ep)) = entry.as_mut().map(|e| &mut e.effect) {
+                            ep.button = Some(zstring(&s.data)).filter(|b| !b.is_empty());
+                        }
+                    }
+                    b"EPF3" => {
+                        if let Some(PerkEffect::EntryPoint(ep)) = entry.as_mut().map(|e| &mut e.effect) {
+                            ep.run_immediately = s.data.first().is_some_and(|b| b & 1 != 0);
+                        }
+                    }
                     b"EPFD" => {
                         if let (Some(PerkEffect::EntryPoint(ep)), Some(1)) = (entry.as_mut().map(|e| &mut e.effect), epft) {
                             ep.value = <[u8; 4]>::try_from(s.data.as_slice()).ok().map(f32::from_le_bytes);

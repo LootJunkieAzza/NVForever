@@ -10,18 +10,18 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 33
-stub_calls = 158
-stub_condition_uses = 125
+stubs = 16
+stub_calls = 86
+stub_condition_uses = 26
 unhandled_used = 1
 
 [summary.by_status]  # every status, 0 when no stub has it
 assigned = 0
 implementable = 0
-needs_system = 33
+needs_system = 16
 no_op = 4
 
-# History (moved from scenarios.toml, 2026-10-18; the newest last):
+# History (moved from scenarios.toml, 2026-10-19; the newest last):
 # Karma and crime (claude/karma-crime) implemented six
 # stubs (SendAssaultAlarm, SendTrespassAlarm, GetTrespassWarningLevel, IsTrespassing,
 # GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
@@ -65,10 +65,25 @@ no_op = 4
 # claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
 # docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
 # fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/nav-knockdown implemented EnableNavMesh, DisableNavmesh and setAllReachable (9 calls,
+# docs/design/script-stubs.md §3.16): 38 → 35 stubs, 169 → 160 calls [observed: fnvtool
+# script stubs on the owner's masters, merged with main after #451 and #454, 2026-10-18].
 # claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
 # stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
 # with main 5a98cb50, 2026-10-18].
 # claude/menu-hooks implemented ResetPipboyManager, ShowTutorialMenu, ExitGame and the last
 # implementable stub, AutoDisplayObjectives (9 calls, §3.15), so no "implementable" row is
 # left: 37 → 33 stubs, 167 → 158 calls [observed: fnvtool script stubs on the owner's masters,
-# merged with main d13109f3, 2026-10-18].
+# merged with main d13109f3, 2026-10-18]. With claude/nav-knockdown's three: 30 stubs, 149
+# calls [observed: fnvtool script stubs on the owner's masters, merged with main 1bf4fb89].
+# claude/actor-changes implemented AgeRace, StartCannibal, GetCannibal, HasBeenEaten,
+# StartMisterSandman, GetSandman and IsActorTalkingThroughActivator (13 calls, 99 condition
+# uses, §3.17): 30 → 23 stubs, 149 → 136 calls, 125 → 26 condition uses [observed: the
+# branch's fnvtool, merged with main 3ca600ff, on the owner's masters, 2026-10-18].
+# claude/screen-video implemented PlayBink, SetCellImageSpace, TriggerScreenSplatter,
+# SetScreenSplatterFade and ClearScreenSplatter (17 calls, §3.18): 23 → 18 stubs,
+# 136 → 119 calls [observed: fnvtool script stubs on the owner's masters, merged with main
+# e5ff06d0, 2026-10-18].
+# claude/caravan implemented ShowCaravanMenu and AddCardToPlayer (33 calls,
+# docs/spec-notes/caravan.md): 18 → 16 stubs, 119 → 86 calls [observed: the branch's
+# fnvtool on the owner's masters, 2026-10-19].

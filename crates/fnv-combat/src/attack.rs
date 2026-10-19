@@ -61,6 +61,9 @@ pub struct ClipTiming {
     pub next_attack: Option<(f32, crate::melee::NextAttack)>,
     /// Length of the weapon's jam clip (`1hpjama.kf`), when it has one.
     pub jam_len: Option<f32>,
+    /// Time of the attack clip's `Attach` key, seconds: a thrown weapon's next one comes
+    /// into the hand (GetAnimAction 6 until then, `fnv_game::anim_state::throw_action`).
+    pub attach_time: Option<f32>,
 }
 
 /// The intervals the cycle runs on.
@@ -76,6 +79,9 @@ pub struct Timing {
     pub spin_up: f32,
     /// A reload that loads round by round; `None`: the whole magazine in one go.
     pub rounds: Option<RoundReload>,
+    /// Seconds from the trigger to the attack clip's `Attach` key, after the shot (a
+    /// thrown weapon's next one in hand); `None` without one.
+    pub attach: Option<f32>,
 }
 
 /// The parts of a round-by-round reload, seconds.
@@ -116,7 +122,8 @@ impl Timing {
         // In clip seconds: the body plays the attack clip at its own speed, and the
         // shot should leave when the clip reaches its key.
         let spin_up = if w.automatic { clips.spin_up.unwrap_or(0.0).max(0.0) } else { 0.0 };
-        Timing { interval, fire_delay, reload, spin_up, rounds: RoundReload::of(clips) }
+        let attach = clips.attach_time.map(|a| a / speed).filter(|a| *a > fire_delay);
+        Timing { interval, fire_delay, reload, spin_up, rounds: RoundReload::of(clips), attach }
     }
 }
 

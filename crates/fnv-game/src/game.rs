@@ -275,6 +275,10 @@ pub struct RefExtra {
     /// GetIsUsedItem and its kin read (`functions::furniture`). Not saved.
     #[serde(skip)]
     pub used_item: Option<FormId>,
+    /// What the AI layer has the actor do within its package (`crate::ai::AiPhase`),
+    /// for GetCurrentAIProcedure. Not saved.
+    #[serde(skip)]
+    pub ai_phase: Option<crate::ai::AiPhase>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
@@ -341,6 +345,15 @@ pub struct RefExtra {
     /// SetLevel of an actor other than the player.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
+    /// AgeRace: the race in place of the record's (`crate::appearance`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub race: Option<FormId>,
+    /// SexChange: true = female, in place of the record's sex (`crate::appearance`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub female: Option<bool>,
+    /// The player ate this corpse (StartCannibal; HasBeenEaten, `crate::activate_choices`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub eaten: bool,
     /// SetMinimalUse of a door.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub minimal_use: Option<bool>,
@@ -429,6 +442,9 @@ pub struct FormChanges {
     pub public_cells: BTreeMap<FormId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub item_values: BTreeMap<FormId, i32>,
+    /// SetCellImageSpace: cell → the image space it has instead of its XCIM.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub cell_image_spaces: BTreeMap<FormId, FormId>,
 }
 
 /// A magic effect active on an actor (docs/spec-notes/scripts.md §7.6).
@@ -541,6 +557,10 @@ pub struct PlayerState {
     pub look: Option<crate::chargen::Look>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
+    /// The tag skills SetPlayerTagSkill put in its four slots, by slot (0–3); the
+    /// tag-skill menu's choice replaces them.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub tag_slots: BTreeMap<u8, u16>,
     /// The points spent on each skill in the level-up menu (`crate::levelup`), added to
     /// the skill's formula [documented: GECK wiki ActorValue, the player's spent skill
     /// points sit on top of the derived base; docs/spec-notes/levelup.md §4].
@@ -601,6 +621,10 @@ pub struct PlayerState {
     /// The blackjack help message has been shown (it comes the first time only).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub blackjack_help_shown: bool,
+    /// The Caravan cards owned, the last deck built and the record against each opponent
+    /// (`crate::caravan`).
+    #[serde(skip_serializing_if = "crate::caravan::CaravanState::is_empty", default)]
+    pub caravan: crate::caravan::CaravanState,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -610,6 +634,10 @@ pub struct PlayerState {
     /// SetLevel on the player (otherwise the configuration's level).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
+    /// AgeRace on the player before the character creator gave a look (with a look, the
+    /// look's race changes; `crate::appearance`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub race: Option<FormId>,
     /// Hardcore mode was off at some point (IsAlwaysHardcore).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub hardcore_was_off: bool,
@@ -786,6 +814,12 @@ pub struct Speech {
     /// last asked for (`crate::idles`); not part of the saved state.
     #[serde(skip)]
     pub response: usize,
+    /// Say's ForceSubtitles: the subtitle shows whatever the setting and the distance.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force_subtitles: bool,
+    /// Say's is2D: heard as a 2D sound (full volume, not panned, anywhere).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_d: bool,
 }
 
 /// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
@@ -889,6 +923,8 @@ pub struct Game<'a> {
     /// Blackjack menus asked for by ShowBlackJackMenuParams (`crate::blackjack`); the
     /// engine opens them.
     pub blackjack_requests: Vec<crate::blackjack::BlackjackRequest>,
+    /// Caravan games asked for by ShowCaravanMenu (`crate::caravan`); the engine opens them.
+    pub caravan_requests: Vec<crate::caravan::CaravanRequest>,
     /// Teammates' inventories scripts opened (OpenTeammateContainer,
     /// `crate::followers`), for the engine to show as a container menu. Not part of the
     /// saved state.
@@ -914,6 +950,9 @@ pub struct Game<'a> {
     /// Fights started by being hit, friendly hits, yields and allies joining
     /// (`crate::provocation`). Not part of the saved state.
     pub provocations: crate::provocation::Provocations,
+    /// Navmeshes the scripts enabled or disabled, and setAllReachable
+    /// (`functions::navigation`). Saved.
+    pub nav_switches: crate::functions::navigation::NavSwitches,
     /// Combat-tab lines: attack timers, health marks, DeathResponse lines due
     /// (`crate::combat_lines`). Not part of the saved state.
     pub combat_lines: crate::combat_lines::CombatLines,
@@ -977,6 +1016,15 @@ pub struct Game<'a> {
     /// Actors ResurrectActor brought back since the engine last took them
     /// ([`Game::take_resurrections`], `crate::resurrect`). Not saved.
     pub resurrections: Vec<crate::resurrect::Resurrection>,
+    /// Actors whose race or sex changed since the engine last took them
+    /// ([`Game::take_appearance_changes`], `crate::appearance`). Not saved.
+    pub appearance_changes: Vec<crate::appearance::AppearanceChange>,
+    /// The perks' choice list open for an activation (`crate::activate_choices`). Not
+    /// saved.
+    pub activate_menu: Option<crate::activate_choices::ActivateMenu>,
+    /// Cannibal's and Mister Sandman's acts under way (GetCannibal, GetSandman). Not
+    /// saved.
+    pub perk_acts: Vec<crate::activate_choices::PerkAct>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -1005,6 +1053,9 @@ pub struct Game<'a> {
     pub boxes: Vec<FormId>,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
+    /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
+    /// they talk to each other ([`Game::conversation_moves`]); not saved.
+    pub moving_talkers: BTreeSet<FormId>,
     /// (speaker, line) pairs of the Say Once lines already said, and of every line said
     /// in a conversation with the player (the shading of choices).
     pub said: BTreeSet<(FormId, FormId)>,
@@ -1014,6 +1065,10 @@ pub struct Game<'a> {
     /// The conversation between the player and an actor, if one is running
     /// (`crate::dialogue`).
     pub dialogue: Option<crate::dialogue::Conversation>,
+    /// While a conversation through a talking activator is being opened: the actor and
+    /// the activator (IsActorTalkingThroughActivator, `crate::talking_activators`). Not
+    /// saved.
+    pub talking_through: Option<(FormId, FormId)>,
     /// The lengths of voice files, when the game was given them (`crate::voice`): a
     /// response then lasts as long as its sound. Not part of the saved state.
     pub voice: Option<std::sync::Arc<dyn crate::voice::VoiceLengths>>,
@@ -1128,6 +1183,9 @@ pub struct GameSnapshot {
     pub grudges: Vec<((FormId, FormId), crate::provocation::Grudge)>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub forgiven: BTreeMap<FormId, f64>,
+    /// Navmeshes the scripts switched, and setAllReachable (`functions::navigation`).
+    #[serde(default, skip_serializing_if = "crate::functions::navigation::NavSwitches::is_empty")]
+    pub nav_switches: crate::functions::navigation::NavSwitches,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -1188,6 +1246,7 @@ impl<'a> Game<'a> {
             repair_requests: Vec::new(),
             roulette_requests: Vec::new(),
             blackjack_requests: Vec::new(),
+            caravan_requests: Vec::new(),
             teammate_containers: Vec::new(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
@@ -1195,6 +1254,7 @@ impl<'a> Game<'a> {
             detection: Default::default(),
             awareness: Default::default(),
             provocations: Default::default(),
+            nav_switches: Default::default(),
             combat_lines: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
@@ -1219,6 +1279,9 @@ impl<'a> Game<'a> {
             turned: BTreeSet::new(),
             cell_resets: Vec::new(),
             resurrections: Vec::new(),
+            appearance_changes: Vec::new(),
+            activate_menu: None,
+            perk_acts: Vec::new(),
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,
@@ -1229,9 +1292,11 @@ impl<'a> Game<'a> {
             message_box: None,
             boxes: Vec::new(),
             speech: Vec::new(),
+            moving_talkers: BTreeSet::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
+            talking_through: None,
             voice: None,
             frame: 0,
             time: 0.0,
@@ -1617,6 +1682,13 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.turned.clear();
+        // The world refuses power armour on an untrained player (a loaded game's flag
+        // reaches it here too).
+        self.world.set_power_armor_training(self.player.power_armor);
+        // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
+        if !self.perk_acts.is_empty() {
+            self.finish_perk_acts();
+        }
         if self.loading {
             self.side_blocks(menus::LOADING);
             return;
@@ -1626,6 +1698,19 @@ impl<'a> Game<'a> {
         let in_menu = self.in_menu();
         if !in_menu {
             self.time += dt;
+        }
+        // `Disable 1` holds that ended (`functions::refs::disable`).
+        let now = self.time;
+        let ended: Vec<FormId> = self.script_looks.fading_out.iter().filter(|(_, &until)| until <= now).map(|(&r, _)| r).collect();
+        for r in ended {
+            self.script_looks.fading_out.remove(&r);
+            if self.world.set_enabled(r, false).is_ok() {
+                self.script_looks.disabled_after_fade.push(r);
+            }
+        }
+        // Without an engine taking them (a headless run) the list is kept short.
+        if self.script_looks.disabled_after_fade.len() > 256 {
+            self.script_looks.disabled_after_fade.drain(..128);
         }
         for r in std::mem::take(&mut self.pending_onload) {
             if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
@@ -1996,6 +2081,15 @@ impl<'a> Game<'a> {
         Some(info)
     }
 
+    /// Say's flags on the line `speaker` is saying ([`Speech::force_subtitles`],
+    /// [`Speech::two_d`]).
+    pub fn set_line_flags(&mut self, speaker: FormId, force_subtitles: bool, two_d: bool) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+            s.force_subtitles = force_subtitles;
+            s.two_d = two_d;
+        }
+    }
+
     /// Set who the line `speaker` is saying turns to whom ([`LineLook`]).
     pub fn set_line_look(&mut self, speaker: FormId, look: LineLook) {
         if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
@@ -2050,7 +2144,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0 });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -2869,6 +2963,7 @@ impl<'a> Game<'a> {
             raining: self.weather.raining,
             grudges: self.provocations.grudges.iter().map(|(k, v)| (*k, *v)).collect(),
             forgiven: self.provocations.forgiven.clone(),
+            nav_switches: self.nav_switches.clone(),
         }
     }
 
@@ -2909,6 +3004,7 @@ impl<'a> Game<'a> {
         g.weather.raining = s.raining;
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
+        g.nav_switches = s.nav_switches.clone();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

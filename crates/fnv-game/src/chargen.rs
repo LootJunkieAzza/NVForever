@@ -99,6 +99,8 @@ pub struct Look {
 /// (GetIsSex, GetPCIsSex; GetIsRace reads the look's race).
 pub fn apply_look(g: &mut Game, look: Look) {
     g.player.female = Some(look.female);
+    // The look's race stands for an AgeRace made before it (`crate::appearance`).
+    g.player.race = None;
     g.player.look = Some(look);
 }
 
@@ -246,6 +248,18 @@ impl TagSheet {
             s.count = s.tagged.len() + n;
             s.locked = s.tagged.clone();
         }
+        // SetTagSkills n [show]: n skills tagged in all, those tagged before counting
+        // ("Assuming the player initially has 3 Tagged Skills, calling SetTagSkills 4 will
+        // let the player choose 1 more"); with show 0 the skills tagged before are not
+        // shown and may be chosen over [documented: GECK wiki SetTagSkills; hypothesis:
+        // they may be untagged either way, as nothing says they are locked].
+        if let Some((n, show)) = g.ui.set_tags.take() {
+            s.count = n;
+            s.locked.clear();
+            if !show {
+                s.tagged.clear();
+            }
+        }
         s
     }
 
@@ -291,6 +305,7 @@ impl TagSheet {
     pub fn apply(&self, g: &mut Game) {
         g.player.tag_skills.retain(|c| !SKILLS.contains(c));
         g.player.tag_skills.extend(self.tagged.iter().copied());
+        g.player.tag_slots.clear();
     }
 }
 

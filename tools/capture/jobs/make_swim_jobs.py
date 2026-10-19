@@ -433,8 +433,34 @@ def diag2():
     return j
 
 
+def walkin():
+    """(a) again: walking and running into the lake from the shore with god mode OFF.
+    `sw_trial` walked in with god mode on and never swam (the feet followed the bed to 355
+    below the surface), against the owner's play of the game, where wading in deep enough
+    makes the player swim (2026-10-18). Health is raised first (drowning starts after 10 s,
+    sw_breath); a last run with god mode on repeats sw_trial's for comparison."""
+    sx, sy, sz = SHORE
+    steps = [{"console": "tdetect"}] + go_there()
+    steps += [num("player.GetAV Health", "before", "health"), script("player.ModAV Health 5000"), {"frames": 30},
+              num("player.GetAV Health", "raised", "health")]
+    for label, controls, n, god in (("run in", [0], 420, False), ("walk in", [9, 0], 900, False),
+                                    ("run in god", [0], 420, True)):
+        if god:
+            steps += [{"console": "tgm"}, {"frames": 10}]
+        # Menus closed again just before the keys: in the first run of this job (and in
+        # sw_banks_b) the clock stood still after travel although MenuMode read 0.
+        steps += [setpos(sx, sy, sz), angles(90), {"frames": 240}, {"console": "CloseAllMenus"}, {"frames": 60},
+                  num("MenuMode", f"{label} menumode", "value"), remember_t0()]
+        steps += samples(f"{label} pre", 5) + [hold(*controls)] + samples(label, n, health=True)
+        steps += [release(*controls)] + samples(f"{label} after", 180, health=True)
+    steps += [{"console": "tgm"}, {"frames": 10}, num("player.GetAV Health", "end", "health")]
+    j = cs.job("sw_walkin", START, steps, cs.MASTERS)
+    j["title"] = "Swimming: walking and running into Lake Mead with god mode off, then on (about 1.5 min, no input)"
+    return j
+
+
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), heldout2(), banks(), banks_rest(),
+    for j in (diag(), diag2(), trial(), walkin(), fall_breath(), breath(), heldout2(), banks(), banks_rest(),
               banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian(), h2o_fresh(), redesign()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:

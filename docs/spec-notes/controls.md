@@ -94,7 +94,8 @@ key text [observed: the prefab's `_xbox` switch]. `FalloutPrefs.ini` also holds
   (`player::aiming_walks`) [design: the owner's wish, 2026-10-11; not captured].
   Aiming a gun zooms the view to its Sight FOV (camera.md §4).
 - Toggle POV: a tap switches first and third person; held while the mouse moves, the
-  camera circles the player without turning them, and swings back when let go. The
+  camera circles the player without turning them, and swings back when let go; begun
+  in first person, the view stays third person afterwards (the owner, 2026-10-19). The
   mouse wheel zooms the third-person camera.
 - Rest: the Wait menu, or the Sleep menu while lying on a bed
   (docs/spec-notes/wait-menu.md).

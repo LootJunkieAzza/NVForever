@@ -297,6 +297,46 @@ pub struct Clock {
     pub rate: f64,
 }
 
+/// A resident's frames drawn standing while on its way, for the walk summary. A stop is
+/// standing between two frames drawn walking; the frames before a walk's first step are
+/// not one: an actor turning on the spot to set off, or near the player waiting for its
+/// new character's first physics step (it is drawn where the character was put down
+/// until then, `PhysState::npc_drawn_feet`), stands at the start of its walk without
+/// having walked yet.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct StopRun {
+    /// Frames in a row drawn standing.
+    standing: usize,
+    /// Drawn walking since its walk began.
+    walked: bool,
+}
+
+/// What a frame drawn walking ended ([`StopRun::frame`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum RunEnd {
+    /// A stop of this many frames.
+    Stop(usize),
+    /// The standing before the walk's first step.
+    SetOff,
+}
+
+impl StopRun {
+    /// One frame drawn on its way, walking (`moving`) or standing.
+    fn frame(&mut self, moving: bool) -> Option<RunEnd> {
+        if !moving {
+            self.standing += 1;
+            return None;
+        }
+        let end = match (self.standing, self.walked) {
+            (0, _) => None,
+            (n, true) => Some(RunEnd::Stop(n)),
+            (_, false) => Some(RunEnd::SetOff),
+        };
+        *self = StopRun { standing: 0, walked: true };
+        end
+    }
+}
+
 /// A resident and the furniture its package gives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum Seat {
@@ -334,7 +374,7 @@ struct Resident {
     /// Where its body was drawn last frame (`npc_drawn_feet`).
     drawn_feet: [f32; 3],
     /// Frames in a row drawn standing while on its way (the walk summary).
-    standing_frames: usize,
+    standing_frames: StopRun,
     seat: Seat,
     /// The furniture `fnv_ai` has the actor use now.
     wants: Option<u32>,
@@ -450,9 +490,9 @@ struct Core {
     /// in-between drawing), and those drawn standing.
     walk_frames: [usize; 3],
     /// Of the frames drawn standing: with a physics character, turning on the spot, and
-    /// the other walkers; and the stops (standing between two frames walking) of 1-3
-    /// frames and longer.
-    standing_by: [usize; 5],
+    /// the other walkers; the stops (standing between two frames walking, [`StopRun`]) of
+    /// 1-3 frames and longer; and the walks that set off after standing first.
+    standing_by: [usize; 6],
     /// The game was held this frame (menu, conversation, loading screen): nobody walks.
     held_now: bool,
     /// Actors playing a hit reaction (the stagger of a crippled limb, `deaths.rs`) this
@@ -460,8 +500,8 @@ struct Core {
     staggering: HashSet<u32>,
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
-    /// People in Combat (standing, closing in, going to a flank or a step back; not
-    /// fleeing nor running to cover): where their target is. They are drawn facing it
+    /// People in Combat (standing, closing in, going to a flank or a step back, in and
+    /// out of their cover; not fleeing nor running to new cover): where their target is. They are drawn facing it
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
@@ -564,7 +604,7 @@ impl Residents {
             snaps: 0,
             fight_moves: [0.0; 3],
             walk_frames: [0; 3],
-            standing_by: [0; 5],
+            standing_by: [0; 6],
             held_now: false,
             staggering: HashSet::new(),
             door_uses: Vec::new(),
@@ -712,7 +752,7 @@ impl Core {
             doors_opened: 0,
             last_feet: pos,
             drawn_feet: pos,
-            standing_frames: 0,
+            standing_frames: StopRun::default(),
             seat: Seat::None,
             stand: None,
             last_drawn: None,
@@ -845,6 +885,17 @@ impl Core {
 
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
+    /// The scripts' navmesh switches (EnableNavMesh, DisableNavmesh) on the nav graph;
+    /// actors whose way crossed a navmesh disabled now plan again
+    /// (`fnv_ai::Ai::apply_navmesh_switches`).
+    fn switch_navmeshes(&mut self, game: &mut Game, nav: &mut NavState) {
+        if let Some(replanned) = self.ai.apply_navmesh_switches(game, &mut nav.graph) {
+            let off: Vec<String> = game.nav_switches.navmeshes.iter().filter(|(_, on)| !**on).map(|(m, _)| format!("{:08X}", m.0)).collect();
+            let on = game.nav_switches.navmeshes.len() - off.len();
+            info!("nav: navmeshes switched by scripts: {on} enabled, disabled [{}]; {} actors plan their way again", off.join(", "), replanned.len());
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32, waited: u32) {
         // Who a walker pushed since the last frame, and (below) who may be pushed in
@@ -854,11 +905,12 @@ impl Core {
             b.take_pushes()
         });
         // Whoever is on furniture, or getting off it, does not walk yet; nor do two actors
-        // talking to each other (`fnv_ai::social`).
+        // talking to each other (`fnv_ai::social`), unless the script that started their
+        // conversation allowed movement (`Game::conversation_moves`).
         let held: HashSet<u32> = self
             .list
             .iter()
-            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || game.in_actor_conversation(r.actor) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
+            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor)) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
             .map(|r| r.actor.0)
             .collect();
         if !self.prepared {
@@ -977,7 +1029,8 @@ impl Core {
         // back away instead of turning to where they go (owner 2026-10-16: NCR troopers
         // fighting Fiends turned between their way and their target, as if they could
         // not decide whether to move or shoot) [design]. Not while fleeing (it runs
-        // away) or running to cover (it runs there, out of the fight for a while).
+        // away) or running to new cover (it runs there, out of the fight for a while);
+        // out to its peek point and back behind its cover it strafes (`PostKind::Duck`).
         self.aims.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
@@ -1402,6 +1455,7 @@ pub fn drive(
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.switch_navmeshes(game, &mut nav);
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
@@ -1427,6 +1481,7 @@ pub fn drive(
                     core.take_created(&rt.game);
                 }
                 core.process_levels(&rt.game, world_ref, streamer_ref);
+                core.switch_navmeshes(&mut rt.game, &mut nav);
                 core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
             });
         }
@@ -1548,11 +1603,15 @@ pub fn drive(
             if !moving {
                 let in_phys = phys.as_deref().is_some_and(|p| p.npcs.contains_key(&r.actor.0));
                 core.standing_by[if in_phys { 0 } else if w.turning { 1 } else { 2 }] += 1;
-                r.standing_frames += 1;
-            } else if r.standing_frames > 0 {
-                core.standing_by[if r.standing_frames <= 3 { 3 } else { 4 }] += 1;
-                r.standing_frames = 0;
             }
+            match r.standing_frames.frame(moving) {
+                Some(RunEnd::Stop(n)) => core.standing_by[if n <= 3 { 3 } else { 4 }] += 1,
+                Some(RunEnd::SetOff) => core.standing_by[5] += 1,
+                None => {}
+            }
+        } else if !core.held_now {
+            // Not on its way, out of sight or on furniture: its next walk starts afresh.
+            r.standing_frames = StopRun::default();
         }
         r.drawn_feet = feet;
         r.last_feet = w.feet;
@@ -1664,7 +1723,7 @@ pub fn report(
         core.fight_moves[0], core.fight_moves[1], core.fight_moves[2]
     );
     info!(
-        "walk summary: {} frames of drawn residents on their way (the game not held); their character had not moved in {} of them (no physics step that frame), drawn standing in {} ({:.1}%: {} with a physics character, {} turning on the spot, {} other walkers); {} stops of 1-3 frames, {} longer",
+        "walk summary: {} frames of drawn residents on their way (the game not held); their character had not moved in {} of them (no physics step that frame), drawn standing in {} ({:.1}%: {} with a physics character, {} turning on the spot, {} other walkers); {} stops of 1-3 frames, {} longer; {} walks set off after standing first (turning on the spot, or waiting for their character's first physics step)",
         core.walk_frames[0],
         core.walk_frames[1],
         core.walk_frames[2],
@@ -1673,7 +1732,8 @@ pub fn report(
         core.standing_by[1],
         core.standing_by[2],
         core.standing_by[3],
-        core.standing_by[4]
+        core.standing_by[4],
+        core.standing_by[5]
     );
     info!(
         "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times, moved {} stuck actors on; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {} hours passed in the wait menu ({} walks in them); {}",
@@ -1733,4 +1793,33 @@ pub fn report(
         p.coming,
         p.coming_updates
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RunEnd, StopRun};
+
+    fn ends(frames: &[bool]) -> Vec<RunEnd> {
+        let mut run = StopRun::default();
+        frames.iter().filter_map(|&moving| run.frame(moving)).collect()
+    }
+
+    #[test]
+    fn standing_before_the_first_step_is_no_stop() {
+        // Two frames waiting for the character's first physics step, then a walk.
+        assert_eq!(ends(&[false, false, true, true, true]), vec![RunEnd::SetOff]);
+        // A spot turn of 12 frames before setting off.
+        let mut turn = vec![false; 12];
+        turn.extend([true, true]);
+        assert_eq!(ends(&turn), vec![RunEnd::SetOff]);
+        assert_eq!(ends(&[true, true]), vec![]);
+    }
+
+    #[test]
+    fn standing_between_two_frames_walking_is_a_stop() {
+        assert_eq!(ends(&[true, false, true]), vec![RunEnd::Stop(1)]);
+        assert_eq!(ends(&[false, true, false, false, false, true, false, false, false, false, true]), vec![RunEnd::SetOff, RunEnd::Stop(3), RunEnd::Stop(4)]);
+        // Standing at the end of a walk ends nothing.
+        assert_eq!(ends(&[true, true, false, false]), vec![]);
+    }
 }

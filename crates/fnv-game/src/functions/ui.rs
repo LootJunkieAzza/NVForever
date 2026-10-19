@@ -29,9 +29,15 @@ pub struct UiRequests {
     /// AddTagSkills: skills to tag in the next tag-skill menu besides those tagged
     /// (`crate::chargen::TagSheet::for_menu`).
     pub extra_tags: Option<usize>,
+    /// SetTagSkills: how many skills the next tag-skill menu has tagged in all, and
+    /// whether the skills tagged before show (`crate::chargen::TagSheet::for_menu`).
+    pub set_tags: Option<(usize, bool)>,
     /// SetGlobalTimeMultiplier: the game's speed (`None`: never set, 1). The engine
     /// applies it to its clock while no menu holds the game.
     pub time_multiplier: Option<f64>,
+    /// SetGlobalTimeMultiplier's keepSoundUnchanged: sounds keep their speed; otherwise
+    /// they play at the multiplier too.
+    pub time_keeps_sound: bool,
     /// Autosave calls the engine has not taken yet.
     pub autosaves: u32,
     /// SystemSave and ForceSave calls the engine has not taken yet.
@@ -39,11 +45,75 @@ pub struct UiRequests {
     pub force_saves: u32,
     /// The console's camera functions (`super::camera`).
     pub camera: super::camera::CameraRequests,
+    /// PlayBink calls the engine's film player has not taken yet, in call order.
+    pub films: Vec<FilmRequest>,
+    /// The screen splatter functions' requests (`super::misc::trigger_screen_splatter`).
+    pub splatter: SplatterRequests,
     /// ResetPipboyManager calls: the Pip-Boy takes each new count once
     /// (`nvf_play::pipboy`).
     pub pipboy_resets: u64,
     /// ExitGame calls the engine has not taken yet (`nvf_play::script`).
     pub exit_game: u32,
+}
+
+/// A film a script asked for (`PlayBink`), for the engine's film player
+/// (`nvf_play::intro`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilmRequest {
+    /// The file under the game's `Data` folder, lower case with `\` separators:
+    /// `video\` and the script's name with `..` resolved ([`film_path`]).
+    pub path: String,
+    /// Esc ends it early.
+    pub interruptible: bool,
+    /// The game's world sounds are silent under it.
+    pub mute_audio: bool,
+    /// The game's music pauses under it.
+    pub pause_music: bool,
+    /// Fitted inside the screen with black bars (else stretched over the whole screen).
+    pub letterboxed: bool,
+}
+
+/// The film file a PlayBink name stands for: the path is relative to `Data\Video\`
+/// [documented: GECK wiki PlayBink, "The path to the filename is relative to
+/// Fallout3\Data\Video\", its `..\sound\videos\` example]; `None` for an empty name or
+/// one that leaves the `Data` folder.
+pub fn film_path(name: &str) -> Option<String> {
+    let mut parts: Vec<String> = vec!["video".into()];
+    for p in name.trim().split(['\\', '/']) {
+        match p {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            p => parts.push(p.to_ascii_lowercase()),
+        }
+    }
+    let path = parts.join("\\");
+    (!path.is_empty() && path != "video").then_some(path)
+}
+
+/// One TriggerScreenSplatter call (docs/spec-notes/screen-splatter.md §2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SplatterTrigger {
+    /// How many splats it puts on the screen.
+    pub count: u32,
+    /// Seconds each lasts; `None`: the game setting `fBloodSplatterDuration`.
+    pub duration: Option<f32>,
+    /// Factors on the splats' size and opacity.
+    pub size: f32,
+    pub opacity: f32,
+}
+
+/// What the screen splatter functions asked of the engine (`nvf_play::screen_splatter`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SplatterRequests {
+    /// TriggerScreenSplatter calls not taken yet.
+    pub triggers: Vec<SplatterTrigger>,
+    /// ClearScreenSplatter calls so far (the engine clears on each new count).
+    pub clears: u64,
+    /// SetScreenSplatterFade: the share of a splat's time after which it starts to
+    /// fade, and whether splats fade (`None`: never called, the game settings).
+    pub fade: Option<(f32, bool)>,
 }
 
 /// `ResetPipboyManager`: called after the player is given a Pip-Boy (Doc Mitchell's line

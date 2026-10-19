@@ -72,7 +72,7 @@ on screen).
    essential or fatigue, and the game time it began. It is separate from SetUnconscious's
    flag (`RefExtra::unconscious`), which only scripts set and GetUnconscious reads (§1).
    The player is never knocked out [design: not asked for; the gloves' script spares the
-   player anyway].
+   player anyway], but is knocked down (§5.4).
 2. **Essential at zero health**: a hit or a harmful effect that would bring an essential
    actor's health to 0 leaves it at 1 and knocks it out (cause essential). It does not
    die: no Death line, no kill, no XP, no dead flag, no OnDeath, no loot [documented: §1
@@ -202,9 +202,9 @@ Code: `crates/fnv-game/src/unconscious.rs` (`Game::push_actor_away`, `Game::knoc
    then the actor gets up as in §2.5 (getting up stage, get-up clip) [design: no setting
    in the data names it]. No KOed or Wake line, no corner message, no fatigue or health
    restored [design: a knockdown is no unconsciousness].
-2. Refused (nothing happens) for the player [design: the player's own knockdown is not
-   built], dead actors, actors whose own record has No Knockdowns, and Immobile creatures
-   [documented: §5.1].
+2. Refused (nothing happens) for dead actors, actors whose own record has No Knockdowns,
+   and Immobile creatures [documented: §5.1], and for the player on furniture or in a
+   conversation [design]; the player is knocked down otherwise (§5.4).
 3. **Order**: an essential knockout replaces a fatigue one, and either replaces a
    knockdown (its time starts again); a knockdown never replaces a knockout. Knocked again
    while getting up: down again (unless only out of fatigue again, §2) [design].
@@ -234,3 +234,88 @@ lying shoves the ragdoll at its pelvis (`ActorPush`). Log lines: `knockout: <nam
 knocked down (pushed|knocked_down)`, `knockout: <id> thrown at (x, y, z) units/s`, the
 explosion's `…, knocked down` in its `combat: blast` line, and the exit count
 `knockouts: … N knocked down, …`.
+
+### 5.4 The player knocked down
+
+Built 2026-10-18 (claude/nav-knockdown). Code: `crates/fnv-game/src/unconscious.rs` (the
+rules), `engine/nvforever/src/player_knockdown.rs` (on screen), `engine/nvf-play/src/script.rs`
+(the controls).
+
+1. **Rules**: PushActorAway and an explosion's knockdown lay the player down as anyone
+   (§5.2: the push's velocity, `KNOCKDOWN_DOWN`, GetKnockedState 0 pushed and 2 for a
+   blast), unless the player sits on furniture or is in a conversation [design]. A blow
+   that would knock the player out (essential, fatigue) does not (§2.1). Six shipped
+   PushActorAway calls throw the player (§5.1) [observed].
+2. **Enemies** may attack the player while down: `Game::would_attack` keeps a knocked-down
+   player a target, where it drops a knocked-out NPC (§3) [design; how the original's
+   attackers treat a downed player is not in our notes].
+3. **Controls**: all held (movement, looking, fighting, the Pip-Boy, POV) from the fall
+   until the get-up idle is over; log `player controls: all held, the player is knocked
+   down` [design].
+4. **The body**: the third-person rig drops as its ragdoll, thrown with the knockdown's
+   velocity, as the dead player's does (`death_cam.rs`); a push while it lies shoves it
+   again; the side it comes to rest on is told to the game (IsFacingUp, §4's rule).
+5. **The view** [observed: the second run below]: while the body flies and lies, the
+   camera stays exactly where it was when the player fell and does not turn: at the eye in
+   first person (the view leaves first person: the body is drawn whole and seen from
+   there), where the third-person camera was in third person. For the getting up the view
+   is the ordinary third-person camera behind the player, in first person too; a
+   first-person view comes back once the get-up clip is over.
+6. **Getting up**: after `PLAYER_KNOCKDOWN_DOWN` = 2.4 s [observed; NPCs keep
+   `KNOCKDOWN_DOWN`, 3 s, design] (`KnockOut::rising`) the ragdoll
+   leaves the world, the character stands on the ground under the ragdoll's pelvis, and the
+   IDLE `GetUpFaceUp` or `GetUpFaceDown` (§1) is asked for on the player as PlayIdle would
+   (`Game::ask_idle`), so `idles.rs` plays its clip on the third-person body. Two frames
+   into it the character is turned and moved so that the clip's pelvis and pelvis → head
+   line lie where the ragdoll's did (the NPCs' rule, §4); when the idle has played (or
+   after 4 s of real time) the rules are told (`finish_getting_up`), and the controls and
+   the view are the player's again. Without a ragdoll the player stays where they are
+   until the knockdown's time is over.
+7. **Death while down**: the death camera takes over (its own ragdoll drop).
+
+Log lines: `player knockdown: the player falls (<cause>, <first|third> person[, the view
+leaves first person]): ragdoll thrown at (x, y, z) units/s`, `player knockdown: the player
+gets up face up|down <s> s after the fall (<idle>)`, `player knockdown: laid over the
+ragdoll: turned <deg>°, moved <n> units`, `player knockdown: the player is up <s> s after
+the fall; the controls[ and the first-person view] are theirs again`, and at exit `player
+knockdown: <n> knockdown(s) shown, <n> get-up clip(s)`. Smoke: `knockdown-player`,
+`knockdown-player-third`.
+
+Capture job `tools/capture/jobs/kd_player_knockdown.steps.json` (nvfstrip): the
+original's view, camera and timing.
+
+First run of the job (2026-10-18, attended, output `kd_player_knockdown.1792356303.jsonl`)
+[observed]: the first-person trial is void: the game window was not in front (every
+screenshot `foreground: false`) and the game stood still: GameDaysPassed 15.8393 and the
+same position and heading in all 48 samples (the lost-focus pause). The third-person trial
+ran (GameDaysPassed 15.8419 → 15.8462, about 12 s at timescale 30), but its 48 screenshots
+failed (`BitBlt failed`). The player reference's own position moved only about 16 units
+(away from the can's side was +y; it went −x, −y) and was still from about 1.75 s after the
+push, its heading turned 7° at about 2.25 s, and GetKnockedState read 0 throughout, which is
+what a pushed actor reads (§5.1). So the numbers neither show nor rule out the fall: the
+reference may stay with the character while the body is a ragdoll. Nothing was fitted from
+them; §5.4's camera and timing stay [hypothesis] until a run with pictures, with the game
+window in front for the whole job.
+
+Second run (2026-10-18, attended, the game in front throughout; output
+`kd_player_knockdown.1792356663.jsonl`, 98 screenshots in `C:\fnv-private\capture\shots`)
+[observed]. Samples are 0.30 s apart (the screenshots' clock: 27 samples in 8 s).
+
+- **First person**: the save opened in conversation with a Securitron, so the push took
+  effect when it closed (sample 10). From then the picture is no longer first person: the
+  player's legs fill sample 10, the whole body is seen in the air beside a wall at 14 and
+  lying at the bottom edge at 16–17, all from one camera place and direction (samples 11
+  to 17 show the same view), at about eye height where the player stood. At sample 18
+  (8 samples, about 2.4 s after the push) the player reference turned to a new heading
+  (197.7° → 38.3°) and stopped moving, and the view became the third-person camera
+  behind it: the body lies face down in front at 18–21, rises at 22–24 and stands at 25–26
+  (about 2.1 s, the 2 s clip); at 27 the view is first person again.
+- **Third person**: the body was thrown from sample 00; samples 01 to 08 show one camera
+  place and direction (the body leaves the picture); the heading changed at 08 (0° →
+  7.2°), the camera shifted with it at 09, and the body is seen rising at 11–14 and
+  standing at 16–17 from the ordinary camera behind it; normal from 20.
+- **Time down**: about 2.4 s from the push to the heading change in both trials; the
+  player reference stopped moving one or two samples before it.
+- **Distance**: the player reference moved about 50 units (first) and 25 (third), but not
+  away from the can (§ the first run); the body flew farther than the reference in the
+  pictures. Not fitted: `PUSH_SPEED` stays a guess.

@@ -55,8 +55,10 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
 - Back in Normal the lists are cleared.
 
 The timers [engineering choice: the documentation names them, gives no lengths, and
-FalloutNV.esm has no game setting for them]: `alarm` 20 s, `forget_target` 10 s, `lost`
-3 s. They are `fnv_game::awareness::Timers`. The state is not saved (the engine measures
+FalloutNV.esm has no game setting for them]: `alarm` 20 s, `forget_target` 15 s, `lost`
+10 s (3 s until 2026-10-19: fighters said CombatToLost almost as soon as they broke line
+of sight; `lost` stays below `forget_target` so a target hidden the whole time is lost
+and searched for, not forgotten). They are `fnv_game::awareness::Timers`. The state is not saved (the engine measures
 again after a load).
 
 **"No Combat Alert"** (package flag 27): an actor whose current package has it does not

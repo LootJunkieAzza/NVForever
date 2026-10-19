@@ -356,10 +356,13 @@ fn activate(
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
 ) {
-    // A reference queued by a lock just opened: activated as if E were pressed on it.
-    let queued = next.and_then(|mut n| n.0.take()).and_then(|id| {
+    // A reference queued by a lock just opened, or by the perks' choice list answered
+    // with the default action: activated as if E were pressed on it.
+    let mut script = script;
+    let again = script.as_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| rt.activate_again.take()).map(|f| (f.0, "the perks' choice list chose its default action"));
+    let queued = next.and_then(|mut n| n.0.take()).map(|id| (id, "its lock was just opened")).or(again).and_then(|(id, why)| {
         let (name, action) = describe(&sim, play.index, id)?;
-        info!("activate 0x{id:08X} {name}: its lock was just opened");
+        info!("activate 0x{id:08X} {name}: {why}");
         Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
     });
     let fired = match (auto, time) {
@@ -414,6 +417,10 @@ fn activate(
         Ok(crate::script::ByHand::Talk) => {
             // The dialogue screen opens (`crate::dialogue`).
             info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
+            return;
+        }
+        Ok(crate::script::ByHand::Choices) => {
+            info!("activate 0x{:08X} {} ({}): the perks' choice list opened", t.form_id, t.name, t.action.label());
             return;
         }
         Ok(crate::script::ByHand::Greeted) => {
@@ -487,7 +494,7 @@ type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibi
 /// Hide or show `RefVisual` entities from the simulation's state: every entity of a
 /// reference named by `RefChanged`, and new entities as cells stream in (a taken item
 /// must not come back when its cell reloads).
-fn sync_visuals(
+pub(crate) fn sync_visuals(
     sim: Res<SimState>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,

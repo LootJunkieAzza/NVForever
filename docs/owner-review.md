@@ -4334,6 +4334,11 @@ script traces may show for boxes with conditions (no lab run in this workstream)
    patrol, nor Sunny's run to the geckos. Check: those two walks at your usual frame rate;
    if they still stop and start, note whether it happens at path corners (turning on the
    spot is by design: `spot_turn_start`) or on open ground.
+   (2026-10-19) The summary counted the start of every walk as a stop too: a walk near the
+   player begins with a new character drawn where it was put down until its first physics
+   step, so each walk set off without a spot turn read as a 1-3 frame stop (5 to 8 per
+   run, as the sandbox rolls fell). A stop is now standing between two frames walking, as
+   the summary says; the walks that set off after standing are counted on their own.
 
 ## Playtest list 4: third-person crosshair
 
@@ -5914,6 +5919,117 @@ themselves:
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
 
+## Films, cell image spaces and screen blood (2026-10-18, branch claude/screen-video)
+
+Rows 17 and 18 of docs/outstanding.md §1 (docs/spec-notes/bink-films.md,
+docs/spec-notes/screen-splatter.md). What the shipped scripts ask for is small: all four
+PlayBink calls and every splatter call are the opening's (VCG00), and of the four films
+only `FNVIntro.bik` is in your `Data\Video`; the splatter stages belong to an in-engine
+version of the cemetery scene a new game skips. My choices to check:
+
+- **The intro film once.** The main menu's New Game plays it, and the opening's stage 0
+  asks for it again: the second request is not played. Started straight into a new game
+  (no main menu), the opening's call plays it, as the original does.
+- **A film that is not there** (fnvlogo1.bik, fnvlogo2.bik, vb01.bik) is skipped at once.
+- **A film holds the game** like the pause menu (the wiki: it "appears to stop game
+  time"); the world's sounds stop with it even when the call asks to keep them
+  (`muteAudio 0`, not built). A non-letterboxed film is stretched over the window.
+- **SetCellImageSpace waits for the cell to load again**, as the wiki says the original
+  does: in Old World Blues the Think Tank turns red only after you leave and come back
+  (or load a save made there), not while you stand in it when stage 50 is set. If you
+  would rather see it at once (as JohnnyGuitar NVSE makes it), it is one line.
+- **Screen splatter, fitted to the original's pictures** (capture fx_screen_splatter_look,
+  screen-splatter.md §5): a call puts its count of splats on the screen with no cap of
+  25, each a cell of the game's 2x2 gore atlases (dark soft blob, red core) at a random
+  place, unrotated, 0.12-0.18 of the screen **width** across x the size factor, opacity
+  from the game settings x the opacity factor with no cap at 1, fading from its start
+  to nothing at its duration, under the HUD. Still guesses: the second opacity range
+  and its chance, uniform placement, and what iBloodSplatterMaxCount and
+  fBloodSplatterFadeStart are for (neither fits the pictures as a cap or a fade start).
+  The flare (perhaps the bright glints at the cores) is not drawn. Compare smoke
+  `screen-splatter`'s splatter_t0_5 ... t15_5.png with the original's s100_20_2_2_t*.png.
+- **SetScreenSplatterFade's real effect cannot be seen**: the call quits the original
+  (below). Its values (fade from that share of the time, switch on/off) stay a
+  hypothesis; nothing shipped reaches it in a playthrough.
+- **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
+  blood on the screen when the player takes damage; `player.DamageActorValue Health 40`
+  put none there in the capture. A weapon's hit is not captured; not built.
+- **SetScreenSplatterFade quit the original** three times (from a capture job, with and
+  without splats on the screen), with nothing logged. Here the call only records
+  its values. No player meets it in the original: the opening stages that call it are
+  skipped. Details in screen-splatter.md §5.
+## Race, sex and level changes, power armour, Cannibal and Mister Sandman, talking activators (2026-10-18, branch claude/actor-changes)
+
+Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Every shipped call
+of AgeRace, SexChange and SetLevel is on the player (the opening's VCG00, VCG01 and Doc
+Mitchell's revision activator); the NPC cases are built for mods and the console. My
+guesses, each with a probe in `tools/capture/probes/actor_changes.toml` (ac1–ac6) where
+the original can answer it:
+
+- **SexChange's reset** (VCG01's "male or female?" box): the player gets the character
+  creator's first starting face for the race and the new sex, with its hair and eyes.
+  The wiki says "the default preset for that race and gender".
+- **AgeRace and SexChange on an NPC**: the new race's head and body with the NPC's own
+  face values; a hair the new race or sex may not have becomes the race's default hair.
+  The player keeps the hair.
+- **SetLevel on an NPC**: settled by capture ac1 — the original keeps the inventory (three
+  Stimpaks given to Easy Pete stayed), against the wiki's "regenerates"; so NVForever only
+  sets the level. The offset and bounds matched.
+- **Power armour**: off at the start; only the player is held back; armour with the BMDT
+  "Power Armor" flag (NCR salvaged power armour lacks it and is worn freely). On refusal
+  the game's "You lack the specialized training…" box, after the Pip-Boy closes; a
+  script's EquipItem is refused the same way (probe ac3 asks the original).
+- **The perks' choice list** (Cannibal, Ghastly Scavenger, Dine and Dash, Mister
+  Sandman): E on the target opens a box with the choices (Devour, Murder…) then the
+  default action (Search or Talk). The wiki only says "presents a choice list". *Please
+  look in the original*: sneaking at a corpse with Cannibal, does E show a list, and does
+  it include Search? Does the crosshair prompt change?
+- **The acts**: GetCannibal and GetSandman hold for their clips' length (7.7 s and 6 s);
+  the corpse counts as eaten (HasBeenEaten) only when the act is over (capture ac4: still
+  0 while GetCannibal was 1); StartCannibal adds no health or karma of its own (ac4
+  confirmed it). Mister Sandman, settled by capture ac5c on Ringo asleep in his bed: the victim dies
+  when the act ends (alive at 3 s, dead at 7 s; NVForever uses the clip's 6 s). On an
+  awake NPC (ac5) or one made unconscious (ac5b) the original crashed; NVForever refuses
+  there and nothing happens;
+  a witnessed cannibalism turns every witness hostile as an assault ("a crime against
+  nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
+  bed or floor marker, with the two perk sounds.
+- **Talking activators**: activating one talks to it; its talking actor's lines and voice
+  come through it (the actor need not be near); IsActorTalkingThroughActivator holds
+  then. Capture ac6 showed the wiki's "false when set by script" wrong:
+  IsTalkingActivatorActor reads 1 after a script sets the actor, as in NVForever. The
+  dialogue menu names the actor, the view turns to the activator.
+- **To check in game**: smoke `perk-cannibal-devour` (Easy Pete eaten in Goodsprings),
+  `talking-activator-intercom` (Hidden Valley's bunker intercom: Ramos's "[You hear
+  nothing.]"), `sexchange-player-reset`.
+## Navmesh switches, AI procedure codes, the player knocked down (2026-10-18, branch claude/nav-knockdown-9a8df4)
+
+Playthrough blockers row 1's leftover and row 18 (docs/outstanding.md §1). What is mine:
+
+- **The player's knockdown view and timing**: now from the capture `kd_player_knockdown`
+  (unconscious.md §5.4, second run) [observed]: the camera stays where it was while the
+  body flies and lies (at the eye in first person, so the view leaves first person), the
+  player lies about 2.4 s (`PLAYER_KNOCKDOWN_DOWN`), gets up seen from the third-person
+  camera, and a first-person view comes back once standing. Still mine: NPCs keep 3 s down,
+  controls are held throughout, enemies may keep attacking a downed player, and the
+  player sitting or talking is not knocked down; the push's distance is not fitted.
+- **Navmesh switches**: an actor walking a way over a navmesh a script disables plans
+  again from where it stands (its package taken up afresh), and sets the package aside
+  when there is no way round. The wiki says the original's EnableNavMesh/DisableNavmesh
+  skip the load order's FormID fix-up (so a DLC's call may miss its own navmesh in the
+  original); ours fixes them up like any reference, so the Lonesome Road elevator's
+  navmeshes really go while it rides.
+- **setAllReachable** (two Hoover Dam battle calls, one only on a PS3): kept and saved, no
+  effect; I take it to be an optimisation switch (skip the reachability test), which a
+  planner that always plans in full does not need.
+- **GetCurrentAIProcedure**: now from the AI observer's samples of the original
+  (packages.md §4, procedure codes): a sandboxer reads what it does (7 at or walking to a
+  spot, 0 between things or walking to an object, 46 at an idle marker, 48 seated, 10
+  eating, 8 asleep, 21 for a while after getting up), 45 only out of the high process; a
+  Travel package 0 on the way, 17 there (seated too). The split of a sandboxer's walking
+  between 7 (to a spot) and 0 (to an object) is my reading; the samples do not record
+  where an actor walks to. Find, Escort, Ambush and Use Weapon read 17 once their goal is
+  met (no sample reached one).
 ## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
 
 docs/design/script-stubs.md §3.15, docs/spec-notes/tutorial-menu.md. Smoke
@@ -6018,3 +6134,117 @@ hand-over played twice.
 - **Guess.** That the game carries on instead of starting over, and that he holds the
   pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
   Doc keep the mirror held out until the face screen opens, or lower his arm?
+
+## Swimming: wading in, and NPCs swimming (2026-10-18, branch claude/swimming)
+
+Your report: the player walks along the bottom of a lake instead of swimming.
+
+- **Why.** Our rule came from captures of the game (`sw_trial`, 2026-10-08) in which the
+  scripted player walked down the Boulder Beach bed to 355 units under the surface and
+  never swam. That run had god mode on, so I ran it again with god mode off (`sw_walkin`):
+  the player still walked the bed, to 308 under, and drowned (Health falling 40 a second
+  after 10 s). The scripted player never swims when walking in, which contradicts what you
+  see in the game. The scripts' IsSwimming also reads 0 even while that player is plainly
+  floating, so I suspect the scripted setup never enters the game's real swimming state.
+- **What changed.** I followed your report. A character standing in water with its feet
+  115 units or more under the surface now starts swimming where it is (the swim speeds,
+  diving along the view and the float height are the ones measured before). A swimmer
+  that reaches the ground walks out where the ground is shallower than that and swims on
+  against a deeper bed. The 115 is my guess: deeper than every floating height measured,
+  so swimmers still walk out up the banks as in the captures, with the eyes just above the
+  water.
+- **Animations.** The player already swam on `swimmt*.kf`. NPCs and creatures had no
+  swimming clips at all: they now play their folder's `swimmt*` or `swim*` clips while
+  they swim (people, mirelurks, giant rats, spinebreakers, dogs), unarmed, and their
+  standing clips where they have none.
+- *Check:* in the original, walk into Lake Mead from Boulder Beach and note how deep the
+  water is (chest? neck?) when swimming starts; and whether a swimmer diving to the bed
+  stays swimming there or stands up.
+
+## GetAnimAction's leftovers (2026-10-18, branch claude/anim-action-leftovers, stacked on #433)
+
+What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), and the
+guesses in it:
+
+- **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
+  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. 6 lasts about 0.6 s [observed: the
+  anim_actions campaign, troopers throwing dynamite]. NPCs throw nothing yet in NVForever, so only
+  the player reads them.
+- **10–11**: never answered. The wiki calls them probable left-overs, and none of the
+  observer's samples showed them. **12**: the original's player read it for about 0.8 s
+  after a jump's time in the air [observed: capture player_actions_anim]; NVForever
+  answers it while the player's landing clip plays (*guess*: that 12 is the landing).
+- **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
+  it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
+  answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
+  The campaign confirmed where it falls: between the last shot and the reload's 9 on
+  the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
+  not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
+- **IsPlayerActionActive**: the capture answered part of the missing list [observed]:
+  9 while aiming, 2 for about 2.6 s from a grenade throw; firing, sneaking, jumping and
+  swinging lit no index, though the wiki says firing stays active about two game
+  minutes. Ours answers 9 and 2.
+
+Captures that settle these (nvfstrip): AI observer campaign
+`tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
+dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
+player's own codes and IsPlayerActionActive 1–10 every frame).
+
+## Caravan (2026-10-19, branch claude/caravan)
+
+Built from your screenshots, the fandom page you pasted, the game's four help messages
+and your rulings (docs/spec-notes/caravan.md). A dialogue line's ShowCaravanMenu opens
+the bet, then the deck builder, the game and the results, over the game's own table and
+card textures, drawn flat (the original's table is 3D models).
+
+- **The opponent is NVForever's own.** Its skill comes from the share of face cards in
+  its deck, as you asked: Ringo's starter deck 0.27, Erwin and Mayes 0.30, Lacey 0.33,
+  Isaac 0.56, Barton and Crocker 0.60, Jules 0.64, Little Buster 0.88, Johnson Nash and
+  No-bark Noonan 1.0. It scores every legal move and takes the best; a low skill adds
+  noise and makes it slower to attack your caravans. The scripts' difficulty (0 or 1) is
+  not used. *Check:* do Ringo and Nash feel about right?
+- **The bet.** The opponent bids its caps (and its merchant container's) times the
+  script's share: Ringo's 54 in your screenshot fits a quarter of about 216. Raise adds a
+  tenth of the bid, up to one and a half times the bid (the fandom page's "about 50 %").
+  Only caps are bet; NCR dollars and Legion coins are not counted yet.
+- **Rules I had to choose.** Queens only on a caravan's last card. Discarding is allowed
+  in the opening (your screenshot had Discard Card lit then, and the help allows it; the
+  fandom page says no). The opponent goes first (your screenshots). Leaving at the bet or
+  the deck builder costs nothing; Cancel during the game asks to be pressed twice and
+  forfeits.
+- **Words of mine:** the refusal with fewer than 30 cards, "That card cannot be played
+  now.", the forfeit prompt, the game-over line, "… is thinking…".
+- **Not built:** the Caravan challenges, bets in other currencies, the 3D table and its
+  dealing animations; the deck builder's rows scroll with Left/Right or the wheel instead
+  of following the pointer.
+- *Check:* play a game with Ringo (the smoke `caravan` gives the player his deck's 30
+  cards): the layout against your screenshots, the keys, the payout.
+## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
+
+Every parameter docs/design/script-function-params.md §3 listed as ignored is now read
+(the table there says what each does now). The GECK wiki pages settle most of them; these
+are my guesses, each with what would settle it:
+
+- **Fade length and shape** (Enable/Disable, 544 shipped calls). Settled in part
+  [observed: captures 2026-10-18]: a plain Disable reads GetDisabled 1 at once and Enable
+  0 at once; after `Disable 1`, facing the object, the original kept it enabled for about
+  2 s and then disabled it. Ours now fades out over 2 s, keeping the reference enabled
+  (collision on) meanwhile, then disables it. *Guesses*: the fade's shape (a straight line
+  of alpha) and the fade in's length (2 s too); all screenshots failed, so a rerun with
+  the window in front is needed to see them. *Not explained*: one earlier `Disable 1`,
+  from the cell's arrival spot, stayed enabled for all 3.5 s sampled. Perhaps the
+  original fades only what it draws.
+- **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
+  unequipped" (my wording; the original's message is not known). Companions ignore
+  NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
+- **Say's ForceSubtitles** (18 calls, all 1; SayTo's flag, 207 calls over the masters): read as "show the subtitle even out of
+  hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
+  not read; nothing documents them, and Old World Blues' 103 calls name the speaker itself.
+- **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
+  play at the multiplier (music and radio do not), as with the engine's own slow motion.
+  The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
+- **StartConversation allowMovement**: left out, the two actors stand while they talk, as
+  before; only an explicit 1 lets them walk.
+- **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
+  2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
+  Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.

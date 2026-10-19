@@ -248,7 +248,7 @@ fn a_lost_fighter_that_sees_its_target_again_says_lost_to_combat() {
     let mut g = game(&f);
     let raider = FormId(RAIDER_REF);
     fight(&mut g, raider, FormId::PLAYER_REF);
-    for _ in 0..5 {
+    for _ in 0..11 {
         g.time += 1.0;
         g.observe_threat(raider, FormId::PLAYER_REF, &seen(Band::Hidden), [3000.0, 0.0, 0.0]);
         g.settle_awareness();

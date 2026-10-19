@@ -25,6 +25,7 @@
 //! marker lists (the actor goes there and faces its way).
 
 use crate::goal::{self, Goal};
+use fnv_game::ai::SandboxPhase;
 use fnv_game::game::Game;
 use fnv_game::package::{furniture, type_flags, PackageDef};
 use fnv_nav::graph::NONE;
@@ -161,6 +162,9 @@ pub struct Sandbox {
     pub(crate) pending: Option<Choice>,
     /// `Game::time` when the last choice was made.
     chosen_at: f64,
+    /// It got up from furniture for its last choice, which has not begun yet
+    /// ([`Sandbox::phase`]).
+    pub(crate) got_up: bool,
 }
 
 fn setting(game: &Game, name: &str, default: f32) -> f32 {
@@ -195,6 +199,7 @@ impl Sandbox {
             doing: Doing::Standing,
             until: Until::Time(f64::NEG_INFINITY),
             pending: None,
+            got_up: false,
             chosen_at: 0.0,
         };
         s.roll(game);
@@ -385,8 +390,32 @@ impl Sandbox {
     }
 
     /// The behaviour of `choice` begins now (the actor is at its place).
+    /// What the actor does, as GetCurrentAIProcedure reads it (`fnv_game::ai::SandboxPhase`;
+    /// the codes, docs/spec-notes/packages.md §4, procedure codes): up from furniture until the next
+    /// thing begins; walking to a spot of the area as wandering, to something to use as
+    /// such; else what it does.
+    pub fn phase(&self) -> SandboxPhase {
+        if self.got_up {
+            return SandboxPhase::GotUp;
+        }
+        let doing = match &self.pending {
+            Some(c) if !matches!(c.doing, Doing::Standing | Doing::Wandering) => return SandboxPhase::ToObject,
+            Some(c) => c.doing,
+            None => self.doing,
+        };
+        match doing {
+            Doing::Standing => SandboxPhase::Standing,
+            Doing::Wandering => SandboxPhase::Wandering,
+            Doing::Sitting(_) => SandboxPhase::Sitting,
+            Doing::AtIdleMarker(_) => SandboxPhase::AtIdleMarker,
+            Doing::Sleeping(_) => SandboxPhase::Sleeping,
+            Doing::Eating(_) => SandboxPhase::Eating,
+        }
+    }
+
     pub(crate) fn begin(&mut self, game: &Game, choice: &Choice) {
         self.pending = None;
+        self.got_up = false;
         self.doing = choice.doing;
         self.last_object = choice.doing.object().or(self.last_object);
         // The time a timed behaviour lasts counts from getting there.
@@ -399,6 +428,7 @@ impl Sandbox {
     /// Nothing came of a choice (no way to its object): stand a little, then choose again.
     pub(crate) fn failed(&mut self, game: &Game, choice: &Choice) {
         self.pending = None;
+        self.got_up = false;
         self.bad.extend(choice.doing.object());
         self.doing = Doing::Standing;
         self.until = Until::Time(game.time + 5.0);

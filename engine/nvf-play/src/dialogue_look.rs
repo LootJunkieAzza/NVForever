@@ -296,7 +296,9 @@ fn face_speaker(
     if !settings.enabled || paused.0 {
         return;
     }
-    let actor = conv.actor;
+    // Through a talking activator the view turns to the activator, not to the actor
+    // speaking from elsewhere (`fnv_game::talking_activators`).
+    let actor = conv.through.unwrap_or(conv.actor);
     if view.talk.as_ref().is_none_or(|t| t.actor != actor) {
         view.talk = Some(Talk { actor, name: game.data.name(actor), opened: false, choosing: false, ease: None });
     }

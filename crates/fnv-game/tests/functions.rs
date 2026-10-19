@@ -40,6 +40,7 @@ const CONT: u32 = 0x861;
 const REGN: u32 = 0x870;
 const IMAD_FADE: u32 = 0x880;
 const IMAD_WHITE: u32 = 0x881;
+const IMGS: u32 = 0x882;
 const WRLD: u32 = 0x900;
 const EXT_CELL: u32 = 0x910;
 const CELL: u32 = 0x200;
@@ -165,6 +166,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"IMAD", 0, IMAD_WHITE, &[sub(b"EDID", z("WhiteTest")), imad_dnam(0, 1.0)]),
     ]
     .concat();
+    let imgs = record(b"IMGS", 0, IMGS, &[sub(b"EDID", z("TestImageSpace"))]);
     // Radio stations: Radio Station and Continuous Broadcast, and Radio Station with
     // Non-Pipboy (the header bits of radio.md §2).
     let tact = [
@@ -207,6 +209,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CONT", &cont),
         top(b"REGN", &regn),
         top(b"IMAD", &imad),
+        top(b"IMGS", &imgs),
         top(b"TACT", &tact),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
         top(b"WRLD", &[wrld, world_children].concat()),
@@ -771,6 +774,81 @@ fn s(text: &str) -> ArgValue {
     ArgValue::Str(text.into())
 }
 
+/// PlayBink hands the film to the engine with the page's defaults; the splatter
+/// functions queue, clear and set the fade; SetCellImageSpace is kept in the save and
+/// refuses what is not a cell or an image space.
+#[test]
+fn films_splatter_and_cell_image_space() {
+    use fnv_game::functions::ui::{FilmRequest, SplatterTrigger};
+    const PLAY_BINK: u16 = 0x1114;
+    const TRIGGER: u16 = 0x1240;
+    const CLEAR: u16 = 0x1241;
+    const FADE: u16 = 0x1243;
+    const SET_CELL_IMGS: u16 = 0x1196;
+    let f = fixture();
+    let mut g = game(&f);
+    // The opening's calls (QUST 0x00102037 stages 0 and 7).
+    call(&mut g, PLAY_BINK, None, &[s("fnvintro.bik"), n(1.0), n(1.0), n(0.0), n(1.0)]);
+    call(&mut g, PLAY_BINK, None, &[s("FNVLogo1.bik"), n(0.0), n(0.0), n(0.0), n(1.0)]);
+    call(&mut g, PLAY_BINK, None, &[s("..\\Sound\\Videos\\x.bik")]);
+    assert_eq!(
+        g.ui.films,
+        [
+            FilmRequest { path: "video\\fnvintro.bik".into(), interruptible: true, mute_audio: true, pause_music: false, letterboxed: true },
+            FilmRequest { path: "video\\fnvlogo1.bik".into(), interruptible: false, mute_audio: false, pause_music: false, letterboxed: true },
+            FilmRequest { path: "sound\\videos\\x.bik".into(), interruptible: false, mute_audio: true, pause_music: true, letterboxed: true },
+        ]
+    );
+    // A name that leaves Data fails the call.
+    let ctx = Ctx { unit: "test".into(), opcode: PLAY_BINK, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[s("..\\..\\x.bik")]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "PlayBink"));
+    assert_eq!(g.ui.films.len(), 3);
+
+    // Stage 50's calls: the fade, then the triggers in order.
+    call(&mut g, FADE, None, &[n(0.5), n(1.0)]);
+    call(&mut g, TRIGGER, None, &[n(100.0), n(20.0), n(2.0), n(2.0)]);
+    call(&mut g, TRIGGER, None, &[n(50.0), n(0.0), n(2.5), n(2.0)]);
+    assert_eq!(g.ui.splatter.fade, Some((0.5, true)));
+    // Safe with any values (the original quit at this call twice): held to 0-1, a start
+    // that is not a number is 0 (fade from the start), a missing switch on.
+    call(&mut g, FADE, None, &[n(7.0), n(0.0)]);
+    assert_eq!(g.ui.splatter.fade, Some((1.0, false)));
+    call(&mut g, FADE, None, &[n(f64::NAN)]);
+    assert_eq!(g.ui.splatter.fade, Some((0.0, true)));
+    call(&mut g, FADE, None, &[]);
+    assert_eq!(g.ui.splatter.fade, Some((0.0, true)));
+    call(&mut g, FADE, None, &[n(0.5), n(1.0)]);
+    assert_eq!(
+        g.ui.splatter.triggers,
+        [SplatterTrigger { count: 100, duration: Some(20.0), size: 2.0, opacity: 2.0 }, SplatterTrigger { count: 50, duration: None, size: 2.5, opacity: 2.0 }]
+    );
+    // Out-of-range values are bounded; one that is not a number counts as missing.
+    call(&mut g, TRIGGER, None, &[n(1e12), n(1e9), n(1e6), n(f64::NAN)]);
+    call(&mut g, TRIGGER, None, &[n(-5.0), n(f64::INFINITY), n(-2.0), n(-1.0)]);
+    assert_eq!(
+        g.ui.splatter.triggers[2..],
+        [SplatterTrigger { count: u32::MAX, duration: Some(3600.0), size: 10.0, opacity: 1.0 }, SplatterTrigger { count: 0, duration: None, size: 0.0, opacity: 0.0 }]
+    );
+    call(&mut g, CLEAR, None, &[]);
+    assert!(g.ui.splatter.triggers.is_empty());
+    assert_eq!(g.ui.splatter.clears, 1);
+
+    // SetCellImageSpace: kept in the form changes, so in the save.
+    call(&mut g, SET_CELL_IMGS, None, &[r(CELL), r(IMGS)]);
+    assert_eq!(g.forms.cell_image_spaces.get(&FormId(CELL)), Some(&FormId(IMGS)));
+    let snap = g.snapshot();
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.forms.cell_image_spaces.get(&FormId(CELL)), Some(&FormId(IMGS)));
+    let ctx = Ctx { opcode: SET_CELL_IMGS, ..ctx };
+    g.call_function(&ctx, &[r(IMGS), r(IMGS)]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "SetCellImageSpace"));
+    g.call_function(&ctx, &[r(CELL), r(IMAD_FADE)]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "SetCellImageSpace"));
+    assert_eq!(g.forms.cell_image_spaces.len(), 1);
+}
+
 /// Radio functions (docs/spec-notes/radio.md §5, §8, §9): the broadcast state from the
 /// Continuous Broadcast bit until set, conversations kept for the engine, the Pip-Boy
 /// radio's commands and SetNPCRadio's on, off and "turn off first" rule.
@@ -1327,6 +1405,11 @@ fn animation_state_told_by_the_engine() {
     assert_eq!(call(&mut g, 0x1170, None, &[n(8.0)]), 0.0);
     g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
     assert_eq!(call(&mut g, 0x1170, None, &[n(9.0)]), 0.0);
+    // A grenade thrown: action 2 (observed), and not 9.
+    g.set_anim_state(FormId::PLAYER_REF, AnimState { throwing: true, ..Default::default() });
+    assert_eq!(call(&mut g, 0x1170, None, &[n(2.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x1170, None, &[n(9.0)]), 0.0);
+    g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
     // Seated on furniture: an idle plays (observed on Easy Pete); getting on does not.
     assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 0.0);
     g.set_furniture_use(adult, Some(FurnitureUse { reference: FormId(CONT_REF), marker_id: 11, state: 2 }));
@@ -1363,6 +1446,94 @@ fn misc_stats_count_and_set_scale_is_kept_on_the_reference() {
     assert_eq!(call(&mut g, 0x1018, Some(ACTI_REF), &[]), 0.25);
     assert!(g.turned.contains(&FormId(ACTI_REF)));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Scaled { reference, scale } if reference == FormId(ACTI_REF) && scale == 0.25)));
+}
+
+/// The parameters scripts pass that were ignored until 2026-10-18
+/// (docs/design/script-function-params.md §3).
+#[test]
+fn ignored_parameters_are_honoured() {
+    use fnv_game::chargen::{SpecialSheet, TagSheet};
+    use fnv_sim::world::{EquipLock, SimError};
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let fades = |g: &Game| -> Vec<(bool, bool)> {
+        g.events
+            .iter()
+            .filter_map(|e| match e.kind {
+                EventKind::RefEnabled { fade, .. } => Some((true, fade)),
+                EventKind::RefDisabled { fade, .. } => Some((false, fade)),
+                _ => None,
+            })
+            .collect()
+    };
+    // Enable fades in by default, Disable does not; each flag turns it round.
+    for (op, arg) in [(0x1022, None), (0x1021, None), (0x1022, Some(1.0)), (0x1021, Some(0.0))] {
+        let args: Vec<ArgValue> = arg.map(n).into_iter().collect();
+        call(&mut g, op, Some(ACTI_REF), &args);
+    }
+    assert_eq!(fades(&g), vec![(false, false), (true, true), (false, true), (true, false)]);
+
+    // Disable 1 holds the reference enabled while it fades (GetDisabled 0, observed), then
+    // disables it for the engine to take; an Enable during the hold ends it.
+    let acti = FormId(ACTI_REF);
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 0.0, "enabled while it fades out");
+    g.frames(60);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 0.0, "still held after 1 s");
+    let frames = (fnv_game::functions::FADE_OUT_HOLD / g.cfg.frame_seconds).ceil() as u64;
+    g.frames(frames);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 1.0, "disabled once the hold ends");
+    assert!(g.script_looks.disabled_after_fade.contains(&acti));
+    call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    call(&mut g, 0x1021, Some(ACTI_REF), &[]);
+    g.frames(frames + 10);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 0.0, "an Enable ended the hold");
+    assert!(g.script_looks.fading_out.is_empty());
+    // A plain Disable during a hold disables at once.
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    call(&mut g, 0x1022, Some(ACTI_REF), &[]);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
+
+    // EquipItem's NoUnequipFlag: the inventory cannot take it off; UnequipItem can, and
+    // its NoEquipFlag keeps it off until EquipItem.
+    g.world.add_item(p, FormId(WEAP), 1).unwrap();
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP), n(1.0)]);
+    assert_eq!(g.world.equip_lock(p, FormId(WEAP)), Some(EquipLock::NoUnequip));
+    assert!(matches!(g.world.unequip(p, FormId(WEAP)), Err(SimError::EquipLocked { on: true, .. })));
+    call(&mut g, 0x10EF, Some(PLAYER), &[r(WEAP), n(1.0), n(1.0)]);
+    assert_eq!(g.world.equip_lock(p, FormId(WEAP)), Some(EquipLock::NoEquip));
+    assert!(!g.world.peek(p).unwrap().inventory.as_ref().unwrap().is_equipped(FormId(WEAP)));
+    assert!(matches!(g.world.equip(p, FormId(WEAP)), Err(SimError::EquipLocked { on: false, .. })));
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP)]);
+    assert_eq!(g.world.equip_lock(p, FormId(WEAP)), None, "a plain EquipItem frees it");
+    assert!(g.world.unequip(p, FormId(WEAP)).unwrap());
+
+    // SetPlayerTagSkill: four slots; a slot's old skill is untagged; above 3 nothing.
+    call(&mut g, 0x11CD, None, &[n(41.0), n(2.0)]);
+    call(&mut g, 0x11CD, None, &[n(43.0), n(2.0)]);
+    call(&mut g, 0x11CD, None, &[n(44.0), n(4.0)]);
+    assert_eq!(g.player.tag_skills.iter().copied().collect::<Vec<_>>(), vec![43]);
+    // SetTagSkills: the count in all; with 0 the tags before are not shown.
+    call(&mut g, 0x121A, None, &[n(4.0)]);
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.remaining(), t.locked.len()), (4, 3, 0));
+    call(&mut g, 0x121A, None, &[n(3.0), n(0.0)]);
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.tagged.len()), (3, 0));
+    t.apply(&mut g);
+    assert!(g.player.tag_slots.is_empty(), "the menu's choice replaces the slots");
+    // ShowLoveTesterMenuParams: the attributes add up to the points.
+    call(&mut g, 0x1245, None, &[n(33.0)]);
+    assert_eq!(SpecialSheet::for_menu(&mut g).total, 33);
+
+    // SetGlobalTimeMultiplier: the sound flag is kept for the engine.
+    call(&mut g, 0x1186, None, &[n(0.5)]);
+    assert!(!g.ui.time_keeps_sound);
+    call(&mut g, 0x1186, None, &[n(0.5), n(1.0)]);
+    assert!(g.ui.time_keeps_sound);
 }
 
 /// The console's way in (`call_words`, as `GSChetRef.IsAnimPlaying Idle` in the smoke

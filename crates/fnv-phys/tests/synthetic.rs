@@ -879,13 +879,33 @@ fn a_fall_into_water_stops_and_floats() {
     assert!((c.feet[2] - (500.0 - p.float_depth)).abs() < 0.01 || c.feet[2] < 500.0 - p.float_depth, "{:?}", c.feet);
 }
 
+/// Flat ground at 0 under water at `surface` (the four cells round the origin).
+fn pool(surface: f32) -> PhysWorld {
+    let mut w = ground();
+    for x in -1..=0 {
+        for y in -1..=0 {
+            w.set_water(WaterArea::Exterior(x, y), Some(surface));
+        }
+    }
+    w
+}
+
 #[test]
-fn walking_on_the_bottom_does_not_swim() {
-    let mut w = lake();
-    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, TERRAIN_SHELL]);
+fn walking_on_a_deep_bottom_swims_a_shallow_one_does_not() {
+    // Water shallower than the wading depth: the character walks on the bottom.
+    let p = CharacterParams::default();
+    let mut w = pool(p.wade_depth - 10.0);
+    let mut c = w.add_character(1, p, [0.0, 0.0, TERRAIN_SHELL]);
     let steps = walk(&mut w, &mut c, [86.8, 0.0], 120);
     assert!(steps.iter().all(|s| s.grounded && !s.swimming));
     assert!((c.feet[0] - 173.6).abs() < 1.0, "{:?}", c.feet);
+    // Deeper: it swims from the first step, where it is (no buoyancy lifts it).
+    let mut w = lake();
+    let mut c = w.add_character(1, p, [0.0, 0.0, TERRAIN_SHELL]);
+    let steps = walk(&mut w, &mut c, [86.8, 0.0], 60);
+    assert!(steps.iter().all(|s| s.swimming), "{:?}", steps.first());
+    assert!(c.swimming && !c.grounded);
+    assert!((c.feet[2] - TERRAIN_SHELL).abs() < 0.05, "{:?}", c.feet);
 }
 
 #[test]
@@ -943,14 +963,25 @@ fn jumping_works_only_above_the_floating_height() {
 }
 
 #[test]
-fn swimming_down_to_the_bottom_ends_swimming() {
-    let mut w = lake();
-    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 405.0]);
-    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
-    assert!(c.swimming);
-    swim(&mut w, &mut c, [0.0, 0.0], -348.0, false, 120);
+fn swimming_down_to_the_bottom_ends_swimming_where_it_is_shallow() {
+    // A bottom shallower than the wading depth: the swimmer walks on it.
+    let p = CharacterParams::default();
+    let surface = p.wade_depth - 5.0;
+    let mut w = pool(surface);
+    let mut c = w.add_character(1, p, [0.0, 0.0, surface - p.swim_depth - 2.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 30);
+    assert!(c.swimming, "{:?}", c.feet);
+    swim(&mut w, &mut c, [0.0, 0.0], -348.0, false, 60);
     assert!(!c.swimming && c.grounded, "{:?}", c.feet);
     assert!((c.feet[2] - TERRAIN_SHELL).abs() < 0.05, "{:?}", c.feet);
+    // A deep bottom: the swimmer stays on it, swimming.
+    let mut w = lake();
+    let mut c = w.add_character(1, p, [0.0, 0.0, 405.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    swim(&mut w, &mut c, [0.0, 0.0], -348.0, false, 120);
+    assert!(c.swimming, "{:?}", c.feet);
+    // Against the bed (the swept capsule's skin, not the walking contact shell).
+    assert!(c.feet[2] > 0.0 && c.feet[2] < TERRAIN_SHELL + 0.05, "{:?}", c.feet);
 }
 
 #[test]

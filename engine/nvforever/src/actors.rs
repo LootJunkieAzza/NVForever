@@ -86,6 +86,9 @@ pub struct ActorWorld {
     /// How many times ResurrectActor rolled a reference's random choices again
     /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
     pub rolls: Mutex<HashMap<u32, u32>>,
+    /// The race and sex scripts gave a reference (AgeRace, SexChange;
+    /// `fnv_game::appearance`, told by `appearance.rs`): drawn in place of the record's.
+    pub changes: Mutex<HashMap<u32, fnv_actor::Change>>,
 }
 
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
@@ -108,6 +111,7 @@ impl ActorWorld {
             sets: Mutex::new(HashMap::new()),
             stances: Mutex::new(HashMap::new()),
             rolls: Mutex::new(HashMap::new()),
+            changes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -125,13 +129,19 @@ impl ActorWorld {
     /// [`Self::resolve`] wearing the given armour instead of the chosen one
     /// (`Resolver::resolve_wearing`; the player's body).
     pub fn resolve_wearing(&self, base: u32, reference: u32, wearing: Option<&[FormId]>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), self.seed(reference), wearing).map_err(|e| e.to_string())
+        self.resolve_as(base, reference, wearing, None)
+    }
+
+    /// A script's race or sex change of `reference` (`Self::changes`).
+    pub fn change(&self, reference: u32) -> fnv_actor::Change {
+        self.changes.lock().map_or_else(|_| Default::default(), |c| c.get(&reference).copied().unwrap_or_default())
     }
 
     /// [`Self::resolve_wearing`] with a chosen look (the player's, from the character
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), self.seed(reference), wearing, look).map_err(|e| e.to_string())
+        let change = self.change(reference);
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_changed(FormId(base), self.seed(reference), wearing, look, change).map_err(|e| e.to_string())
     }
 
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
@@ -178,6 +188,36 @@ impl ActorWorld {
 
     /// A creature's alert-stance set (`ClipSet::alert_from`: its `h2h` movement clips over
     /// `calm`), loaded once per skeleton.
+    /// The swimming set of a skeleton and body (`ClipSet::swim_from` over
+    /// `locomotion::SWIM_STANCES`, the standing set `calm` filling the moves it lacks),
+    /// loaded once; `None` when the folder has no swimming movement clip.
+    fn swim_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, "swim+");
+        self.sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let mut lines = Vec::new();
+                let stances = crate::locomotion::SWIM_STANCES
+                    .iter()
+                    .map(|st| {
+                        let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, st);
+                        if !set.clips.is_empty() {
+                            lines.push(line);
+                        }
+                        set
+                    })
+                    .collect();
+                let set = ClipSet::swim_from(stances, calm);
+                if set.is_some() {
+                    info!("actor locomotion (swimming): {}", lines.join(" | "));
+                }
+                set.map(Arc::new)
+            })
+            .clone()
+    }
+
     fn alert_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
         let key = (fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE);
         self.sets
@@ -441,6 +481,8 @@ pub fn spawn(
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 // People crouch to sneak (`sneaking.rs`).
                 lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
+                // In water they swim (`swimming.rs`).
+                lo.swim = world.swim_set(ctx, &a.skeleton, &skel, body, &set);
                 // A crippled leg limps (`limping.rs`).
                 lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
@@ -539,6 +581,7 @@ pub fn spawn_creature(
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
+                lo.swim = world.swim_set(ctx, &c.skeleton, &skel, Body::Male, &set);
                 // Some creatures move otherwise when alert (`creature_pace.rs`), and limp
                 // otherwise when alert too (`limping.rs`).
                 lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);

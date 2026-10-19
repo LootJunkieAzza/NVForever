@@ -181,6 +181,17 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
     }
 }
 
+/// The perks' choice list as a box: the target's name, the choices' labels, then the
+/// default action (Search on a corpse, else Talk) [design: fnv_game::activate_choices].
+pub fn activate_panel(g: &fnv_game::Game, sim: &SimState, m: &fnv_game::activate_choices::ActivateMenu) -> PanelView {
+    let base = sim.base_of(m.target.0).unwrap_or(m.target);
+    let name = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(m.target));
+    let default = if g.is_dead(m.target) { "Search" } else { "Talk" };
+    let mut buttons: Vec<String> = m.choices.iter().map(|c| c.label.clone()).collect();
+    buttons.push(default.into());
+    PanelView { title: None, text: name, buttons, icon: None }
+}
+
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
 fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&crate::player::Player>, creator: bool) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
@@ -191,6 +202,8 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         _ => None,
     };
     let panel = match g.menu {
+        // The perks' choice list (`fnv_game::activate_choices`).
+        Some(MENU_MESSAGE) if g.activate_menu.is_some() => g.activate_menu.as_ref().map(|m| activate_panel(g, sim, m)),
         // A reputation's box (`crate::reputation`).
         Some(MENU_MESSAGE) if g.boxes.first().is_some_and(|&m| crate::reputation::is_reputation(g, m)) => g.boxes.first().map(|&m| crate::reputation::panel(g, sim, m)),
         // The title is the message's own (MESG FULL).
@@ -215,8 +228,9 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
-        // (AlwaysShowActorSubtitles).
-        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) {
+        // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said
+        // it as a 2D sound heard anywhere (Say's is2D).
+        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
@@ -326,6 +340,13 @@ pub fn menu_keys(
     let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9];
     let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];
     let picked = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])).or(clicked).or(enter.then_some(panel.selected));
+    // The perks' choice list: the n-th button (`Runtime::pick_activate_choice`).
+    if script.rt.as_ref().is_some_and(|rt| rt.game.activate_menu.is_some()) {
+        if let Some(p) = picked {
+            script.answer(Some(p as i32), "key");
+        }
+        return;
+    }
     let Some(front) = script.rt.as_ref().and_then(|rt| rt.game.boxes.first().copied()) else { return };
     // The drawn buttons are those whose conditions held: the n-th drawn one answers with
     // its index in the record (GetButtonPressed).

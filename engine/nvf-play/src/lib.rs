@@ -34,6 +34,7 @@ pub mod dialogue_look;
 pub mod dialogue_menu;
 pub mod doors;
 pub mod dropped;
+pub mod fade;
 pub mod flashlight;
 pub mod free_cam;
 pub mod furniture;
@@ -50,6 +51,7 @@ pub mod main_menu;
 pub mod lockpick;
 pub mod roulette;
 pub mod blackjack;
+pub mod caravan;
 pub mod poker;
 pub mod menu;
 pub mod message_menu;
@@ -67,6 +69,7 @@ pub mod reputation;
 pub mod reticle;
 pub mod rumble;
 pub mod save;
+pub mod screen_splatter;
 pub mod script;
 pub mod script_draw;
 pub mod script_events;
@@ -272,7 +275,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
-            .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin))
+            .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
@@ -280,6 +283,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
             .add_plugins(blackjack::BlackjackPlugin)
+            .add_plugins(caravan::CaravanPlugin)
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin))
             .add_plugins(console::ConsolePlugin)
@@ -288,6 +292,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
+            .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(repair::RepairPlugin)

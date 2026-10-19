@@ -1484,7 +1484,8 @@ height and gives a jump of `swim_jump_mult` × `jump_height` that leaves the wat
 walkable ground (it then walks) [observed: leaving the lake], when it jumps, or where there
 is no water at all [hypothesis]; feet above the surface do not end it [observed:
 `swim_h2o_drops`, below; the first implementation ended it there]. A character on the ground never starts swimming,
-however deep [observed: walking in]. The swimming state survives `place_character`, as
+however deep [observed: walking in] (**superseded 2026-10-18**: a character on the ground
+starts swimming `wade_depth` below the surface, see *Walking in again* below). The swimming state survives `place_character`, as
 the game's does across `SetPos` [observed]. Walking speeds are the caller's: `nvf-play`
 swims at 348 (Always Run) and 100.8 (walk) in every direction, along the view
 (`SWIM_SPEEDS`, `swim_velocity`) [observed: fits 341–352; walking 100.8]. Not modelled:
@@ -1756,6 +1757,37 @@ inside that range only just, and the 41.5° and 45.1° banks also show the candi
 steep slopes faster than the game. Both are land-controller questions (§6.3, the slope
 limit and the speed along steep slopes) and are left to that work; nothing here changes
 the swim rules.
+
+**Walking in again** (2026-10-18). The owner reports that in the game the player swims
+once it wades in deep enough, and that NVForever's player walks along the bed instead
+[observed: the owner's play of the game and of NVForever]. That contradicts `sw_trial`'s
+walk-in, which had god mode on, so job `sw_walkin` (`make_swim_jobs.py` `walkin()`) walked
+and ran in from the same shore with god mode **off** and Health raised by 5000, then ran
+in once more with god mode on [observed, 2026-10-18, second run; the first run and that
+run's first trial had MenuMode 1 and the clock standing still, so they recorded nothing;
+`CloseAllMenus` now runs before each trial]:
+
+- Walking in, god mode off: the feet followed the bed down to 308.2 below S (17.6 s,
+  85.5 units/s) and stayed there. Health held at 5200 until about 10 s after the head went
+  under, then fell at 40 per second (5079.4 after the trial): drowning, as in `sw_breath`.
+  `IsSwimming` read 0 on every sample.
+- Running in with god mode on: the bed to 524 below S, `IsSwimming` 0, as in `sw_trial`.
+
+So in these scripted captures the player never swims when walking in, god mode or not.
+The captures and the owner's play disagree. The capture setup is the likelier odd one
+out [hypothesis]: `IsSwimming` reads 0 in every capture, even while the player plainly
+floats after a fall, so the scripted player may never reach the game's real swimming state
+(what differs, such as the keys held through `HoldKey`, is open). **Decision
+(2026-10-18, following the owner's report):** a character on the ground starts swimming
+with its feet `CharacterParams::wade_depth` (115) or more below the surface, at its depth
+(no buoyancy lifts it). A swimmer that reaches the ground ends swimming only where the
+ground is shallower than that, and swims on against a deeper bed. The depth is
+[hypothesis]. It is deeper than every floating height seen (102.5–107.4), so the swimmers
+of `sw_banks*` and `swim_lake_exit`, which meet their banks at the floating height, still
+walk out and do not start swimming again; with it the eye (about 123 above the feet) is
+just above the surface. A human check in the game would settle the depth: walk into Lake
+Mead at Boulder Beach (east from (56992, 37536)) and note where swimming starts. The bed
+falls about 12°, 44 below S at 256 units out, 140 at 768.
 
 **Placed water** (2026-10-08) [observed: the masters and `Fallout - Meshes.bsa`, read-only].
 The reference in `NVDLC03SLH2OINT` is REFR 0x03014467, base PWAT 0x03014465
