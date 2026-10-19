@@ -4,10 +4,14 @@
 //!
 //! Rate of fire [documented: GECK wiki Weapons]: automatic weapons fire `fire_rate` shots
 //! per second while the trigger is held; a semi-automatic weapon's rate follows its attack
-//! clip and attack multiplier, so the interval is the attack clip's length ÷ (attack
-//! multiplier × animation multiplier) when the engine knows the clip, else
-//! 1 ÷ "Attack Shots/Sec". The shot leaves at the clip's `Hit` key [documented: GECK wiki
-//! NiTextKeyExtraData], `fire_delay` after the trigger.
+//! clip and attack multiplier, so the interval is the time of the attack clip's `a:` key
+//! (its length when it has none) ÷ (attack multiplier × animation multiplier) when the
+//! engine knows the clip, else 1 ÷ "Attack Shots/Sec" [observed 2026-10-19: the record's
+//! Attack Shots/Sec is exactly that for the 9mm pistol, `1hpattackright.kf` `a:R` at 0.400
+//! s ÷ 1.25 = 3.125, and the varmint rifle, `2hrattack8.kf` `a:8` at 1.267 s ÷ 1.54 =
+//! 1.216; the clips end 0.03–0.1 s later; owner playtest: the original empties a magazine
+//! faster than the clip's length allowed]. The shot leaves at the clip's `Hit` key
+//! [documented: GECK wiki NiTextKeyExtraData], `fire_delay` after the trigger.
 //!
 //! Spin-up [documented: GECK wiki NiTextKeyExtraData, `Fire` "works like `Hit` and also
 //! starts the internal loop of a clamped sequence; `Loop` jumps back to it"; owner
@@ -109,7 +113,9 @@ impl Timing {
         let interval = if w.automatic && w.fire_rate > 0.0 {
             1.0 / w.fire_rate
         } else if let Some(len) = clips.attack_len {
-            len / speed
+            // The next shot may leave at the clip's `a:` key, before its end (see the
+            // module notes).
+            clips.next_attack.map(|(t, _)| t).filter(|t| *t > 0.0 && *t < len).unwrap_or(len) / speed
         } else if w.attack_shots_per_sec > 0.0 {
             1.0 / w.attack_shots_per_sec
         } else {
