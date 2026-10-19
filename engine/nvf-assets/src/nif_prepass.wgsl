@@ -24,6 +24,7 @@
 struct NifSurface {
     falloff: vec4<f32>,
     alpha_cut: f32,
+    add_whole: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
