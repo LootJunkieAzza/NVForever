@@ -13,6 +13,10 @@
 //! - **Sound**: `UIRepGood` when fame reached a new level, else `UIRepBad` [observed: the
 //!   two SOUN records in FalloutNV.esm; hypothesis: when each plays].
 //! - **Log**: `reputation:` lines for each change of title.
+//! - **Not in a fight**: while the player is in combat the box, sound and log line wait,
+//!   and come when the fight is over (a title that changed back meanwhile shows nothing)
+//!   [owner request 2026-10-19]. In combat is the wait menu's test (`crate::wait`): a
+//!   drawn, living actor in a combat state hunts the player, as IsInCombat reads it.
 //! - A save keeps the titles last shown, so a load shows no box for what it restores.
 
 use crate::message_menu::PanelView;
@@ -161,10 +165,27 @@ const SAVE_HOOK: SaveHook = SaveHook {
     },
 };
 
-/// A title that changed since it was last shown: the box, the sound, the log line.
-fn watch(mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, mut shown: ResMut<Shown>, mut sounds: MessageWriter<PlaySound>) {
+/// Whether a drawn, living actor in a combat state hunts the player (`crate::wait`'s
+/// test; an actor left in an unloaded cell keeps its state, so only drawn ones count).
+fn player_in_combat(g: &fnv_game::Game, living: &[(u32, [f32; 3])]) -> bool {
+    let player = FormId::PLAYER_REF;
+    living.iter().any(|&(a, _)| g.awareness.get(FormId(a)).is_some_and(|w| w.state.in_combat() && (w.targets.contains_key(&player) || w.alarms.iter().any(|x| x.owner == player))))
+}
+
+/// A title that changed since it was last shown: the box, the sound, the log line, held
+/// back while the player is in combat.
+fn watch(
+    mut script: Option<ResMut<ScriptState>>,
+    sim: Res<SimState>,
+    actors: Option<Res<crate::hitvol::HitVolumes>>,
+    mut shown: ResMut<Shown>,
+    mut sounds: MessageWriter<PlaySound>,
+) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let g = &mut rt.game;
+    if shown.0.is_some() && actors.is_some_and(|a| player_in_combat(g, &a.living)) {
+        return;
+    }
     let now: BTreeMap<u32, (usize, usize)> = g.player.reputation.keys().map(|&r| (r.0, levels(g, r))).collect();
     let Some(before) = shown.0.as_ref() else {
         shown.0 = Some(now);
