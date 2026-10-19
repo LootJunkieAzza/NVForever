@@ -49,7 +49,10 @@ For one projectile (or one swing) that hits [documented unless marked]:
      term.
    - The crippled-arm term is weapon damage × (`fDamageArmConditionBase` − 1 +
      `fDamageArmConditionMult` × arm condition) / 2.
-   - The condition curve is ours [design]; the original's is hard-coded.
+   - The condition multiplier is the original's hard-coded one: full damage at and above
+     75 %, below it `1 − (0.75 − condition) × 0.67` [documented: GECK wiki
+     SetConditionDamagePenalty; observed: §17]. The page's `GunConditionPenalty`
+     settings are unused in New Vegas [documented: Weapon Damage Formula].
 2. **Miss.** A base of 0 is a miss: no critical, no damage.
 3. **Modifiers.** Ammo Damage Mod effects (add, multiply, subtract, in list order), then
    the "Calculate Weapon Damage" perk hook.
@@ -531,6 +534,13 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     the EXPL force in units/s at the centre, falling to 0 at the radius [design]).
   - the enchantment (EXPL `EITM`) applies to every actor damaged (hit-effects.md §1);
     radiation and the placed impact object are logged and not built.
+  - is the hit of whoever set it off, with that weapon: the shooter of the projectile
+    that exploded, the actor who detonated a placed charge, the attacker whose hit
+    reached a destruction stage. A stage reached by burning down has no attacker
+    [design]. Until 2026-10-19 every blast was the player's, with the player's weapon:
+    an NPC's Incinerator or grenade on another NPC gave the player XP and a hit marker,
+    ran OnHit with the player as the attacker, and was left out of the `npc hits
+    summary` (§18).
 - **Destructible objects** (`Game::damage_object`, now also behind `DamageObject` /
   `do`, so scripts and combat share it) [documented: GECK wiki Destructible Object
   Stage]:
@@ -1105,3 +1115,65 @@ Owner's request, 2026-10-11. Code: `fnv_combat::condition`, `fnv_sim::inventory`
   hits on the player's armour and weapon (NPCs do not attack yet; the code paths take
   any actor); jamming, slower fire and wider spread of a worn weapon; a worn item's
   lower value; armour worn to zero coming off; the per-class and VATS multipliers.
+
+## 18. Damage between NPCs
+
+How one NPC's hit on another becomes lost Health. The fixes are PR #475 (worn leveled
+items, the documented condition penalties, no NPC armour wear, NPC Health) and the blast
+attribution of §11. The original's fight they are checked against is in
+npc-behaviour-compare.md §9.
+
+- **The rule is the player's rule, §2.**
+  - Weapon damage × `fDamageWeaponMult` × the condition multiplier × the skill bonus.
+  - Plus the weapon's Crit Damage on a critical, before armour.
+  - Then the target's DT. At least 20 % of the hit is left after DT.
+  - Then its DR.
+  - [documented: Weapon Damage Formula; observed: Cook-Cook's hits were exactly 0.2 ×
+    10.9375, a critical added the full Crit Damage, npc-behaviour-compare.md §9.]
+- **The attacker's values** are its own, read when it attacks:
+  - its skill with the weapon (record and formula: troopers Guns 46, Fiend3 63,
+    Cook-Cook 58; the player's level plays no part);
+  - its Strength, Luck and Unarmed;
+  - its weapon's real condition. It starts at the COED of the leveled list that gave it
+    the weapon (CondNVServiceRiflelLoot: 30 to 60 %) [observed: §9].
+- **The target's values.**
+  - **DT** is the sum over the armour pieces it wears, each at its condition's share
+    (`condition::armor_mult`), plus its own DT actor value. [observed: Cook-Cook's
+    GetAV DamageThreshold was 13: Metal Armor DT 12 plus Raider Arclight Helmet DT 1,
+    FalloutNV.esm `DNAM`.] Whether a helmet's DT counts against a body hit the same way
+    is not settled: GetAV gives the total only [hypothesis: the sum for every hit].
+  - **DR** is summed the same way. Every armour piece in this fight has DR 0.
+- **No other multiplier** [observed].
+  - FalloutNV.esm has no game setting that scales NPC damage. The damage settings in
+    it are `fDamageWeaponMult`, `fDamageSkillBase`, `fDamageSkillMult` and the armour
+    ones (`fnvtool esm inventory`).
+  - The original's NPC hits fit the formula with nothing else (Cook-Cook's 2.1875).
+  - Difficulty therefore plays no part between NPCs. [hypothesis: the capture save's
+    difficulty was not recorded; that difficulty scales only hits by and on the
+    player.] NVForever has no difficulty setting yet.
+- **NPC armour does not wear; NPC weapons do** [observed: §17]. Ours does not yet wear
+  an NPC's weapon from firing: the Incinerator lost 2.19 health a shot in the original,
+  far more than `fDamageToWeaponValue` × its Damage to Weapon Mult (0.2 × 0.005).
+  Not built until it is understood.
+- **Explosions** do the EXPL's damage with its falloff, then DT and DR (§11), with no
+  skill or condition. They are their cause's hits (§11). The Incinerator does damage
+  only this way: its WEAP damage is 1, its glob's NVIncineratorFireBurst does 20 in 212
+  units, and its enchantment burns.
+- **Checked offline** (`fnvtool combat damage`, the records' values; condition and skill
+  from §9's capture) [observed 2026-10-19]:
+
+  | Attacker, weapon (condition) | Target (DT) | Ours per hit | The original |
+  |---|---|---|---|
+  | Trooper, Service Rifle 18 (30–50 %) | Cook-Cook (13) | 1.84–2.19 (floor) | median 2.0; 2.1875 at 50 % |
+  | Trooper, Service Rifle, critical (50 %) | Cook-Cook (13) | 15.9 | crit damage added in full |
+  | Trooper, Service Rifle (30–50 %) | Fiend (5) | 4.2–5.9 | medians 4.2–11.1 (with criticals) |
+  | Fiend3, Hunting Rifle 52 (45 %) | trooper (Face Wrap 10 at 35–50 % + helmet 2: 10.5–12) | 21.9–23.4 | not isolated |
+  | Cook-Cook, Incinerator glob | trooper (10.5–12) | 8.0–9.5 at the centre, less to the edge | medians 0.1–1.9, mostly burning |
+
+  The Service Rifle figures are the original's. The task's "22–30 a Fiend's shot on a
+  trooper against under 2" set rifle hits against a median of mostly burn damage. The
+  original's troopers died chiefly of Cook-Cook's flames; its Fiends' rifles had little
+  time (three Fiends dead within 8 s). By the same rule a Hunting Rifle body hit on a
+  trooper is about 22 in both. Checking it needs the capture's hits split by attacker
+  (`tools/capture/fight_stats.py` gives each actor's hits made and damage taken, not who
+  hit whom).

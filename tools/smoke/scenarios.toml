@@ -3265,7 +3265,7 @@ expect = [
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/intro.rs"]
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/intro.rs", "engine/nvf-play/src/game_start.rs"]
 env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "4.5:down,5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "8.5:shot,9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
 args = ["--play", "--menu"]
 run_seconds = 34

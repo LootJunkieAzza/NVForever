@@ -1338,6 +1338,26 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// The New Game menu starts the character-generation quest (the original's INI
+    /// `sCharGenQuest`, VCG00 by the original's defaults [documented: Fallout_default.ini
+    /// `SCharGenQuest=00102037`]) and the quest's `Begin MenuMode` blocks run once, as
+    /// under the main menu (`menus::START`) [hypothesis: the original runs them every
+    /// frame there; once is what VCG00's and TTW's start scripts need, each guarding its
+    /// MenuMode work by a stage or a flag, observed in their plugins]. VCG00's MenuMode
+    /// block sets its stage 0 while the stage is below 5. Returns false when `q` is not
+    /// a quest.
+    pub fn start_chargen_quest(&mut self, q: FormId) -> bool {
+        if !self.start_quest(q) {
+            return false;
+        }
+        let script = self.data.quests.get(&q).and_then(|d| d.script).filter(|s| self.data.scripts.contains_key(s));
+        if let Some(script) = script {
+            let subject = Some(Value::Num(f64::from(menus::START)));
+            self.run_event(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() });
+        }
+        true
+    }
+
     // ---- quests ------------------------------------------------------------------
 
     pub fn quest(&mut self, q: FormId) -> &mut QuestState {
