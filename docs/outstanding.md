@@ -67,6 +67,13 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **Saves**: deleting saves from the menu, loading into another load order, AI progress.
 - **Console**: several statements on a line.
 - **World**: skeleton collision still upright (playtest list 5 item 71).
+- **Combat cover from the shooter**: a gunman looks for cover only from its own combat
+  target (`combat_tactics::find_cover`). With the 5 s target commitment (#470,
+  2026-10-19) NCR troopers no longer flicker onto LvlFiend3GunVarNV 0x000F9CE7, the only
+  Fiend with a cover edge facing it at the Cook-Cook camp, so smoke combat-cover takes no
+  cover (its three cover expectations marked known_failing). To build: cover from the
+  enemy gunman shooting at the fighter (a `from` actor on `Cover`; the give-up and peek
+  rules follow it), then drop the marks.
 - **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
   package types and flags are carried out since #400).
   - Find's Allow Killing is built, but only for actors whose inventory holds the food. In
