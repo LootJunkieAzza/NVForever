@@ -23,7 +23,12 @@ Smoke tests: `console` and `console-toggles` in `tools/smoke/scenarios.toml`.
 
 ## Lines
 
-A line is one script function call, spelled as script source spells it:
+A line holds one statement or several separated by `;` (outside `"…"`): each runs in
+order, echoed and answered as a line of its own; the whole line is one history entry;
+`close` among them drops the rest [design, 2026-10-19; smoke `save-delete-console`]. The
+test aid keeps a `;` that is not followed by `<seconds>:` inside the line.
+
+A statement is one script function call, spelled as script source spells it:
 `[reference.]Function argument …`. Words split on spaces and commas; `"…"` keeps spaces.
 
 - The function is found in the function table (`schemas/script/functions.json`) by its

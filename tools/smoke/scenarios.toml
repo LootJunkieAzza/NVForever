@@ -3164,6 +3164,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "save-delete-console"
+source = "outstanding.md §2 Saves and Console (2026-10-19; docs/design/save-load.md §6.1, docs/design/console.md): a console line of several statements runs each in order; a save written from the console is deleted from the pause menu's load page (Delete, then Yes) and the page lists the saves again without it"
+areas = ["save", "console"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/console.rs"]
+env = { NVFOREVER_HOME = "save-delete-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav luck 7; player.getav luck;13:save delete-me;14:close", NVF_PLAY_TEST_PAUSE = "16:22", NVF_PLAY_TEST_PAUSE_MENU = "17:load,18:delete,18.5:shot,19:yes,21:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 24
+expect = [
+  "console: 2 statements on the line",
+  { re = 'console: GetActorValue on player >> 7\.00', label = "the second statement reads what the first set" },
+  { re = 'save: wrote .*delete-me\.nvfsave', label = "the save is written" },
+  "pause menu: delete delete-me?",
+  { re = 'pause menu: deleted .*delete-me\.nvfsave', label = "Yes deletes it" },
+]
+order = [["console: > player.setav luck 7", "console: > player.getav luck"], ["pause menu: delete delete-me?", "pause menu: deleted", "pause menu: load page:"]]
+
+[[scenario]]
 name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]

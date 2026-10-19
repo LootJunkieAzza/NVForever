@@ -6388,3 +6388,11 @@ is counted and paid is NVForever's design:
   one comes back as caps. *Check:* whether your game takes notes before caps, or gives
   them back after a win.
 - **The pot is paid in caps**, whatever the ante was paid in.
+
+## Saves deleted from the menu and several console statements (2026-10-19, branch claude/save-delete-console-lines)
+
+docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
+- **Delete** on the load page asks "Delete this save?" (Yes Y) / No N)) right of the
+  thumbnail, then removes the file and its `.bak`. The original shows its Delete hint only
+  with a controller. *Check:* the key you want for it.
+- **`;` separates console statements**; the original's console may not allow several.
