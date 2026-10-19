@@ -4201,6 +4201,29 @@ order = [[
 # progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
 
 [[scenario]]
+name = "destroyed-activator"
+source = "GECK wiki SetDestroyed: destroyed doors and activators give no rollover text and cannot be activated (fnv_game::Game::activation_refused); the saloon jukebox destroyed at 15 s loses its prompt and E at 20 s does nothing, cleared at 25 s it is offered again and E at 28 s switches it off"
+areas = ["scripts", "activators"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/activate.rs", "engine/nvforever/src/activators.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_SCRIPT = "15:call:0x00107D73:SetDestroyed:1,25:call:0x00107D73:SetDestroyed:0", NVF_PLAY_TEST_ACTIVATE = "20,28" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+order = [[
+  { re = 'target 0x00107D73 ', label = "the jukebox under the crosshair" },
+  "script: test aid calls SetDestroyed on …",
+  { re = 'target (none|0x(?!00107D73))', label = "destroyed: the jukebox no longer targeted" },
+  "script: test aid calls SetDestroyed on …",
+  { re = 'target 0x00107D73 ', label = "cleared: the jukebox targeted again" },
+], [
+  "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle",
+  "00107D73 (JukeBoxDirtyNVCountry) off: …",
+  "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle",
+  "00107D73 (JukeBoxDirtyNVCountry) off: …",
+]]
+# The second group: on at load, its look off while destroyed (activators.rs), on again when
+# cleared at 25 s (E at 20 s changed nothing), off by E at 28 s.
+
+[[scenario]]
 name = "poker"
 source = "docs/design/poker.md: refused with 50 caps; with 500 the table opens at The Tops (buy-in 200), the player's seat plays by itself for a few hands, then leaves and the difference is settled in caps"
 areas = ["poker", "menus"]

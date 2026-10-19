@@ -213,8 +213,13 @@ pub fn damage_object(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String>
     if !g.is_destructible(r) {
         return Err(format!("{} has no destruction data", g.data.name(r)));
     }
-    // The stage's explosions are the engine's (`Game::destruction_explosions`).
-    g.damage_object(r, amount);
+    // The stages' explosions and models are the engine's: the change waits in
+    // `Game::destruction_changes`, as a hit's goes to the engine directly.
+    if let Some(c) = g.damage_object(r, amount) {
+        if c.after != c.before {
+            g.destruction_changes.push((r, c));
+        }
+    }
     none()
 }
 

@@ -718,6 +718,50 @@ fn destruction_stages_from_combat_damage() {
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
 }
 
+/// DamageObject from a script queues the stage changes for the engine (their
+/// explosions and models), as a hit's are; a call that reaches no new stage queues none.
+#[test]
+fn damage_object_queues_stage_changes_for_the_engine() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(60.0)]);
+    let q = std::mem::take(&mut g.destruction_changes);
+    assert_eq!(q.len(), 1);
+    assert_eq!((q[0].0, q[0].1.before, q[0].1.after, q[0].1.destroyed), (FormId(ACTI_REF), -1, 1, false));
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(5.0)]);
+    assert!(g.destruction_changes.is_empty());
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(100.0)]);
+    let q = std::mem::take(&mut g.destruction_changes);
+    assert_eq!((q.len(), q[0].1.after, q[0].1.destroyed), (1, 2, true));
+}
+
+/// SetDestroyed: a destroyed activator cannot be activated, by hand or by a script, and
+/// works again once the flag is cleared [documented: GECK wiki SetDestroyed].
+#[test]
+fn destroyed_activator_refuses_activation() {
+    use fnv_game::game::ActMode;
+    let f = fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    let activations = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::Activated { reference, .. } if reference == acti)).count();
+    assert!(!g.activation_refused(acti));
+    g.activate(FormId(PLAYER), acti, ActMode::Hand).unwrap();
+    assert_eq!(activations(&g), 1);
+    call(&mut g, 0x10CC, Some(ACTI_REF), &[n(1.0)]);
+    assert!(g.activation_refused(acti));
+    let v = g.activate(FormId(PLAYER), acti, ActMode::Hand).unwrap();
+    assert_eq!(v["result"], "destroyed");
+    // `Activate player` from a script goes through the same gate.
+    call(&mut g, 0x100D, Some(ACTI_REF), &[r(PLAYER)]);
+    assert_eq!(activations(&g), 1);
+    // A container is not a door or activator: the flag does not stop it.
+    call(&mut g, 0x10CC, Some(CONT_REF), &[n(1.0)]);
+    assert!(!g.activation_refused(FormId(CONT_REF)));
+    call(&mut g, 0x10CC, Some(ACTI_REF), &[n(0.0)]);
+    g.activate(FormId(PLAYER), acti, ActMode::Hand).unwrap();
+    assert_eq!(activations(&g), 2);
+}
+
 /// Image space modifiers (docs/spec-notes/image-modifiers.md §3): an animatable one
 /// ends by itself after its duration, the other stays until removed; menus hold their
 /// time; a snapshot keeps them.

@@ -212,12 +212,16 @@ fn find_target(
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's
-    // name where the template supplies it (playtest list 4, item 20).
+    // name where the template supplies it (playtest list 4, item 20). A destroyed door
+    // or activator gives no rollover text (`fnv_game::Game::activation_refused`).
     let mut rt = script.as_deref_mut().and_then(|s| s.rt.as_mut());
     let mut describe_once = |id: u32| {
         described
             .entry(id)
             .or_insert_with(|| {
+                if rt.as_deref().is_some_and(|rt| rt.game.activation_refused(FormId(id))) {
+                    return None;
+                }
                 describe(&sim, play.index, id).map(|(n, a)| match a {
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| rt.game.data), id).map_or(n, str::to_string);
@@ -421,6 +425,10 @@ fn activate(
         }
         Ok(crate::script::ByHand::Choices) => {
             info!("activate 0x{:08X} {} ({}): the perks' choice list opened", t.form_id, t.name, t.action.label());
+            return;
+        }
+        Ok(crate::script::ByHand::Refused) => {
+            info!("activate 0x{:08X} {}: destroyed, it cannot be activated", t.form_id, t.name);
             return;
         }
         Ok(crate::script::ByHand::Greeted) => {
