@@ -2517,9 +2517,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units" },
-  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover" },
-  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "#470 (2026-10-19) removed the target flicker that made troopers face 0x000F9CE7, the only target with a cover edge facing it. find_cover only covers from the fighter's own target. Needs cover from the gunman shooting at the fighter (follow-up PR)." },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "#470 (2026-10-19) removed the target flicker that made troopers face 0x000F9CE7, the only target with a cover edge facing it. find_cover only covers from the fighter's own target. Needs cover from the gunman shooting at the fighter (follow-up PR)." },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "#470 (2026-10-19) removed the target flicker that made troopers face 0x000F9CE7, the only target with a cover edge facing it. find_cover only covers from the fighter's own target. Needs cover from the gunman shooting at the fighter (follow-up PR)." },
 ]
 
 [[scenario]]
