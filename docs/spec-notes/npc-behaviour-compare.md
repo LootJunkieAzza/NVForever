@@ -390,6 +390,13 @@ his flamer. What is left: the last trooper dies some 40 s sooner than the origin
 our Fiends live longer (17–52 s against the original's three dead within 8 s); one run
 each, so the spread is not known.
 
+The rule for damage between NPCs, and an offline check against the records'
+values, is in combat-rules.md §18 (2026-10-19). A trooper's Service Rifle does 1.84 to
+2.19 on Cook-Cook, the original's figures. The "under 2" on troopers is mostly burn
+damage, so it is no measure of a Fiend's rifle. The run above still credited
+Cook-Cook's Incinerator bursts to the player, so its trooper figures lack them; fixed
+the same day (combat-rules.md §11).
+
 **Melee against the player, with and without god mode** (inside GSGasStation; a MoveTo to
 the outdoor spot failed, so both are in the same room; 30 s each; "no god mode" is Damage
 Threshold 200 and Health restored every 2 s):

@@ -62,6 +62,35 @@ fn gun_damage_skill_and_dt() {
     assert!(close(d.dealt, 7.5));
 }
 
+/// Hits between NPCs in the original's NCR-Fiend fight (npc-behaviour-compare.md §9,
+/// combat-rules.md §18), with the records' values from FalloutNV.esm: a trooper (Guns
+/// 46) with a Service Rifle (18, crit 18) at 50 % on Cook-Cook (Metal Armor DT 12 +
+/// Raider Arclight Helmet DT 1) did exactly 2.1875, the 20 % floor of 10.9375. The same
+/// rule gives 5.9 on a Fiend (DT 5) and 15.9 for a critical on Cook-Cook. A Fiend (Guns
+/// 63) with a Hunting Rifle (52) at 45 % on a trooper (NCR Face Wrap Armor DT 10 at 35 %
+/// and Trooper Helmet DT 2) does 23.4.
+#[test]
+fn npc_against_npc_hits_of_the_originals_fight() {
+    let rifle = |base: i32, crit: u32| WeaponStats { base_damage: base, crit_damage: crit, anim_type: Some("Rifle - Automatic (2 Hand)".into()), ..gun(base) };
+    let shot = |w: &WeaponStats, skill: f32, condition: f32, dt: f32, roll: f32| {
+        let h = HitInput { weapon: w, projectiles: 1, condition, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
+        let a = Attacker { skill, ..Attacker::default() };
+        damage::hit(&Rules::defaults(), &CombatTuning::default(), &h, &a, &Target { dt, ..Target::default() }, &NoPerks, &NoPerks, roll)
+    };
+    let service = rifle(18, 18);
+    let d = shot(&service, 46.0, 0.5, 13.0, 0.99);
+    // The original's 10.9375 and 2.1875 to within 0.002 (its condition penalty was
+    // measured to three places).
+    let near = |a: f32, b: f32| (a - b).abs() < 0.002;
+    assert!(near(d.raw, 10.9375) && near(d.dealt, 2.1875), "{d:?}");
+    assert!(near(shot(&service, 46.0, 0.5, 5.0, 0.99).dealt, 5.9375));
+    let crit = shot(&service, 46.0, 0.5, 13.0, 0.0);
+    assert!(crit.critical && near(crit.dealt, 15.9375), "{crit:?}");
+    let trooper_dt = 10.0 * fnv_combat::condition::armor_mult(0.35) + 2.0;
+    let d = shot(&rifle(52, 52), 63.0, 0.45, trooper_dt, 0.99);
+    assert!((d.dealt - 23.36).abs() < 0.01, "{d:?}");
+}
+
 #[test]
 fn shotgun_damage_is_shared() {
     let d = hit(&gun(100), 14, &skilled(), &Target::default(), &[], HitPart::default(), 0.99);

@@ -145,8 +145,22 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   Health, a flamer) kills all four by 89–99 s. Hit rates are alike (0.28–0.49 a shot in
   the original); but a hit does two to fifteen times the original's damage in ours (a
   median 6.2 on Cook-Cook against 2.0; 22–30 a Fiend's shot on a trooper against under 2),
-  measured with smoke `battle-ncr-fiends-four`'s `npc hits summary`. The damage between
-  NPCs (threshold, resistance, the NPC formula) is the next thing to look at.
+  measured with smoke `battle-ncr-fiends-four`'s `npc hits summary`. **Settled**
+  (2026-10-19, combat-rules.md §18). PR #475 fixed the causes: worn leveled items, the
+  documented condition penalties, no NPC armour wear and NPC Health. Ours now gives
+  Cook-Cook a median 1.9 a hit against 2.0 and he wins, as in the original. Offline
+  (`fnvtool combat damage` with the records' values), a trooper's Service Rifle does
+  1.84–2.19 on Cook-Cook, the original's figures.
+  - Blasts were all credited to the player until the same day (combat-rules.md §11):
+    an NPC's Incinerator burst on a trooper gave the player XP, ran OnHit with the
+    player as the attacker, and was missing from `npc hits summary`. They are now
+    their shooter's.
+  - Left:
+    - the last trooper dies some 40 s sooner than in the original;
+    - NPC weapons do not wear from firing (the original's Incinerator lost 2.19 a shot,
+      not explained by `fDamageToWeaponValue`);
+    - the original's hits split by attacker, to check the Hunting Rifle's 22 a hit on a
+      trooper.
 - Melee attackers keeping away from a god-mode player: not god mode's doing. In the same
   room a knife, a sledgehammer and a dog closed in and swung alike with and without god
   mode (npc-behaviour-compare.md §9), as ours do; the outdoor hold-off is unexplained.
