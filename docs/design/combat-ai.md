@@ -680,6 +680,39 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   back`.
 - Melee fighters and creatures close in as before (§5); they flee by the same rules.
 
+### 12.6.1 Cover from the gunman firing at the fighter (2026-10-19)
+
+Before, a gunman looked for cover only from its own combat target. With the 5 s target
+commitment (§12.6, "Keeping a target") the NCR troopers at the Cook-Cook camp no longer
+turned to LvlFiend3GunVarNV 0x000F9CE7, the only Fiend with a cover edge facing it near
+them, and smoke `combat-cover` saw no cover at all [observed: smoke runs of #470]. Cover
+is meant to hide a fighter from the fire coming at it, not only from the one it aims at
+[design; the original's cover search is not described in the GECK wiki].
+
+- **Whom it hides from** [design]: when it looks for cover (every 2 s while its Take Cover
+  Chance roll says so), a gunman tries, in order, each enemy gunman that is firing at it
+  (an NPC fighter whose target it is and which has opened fire on it), nearest first,
+  then its own target (`combat_tactics::threats`). The first one for which cover is found
+  is the cover's `from` actor (`Cover::from`).
+- **The cover** (`find_cover`): the edge faces the `from` actor, its back hides the
+  fighter's eyes from the `from` actor's chest, and both the `from` actor and its own
+  target are at least 400 units from the edge, the target within its reach as before. The
+  peek point must still see its **own target**: it fires at its target from there, not at
+  the gunman it hides from. Low cover hides its crouched eyes from the `from` actor and
+  lets it see its target standing.
+- **Give-up and peek rules follow it**: the cover is given up when its edge no longer
+  faces the `from` actor (log `gives up its cover: … is no longer behind it` names that
+  actor) or the edge is beyond its reach from its target (§16). Once the `from` gunman
+  stops firing at it (dies, turns to someone else, or is out of the fight), the cover
+  follows its own target: `from` becomes the target and the facing check goes on against
+  it (log `keeps its cover against … : … no longer fires at it`). Peeking and firing are
+  unchanged: it waits at the peek point until it sees its own target.
+- Log: `takes cover … (a peek … from it), hidden from …, who fires at it`; the battle
+  summary counts `… cover taken (… from a gunman firing at it)`.
+- The player firing at an NPC is not counted as a gunman firing at it unless the player is
+  its target (the player is not a combat-AI fighter); cover from the player comes through
+  the target, as before [design].
+
 ### 12.7 Watching fights: the test aids and the summary
 
 - `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<reference>:<marker>[:x:y:z]`: the reference's

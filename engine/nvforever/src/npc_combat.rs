@@ -1016,6 +1016,14 @@ pub(crate) fn fight(
             }
             // Its opponent is in the middle of a blow (the melee decision).
             let under_attack = opp_attacking;
+            // Enemy gunmen firing at it, with their chests: it takes cover from them first
+            // (combat_tactics, §12.6.1).
+            let shooters: Vec<(u32, V3)> = f
+                .fighters
+                .iter()
+                .filter(|(k, x)| **k != id && x.target == me && x.opened_fire && matches!(x.arm, Arm::Gun(_)))
+                .filter_map(|(k, _)| places.get(k).map(|p| (*k, [p.0[0], p.0[1], p.0[2] + (p.1[2] - p.0[2]) * CHEST])))
+                .collect();
             let fighter = f.fighters.get_mut(&id).expect("inserted");
             let temper = fighter.temper;
             // Confidence: once hurt, now and then, would it rather flee? At its flee spot,
@@ -1178,10 +1186,18 @@ pub(crate) fn fight(
                         info!("npc combat: {name} leaves its cover (no cover for the next {:.0} s)", tactics::COVER_EVERY);
                     }
                 }
+                // Cover taken from a gunman that no longer fires at it follows its target.
+                if let Some(cv) = t.cover.as_mut() {
+                    if cv.from != target.0 && !shooters.iter().any(|(k, _)| *k == cv.from) {
+                        info!("npc combat: {name} keeps its cover against {target_name}: {}, whom it hid from, no longer fires at it", tactics::who(g, FormId(cv.from)));
+                        cv.from = target.0;
+                    }
+                }
                 if let Some(cv) = t.cover {
-                    if !cv.edge.faces(tchest) || (cv.edge.mid[0] - tfeet[0]).hypot(cv.edge.mid[1] - tfeet[1]) > want.1 {
+                    let from_chest = shooters.iter().find(|(k, _)| *k == cv.from).map_or(tchest, |(_, p)| *p);
+                    if !cv.edge.faces(from_chest) || (cv.edge.mid[0] - tfeet[0]).hypot(cv.edge.mid[1] - tfeet[1]) > want.1 {
                         t.cover = None;
-                        info!("npc combat: {name} gives up its cover: {target_name} is no longer behind it");
+                        info!("npc combat: {name} gives up its cover: {} is no longer behind it", if cv.from == target.0 { target_name.clone() } else { tactics::who(g, FormId(cv.from)) });
                     } else if range_hold == Some(RangeHold::Far) && !matches!(cv.phase, Phase::Going) {
                         // Out of reach from its cover: it leaves it to close in (§16).
                         t.cover = None;
@@ -1202,14 +1218,22 @@ pub(crate) fn fight(
                             let eye = (eyes[2] - feet[2]) / if crouched_now.contains(&id) { stance::CROUCH_EYE } else { 1.0 };
                             // Its peek point, past the edge, within its reach too (§16).
                             let farthest = (want.1 - tactics::PEEK_STEP).max(want.0);
-                            if let Some(cv) = tactics::find_cover(nav, phys.as_deref_mut(), space, feet, tchest, eye, radius, farthest, &taken, person) {
+                            // From the gunmen firing at it, nearest first, then from its target.
+                            let found = tactics::threats(&shooters, tactics::Threat { actor: target.0, chest: tchest }, feet)
+                                .into_iter()
+                                .find_map(|from| tactics::find_cover(nav, phys.as_deref_mut(), space, feet, from, tchest, eye, radius, farthest, &taken, person));
+                            if let Some(cv) = found {
                                 battle.cover_taken += 1;
+                                if cv.from != target.0 {
+                                    battle.cover_from_shooter += 1;
+                                }
                                 info!(
-                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it)",
+                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}",
                                     if cv.low { "low " } else { "" },
                                     (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
                                     (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
-                                    (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1])
+                                    (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1]),
+                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) }
                                 );
                                 t.cover = Some(cv);
                             }

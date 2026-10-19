@@ -14,6 +14,11 @@
 //!   once it sees it, and goes back behind the cover. Cover another fighter has taken is
 //!   left to it. Cover whose edge no longer faces the target, or too far from it, is
 //!   given up.
+//! - **Cover from the shooter** [design: docs/design/combat-ai.md §12.6.1]: the cover is
+//!   taken against an enemy gunman that is firing at the fighter (the nearest first),
+//!   then against its own target: the edge faces that gunman (`Cover::from`) and hides
+//!   the fighter from it, and the peek point still sees the fighter's own target, at
+//!   which it fires. Once that gunman stops firing at it, the cover follows its target.
 //! - **Flanks** [design, the owner's list 2: "have them work together in order to win"]:
 //!   fighters with guns of one combat group fighting one target, not in cover, spread
 //!   round it: each gets a place at the distance it fights from, turned from the side its
@@ -113,6 +118,25 @@ pub struct Cover {
     /// Low cover: it hides crouched behind it and stands to fire, the peek point where it
     /// hides (docs/design/combat-ai.md §14.2).
     pub low: bool,
+    /// The actor it hides from: a gunman firing at it, or its own target (§12.6.1).
+    pub from: u32,
+}
+
+/// One the cover can be taken against: who, and where its chest is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Threat {
+    pub actor: u32,
+    pub chest: [f32; 3],
+}
+
+/// Whom a fighter takes cover against, in order (§12.6.1): the enemy gunmen firing at
+/// it, nearest first, then its own target. `shooters`: (actor, chest) of those firing at
+/// it; `feet` where it stands.
+pub fn threats(shooters: &[(u32, [f32; 3])], target: Threat, feet: [f32; 3]) -> Vec<Threat> {
+    let mut v: Vec<Threat> = shooters.iter().filter(|(a, _)| *a != target.actor).map(|(actor, chest)| Threat { actor: *actor, chest: *chest }).collect();
+    v.sort_by(|a, b| flat(a.chest, feet).total_cmp(&flat(b.chest, feet)).then(a.actor.cmp(&b.actor)));
+    v.push(target);
+    v
 }
 
 /// One fighter's tactics.
@@ -242,36 +266,40 @@ fn flat(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
-/// Look for cover for a fighter at `feet` against a target whose chest is at `chest`
-/// (module notes): `eye` its eye height, `radius` how far to look, `max_range` how far
-/// from the target it may fight, `taken` places others hold. `crouch`: it can crouch,
-/// so cover that hides only its crouched eyes is low cover it hides behind crouched and
-/// stands up from to fire (docs/design/combat-ai.md §14.2).
+/// Look for cover for a fighter at `feet` against `from` (a gunman firing at it, or its
+/// target) while it fights a target whose chest is at `chest` (module notes): `eye` its
+/// eye height, `radius` how far to look, `max_range` how far from the target it may
+/// fight, `taken` places others hold. The edge faces `from` and its back hides the
+/// fighter from it; the peek point sees the target. `crouch`: it can crouch, so cover
+/// that hides only its crouched eyes is low cover it hides behind crouched and stands up
+/// from to fire (docs/design/combat-ai.md §14.2).
 #[allow(clippy::too_many_arguments)]
-pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space, feet: [f32; 3], chest: [f32; 3], eye: f32, radius: f32, max_range: f32, taken: &[[f32; 3]], crouch: bool) -> Option<Cover> {
-    let sees_from = |phys: &mut Option<&mut PhysState>, at: [f32; 3], eye: f32| crate::detection::clear_sight(phys.as_deref_mut(), [at[0], at[1], at[2] + eye], chest);
-    let sees = |phys: &mut Option<&mut PhysState>, at: [f32; 3]| sees_from(phys, at, eye);
+pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space, feet: [f32; 3], from: Threat, chest: [f32; 3], eye: f32, radius: f32, max_range: f32, taken: &[[f32; 3]], crouch: bool) -> Option<Cover> {
+    let hidden = from.chest;
+    let sees_from = |phys: &mut Option<&mut PhysState>, at: [f32; 3], eye: f32, to: [f32; 3]| crate::detection::clear_sight(phys.as_deref_mut(), [at[0], at[1], at[2] + eye], to);
+    let sees = |phys: &mut Option<&mut PhysState>, at: [f32; 3], to: [f32; 3]| sees_from(phys, at, eye, to);
     let mut low: Option<Cover> = None;
-    for e in nav.cover_edges_near(space, feet, radius).into_iter().filter(|e| e.faces(chest)).take(COVER_CANDIDATES) {
+    for e in nav.cover_edges_near(space, feet, radius).into_iter().filter(|e| e.faces(hidden)).take(COVER_CANDIDATES) {
         let d = flat(e.mid, chest);
-        if !(COVER_MIN_TARGET..=max_range).contains(&d) {
+        if !(COVER_MIN_TARGET..=max_range).contains(&d) || flat(e.mid, hidden) < COVER_MIN_TARGET {
             continue;
         }
         let Some((_, behind)) = nav.nearest(space, e.behind(COVER_STANDOFF), 96.0) else { continue };
         if taken.iter().any(|t| flat(*t, behind) < TAKEN_RADIUS) {
             continue;
         }
-        // Covered: the target cannot be seen from its eyes there. Seen standing but not
-        // crouched: low cover, kept in case no full cover is found.
-        if sees(&mut phys, behind) {
-            if crouch && low.is_none() && !sees_from(&mut phys, behind, eye * crate::combat_stance::CROUCH_EYE) {
-                low = Some(Cover { behind, peek: behind, edge: e, phase: Phase::Going, low: true });
+        // Covered: the one it hides from cannot be seen from its eyes there. Seen
+        // standing but not crouched: low cover, kept in case no full cover is found; it
+        // stands up there to fire, so it must see its target standing.
+        if sees(&mut phys, behind, hidden) {
+            if crouch && low.is_none() && !sees_from(&mut phys, behind, eye * crate::combat_stance::CROUCH_EYE, hidden) && (from.chest == chest || sees(&mut phys, behind, chest)) {
+                low = Some(Cover { behind, peek: behind, edge: e, phase: Phase::Going, low: true, from: from.actor });
             }
             continue;
         }
-        let peek = peek_points(&e).into_iter().filter_map(|p| nav.nearest(space, p, 96.0).map(|x| x.1)).find(|p| sees(&mut phys, *p));
+        let peek = peek_points(&e).into_iter().filter_map(|p| nav.nearest(space, p, 96.0).map(|x| x.1)).find(|p| sees(&mut phys, *p, chest));
         if let Some(peek) = peek {
-            return Some(Cover { behind, peek, edge: e, phase: Phase::Going, low: false });
+            return Some(Cover { behind, peek, edge: e, phase: Phase::Going, low: false, from: from.actor });
         }
     }
     low
@@ -326,6 +354,8 @@ pub struct Battle {
     pub back_to_fight: usize,
     pub boosts: usize,
     pub cover_taken: usize,
+    /// Of those, cover from a gunman firing at the fighter rather than from its target.
+    pub cover_from_shooter: usize,
     pub peeks: usize,
     pub flanks: usize,
     pub sidesteps: usize,
@@ -464,7 +494,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         None => "still going at exit".to_string(),
     };
     info!(
-        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken, {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}",
+        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}",
         b.sides.len(),
         b.line(),
         b.flights.iter().sum::<usize>(),
@@ -475,6 +505,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         b.boosts,
         b.back_to_fight,
         b.cover_taken,
+        b.cover_from_shooter,
         b.peeks,
         b.flanks,
         b.sidesteps,
@@ -524,10 +555,20 @@ mod tests {
     }
 
     #[test]
+    fn cover_is_taken_first_from_the_nearest_gunman_firing_at_the_fighter() {
+        let target = Threat { actor: 9, chest: [2000.0, 0.0, 50.0] };
+        let shooters = [(7, [900.0, 0.0, 50.0]), (8, [500.0, 0.0, 50.0]), (9, [2000.0, 0.0, 50.0])];
+        let order: Vec<u32> = threats(&shooters, target, [0.0, 0.0, 0.0]).iter().map(|t| t.actor).collect();
+        // The target firing at it too comes once, last.
+        assert_eq!(order, [8, 7, 9]);
+        assert_eq!(threats(&[], target, [0.0; 3]), vec![target]);
+    }
+
+    #[test]
     fn only_the_run_to_cover_turns_away_from_the_target() {
         let e = CoverEdge { tri: 0, a: [0.0, 0.0, 0.0], b: [100.0, 0.0, 0.0], mid: [50.0, 0.0, 0.0], out: [0.0, 1.0] };
         let (behind, peek) = ([50.0, -40.0, 0.0], [214.0, -40.0, 0.0]);
-        let at = |phase| cover_post(&Cover { behind, peek, edge: e, phase, low: false });
+        let at = |phase| cover_post(&Cover { behind, peek, edge: e, phase, low: false, from: 1 });
         assert_eq!(at(Phase::Going), (behind, PostKind::Cover));
         // Back behind it from the peek point, and out again: facing the target, strafing.
         assert_eq!(at(Phase::Hiding { until: 1.0 }), (behind, PostKind::Duck));
