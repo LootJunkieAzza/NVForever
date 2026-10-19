@@ -184,8 +184,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 /// The perks' choice list as a box: the target's name, the choices' labels, then the
 /// default action (Search on a corpse, else Talk) [design: fnv_game::activate_choices].
 pub fn activate_panel(g: &fnv_game::Game, sim: &SimState, m: &fnv_game::activate_choices::ActivateMenu) -> PanelView {
-    let base = sim.base_of(m.target.0).unwrap_or(m.target);
-    let name = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(m.target));
+    let name = sim.ref_name(Some(g), m.target.0).map(str::to_string).unwrap_or_else(|| g.data.name(m.target));
     let default = if g.is_dead(m.target) { "Search" } else { "Talk" };
     let mut buttons: Vec<String> = m.choices.iter().map(|c| c.label.clone()).collect();
     buttons.push(default.into());
@@ -236,8 +235,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
         let i = crate::voice::speech_response(g, sim, s);
         let Some(text) = texts.get(i).or_else(|| texts.last()) else { continue };
-        let base = sim.base_of(s.speaker.0).unwrap_or(s.speaker);
-        let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
+        let who = sim.ref_name(Some(g), s.speaker.0).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         let text = crate::dialogue::shown_text(text);
         if text.is_empty() {
             continue;

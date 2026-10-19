@@ -50,11 +50,14 @@ impl SimState {
     /// source's ([`fnv_game::GameData::display_base`]: an actor placed from a template
     /// actor with no name of its own shows the name of the actor its template, through a
     /// leveled list, leads to; owner's playtest list 4, item 20); otherwise, and without
-    /// the game data, its base form's ([`SimState::name`]).
-    pub fn ref_name(&self, data: Option<&fnv_game::GameData>, form_id: u32) -> Option<&str> {
+    /// the game data, its base form's ([`SimState::name`]). A name a script gave the base
+    /// (SetActorFullName, [`fnv_game::Game::script_name`]) comes first: it renames every
+    /// reference of the base [documented: GECK wiki SetActorFullName].
+    pub fn ref_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
         let base = self.base_of(form_id)?;
-        let shown = data.map_or(base, |d| d.display_base(base, FormId(form_id)));
-        self.name(shown).or_else(|| self.name(base))
+        let shown = game.map_or(base, |g| g.data.display_base(base, FormId(form_id)));
+        let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
+        renamed.or_else(|| self.name(shown)).or_else(|| self.name(base))
     }
 
     /// A placed reference's pose in the simulation (position, Euler angles in radians)

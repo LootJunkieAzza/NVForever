@@ -379,7 +379,7 @@ what writes it now).
 | ModPCMiscStat | 0x1137 | 6/0 | writes | — | matches |  |
 | ModWeaponHealthPerc | 0x11F6 | 8/- | equipped weapon | equipped weapon (now set for NPCs) | fixed here | As GetWeaponHealthPerc. |
 | MoveTo | 0x109E | 1463/- | writes `w.{cell,pos,rot}`, `teleported` | rules → `Game::teleported`, `Game::turned` for objects, Moved event | fixed here | A drawn non-actor object moved by MoveTo was not redrawn; it now is, as after SetPos. |
-| MoveToMarkerWithFade | 0x124F | 272/- | as MoveTo | as MoveTo | fixed here | As MoveTo; the fade is presentation. |
+| MoveToMarkerWithFade | 0x124F | 272/- | deferred move | fade | fixed here | Fade out, move after FADE_OUT_HOLD, fade in (2026-10-19); the player moves at once. |
 | OpenTeammateContainer | 0x11C8 | 26/- | `teammate_containers` | rules / menu.rs:98 | matches |  |
 | PickIdle | 0x1064 | 2/0 | stub | — | stub |  |
 | PipBoyRadio | 0x11A7 | 6/- | `radio.pipboy` | rules / radio.rs | matches |  |
@@ -442,7 +442,7 @@ what writes it now).
 | SetCellOwnership | 0x1119 | 18/- | `forms.cell_owners` | rules | matches |  |
 | SetCellPublicFlag | 0x10BB | 12/- | `forms.public_cells` | rules | matches |  |
 | SetCombatStyle | 0x10B1 | 92/ | `extra.combat_style` | rules | matches |  |
-| SetCriticalStage | 0x1212 | 7/- | writes `x.critical_stage` | rules | matches | Effects (ragdoll/cull) not built. |
+| SetCriticalStage | 0x1212 | 7/- | writes `x.critical_stage` | rules | matches | GooEnd / DisintegrateEnd cull (engine hides, no hit volume or ragdoll), 2026-10-19; Start stages' ragdoll changes not built. |
 | SetDestroyed | 0x10CC | 517/- | writes `x.destroyed` | rules / engine reads (radio.rs:760, activators.rs:83) | matches |  |
 | SetDisposition | 0x1184 | 2/0 | stub | — | fixed round 2 (2026-10-17) | Was a stub; GetDisposition reads the value [observed: 20 after SetDisposition player 20]. |
 | SetEnemy | 0x1078 | 478/ | `forms.faction_reactions` | rules | matches |  |

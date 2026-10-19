@@ -303,6 +303,9 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                             out.push(ScriptEffect::Travel(Travel { world, interior, feet, heading_deg }))
                         }
                         Effect::OpenContainer(c) if *by == player => out.push(ScriptEffect::OpenContainer(c)),
+                        // A pickup's "added" line comes from its ItemAdded event
+                        // (`Game::default_activation` emits both), not twice.
+                        Effect::Message(_) if matches!(a.outcome, Outcome::PickedUp { .. }) => {}
                         Effect::Message(m) if *by == player => out.push(ScriptEffect::Notify(m.into())),
                         _ => {}
                     }
@@ -333,7 +336,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                 }
                 out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: false }])));
             }
-            EventKind::ObjectiveCompleted { quest, index, on: true } => {
+            EventKind::ObjectiveCompleted { quest, index, on: true, silent: false } => {
                 if let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) {
                     out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: true }])));
                 }
@@ -890,7 +893,7 @@ mod tests {
             EventKind::MessageShown { message: FormId(0xBB), text: Some("Old World Blues has been loaded.".into()), buttons: vec![], hidden: vec![] },
             EventKind::MessageShown { message: FormId(0xCC), text: Some("Hardcore?".into()), buttons: vec!["No".into(), "Yes".into()], hidden: vec![] },
             EventKind::ObjectiveDisplayed { quest: QUEST, index: 30, on: true },
-            EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true },
+            EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true, silent: false },
             EventKind::ObjectiveDisplayed { quest: QUEST, index: 40, on: false },
             EventKind::QuestCompleted { quest: QUEST },
             EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 5, silent: false },
@@ -940,6 +943,23 @@ mod tests {
         // Shown again later, with 10 listed before: no "Quest added".
         let e = run(vec![EventKind::ObjectiveDisplayed { quest: QUEST, index: 35, on: true }, EventKind::QuestFailed { quest: QUEST }]);
         assert_eq!(e, vec![objective("Follow Sunny.", false), ScriptEffect::Quest(QuestNotice::Failed("Back in the Saddle".into()))]);
+    }
+
+    #[test]
+    fn scripted_pickup_says_added_once() {
+        let pick = Activation { outcome: Outcome::PickedUp { item: FormId(0x15169), count: 1, owner: None }, unlocked_with: None, script: None };
+        let events = vec![
+            ev(EventKind::Activated { reference: FormId(0x55), by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&pick).unwrap()) }),
+            ev(EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x15169), count: 1, silent: false }),
+        ];
+        let lines = effects(&events, &BTreeSet::new(), &Fake).into_iter().filter(|e| matches!(e, ScriptEffect::Notify(_))).count();
+        assert_eq!(lines, 1);
+    }
+
+    #[test]
+    fn hidden_or_late_objectives_say_nothing() {
+        let e = effects(&[ev(EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true, silent: true })], &BTreeSet::new(), &Fake);
+        assert_eq!(e, vec![]);
     }
 
     #[test]
