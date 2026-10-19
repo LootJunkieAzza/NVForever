@@ -75,12 +75,25 @@ From the screenshots [observed] and the in-game help `HelpCaravanBetting` [docum
   Raise adds a tenth of the bid (at least 1) up to one and a half times the bid [design:
   the fandom wiki says opponents raise to about half again their bid; the step is
   NVForever's]. An opponent with nothing to bid plays for nothing (Accept at 0) [design].
-- Only caps are bet [hypothesis: the help and the wiki let NCR dollars and Legion coins
-  count too, at their value; not built].
+- Caps, NCR dollars and Legion coins are bet (§3.1).
 - The pot is twice the ante. The player's ante is taken at Accept; the winner gets the
   pot, so the opponent's ante leaves its caps (merchant container first) when the player
   wins, and the player's stays with the opponent when the player loses [owner ruling
   2026-10-19: "you get caps paid out"; the order is a design choice].
+
+### 3.1 Other currencies (2026-10-19)
+
+- [documented: `HelpCaravanBetting` (MESG 0x00000186): players "are allowed to use any
+  common currency available", "bottle caps are common, players may also offer NCR dollars
+  or Legion coins"] Each side's funds ("Total Funds" for the player, the bid's base for the
+  opponent) are its caps plus its NCR dollars and Legion coins at their records' value: the
+  FalloutNV.esm MISC records NCRMoney5 ($5 NCR), NCRMoney20, NCRMoney100, LegionMoney1
+  (Legion Denarius) and LegionMoney25 (Legion Aureus) [documented: the records; the
+  mangled denarius is not money]. The opponent's count its merchant container's too.
+- [design] An ante is paid in caps first, then in notes and coins from the least valued
+  up, as many as the rest needs; the last one's overpay comes back as change in caps. The
+  pot is paid out in caps. Log: `caravan: the player's ante <n> paid with <c> caps, <k> x
+  $20 NCR (change <m> caps)`, and the same for the opponent's ante when the player wins.
 
 ## 4. Building the deck (second screen)
 
@@ -171,7 +184,6 @@ Misc statistics: Caravan Games Won and Caravan Games Lost are counted (misc-stat
 
 ## 8. Not built
 
-- Bets in NCR dollars and Legion coins (§3).
 - The original's 3D table, its card models and its dealing sequences (the menu is drawn
   flat from the same textures).
 - The Caravan challenges (NVChallengeCaravanWin, …Lost, …Master).

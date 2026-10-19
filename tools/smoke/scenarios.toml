@@ -5220,6 +5220,21 @@ expect = [
 forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]
 
 [[scenario]]
+name = "caravan-currency"
+source = "docs/spec-notes/caravan.md §3.1 (HelpCaravanBetting: NCR dollars and Legion coins may be bet): with 10 caps and ten $20 NCR notes the player's funds count the notes at their value; Auto Match against Ringo's bid, and Play Caravan pays the ante with the caps and then the notes, the change in caps; then the player forfeits"
+areas = ["caravan", "menus"]
+paths = ["engine/nvf-play/src/caravan.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "13:player.additem 0013A4D7 10;13.5:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:10,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,26:forfeit,26.5:forfeit,29:continue" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 32
+expect = [
+  { re = 'caravan: open against Ringo .*the player has (?P<n>\d+) caps \(10 in caps, [1-9]\d* in NCR dollars and Legion coins\)', range = [11, 100000], label = "the notes count in the player's funds" },
+  { re = '''caravan: the player's ante [1-9]\d* paid with 10 caps, [1-9]\d* x \$20 NCR''', label = "the ante paid with the caps, then the notes" },
+  { text = "caravan: game over:", label = "the game ends (forfeit)" },
+]
+order = [["caravan: bet accepted: ante", "caravan: the player's ante", "caravan: game over:"]]
+
+[[scenario]]
 name = "caravan"
 source = "docs/spec-notes/caravan.md: ShowCaravanMenu against Ringo with his deck (as his dialogue line) is refused with no cards; given his deck's 30 cards the bet opens with its help, Auto Match and Accept, the deck builder's random deck of 30, then the game plays out by itself (the player's side by the opponent's rules) to a winner, the pot settles and the results close"
 areas = ["caravan", "menus"]

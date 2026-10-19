@@ -7,6 +7,11 @@
 //! - The ante is taken from the player's caps when the game starts (Play Caravan); the
 //!   winner gets the pot (caravan.md §3). Leaving before then costs nothing; Cancel during
 //!   the game forfeits (pressed twice).
+//! - Bets in any currency (caravan.md §3.1, 2026-10-19) [documented: `HelpCaravanBetting`,
+//!   "players may also offer NCR dollars or Legion coins"]: each side's funds are its caps
+//!   and its NCR dollars and Legion coins at their records' value ([`CURRENCY`]); an ante
+//!   is paid in caps first, then in notes and coins from the least valued up, the change
+//!   of the last one given back in caps ([`pay_plan`]) [design]. The pot is paid in caps.
 //! - The help messages come up once each, over the screen they explain.
 //! - It is a `PlayState::Menu`: the world and the game clock stand still.
 //!
@@ -382,12 +387,125 @@ fn seed(opponent: FormId, now: f32) -> u64 {
     t ^ ((opponent.0 as u64) << 20) ^ now.to_bits() as u64
 }
 
-/// The caps an actor can bet: its own and its merchant container's (caravan.md §3).
+/// The currencies other than caps a bet may use [documented: `HelpCaravanBetting`; the
+/// FalloutNV.esm MISC records NCRMoney5, NCRMoney20, NCRMoney100, LegionMoney1 (Legion
+/// Denarius) and LegionMoney25 (Legion Aureus); the mangled denarius is no currency].
+pub const CURRENCY: [FormId; 5] = [FormId(0x0013_A4D6), FormId(0x0013_A4D7), FormId(0x0013_A4D8), FormId(0x0013_7B9D), FormId(0x0013_A4D9)];
+
+/// What one side holds to bet: its caps, and each currency it carries as (item, count,
+/// value in caps).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Purse {
+    pub caps: u32,
+    pub notes: Vec<(FormId, u32, u32)>,
+}
+
+impl Purse {
+    /// Caps and the notes' and coins' worth.
+    pub fn worth(&self) -> u32 {
+        self.caps.saturating_add(self.notes.iter().map(|&(_, n, v)| n.saturating_mul(v)).sum::<u32>())
+    }
+}
+
+/// How an amount is paid from a purse (module notes).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Payment {
+    pub caps: u32,
+    pub notes: Vec<(FormId, u32)>,
+    /// Caps given back for the last note's or coin's overpay.
+    pub change: u32,
+    /// What could not be paid (the purse was short).
+    pub short: u32,
+}
+
+/// Pay `amount` from `purse`: caps first, then notes and coins from the least valued up,
+/// as many of each as the rest needs; the overpay of the last comes back as change.
+pub fn pay_plan(purse: &Purse, amount: u32) -> Payment {
+    let caps = purse.caps.min(amount);
+    let mut rest = amount - caps;
+    let mut notes: Vec<(FormId, u32, u32)> = purse.notes.iter().filter(|n| n.1 > 0 && n.2 > 0).copied().collect();
+    notes.sort_by_key(|&(id, _, v)| (v, id.0));
+    let mut out = Payment { caps, ..Default::default() };
+    for (id, count, value) in notes {
+        if rest == 0 {
+            break;
+        }
+        let n = count.min(rest.div_ceil(value));
+        out.notes.push((id, n));
+        let paid = n * value;
+        if paid >= rest {
+            out.change = paid - rest;
+            rest = 0;
+        } else {
+            rest -= paid;
+        }
+    }
+    out.short = rest;
+    out
+}
+
+/// The caps and currency of `holders` (an actor and its merchant container) [hypothesis:
+/// the container's as barter counts it, menu/model.rs `Trade::stock`].
+fn purse_of(world: &mut fnv_sim::World<'_>, forms: &fnv_sim::forms::FormStore, holders: &[FormId]) -> Purse {
+    let mut count = |h: FormId, i: FormId| world.item_count(h, i).unwrap_or(0).max(0) as u32;
+    let caps = holders.iter().map(|&h| count(h, CAPS)).sum();
+    let mut notes = Vec::new();
+    for c in CURRENCY {
+        let n: u32 = holders.iter().map(|&h| count(h, c)).sum();
+        let v = forms.item(c).and_then(|it| it.value).unwrap_or(0).max(0) as u32;
+        if n > 0 && v > 0 {
+            notes.push((c, n, v));
+        }
+    }
+    Purse { caps, notes }
+}
+
+/// Take `amount` from `holders` (in that order) by [`pay_plan`]; the change goes to the
+/// first. Returns the payment for the log.
+fn pay(world: &mut fnv_sim::World<'_>, forms: &fnv_sim::forms::FormStore, holders: &[FormId], amount: u32) -> Payment {
+    let plan = pay_plan(&purse_of(world, forms, holders), amount);
+    let mut take = |item: FormId, mut n: u32| {
+        for &h in holders {
+            let have = world.item_count(h, item).unwrap_or(0).max(0) as u32;
+            let k = have.min(n);
+            if k > 0 {
+                let _ = world.remove_item(h, item, k as i32);
+                n -= k;
+            }
+        }
+    };
+    take(CAPS, plan.caps);
+    for &(id, n) in &plan.notes {
+        take(id, n);
+    }
+    if plan.change > 0 {
+        if let Some(&first) = holders.first() {
+            let _ = world.add_item(first, CAPS, plan.change as i32);
+        }
+    }
+    plan
+}
+
+/// A payment for the log: "54 caps", "18 caps, 3 x 0x0013A4D7 (change 2 caps)".
+fn payment_text(p: &Payment, forms: &fnv_sim::forms::FormStore) -> String {
+    let mut parts = vec![format!("{} caps", p.caps)];
+    parts.extend(p.notes.iter().map(|&(id, n)| format!("{n} x {}", crate::menu::model::display_name(forms, id))));
+    let mut t = parts.join(", ");
+    if p.change > 0 {
+        t.push_str(&format!(" (change {} caps)", p.change));
+    }
+    if p.short > 0 {
+        t.push_str(&format!(" ({} short)", p.short));
+    }
+    t
+}
+
+/// The caps and currency an actor can bet: its own and its merchant container's
+/// (caravan.md §3).
 fn caps_of(sim: &mut SimState, actor: FormId) -> (u32, Option<FormId>) {
-    let own = sim.world.item_count(actor, CAPS).unwrap_or(0).max(0) as u32;
     let stock = sim.refs.get(actor).and_then(|p| p.merchant_container);
-    let kept = stock.map_or(0, |c| sim.world.item_count(c, CAPS).unwrap_or(0).max(0) as u32);
-    (own + kept, stock)
+    let holders: Vec<FormId> = std::iter::once(actor).chain(stock).collect();
+    (purse_of(&mut sim.world, sim.forms, &holders).worth(), stock)
 }
 
 /// The line shown when the menu does not open [hypothesis: the words are NVForever's].
@@ -440,7 +558,9 @@ fn open(
     let skill = rules::skill(&opponent_deck);
     let base = sim.world.get(r.opponent).map(|s| s.base).unwrap_or(r.opponent);
     let opponent_name = sim.name(base).or_else(|| sim.name(r.opponent)).unwrap_or("Opponent").to_string();
-    let funds = sim.world.item_count(FormId::PLAYER_REF, CAPS).unwrap_or(0).max(0) as u32;
+    let forms = sim.forms;
+    let purse = purse_of(&mut sim.world, forms, &[FormId::PLAYER_REF]);
+    let funds = purse.worth();
     let (opponent_funds, _) = caps_of(&mut sim, r.opponent);
     let bet = Bet::new(funds, opponent_funds, r.max_bet_share);
     let mut textures = HashMap::new();
@@ -452,7 +572,7 @@ fn open(
     let deck = rules::saved_deck(&rt.game);
     let record = rt.game.player.caravan.records.get(&r.opponent).copied().unwrap_or_default();
     info!(
-        "caravan: open against {opponent_name} ({}): deck {:?} ({}, {} cards, skill {skill:.2}, difficulty {} not used), bid {} of {opponent_funds} caps at {:.2}; the player has {funds} caps, {} cards owned, a saved deck of {}",
+        "caravan: open against {opponent_name} ({}): deck {:?} ({}, {} cards, skill {skill:.2}, difficulty {} not used), bid {} of {opponent_funds} caps at {:.2}; the player has {funds} caps ({} in caps, {} in NCR dollars and Legion coins), {} cards owned, a saved deck of {}",
         r.opponent,
         deck_def.name,
         r.deck,
@@ -460,6 +580,8 @@ fn open(
         r.difficulty,
         bet.bid,
         r.max_bet_share,
+        purse.caps,
+        funds - purse.caps,
         owned.len(),
         deck.len()
     );
@@ -708,9 +830,9 @@ fn apply(
 fn start_game(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, now: f32, bindings: &crate::bindings::Bindings) {
     rt.game.player.caravan.deck = s.deck.clone();
     let ante = s.bet.ante;
-    with_world(rt, sim, |rt| {
-        let _ = rt.game.world.remove_item(FormId::PLAYER_REF, CAPS, ante as i32);
-    });
+    let forms = sim.forms;
+    let paid = with_world(rt, sim, |rt| pay(&mut rt.game.world, forms, &[FormId::PLAYER_REF], ante));
+    info!("caravan: the player's ante {ante} paid with {}", payment_text(&paid, forms));
     s.staked = true;
     let player = rules::cards_of(&rt.game, &s.deck);
     let game = Game::new(player, s.opponent_deck.clone(), &mut s.rng);
@@ -895,23 +1017,22 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
     let ante = s.bet.ante;
     let (_, stock) = caps_of(sim, s.opponent);
     let opponent = s.opponent;
-    with_world(rt, sim, |rt| {
+    let forms = sim.forms;
+    let paid = with_world(rt, sim, |rt| {
         let w = &mut rt.game.world;
         if winner == PLAYER {
             let _ = w.add_item(FormId::PLAYER_REF, CAPS, (ante * 2) as i32);
-            let mut owed = ante as i32;
-            for holder in stock.into_iter().chain(std::iter::once(opponent)) {
-                let have = w.item_count(holder, CAPS).unwrap_or(0).max(0);
-                let take = have.min(owed);
-                if take > 0 {
-                    let _ = w.remove_item(holder, CAPS, take);
-                    owed -= take;
-                }
-            }
+            // The opponent's ante: its merchant container's first, then its own.
+            let holders: Vec<FormId> = stock.into_iter().chain(std::iter::once(opponent)).collect();
+            Some(pay(w, forms, &holders, ante))
         } else {
             let _ = w.add_item(stock.unwrap_or(opponent), CAPS, ante as i32);
+            None
         }
     });
+    if let Some(p) = paid {
+        info!("caravan: the opponent's ante {ante} paid with {}", payment_text(&p, forms));
+    }
     let mut record = rt.game.player.caravan.records.get(&opponent).copied().unwrap_or_default();
     if winner == PLAYER {
         record.won += 1;
@@ -1022,6 +1143,23 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CaravanStats>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ante_is_paid_in_caps_then_the_least_valued_notes() {
+        let (ncr5, ncr20, aureus) = (FormId(1), FormId(2), FormId(3));
+        let purse = Purse { caps: 10, notes: vec![(ncr20, 3, 8), (ncr5, 2, 2), (aureus, 1, 100)] };
+        assert_eq!(purse.worth(), 10 + 24 + 4 + 100);
+        // Caps cover it.
+        assert_eq!(pay_plan(&purse, 7), Payment { caps: 7, ..Default::default() });
+        // 10 caps, both $5 notes (4), then one $20 note (8) for the last 1: change 7.
+        assert_eq!(pay_plan(&purse, 15), Payment { caps: 10, notes: vec![(ncr5, 2), (ncr20, 1)], change: 7, short: 0 });
+        // Everything but the aureus, then the aureus.
+        let p = pay_plan(&purse, 50);
+        assert_eq!(p.notes, vec![(ncr5, 2), (ncr20, 3), (aureus, 1)]);
+        assert_eq!((p.change, p.short), (100 - 12, 0));
+        // More than the purse holds.
+        assert_eq!(pay_plan(&Purse { caps: 3, notes: vec![] }, 5).short, 2);
+    }
 
     #[test]
     fn the_aid_reads_its_steps() {

@@ -6378,3 +6378,13 @@ docs/spec-notes/crafting.md §3.
   menu file only says there is an effects card. *Check:* where your game shows it.
 - **Items Crafted** goes up by the number of makings (four Antivenom from two makings
   count 2).
+
+## Caravan bets in NCR dollars and Legion coins (2026-10-19, branch claude/caravan-currency)
+
+docs/spec-notes/caravan.md §3.1. The game's own help says any currency may be bet; how it
+is counted and paid is NVForever's design:
+- **Worth**: notes and coins count at their records' value in caps.
+- **Paying**: caps first, then the least valued notes and coins; the overpay of the last
+  one comes back as caps. *Check:* whether your game takes notes before caps, or gives
+  them back after a win.
+- **The pot is paid in caps**, whatever the ante was paid in.
