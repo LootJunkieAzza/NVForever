@@ -194,18 +194,21 @@ pub fn get_weapon_health_perc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 /// (one of the stack); with a container, a copy goes there. It acts like a return
 /// [documented: catalogue summary and notes of RemoveMe]. The item's script instance is
 /// dropped when the holder has none of the item left (a later copy starts fresh
-/// [hypothesis: a copy does not keep the variables, catalogue notes]).
+/// [hypothesis: a copy does not keep the variables, catalogue notes]). No "removed" line
+/// shows [documented: GECK wiki RemoveMe, "does not display the "xxx has been removed."
+/// message"; 88 of the shipped calls are in `OnAdd player` blocks]; nor an "added" line
+/// for the copy [hypothesis: one silent move; capture asked].
 pub fn remove_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let Some(key @ InstKey::Item { holder, item }) = ctx.inst else {
         return Err("RemoveMe outside the script of an inventory item".into());
     };
     let n = g.world.remove_item(holder, item, 1).map_err(|e| e.to_string())?;
     if n > 0 {
-        g.emit(EventKind::ItemRemoved { from: holder, item, count: n, silent: false });
+        g.emit(EventKind::ItemRemoved { from: holder, item, count: n, silent: true });
     }
     if let Some(to) = a.opt_form(0) {
         for (i, c) in g.world.add_item(to, item, 1).map_err(|e| e.to_string())? {
-            g.emit(EventKind::ItemAdded { to, item: i, count: c, silent: false });
+            g.emit(EventKind::ItemAdded { to, item: i, count: c, silent: true });
         }
     }
     if g.world.item_count(holder, item).unwrap_or(0) == 0 {
@@ -293,16 +296,21 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
 
 /// `container.AddItemHealthPercent item count health [hidden]`: AddItem with the items
 /// at that condition (a fraction, 0.85 for 85%) [documented: catalogue notes]. A
-/// leveled list resolves as AddItem and keeps its own condition [hypothesis].
+/// leveled list resolves as AddItem, its items at the given condition rather than the
+/// list's own (`World::add_item_at_condition`).
 pub fn add_item_health_percent(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let to = ctx.subject()?;
     let item = a.form(0)?;
     let count = a.int(1)?;
     let health = a.num(2)?.clamp(0.0, 1.0) as f32;
     if g.world.forms.leveled(item).is_some() {
-        let mut args = a.0[..2].to_vec();
-        args.extend(a.get(3).cloned());
-        return add_item(g, ctx, &Args(&args));
+        let silent = hide_flag(a, 3);
+        let added = g.world.add_item_at_condition(to, item, count, (health < 1.0).then_some(health)).map_err(|e| e.to_string())?;
+        for (i, n) in added {
+            g.emit(EventKind::ItemAdded { to, item: i, count: n, silent });
+            g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));
+        }
+        return none();
     }
     let extra = Extra { condition: (health < 1.0).then_some(health), ..Extra::default() };
     g.world.add_item_extra(to, item, count, extra).map_err(|e| e.to_string())?;
@@ -331,11 +339,12 @@ pub fn mod_weapon_health_perc(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     none()
 }
 
-/// `actor.SetWeaponHealthPerc percent` (the 99.83% cap the catalogue reports is an
-/// original-engine quirk, not reproduced without a lab case).
+/// `actor.SetWeaponHealthPerc percent`: the equipped weapon's condition.
 pub fn set_weapon_health_perc(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
-    let v = a.num(0)? as f32 / 100.0;
+    // Never above 99.83 % [documented: GECK wiki SetWeaponHealthPerc, "hardcoded not to
+    // increase condition beyond 99.83%"].
+    let v = (a.num(0)? as f32 / 100.0).min(0.9983);
     set_weapon_condition(g, actor, |_| v)?;
     none()
 }

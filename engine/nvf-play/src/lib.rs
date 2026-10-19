@@ -37,6 +37,7 @@ pub mod dropped;
 pub mod fade;
 pub mod flashlight;
 pub mod free_cam;
+pub mod game_start;
 pub mod furniture;
 pub mod hitvol;
 pub mod interface;

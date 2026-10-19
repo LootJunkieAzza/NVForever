@@ -6431,3 +6431,17 @@ and the VNPCFollowers command lines. Guesses to check:
 - **Look**: the lit slice at 0.3 of the amber, the matte darkening the world to 0.8 inside
   the wheel (fitted by eye to your screenshots); the arrow from the hub towards the picked
   slice and the blur behind the wheel are not drawn.
+## Script function audit, second round (2026-10-19, branch claude/script-param-audit)
+
+docs/design/script-function-audit-2026-10-19.md. Each was fixed from the GECK wiki; these
+parts are guesses. Captures asked of the observer session are in its §3.
+- **RemoveMe to a container** shows no "added" line either. *Check:* a `RemoveMe player`.
+- **SetDestroyed** also switches off terminals and talking activators (the wiki names doors
+  and activators). NPCs still walk through destroyed doors on their way.
+- **SetGhost**: melee blows pass through a ghost as shots do; enemies ignore a ghosted
+  player too (they can still hurt them, as the wiki says).
+- **MoveToMarkerWithFade** fades out over 2 s, as `Disable 1`; the player moves at once.
+- **SetCriticalStage GooEnd/DisintegrateEnd** hides the body but leaves it enabled.
+- **SetFactionRank** below −1 reads −1; **EnableFastTravel**: any kept ban ignores a later
+  ban without keep (the wiki shows only `0 0 1` then `0 0 0`).
+- **SetUnconscious 1 on a corpse** brings it back lying unconscious.

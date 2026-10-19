@@ -37,7 +37,8 @@
 //!   them with StartConversation. The dialogue screen reads `Game::dialogue` and acts on
 //!   it between ticks through [`Runtime::player_action`].
 //! - `--new-game` ([`NewGame`]): the opening starts as the New Game menu starts it (VCG00
-//!   at stage 0, [`Runtime::start_opening`]); the player starts at
+//!   at stage 0, or the INI's `sCharGenQuest`, [`Runtime::start_opening`],
+//!   `crate::game_start`); the player starts at
 //!   `VCG01PlayerStartMarkerREF` ([`new_game_start`]).
 //! - `DisablePlayerControls` / `EnablePlayerControls` hold the player: after each frame's
 //!   scripts the runtime's seven flags go to `control::ControlLocks` ([`sync_locks`]),
@@ -93,6 +94,7 @@ use fnv_game::{Game, GameConfig, GameData, InstKey};
 use fnv_script::vm::{ArgValue, Value};
 use fnv_script::FunctionTable;
 use fnv_sim::world::{Activation, Outcome};
+use crate::game_start::GameStart;
 use fnv_sim::{FormId, RefTable, World};
 use fnv_world::WorldIndex;
 use std::collections::{BTreeSet, HashMap};
@@ -230,6 +232,8 @@ pub struct ScriptState {
     /// `walk:` test aids due: where to put the player's feet.
     walks: Vec<(String, [f32; 3])>,
     new_game: bool,
+    /// What a new game starts with (`crate::game_start`, the INI's `[General]`).
+    start: GameStart,
     /// Aid items the player used that the runtime has not taken yet (used before the
     /// scripts were ready, or under a loading screen or the pause menu).
     used: Vec<FormId>,
@@ -276,6 +280,8 @@ pub struct Runtime {
     closing: Option<(u16, Option<FormId>)>,
     /// `--new-game`: the opening starts on the first frame scripts run.
     opening_pending: bool,
+    /// The quest the opening starts (`crate::game_start`).
+    start: GameStart,
     /// Where the player was last frame, and frames left whose time does not count (a
     /// door's loading screen).
     location: Option<Location>,
@@ -345,7 +351,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -483,6 +489,7 @@ impl Runtime {
             skip: BTreeSet::new(),
             closing: None,
             opening_pending: new_game,
+            start: GameStart::default(),
             location: None,
             frozen_frames: 0,
             triggers: Default::default(),
@@ -529,20 +536,24 @@ impl Runtime {
         Ok(changed)
     }
 
-    /// The New Game menu starts VCG00 [documented: GECK wiki SetStage notes, scripts.md
-    /// §5]; VCG00's own MenuMode block sets its stage 0 while the stage is below 5
-    /// [observed in the masters: SCPT 0x00102035], which happens in the main menu as the
-    /// game starts [hypothesis]. Stage 0 moves the player to the start marker and goes on
-    /// to stage 90 and its 3 s countdown [observed in the masters].
+    /// The New Game menu starts the character-generation quest, VCG00 unless the INI's
+    /// `sCharGenQuest` names another (`crate::game_start`) [documented: GECK wiki SetStage
+    /// notes, scripts.md §5; Fallout_default.ini], and its MenuMode blocks run once, as
+    /// in the main menu as the game starts [hypothesis] (`Game::start_chargen_quest`).
+    /// VCG00's MenuMode block sets its stage 0 while the stage is below 5 [observed in the
+    /// masters: SCPT 0x00102035]; stage 0 moves the player to the start marker and goes
+    /// on to stage 90 and its 3 s countdown [observed in the masters].
     pub fn start_opening(&mut self) {
         let g = &mut self.game;
-        match g.data.by_edid("VCG00").filter(|q| g.data.is_quest(*q)) {
-            Some(q) => {
-                g.start_quest(q);
-                g.set_stage(q, 0);
-                info!("new game: VCG00 started at stage 0 (now at stage {})", g.quest_state(q).stage());
+        match self.start.quest(g) {
+            Ok(q) => {
+                g.start_chargen_quest(q);
+                let name = g.data.edid_of.get(&q).cloned().unwrap_or_else(|| q.to_string());
+                let state = g.quest_state(q);
+                let at = if state.stages_done.contains(&0) { " at stage 0" } else { "" };
+                info!("new game: {name} started{at} (now at stage {})", state.stage());
             }
-            None => warn!("new game: no quest VCG00"),
+            Err(e) => warn!("new game: {}={}: {e}; no opening quest started", crate::game_start::CHARGEN_KEY, self.start.chargen_quest),
         }
     }
 
@@ -663,6 +674,10 @@ impl Runtime {
     }
 
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // A destroyed door or activator cannot be activated (`Game::activation_refused`).
+        if self.game.activation_refused(target) {
+            return Ok(ByHand::Refused);
+        }
         // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
         // opens first, unless it was just answered with the default action.
         if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
@@ -1020,6 +1035,9 @@ pub enum ByHand {
     /// The target is the player's teammate: the companion wheel opened
     /// (`crate::companion_wheel`).
     Wheel,
+    /// The target is a destroyed door or activator: nothing happened
+    /// (`fnv_game::Game::activation_refused`).
+    Refused,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -1163,7 +1181,9 @@ impl Plugin for ScriptPlugin {
         let new_game = app.world().contains_resource::<NewGame>();
         let unattended = crate::test_aid::Unattended::from_env().0;
         let no_messages = app.world().contains_resource::<NoMessages>();
-        app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
+        let mut st = ScriptState::new(d, refs, new_game, unattended, no_messages);
+        st.start = GameStart::of_app(app);
+        app.insert_resource(st)
             .insert_resource(crate::pause::WorldAidClock::from_env())
             .init_resource::<ClockScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
@@ -1360,6 +1380,7 @@ pub(crate) fn run_scripts(
             Some(Ok((data, secs))) => {
                 st.loader = None;
                 let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
+                rt.start = st.start.clone();
                 if let Some(PendingGame(snap, path)) = st.pending_game.take() {
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
@@ -1521,12 +1542,24 @@ pub(crate) fn run_scripts(
     // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
     // collision and enable children follow.
     let late = std::mem::take(&mut rt.game.script_looks.disabled_after_fade);
+    // References a critical stage culled or brought back (SetCriticalStage,
+    // `activate::drawn`), and MoveToMarkerWithFade's fades (`fade`).
+    let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
+    let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
     for r in late {
         info!("script: {} disabled after its fade", rt.game.data.name(r));
         effects.push(ScriptEffect::RefChanged(r.0));
         effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
+    }
+    for r in culled {
+        info!("script: {} {} by its critical stage", rt.game.data.name(r), if rt.game.culled(r) { "culled" } else { "drawn again" });
+        effects.push(ScriptEffect::RefChanged(r.0));
+    }
+    for (r, fade_in) in move_fades {
+        info!("script: {} fades {} for MoveToMarkerWithFade", rt.game.data.name(r), if fade_in { "in after its move" } else { "out before its move" });
+        effects.push(ScriptEffect::Fade { form_id: r.0, fade_in });
     }
     for r in marked {
         info!("script: {r} marked for delete");
@@ -1710,7 +1743,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::QuestCompleted { quest } => info!("script: quest {} completed", n(*quest)),
         EventKind::QuestStopped { quest } => debug!("script: quest {} stopped", n(*quest)),
         EventKind::ObjectiveDisplayed { quest, index, on } => info!("script: {} objective {index} displayed {on}", n(*quest)),
-        EventKind::ObjectiveCompleted { quest, index, on } => info!("script: {} objective {index} completed {on}", n(*quest)),
+        EventKind::ObjectiveCompleted { quest, index, on, .. } => info!("script: {} objective {index} completed {on}", n(*quest)),
         EventKind::MessageShown { message, text, buttons, hidden } => {
             let hidden = if hidden.is_empty() { String::new() } else { format!(" (hidden by their conditions: {hidden:?})") };
             info!("script: message {} {:?}{}{hidden}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })

@@ -1423,6 +1423,26 @@ fn the_player_starts_wearing_non_playable_armour_and_keeps_it() {
 }
 
 #[test]
+fn remove_all_items_leaves_the_players_quest_items() {
+    // GECK wiki RemoveAllItems: on the player, quest items stay; moved or not.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(SUIT), 1).unwrap();
+    w.add_item(p, id(PISTOL), 1).unwrap();
+    w.set_quest_object(id(SUIT), true);
+    let removed = w.remove_all_items(p).unwrap();
+    assert!(removed.iter().all(|&(i, _)| i != id(SUIT)));
+    assert_eq!(w.item_count(p, id(SUIT)).unwrap(), 1);
+    assert_eq!(w.item_count(p, id(PISTOL)).unwrap(), 0);
+    w.add_item(p, id(PISTOL), 1).unwrap();
+    let moved = w.transfer_all_owned(p, id(SAFE_REF), true).unwrap();
+    assert!(moved.iter().all(|&(i, _)| i != id(SUIT)));
+    assert_eq!(w.item_count(p, id(SUIT)).unwrap(), 1);
+    assert_eq!(w.item_count(id(SAFE_REF), id(PISTOL)).unwrap(), 1);
+}
+
+#[test]
 fn an_npc_starts_with_its_outfit_and_weapon_equipped() {
     // The engine's wearing and arming rules (World::equip_default): the helmet (first
     // carried, no DT anywhere) takes Head|Hair, so the hat (Hair) stays in the pack; the

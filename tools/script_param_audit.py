@@ -28,7 +28,9 @@ def body(module, name):
     text = src.get(module)
     if text is None:
         return None
-    m = re.search(r'\bfn ' + re.escape(name) + r'\b[^{]*\{', text)
+    # the script entry point takes `&Args`; a method of the same name (Game::start_combat)
+    # is not it
+    m = re.search(r'\bfn ' + re.escape(name) + r'\b[^{]*Args[^{]*\{', text) or re.search(r'\bfn ' + re.escape(name) + r'\b[^{]*\{', text)
     if not m:
         return None
     i, depth = m.end(), 1
@@ -77,6 +79,9 @@ for op, name, path in entries:
         continue
     idx = [int(x) for x in re.findall(r'\ba\.(?:form|opt_form|num|num_or|int|code|axis|str|get)\((\d+)', b)]
     idx += [int(x) - 1 for x in re.findall(r'a\.0\[\.\.(\d+)\]', b)]
+    # closures over `a` (`let flag = |i, d| a.num_or(i, d)` then `flag(1, 0.0)`)
+    if re.search(r'=\s*\|[^|]*\|\s*a\.', b):
+        idx += [int(x) for x in re.findall(r'\b[a-z_]+\((\d+)\s*[,)]', b)]
     delegates = bool(re.search(r'[(,]\s*&?a\s*[,)]', b.split("{", 1)[1])) or "a.0" in b or "a.len()" in b or ".iter()" in b and "a." in b
     maxread = max(idx) + 1 if idx else 0
     over = [n for n in calls.get(name.lower(), []) if n > maxread]

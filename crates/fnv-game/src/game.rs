@@ -880,6 +880,10 @@ pub struct Game<'a> {
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
+    /// Destruction stage changes made by scripts (`DamageObject`), with their
+    /// references, for the engine to set off as it does a hit's (explosions, model).
+    /// Not part of the saved state.
+    pub destruction_changes: Vec<(FormId, crate::combat::DestructionChange)>,
     /// Knockouts and getting up since the engine last took them
     /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
     pub knockout_news: Vec<crate::unconscious::News>,
@@ -1191,6 +1195,14 @@ pub struct GameSnapshot {
     /// Navmeshes the scripts switched, and setAllReachable (`functions::navigation`).
     #[serde(default, skip_serializing_if = "crate::functions::navigation::NavSwitches::is_empty")]
     pub nav_switches: crate::functions::navigation::NavSwitches,
+    /// Securitron faces SetSecuritronExpression set: target -> screen texture
+    /// (`functions::misc::TextureSwaps::securitron`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub securitron_faces: BTreeMap<FormId, String>,
+    /// `MoveToMarkerWithFade` moves still waiting for their fade out
+    /// (`functions::misc::ScriptLooks::fade_moves`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fade_moves: BTreeMap<FormId, crate::functions::misc::FadeMove>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -1237,6 +1249,7 @@ impl<'a> Game<'a> {
             data,
             toggles: Default::default(),
             combat_requests: Vec::new(),
+            destruction_changes: Vec::new(),
             knockout_news: Vec::new(),
             idle_requests: Vec::new(),
             weapon_uses: BTreeMap::new(),
@@ -1342,6 +1355,26 @@ impl<'a> Game<'a> {
         for q in start {
             self.start_quest(q);
         }
+    }
+
+    /// The New Game menu starts the character-generation quest (the original's INI
+    /// `sCharGenQuest`, VCG00 by the original's defaults [documented: Fallout_default.ini
+    /// `SCharGenQuest=00102037`]) and the quest's `Begin MenuMode` blocks run once, as
+    /// under the main menu (`menus::START`) [hypothesis: the original runs them every
+    /// frame there; once is what VCG00's and TTW's start scripts need, each guarding its
+    /// MenuMode work by a stage or a flag, observed in their plugins]. VCG00's MenuMode
+    /// block sets its stage 0 while the stage is below 5. Returns false when `q` is not
+    /// a quest.
+    pub fn start_chargen_quest(&mut self, q: FormId) -> bool {
+        if !self.start_quest(q) {
+            return false;
+        }
+        let script = self.data.quests.get(&q).and_then(|d| d.script).filter(|s| self.data.scripts.contains_key(s));
+        if let Some(script) = script {
+            let subject = Some(Value::Num(f64::from(menus::START)));
+            self.run_event(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() });
+        }
+        true
     }
 
     // ---- quests ------------------------------------------------------------------
@@ -1471,7 +1504,12 @@ impl<'a> Game<'a> {
             self.emit(EventKind::ObjectiveDisplayed { quest: q, index, on: d1 });
         }
         if c0 != c1 {
-            self.emit(EventKind::ObjectiveCompleted { quest: q, index, on: c1 });
+            // The message shows only for an objective on display of a quest not yet
+            // completed [documented: GECK wiki SetObjectiveCompleted notes, "If the quest
+            // itself is not complete, AND the objective is currently being displayed";
+            // "If the quest itself is already complete, no message will be displayed"].
+            let silent = !d1 || self.quest(q).completed;
+            self.emit(EventKind::ObjectiveCompleted { quest: q, index, on: c1, silent });
         }
         true
     }
@@ -1714,9 +1752,17 @@ impl<'a> Game<'a> {
                 self.script_looks.disabled_after_fade.push(r);
             }
         }
-        // Without an engine taking them (a headless run) the list is kept short.
+        // `MoveToMarkerWithFade` moves whose fade out has ended.
+        crate::functions::refs::finish_fade_moves(self);
+        // Without an engine taking them (a headless run) the lists are kept short.
         if self.script_looks.disabled_after_fade.len() > 256 {
             self.script_looks.disabled_after_fade.drain(..128);
+        }
+        if self.script_looks.critical_changed.len() > 256 {
+            self.script_looks.critical_changed.drain(..128);
+        }
+        if self.script_looks.fades.len() > 256 {
+            self.script_looks.fades.drain(..128);
         }
         for r in std::mem::take(&mut self.pending_onload) {
             if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
@@ -2318,6 +2364,13 @@ impl<'a> Game<'a> {
         self.world.peek(r).is_none_or(|s| !s.deleted) && self.world.is_enabled(r).unwrap_or(false)
     }
 
+    /// Whether a reference's critical stage culls it (GooEnd, DisintegrateEnd): the
+    /// engine does not draw it and it has no collision or ragdoll, though it is still
+    /// enabled (`functions::objects::set_critical_stage`).
+    pub fn culled(&self, r: FormId) -> bool {
+        self.extra.get(&r).is_some_and(|e| crate::functions::objects::critical_stage_culls(e.critical_stage))
+    }
+
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
     /// export: object scripts run even for disabled references; observed: capture job
@@ -2400,8 +2453,11 @@ impl<'a> Game<'a> {
             // EnableFastTravel].
             let placed = self.world.placed;
             let was_interior = !self.loaded_cells.is_empty() && self.loaded_cells.iter().all(|&l| placed.world_of(l).is_none());
+            // Only travel comes back: "the transition won't allow them to wait; this
+            // will have to be manually re-enabled" [documented: GECK wiki
+            // EnableFastTravel, example `0 0 0`].
             if was_interior && placed.world_of(c).is_some() && !self.player.fast_travel.keep {
-                self.player.fast_travel = crate::game::FastTravel::default();
+                self.player.fast_travel.travel_disabled = false;
             }
             let cells = self.cells_around(c);
             self.set_loaded(cells);
@@ -2410,8 +2466,27 @@ impl<'a> Game<'a> {
 
     // ---- activation and other events -------------------------------------------
 
-    /// `actor` activates `target`.
+    /// Whether `target` refuses every activation: a door or activator marked destroyed
+    /// (`SetDestroyed 1`, or a destruction stage with the Destroy flag)
+    /// [documented: GECK wiki SetDestroyed, "Destroyed doors/activators will no longer
+    /// give rollover text and cannot be activated"]. Terminals and talking activators
+    /// count as activators [hypothesis: they are activator-like records; the wiki names
+    /// only doors and activators]. Other references (actors, containers, items) keep
+    /// their activation: the wiki names only doors and activators.
+    pub fn activation_refused(&self, target: FormId) -> bool {
+        if !self.extra.get(&target).is_some_and(|e| e.destroyed) {
+            return false;
+        }
+        let sig = functions::base_of(self, target).and_then(|b| self.data.sig(b));
+        matches!(sig.as_ref(), Some(b"DOOR") | Some(b"ACTI") | Some(b"TACT") | Some(b"TERM"))
+    }
+
+    /// `actor` activates `target`. A destroyed door or activator
+    /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
+        if self.activation_refused(target) {
+            return Ok(serde_json::json!({"result": "destroyed"}));
+        }
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
         match mode {
             ActMode::Hand | ActMode::Block if has_block => {
@@ -2979,6 +3054,8 @@ impl<'a> Game<'a> {
             grudges: self.provocations.grudges.iter().map(|(k, v)| (*k, *v)).collect(),
             forgiven: self.provocations.forgiven.clone(),
             nav_switches: self.nav_switches.clone(),
+            securitron_faces: self.texture_swaps.securitron.clone(),
+            fade_moves: self.script_looks.fade_moves.clone(),
         }
     }
 
@@ -3020,6 +3097,14 @@ impl<'a> Game<'a> {
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
         g.nav_switches = s.nav_switches.clone();
+        for (&on, texture) in &s.securitron_faces {
+            g.texture_swaps.set_securitron(on, texture.clone());
+        }
+        // Moves a save caught during their fade are made at once: the restored engine
+        // draws the reference where it ends up [design].
+        for (r, m) in &s.fade_moves {
+            let _ = crate::functions::refs::move_ref(&mut g, *r, m.marker, m.offset);
+        }
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

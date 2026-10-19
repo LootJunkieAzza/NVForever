@@ -13,6 +13,9 @@ use fnv_sim::FormId;
 /// `Disable 1` holds the reference ([`FADE_OUT_HOLD`]) ends the hold and fades it back.
 pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if has_enable_parent(g, r) {
+        return none();
+    }
     let fade = a.num_or(0, 1.0) != 0.0;
     if g.script_looks.fading_out.remove(&r).is_some() {
         g.emit(EventKind::RefEnabled { reference: r, fade });
@@ -44,6 +47,9 @@ pub const FADE_OUT_HOLD: f64 = 2.0;
 /// `ScriptLooks::disabled_after_fade`). A plain Disable during the hold disables at once.
 pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if has_enable_parent(g, r) {
+        return none();
+    }
     let fade = a.num_or(0, 0.0) != 0.0;
     let held = g.script_looks.fading_out.contains_key(&r);
     if fade && held {
@@ -63,6 +69,15 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// A reference whose enable state is its enable parent's: Enable and Disable called on
+/// it have no effect [documented: GECK wiki Enable and Disable notes, "If Enable is
+/// called on a reference with an Enable Parent, it will have no effect"]. A parent that
+/// does not exist leaves the reference its own state (`World::is_enabled`), so it does
+/// not count.
+fn has_enable_parent(g: &Game, r: FormId) -> bool {
+    g.world.placed.get(r).and_then(|p| p.enable_parent).is_some_and(|ep| g.world.is_enabled(ep.reference).is_ok())
+}
+
 pub fn get_disabled(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     yes(!g.world.is_enabled(r).map_err(|e| e.to_string())?)
@@ -76,15 +91,73 @@ fn place(g: &mut Game, r: FormId) -> Result<Place, String> {
     Ok((s.cell, s.pos, s.rot))
 }
 
+/// The offsets of a MoveTo call (its optional x y z after the marker).
+fn move_offsets(a: &Args) -> [f64; 3] {
+    [a.num_or(1, 0.0), a.num_or(2, 0.0), a.num_or(3, 0.0)]
+}
+
 /// `MoveTo marker [x y z]`: the calling reference goes to the marker's cell and position
 /// plus the offsets. Moving the player loads the destination's cells.
-/// `MoveToMarkerWithFade` is the same with a fade (presentation).
 pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let marker = a.form(0)?;
-    let (cell, mut pos, rot) = place(g, marker)?;
-    for (i, p) in pos.iter_mut().enumerate() {
-        *p += a.num_or(1 + i, 0.0) as f32;
+    move_ref(g, r, marker, move_offsets(a))?;
+    none()
+}
+
+/// `ref.MoveToMarkerWithFade marker [x y z]`: "fades the object out, moves it to the
+/// reference and then fades it back in"; it "has to wait for the fade out effect to
+/// finish" [documented: GECK wiki MoveToMarkerWithFade]. The reference stays where it is
+/// for [`FADE_OUT_HOLD`] while the engine fades it out (`ScriptLooks::fades`), then
+/// `Game::tick` makes the move ([`move_ref`], to where the marker is then) and the engine
+/// fades it in [hypothesis: the fade-out length is the `Disable 1` one, not measured for
+/// this function; capture asked]. A second call during the wait changes the destination
+/// and keeps the wait. The player, and a reference that is not drawn (disabled), move at
+/// once as by MoveTo [hypothesis: the wiki speaks of the object's fade only].
+pub fn move_to_marker_with_fade(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let marker = a.form(0)?;
+    let offset = move_offsets(a);
+    place(g, marker)?;
+    if r == FormId::PLAYER_REF || !g.present(r) {
+        move_ref(g, r, marker, offset)?;
+        return none();
+    }
+    let at = match g.script_looks.fade_moves.get(&r) {
+        Some(m) => m.at,
+        None => {
+            g.script_looks.fades.push((r, false));
+            g.time + FADE_OUT_HOLD
+        }
+    };
+    g.script_looks.fade_moves.insert(r, super::misc::FadeMove { marker, offset, at });
+    none()
+}
+
+/// Make the `MoveToMarkerWithFade` moves whose wait has ended (`Game::tick`) and ask the
+/// engine to fade those references in.
+pub(crate) fn finish_fade_moves(g: &mut Game) {
+    let now = g.time;
+    let due: Vec<(FormId, super::misc::FadeMove)> = g.script_looks.fade_moves.iter().filter(|(_, m)| m.at <= now).map(|(&r, &m)| (r, m)).collect();
+    for (r, m) in due {
+        g.script_looks.fade_moves.remove(&r);
+        // A marker gone since the call leaves the reference where it is.
+        let _ = move_ref(g, r, m.marker, m.offset);
+        g.script_looks.fades.push((r, true));
+    }
+}
+
+/// Move `r` to `marker`'s cell and position plus `offset` (MoveTo and
+/// MoveToMarkerWithFade).
+pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]) -> Result<(), String> {
+    let (cell, mut pos, mut rot) = place(g, marker)?;
+    for (p, o) in pos.iter_mut().zip(offset) {
+        *p += o as f32;
+    }
+    // The player's X angle is its view's pitch (`get_angle`): a reference moved to the
+    // player stands upright [hypothesis: the pitch was never written before 2026-10-19].
+    if marker == FormId::PLAYER_REF {
+        rot = [0.0, 0.0, rot[2]];
     }
     let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
     {
@@ -110,7 +183,7 @@ pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         g.player_entered(cell);
         g.bring_teammates();
     }
-    none()
+    Ok(())
 }
 
 pub fn get_self(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -222,7 +295,9 @@ fn placed_by_script(g: &mut Game, r: FormId, moved: bool) {
 }
 
 /// Angles in degrees in scripts, radians in the world state [documented: catalogue,
-/// GetAngle/SetAngle take degrees].
+/// GetAngle/SetAngle take degrees]. The player's X angle is its view's pitch, -89 looking
+/// up and 89 looking at its feet [documented: GECK wiki GetAngle], written by the engine
+/// (nvf-play `player::sync_sim`).
 pub fn get_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
@@ -274,7 +349,9 @@ pub fn lock(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         crate::terminal::lock(g, r, a.num_or(0, 0.0) as i32);
         return none();
     }
-    let level = a.num(0).ok().map(|l| l.clamp(0.0, 255.0) as u8);
+    // 0, the default, locks without changing the level [documented: GECK wiki Lock,
+    // "Lock 0 (default) will lock it but NOT change the lock level"].
+    let level = a.num(0).ok().filter(|&l| l != 0.0).map(|l| l.clamp(0.0, 255.0) as u8);
     g.world.lock(r, level).map_err(|e| e.to_string())?;
     none()
 }
@@ -327,6 +404,11 @@ pub fn get_is_lock_broken(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, S
 pub fn activate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let target = ctx.subject()?;
     let actor = a.opt_form(0).or(ctx.action_ref).ok_or("no action reference")?;
+    // "Disabled actors cannot be forced to activate objects via Activate" [documented:
+    // GECK wiki Disable notes].
+    if matches!(base_sig(g, actor).as_ref(), Some(b"NPC_") | Some(b"CREA")) && !g.world.is_enabled(actor).unwrap_or(true) {
+        return none();
+    }
     let mode = if a.num_or(1, 0.0) != 0.0 { ActMode::Block } else { ActMode::Default };
     g.activate(actor, target, mode)?;
     none()
@@ -373,17 +455,27 @@ pub fn is_in_list(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let b = base_of(g, r);
     let m = list_members(g, list);
-    yes(m.contains(&r) || b.is_some_and(|b| m.contains(&b)))
+    // The base form only: a list holding the reference itself reads 0 [documented: GECK
+    // wiki IsInList, "Will return False (0) if the form list contains the object's
+    // reference itself, rather than its base form"].
+    yes(b.is_some_and(|b| m.contains(&b)))
 }
 
-/// Inserts at index 0 [documented: catalogue summary].
+/// Inserts at index 0 [documented: catalogue summary]. A form a script added before moves
+/// to index 0; one the record lists stays where it is [documented: GECK wiki
+/// AddFormToFormList, "will simply move it to the 0th index (Will do nothing if the form
+/// already exists via hard edit)"].
 pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let f = a.form(1)?;
     if g.data.sig(list).as_ref() != Some(b"FLST") {
         return Err(format!("{} is not a form list", g.data.name(list)));
     }
-    if !list_members(g, list).contains(&f) {
+    let added = g.form_lists.entry(list).or_default();
+    if let Some(i) = added.iter().position(|&x| x == f) {
+        added.remove(i);
+        added.insert(0, f);
+    } else if !list_members(g, list).contains(&f) {
         g.form_lists.entry(list).or_default().insert(0, f);
     }
     none()

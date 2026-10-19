@@ -416,6 +416,11 @@ pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
     if g.is_dead(r) {
         return yes(false);
     }
+    // "IsWeaponOut will always return 0 for Creatures without a weapon" [documented:
+    // GECK wiki IsWeaponOut notes]; a creature's attacks alert it without drawing anything.
+    if base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"CREA") && super::items::equipped_weapon(g, r).is_none() {
+        return yes(false);
+    }
     let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
     if r == FormId::PLAYER_REF || told {
         return yes(g.extra.get(&r).is_some_and(|e| e.weapon_out));
@@ -512,11 +517,13 @@ pub fn get_faction_rank(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     Ok(Value::Num(faction_rank(g, r, a.form(0)?) as f64))
 }
 
-/// `AddToFaction` / `SetFactionRank`: the actor reference joins at the rank.
+/// `AddToFaction` / `SetFactionRank`: the actor reference joins at the rank. −1 takes it
+/// out [documented: GECK wiki SetFactionRank example]; any lower rank is read back as −1
+/// too [hypothesis: below −1 is no rank either].
 pub fn add_to_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let f = a.form(0)?;
-    let rank = a.num_or(1, 0.0) as i8;
+    let rank = (a.num_or(1, 0.0) as i8).max(-1);
     g.extra.entry(r).or_default().factions.insert(f, rank);
     none()
 }
@@ -597,7 +604,19 @@ macro_rules! flag {
 
 flag!(set_ghost, get_ghost, ghost);
 flag!(set_restrained, get_restrained, restrained);
-flag!(set_unconscious, get_unconscious, unconscious);
+flag!(set_unconscious_flag, get_unconscious, unconscious);
+
+/// `SetUnconscious flag`. On a dead actor it brings it back first, with no get-up
+/// animation [documented: GECK wiki SetUnconscious notes, "Using this on dead actors will
+/// cause them to be resurrected, but will not cause them to play a "get up" animation"];
+/// that it then lies unconscious under a flag of 1 is [hypothesis].
+pub fn set_unconscious(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    if g.is_dead(r) {
+        g.resurrect(r, false);
+    }
+    set_unconscious_flag(g, ctx, a)
+}
 flag!(set_player_teammate, get_player_teammate, teammate);
 
 /// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
@@ -648,13 +667,26 @@ pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
 }
 
 /// `actor.SetActorFullName message`: the base's name becomes the message's title, for
-/// every reference [documented: catalogue notes]; kept for the engine's name display.
+/// every reference [documented: catalogue notes; GECK wiki SetActorFullName: "changes
+/// the name of the base object, so all instances of that NPC/creature will have a new
+/// name", and it works on talking activators too]. Shown through
+/// [`Game::script_name`]; saved with the rest of `Game::forms`.
 pub fn set_actor_full_name(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let m = a.form(0)?;
     let b = base_of(g, r).unwrap_or(r);
     g.forms.names.insert(b, m);
     none()
+}
+
+impl<'a> Game<'a> {
+    /// The name SetActorFullName gave a base form: the title (FULL), not the text, of the
+    /// message it named [documented: GECK wiki SetActorFullName summary]. `None` when no
+    /// script renamed the base, or the message has no title.
+    pub fn script_name(&self, base: FormId) -> Option<&'a str> {
+        let data: &'a crate::data::GameData = self.data;
+        self.forms.names.get(&base).and_then(|m| data.messages.get(m)).and_then(|d| d.title.as_deref())
+    }
 }
 
 /// 1 when the given actor killed the caller (KillActor's killer) [documented:

@@ -60,7 +60,12 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let base = a.form(0)?;
     let count = a.num_or(1, 1.0).max(1.0) as i32;
     let s = g.world.get(at).map_err(|e| e.to_string())?;
-    let (cell, pos, rot) = (s.cell, s.pos, s.rot);
+    let (cell, pos, mut rot) = (s.cell, s.pos, s.rot);
+    // The player's X angle is its view's pitch (`refs::get_angle`): what is placed at it
+    // stands upright [hypothesis: the pitch was never written before 2026-10-19].
+    if at == FormId::PLAYER_REF {
+        rot = [0.0, 0.0, rot[2]];
+    }
     let (refs, each) = if is_item(g, base) { (1, count) } else { (count, 1) };
     let mut last = None;
     for _ in 0..refs {
@@ -107,7 +112,7 @@ pub fn drop_me(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let Some(key @ InstKey::Item { holder, item }) = ctx.inst else {
         return Err("DropMe outside the script of an inventory item".into());
     };
-    let made = g.world.drop_item(holder, item, 1).map_err(|e| e.to_string())?;
+    let made = g.world.drop_item_fresh(holder, item, 1).map_err(|e| e.to_string())?;
     if !made.is_empty() {
         g.emit(EventKind::ItemRemoved { from: holder, item, count: 1, silent: false });
     }
@@ -162,8 +167,11 @@ pub fn clear_ownership(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 /// owner; the player by default [documented: catalogue notes].
 pub fn is_owner(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    // An actor reference stands for its base, as owners are stored [documented: GECK
+    // wiki IsOwner, parameter ActorRefID, example `SpecialRef.IsOwner SaraLyonsRef`].
     let want = match a.opt_form(0) {
         Some(FormId::PLAYER_REF) | None => FormId::PLAYER_BASE,
+        Some(f) if matches!(super::base_of(g, f).and_then(|b| g.data.sig(b)).as_ref(), Some(b"NPC_") | Some(b"CREA")) => super::base_of(g, f).unwrap_or(f),
         Some(f) => f,
     };
     let owner = g.world.get(r).map_err(|e| e.to_string())?.extra.owner;
@@ -210,8 +218,13 @@ pub fn damage_object(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String>
     if !g.is_destructible(r) {
         return Err(format!("{} has no destruction data", g.data.name(r)));
     }
-    // The stage's explosions are the engine's (`Game::destruction_explosions`).
-    g.damage_object(r, amount);
+    // The stages' explosions and models are the engine's: the change waits in
+    // `Game::destruction_changes`, as a hit's goes to the engine directly.
+    if let Some(c) = g.damage_object(r, amount) {
+        if c.after != c.before {
+            g.destruction_changes.push((r, c));
+        }
+    }
     none()
 }
 
@@ -361,12 +374,33 @@ pub fn set_minimal_use(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     none()
 }
 
-/// `SetCriticalStage stage` (0 none, 1 goo start, 2 goo end, 3 disintegrate start,
-/// 4 disintegrate end; scripts.md §2.4): kept for IsInCriticalStage; the visual
-/// effects are the engine's.
+/// `SetCriticalStage` code of GooEnd (0 none, 1 goo start, 2 goo end, 3 disintegrate
+/// start, 4 disintegrate end; scripts.md §2.4).
+pub const CRITICAL_GOO_END: u16 = 2;
+/// `SetCriticalStage` code of DisintegrateEnd.
+pub const CRITICAL_DISINTEGRATE_END: u16 = 4;
+
+/// Whether a critical stage culls its reference: GooEnd and DisintegrateEnd "cull its
+/// 3D, and remove its Havok data from the world" [documented: GECK wiki
+/// SetCriticalStage]. The ragdoll changes of GooStart / DisintegrateStart are not built.
+pub fn critical_stage_culls(stage: u16) -> bool {
+    matches!(stage, CRITICAL_GOO_END | CRITICAL_DISINTEGRATE_END)
+}
+
+/// `SetCriticalStage stage` (codes above): kept for IsInCriticalStage (and saved with the
+/// reference's extra state). A stage that culls the reference ([`critical_stage_culls`])
+/// is listed for the engine (`ScriptLooks::critical_changed`), which stops drawing it and
+/// drops its collision and ragdoll (`Game::culled`); the reference stays enabled
+/// (GetDisabled 0) [hypothesis: the wiki speaks only of its 3D and Havok data].
 pub fn set_critical_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().critical_stage = a.code(0)?;
+    let stage = a.code(0)?;
+    let e = g.extra.entry(r).or_default();
+    let was = critical_stage_culls(e.critical_stage);
+    e.critical_stage = stage;
+    if was != critical_stage_culls(stage) {
+        g.script_looks.critical_changed.push(r);
+    }
     none()
 }
 

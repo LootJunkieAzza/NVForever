@@ -255,6 +255,28 @@ pub struct By {
     pub vats: bool,
 }
 
+/// Who set an explosion off: the actor whose shot (or thrown or placed explosive) it came
+/// from and that weapon. Its blast hits are that actor's hits with that weapon, as a
+/// bullet's are (OnHit's attacker, kill credit and XP, combat-rules.md §11); `None` for
+/// one nobody set off this frame (a destruction stage burning down) [design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Cause {
+    actor: FormId,
+    weapon: FormId,
+}
+
+impl Cause {
+    fn of(by: &By) -> Cause {
+        Cause { actor: by.actor, weapon: by.weapon }
+    }
+}
+
+/// The hit an explosion's blast makes on an actor: its cause's, with no place on the body
+/// (GetHitLocation −1) and no critical.
+fn blast_hit_info(cause: Option<Cause>) -> HitInfo {
+    HitInfo { attacker: cause.map(|c| c.actor), weapon: cause.map(|c| c.weapon), location: -1, critical: false, limb: None }
+}
+
 /// One projectile to draw this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShotVisual {
@@ -672,8 +694,9 @@ pub struct Combat {
     melee: bool,
     /// The melee swings (step C6).
     swings: Melee,
-    /// Explosions to set off this frame (impacts, detonations, destruction stages).
-    boom: Vec<(FormId, V3)>,
+    /// Explosions to set off this frame (impacts, detonations, destruction stages), with
+    /// who set each off.
+    boom: Vec<(FormId, V3, Option<Cause>)>,
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
@@ -1221,6 +1244,9 @@ struct PhysView<'a> {
     actors: Vec<(ActorId, V3, f32)>,
     /// Each actor's body part capsule centres, widest first.
     aims: HashMap<ActorId, Vec<V3>>,
+    /// The ghosts (SetGhost 1) other than the player: rays pass their hit volumes
+    /// ([`ghosts`]).
+    ghosts: Vec<ActorId>,
 }
 
 impl CombatWorld for PhysView<'_> {
@@ -1245,6 +1271,7 @@ impl CombatWorld for PhysView<'_> {
         // wall, dust and no damage, and one past a flying or low creature's capsule
         // missed its body (the owner's playtest list 5 items 16 and 25) [design].
         f.exclude.extend(self.npcs.iter().copied());
+        f.exclude.extend(self.ghosts.iter().map(|&a| Key::Actor(a as u32)));
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
         Some(WorldHit {
@@ -1270,7 +1297,10 @@ impl CombatWorld for PhysView<'_> {
     }
 
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
-        self.actors.iter().filter(|(_, c, r)| vec::len(vec::sub(*c, point)) <= radius + r).map(|&(id, c, _)| (id, c)).collect()
+        // A blast passes a ghost too: it "cannot be harmed by a weapon or spell/magic
+        // effect in any way" [documented: GECK wiki SetGhost notes] (no knock-down either).
+        let near = |&&(id, c, r): &&(ActorId, V3, f32)| vec::len(vec::sub(c, point)) <= radius + r && !self.ghosts.contains(&id);
+        self.actors.iter().filter(near).map(|&(id, c, _)| (id, c)).collect()
     }
 
     fn aim_points(&self, actor: ActorId) -> Vec<V3> {
@@ -1278,14 +1308,25 @@ impl CombatWorld for PhysView<'_> {
     }
 }
 
-fn view(phys: &mut PhysState) -> PhysView<'_> {
+/// The actors shots and blows pass through: ghosts (SetGhost 1), "Projectiles pass
+/// through them" [documented: GECK wiki SetGhost notes]; a blow passes as a shot does
+/// [hypothesis: the note names projectiles; a ghost "cannot be harmed by a weapon" in any
+/// way, so a blow that stopped on it would only be wasted]. A ghosted player is still
+/// struck, as "the player can" be damaged [documented: same notes; hypothesis: that its
+/// body still stops projectiles].
+fn ghosts(script: Option<&ScriptState>) -> Vec<ActorId> {
+    let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
+    rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect()
+}
+
+fn view(phys: &mut PhysState, ghosts: Vec<ActorId>) -> PhysView<'_> {
     let actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
     let player = phys.player.as_ref().map(|c| c.key());
     let npcs = phys.npcs.values().map(|b| b.ch.key()).collect();
     let aims = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, npcs, actors, aims }
+    PhysView { q: phys.world.queries(), player, npcs, actors, aims, ghosts }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -1508,7 +1549,7 @@ pub(crate) fn fire(
                 // the shoulder: the shot aims from the eye at what lies under it, as the
                 // eye's view ray does in first person (playtest list 4, item 12).
                 let leaving = {
-                    let world = view(&mut phys);
+                    let world = view(&mut phys, ghosts(script.as_deref()));
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
                         _ if vats_shot.is_some() => {
@@ -1818,7 +1859,7 @@ pub(crate) fn apply_hit(
     // The hit's effects go on before its damage (`hit_effects`).
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
-    let name = sim.ref_name(Some(rt.game.data), target.0).map_or_else(|| target.to_string(), str::to_string);
+    let name = sim.ref_name(Some(&rt.game), target.0).map_or_else(|| target.to_string(), str::to_string);
     if mine {
         stats.damage += r.dealt as f32;
     } else if info.attacker.is_some() && !r.immune {
@@ -1883,7 +1924,7 @@ pub fn set_god_mode(on: bool) {
 /// through `Game::hit`, and at 0 the player dies.
 #[allow(clippy::too_many_arguments)]
 fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId], feedback: &mut HitFeedback) -> Option<HitResult> {
-    let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(rt.game.data), a.0).map_or_else(|| a.to_string(), str::to_string));
+    let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(&rt.game), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
         info!("combat: {by} hits the player for {dealt:.1} (god mode: no damage taken)");
@@ -1984,7 +2025,7 @@ fn melee(
         // ground ahead) shows its impact there.
         let mut struck_world: Option<WorldHit> = None;
         let hits = {
-            let world = view(&mut phys);
+            let world = view(&mut phys, ghosts(script.as_deref()));
             // Low and high: a short creature at the player's feet is struck within the
             // reach across the ground (`swing_reaching`).
             let hits = fnv_combat::projectile::swing_reaching(&world, &c.tuning, eye, player.feet[2], player.look_dir(), reach, PLAYER);
@@ -2100,7 +2141,7 @@ fn ref_pos(sim: &SimState, r: FormId) -> Option<V3> {
 }
 
 /// Queue what a destruction change sets off and report the rest (step C7).
-fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &DestructionChange) {
+fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &DestructionChange, cause: Option<Cause>) {
     if ch.after == ch.before {
         return;
     }
@@ -2117,16 +2158,17 @@ fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &Destruction
         debug!("combat: {r} model {:?} damage stage {:?}: not drawn yet", ch.model, ch.damage_stage);
     }
     if let Some(at) = at {
-        c.boom.extend(ch.explosions.iter().map(|&e| (e, at)));
+        c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause)));
     }
 }
 
-/// Object damage to a destructible reference through the script runtime.
-fn damage_destructible(c: &mut Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, amount: f32) {
+/// Object damage to a destructible reference through the script runtime; `cause` set off
+/// the stages' explosions.
+fn damage_destructible(c: &mut Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, amount: f32, cause: Option<Cause>) {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
     let ch = with_world(rt, sim, |rt| rt.game.damage_object(r, amount as f64));
     if let Some(ch) = ch {
-        queue_destruction(c, sim, r, &ch);
+        queue_destruction(c, sim, r, &ch, cause);
     }
 }
 
@@ -2191,7 +2233,7 @@ fn actor_attacks(
         let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
-            let world = view(&mut phys);
+            let world = view(&mut phys, ghosts(script.as_deref()));
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -2313,9 +2355,14 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
-    // What scripts asked (DetonatePlacedExplosives) and what burns down (self-damage).
+    // What scripts asked (DetonatePlacedExplosives, DamageObject's stage changes) and
+    // what burns down (self-damage).
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        let (requests, burning) = with_world(rt, &mut sim, |rt| (std::mem::take(&mut rt.game.combat_requests), rt.game.destruction_tick(dt as f64)));
+        let (requests, burning) = with_world(rt, &mut sim, |rt| {
+            let mut changes = std::mem::take(&mut rt.game.destruction_changes);
+            changes.extend(rt.game.destruction_tick(dt as f64));
+            (std::mem::take(&mut rt.game.combat_requests), changes)
+        });
         for req in requests {
             let actor = match req {
                 CombatRequest::Detonate(actor) => actor,
@@ -2331,7 +2378,7 @@ fn fly(
             let mut n = 0;
             for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
                 if let Some(ProjEvent::Explode { explosion, point }) = f.p.detonate() {
-                    c.boom.push((explosion, point));
+                    c.boom.push((explosion, point, Some(Cause::of(&f.by))));
                     n += 1;
                 }
             }
@@ -2339,7 +2386,7 @@ fn fly(
             info!("combat: {actor} detonates placed explosives: {n}");
         }
         for (r, ch) in burning {
-            queue_destruction(c, &sim, r, &ch);
+            queue_destruction(c, &sim, r, &ch, None);
         }
     }
     if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
@@ -2349,7 +2396,7 @@ fn fly(
         return;
     }
     {
-        let world = view(&mut phys);
+        let world = view(&mut phys, ghosts(script.as_deref()));
         let hold = c.tracer_hold;
         for f in &mut c.flying {
             let before = f.p.pos;
@@ -2389,7 +2436,7 @@ fn fly(
                         }
                     }
                     // A harmless shot sets nothing off [design].
-                    ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point)),
+                    ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)))),
                     ProjEvent::Explode { .. } => {}
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
@@ -2436,14 +2483,13 @@ fn fly(
         let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
         ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled }
     }));
-    let weapon = c.weapon;
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
-    while let Some((id, at)) = c.boom.pop() {
+    while let Some((id, at, cause)) = c.boom.pop() {
         n += 1;
         if n > MAX_EXPLOSIONS_PER_FRAME {
             warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
-            c.boom.push((id, at));
+            c.boom.push((id, at, cause));
             break;
         }
         stats.explosions += 1;
@@ -2469,7 +2515,7 @@ fn fly(
             }
         }
         let hits = {
-            let world = view(&mut phys);
+            let world = view(&mut phys, ghosts(script.as_deref()));
             blast(&world, &c.tuning, &x, at)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
@@ -2478,7 +2524,7 @@ fn fly(
             let target = FormId(b.actor as u32);
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
-            let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false, limb: None };
+            let info = blast_hit_info(cause);
             // The blast's object effect on those it catches (hit-effects.md §1).
             let items: Vec<FormId> = x.enchantment.into_iter().collect();
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false);
@@ -2518,7 +2564,7 @@ fn fly(
         }
         for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius) {
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
-            damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg);
+            damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
         }
         let pushed = phys.world.push_dynamic(at, x.radius, x.force);
         c.marks.push(Mark::at(at, 0.6, MarkKind::Impact));
@@ -2577,7 +2623,7 @@ fn fly(
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
                 // A destructible object takes the hit's damage (no armour) (step C7).
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
-                damage_destructible(c, &mut sim, script.as_deref_mut(), r, d.dealt);
+                damage_destructible(c, &mut sim, script.as_deref_mut(), r, d.dealt, Some(Cause::of(&p.by)));
                 // A loose object is knocked away.
                 let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
                 let pushed = phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
@@ -2832,6 +2878,19 @@ mod tests {
     use super::*;
     use crate::phys::NpcBody;
 
+    /// A blast is its cause's hit: an NPC's Incinerator burst on a trooper is that NPC's
+    /// with that weapon, not the player's (every blast used to be the player's, with the
+    /// player's weapon: XP, hit marker and OnHit attacker for NPC-against-NPC blasts, and
+    /// none of them in the `npc hits summary`). One nobody set off has no attacker.
+    #[test]
+    fn a_blast_hit_is_its_causes_not_the_players() {
+        let by = By { actor: FormId(0x000F5704), weapon: FormId(0x000906DA), ammo: None, harmless: false, vats: false };
+        let info = blast_hit_info(Some(Cause::of(&by)));
+        assert_eq!((info.attacker, info.weapon, info.location, info.critical), (Some(FormId(0x000F5704)), Some(FormId(0x000906DA)), -1, false));
+        let none = blast_hit_info(None);
+        assert_eq!((none.attacker, none.weapon), (None, None));
+    }
+
     /// A grenade's cooldown, played from the shot (the clip's `Release`, 0.867 s) as the
     /// cycle runs it: 6 until `Attach` (1.533 s), then 4 to the clip's end (1.7 s). The
     /// clip's time used to start at twice the fire delay, past `Attach` (smoke
@@ -2874,7 +2933,7 @@ mod tests {
     fn shots_pass_an_npcs_character_and_strike_its_body() {
         // The playtest list 5 item 16: the character was struck as a wall (dust, no damage).
         let mut phys = npc_world();
-        let world = view(&mut phys);
+        let world = view(&mut phys, Vec::new());
         let h = world.ray([-300.0, 0.0, 45.0], [300.0, 0.0, 45.0], &[PLAYER]).expect("the body is struck");
         assert_eq!(h.actor, Some(0x1234));
         assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);
