@@ -222,7 +222,9 @@ the player twice a second for a game day.
              "header": [script, ...],
              "groups": [{"name": "...", "count": script, "probe": [script, ...], "max": 256}],
              "until": script, "drive": script, "drive_frames": 0, "drive_end": script,
-             "hooks": [{"name": "...", "when": script, "after": 3, "then": script}]}}
+             "hooks": [{"name": "...", "when": script, "after": 3, "then": script, "once": false}],
+             "events": [{"name": "OnHit", "probe": script}],
+             "shots": {"label": "...", "when": script, "gap": 1, "max": 100}}}
 ```
 
 Only `label`, `every` and `max_samples` are required.
@@ -237,7 +239,19 @@ Only `label`, `every` and `max_samples` are required.
   passed (0: no limit), then `drive_end` runs once. NVForever uses it to walk the player
   somewhere while the samples are taken.
 - A hook's `then` runs once whenever its `when` has returned non-zero at `after` samples
-  in a row.
+  in a row; with `once` (version 9) only the first time (a scene action at a set
+  sample).
+- `events` (version 9, at most 16): game events heard while the step runs, by xNVSE's
+  event names (OnHit, OnHitWith, OnDeath, OnMurder, OnStartCombat, OnCombatEnd,
+  OnPackageStart, OnPackageChange, OnPackageDone, OnActivate, OnActorEquip,
+  OnActorUnequip, OnMagicEffectHit, OnLoad, SayToDone, OnTriggerEnter ...). For each event
+  the plugin runs `probe` at once on the event's two arguments; it must be a full script
+  that takes two refs (`ref rEa` / `ref rEb` declared, then `Begin Function {rEa, rEb}`).
+  Each writes `{"kind": "event", "n", "name", "value"}` (or `error`); events heard while
+  a probe was running are counted in an `events_lost` line.
+- `shots` (version 9): at a sample where `when` returns non-zero, a screenshot (at most
+  `max`, at least `gap` samples apart), written as a `screenshot` line. Pictures are
+  scaled to 1,280 pixels wide.
 - `fields` is copied into the output unchanged; use it to name what your scripts return.
 
 ## Unattended runs

@@ -9,6 +9,7 @@ use std::ffi::{c_char, c_void};
 pub const INTERFACE_CONSOLE: u32 = 1;
 pub const INTERFACE_MESSAGING: u32 = 2;
 pub const INTERFACE_SCRIPT: u32 = 6;
+pub const INTERFACE_EVENT_MANAGER: u32 = 8;
 
 pub const MSG_POST_LOAD_GAME: u32 = 8;
 pub const MSG_MAIN_GAME_LOOP: u32 = 20;
@@ -93,6 +94,24 @@ pub struct ScriptInterface {
     pub compile_expression: unsafe extern "C" fn(text: *const c_char) -> *mut c_void,
 }
 
+/// A plugin's handler for a game event (plugin version 9): xNVSE calls it with a null
+/// reference and a pointer to an array of the event's two arguments (first, second), each
+/// a form pointer or null [documented: xNVSE 6.4.9 EventManager.cpp, the native branch of
+/// the handler call].
+pub type NativeEventHandler = unsafe extern "C" fn(this: *mut c_void, params: *mut c_void);
+
+/// The event manager interface (id 8), first members only [documented: xNVSE 6.4.9
+/// PluginAPI.h, `NVSEEventManagerInterface`: function pointers from its start, no data
+/// member before them].
+#[repr(C)]
+pub struct EventManagerInterface {
+    pub register_event: *const c_void,
+    pub dispatch_event: *const c_void,
+    pub dispatch_event_alt: *const c_void,
+    pub set_native_event_handler: unsafe extern "C" fn(name: *const c_char, f: NativeEventHandler) -> bool,
+    pub remove_native_event_handler: unsafe extern "C" fn(name: *const c_char, f: NativeEventHandler) -> bool,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union ElementData {
@@ -138,5 +157,7 @@ mod tests {
         assert_eq!(offset_of!(NvseInterface, get_runtime_directory), 36);
         assert_eq!(offset_of!(ConsoleInterface, run_script_line2), 8);
         assert_eq!(offset_of!(ScriptInterface, compile_script), 20);
+        assert_eq!(offset_of!(EventManagerInterface, set_native_event_handler), 12);
+        assert_eq!(offset_of!(EventManagerInterface, remove_native_event_handler), 16);
     }
 }
