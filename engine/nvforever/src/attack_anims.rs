@@ -841,7 +841,7 @@ mod tests {
     #[test]
     fn a_shot_is_held_at_full_weight_between_shots() {
         // The 9mm SMG's `2haattackloop.kf` is 0.17 s long.
-        let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new());
+        let mut clip = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new());
         clip.stop = 0.167;
         let clip = Arc::new(BoundClip::bind(Arc::new(clip), |_| None));
         let shot = Attack { clip: clip.clone(), up: None, down: None, t: 0.0, len: 0.167, repeat: None, since: 0.0, fade_in: true, reload: false, kind: Move::Attack, opening: false, melee: false, hit: 0.0 };

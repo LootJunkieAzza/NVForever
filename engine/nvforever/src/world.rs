@@ -625,7 +625,12 @@ pub fn spawn_model(
     // A sequence only scripts play (PlayGroup Forward, Left, …): its own node hierarchy
     // too, so a script can play it (object_anims.rs).
     let scripted = model.rig.as_ref().is_some_and(|rig| rig.has_script_groups());
-    if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some() || activator.is_some() || scripted) {
+    // An item lying in the world (a gun, a hat) keeps its stored pose: the controllers of
+    // its own that move parts (a slide, a magazine) are there for the clips of the actor
+    // holding it [design; hypothesis: the game leaves them still on the ground,
+    // effects-animation-audit.md §3].
+    let idle = model.rig.as_ref().and_then(|rig| rig.idle.as_ref()).filter(|c| !(c.only_free_motion() && is_item(&base.sig)));
+    if let Some(rig) = model.rig.as_ref().filter(|rig| (rig.idle.is_some() && idle.is_some()) || door.is_some() || activator.is_some() || scripted) {
         // Animated (Idle sequence): its own node hierarchy per reference.
         // "Random Anim Start" bases start their idle at a phase spread by reference
         // (fnv_actor::anims::random_anim_start; animation.md §8).
@@ -681,6 +686,11 @@ pub fn spawn_model(
         stats.shapes += 1;
     }
     stats.refs_drawn += 1;
+}
+
+/// Whether a base record type is an item a reference can pick up.
+fn is_item(sig: &[u8; 4]) -> bool {
+    matches!(sig, b"WEAP" | b"ARMO" | b"AMMO" | b"MISC" | b"ALCH" | b"BOOK" | b"KEYM" | b"NOTE" | b"IMOD" | b"CHIP" | b"CMNY" | b"CCRD")
 }
 
 /// Whether base form `fid` has the "Random Anim Start" record flag (fnv_actor::anims).

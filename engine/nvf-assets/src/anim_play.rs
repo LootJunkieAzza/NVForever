@@ -35,6 +35,10 @@ pub struct Clip {
     /// Tracks on a shape's material: its glow and texture offset (`crate::material_anim`,
     /// docs/spec-notes/activators.md §2).
     pub materials: Vec<MaterialTrack>,
+    /// Transform tracks of controllers that run by themselves rather than under a
+    /// sequence (circling vultures, turning light-ray fans; `model::free_transform_tracks`,
+    /// docs/spec-notes/effects-animation-audit.md §3): node name, track, own timing.
+    pub free: Vec<(String, Arc<TransformTrack>, OwnCycle)>,
 }
 
 /// What a material track drives.
@@ -49,6 +53,13 @@ pub enum MaterialTarget {
     /// `NiTextureTransformController` `0-0-TT_TRANSLATE_U` (0) or `_V` (1): the base
     /// texture's offset [documented: nif.xml TransformMember; observed controller IDs].
     UvOffset(usize),
+    /// `NiTextureTransformController` `0-0-TT_SCALE_U` (0) or `_V` (1): the base
+    /// texture's scale [documented: nif.xml TransformMember; observed: the Securitron
+    /// screens' `mtidle.kf`, docs/spec-notes/effects-animation-audit.md §2].
+    UvScale(usize),
+    /// `NiTextureTransformController` `0-0-TT_ROTATE`: the base texture's rotation,
+    /// radians [documented: nif.xml TransformMember; hypothesis: the unit].
+    UvRotate,
     /// `NiAlphaController` on the shape's `NiMaterialProperty`: the material's alpha
     /// [observed: the controlled blocks name property type NiMaterialProperty and the
     /// controller targets that property (`windowem01.nif`); hypothesis: the value
@@ -98,7 +109,8 @@ impl OwnCycle {
 
 impl MaterialTrack {
     /// The material track of a sequence's track, if it drives a material member this
-    /// engine draws: emissive colour, emissive multiplier, base texture offset, alpha.
+    /// engine draws: emissive colour, emissive multiplier, base texture offset, scale and
+    /// rotation, alpha.
     pub fn of(t: &fnv_nif::anim::Track) -> Option<MaterialTrack> {
         let shape = t.node_name.clone()?;
         let values = t.values.clone()?;
@@ -110,6 +122,9 @@ impl MaterialTrack {
             ("NiTextureTransformController", ValueTrack::Float(_)) => match id {
                 "0-0-TT_TRANSLATE_U" => MaterialTarget::UvOffset(0),
                 "0-0-TT_TRANSLATE_V" => MaterialTarget::UvOffset(1),
+                "0-0-TT_SCALE_U" => MaterialTarget::UvScale(0),
+                "0-0-TT_SCALE_V" => MaterialTarget::UvScale(1),
+                "0-0-TT_ROTATE" => MaterialTarget::UvRotate,
                 _ => return None,
             },
             _ => return None,
@@ -151,14 +166,16 @@ impl Clip {
             text_keys: seq.text_keys.clone(),
             visibility,
             materials,
+            free: Vec::new(),
         }
     }
 
-    /// The clip a model plays for its controllers that run by themselves (`tracks`, each
-    /// with its own [`OwnCycle`]) when it has no Idle sequence: it lasts as long as the
-    /// longest of their cycles and loops; each track keeps its own time.
-    pub fn from_controllers(tracks: Vec<MaterialTrack>) -> Clip {
-        let stop = tracks.iter().filter_map(|t| t.cycle.map(|c| c.period())).fold(1.0f32, f32::max);
+    /// The clip a model plays for its controllers that run by themselves (material
+    /// `tracks` and transform tracks `free`, each with its own [`OwnCycle`]) when it has no
+    /// Idle sequence: it lasts as long as the longest of their cycles and loops; each
+    /// track keeps its own time.
+    pub fn from_controllers(tracks: Vec<MaterialTrack>, free: Vec<(String, Arc<TransformTrack>, OwnCycle)>) -> Clip {
+        let stop = tracks.iter().filter_map(|t| t.cycle.map(|c| c.period())).chain(free.iter().map(|f| f.2.period())).fold(1.0f32, f32::max);
         Clip {
             name: "Idle".into(),
             start: 0.0,
@@ -172,7 +189,14 @@ impl Clip {
             text_keys: Vec::new(),
             visibility: Vec::new(),
             materials: tracks,
+            free,
         }
+    }
+
+    /// Whether the clip holds nothing but transform tracks of controllers that run by
+    /// themselves (`free`).
+    pub fn only_free_motion(&self) -> bool {
+        self.tracks.is_empty() && self.visibility.is_empty() && self.materials.is_empty() && !self.free.is_empty()
     }
 
     pub fn length(&self) -> f32 {
@@ -228,6 +252,9 @@ pub struct Playing {
     /// Held where it is: [`advance_instances`] does not move it on (a radio switched
     /// off, docs/spec-notes/activators.md §3).
     pub held: bool,
+    /// Tracks of the clip's controllers that run by themselves ([`Clip::free`]), each on
+    /// its own cycle after `time - start` seconds of play.
+    pub free: Vec<(Entity, Arc<TransformTrack>, OwnCycle)>,
 }
 
 impl Playing {
@@ -241,6 +268,7 @@ impl Playing {
                 None => unmatched += 1,
             }
         }
+        let free = clip.free.iter().filter_map(|(n, tt, c)| Some((node(n)?, tt.clone(), *c))).collect();
         Playing {
             name: clip.name.clone(),
             source: source.to_string(),
@@ -253,6 +281,7 @@ impl Playing {
             unmatched,
             root_motion: None,
             held: false,
+            free,
         }
     }
 
@@ -295,6 +324,20 @@ impl Playing {
                 if let Some((_, per_cycle)) = self.root_motion.filter(|r| r.0 == k) {
                     tr.translation -= per_cycle * phase;
                 }
+            }
+            if let Some([w, x, y, z]) = track.rotation_at(t) {
+                tr.rotation = Quat::from_xyzw(x, y, z, w).normalize();
+            }
+            if let Some([s]) = track.scale.sample(t) {
+                tr.scale = Vec3::splat(s);
+            }
+        }
+        let clock = self.time - self.start;
+        for (e, track, cycle) in &self.free {
+            let Ok(mut tr) = transforms.get_mut(*e) else { continue };
+            let t = cycle.time(clock);
+            if let Some(v) = track.translation.sample(t) {
+                tr.translation = Vec3::from_array(v);
             }
             if let Some([w, x, y, z]) = track.rotation_at(t) {
                 tr.rotation = Quat::from_xyzw(x, y, z, w).normalize();
@@ -752,6 +795,7 @@ mod tests {
             text_keys: Vec::new(),
             visibility: Vec::new(),
             materials: Vec::new(),
+            free: Vec::new(),
         })
     }
 

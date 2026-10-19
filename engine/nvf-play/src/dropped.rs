@@ -233,8 +233,10 @@ fn sync_drawn(
         // the next frame despawns the root, instead of a command failing on the cell.
         let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
         let shapes = match &model.rig {
-            // Animated (Idle sequence): its own node hierarchy, as render streaming does.
-            Some(rig) => {
+            // Animated (Idle sequence): its own node hierarchy, as render streaming does;
+            // not for an idle of nothing but parts the holder's clips move (a gun's
+            // slide), which an item on the ground keeps still (nvforever world.rs).
+            Some(rig) if !rig.idle.as_ref().is_some_and(|c| c.only_free_motion()) || rig.door.is_some() => {
                 let (r, drawn_shapes) = rig.spawn(&mut commands, root, Transform::IDENTITY, &path);
                 commands.entity(r).insert(RefVisual(id));
                 for e in &drawn_shapes {
@@ -242,7 +244,7 @@ fn sync_drawn(
                 }
                 drawn_shapes.len()
             }
-            None => {
+            _ => {
                 for s in &model.shapes {
                     commands.entity(root).with_child((
                         Mesh3d(s.mesh.clone()),

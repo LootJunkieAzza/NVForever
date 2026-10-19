@@ -24,7 +24,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
-use fnv_nif::anim::{sequences, value_track};
+use fnv_nif::anim::{sequences, transform_track, value_track, Channel, TransformTrack, ValueTrack};
 use fnv_nif::scene::{scene_objects, segment_triangles, Decoded, SceneObject};
 use fnv_nif::NifFile;
 use std::collections::{HashMap, HashSet};
@@ -57,6 +57,9 @@ pub struct PreparedShape {
     /// The shader property sets BSShaderFlags bit 29 "External_Emittance": a reference
     /// that names an emittance source (REFR XEMI) drives its colour.
     pub external_emittance: bool,
+    /// Its material's stored glow and alpha, for clips that drive them (a held weapon's
+    /// bulbs, `material_anim`).
+    pub look: crate::material_anim::Look,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -276,9 +279,11 @@ impl Rig {
 }
 
 /// The material tracks of the controllers in a file that are not driven by a sequence:
-/// `NiTextureTransformController`s on a shape's `NiTexturingProperty` that move its base
-/// texture along U or V, and `NiAlphaController`s on its `NiMaterialProperty`. Each keeps
-/// its own timing ([`OwnCycle`]). Effect meshes are built so: the smoke wisps
+/// `NiTextureTransformController`s on a shape's `NiTexturingProperty` that move, scale or
+/// turn its base texture, and `NiAlphaController`s, `NiMaterialColorController`s of the
+/// emissive colour and `BSMaterialEmittanceMultController`s on its `NiMaterialProperty`
+/// (glowing consoles, laser tripwires, effects: docs/spec-notes/effects-animation-audit.md
+/// §3). Each keeps its own timing ([`OwnCycle`]). Effect meshes are built so: the smoke wisps
 /// (`effects/ambient/fxsmokewisps01.nif`: V in 36.67 s, U in 44.1 s, both looping) and
 /// the ground smoke at camp fires (`dlcpitt/effects/dlcpittfxgroundsmoke01.nif`: V in
 /// 13.3 s) [observed: `fnvtool nif decode`; docs/spec-notes/nif.md §6 "Controllers
@@ -299,7 +304,7 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
     let mut out = Vec::new();
     for (i, b) in file.blocks.iter().enumerate() {
         let target = match b.type_name.as_str() {
-            "NiTextureTransformController" | "NiAlphaController" => b.type_name.as_str(),
+            "NiTextureTransformController" | "NiAlphaController" | "NiMaterialColorController" | "BSMaterialEmittanceMultController" => b.type_name.as_str(),
             _ => continue,
         };
         let Ok(c) = &dec.blocks[i] else { continue };
@@ -311,22 +316,42 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
         let what = match target {
             "NiTextureTransformController" => {
                 // Base texture (slot 0) of the NiTexturingProperty; operation 0
-                // TT_TRANSLATE_U, 1 TT_TRANSLATE_V [documented: nif.xml].
+                // TT_TRANSLATE_U, 1 TT_TRANSLATE_V, 2 TT_ROTATE, 3 TT_SCALE_U, 4
+                // TT_SCALE_V [documented: nif.xml TransformMember].
                 if c.int("texture_slot").unwrap_or(0) != 0 || c.int("shader_map").unwrap_or(0) != 0 {
                     continue;
                 }
                 match c.int("operation") {
                     Some(0) => MaterialTarget::UvOffset(0),
                     Some(1) => MaterialTarget::UvOffset(1),
+                    Some(2) => MaterialTarget::UvRotate,
+                    Some(3) => MaterialTarget::UvScale(0),
+                    Some(4) => MaterialTarget::UvScale(1),
                     _ => continue,
                 }
             }
-            _ if file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") => MaterialTarget::Alpha,
+            _ if !file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") => continue,
+            "NiAlphaController" => MaterialTarget::Alpha,
+            // The emissive colour (TC_SELF_ILLUM, 3) [documented: nif.xml MaterialColor];
+            // the other colours are not drawn from the material here.
+            "NiMaterialColorController" if c.int("target_color") == Some(3) => MaterialTarget::SelfIllum,
+            "BSMaterialEmittanceMultController" => MaterialTarget::EmissiveMult,
             _ => continue,
         };
         let Some(interp) = c.block_ref("interpolator").filter(|&r| r >= 0) else { continue };
         let Some(kind) = file.blocks.get(interp as usize).map(|b| b.type_name.clone()) else { continue };
         let Some(values) = value_track(dec, interp, &kind) else { continue };
+        // A rotation or scale held at no change (0, 1) all along: the screens' and many
+        // effects' controllers that only restate the identity [observed:
+        // `nvsecuritron*screen01.nif`, effects-animation-audit.md §2]; not worth a rig.
+        let identity = match what {
+            MaterialTarget::UvRotate => Some(0.0),
+            MaterialTarget::UvScale(_) => Some(1.0),
+            _ => None,
+        };
+        if identity.is_some() && constant_value(&values) == identity {
+            continue;
+        }
         let cycle = OwnCycle {
             start: c.float("start_time").unwrap_or(0.0),
             stop: c.float("stop_time").unwrap_or(0.0),
@@ -343,6 +368,76 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
         }
     }
     out
+}
+
+/// The transform tracks of the `NiTransformController`s in a file that are not driven by
+/// a sequence and move their node: by node name, each with its own timing ([`OwnCycle`]).
+/// The vultures circling over the wasteland (`effects\ambient\fxvultures01.nif`), the
+/// turning light-ray fans (`effects\ambient\megatonfanltrays01.nif`), the Mothership's
+/// holograms are built so [observed: `crates/fnv-nif/examples/effect_anim_survey.rs`,
+/// docs/spec-notes/effects-animation-audit.md §3]. Taken as [`free_material_tracks`]
+/// takes its controllers (Active, not manager controlled [documented: nif.xml]); a
+/// controller whose node stays where it is over its span is left out (most of them only
+/// restate the node's place).
+pub fn free_transform_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Arc<TransformTrack>, OwnCycle)> {
+    let mut out = Vec::new();
+    for (i, b) in file.blocks.iter().enumerate() {
+        if b.type_name != "NiTransformController" {
+            continue;
+        }
+        let Ok(c) = &dec.blocks[i] else { continue };
+        let flags = c.int("flags").unwrap_or(0);
+        if flags & 0x8 == 0 || flags & 0x20 != 0 {
+            continue;
+        }
+        let Some(name) = c.block_ref("target").and_then(|t| dec.get(t)).and_then(|n| n.text("name")).filter(|n| !n.is_empty()) else { continue };
+        let Some(interp) = c.block_ref("interpolator").filter(|&r| r >= 0) else { continue };
+        let Some(kind) = file.blocks.get(interp as usize).map(|b| b.type_name.as_str()) else { continue };
+        let Some(track) = transform_track(dec, interp, kind) else { continue };
+        let cycle = OwnCycle {
+            start: c.float("start_time").unwrap_or(0.0),
+            stop: c.float("stop_time").unwrap_or(0.0),
+            frequency: c.float("frequency").filter(|f| *f > 0.0).unwrap_or(1.0),
+            phase: c.float("phase").unwrap_or(0.0),
+            cycle_type: (flags >> 1) & 3,
+        };
+        if cycle.stop <= cycle.start || !moves(&track, cycle.start, cycle.stop) {
+            continue;
+        }
+        out.push((name.to_string(), Arc::new(track), cycle));
+    }
+    out
+}
+
+/// Whether a transform track's pose changes between `start` and `stop` (sampled).
+fn moves(t: &TransformTrack, start: f32, stop: f32) -> bool {
+    let at = |x: f32| (t.translation.sample(x), t.rotation_at(x), t.scale.sample(x));
+    let first = at(start);
+    (1..=32).any(|k| {
+        let x = at(start + (stop - start) * k as f32 / 32.0);
+        let moved = match (x.0, first.0) {
+            (Some(p), Some(q)) => p.iter().zip(q).any(|(u, v)| (u - v).abs() > 1e-3),
+            _ => false,
+        };
+        let turned = match (x.1, first.1) {
+            (Some(p), Some(q)) => p.iter().zip(q).map(|(u, v)| u * v).sum::<f32>().abs() < 0.99999,
+            _ => false,
+        };
+        let scaled = matches!((x.2, first.2), (Some([p]), Some([q])) if (p - q).abs() > 1e-3);
+        moved || turned || scaled
+    })
+}
+
+/// The value of a float track that never changes, if it does not.
+fn constant_value(v: &ValueTrack) -> Option<f32> {
+    match v {
+        ValueTrack::Float(Channel::Static(Some([x]))) => Some(*x),
+        ValueTrack::Float(Channel::Keys(k)) => {
+            let first = k.keys.first()?.value[0];
+            k.keys.iter().all(|key| key.value[0] == first && key.forward[0] == 0.0 && key.backward[0] == 0.0).then_some(first)
+        }
+        _ => None,
+    }
 }
 
 /// A mesh with its material, ready to spawn.
@@ -523,11 +618,15 @@ impl ModelCtx<'_> {
         // with the idle clip, each on its own cycle; a model without one gets a clip of
         // its own for them.
         let free: Vec<MaterialTrack> = free_material_tracks(&file, &dec).into_iter().filter(|t| has(&t.shape)).collect();
-        if !free.is_empty() {
-            info!("{path}: {} material track(s) of controllers of their own, played on their own cycles", free.len());
+        let moving: Vec<(String, Arc<TransformTrack>, OwnCycle)> = free_transform_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
+        if !free.is_empty() || !moving.is_empty() {
+            info!("{path}: {} material and {} transform track(s) of controllers of their own, played on their own cycles", free.len(), moving.len());
             match idle.as_mut() {
-                Some(c) => c.materials.extend(free),
-                None => idle = Some(Clip::from_controllers(free)),
+                Some(c) => {
+                    c.materials.extend(free);
+                    c.free.extend(moving);
+                }
+                None => idle = Some(Clip::from_controllers(free, moving)),
             }
         }
         // A door's Open and Close, when both move nodes of this file.
@@ -698,6 +797,10 @@ impl ModelCtx<'_> {
                 node: o.parent.and_then(|p| node_index.get(&p).copied()),
                 own: if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY },
                 external_emittance: props.external_emittance(),
+                look: {
+                    let (e, m) = props.emissive_parts();
+                    crate::material_anim::Look::stored(e, m, props.alpha_part())
+                },
             });
             out.triangles += tris;
         }
@@ -727,6 +830,7 @@ mod tests {
             cpu: None,
             segments: Vec::new(),
             external_emittance: false,
+            look: crate::material_anim::Look::stored([0.0; 3], 1.0, 1.0),
         };
         let mut cache = ModelCache::default();
         cache.map.insert("a.nif".into(), Some(Arc::new(PreparedModel { shapes: vec![shape.clone()], ..default() })));
