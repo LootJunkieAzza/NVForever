@@ -750,7 +750,9 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   with no Idle sequence gets a clip of its own for them, which loops over the longest
   cycle while each track keeps its own time. The texture moves by `uv + value`, as for
   the sequences' offset tracks (activators.md §2); with the ground smoke's UVs (V about
-  0.84–1.0 at the foot) the pattern rises. Not played: transform, visibility and
+  0.84–1.0 at the foot) the pattern rises. Effect models (explosions, impacts,
+  muzzle flashes) play all of these, active or not: explosion-effects.md §2. Placed
+  objects do not play transform, visibility and
   colour controllers outside sequences (e.g. `fxdustmeshtube01.nif`'s
   `NiVisController`), and particle systems inside ordinary models (`fxlightsmoke.nif`,
   `dlc03fxdarksmoke.nif`, `fxtiresmoke.nif`, `ashtray03smoke.nif`; particles.md).

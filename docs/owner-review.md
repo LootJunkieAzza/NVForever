@@ -6457,3 +6457,31 @@ parts are guesses. Captures asked of the observer session are in its §3.
 - **SetFactionRank** below −1 reads −1; **EnableFastTravel**: any kept ban ignores a later
   ban without keep (the wiki shows only `0 0 1` then `0 0 0`).
 - **SetUnconscious 1 on a corpse** brings it back lying unconscious.
+
+## Explosions play their own files (2026-10-19, branch claude/confident-shamir-392515)
+
+docs/spec-notes/explosion-effects.md. Explosions, impacts and muzzle flashes now play the
+animation inside their own models (`SpecialIdle_AreaEffect` in the explosion files, the
+loose controllers in the impact files), and an explosion's image space modifier plays on
+the screen when you are within its IS radius. Nothing is authored by us. My guesses, to
+check against the game:
+- **Impact controllers start when the impact appears**, though none is marked active in
+  the files (the dirt impact's splash meshes store alpha 0 and are only seen through
+  them), and their time runs from 0 so the dirt impact's third splash comes 0.13 s after
+  the first two. *Check:* the brown dirt splash under a grenade.
+- **The screen effect is all or nothing**: full strength anywhere inside the IS radius
+  (frag grenade 1800 units, missile 2000), none outside; no fall-off with distance.
+  GrenadeFragISFX (the grenade's and the missile's) whites the screen and blurs it for
+  about 1.4 s. *Check:* is the original's flash as strong from 1500 units as from 200?
+- **"Ignore Image Space Swap"** (130 explosions) is not used; the wiki calls the swap a
+  close-range optimisation that removes the blinding flash. Tell me if close explosions
+  in the original do not flash.
+- **The explosion model stays as long as its sequence** (frag 5.03 s, missile 4.5 s,
+  nukes 12.33 s).
+- **The frag smoke fade at 15 %** (your note on playtest list 5 item 10) is the file's
+  data read as before: across all 406 colour modifiers in the effects the fade-out value
+  is the point the fade starts, so I left it.
+- **Not done**: scorch decals (impact decals are not built at all; a step of its own),
+  heat haze, the particle systems that emit from meshes (7 files: the nukes', the
+  plasma's; their meshes play, those particles are not drawn), the bomb
+  modifier that throws dirt outwards.

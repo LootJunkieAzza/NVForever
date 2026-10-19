@@ -26,7 +26,7 @@ use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use fnv_nif::anim::{sequences, value_track};
 use fnv_nif::scene::{scene_objects, segment_triangles, Decoded, SceneObject};
-use fnv_nif::NifFile;
+use fnv_nif::{NifFile, Struct};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -184,6 +184,11 @@ pub struct Rig {
     /// order: the animation groups scripts play by name (PlayGroup, nvforever
     /// `object_anims.rs`; docs/spec-notes/activators.md §5).
     pub groups: Vec<Clip>,
+    /// What the model plays once from when it is put in the world as an effect (an
+    /// explosion, an impact, a muzzle flash; `nvforever::shot_fx`): its `Idle` or
+    /// `SpecialIdle…` sequence with every controller of the file that no sequence drives
+    /// ([`effect_clip`]). `None`: nothing in the file moves.
+    pub effect: Option<Clip>,
 }
 
 impl Rig {
@@ -224,6 +229,20 @@ impl Rig {
         source: &str,
         phase: f32,
     ) -> (Entity, Vec<Entity>, HashMap<String, Entity>) {
+        self.spawn_playing(commands, parent, transform, source, phase, self.idle.as_ref())
+    }
+
+    /// Like [`Self::spawn_nodes`], playing `clip` instead of the idle clip (an effect
+    /// model's [`Rig::effect`], `nvforever::shot_fx`).
+    pub fn spawn_playing(
+        &self,
+        commands: &mut Commands,
+        parent: Entity,
+        transform: Transform,
+        source: &str,
+        phase: f32,
+        clip: Option<&Clip>,
+    ) -> (Entity, Vec<Entity>, HashMap<String, Entity>) {
         let entities: Vec<Entity> = self
             .nodes
             .iter()
@@ -255,7 +274,7 @@ impl Rig {
                 by_name.entry(name.clone()).or_insert(*e);
             }
         }
-        if let Some(idle) = &self.idle {
+        if let Some(idle) = clip {
             let playing = Playing::new(source, idle, |n| by_name.get(n).copied()).at_phase(phase);
             commands.entity(entities[0]).insert(playing);
         }
@@ -268,7 +287,7 @@ impl Rig {
             })
             .collect();
         if !slots.is_empty() {
-            let idle = Arc::new(self.idle.as_ref().map(|c| c.materials.clone()).unwrap_or_default());
+            let idle = Arc::new(clip.map(|c| c.materials.clone()).unwrap_or_default());
             commands.entity(entities[0]).insert(RigMaterials { slots, idle, dark: false });
         }
         (entities[0], drawn, by_name)
@@ -288,6 +307,14 @@ impl Rig {
 /// flag (bit 5), whose interpolator gives float values [documented: nif.xml
 /// NiTimeController flags]; a controller a sequence drives is played with that sequence.
 pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack> {
+    material_tracks_of_own(file, dec, false)
+}
+
+/// The material tracks of the controllers no sequence drives; `inactive` also takes those
+/// without the Active flag, and the self-illumination colour (`NiMaterialColorController`
+/// target colour 3, TC_SELF_ILLUM [documented: nif.xml MaterialColor]) and emittance
+/// multiplier controllers, for effect models ([`effect_clip`]).
+fn material_tracks_of_own(file: &NifFile, dec: &Decoded, inactive: bool) -> Vec<MaterialTrack> {
     // The shapes that list each property.
     let mut users: HashMap<i32, Vec<String>> = HashMap::new();
     for b in dec.blocks.iter().flatten() {
@@ -300,11 +327,12 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
     for (i, b) in file.blocks.iter().enumerate() {
         let target = match b.type_name.as_str() {
             "NiTextureTransformController" | "NiAlphaController" => b.type_name.as_str(),
+            "NiMaterialColorController" | "BSMaterialEmittanceMultController" if inactive => b.type_name.as_str(),
             _ => continue,
         };
         let Ok(c) = &dec.blocks[i] else { continue };
         let flags = c.int("flags").unwrap_or(0);
-        if flags & 0x8 == 0 || flags & 0x20 != 0 {
+        if (!inactive && flags & 0x8 == 0) || flags & 0x20 != 0 {
             continue;
         }
         let Some(prop) = c.block_ref("target").filter(|&t| t >= 0) else { continue };
@@ -321,19 +349,16 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
                     _ => continue,
                 }
             }
+            "NiMaterialColorController" if c.int("target_color") == Some(3) => MaterialTarget::SelfIllum,
+            "NiMaterialColorController" => continue,
+            "BSMaterialEmittanceMultController" => MaterialTarget::EmissiveMult,
             _ if file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") => MaterialTarget::Alpha,
             _ => continue,
         };
         let Some(interp) = c.block_ref("interpolator").filter(|&r| r >= 0) else { continue };
         let Some(kind) = file.blocks.get(interp as usize).map(|b| b.type_name.clone()) else { continue };
         let Some(values) = value_track(dec, interp, &kind) else { continue };
-        let cycle = OwnCycle {
-            start: c.float("start_time").unwrap_or(0.0),
-            stop: c.float("stop_time").unwrap_or(0.0),
-            frequency: c.float("frequency").filter(|f| *f > 0.0).unwrap_or(1.0),
-            phase: c.float("phase").unwrap_or(0.0),
-            cycle_type: (flags >> 1) & 3,
-        };
+        let cycle = own_cycle(c, flags);
         if cycle.stop <= cycle.start {
             continue;
         }
@@ -345,7 +370,75 @@ pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack>
     out
 }
 
-/// A mesh with its material, ready to spawn.
+/// A controller's own timing (fields of NiTimeController [documented: nif.xml]).
+fn own_cycle(c: &Struct, flags: i64) -> OwnCycle {
+    OwnCycle {
+        start: c.float("start_time").unwrap_or(0.0),
+        stop: c.float("stop_time").unwrap_or(0.0),
+        frequency: c.float("frequency").filter(|f| *f > 0.0).unwrap_or(1.0),
+        phase: c.float("phase").unwrap_or(0.0),
+        cycle_type: (flags >> 1) & 3,
+    }
+}
+
+/// What an effect model plays once from when it is put in the world
+/// (docs/spec-notes/explosion-effects.md §2): `base`, its `Idle` or `SpecialIdle…`
+/// sequence, if any, with every controller of the file that no sequence drives
+/// (`NiTransformController`s and `NiVisController`s on its nodes, the material
+/// controllers of [`material_tracks_of_own`]), whether or not it has the Active flag.
+///
+/// Reading [hypothesis]: impact models hold only such controllers, none with the Active
+/// flag (flags 69: "APP_INIT", clamp [documented: nif.xml TimeControllerFlags]), and
+/// some of their shapes store alpha 0 that only their alpha controller raises
+/// (`impactexplosiondirt.nif`'s `FastMesh02`, `FastMesh03`), so the game must start
+/// them when it shows the effect. Their transform and visibility keys are taken at the
+/// effect's own time from 0: the keys span the controller's start and stop times, and
+/// the first and last key hold outside them, which is what clamping to those times does
+/// [observed: `FastMesh03` keys from 0.133 s to 0.467 s, `FastMesh01` from 0 s to
+/// 0.333 s, two splashes one after the other]. A looping one of these (the muzzle
+/// flashes', flags 72) plays its keys once; the flashes last 0.04 s.
+pub fn effect_clip(file: &NifFile, dec: &Decoded, base: Option<Clip>) -> Option<Clip> {
+    let name_of = |b: i32| dec.get(b).and_then(|n| n.text("name")).filter(|n| !n.is_empty()).map(str::to_string);
+    let mut tracks = Vec::new();
+    let mut visibility = Vec::new();
+    let mut stop = 0.0f32;
+    for (i, b) in file.blocks.iter().enumerate() {
+        if !matches!(b.type_name.as_str(), "NiTransformController" | "NiVisController") {
+            continue;
+        }
+        let Ok(c) = &dec.blocks[i] else { continue };
+        let flags = c.int("flags").unwrap_or(0);
+        if flags & 0x20 != 0 {
+            continue;
+        }
+        let (Some(node), Some(interp)) = (c.block_ref("target").and_then(name_of), c.block_ref("interpolator").filter(|&r| r >= 0)) else { continue };
+        let Some(kind) = file.blocks.get(interp as usize).map(|b| b.type_name.clone()) else { continue };
+        if b.type_name == "NiVisController" {
+            let Some(t) = fnv_nif::anim::bool_track(dec, interp) else { continue };
+            visibility.push((node, 0, t));
+        } else {
+            let Some(t) = fnv_nif::anim::transform_track(dec, interp, &kind) else { continue };
+            tracks.push((node, Arc::new(t)));
+        }
+        stop = stop.max(c.float("stop_time").unwrap_or(0.0));
+    }
+    let materials = material_tracks_of_own(file, dec, true);
+    for m in &materials {
+        stop = stop.max(m.cycle.map_or(0.0, |c| c.stop));
+    }
+    if tracks.is_empty() && visibility.is_empty() && materials.is_empty() {
+        return base;
+    }
+    let mut clip = base.unwrap_or_else(|| Clip { name: "Effect".into(), cycle_type: 2, stop: 0.0, ..Clip::from_controllers(Vec::new()) });
+    clip.stop = clip.stop.max(stop);
+    clip.priorities.extend(std::iter::repeat_n(0, tracks.len()));
+    clip.tracks.extend(tracks);
+    clip.visibility.extend(visibility);
+    clip.materials.extend(materials);
+    Some(clip)
+}
+
+// A mesh with its material, ready to spawn.
 pub type MeshAndMaterial = (Handle<Mesh>, Handle<NifMaterial>);
 
 /// Prepared models by archive path; `None` remembers a failure.
@@ -519,6 +612,11 @@ impl ModelCtx<'_> {
             seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
         };
         let mut idle = named("idle").or_else(|| named("specialidle"));
+        // What the model plays as an effect (`nvforever::shot_fx`): its idle sequence or a
+        // `SpecialIdle…` one (`SpecialIdle_AreaEffect` in the explosion models), with the
+        // controllers no sequence drives.
+        let special = || seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.to_ascii_lowercase().starts_with("specialidle"))).map(Clip::from_sequence).find(&moves);
+        let effect = effect_clip(&file, &dec, idle.clone().or_else(special)).filter(moves);
         // Controllers that run by themselves (scrolling smoke and dust textures) play
         // with the idle clip, each on its own cycle; a model without one gets a clip of
         // its own for them.
@@ -539,12 +637,14 @@ impl ModelCtx<'_> {
             .iter()
             .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
             .chain(groups.iter())
+            .chain(effect.iter())
             .flat_map(|c| c.materials.iter().map(|m| m.shape.clone()))
             .collect();
         let emissive_shapes: HashSet<String> = idle
             .iter()
             .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
             .chain(groups.iter())
+            .chain(effect.iter())
             .flat_map(|c| c.materials.iter().filter(|m| matches!(m.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult)).map(|m| m.shape.clone()))
             .collect();
         // Nodes a clip of the rig shows and hides (`NiVisController`): their shapes are
@@ -553,10 +653,11 @@ impl ModelCtx<'_> {
             .iter()
             .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
             .chain(groups.iter())
+            .chain(effect.iter())
             .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()))
             .collect();
         // Rig nodes: the root first, then every object reachable from it.
-        let animated = idle.is_some() || door.is_some() || !groups.is_empty();
+        let animated = idle.is_some() || door.is_some() || !groups.is_empty() || effect.is_some();
         let mut rig = animated
             .then(|| {
             let root = root?;
@@ -585,7 +686,7 @@ impl ModelCtx<'_> {
                     }
                 })
                 .collect();
-            Some((Rig { nodes, shapes: Vec::new(), idle, door, groups }, index))
+            Some((Rig { nodes, shapes: Vec::new(), idle, door, groups, effect }, index))
             })
             .flatten();
 
