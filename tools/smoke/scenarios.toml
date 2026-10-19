@@ -1592,6 +1592,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "semi-auto-rate"
+source = "owner playtest 2026-10-19: the 9mm pistol and varmint rifle fire slower than in the original"
+note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,11.1:fire,11.36:fire,11.46:fire,11.72:fire,11.82:fire,12.08:fire,12.18:fire,12.44:fire,12.54:fire,12.8:fire,12.9:fire,13.16:fire,13.26:fire,13.52:fire,13.62:fire,13.88:fire,13.98:fire,14.24:fire,14.34:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat: (?P<n>\d+) shots \(', range = [10, 10], label = "every pull 0.36 s apart fires" },
+]
+
+[[scenario]]
 name = "carry-two-handed"
 source = "playtest list 5 items 21 and 61 (2026-10-16): over the carry limit the player can only walk; running with a two-handed weapon drawn is slower"
 note = "40 hunting rifles (6 lb each) take the player over the 200 lb limit; one drawn is a two-handed weapon (fMove2HBigPenalty 0.1 in FalloutNV.esm)"

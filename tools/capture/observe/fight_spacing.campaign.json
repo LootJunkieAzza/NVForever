@@ -1,0 +1,285 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "fight_spacing",
+ "title": "npc-behaviour-compare.md section 8.3 (plugin version 9, save nvftest; run each session alone with --only, a fight kills the actors the next one needs): how long an NCR-Fiend gunfight lasts by the distance it starts at. Four persistent NCR troopers (the four MoveTo reaches from nvftest) and Cook-Cook's four camp Fiends, placed in two lines 500, 1,000 or 2,000 units apart; Cook-Cook (whose flamer decided the earlier runs), the camp's dogs and the far Fiends disabled, so it is guns only. Every 2 game loops the fight field set (Health of every fighter per sample) with OnHit/OnDeath/OnStartCombat/OnCombatEnd, for hits per second and damage per hit by distance (tools/capture/fight_stats.py).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight"
+ },
+ "sessions": [
+  {
+   "name": "spacing_500",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1.5,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do": [
+    [
+     "{0}.Disable",
+     "0x000F5704"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F5717"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F571A"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F571C"
+    ],
+    [
+     "{0}.Disable",
+     "0x000FB86C"
+    ],
+    [
+     "{0}.Disable",
+     "0x000FB86B"
+    ],
+    [
+     "{0}.MoveTo player -300 500 0",
+     "0x000F9CE6"
+    ],
+    [
+     "{0}.MoveTo player -100 500 0",
+     "0x000F9CE7"
+    ],
+    [
+     "{0}.MoveTo player 100 500 0",
+     "0x000F9CE8"
+    ],
+    [
+     "{0}.MoveTo player 300 500 0",
+     "0x000F9CE9"
+    ],
+    [
+     "{0}.MoveTo player -300 0 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 0 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 0 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 0 0",
+     "0x0015CE08"
+    ],
+    [
+     "player.MoveTo {0} -1500 250 0",
+     "0x000F36F5"
+    ]
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08",
+    "0x000F9CE6",
+    "0x000F9CE7",
+    "0x000F9CE8",
+    "0x000F9CE9"
+   ],
+   "note": "the four persistent troopers in a line, the camp's four Fiends in a line 500 units north of them (Cook-Cook, the camp's dogs and the two Fiends 5,000 units east disabled); the hidden player 1,500 units west of the gap"
+  },
+  {
+   "name": "spacing_1000",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1.5,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do": [
+    [
+     "{0}.Disable",
+     "0x000F5704"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F5717"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F571A"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F571C"
+    ],
+    [
+     "{0}.Disable",
+     "0x000FB86C"
+    ],
+    [
+     "{0}.Disable",
+     "0x000FB86B"
+    ],
+    [
+     "{0}.MoveTo player -300 1000 0",
+     "0x000F9CE6"
+    ],
+    [
+     "{0}.MoveTo player -100 1000 0",
+     "0x000F9CE7"
+    ],
+    [
+     "{0}.MoveTo player 100 1000 0",
+     "0x000F9CE8"
+    ],
+    [
+     "{0}.MoveTo player 300 1000 0",
+     "0x000F9CE9"
+    ],
+    [
+     "{0}.MoveTo player -300 0 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 0 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 0 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 0 0",
+     "0x0015CE08"
+    ],
+    [
+     "player.MoveTo {0} -1500 500 0",
+     "0x000F36F5"
+    ]
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08",
+    "0x000F9CE6",
+    "0x000F9CE7",
+    "0x000F9CE8",
+    "0x000F9CE9"
+   ],
+   "note": "the four persistent troopers in a line, the camp's four Fiends in a line 1000 units north of them (Cook-Cook, the camp's dogs and the two Fiends 5,000 units east disabled); the hidden player 1,500 units west of the gap"
+  },
+  {
+   "name": "spacing_2000",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1.5,
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do": [
+    [
+     "{0}.Disable",
+     "0x000F5704"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F5717"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F571A"
+    ],
+    [
+     "{0}.Disable",
+     "0x000F571C"
+    ],
+    [
+     "{0}.Disable",
+     "0x000FB86C"
+    ],
+    [
+     "{0}.Disable",
+     "0x000FB86B"
+    ],
+    [
+     "{0}.MoveTo player -300 2000 0",
+     "0x000F9CE6"
+    ],
+    [
+     "{0}.MoveTo player -100 2000 0",
+     "0x000F9CE7"
+    ],
+    [
+     "{0}.MoveTo player 100 2000 0",
+     "0x000F9CE8"
+    ],
+    [
+     "{0}.MoveTo player 300 2000 0",
+     "0x000F9CE9"
+    ],
+    [
+     "{0}.MoveTo player -300 0 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 0 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 0 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 0 0",
+     "0x0015CE08"
+    ],
+    [
+     "player.MoveTo {0} -1500 1000 0",
+     "0x000F36F5"
+    ]
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08",
+    "0x000F9CE6",
+    "0x000F9CE7",
+    "0x000F9CE8",
+    "0x000F9CE9"
+   ],
+   "note": "the four persistent troopers in a line, the camp's four Fiends in a line 2000 units north of them (Cook-Cook, the camp's dogs and the two Fiends 5,000 units east disabled); the hidden player 1,500 units west of the gap"
+  }
+ ]
+}

@@ -5,6 +5,7 @@
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
 use fnv_combat::damage::{self, Attacker, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::{AmmoEffect, ExplosionStats, ProjectileStats, WeaponStats};
+use fnv_combat::melee::NextAttack;
 use fnv_combat::projectile::{blast, swing, swing_reaching, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
 use fnv_combat::shot::{self, Seen};
 use fnv_combat::spread::{self, Kick, Stance};
@@ -277,6 +278,23 @@ fn semi_automatic_cycle_and_reload() {
     let mut c = Cycle::new(&w, timing, false, 0);
     let ev = run(&mut c, &t, 20, 0.05, |_| true, 0);
     assert_eq!(ev, vec![Event::DryFire]);
+}
+
+#[test]
+fn semi_automatic_shots_follow_the_clips_next_attack_key() {
+    // The 9mm pistol's `1hpattackright.kf` (`a:R` at 0.400 s, end 0.500 s) at attack
+    // multiplier 1.25: the record's Attack Shots/Sec, 3.125.
+    let t = CombatTuning::default();
+    let pistol = WeaponStats { attack_mult: 1.25, anim_mult: 1.0, ..gun(16) };
+    let clips = ClipTiming { attack_len: Some(0.5), hit_time: Some(0.033), next_attack: Some((0.4, NextAttack::Right)), ..Default::default() };
+    assert!(close(Timing::of(&pistol, &clips, &t).interval, 1.0 / 3.125));
+    // The varmint rifle's `2hrattack8.kf` (`a:8` at 1.267 s, end 1.333 s), 1.4 × 1.1.
+    let varmint = WeaponStats { attack_mult: 1.4, anim_mult: 1.1, ..gun(18) };
+    let clips = ClipTiming { attack_len: Some(1.333), next_attack: Some((1.2667, NextAttack::Numbered(8))), ..Default::default() };
+    assert!((Timing::of(&varmint, &clips, &t).interval - 1.0 / 1.2158).abs() < 1e-3);
+    // No `a:` key: the clip's length.
+    let clips = ClipTiming { attack_len: Some(0.5), ..Default::default() };
+    assert!(close(Timing::of(&pistol, &clips, &t).interval, 0.4));
 }
 
 #[test]

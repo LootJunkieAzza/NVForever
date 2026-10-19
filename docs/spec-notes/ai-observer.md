@@ -586,3 +586,6 @@ events;
 their findings are in the notes of the systems they settle (unconscious.md §5.5,
 script-stubs.md §3, anim-state.md §4, crime-karma.md, npc-behaviour-compare.md §9 and §10,
 talking-activators.md, owner-decision-captures.md §6).
+
+Campaigns written 2026-10-19, not yet run: `fight_spacing`, `melee_holdoff`,
+`creature_spacing`, `package_durations`, `followers` (npc-behaviour-compare.md §12).
