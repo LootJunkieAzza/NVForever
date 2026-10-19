@@ -82,7 +82,7 @@ scripts do the work [observed, FalloutNV.esm]:
 | Aggressive / Passive | passive → FollowersTacticsCombatAggressive; aggressive → …Passive | `FollowerSwitchAggressive` 1 / 0 |
 | Near / Far | near → FollowersTacticsDistanceLong; far → …DistanceDefault | `IsFollowingLong` 1, `IsFollowingDefault` 0, EvaluatePackage (and back) |
 | Ranged / Melee | ranged → FollowersTacticsCombatMelee; melee → …Ranged | SetCombatStyle FollowersCombatStyleMelee / Ranged, `CombatStyleRanged` / `CombatStyleMelee` |
-| Open Inventory | FollowersTrade | OpenTeammateContainer |
+| Open Inventory | FollowersTrade | OpenTeammateContainer (Boone's only line, INFO 0x000B16BF, also asks VFreeformNovac.nSnipersRevengeStage == 30, which his hire chain's INFO 0x0015F30C sets) |
 | Use Stimpak | Regenerating | — (said when given a stimpak [documented]) |
 | Talk | — | the conversation, from the greeting |
 | Back Up | — | — |
