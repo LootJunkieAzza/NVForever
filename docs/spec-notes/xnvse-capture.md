@@ -51,6 +51,12 @@ All calls use the C calling convention of 32-bit MSVC (cdecl); `bool` is one byt
   "data: bool"; the flag is carried **in the `data` field itself**, not behind it:
   reading `data` as a pointer crashed the game on the first save load (access violation
   in `nvf_capture.dll`, 2026-10-07) [observed]. The plugin reads the low byte of the field.
+- **Event manager interface** (id 8, plugin version 9): function pointers from its start
+  [documented: xNVSE 6.4.9 PluginAPI.h]: `RegisterEvent`, `DispatchEvent`,
+  `DispatchEventAlt`, **`SetNativeEventHandler(const char* name, handler) -> bool`**,
+  **`RemoveNativeEventHandler(name, handler) -> bool`**, then members this plugin does not
+  use. A native handler is `void (ref* thisObj, void* params)`; xNVSE passes a null
+  reference and an array of the event's two arguments [documented: EventManager.cpp].
 - **Script interface** (id 6, runtime only): `CallFunction(Script*, ref* calling, ref*
   container, Element* result, u8 numArgs, ...) -> bool`, `GetFunctionParams`,
   `ExtractArgsEx`, `ExtractFormatStringArgs`, `CallFunctionAlt`, **`CompileScript(const
@@ -212,6 +218,13 @@ function on a NULL reference") and the step fails without harm.
   - **Next step.** A small diagnostic would settle it: add the width, height and
     `GetLastError` to the message. The plugin is not changed here, because the DLL needs
     the owner to copy it.
+  - **Settled (2026-10-19, plugin version 9) [observed].** On the owner's desktop the
+    game's window is 3,840 × 2,160: its 32-bit DIB is 33 MB and the RGB copy 25 MB. The
+    first shots of a run came back black or failed with this error, and then the RGB
+    buffer's allocation failed and aborted the game ("memory allocation of 24883200 bytes
+    failed", three crashes of `knockdown_look`). Pictures are now copied scaled down to
+    1,280 wide (`StretchBlt`, HALFTONE) and the buffer is reserved fallibly; every shot of
+    the later runs was taken (ai-observer.md §12).
 
 - First automatic trial (2026-10-08) [observed]: xNVSE sends MainGameLoop while the main
   menu is shown (the log's "first game loop" came 2 s after the plugin loaded, before any

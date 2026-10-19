@@ -42,7 +42,9 @@ import capture_steps as cs  # noqa: E402
 CAMPAIGN_FORMAT = "fnv.observe.campaign/1"
 TIMELINE_FORMAT = "fnv.observe.timeline/1"
 RUN_FORMAT = "fnv.observe.run/1"
-PLUGIN_VERSION = 6  # the observe step (4), drive values (5), hooks (6) (tools/capture/nvf_capture/src/runner.rs)
+# The observe step (4), drive values (5), hooks (6), events, shots and once hooks (9)
+# (tools/capture/nvf_capture/src/runner.rs).
+PLUGIN_VERSION = 9
 
 # Form type code of actors for GetFirstRef / GetNumRefs [documented: GECK wiki
 # GetFirstRef, "200 for actors"].
@@ -120,6 +122,35 @@ HEADER = [("days", "num", "GameDaysPassed"), ("hour", "num", "GameHour"), ("time
           ("player_x", "num", "player.GetPos X"), ("player_y", "num", "player.GetPos Y"),
           ("player_z", "num", "player.GetPos Z"), ("player_heading", "num", "player.GetAngle Z"),
           ("player_cell", "ref", "player.GetParentCell"), ("player_in_combat", "num", "player.IsInCombat")]
+# The "more" part (session "more": true, plugin version 6 or later): more actor values,
+# probed for actors in the loaded area after the set's own parts. Actor value names as
+# the masters' scripts and conditions use them with GetActorValue (GECK1); Fatigue below
+# 0 knocks an actor out, the six limb conditions cripple at 0 [documented: GECK wiki
+# GetActorValue, the names as in crates/fnv-game's actor value table].
+MORE_PART = [("perception", "num", "GetAV Perception"), ("fatigue", "num", "GetAV Fatigue"),
+             ("cond_perception", "num", "GetAV PerceptionCondition"), ("cond_endurance", "num", "GetAV EnduranceCondition"),
+             ("cond_left_attack", "num", "GetAV LeftAttackCondition"), ("cond_right_attack", "num", "GetAV RightAttackCondition"),
+             ("cond_left_mobility", "num", "GetAV LeftMobilityCondition"),
+             ("cond_right_mobility", "num", "GetAV RightMobilityCondition"), ("cond_brain", "num", "GetAV BrainCondition"),
+             ("level", "num", "GetLevel")]
+# Header fields of the "more" set: the player's karma (GetAV Karma) and the actions
+# IsPlayerActionActive reports (GECK1: 1 to 10, an action "active" while its timer runs
+# [documented: GECK wiki IsPlayerActionActive, ActionIndex]) and GetLastPlayerAction (GECK1).
+MORE_HEADER = ([("player_karma", "num", "player.GetAV Karma"), ("player_last_action", "num", "GetLastPlayerAction")]
+               + [(f"player_action_{k}", "num", f"IsPlayerActionActive {k}") for k in range(1, 11)])
+
+# Game events (plugin version 9; docs/spec-notes/ai-observer.md section 12): xNVSE's
+# events with two arguments, first and second [documented: GECK wiki NVSE Event
+# Handling]. For each event heard, the probe records both as FormIDs, the clock, and for
+# a first argument that is an actor its Health, GetKnockedState and GetDead at that
+# moment (OnHit runs before the damage is dealt).
+EVENTS = ["OnHit", "OnHitWith", "OnDeath", "OnMurder", "OnStartCombat", "OnCombatEnd", "OnPackageStart",
+          "OnPackageChange", "OnPackageDone", "OnActivate", "OnActorEquip", "OnActorUnequip", "OnMagicEffectHit",
+          "OnLoad", "SayToDone", "OnTriggerEnter"]
+EVENT_SETS = {"fight": ["OnHit", "OnDeath", "OnStartCombat", "OnCombatEnd"],
+              "packages": ["OnPackageStart", "OnPackageChange", "OnPackageDone"]}
+EVENT_FIELDS = [("first", "ref"), ("second", "ref"), ("days", "num"), ("hour", "num"), ("health", "num"),
+                ("knocked", "num"), ("dead", "num")]
 
 # Names of GetCurrentAIPackage and GetCurrentAIProcedure codes [documented: GECK wiki,
 # return value tables of both pages].
@@ -202,6 +233,48 @@ def count_script(expr):
     return cs.function(["float fV"], [f"let fV := {expr}", "SetFunctionValue fV"])
 
 
+def event_names(spec):
+    """A session's `events`: a list of event names and set names (EVENT_SETS), or "all"."""
+    if spec in (None, False):
+        return []
+    items = EVENTS if spec == "all" else [spec] if isinstance(spec, str) else list(spec)
+    out = []
+    for item in items:
+        for name in EVENT_SETS.get(item, [item]):
+            if name not in EVENTS:
+                raise InputError(f"unknown event {name!r} (one of {EVENTS} or a set {sorted(EVENT_SETS)})")
+            if name not in out:
+                out.append(name)
+    return out
+
+
+def event_probe():
+    """The function the plugin runs for each event heard, on the event's two arguments
+    (EVENT_FIELDS joined with '|'). IsFormValid (FOSE1) guards an empty argument,
+    IsReference (FOSE1) and IsActor (GECK1) the actor fields (-1 when not an actor)."""
+    rest = ' + "|" + ($ fD) + "|" + ($ fH) + "|" + ($ fA) + "|" + ($ fK) + "|" + ($ fX)'
+    body = ["let fD := GameDaysPassed", "let fH := GameHour", "let fA := -1", "let fK := -1", "let fX := -1",
+            "let fV := 0", "if IsFormValid rEa", "  let fV := 1", "  if IsReference rEa", "    if rEa.IsActor",
+            "      let fA := rEa.GetAV Health", "      let fK := rEa.GetKnockedState", "      let fX := rEa.GetDead",
+            "    endif", "  endif", "endif", "if IsFormValid rEb", "  let fV := fV + 2", "endif"]
+    a, b = "(GetFormIDString rEa)", "(GetFormIDString rEb)"
+    for k, (x, y) in enumerate([('"0"', '"0"'), (a, '"0"'), ('"0"', b), (a, b)]):
+        body += [f"{'if' if k == 0 else 'elseif'} fV == {k}", f'  SetFunctionValue ({x} + "|" + {y}{rest})']
+    body.append("endif")
+    decls = ["ref rEa", "ref rEb", "float fD", "float fH", "float fA", "float fK", "float fX", "float fV"]
+    return "\n".join(decls + ["Begin Function {rEa, rEb}"] + body + ["End"]) + "\n"
+
+
+def condition_script(item, ctx):
+    """A condition from [expression, name, ...] ({0}, {1} the named references or forms):
+    1 while the expression is non-zero."""
+    if not (isinstance(item, list) and item and isinstance(item[0], str)):
+        raise InputError(f"a condition is [expression, names...], got {item!r}")
+    n = cs.Names(*ctx)
+    expr = item[0].format(*[n.operand(x) for x in item[1:]])
+    return cs.function(n.decls + ["float fV"], n.setup + [f"if {expr}", "  let fV := 1", "endif", "SetFunctionValue fV"])
+
+
 def until_hours_script(var, hours):
     """1 once GameDaysPassed has passed the remembered `var` by `hours` game hours."""
     return cs.function(["float fV"], [f"if GameDaysPassed >= %{{{var}}} + {cs.number(hours / 24)}", "  let fV := 1",
@@ -270,12 +343,14 @@ def release_script():
     return cs.function(["int iK"], [f"let iK := GetControl {CONTROL_FORWARD}", "ReleaseKey iK"], returns_value=False)
 
 
-def groups(depth, max_actors, tracked, ctx, fields="full"):
+def groups(depth, max_actors, tracked, ctx, fields="full", extra_parts=()):
     """The observe step's groups: actors in the loaded area, and named actors (with the
-    full set only its first TRACKED_PARTS parts: a named actor may be unloaded)."""
+    full set only its first TRACKED_PARTS parts: a named actor may be unloaded).
+    `extra_parts` (session_extras) are probed for the actors in the loaded area only."""
     parts = FIELD_SETS[fields]
+    near_parts = parts + list(extra_parts)
     near = {"name": "nearby", "count": count_script(f"GetNumRefs {ACTOR_TYPE} {int(depth)}"),
-            "probe": [probe_part(p, [], [], nearby_select(depth), True) for p in parts], "max": int(max_actors)}
+            "probe": [probe_part(p, [], [], nearby_select(depth), True) for p in near_parts], "max": int(max_actors)}
     out = [near]
     if tracked:
         n = cs.Names(*ctx)
@@ -287,10 +362,45 @@ def groups(depth, max_actors, tracked, ctx, fields="full"):
     return out
 
 
-def fields_doc(tracked, fields="full"):
-    return {"header": [[name, kind] for name, kind, _ in HEADER],
-            "parts": [[[name, kind] for name, kind, _ in part] for part in FIELD_SETS[fields]],
-            "tracked": list(tracked), "set": fields}
+def header_fields(extra_header=()):
+    return HEADER + list(extra_header)
+
+
+def session_extras(s):
+    """(extra parts, extra header fields) of a session: `more` (MORE_PART, MORE_HEADER),
+    `extra` (a part of [name, kind, expression] fields, the expression called on each
+    actor, e.g. ["critical", "num", "IsInCriticalStage GooStart"]) and `extra_header`
+    ([name, kind, expression] read once per sample, e.g. ["pipboy", "num", "MenuMode
+    1002"])."""
+    parts, header = [], []
+    if s.get("more"):
+        parts.append(MORE_PART)
+        header += MORE_HEADER
+    for key, out in (("extra", None), ("extra_header", header)):
+        items = s.get(key) or []
+        fields = []
+        for item in items:
+            if not (isinstance(item, list) and len(item) == 3 and item[1] in ("num", "ref") and isinstance(item[2], str)
+                    and isinstance(item[0], str) and item[0].isidentifier()):
+                raise InputError(f"session {s.get('name')}: {key} items are [name, num|ref, expression], got {item!r}")
+            fields.append(tuple(item))
+        if out is None:
+            if fields:
+                parts.append(fields)
+        else:
+            out += fields
+    return parts, header
+
+
+def fields_doc(tracked, fields="full", extra_parts=(), extra_header=(), events=()):
+    parts = FIELD_SETS[fields] + list(extra_parts)
+    doc = {"header": [[name, kind] for name, kind, _ in header_fields(extra_header)],
+           "parts": [[[name, kind] for name, kind, _ in part] for part in parts],
+           "tracked": list(tracked), "set": fields}
+    if events:
+        doc["events"] = list(events)
+        doc["event_fields"] = [[name, kind] for name, kind in EVENT_FIELDS]
+    return doc
 
 
 # --------------------------------------------------------------------------- campaigns
@@ -314,13 +424,16 @@ def check_campaign(c):
     if len(set(names)) != len(names):
         raise InputError("session names must be unique")
     known = {"name", "go", "hour", "hours", "walk", "track", "every", "depth", "settle_frames", "timescale",
-             "max_actors", "console_first", "close_menus_after", "fields", "do", "place", "note"}
+             "max_actors", "console_first", "close_menus_after", "fields", "do", "place", "note", "more", "events",
+             "shots", "timed", "extra", "extra_header", "do_first"}
     for s in c["sessions"] + [c.get("defaults", {})]:
         extra = set(s) - known
         if extra:
             raise InputError(f"unknown session keys {sorted(extra)}")
         if s.get("fields", "full") not in FIELD_SETS:
             raise InputError(f"fields must be one of {sorted(FIELD_SETS)}, got {s.get('fields')!r}")
+        event_names(s.get("events"))
+        session_extras(s)
 
 
 def job_name(campaign, session):
@@ -458,23 +571,69 @@ def session_job(campaign, session, ctx):
         steps += [{"script": set_hour_script(s["hour"])}, {"frames": cs.SETTLE_FRAMES_LONG}]
     steps += go_steps(s.get("go"), ctx)
     steps.append({"frames": int(s["settle_frames"])})
-    steps += place_steps(s.get("place"), ctx) + do_steps(s.get("do"), ctx)
+    # `do_first`: scene actions after arrival and before `place` (e.g. killall where the
+    # player arrived, then the actors to watch are spawned).
+    steps += do_steps(s.get("do_first"), ctx) + place_steps(s.get("place"), ctx) + do_steps(s.get("do"), ctx)
     if s.get("timescale"):
         steps += [{"remember": cs.global_query("TimeScale"), "as": "ts0"},
                   {"console": f"set TimeScale to {cs.number(s['timescale'])}"}]
     steps.append({"remember": cs.global_query("GameDaysPassed"), "as": "t0"})
     loops = session_seconds(s) * MAX_FPS
     fields = s.get("fields", "full")
-    obs = {"label": s["name"], "fields": fields_doc(tracked, fields),
-           "header": [header_script(k, e) for _, k, e in HEADER],
-           "groups": groups(s["depth"], s["max_actors"], tracked, ctx, fields), "every": every,
+    extra_parts, extra_header = session_extras(s)
+    events = event_names(s.get("events"))
+    obs = {"label": s["name"], "fields": fields_doc(tracked, fields, extra_parts, extra_header, events),
+           "header": [header_script(k, e) for _, k, e in header_fields(extra_header)],
+           "groups": groups(s["depth"], s["max_actors"], tracked, ctx, fields, extra_parts), "every": every,
            "until": until_hours_script("t0", hours), "max_samples": int(math.ceil(loops / every)) + 10}
+    if events:
+        probe = event_probe()
+        obs["events"] = [{"name": e, "probe": probe} for e in events]
+    hooks = []
     close_after = s.get("close_menus_after")
     if close_after:
         # A dialogue an NPC starts with the player stops the game clock, so `until`
         # would never be met [observed 2026-10-08, meet_sunny]; close it after a while.
-        obs["hooks"] = [{"name": "close_menus", "when": menu_open_script(),
-                         "after": max(1, int(math.ceil(int(close_after) / every))), "then": close_menus_script()}]
+        hooks.append({"name": "close_menus", "when": menu_open_script(),
+                      "after": max(1, int(math.ceil(int(close_after) / every))), "then": close_menus_script()})
+    # `timed`: [{"after": samples, "do": [statement, names...] | "script": {"lines":
+    # [statements], "names": [...]}, "when": [condition, names...], "repeat": bool}]: a
+    # scene action run once at that sample of the observation (plugin version 9), e.g. a
+    # push while every game loop is sampled; with `when`, once the condition has held for
+    # `after` samples in a row (e.g. a gecko on its Find package); with `repeat`, every
+    # `after` samples (e.g. the player healed now and then instead of god mode).
+    for k, t in enumerate(s.get("timed") or []):
+        if set(t) - {"after", "do", "script", "when", "repeat"} or not isinstance(t.get("after"), int) or t["after"] < 1 \
+                or ("do" in t) == ("script" in t):
+            raise InputError(f"session {s['name']}: a timed item is {{after: samples (>= 1), do: [statement, names...] "
+                             f"or script: {{lines, names}}, when, repeat}}")
+        if "do" in t:
+            item = t["do"]
+            if not (isinstance(item, list) and item and isinstance(item[0], str)):
+                raise InputError(f"session {s['name']}: a timed do is [statement, names...], got {item!r}")
+            then = cs.run_script([item[0]], ctx, item[1:])
+        else:
+            sc = t["script"]
+            if not (isinstance(sc, dict) and set(sc) <= {"lines", "names", "decls"} and sc.get("lines")
+                    and all(isinstance(x, str) for x in sc["lines"] + list(sc.get("decls") or []))):
+                raise InputError(f"session {s['name']}: a timed script is {{lines: [statements], names: [...], decls: [...]}}")
+            n = cs.Names(*ctx)
+            ops = [n.operand(x) for x in sc.get("names") or []]
+            then = cs.function(n.decls + list(sc.get("decls") or []), n.setup + [x.format(*ops) for x in sc["lines"]],
+                               returns_value=False)
+        when = condition_script(t["when"], ctx) if t.get("when") else cs.function(["float fV"], ["let fV := 1", "SetFunctionValue fV"])
+        hooks.append({"name": f"timed_{k}", "when": when, "after": t["after"], "then": then, "once": not t.get("repeat")})
+    if hooks:
+        obs["hooks"] = hooks
+    # `shots`: {"label", "when": [expression, names...], "gap": samples, "max": n}:
+    # a screenshot at each sample where the condition holds (plugin version 9).
+    shots = s.get("shots")
+    if shots:
+        if set(shots) - {"label", "when", "gap", "max"} or "label" not in shots or "when" not in shots:
+            raise InputError(f"session {s['name']}: shots is {{label, when: [expression, names...], gap, max}}")
+        obs["shots"] = {"label": cs.plain_name(shots["label"], "the shots label"),
+                        "when": condition_script(shots["when"], ctx),
+                        "gap": int(shots.get("gap", 1)), "max": int(shots.get("max", 100))}
     walk = s.get("walk")
     if walk:
         unknown = set(walk) - {"to", "within", "max_frames", "approach", "follow"}
@@ -678,6 +837,12 @@ def read_samples(lines, source=""):
         elif kind == "drive" and current is not None:
             current.setdefault("drives", []).append({"reason": rec.get("reason"), "loops": rec.get("loops"),
                                                      "value": rec.get("value")})
+        elif kind == "event" and current is not None:
+            current.setdefault("events", []).append(rec)
+        elif kind == "events_lost" and current is not None:
+            current["events_lost"] = current.get("events_lost", 0) + int(rec.get("count") or 0)
+        elif kind == "screenshot" and current is not None:
+            current.setdefault("shots", []).append({k: rec.get(k) for k in ("n", "label", "file", "error")})
     return mods, observations
 
 
@@ -719,7 +884,7 @@ def label_of(value, field, names):
 
 def timeline(sources, names=None):
     """fnv.observe.timeline/1 from [(source, lines)]; `names`: global FormID -> Editor ID."""
-    actors, events, problems, sessions = {}, [], [], []
+    actors, events, problems, sessions, game_events = {}, [], [], [], []
     for source, lines in sources:
         mods, observations = read_samples(lines, source)
         if not mods:
@@ -730,7 +895,18 @@ def timeline(sources, names=None):
             header_fields = [tuple(h) for h in f.get("header", [])]
             part_fields = [[tuple(x) for x in p] for p in f.get("parts", [])]
             sessions.append({"source": source, "label": ob["label"], "samples": len(ob["samples"]), "end": ob["end"],
-                             "drives": ob.get("drives", []), "hooks": ob.get("hooks", [])})
+                             "drives": ob.get("drives", []), "hooks": ob.get("hooks", []), "shots": ob.get("shots", []),
+                             "events_lost": ob.get("events_lost", 0)})
+            ev_fields = [tuple(x) for x in f.get("event_fields", [])]
+            for e in ob.get("events", []):
+                rec = {"session": ob["label"], "n": e.get("n"), "name": e.get("name")}
+                if e.get("error") is not None or not isinstance(e.get("value"), str):
+                    rec["error"] = e.get("error") or "no value"
+                else:
+                    for (name, kind), text in zip(ev_fields, e["value"].split("|")):
+                        rec[name] = parse_value(kind, text, mods)
+                    rec["t"] = game_time(rec)
+                game_events.append(rec)
             for smp in ob["samples"]:
                 head = {}
                 for (name, kind), v in zip(header_fields, smp.get("header", [])):
@@ -777,8 +953,12 @@ def timeline(sources, names=None):
             e["from_name"], e["to_name"] = label_of(e["from"], e["field"], names), label_of(e["to"], e["field"], names)
         elif isinstance(e["to"], str) or isinstance(e["from"], str):
             e["from_name"], e["to_name"] = label_of(e["from"], e["field"], names), label_of(e["to"], e["field"], names)
+    for e in game_events:
+        for k in ("first", "second"):
+            if e.get(k):
+                e[k + "_edid"] = label_of(e[k], k, names)
     return {"format": TIMELINE_FORMAT, "sources": [s for s, _ in sources], "sessions": sessions,
-            "actors": dict(sorted(actors.items())), "events": events, "problems": problems,
+            "actors": dict(sorted(actors.items())), "events": events, "game_events": game_events, "problems": problems,
             "package_types": PACKAGE_TYPES, "procedures": PROCEDURES}
 
 

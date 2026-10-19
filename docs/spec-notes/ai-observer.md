@@ -517,3 +517,66 @@ taught about running them:
 - **Stopping a run without freeing the game too early**: when a campaign is cut short,
   remove its pending jobs, stop the supervisor (it would restart the game for the rest),
   and keep the locks until the game has quit.
+
+## 12. Plugin version 9: game events, scene actions and screenshots (2026-10-19)
+
+The owner asked for the observer at its full capacity (2026-10-19), base game and xNVSE
+only. What was added, with its sources:
+
+- **Game events** (`observe.events`, campaign key `events`: names, the sets `fight` =
+  OnHit, OnDeath, OnStartCombat, OnCombatEnd and `packages` = OnPackageStart,
+  OnPackageChange, OnPackageDone, or `all`). The plugin registers a native handler per
+  event through xNVSE's event manager interface (QueryInterface 8,
+  `SetNativeEventHandler` / `RemoveNativeEventHandler` [documented: xNVSE 6.4.9
+  PluginAPI.h, `NVSEEventManagerInterface`, function pointers from its start]). xNVSE
+  calls a native handler with a null reference and an array of the event's two
+  arguments, first and second [documented: xNVSE 6.4.9 EventManager.cpp]; the events and
+  what their arguments are come from the wiki [documented: GECK wiki NVSE Event
+  Handling: OnHit target and attacker, before the damage; OnHitWith target and weapon;
+  OnDeath killed and killer; OnMurder; OnStartCombat target and starter; OnCombatEnd;
+  OnPackageStart / Change / Done actor and package; OnActivate activated and action
+  reference; OnActorEquip / Unequip; OnMagicEffectHit target and effect; OnLoad;
+  SayToDone speaker and info; OnTriggerEnter]. For each event heard the plugin at once
+  runs a probe function on the two arguments (`CallFunction` passes forms as pointers
+  [documented: xNVSE FunctionScripts.cpp, `InternalFunctionCaller::PopulateArgs`]); the
+  probe (`observe.event_probe`) returns both FormIDs, GameDaysPassed, GameHour and, for a
+  first argument that is an actor (IsFormValid, IsReference, IsActor), its Health,
+  GetKnockedState and GetDead. Output `{"kind": "event", step, n, name, value}`; events
+  heard while a probe ran (one setting off another) are counted as `events_lost`. xNVSE
+  drops an OnHit or OnHitWith with the same pair as the one before it in the same frame
+  [documented: EventManager.cpp, HandleGameEvent; its `Tick` clears the pair]. The
+  timeline (`report`) lists them as `game_events` with Editor IDs.
+- **Timed scene actions** (campaign key `timed`): a statement or a short script run once
+  at a set sample (a hook with `once`, plugin version 9), once a condition has held for
+  `after` samples (`when`, e.g. a gecko on its Find package), or every `after` samples
+  (`repeat`, e.g. the player healed instead of god mode, or a script turning the player
+  to a target every game loop). `do_first`: scene actions after arrival, before `place`.
+- **Screenshots on a condition** (`observe.shots`, campaign key `shots`: label, condition,
+  `gap` samples at least between two, `max`). Pictures are copied scaled to 1,280 wide:
+  the owner's game runs in a 3,840 × 2,160 window, and the 32-bit game's address space
+  could not hold a full copy ("cannot create a bitmap" in the 2026-10-18 jobs; a 25 MB
+  buffer aborted the game on 2026-10-19 [observed]); a failed allocation is now an error
+  line. Pictures were taken with the game window behind other windows (`foreground`
+  false) and showed the game.
+- **More fields** (campaign key `more`): a part with Perception, Fatigue, the six limb
+  conditions and the brain's, and GetLevel, for actors in the loaded area; header fields
+  with the player's karma (GetAV Karma), GetLastPlayerAction and IsPlayerActionActive 1 to
+  10 [documented: GECK wiki GetActorValue, IsPlayerActionActive, GetLastPlayerAction].
+  `extra` (a part of any [name, kind, expression] called on each actor, e.g.
+  IsInCriticalStage GooStart, GetIsAlignment Evil) and `extra_header` (e.g. MenuMode 1009,
+  player.GetAnimAction) add fields of the campaign's own choosing.
+
+What the observer still cannot read (no base-game or xNVSE function reports it): an
+actor's processing level, the package stack, path nodes, detection values; who an NPC
+is talking to beyond its dialogue target and the line's text (SayToDone gives the INFO
+only for lines a script made an actor say); GetActionRef and IsActionRef, which only
+answer inside the activated object's own script (the OnActivate event gives the same
+activating reference [documented: NVSE Event Handling]); anything that needs a menu
+driven by choice (dialogue topics, the sleep and wait menus, casino cashiers): the plugin
+can tap controls and keys but not pick a menu entry.
+
+Analysis: `tools/capture/fight_stats.py OUT.jsonl ...` gives per fighter the shots
+begun (GetAnimAction entering 2 or 3), the hits landed on actors (OnHit with it as the
+attacker), the damage they did (the event's Health less the next sample's) and the
+distances shot from. The campaigns that use these features, and what they settled, come
+with the changes they inform.
