@@ -151,6 +151,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != crate::terminal::MENU_TERMINAL
         && code != crate::lockpick::MENU_LOCKPICK
         && code != crate::blackjack::MENU_BLACKJACK
+        && code != crate::caravan::MENU_CARAVAN
         && code != fnv_game::crafting::RECIPE_MENU
         && code != fnv_game::repair::REPAIR_SERVICES_MENU
         && code != crate::roulette::MENU_ROULETTE
@@ -1643,7 +1644,7 @@ fn hold_player(
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe, roulette, repair): EngineMenus,
-    (blackjack, poker): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>),
+    (blackjack, poker, caravan): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
@@ -1651,8 +1652,8 @@ fn hold_player(
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
     // menu (`crate::crafting`), the repair services (`crate::repair`), the blackjack table (`crate::blackjack`), the roulette
-    // table (`crate::roulette`) and the poker table (`crate::poker`).
-    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some();
+    // table (`crate::roulette`), the poker table (`crate::poker`) and the Caravan table (`crate::caravan`).
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || repair.is_some_and(|r| r.is_open()) || table {
         return;
     }

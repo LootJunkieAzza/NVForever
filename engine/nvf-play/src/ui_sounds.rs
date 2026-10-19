@@ -73,6 +73,8 @@ pub enum UiMenu {
     Blackjack,
     /// A vendor's repair services (`crate::repair`).
     Repair,
+    /// The Caravan table (`crate::caravan`).
+    Caravan,
 }
 
 impl UiMenu {
@@ -105,6 +107,7 @@ impl UiMenu {
             UiMenu::Creator => "creator",
             UiMenu::Blackjack => "blackjack",
             UiMenu::Repair => "repair services",
+            UiMenu::Caravan => "caravan",
         }
     }
 }
@@ -352,6 +355,9 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Terminal, Picked) => Named("UIHackingCharEnter"),
         (Terminal, Granted) => Named("UIHackingPassGood"),
         (Terminal, Refused) => Named("UIHackingPassBad"),
+        // Caravan: a card that cannot go there (caravan.md) [observed: FalloutNV.esm
+        // `GAMECaravanInvalidStackLocation`; design: for every refusal at the table].
+        (Caravan, Refused) => Named("GAMECaravanInvalidStackLocation"),
         (_, Refused) => Named("UIMenuCancel"),
         // The topics silence the click [observed: dialog_menu.xml DM_Topic].
         (Dialogue, Answered) => Silent("&nosound; in dialog_menu.xml"),
@@ -389,6 +395,21 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Blackjack, RoundOver { won: false }) => Named("GAMEBlackJackLose"),
         (Blackjack, Opened) => Named("UIMenuMode"),
         (Blackjack, Back | Closed) => Named("UIMenuCancel"),
+        // Caravan (caravan.md): the SOUN records named for it [observed: FalloutNV.esm
+        // `GAMECaravan…`; design: which event each is for, by its name].
+        (Caravan, Opened) => Named("UIMenuMode"),
+        (Caravan, Accepted) => Named("GAMECaravanStartMatch"),
+        (Caravan, Focus) => Named("GAMECaravanNavigate"),
+        (Caravan, Switch) => Named("GAMECaravanToggleTrack"),
+        (Caravan, Picked) => Named("GAMECaravanAddRemove"),
+        (Caravan, Shuffled) => Named("GAMECaravanChangeDeck"),
+        (Caravan, Value { .. }) => Named("GAMECaravanFundsDrop"),
+        (Caravan, CardFlipped) => Named("GAMECaravanSwitchCard"),
+        (Caravan, CardDealt) => Named("GAMECaravanAddToTrack"),
+        (Caravan, Collected { .. }) => Named("GAMECaravanRemoveCard"),
+        (Caravan, RoundOver { won: true }) => Named("GAMECaravanWin"),
+        (Caravan, RoundOver { won: false }) => Named("GAMECaravanLose"),
+        (Caravan, Back | Closed) => Named("UIMenuCancel"),
         _ => Silent("no sound for this"),
     }
 }
