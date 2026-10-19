@@ -713,7 +713,8 @@ Still stubs: `IsActorTalkingThroughActivator` (talking activators), `GetDisposit
 - A. Greeting choice when lines of several quests qualify: rules 1–3 of §4, including
   equal priorities and the stored order of §3.1.
 - B. A conversation with the player pauses the game (GameMode, game time); SayTo and Say
-  lines do not (§5, §6).
+  lines do not (§5, §6). Game time and an attacker were seen to hold while the menu is
+  open [observed 2026-10-19, owner-decision-captures.md §7].
 - C. A line needs its quest running and the quest's conditions as well as its own; a
   line of a stopped quest cannot be said (§4).
 - D. Known topics are global: every actor that can say a line of one offers it (§5).
@@ -730,9 +731,14 @@ up to C and F):
 
 1. (moved to A)
 2. (moved to C)
-3. Whether an actor with no qualifying greeting can be activated at all.
+3. Whether an actor with no qualifying greeting can be activated at all. The 2026-10-19
+   capture found no clean case: of three actors taken as greetingless, the ranger greeted
+   (our runtime picks the same line once he is enabled; they are disabled in a new game)
+   and the deputy's greeting has the Goodbye flag (owner-decision-captures.md §7).
 4. Random pools, what the ruling leaves open: a Random End line the actor cannot say
-   (does it still close the pool?), and a pool made of lines of two quests.
+   (does it still close the pool?), and a pool made of lines of two quests. Ralph's
+   GOODBYE was captured on 2026-10-19, but the plugin could not see which line he said
+   (owner-decision-captures.md §7).
 5. Which topics are offered and in what order: hidden when the actor has no line; ties
    of equal topic priority; the conversation ending when no choice of a line can be
    said (no fallback to the topic list); the conversation ending when nothing can be offered; GOODBYE appended.
@@ -742,7 +748,9 @@ up to C and F):
 8. Timing of the begin and end results against the sound; the end result when the
    player skips a line or leaves; Run Immediately on a chosen line.
 9. INFC/INFX: a "shared" line is taken as a line of the listing topic (§1.2); check it
-   in game (Red Lucy's "What's this place?") and where the Info Index puts it.
+   in game (Red Lucy's "What's this place?") and where the Info Index puts it. Her list's
+   first three entries match ours [observed 2026-10-19], but a topic with its own line has
+   the same prompt and the list could not be scrolled (owner-decision-captures.md §7).
 10. Link From: taken as adding the topic to the links after the named topics' lines,
     answered by a line that names them (§3.5); check in game with Michael Angelo
     (031/032/034, and 004 after a greeting), Black Mountain Radio's RadioBMSegment12,

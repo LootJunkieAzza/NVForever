@@ -149,6 +149,16 @@
    "max_frames": 600
   },
   {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 600
+  },
+  {
    "query": "float fV0\nfloat fV1\nfloat fV2\nBegin Function { }\nlet fV0 := GameHour\nlet fV1 := GameDaysPassed\nlet fV2 := MenuMode 1009\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2))\nEnd\n",
    "label": "dialogue open 00",
    "field": "clock"

@@ -130,6 +130,16 @@
    "max_frames": 600
   },
   {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 600
+  },
+  {
    "frames": 300
   },
   {
@@ -146,6 +156,60 @@
   },
   {
    "screenshot": "ringo_900"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "ringo_down_1"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "ringo_down_2"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "ringo_down_3"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "ringo_down_4"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "ringo_down_5"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "ringo_down_6"
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
@@ -248,6 +312,16 @@
    "max_frames": 600
   },
   {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 927874\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 927874\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 600
+  },
+  {
    "frames": 300
   },
   {
@@ -264,6 +338,60 @@
   },
   {
    "screenshot": "johnson_nash_900"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "johnson_nash_down_1"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "johnson_nash_down_2"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "johnson_nash_down_3"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "johnson_nash_down_4"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "johnson_nash_down_5"
+  },
+  {
+   "script": "Begin Function { }\nTapKey 265\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "screenshot": "johnson_nash_down_6"
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",

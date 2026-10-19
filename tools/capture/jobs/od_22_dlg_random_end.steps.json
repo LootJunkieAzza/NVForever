@@ -1,8 +1,8 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "od_22_dlg_random_end",
- "title": "Ralph's goodbyes: does an unsayable Random End line close the pool (owner-review: #120, visual) (about 3 min)",
- "start": "nvftest: player to Ralph in Mick & Ralph's (Freeside); eight goodbyes; screenshots. Never saved; unattended (capture_run.py --save nvftest).",
+ "title": "Ralph's goodbyes: does an unsayable Random End line close the pool (owner-review: #120) (about 3 min)",
+ "start": "nvftest: player to Ralph in Mick & Ralph's (Freeside); Ralph says GOODBYE twelve times by script. Never saved; unattended (capture_run.py --save nvftest).",
  "steps": [
   {
    "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
@@ -80,844 +80,267 @@
    "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_0_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_0_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_0_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 0 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_1_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_1_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_1_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 1 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_2_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_2_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_2_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 2 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_3_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_3_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_3_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 3 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_4_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_4_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_4_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 4 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_5_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_5_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_5_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 5 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_6_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_6_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_6_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 6 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7: first activation",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7: first activation",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7: first activation",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7: first activation",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7: first activation",
-   "field": "menu.any"
-  },
-  {
-   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 600
-  },
-  {
-   "frames": 450
-  },
-  {
-   "screenshot": "ralph_7_topics"
-  },
-  {
-   "script": "Begin Function { }\nTapKey 15\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "frames": 20
-  },
-  {
-   "screenshot": "ralph_7_goodbye_a"
-  },
-  {
-   "frames": 40
-  },
-  {
-   "screenshot": "ralph_7_goodbye_b"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7 after Tab",
-   "field": "menu.dialogue"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7 after Tab",
-   "field": "menu.sleep_wait"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7 after Tab",
-   "field": "menu.container"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7 after Tab",
-   "field": "menu.message"
-  },
-  {
-   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
-   "label": "ralph 7 after Tab",
-   "field": "menu.any"
-  },
-  {
-   "console": "CloseAllMenus"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "frames": 120
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "frames": 1
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "observe": {
+    "label": "goodbyes",
+    "fields": {
+     "header": [
+      [
+       "days",
+       "num"
+      ],
+      [
+       "hour",
+       "num"
+      ],
+      [
+       "timescale",
+       "num"
+      ],
+      [
+       "player_x",
+       "num"
+      ],
+      [
+       "player_y",
+       "num"
+      ],
+      [
+       "player_z",
+       "num"
+      ],
+      [
+       "player_heading",
+       "num"
+      ],
+      [
+       "player_cell",
+       "ref"
+      ],
+      [
+       "player_in_combat",
+       "num"
+      ]
+     ],
+     "parts": [
+      [
+       [
+        "id",
+        "ref"
+       ],
+       [
+        "base",
+        "ref"
+       ],
+       [
+        "x",
+        "num"
+       ],
+       [
+        "y",
+        "num"
+       ],
+       [
+        "z",
+        "num"
+       ],
+       [
+        "heading",
+        "num"
+       ],
+       [
+        "in_combat",
+        "num"
+       ],
+       [
+        "combat_target",
+        "ref"
+       ],
+       [
+        "procedure",
+        "num"
+       ],
+       [
+        "anim_action",
+        "num"
+       ],
+       [
+        "talking",
+        "num"
+       ],
+       [
+        "knocked",
+        "num"
+       ],
+       [
+        "dead",
+        "num"
+       ],
+       [
+        "health",
+        "num"
+       ],
+       [
+        "weapon",
+        "ref"
+       ],
+       [
+        "creature",
+        "num"
+       ]
+      ]
+     ],
+     "tracked": [
+      "0x0010D8E2"
+     ],
+     "set": "fight",
+     "events": [
+      "SayToDone"
+     ],
+     "event_fields": [
+      [
+       "first",
+       "ref"
+      ],
+      [
+       "second",
+       "ref"
+      ],
+      [
+       "days",
+       "num"
+      ],
+      [
+       "hour",
+       "num"
+      ],
+      [
+       "health",
+       "num"
+      ],
+      [
+       "knocked",
+       "num"
+      ],
+      [
+       "dead",
+       "num"
+      ]
+     ]
+    },
+    "header": [
+     "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+     "ref rX\nBegin Function { }\nlet rX := player.GetParentCell\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n"
+    ],
+    "groups": [
+     {
+      "name": "nearby",
+      "count": "float fV\nBegin Function { }\nlet fV := GetNumRefs 200 1\nSetFunctionValue fV\nEnd\n",
+      "probe": [
+       "ref rA\nref rX1\nref rX7\nref rX14\nint iN\nfloat fS\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nfloat fV12\nfloat fV13\nfloat fV15\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < %{i}\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX1 := rA.GetBaseObject\n  let fV2 := rA.GetPos X\n  let fV3 := rA.GetPos Y\n  let fV4 := rA.GetPos Z\n  let fV5 := rA.GetAngle Z\n  let fV6 := rA.IsInCombat\n  let rX7 := rA.GetCombatTarget\n  let fV8 := rA.GetCurrentAIProcedure\n  let fV9 := rA.GetAnimAction\n  let fV10 := rA.IsTalking\n  let fV11 := rA.GetKnockedState\n  let fV12 := rA.GetDead\n  let fV13 := rA.GetAV Health\n  let rX14 := rA.GetEquippedObject 5\n  let fV15 := rA.GetIsCreature\n  SetFunctionValue ((GetFormIDString rA) + \"|\" + (GetFormIDString rX1) + \"|\" + ($ fV2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + (GetFormIDString rX7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + ($ fV10) + \"|\" + ($ fV11) + \"|\" + ($ fV12) + \"|\" + ($ fV13) + \"|\" + (GetFormIDString rX14) + \"|\" + ($ fV15))\nendif\nEnd\n"
+      ],
+      "max": 128
+     },
+     {
+      "name": "tracked",
+      "count": "float fV\nBegin Function { }\nlet fV := 1\nSetFunctionValue fV\nEnd\n",
+      "probe": [
+       "float fM1\nref rF1\nref rA\nref rX1\nref rX7\nref rX14\nint iN\nfloat fS\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nfloat fV12\nfloat fV13\nfloat fV15\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif %{i} == 0\n  let rA := rF1\nendif\nlet fS := 0\nif rA\n  let fS := 1\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX1 := rA.GetBaseObject\n  let fV2 := rA.GetPos X\n  let fV3 := rA.GetPos Y\n  let fV4 := rA.GetPos Z\n  let fV5 := rA.GetAngle Z\n  let fV6 := rA.IsInCombat\n  let rX7 := rA.GetCombatTarget\n  let fV8 := rA.GetCurrentAIProcedure\n  let fV9 := rA.GetAnimAction\n  let fV10 := rA.IsTalking\n  let fV11 := rA.GetKnockedState\n  let fV12 := rA.GetDead\n  let fV13 := rA.GetAV Health\n  let rX14 := rA.GetEquippedObject 5\n  let fV15 := rA.GetIsCreature\n  SetFunctionValue ((GetFormIDString rA) + \"|\" + (GetFormIDString rX1) + \"|\" + ($ fV2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + (GetFormIDString rX7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + ($ fV10) + \"|\" + ($ fV11) + \"|\" + ($ fV12) + \"|\" + ($ fV13) + \"|\" + (GetFormIDString rX14) + \"|\" + ($ fV15))\nendif\nEnd\n"
+      ],
+      "max": 1
+     }
+    ],
+    "every": 10,
+    "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{t0} + 0.08333333333333333\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+    "max_samples": 730,
+    "events": [
+     {
+      "name": "SayToDone",
+      "probe": "ref rEa\nref rEb\nfloat fD\nfloat fH\nfloat fA\nfloat fK\nfloat fX\nfloat fV\nBegin Function {rEa, rEb}\nlet fD := GameDaysPassed\nlet fH := GameHour\nlet fA := -1\nlet fK := -1\nlet fX := -1\nlet fV := 0\nif IsFormValid rEa\n  let fV := 1\n  if IsReference rEa\n    if rEa.IsActor\n      let fA := rEa.GetAV Health\n      let fK := rEa.GetKnockedState\n      let fX := rEa.GetDead\n    endif\n  endif\nendif\nif IsFormValid rEb\n  let fV := fV + 2\nendif\nif fV == 0\n  SetFunctionValue (\"0\" + \"|\" + \"0\" + \"|\" + ($ fD) + \"|\" + ($ fH) + \"|\" + ($ fA) + \"|\" + ($ fK) + \"|\" + ($ fX))\nelseif fV == 1\n  SetFunctionValue ((GetFormIDString rEa) + \"|\" + \"0\" + \"|\" + ($ fD) + \"|\" + ($ fH) + \"|\" + ($ fA) + \"|\" + ($ fK) + \"|\" + ($ fX))\nelseif fV == 2\n  SetFunctionValue (\"0\" + \"|\" + (GetFormIDString rEb) + \"|\" + ($ fD) + \"|\" + ($ fH) + \"|\" + ($ fA) + \"|\" + ($ fK) + \"|\" + ($ fX))\nelseif fV == 3\n  SetFunctionValue ((GetFormIDString rEa) + \"|\" + (GetFormIDString rEb) + \"|\" + ($ fD) + \"|\" + ($ fH) + \"|\" + ($ fA) + \"|\" + ($ fK) + \"|\" + ($ fX))\nendif\nEnd\n"
+     }
+    ],
+    "hooks": [
+     {
+      "name": "timed_0",
+      "when": "float fV\nBegin Function { }\nlet fV := 1\nSetFunctionValue fV\nEnd\n",
+      "after": 60,
+      "then": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nlet rF2 := BuildRef fM1 212\nrF1.Say rF2 1\nSetFunctionValue 1\nEnd\n",
+      "once": false
+     }
+    ],
+    "shots": {
+     "label": "ralph_says",
+     "when": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nif rF1.IsTalking\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+     "gap": 30,
+     "max": 14
+    }
+   }
+  },
+  {
+   "frames": 10
   }
  ]
 }

@@ -62,6 +62,9 @@ struct NifSurface {
     // Fragments with a lower alpha are not drawn (the alpha test of a shape that is
     // drawn blended); 0 on every other shape. nif_prepass.wgsl has the same struct.
     alpha_cut: f32,
+    // 1: an additive shape with source factor ONE, which adds its colour whole (only the
+    // view-angle falloff fades it); 0 otherwise.
+    add_whole: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
@@ -171,7 +174,8 @@ fn fragment(
     // |N·V|: the normal is already flipped towards the viewer on back faces of double-sided
     // shapes; abs() also covers single-sided ones seen edge-on.
     let cos_angle = abs(dot(normalize(pbr_input.world_normal), pbr_input.V));
-    pbr_input.material.base_color.a *= falloff_opacity(cos_angle, surface.falloff);
+    let falloff = falloff_opacity(cos_angle, surface.falloff);
+    pbr_input.material.base_color.a *= falloff;
     if pbr_input.material.base_color.a < surface.alpha_cut {
         discard;
     }
@@ -227,7 +231,7 @@ fn fragment(
 #else
 #ifdef BLEND_PREMULTIPLIED_ALPHA
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
-        out.color.a = add_alpha(out.color.a);
+        out.color.a = select(add_alpha(out.color.a), falloff, surface.add_whole > 0.5);
     }
 #endif
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

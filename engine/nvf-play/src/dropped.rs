@@ -232,13 +232,14 @@ fn sync_drawn(
         // despawns the cell this frame, the relationship is dropped with a warning and
         // the next frame despawns the root, instead of a command failing on the cell.
         let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
-        // A rig that only plays the model as an effect (`Rig::effect`, a mine's light
-        // controller) is not drawn as one: as render streaming, a reference's own node
-        // hierarchy is for an idle, a door or script groups, and the flat shapes keep a
-        // mine's light parts (`crate::mines::MineLight`).
-        let shapes = match model.rig.as_ref().filter(|rig| rig.idle.is_some() || rig.door.is_some() || !rig.groups.is_empty()) {
-            // Animated (Idle sequence): its own node hierarchy, as render streaming does.
-            Some(rig) => {
+        // Animated: its own node hierarchy, as render streaming does, for a door, an idle,
+        // or (without one) script groups. Not for an idle of nothing but parts the
+        // holder's clips move (a gun's slide), which an item on the ground keeps still
+        // (nvforever world.rs), nor for a rig that only plays the model as an effect
+        // (`Rig::effect`, a mine's light controller): the flat shapes keep a mine's light
+        // parts (`crate::mines::MineLight`).
+        let shapes = match &model.rig {
+            Some(rig) if rig.door.is_some() || rig.idle.as_ref().map_or(!rig.groups.is_empty(), |c| !c.only_free_motion()) => {
                 let (r, drawn_shapes) = rig.spawn(&mut commands, root, Transform::IDENTITY, &path);
                 commands.entity(r).insert(RefVisual(id));
                 for e in &drawn_shapes {
@@ -246,7 +247,7 @@ fn sync_drawn(
                 }
                 drawn_shapes.len()
             }
-            None => {
+            _ => {
                 for s in &model.shapes {
                     let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), RefVisual(id), ChildOf(root))).id();
                     if let Some(l) = crate::mines::MineLight::of(s.name.as_deref(), &s.ancestors) {

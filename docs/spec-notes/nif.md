@@ -549,6 +549,13 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   (game 0.1) and 0.05 on a wall of 0.3 (game 0.1). Power 2.2 would be exact on black but
   add 0.01 on that wall.
 
+  The 182 ONE / ONE shapes (source factor ONE) add their colour whole: their alpha is
+  not part of the blend [documented: nif.xml AlphaFlags source blend mode 0 ONE], so the
+  engine draws them with alpha 1 (only the view-angle falloff still fades them
+  [hypothesis]; `NifSurface::add_whole`, 2026-10-19). Before, their alpha took them
+  out almost entirely where the texture's alpha is low: the Securitron's screen noise
+  `whitenoise01.dds` has mean alpha 3 of 255 [observed] (effects-animation-audit.md §2).
+
   The power is fitted [observed, `nvforever` screenshots from the owner's camera, and
   the same view with `--hide indfxlightrays --hide fxbasicglow`]. Target: the view
   without the shapes, plus, in display values, the linear light the shapes added when

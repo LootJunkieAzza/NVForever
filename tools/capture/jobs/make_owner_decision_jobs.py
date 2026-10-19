@@ -88,6 +88,9 @@ LEAD_PIPE = "0x00004337"        # WeapLeadPipe (melee: no ammo, no aim)
 NASH = "0x000E2882"             # PrimmJohnsonNashRef
 RED_LUCY = "0x00134830"         # VMS38RedLucyREF
 RALPH = "0x0010D8E2"            # VFSRalph's reference in Mick & Ralph's
+GOODBYE_TOPIC = "0x000000D4"    # GOODBYE (DIAL), fnvtool dialogue lines --topic GOODBYE
+RALPH_EVERY = 60                # observer samples (10 game loops each) between two goodbyes
+RALPH_SAYS = 12
 
 # Menu codes (MenuMode): 1001 message box, 1008 container, 1009 dialogue [documented: GECK
 # wiki GetMenuTargetRef], 1012 sleep/wait [observed: six scripts' Begin MenuMode 1012,
@@ -96,6 +99,8 @@ MENUS = (("1009", "dialogue"), ("1012", "sleep_wait"), ("1008", "container"), ("
 # Control codes [documented: GECK wiki TapControl].
 ATTACK, ACTIVATE, READY, CROUCH = 4, 5, 7, 8
 TAB = 15  # DirectX scan code of Tab [documented: GECK wiki IsKeyPressed scan-code table]
+WHEEL_DOWN = 265  # the mouse wheel turned down [hypothesis: xNVSE numbers mouse inputs from 256, the wheel 264 up and 265 down; not in the wiki export]
+SCROLL_STEPS = 6
 
 ACTION_FRAMES = 30   # after an action (xnvse-capture.md section 5)
 MOVETO_FRAMES = 120  # MoveTo is queued [documented: GECK wiki MoveTo]
@@ -317,7 +322,13 @@ def teammate_door():
     steps += after_door("out, following") + boone_package("outside")
     # Back in through the outside door. The first run's `GetLinkedDoor` + Activate never
     # took the player in (the wait timed out) [observed 2026-10-18].
-    steps += [act("{0}.Activate player", [BOONE_ROOM_EXT_DOOR]),
+    # Activating the outside door by script did not take the player in either (second
+    # round, 2026-10-19 [observed]), so the player now faces it and presses Activate
+    # (TapControl); MoveTo to the inner door is the last resort, recorded as `way_in`.
+    steps += [face(BOONE_ROOM_EXT_DOOR), act("player.SetAngle X 0"), wait(10), act(f"TapControl {ACTIVATE}"),
+              until("player.GetInSameCell {0}", [BOONE_ROOM_DOOR], 600),
+              num("player.GetInSameCell {0}", "way in", "by_activate", [BOONE_ROOM_DOOR]),
+              act(["if player.GetInSameCell {0} == 0", "  player.MoveTo {0}", "endif"], [BOONE_ROOM_DOOR]),
               {"until": cs.in_cell_until(BOONE_ROOM_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS}]
     steps += after_door("in, following") + boone_package("back inside")
     # Told to wait: his Wait package is chosen by his `Waiting` variable (the smoke
@@ -374,7 +385,9 @@ def set_actors_ai():
     steps += go_to(SETTLER, 0, -300) + dismiss()
     steps += [act("{0}.MoveTo player 0 800 0", [SETTLER]), wait(MOVETO_FRAMES),
               act("{0}.AddScriptPackage {1}", [SETTLER, STAY_AT_EDITOR]), wait(60)]
-    steps += ai_samples(SETTLER, "AI on, walking back", 10, 15)
+    # The second round's settler reached DONE (17) about 90 loops into his walk, before
+    # SetActorsAI 0 [observed 2026-10-19], so the AI now goes off 30 loops in.
+    steps += ai_samples(SETTLER, "AI on, walking back", 2, 15)
     steps += [act("{0}.SetActorsAI 0", [SETTLER])] + ai_samples(SETTLER, "AI off", 20, 30)
     # Walk right up to it: does it still detect, turn or greet?
     steps += [act("player.MoveTo {0} 0 -100 0", [SETTLER]), wait(MOVETO_FRAMES), face(SETTLER)]
@@ -511,11 +524,30 @@ def carried_item_script():
     # The reading checked: the aura cast on the player directly (10 s), then let it end.
     steps += [act("player.CastImmediateOnSelf {0}", [AURA]), wait(30)] + aura("player", "aura cast directly")
     steps += [wait(900)] + aura("player", "direct aura over")
-    steps += [act("player.AddItem {0} 1 1", [AURA_TOKEN]), act("{0}.AddItem {1} 1 1", [RINGO, AURA_TOKEN]), wait(30)]
+    # The token is a non-playable armour (ARMO, "Aura Token Kicker"); in the second round
+    # its script cast nothing on either holder, the player included [observed
+    # 2026-10-19], so both now also equip it.
+    steps += [act("player.AddItem {0} 1 1", [AURA_TOKEN]), act("{0}.AddItem {1} 1 1", [RINGO, AURA_TOKEN]), wait(30),
+              act(["player.EquipItem {1} 1 1", "{0}.EquipItem {1} 1 1"], [RINGO, AURA_TOKEN]), wait(30),
+              num("player.GetEquipped {0}", "player: tokens given", "equipped", [AURA_TOKEN]),
+              num("{0}.GetEquipped {1}", "ringo: tokens given", "equipped", [RINGO, AURA_TOKEN])]
     steps += aura("player", "tokens given") + aura(RINGO, "tokens given")
-    steps += [act("{0}.StartCombat player", [RINGO])]
+    # Ringo set on the player read in_combat 0 for both throughout the second round
+    # [observed 2026-10-19], so each holder now gets a spawned gecko to fight: one placed
+    # at Ringo and set on him (and he on it), one placed at the player and set on them.
+    # The gecko killed Ringo in the first try of this (od_12 then found his body)
+    # [observed 2026-10-19]: he gets 2,000 more Health first (never saved), and this job
+    # runs after the other Ringo jobs.
+    spawn_on = CREATED_ATTACKER + ["if rG", "  rG.StartCombat {0}", "endif"]
+    steps += [act("{0}.ModAV Health 2000", [RINGO])]
+    steps += [act(["let rB := {1}.GetBaseObject", "{0}.PlaceAtMe rB 1 200 1"], [RINGO, GECKO], decls=["ref rB"]), wait(30),
+              act(spawn_on + ["if rG", "  {0}.StartCombat rG", "endif"], [RINGO], decls=["ref rA", "ref rG"]), wait(30),
+              act(["let rB := {0}.GetBaseObject", "player.PlaceAtMe rB 1 300 1"], [GECKO], decls=["ref rB"]), wait(30),
+              act([x.replace("{0}", "player") for x in spawn_on], decls=["ref rA", "ref rG"])]
     for frames, total in ((150, 150), (150, 300), (300, 600), (300, 900)):
         steps += [wait(frames)] + aura("player", f"in combat, {total} loops") + aura(RINGO, f"in combat, {total} loops")
+    steps += [act(CREATED_ATTACKER + ["if rG", "  rG.Kill", "endif"], decls=["ref rA", "ref rG"]),
+              act(CREATED_ATTACKER + ["if rG", "  rG.Kill", "endif"], decls=["ref rA", "ref rG"]), wait(30)]
     steps += [act(["{0}.StopCombat", "player.RemoveItem {1} 1 1", "{0}.RemoveItem {1} 1 1",
                    "player.RemoveFromFaction {2}", "{0}.RemoveFromFaction {2}"], [RINGO, AURA_TOKEN, LEGION]),
               wait(60)] + god_off()
@@ -557,6 +589,10 @@ def open_dialogue(ref, label):
     return dismiss() + [act("{0}.Activate player", [ref]), wait(ACTION_FRAMES)] + menus(f"{label}: first activation") + [
         act(["if MenuMode 1001", "  con_CloseAllMenus", "endif"]), wait(30),
         act(["if MenuMode 1009 == 0", "  {0}.Activate player", "endif"], [ref]),
+        until("MenuMode 1009", max_frames=600),
+        # A third try, turned to the actor again: od_12's first conversation never opened
+        # after two activations in the second round [observed 2026-10-19].
+        face(ref), act(["if MenuMode 1009 == 0", "  {0}.Activate player", "endif"], [ref]),
         until("MenuMode 1009", max_frames=600)]
 
 
@@ -638,12 +674,37 @@ def victim_state(label):
             num("{0}.GetAV Health", label, "health", [NCR_VICTIM])]
 
 
-def swing(label):
-    """Hold the attack control for 10 loops (a tap did not land a hit in the first run
-    [observed 2026-10-18]), then read the victim's health."""
-    return [face(NCR_VICTIM), act(["let iK := GetControl 4", "HoldKey iK"], decls=["int iK"]), wait(10),
-            act(["let iK := GetControl 4", "ReleaseKey iK"], decls=["int iK"]), wait(50),
-            num("{0}.GetAV Health", label, "health", [NCR_VICTIM])]
+SWINGS = 6
+SWING_EVERY = 5     # game loops between observer samples while swinging
+SWING_SAMPLES = 12  # samples from one swing to the next (60 loops)
+
+
+def swings_observed():
+    """The swings inside an observe step (plugin version 9). The second round's held
+    attack key landed no hit in third person [observed 2026-10-19]; the observer's
+    player_kills campaign hit by switching to first person, aiming every game loop and
+    tapping Attack, so this does the same: a once hook switches to first person, a
+    repeated hook turns the player to the victim (heading and pitch) every sample, and
+    once hooks tap Attack every SWING_SAMPLES samples. xNVSE's OnHit / OnStartCombat /
+    OnCombatEnd events record every hit that lands and who starts a fight, with the
+    victim's health at that moment (ai-observer.md section 12)."""
+    aim = ["let fA := player.GetAngle Z + player.GetHeadingAngle {0}", "player.SetAngle Z fA",
+           "let fD := player.GetDistance {0}", "let fZ := {0}.GetPos Z - player.GetPos Z - 30",
+           "if fD > 1", "  let fP := 0 - fZ / fD * 57.3", "  player.SetAngle X fP", "endif"]
+    timed = [{"after": 1, "script": {"lines": ["if IsPC1stPerson == 0", "  TapControl 13", "endif"]}},
+             {"after": 1, "repeat": True, "script": {"lines": aim, "names": [NCR_VICTIM],
+                                                     "decls": ["float fA", "float fD", "float fZ", "float fP"]}}]
+    for i in range(SWINGS):
+        timed.append({"after": 6 + SWING_SAMPLES * i, "script": {"lines": [f"TapControl {ATTACK}"]}})
+    samples = 6 + SWING_SAMPLES * SWINGS + 12
+    session = {"name": "swings", "hours": 0.5, "every": SWING_EVERY, "settle_frames": 1, "track": [NCR_VICTIM],
+               "fields": "fight", "events": ["OnHit", "OnStartCombat", "OnCombatEnd"], "timed": timed}
+    campaign = {"format": observe.CAMPAIGN_FORMAT, "name": "od13", "sessions": [session]}
+    steps = observe.session_job(campaign, session, CTX)["steps"]
+    for s in steps:
+        if "observe" in s:
+            s["observe"]["max_samples"] = samples
+    return steps + [act(["if IsPC1stPerson", "  TapControl 13", "endif"]), wait(30)]
 
 
 def assault_faction():
@@ -669,8 +730,7 @@ def assault_faction():
               act("player.SetAngle X 0"), act(["if player.IsWeaponOut == 0", f"  TapControl {READY}", "endif"]),
               wait(120)]
     steps += victim_state("victim before")
-    for i in range(5):
-        steps += swing(f"swing {i}")
+    steps += swings_observed()
     steps += [wait(120)] + victim_state("victim after the hits")
     steps += distant("after", 30)
     steps += [act("{0}.StopCombat", [NCR_VICTIM]), act("player.RemoveItem {0} 1 1", [LEAD_PIPE])] + god_off()
@@ -707,6 +767,11 @@ def dialogue_screen(name, ref, shots=(300, 600, 900)):
     for at in shots:
         steps += [wait(at - last), shot(f"{name}_{at}")]
         last = at
+    # The topic list shows three entries with scroll arrows [observed 2026-10-19, od_20's
+    # shots]. TapKey of the Down arrow did not move it [observed 2026-10-19], so the
+    # mouse wheel (xNVSE's key code 265, wheel down) is tried, a picture after each turn.
+    for k in range(SCROLL_STEPS):
+        steps += [act(f"TapKey {WHEEL_DOWN}"), wait(20), shot(f"{name}_down_{k + 1}")]
     steps += menus(f"{name} topic list") + close_menus()
     return steps
 
@@ -731,19 +796,29 @@ def info_connection():
 
 
 def random_end():
-    """Dialogue (visual review): GOODBYE's pool for Mick and Ralph is Mick 0x00143A86,
-    Ralph 0x00143A87, Mick 0x00143A88 (Random End), Ralph 0x00143A89 (Random End). If an
-    unsayable Random End line still closes the pool, Ralph always says 0x00143A87; if not,
-    he also says 0x00143A89. Eight goodbyes (Tab), each pictured with its subtitle."""
+    """Dialogue: GOODBYE's pool for Mick and Ralph is Mick 0x00143A86, Ralph 0x00143A87,
+    Mick 0x00143A88 (Random End), Ralph 0x00143A89 (Random End). If an unsayable Random
+    End line still closes the pool, Ralph always says 0x00143A87; if not, he also says
+    0x00143A89. The second round's Tab in the topic list did nothing (TapKey does not
+    reach the dialogue menu) [observed 2026-10-19], so Ralph is made to say GOODBYE by
+    script (Say with subtitles, every RALPH_EVERY samples, RALPH_SAYS times) inside an
+    observe step, with a screenshot while he talks (the subtitle names the line). xNVSE's
+    SayToDone event is recorded too; its second argument read the topic (GOODBYE), not
+    the line [observed 2026-10-19]."""
     steps = go_to(RALPH, 0, 0) + [act("{0}.MoveTo player 0 120 0", [RALPH]), wait(MOVETO_FRAMES), face(RALPH)]
-    for i in range(8):
-        steps += open_dialogue(RALPH, f"ralph {i}") + [wait(450), shot(f"ralph_{i}_topics"),
-                                         act(f"TapKey {TAB}"), wait(20), shot(f"ralph_{i}_goodbye_a"),
-                                         wait(40), shot(f"ralph_{i}_goodbye_b")]
-        steps += menus(f"ralph {i} after Tab") + close_menus() + [wait(120)]
+    timed = [{"after": RALPH_EVERY, "repeat": True, "script": {"lines": ["{0}.Say {1} 1"], "names": [RALPH, GOODBYE_TOPIC]}}]
+    session = {"name": "goodbyes", "hours": 2.0, "every": 10, "settle_frames": 1, "track": [RALPH], "fields": "fight",
+               "events": ["SayToDone"], "timed": timed, "close_menus_after": 0,
+               "shots": {"label": "ralph_says", "when": ["{0}.IsTalking", RALPH], "gap": 30, "max": RALPH_SAYS + 2}}
+    campaign = {"format": observe.CAMPAIGN_FORMAT, "name": "od22", "sessions": [session]}
+    obs = observe.session_job(campaign, session, CTX)["steps"]
+    for st in obs:
+        if "observe" in st:
+            st["observe"]["max_samples"] = RALPH_EVERY * RALPH_SAYS + 10
+    steps += obs
     return job("22_dlg_random_end",
-               "Ralph's goodbyes: does an unsayable Random End line close the pool (owner-review: #120, visual) (about 3 min)",
-               start_text(SAVE_TEST, "player to Ralph in Mick & Ralph's (Freeside); eight goodbyes; screenshots."), steps,
+               "Ralph's goodbyes: does an unsayable Random End line close the pool (owner-review: #120) (about 3 min)",
+               start_text(SAVE_TEST, "player to Ralph in Mick & Ralph's (Freeside); Ralph says GOODBYE twelve times by script."), steps,
                prelude=True)
 
 

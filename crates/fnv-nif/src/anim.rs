@@ -370,7 +370,7 @@ pub struct Track {
 }
 
 /// A `NiFloatInterpolator` or `NiPoint3Interpolator` evaluated: its keys (`NiFloatData`,
-/// `NiPosData`), else its own value.
+/// `NiPosData`), else its own value; or a compressed B-spline one.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueTrack {
     Float(Channel<1>),
@@ -406,6 +406,24 @@ pub fn value_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<ValueTrac
             Some(ValueTrack::Point3(match keys {
                 Some(k) => Channel::Keys(k),
                 None => Channel::Static(s.floats("value").and_then(|v| <[f32; 3]>::try_from(v).ok()).filter(|v| v.iter().all(|x| valid(*x)))),
+            }))
+        }
+        // Compressed B-spline values: the Securitron screens' glow in `mtidle.kf` and
+        // `talking.kf` [observed; documented: nif.xml NiBSplineCompPoint3Interpolator
+        // "position offset" and "half range", NiBSplineCompFloatInterpolator "float
+        // offset" and "half range", decompressed as the transform ones are].
+        "NiBSplineCompPoint3Interpolator" => {
+            let (start, stop) = (s.float("start_time")?, s.float("stop_time")?);
+            Some(ValueTrack::Point3(match bspline_channel(dec, s, "handle", 3, Some(("position_offset", "position_half_range"))) {
+                Some(spline) => Channel::BSpline { start, stop, spline },
+                None => Channel::Static(s.floats("value").and_then(|v| <[f32; 3]>::try_from(v).ok()).filter(|v| v.iter().all(|x| valid(*x)))),
+            }))
+        }
+        "NiBSplineCompFloatInterpolator" => {
+            let (start, stop) = (s.float("start_time")?, s.float("stop_time")?);
+            Some(ValueTrack::Float(match bspline_channel(dec, s, "handle", 1, Some(("float_offset", "float_half_range"))) {
+                Some(spline) => Channel::BSpline { start, stop, spline },
+                None => Channel::Static(s.float("value").filter(|v| valid(*v)).map(|v| [v])),
             }))
         }
         _ => None,
