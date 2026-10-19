@@ -179,7 +179,11 @@ fn sync(
                     };
                     let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * pose(&sim, &d.placement)));
                     let root = commands.spawn((Name::new(format!("Enabled {id:08X}")), ScriptDrawnRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
-                    let shapes = match &model.rig {
+                    // A rig that only plays the model as an effect (`Rig::effect`, a mine's light
+                    // controller) is not drawn as one: as render streaming, a reference's own node
+                    // hierarchy is for an idle, a door or script groups, and the flat shapes keep a
+                    // mine's light parts (`crate::mines::MineLight`).
+                    let shapes = match model.rig.as_ref().filter(|rig| rig.idle.is_some() || rig.door.is_some() || !rig.groups.is_empty()) {
                         Some(rig) => {
                             let (r, drawn) = rig.spawn(&mut commands, root, Transform::IDENTITY, &d.path);
                             commands.entity(r).insert(RefVisual(id));
