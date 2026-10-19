@@ -34,13 +34,29 @@ impl Picture {
     }
 }
 
-/// Converts 32-bit B, G, R, x rows (what a 32-bit GDI DIB holds) to R, G, B.
-pub fn bgrx_to_rgb(bgrx: &[u8]) -> Vec<u8> {
-    let mut rgb = Vec::with_capacity(bgrx.len() / 4 * 3);
+/// Converts 32-bit B, G, R, x rows (what a 32-bit GDI DIB holds) to R, G, B; `None` when
+/// the memory cannot be had (the game is a 32-bit process: a 4K picture's 25 MB once failed
+/// and aborted the game, 2026-10-19 [observed]).
+pub fn bgrx_to_rgb(bgrx: &[u8]) -> Option<Vec<u8>> {
+    let mut rgb = Vec::new();
+    rgb.try_reserve_exact(bgrx.len() / 4 * 3).ok()?;
     for px in bgrx.as_chunks::<4>().0 {
         rgb.extend_from_slice(&[px[2], px[1], px[0]]);
     }
-    rgb
+    Some(rgb)
+}
+
+/// Pictures are scaled down to at most this width (and its height in proportion): a 3840 ×
+/// 2160 window's copy did not fit in the game's address space [observed 2026-10-19].
+pub const MAX_WIDTH: i32 = 1280;
+
+/// The size a `w × h` window is copied at.
+pub fn scaled(w: i32, h: i32) -> (i32, i32) {
+    if w <= MAX_WIDTH {
+        (w, h)
+    } else {
+        (MAX_WIDTH, ((i64::from(h) * i64::from(MAX_WIDTH) + i64::from(w) / 2) / i64::from(w)).max(1) as i32)
+    }
 }
 
 /// Writes the picture as an 8-bit RGB PNG.
@@ -64,8 +80,9 @@ pub fn grab_game_window() -> Result<Picture, String> {
     use std::mem::{size_of, zeroed};
     use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
     use windows_sys::Win32::Graphics::Gdi::{
-        BitBlt, ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, GetDC,
-        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+        ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, GetDC, ReleaseDC,
+        SelectObject, SetStretchBltMode, StretchBlt, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HALFTONE,
+        SRCCOPY,
     };
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -111,6 +128,7 @@ pub fn grab_game_window() -> Result<Picture, String> {
         if w <= 0 || h <= 0 {
             return Err("game window has an empty client area".into());
         }
+        let (sw, sh) = scaled(w, h);
         let mut origin = POINT { x: 0, y: 0 };
         ClientToScreen(hwnd, &mut origin);
 
@@ -122,8 +140,8 @@ pub fn grab_game_window() -> Result<Picture, String> {
         let mut info: BITMAPINFO = zeroed();
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: w,
-            biHeight: -h, // top-down rows
+            biWidth: sw,
+            biHeight: -sh, // top-down rows
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB,
@@ -135,14 +153,18 @@ pub fn grab_game_window() -> Result<Picture, String> {
             Err("cannot create a bitmap".to_string())
         } else {
             let old = SelectObject(mem, dib);
-            let ok = BitBlt(mem, 0, 0, w, h, screen, origin.x, origin.y, SRCCOPY) != 0;
+            SetStretchBltMode(mem, HALFTONE);
+            let ok = StretchBlt(mem, 0, 0, sw, sh, screen, origin.x, origin.y, w, h, SRCCOPY) != 0;
             GdiFlush();
             let r = if ok {
-                let n = (w as usize) * (h as usize) * 4;
+                let n = (sw as usize) * (sh as usize) * 4;
                 let bgrx = std::slice::from_raw_parts(bits as *const u8, n);
-                Ok(Picture { width: w as u32, height: h as u32, rgb: bgrx_to_rgb(bgrx), foreground: GetForegroundWindow() == hwnd })
+                match bgrx_to_rgb(bgrx) {
+                    Some(rgb) => Ok(Picture { width: sw as u32, height: sh as u32, rgb, foreground: GetForegroundWindow() == hwnd }),
+                    None => Err("not enough memory for the picture".to_string()),
+                }
             } else {
-                Err("BitBlt failed".to_string())
+                Err("StretchBlt failed".to_string())
             };
             SelectObject(mem, old);
             r
@@ -169,8 +191,11 @@ mod tests {
 
     #[test]
     fn converts_bgrx_and_measures_brightness() {
-        let rgb = bgrx_to_rgb(&[1, 2, 3, 0xFF, 10, 20, 30, 0]);
+        let rgb = bgrx_to_rgb(&[1, 2, 3, 0xFF, 10, 20, 30, 0]).unwrap();
         assert_eq!(rgb, [3, 2, 1, 30, 20, 10]);
+        assert_eq!(scaled(1280, 720), (1280, 720));
+        assert_eq!(scaled(3840, 2160), (1280, 720));
+        assert_eq!(scaled(1920, 1200), (1280, 800));
         let black = Picture { width: 2, height: 1, rgb: vec![0; 6], foreground: true };
         assert_eq!(black.mean(), 0.0);
         let white = Picture { rgb: vec![255; 6], ..black };

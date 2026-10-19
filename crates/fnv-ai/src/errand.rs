@@ -308,13 +308,14 @@ impl Ai {
 
     /// The objects of the area that `wanted` names, with how far each is from `from`,
     /// nearest first. An item owned by another is left alone without Allow Stealing; a
-    /// living actor carrying what it looks for counts only with Allow Killing, a dead
-    /// one when it carries it.
+    /// dead actor counts when it carries it; with Allow Killing a living one counts when it
+    /// carries it, or for a creature finder whenever it is not kin, ally or friend.
     #[allow(clippy::too_many_arguments)]
     fn objects(&self, game: &mut Game, actor: FormId, wanted: Wanted, area: &Area, centre: Place, kill: bool, steal: bool, from: Place) -> Vec<(f32, FormId)> {
         let refs = game.world.placed;
         let data = game.data;
         let mut found: Vec<(f32, FormId)> = Vec::new();
+        let finder_creature = fnv_game::functions::base_of(game, actor).and_then(|b| data.sig(b)).as_ref() == Some(b"CREA");
         let consider = |game: &mut Game, r: FormId, out: &mut Vec<(f32, FormId)>| {
             if r == actor || !game.present(r) {
                 return;
@@ -352,11 +353,24 @@ impl Ai {
                 out.push((goal::dist(p.pos, from.pos), r));
                 return;
             }
-            // An actor carrying what it looks for: dead (it takes it), or alive (with
-            // Allow Killing it attacks).
+            // An actor carrying what it looks for, dead: it takes it. With Allow Killing,
+            // a creature attacks any living actor of the area that is not its kin, ally or
+            // friend, whatever that actor carries; a person only one carrying it
+            // [hypothesis for people: the shipped NPC packages with the flag look for
+            // containers, collars or weapons]. For creatures [observed: gecko 0x0016518B on
+            // VCrGeckoFindFood (Find, object type Food, Allow Killing), Unaggressive by its
+            // own AI data, started fights with two bloatflies, a radroach and a protectron
+            // (no food in its inventory or death item) and left the other gecko alone; a
+            // Very Aggressive gecko on its Patrol attacked bloatflies too; AI observer
+            // campaigns `gecko_find` 2026-10-19, owner-decision-captures.md §6].
             if is_actor && !matches!(wanted, Wanted::Reference(_)) && (dead || kill) {
-                let carries = carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)));
-                if carries && (dead || game.would_attack(actor, r) || kill) {
+                let target = if dead || !finder_creature {
+                    carried(game, r).iter().any(|i| data.sig(*i).is_some_and(|s| matches(*i, &s, game)))
+                } else {
+                    let relation = fnv_game::functions::faction_relation(game, actor, r);
+                    !game.kin(actor, r) && relation != 2 && relation != 3
+                };
+                if target {
                     out.push((goal::dist(p.pos, from.pos), r));
                 }
             }

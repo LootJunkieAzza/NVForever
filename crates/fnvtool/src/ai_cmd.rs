@@ -111,6 +111,10 @@ pub enum AiCmd {
         /// (repeatable).
         #[arg(long)]
         force: Vec<String>,
+        /// `QUEST:INDEX=VALUE`: set a quest script variable before the run, standing in for
+        /// quest state the run does not have (repeatable).
+        #[arg(long)]
+        quest_var: Vec<String>,
     },
 }
 
@@ -162,8 +166,8 @@ pub fn run(cmd: AiCmd) -> anyhow::Result<Value> {
                 crate::ai_packages::observed(lo, data, &forms, refs, &samples)
             })
         }
-        AiCmd::Run { w, functions, actor, start_hour, hours, step, timescale, samples, force } => with_data(&w, functions, |lo, schema, data, refs, _| {
-            let args = crate::ai_run::RunArgs { actors: actor, force, start_hour, hours, step, timescale, samples };
+        AiCmd::Run { w, functions, actor, start_hour, hours, step, timescale, samples, force, quest_var } => with_data(&w, functions, |lo, schema, data, refs, _| {
+            let args = crate::ai_run::RunArgs { actors: actor, force, quest_vars: quest_var, start_hour, hours, step, timescale, samples };
             crate::ai_run::run(lo, schema, data, refs, &args, &|n| crate::ai_packages::find_form(data, refs, n))
         }),
         AiCmd::Reach { w, functions } => with_data(&w, functions, |lo, schema, data, refs, _| crate::ai_run::reach(lo, schema, data, refs)),

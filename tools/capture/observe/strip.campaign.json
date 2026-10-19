@@ -1,10 +1,17 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "strip",
- "title": "The Strip from the owner's save nvfstrip (saved on the Strip with its crowd spawned: arriving by coc from the early-game save left NPCs behind a trigger disabled), the player standing where the save has it: conversations, patrols and speech for 6 game hours",
+ "title": "The Strip from the owner's save nvfstrip (saved on the Strip with its crowd spawned: arriving by coc from the early-game save left NPCs behind a trigger disabled), the player standing where the save has it: conversations, patrols and speech for 6 game hours; from plugin version 9 also every game event (package start, change and done, activations of doors and furniture with the actor that activates)",
  "save": "nvfstrip",
- "defaults": {"every": 30, "depth": 1},
+ "defaults": {
+  "every": 30,
+  "depth": 1,
+  "events": "all"
+ },
  "sessions": [
-  {"name": "strip_evening", "hours": 6}
+  {
+   "name": "strip_evening",
+   "hours": 6
+  }
  ]
 }

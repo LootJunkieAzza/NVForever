@@ -184,6 +184,50 @@ pub struct Observe {
     /// Checked once per sample (plugin version 6).
     #[serde(default)]
     pub hooks: Vec<Hook>,
+    /// Game events heard while the step runs (plugin version 9).
+    #[serde(default)]
+    pub events: Vec<EventSpec>,
+    /// Screenshots taken at samples where a condition holds (plugin version 9).
+    #[serde(default)]
+    pub shots: Option<ShotHook>,
+}
+
+/// A game event to hear (xNVSE's event names, e.g. `OnHit`, `OnDeath`, `OnStartCombat`):
+/// for each one the game reports, `probe` (a full function script taking the event's two
+/// arguments, `Begin Function {rEa, rEb}`) is run at once and its result written as
+/// `{"kind": "event", step, n, name, value}` (docs/spec-notes/ai-observer.md §12).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventSpec {
+    pub name: String,
+    pub probe: String,
+}
+
+/// An event heard: its index in the `listen` list and its probe's result.
+pub type Heard = (usize, Result<Value, String>);
+
+/// Most events a step may hear (the plugin has this many handler slots).
+pub const MAX_EVENTS: usize = 16;
+
+/// At a sample where `when` returns non-zero, save a screenshot labelled `label` (at most
+/// `max`, at least `gap` samples apart).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShotHook {
+    pub label: String,
+    pub when: String,
+    #[serde(default = "default_shot_gap")]
+    pub gap: u32,
+    #[serde(default = "default_shot_max")]
+    pub max: u32,
+}
+
+fn default_shot_gap() -> u32 {
+    1
+}
+
+fn default_shot_max() -> u32 {
+    100
 }
 
 /// When `when` has returned non-zero at `after` samples in a row, `then` runs once (and
@@ -196,6 +240,10 @@ pub struct Hook {
     pub when: String,
     pub after: u32,
     pub then: String,
+    /// Fire once only (plugin version 9): a scene action at a set sample, e.g. a push
+    /// while the observation samples every game loop.
+    #[serde(default)]
+    pub once: bool,
 }
 
 /// Subjects of one kind (e.g. actors near the player, or named actors wherever they
@@ -295,6 +343,23 @@ impl Job {
                         full(&mut h.when, Kind::Condition)?;
                         full(&mut h.then, Kind::Action)?;
                     }
+                    if let Some(sh) = &mut o.shots {
+                        if !valid_name(&sh.label) {
+                            return Err(format!("step {i}: shots label {:?} must be non-empty [A-Za-z0-9_.-]", sh.label));
+                        }
+                        full(&mut sh.when, Kind::Condition)?;
+                    }
+                    if o.events.len() > MAX_EVENTS {
+                        return Err(format!("step {i}: at most {MAX_EVENTS} events"));
+                    }
+                    for e in &o.events {
+                        if e.name.is_empty() || !e.name.chars().all(|c| c.is_ascii_alphanumeric()) {
+                            return Err(format!("step {i}: event name {:?} must be non-empty [A-Za-z0-9]", e.name));
+                        }
+                        if !short::is_full_script(&e.probe) {
+                            return Err(format!("step {i}: event {}: the probe must be a full function script taking two refs", e.name));
+                        }
+                    }
                 }
                 Step::Console(_) | Step::Manual(_) | Step::Frames(_) | Step::Screenshot(_) => {}
             }
@@ -332,6 +397,13 @@ pub trait Host {
     fn show(&mut self, text: &str);
     /// Save a picture of the game window; `stem` is the file name without extension.
     fn screenshot(&mut self, stem: &str) -> Result<Shot, String>;
+    /// Start hearing these game events (replacing any heard before).
+    fn listen(&mut self, events: &[EventSpec]) -> Result<(), String>;
+    /// Events heard since the last call: (index in the `listen` list, the probe's result),
+    /// and how many were lost (heard while the probe could not be run).
+    fn heard(&mut self) -> (Vec<Heard>, u32);
+    /// Stop hearing events.
+    fn unlisten(&mut self);
 }
 
 /// Something that happened to a job during a tick; the caller handles files.
@@ -368,6 +440,8 @@ pub struct Runner {
     vars: HashMap<String, f64>,
     /// Consecutive samples each hook of the running observe step has been true.
     hook_counts: Vec<u32>,
+    /// Screenshots of the running observe step: taken, and the sample of the last one.
+    shots: (u32, Option<u32>),
     pub plugin_version: u32,
     pub nvse_version: u32,
     pub runtime_version: u32,
@@ -375,7 +449,7 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(plugin_version: u32, nvse_version: u32, runtime_version: u32) -> Runner {
-        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), hook_counts: Vec::new(), plugin_version, nvse_version, runtime_version }
+        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), hook_counts: Vec::new(), shots: (0, None), plugin_version, nvse_version, runtime_version }
     }
 
     /// Switch to automatic mode (see `auto_start`).
@@ -398,6 +472,9 @@ impl Runner {
     /// aborting a running job, and announces the first one.
     pub fn game_loaded(&mut self, jobs: Vec<Job>, host: &mut dyn Host) -> Vec<Event> {
         let mut ev = Vec::new();
+        if matches!(self.state, State::Observing { .. }) {
+            host.unlisten();
+        }
         if let (State::Running { .. } | State::Observing { .. }, Some(j)) = (&self.state, self.pending.first()) {
             ev.push(Event::Output { job: j.name.clone(), line: json!({"kind": "aborted", "reason": "a save was loaded"}) });
             ev.push(Event::Aborted { job: j.name.clone() });
@@ -531,6 +608,12 @@ impl Runner {
                                          "every": o.every, "groups": groups}),
                         });
                         self.hook_counts = vec![0; o.hooks.len()];
+                        self.shots = (0, None);
+                        if !o.events.is_empty() {
+                            if let Err(e) = host.listen(&o.events) {
+                                ev.push(err(format!("events: {e}")));
+                            }
+                        }
                         next = State::Observing { step, sample: 0, wait: 0, drive_on: o.drive.is_some(), drive_loops: 0 };
                     }
                     Step::Screenshot(s) => {
@@ -562,8 +645,10 @@ impl Runner {
             State::Observing { step, sample, wait, drive_on, drive_loops } => {
                 let Step::Observe(o) = &job.steps[step] else { unreachable!("observing a step that is not observe") };
                 let mut counts = std::mem::take(&mut self.hook_counts);
-                self.state = self.observe_tick(&job.name, step, &o.observe, (sample, wait, drive_on, drive_loops), end_pressed, host, &mut ev, &mut counts);
+                let mut shots = self.shots;
+                self.state = self.observe_tick(&job.name, step, &o.observe, (sample, wait, drive_on, drive_loops), end_pressed, host, &mut ev, &mut counts, &mut shots);
                 self.hook_counts = counts;
+                self.shots = shots;
             }
         }
         ev
@@ -572,9 +657,30 @@ impl Runner {
     /// One game loop of an `observe` step; returns the next state.
     #[allow(clippy::too_many_arguments)]
     fn observe_tick(&self, job: &str, step: usize, o: &Observe, (sample, wait, mut drive_on, mut drive_loops): (u32, u32, bool, u32),
-                    end_pressed: bool, host: &mut dyn Host, ev: &mut Vec<Event>, hook_counts: &mut [u32]) -> State {
+                    end_pressed: bool, host: &mut dyn Host, ev: &mut Vec<Event>, hook_counts: &mut [u32],
+                    shots: &mut (u32, Option<u32>)) -> State {
         let out = |ev: &mut Vec<Event>, line: Json| ev.push(Event::Output { job: job.to_string(), line });
         let vars = &self.vars;
+        // Events heard since the last game loop, written before anything else of this one.
+        let drain = |ev: &mut Vec<Event>, host: &mut dyn Host| {
+            if o.events.is_empty() {
+                return;
+            }
+            let (heard, lost) = host.heard();
+            for (k, v) in heard {
+                let name = o.events.get(k).map(|e| e.name.as_str()).unwrap_or("?");
+                let mut line = json!({"kind": "event", "step": step, "n": sample, "name": name});
+                match v {
+                    Ok(v) => line["value"] = v.to_json(),
+                    Err(e) => line["error"] = json!(e),
+                }
+                out(ev, line);
+            }
+            if lost > 0 {
+                out(ev, json!({"kind": "events_lost", "step": step, "n": sample, "count": lost}));
+            }
+        };
+        drain(ev, host);
         let stop_drive = |ev: &mut Vec<Event>, host: &mut dyn Host, loops: u32, reason: &str, value: Option<f64>| {
             let mut line = json!({"kind": "drive", "step": step, "loops": loops, "reason": reason});
             if let Some(v) = value {
@@ -622,6 +728,10 @@ impl Runner {
             if drive_on {
                 stop_drive(ev, host, drive_loops, "observation ended", None);
             }
+            if !o.events.is_empty() {
+                host.unlisten();
+                drain(ev, host);
+            }
             out(ev, json!({"kind": "observed", "step": step, "label": o.label, "samples": sample, "reason": reason}));
             return State::Running { step: step + 1, wait: 0, manual: false, polls: 0 };
         }
@@ -633,6 +743,9 @@ impl Runner {
             first_error.get_or_insert(e);
         };
         for (h, count) in o.hooks.iter().zip(hook_counts.iter_mut()) {
+            if *count == u32::MAX {
+                continue; // a `once` hook that has fired
+            }
             match expand(&h.when, vars).and_then(|t| host.script(&t)) {
                 Ok(Value::Number(n)) if n != 0.0 => *count += 1,
                 Ok(_) => *count = 0,
@@ -647,7 +760,7 @@ impl Runner {
                     line["error"] = json!(e);
                 }
                 out(ev, line);
-                *count = 0;
+                *count = if h.once { u32::MAX } else { 0 };
             }
         }
         let mut header = Vec::with_capacity(o.header.len());
@@ -704,6 +817,28 @@ impl Runner {
             line["first_error"] = json!(e);
         }
         out(ev, line);
+        if let Some(sh) = &o.shots {
+            let due = shots.0 < sh.max && shots.1.is_none_or(|last| sample >= last + sh.gap.max(1));
+            if due {
+                match expand(&sh.when, vars).and_then(|t| host.script(&t)) {
+                    Ok(Value::Number(n)) if n != 0.0 => {
+                        let mut line = json!({"kind": "screenshot", "step": step, "n": sample, "label": sh.label});
+                        match host.screenshot(&format!("{job}.{step:03}.{}.{sample:06}", sh.label)) {
+                            Ok(shot) => {
+                                line["file"] = json!(shot.file);
+                                line["mean"] = json!((shot.mean * 1e4).round() / 1e4);
+                                line["foreground"] = json!(shot.foreground);
+                            }
+                            Err(e) => line["error"] = json!(e),
+                        }
+                        out(ev, line);
+                        *shots = (shots.0 + 1, Some(sample));
+                    }
+                    Ok(_) => {}
+                    Err(e) => out(ev, json!({"kind": "error", "step": step, "error": format!("shots when: {e}")})),
+                }
+            }
+        }
         State::Observing { step, sample: sample + 1, wait: o.every.saturating_sub(1), drive_on, drive_loops }
     }
 }
@@ -720,6 +855,11 @@ mod tests {
         console: Vec<String>,
         shown: Vec<String>,
         shots: Vec<String>,
+        /// Event names listened to, events waiting to be heard, and unlisten calls.
+        listening: Vec<String>,
+        queue: Vec<Heard>,
+        lost: u32,
+        unlistened: u32,
     }
 
     impl Host for Mock {
@@ -762,6 +902,17 @@ mod tests {
         fn screenshot(&mut self, stem: &str) -> Result<Shot, String> {
             self.shots.push(stem.into());
             Ok(Shot { file: format!("shots/{stem}.1.png"), width: 4, height: 2, mean: 0.123456, foreground: true })
+        }
+        fn listen(&mut self, events: &[EventSpec]) -> Result<(), String> {
+            self.listening = events.iter().map(|e| e.name.clone()).collect();
+            Ok(())
+        }
+        fn heard(&mut self) -> (Vec<Heard>, u32) {
+            (std::mem::take(&mut self.queue), std::mem::take(&mut self.lost))
+        }
+        fn unlisten(&mut self) {
+            self.unlistened += 1;
+            self.listening.clear();
         }
     }
 
@@ -983,8 +1134,78 @@ mod tests {
         let fired: Vec<(u64, &str)> = out.iter().filter(|l| l["kind"] == "hook")
             .map(|l| (l["n"].as_u64().unwrap(), l["name"].as_str().unwrap())).collect();
         assert_eq!(fired, [(3, "menu"), (5, "menu")]);
+        let once = Job::read(r#"{"format": "fnv.capture.steps/1", "name": "h2", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 6,
+                         "hooks": [{"name": "push", "when": "ready 1", "after": 2, "then": "text", "once": true}]}}]}"#).unwrap();
+        r.game_loaded(vec![once], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..12 {
+            all.extend(r.tick(&mut m));
+        }
+        let fired: Vec<u64> = lines(&all).iter().filter(|l| l["kind"] == "hook").map(|l| l["n"].as_u64().unwrap()).collect();
+        assert_eq!(fired, [1], "a once hook fires at its sample and never again");
         assert!(out.iter().filter(|l| l["kind"] == "sample").all(|l| l["errors"] == 1), "a failing hook is an error, not a stop");
         assert_eq!(m.scripts.iter().filter(|t| *t == "count").count(), 2);
+    }
+
+    #[test]
+    fn events_are_written_as_heard_and_shots_follow_their_condition() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(9, 0, 0);
+        r.set_auto_start(Some(0));
+        // "ready 2" is true from sample 1 on; gap 2 and max 2 give shots at samples 1 and 3.
+        let job = Job::read(r#"{"format": "fnv.capture.steps/1", "name": "e1", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 6,
+                         "events": [{"name": "OnHit", "probe": "p"}, {"name": "OnDeath", "probe": "q"}],
+                         "shots": {"label": "down", "when": "ready 2", "gap": 2, "max": 2}}}]}"#).unwrap();
+        r.game_loaded(vec![job], &mut m);
+        let mut all = Vec::new();
+        all.extend(r.tick(&mut m)); // start
+        all.extend(r.tick(&mut m)); // observing: listen
+        assert_eq!(m.listening, ["OnHit", "OnDeath"]);
+        for k in 0..8 {
+            if k == 2 {
+                m.queue.push((1, Ok(Value::Text("a|b".into()))));
+                m.queue.push((0, Err("script call failed".into())));
+                m.lost = 3;
+            }
+            all.extend(r.tick(&mut m));
+        }
+        let out = lines(&all);
+        let evs: Vec<&Json> = out.iter().filter(|l| l["kind"] == "event").collect();
+        assert_eq!(evs.len(), 2);
+        assert_eq!((evs[0]["name"].as_str(), evs[0]["value"].as_str()), (Some("OnDeath"), Some("a|b")));
+        assert_eq!((evs[1]["name"].as_str(), evs[1]["error"].as_str()), (Some("OnHit"), Some("script call failed")));
+        assert!(out.iter().any(|l| l["kind"] == "events_lost" && l["count"] == 3));
+        let shots: Vec<u64> = out.iter().filter(|l| l["kind"] == "screenshot").map(|l| l["n"].as_u64().unwrap()).collect();
+        assert_eq!(shots, [1, 3]);
+        assert_eq!(m.shots[0], "e1.000.down.000001");
+        assert_eq!(m.unlistened, 1, "the observation's end stops the events");
+        assert!(out.iter().any(|l| l["kind"] == "observed"));
+    }
+
+    #[test]
+    fn a_load_during_an_observation_stops_the_events() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(9, 0, 0);
+        r.set_auto_start(Some(0));
+        let job = r#"{"format": "fnv.capture.steps/1", "name": "e2", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 60, "events": [{"name": "OnHit", "probe": "p"}]}}]}"#;
+        r.game_loaded(vec![Job::read(job).unwrap()], &mut m);
+        r.tick(&mut m);
+        r.tick(&mut m);
+        r.tick(&mut m);
+        r.game_loaded(vec![], &mut m);
+        assert_eq!(m.unlistened, 1);
+    }
+
+    #[test]
+    fn event_probes_must_be_full_scripts() {
+        let bad = r#"{"format": "fnv.capture.steps/1", "name": "e3", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 1, "events": [{"name": "OnHit", "probe": "GetHealth"}]}}]}"#;
+        assert!(Job::parse(bad).unwrap_err().contains("full function script"));
+        let good = bad.replace("GetHealth", r"ref rEa\nref rEb\nBegin Function {rEa, rEb}\nSetFunctionValue 1\nEnd\n");
+        assert!(Job::parse(&good).is_ok());
     }
 
     #[test]

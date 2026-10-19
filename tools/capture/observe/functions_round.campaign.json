@@ -1,0 +1,78 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "functions_round",
+ "title": "Questions the observer can now settle in GSGasStation with RingoRef (save nvftest; plugin version 9): an essential actor knocked out (GetKnockedState, GetUnconscious, how long it stays down; script-function-coverage section 3.3), the karma for killing an NCRCF convict that attacks the player and one that does not (playtest list 5 item 22), laying a frag mine (IsPlayerActionActive's indices), a critical kill with a plasma rifle (IsInCriticalStage; section 3.3), and the Pip-Boy's MenuMode codes (section 3.3). The sessions run in one game load in this order; the Pip-Boy is last because a menu left open would hold the rest.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "full",
+  "more": true,
+  "events": "all",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 120,
+  "close_menus_after": 300
+ },
+ "sessions": [
+  {
+   "name": "essential_ko",
+   "note": "SetEssential on Ringo's base, then KillActor: an essential actor is knocked out instead [documented: GECK wiki KillActor/Essential]. GetKnockedState, GetUnconscious, Health and the AI procedure every 2 game loops for 0.5 game hours (60 s).",
+   "console_first": ["tgm"],
+   "hours": 0.5,
+   "do": [["SetEssential {0} 1", "0x00104C7C"], ["player.MoveTo {0} 200 0 0", "RingoRef"]],
+   "timed": [{"after": 30, "do": ["{0}.KillActor", "RingoRef"]}]
+  },
+  {
+   "name": "convict_aggressor",
+   "note": "An NCRCF Powder Ganger (LvlNCRCFPowderGangerMelee) spawned 400 units in front and set on the player (god mode), killed by the player (KillActor player) about 10 s later; the player's karma (header) and the convict's own karma and alignment before and after.",
+   "hours": 0.2,
+   "do": [["SetEssential {0} 0", "0x00104C7C"]],
+   "place": [{"base": "LvlNCRCFPowderGangerMelee", "count": 1, "distance": 400, "attack": "player"}],
+   "extra": [["karma", "num", "GetAV Karma"], ["evil", "num", "GetIsAlignment Evil"], ["very_evil", "num", "GetIsAlignment VeryEvil"], ["neutral", "num", "GetIsAlignment Neutral"]],
+   "timed": [{"after": 300, "script": {"decls": ["ref rA"], "lines": ["let rA := GetFirstRef 200 1", "while rA != 0", "  if rA.GetSourceModIndex == 255", "    if rA.GetDead == 0", "      rA.KillActor player", "    endif", "  endif", "  let rA := GetNextRef", "loop"]}}]
+  },
+  {
+   "name": "convict_calm",
+   "note": "The same convict spawned without being set on the player, killed by the player 4 s later (before it can attack of its own accord, if it would).",
+   "hours": 0.1,
+   "place": [{"base": "LvlNCRCFPowderGangerMelee", "count": 1, "distance": 600}],
+   "extra": [["karma", "num", "GetAV Karma"], ["evil", "num", "GetIsAlignment Evil"], ["very_evil", "num", "GetIsAlignment VeryEvil"], ["neutral", "num", "GetIsAlignment Neutral"]],
+   "timed": [{"after": 120, "script": {"decls": ["ref rA"], "lines": ["let rA := GetFirstRef 200 1", "while rA != 0", "  if rA.GetSourceModIndex == 255", "    if rA.GetDead == 0", "      rA.KillActor player", "    endif", "  endif", "  let rA := GetNextRef", "loop"]}}]
+  },
+  {
+   "name": "mines",
+   "note": "Three frag mines equipped and the attack control tapped twice: which IsPlayerActionActive index a laid mine turns on, and the player's GetAnimAction.",
+   "hours": 0.1,
+   "every": 1,
+   "fields": "fight",
+   "do": [["player.AddItem {0} 3", "WeapMineFrag"], ["player.EquipItem {0}", "WeapMineFrag"]],
+   "extra_header": [["player_anim", "num", "player.GetAnimAction"]],
+   "timed": [{"after": 60, "do": ["TapControl 4"]}, {"after": 400, "do": ["TapControl 4"]}]
+  },
+  {
+   "name": "crit_plasma",
+   "note": "Ringo held (SetRestrained), at 10 Health, 150 units west of the player who faces him with a plasma rifle and Critical Chance 100; the attack control tapped three times. IsInCriticalStage for the four stages on every actor every game loop.",
+   "hours": 0.12,
+   "every": 1,
+   "fields": "fight",
+   "do": [["{0}.SetRestrained 1", "RingoRef"], ["{0}.SetAngle Z 90", "RingoRef"], ["player.MoveTo {0} 150 0 0", "RingoRef"],
+          ["player.AddItem {0} 1", "WeapPlasmaRifle"], ["player.AddItem {0} 60", "AmmoMicroFusionCell"], ["player.EquipItem {0}", "WeapPlasmaRifle"],
+          ["player.SetAV CritChance 100"], ["player.SetAngle Z 270"], ["player.SetAngle X 12"], ["{0}.DamageAV Health 110", "RingoRef"]],
+   "extra": [["goo_start", "num", "IsInCriticalStage GooStart"], ["goo_end", "num", "IsInCriticalStage GooEnd"],
+             ["dis_start", "num", "IsInCriticalStage DisintegrateStart"], ["dis_end", "num", "IsInCriticalStage DisintegrateEnd"]],
+   "extra_header": [["player_anim", "num", "player.GetAnimAction"]],
+   "timed": [{"after": 30, "do": ["TapControl 7"]}, {"after": 150, "do": ["TapControl 4"]}, {"after": 300, "do": ["TapControl 4"]},
+             {"after": 450, "do": ["TapControl 4"]}],
+   "shots": {"label": "crit", "when": ["1"], "gap": 40, "max": 20}
+  },
+  {
+   "name": "pipboy_menus",
+   "note": "The Pip-Boy opened with its control (TapControl 14) and closed with it again 8 s later; MenuMode with no code and with the Pip-Boy pages' codes every 2 game loops. No close_menus hook (con_CloseAllMenus must not be used on the Pip-Boy [documented: GECK wiki]).",
+   "hours": 0.12,
+   "close_menus_after": 0,
+   "extra_header": [["menu_any", "num", "MenuMode"], ["menu_1", "num", "MenuMode 1"], ["menu_1002", "num", "MenuMode 1002"],
+                    ["menu_1003", "num", "MenuMode 1003"], ["menu_1023", "num", "MenuMode 1023"], ["menu_1035", "num", "MenuMode 1035"]],
+   "timed": [{"after": 30, "do": ["TapControl 14"]}, {"after": 270, "do": ["TapControl 14"]}],
+   "shots": {"label": "pipboy", "when": ["MenuMode"], "gap": 30, "max": 10}
+  }
+ ]
+}

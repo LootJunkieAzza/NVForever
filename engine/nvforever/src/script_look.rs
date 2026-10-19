@@ -13,14 +13,15 @@
 //!   to the proximity choice: "until … the target leaves the loaded area" [documented].
 //! - **The body.** With Look's `rotateBody` 1 "Actor will rotate his entire body to
 //!   Target ref" [documented: GECK wiki Look]. An actor the AI runs (every actor with
-//!   `--play`) is turned by `fnv_ai` at its walker's turn rate, over the package's own
-//!   facing (`Game::body_looks`, `Ai::face_looks`; log `ai [..] <actor>: turns its body
-//!   to … for a script's Look`, `faces …`). Any other actor standing in its idle is turned on the spot here with the turn of a
-//!   conversation (`dialogue_look::BodyTurn`: the same speed, turn clips and the 30°
-//!   from which a body turns at all), and turned again whenever the target is that far
-//!   off its front, until StopLook; the body keeps its last heading afterwards
-//!   [hypothesis: the wiki says only that the body rotates; the observer's captures hold
-//!   no Look call to measure]. Not turned (the head still is): a dead actor, a creature,
+//!   `--play`) is turned by `fnv_ai` at 145°/s and kept on the target, walking on along
+//!   its route if it walks, and kept off its seat until StopLook (`Game::body_looks`,
+//!   `Ai::face_looks`; log `ai [..] <actor>: turns its body to … for a script's Look`,
+//!   `faces …`) [observed: RingoRef, AI observer campaign `knockdown_look` 2026-10-19,
+//!   docs/design/script-stubs.md §3]. Any other actor standing in its idle is turned on
+//!   the spot here with the turn of a conversation (`dialogue_look::BodyTurn`: the same
+//!   speed, turn clips and the 30° from which a body turns at all), and turned again
+//!   whenever the target is that far off its front, until StopLook; the body keeps its
+//!   last heading afterwards [design: the original's body follows within a degree]. Not turned (the head still is): a dead actor, a creature,
 //!   one in furniture, a `--npc-travel` traveller, one under the walk test, a walking
 //!   one (`speech_look::standing_body_stays`), and the actor of a conversation with the
 //!   player (`dialogue_look.rs` turns it).

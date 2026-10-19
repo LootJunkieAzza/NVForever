@@ -42,9 +42,11 @@ use serde::{Deserialize, Serialize};
 
 /// Fatigue points that come back each second of game time [design].
 pub const FATIGUE_RETURN: f64 = 10.0;
-/// Seconds of game time an essential actor stays down at least [design: "a few
-/// seconds", documented: GECK wiki KillActor notes]; then until no fight goes on near it
-/// [owner rule 2026-10-17].
+/// Seconds of game time an essential actor stays down at least [observed: RingoRef, made
+/// essential and knocked out by KillActor with no fight about, lay 10.0 s and then got up
+/// (GetAnimAction 13 for 2.2 s), AI observer campaign `functions_round` 2026-10-19,
+/// docs/spec-notes/unconscious.md §2.10]; then until no fight goes on near it [owner rule
+/// 2026-10-17].
 pub const ESSENTIAL_DOWN: f64 = 10.0;
 /// Game units around a knocked-out essential actor within which an actor in combat keeps
 /// it down [design].
@@ -53,22 +55,33 @@ pub const FIGHT_RADIUS: f32 = 4096.0;
 /// design: a test value, the data has no setting for it].
 pub const FATIGUE_DOWN: f64 = 30.0;
 /// Seconds of game time the getting up lasts at most when the engine does not end it
-/// sooner (an actor that is not drawn) [design: the `_male` get-up clips last 2 s].
-pub const GETUP_MAX: f64 = 3.0;
+/// sooner (an actor that is not drawn) [observed: GetAnimAction 13, the get-up, lasted
+/// 2.41-2.53 s after RingoRef's pushes, AI observer campaign `knockdown_look` 2026-10-19,
+/// docs/spec-notes/unconscious.md §5.5].
+pub const GETUP_MAX: f64 = 2.5;
 /// The share of its maximum health an essential actor gets up with, at least [design].
 pub const ESSENTIAL_UP_HEALTH: f64 = 0.5;
-/// Seconds of game time a knockdown (PushActorAway, an explosion) keeps an actor down
-/// [design: no setting in the data names it].
-pub const KNOCKDOWN_DOWN: f64 = 3.0;
+/// Seconds of game time a knockdown (PushActorAway, an explosion) keeps an actor down,
+/// from the push to the start of its get-up [observed: 2.38 s after four of five pushes
+/// of RingoRef at forces 10 and 120, whatever the distance, as the player's
+/// `PLAYER_KNOCKDOWN_DOWN`; 5.40 s after the fifth (force 40, the body against a wall),
+/// campaign `knockdown_look` 2026-10-19, unconscious.md §5.5; explosions not measured].
+pub const KNOCKDOWN_DOWN: f64 = 2.4;
 /// Seconds the player lies knocked down before getting up: from the push until the
 /// character is stood up for the get-up clip [observed: capture `kd_player_knockdown`
 /// 2026-10-18, PushActorAway force 10, about 8 samples of 0.30 s in both views,
 /// docs/spec-notes/unconscious.md §5.4].
 pub const PLAYER_KNOCKDOWN_DOWN: f64 = 2.4;
 /// Game units a second of the body's start velocity per point of PushActorAway's force
-/// (the wiki calls it a "Havok force") [design: the shipped scripts use 1 to 20].
+/// (the wiki calls it a "Havok force") [observed: RingoRef's reference flew 330-420
+/// units/s at force 10 and 1,000-1,300 at force 40, campaign `knockdown_look`
+/// 2026-10-19, unconscious.md §5.5].
 pub const PUSH_SPEED: f32 = 30.0;
-/// The upward share of a push's velocity, so that the body leaves the ground [design].
+/// The upward speed a push gives the body, game units a second, whatever the force (no
+/// more than the push's own speed) [observed: the reference rose 42 units at force 10 and
+/// 31 at force 40, 220-240 units/s at the start under the game's gravity; same campaign].
+pub const PUSH_RISE: f32 = 220.0;
+/// The upward share of an explosion's knockdown velocity [design].
 pub const PUSH_LIFT: f32 = 0.25;
 
 /// Why an actor is knocked out.
@@ -241,7 +254,7 @@ impl Game<'_> {
     /// `source.PushActorAway target force`: `target` is knocked down ([`Cause::Pushed`])
     /// and its body thrown away from `source` (towards it for a negative force), straight
     /// up without a source [documented: GECK wiki PushActorAway]; the speed is
-    /// [`PUSH_SPEED`] per point of force, [`PUSH_LIFT`] of it upwards [design]. Returns
+    /// [`PUSH_SPEED`] per point of force, with [`PUSH_RISE`] upwards [observed]. Returns
     /// whether it was pushed (refused as [`Game::can_knock_down`] says).
     pub fn push_actor_away(&mut self, source: Option<FormId>, target: FormId, force: f64) -> bool {
         if !self.can_knock_down(target) {
@@ -256,7 +269,7 @@ impl Game<'_> {
             (len > 1e-3).then(|| [dx / len, dy / len])
         });
         let shove = match away {
-            Some([x, y]) => [x * speed, y * speed, speed.abs() * PUSH_LIFT],
+            Some([x, y]) => [x * speed, y * speed, PUSH_RISE.min(speed.abs())],
             None => [0.0, 0.0, speed.abs()],
         };
         self.knock(target, Cause::Pushed, source, Some(shove));

@@ -1,0 +1,27 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "intercom",
+ "title": "docs/outstanding.md section 1 row 8: Hidden Valley's bunker intercom HVBunkerIntercom2 (REFR 000ACD73) activated by the player (a script's Activate player runs its OnActivate block, which sets RamosREF as the talking actor and activates the intercom, docs/spec-notes/talking-activators.md). Recorded: whether a dialogue menu opens (MenuMode 1009), RamosREF's state (tracked), every game event (OnActivate, SayToDone, packages), and screenshots while a menu is open (the subtitle and where the view looks). Save nvftest.",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "full",
+  "events": "all",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 300
+ },
+ "sessions": [
+  {
+   "name": "bunker_intercom",
+   "console_first": ["tgm"],
+   "go": {"moveto": "HVBunkerIntercom2"},
+   "hours": 0.15,
+   "close_menus_after": 900,
+   "track": ["RamosREF"],
+   "do": [["player.MoveTo {0} 0 -110 0", "HVBunkerIntercom2"], ["player.SetAngle Z 0"]],
+   "extra_header": [["menu_any", "num", "MenuMode"], ["menu_dialogue", "num", "MenuMode 1009"]],
+   "timed": [{"after": 60, "do": ["{0}.Activate player", "HVBunkerIntercom2"]}],
+   "shots": {"label": "intercom", "when": ["MenuMode"], "gap": 1, "max": 40}
+  }
+ ]
+}

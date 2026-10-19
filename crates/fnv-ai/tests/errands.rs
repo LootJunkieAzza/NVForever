@@ -68,6 +68,12 @@ fn npc(fid: u32, edid: &str, packages: &[u32]) -> Vec<u8> {
     record(b"NPC_", fid, &subs)
 }
 
+fn crea(fid: u32, edid: &str, packages: &[u32]) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid))];
+    subs.extend(packages.iter().map(|p| sub(b"PKID", p.to_le_bytes().to_vec())));
+    record(b"CREA", fid, &subs)
+}
+
 fn placed(sig: &[u8; 4], fid: u32, edid: &str, base: u32, pos: [f32; 3], owner: Option<u32>) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec())];
     subs.extend(owner.map(|o| sub(b"XOWN", o.to_le_bytes().to_vec())));
@@ -96,6 +102,7 @@ const P_FLEE: u32 = 0x826;
 const P_FLEE_HOME: u32 = 0x827;
 const P_FLEE_NOTHING: u32 = 0x828;
 const P_FIND_NONE: u32 = 0x829;
+const P_HUNT: u32 = 0x82A;
 // Bases.
 const N_LEADER: u32 = 0x840;
 const N_GUEST: u32 = 0x841;
@@ -108,6 +115,8 @@ const N_COWARD: u32 = 0x847;
 const N_HOMEBODY: u32 = 0x848;
 const N_CALM: u32 = 0x849;
 const N_IDLE_FINDER: u32 = 0x84A;
+const N_HUNTER: u32 = 0x84B;
+const N_POACHER: u32 = 0x84C;
 // Cell and references.
 const CELL: u32 = 0x860;
 const MARK_FAR: u32 = 0x870;
@@ -128,6 +137,8 @@ const R_COWARD: u32 = 0x887;
 const R_HOMEBODY: u32 = 0x888;
 const R_CALM: u32 = 0x889;
 const R_IDLE_FINDER: u32 = 0x88A;
+const R_HUNTER: u32 = 0x88B;
+const R_POACHER: u32 = 0x88C;
 
 const C: Space = Space::Interior(CELL);
 
@@ -160,6 +171,9 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_FLEE_NOTHING, "FleeNothing", 0, FLEE, 0, None, None, None, None),
         // Object type "None": nothing to find; it goes to its location and stays.
         pack(P_FIND_NONE, "FindNothing", 0, FIND, 0, Some((0, MARK_HOME, 64)), None, Some((2, 0, 0)), None),
+        // Find meat with Allow Killing: it attacks the actors of its area, whatever they
+        // carry (the original's gecko on FindFood, packages.md section 3.1).
+        pack(P_HUNT, "HuntMeat", 0, FIND, type_flags::ALLOW_KILLING, Some((2, 0, 1500)), None, Some((1, MEAT, 1)), None),
     ]
     .concat();
     let npcs = [
@@ -175,6 +189,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_HOMEBODY, "Homebody", &[P_FLEE_HOME]),
         npc(N_CALM, "Calm", &[P_FLEE_NOTHING]),
         npc(N_IDLE_FINDER, "IdleFinder", &[P_FIND_NONE]),
+        npc(N_POACHER, "Poacher", &[P_HUNT]),
     ]
     .concat();
     let furn = record(b"FURN", CHAIR, &[sub(b"EDID", z("Chair")), sub(b"MNAM", 0x4000_0001u32.to_le_bytes().to_vec())]);
@@ -203,6 +218,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_HOMEBODY, "HomebodyRef", N_HOMEBODY, [450.0, 250.0, 0.0], None),
         placed(b"ACHR", R_CALM, "CalmRef", N_CALM, [1000.0, 500.0, 0.0], None),
         placed(b"ACHR", R_IDLE_FINDER, "IdleFinderRef", N_IDLE_FINDER, [1200.0, 1200.0, 0.0], None),
+        placed(b"ACRE", R_HUNTER, "HunterRef", N_HUNTER, [1100.0, 600.0, 0.0], None),
+        placed(b"ACHR", R_POACHER, "PoacherRef", N_POACHER, [1100.0, 700.0, 0.0], None),
     ]
     .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Hall"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
@@ -214,6 +231,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"MISC", &misc),
         top(b"FURN", &furn),
         top(b"NPC_", &npcs),
+        top(b"CREA", &crea(N_HUNTER, "Hunter", &[P_HUNT])),
         top(b"PACK", &packs),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
     ]
@@ -385,6 +403,27 @@ fn an_owned_item_is_taken_only_with_allow_stealing() {
     s.run(15.0);
     assert!(s.events(R_THIEF).iter().any(|e| matches!(e, AiEvent::Found { object, act: Act::Takes, .. } if object.0 == R_OWNED)), "{:?}", s.events(R_THIEF));
     assert_eq!(s.game.world.item_count(FormId(R_THIEF), FormId(MEAT)).unwrap(), 1);
+}
+
+/// A creature on Find with Allow Killing attacks a living actor of its area that carries
+/// none of what it looks for, not its kin [observed: the original's gecko on
+/// VCrGeckoFindFood attacked bloatflies, a radroach and a protectron, AI observer
+/// campaign `gecko_find` 2026-10-19]; a person on the same package does not.
+#[test]
+fn a_find_package_with_allow_killing_attacks_an_actor_carrying_nothing_it_wants() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_HUNTER]);
+    s.run(10.0);
+    let ev = s.events(R_HUNTER);
+    let attacked: Vec<u32> = ev.iter().filter_map(|e| if let AiEvent::Found { object, act: Act::Attacks, .. } = e { Some(object.0) } else { None }).collect();
+    assert!(!attacked.is_empty(), "{ev:?}");
+    for a in &attacked {
+        assert_eq!(s.game.world.item_count(FormId(*a), FormId(MEAT)).unwrap_or(0), 0, "it carries no meat");
+    }
+    // A person with the same package only attacks one carrying meat (nobody here).
+    let mut s = sim(&f, &[R_POACHER]);
+    s.run(10.0);
+    assert!(!s.events(R_POACHER).iter().any(|e| matches!(e, AiEvent::Found { act: Act::Attacks, .. })), "{:?}", s.events(R_POACHER));
 }
 
 #[test]

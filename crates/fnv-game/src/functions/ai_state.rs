@@ -19,7 +19,11 @@ use fnv_sim::FormId;
 /// chooses again (`Game::evaluate_package`). Combat and pathing, which the page says
 /// are re-evaluated too, are the engine's and the combat AI's: they are not touched
 /// here [engineering choice: combat states belong to `crate::awareness` and the combat
-/// workstream; the walker takes the new package on its next step].
+/// workstream; the walker takes the new package on its next step]. In the original an
+/// NCR trooper given ResetAI in a fight left combat for one sample (2 game loops, back on
+/// his FOLLOW package) and was in combat again with a new combat package 2 loops later,
+/// a Fiend his target within 0.25 s [observed: AI observer campaign `fights_round`
+/// 2026-10-19, script-function-coverage.md §3.3], so leaving combat alone looks the same.
 pub fn reset_ai(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {

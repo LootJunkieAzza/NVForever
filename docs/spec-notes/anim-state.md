@@ -150,6 +150,22 @@ moving throughout) [observed]:
   firing while sneaking, jumping, swinging, drawing or holstering. GetLastPlayerAction
   read 0 throughout, even after the throws.
 
+`functions_round` session `mines` (2026-10-19, AI observer, plugin version 9; three frag
+mines equipped, Attack tapped twice) [observed]:
+
+- The first tap drew the mine (GetAnimAction 0 for 85 loops); the second threw it: 5 for
+  48 loops, 6 for 30, 4 for 48, then −1.
+- **IsPlayerActionActive 4** read 1 from the first loop of the 5 for 181 loops, 3.02 s by
+  the game clock (the grenade's index 2 lasted 181 loops too, above), and no other index
+  moved. **GetLastPlayerAction** read 4 over exactly the same loops and 0 before and
+  after (after the grenade throws of `player_actions_anim2` it read 0 throughout; no
+  shipped script or condition asks it, so NVForever leaves it at 0).
+- NVForever: a throw with a mine weapon (WEAP animation type "Land Mine" or "Mine
+  Drop") answers 4 instead of 2 (`AnimState::mine`, `Combat::player_weapon_is_mine`);
+  `THROW_ACTION_SECONDS` is 3.0 s (was 2.6, from the loop count at another job's frame
+  rate). Still unanswered: 1, 3, 5, 6, 7, 8 (8 is standing on a table by the wiki's
+  example), 10; firing, jumping, swinging, sneaking and drawing read nothing.
+
 ## 5. Open, and the captures that settle it
 
 - What 17 is exactly (§1.1 settles where it falls, not what it covers); 3 through a hand

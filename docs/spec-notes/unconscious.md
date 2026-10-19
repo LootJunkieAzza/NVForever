@@ -102,9 +102,10 @@ on screen).
      until their get-up animation is over]: when its time comes the knockout turns to
      getting up (`KnockOut::rising`) and the actor still counts as knocked out — no
      packages, no walking, no fighting, nobody targets it — until the engine has played
-     its get-up clip (`Game::finish_getting_up`), or `GETUP_MAX` = 3 s of game time for
-     an actor nobody draws [design: the `_male` clips last 2 s]. GetKnockedState keeps
-     its knockout value meanwhile [hypothesis]. Beaten to zero again while getting up, an
+     its get-up clip (`Game::finish_getting_up`), or `GETUP_MAX` = 2.5 s of game time for
+     an actor nobody draws [observed: the get-up's GetAnimAction 13 lasted 2.41-2.53 s,
+     §5.5]. GetKnockedState keeps
+     0 meanwhile [observed: §2.10]. Beaten to zero again while getting up, an
      essential actor goes down again.
 6. A fatigue knockout of an essential actor that is then brought to zero health becomes
    an essential knockout (its time starts again).
@@ -122,6 +123,15 @@ on screen).
    block, that block runs on the weapon (its instance per holder and item, as the other
    item blocks), after the target's OnHit and OnHitWith [hypothesis: the gloves' script
    only works so; the order is a guess].
+10. **An essential knocked out in the original** (2026-10-19, AI observer campaign
+   `functions_round` session `essential_ko`: RingoRef made essential with SetEssential on
+   his base, then KillActor, no fight about; every 2 game loops) [observed]:
+   GetKnockedState read **1** from the next sample, GetUnconscious **0** throughout,
+   GetDead 0, Health unchanged (120: KillActor took none); no OnHit, OnDeath or OnMurder
+   event. He lay **10.0 s** (`ESSENTIAL_DOWN`, which had been a design value), then
+   GetAnimAction read 13 for 2.2 s (the get-up) while GetKnockedState read **0**, then
+   the AI procedure GET_UP for a moment and his sandbox package again. NVForever now
+   reads 0 for an actor getting up (`functions::fighting::get_knocked_state`).
 
 ## 3. AI
 
@@ -198,9 +208,9 @@ Code: `crates/fnv-game/src/unconscious.rs` (`Game::push_actor_away`, `Game::knoc
 ### 5.2 Rules
 
 1. A knockdown is a knockout (§2) with cause **pushed** (PushActorAway) or **knocked
-   down** (an explosion). It lasts `KNOCKDOWN_DOWN` = 3 s of game time, fight or not,
-   then the actor gets up as in §2.5 (getting up stage, get-up clip) [design: no setting
-   in the data names it]. No KOed or Wake line, no corner message, no fatigue or health
+   down** (an explosion). It lasts `KNOCKDOWN_DOWN` = 2.4 s of game time, fight or not,
+   then the actor gets up as in §2.5 (getting up stage, get-up clip) [observed for pushes,
+   §5.5; an explosion's is assumed the same]. No KOed or Wake line, no corner message, no fatigue or health
    restored [design: a knockdown is no unconsciousness].
 2. Refused (nothing happens) for dead actors, actors whose own record has No Knockdowns,
    and Immobile creatures [documented: §5.1], and for the player on furniture or in a
@@ -210,12 +220,12 @@ Code: `crates/fnv-game/src/unconscious.rs` (`Game::push_actor_away`, `Game::knoc
    while getting up: down again (unless only out of fatigue again, §2) [design].
 4. **The push**: the body starts with a velocity of `PUSH_SPEED` = 30 game units a second
    per point of force, along the ground from the source to the target (towards the source
-   for a negative force), plus `PUSH_LIFT` = 0.25 of that upwards; without a source, or
-   with the source on the target, straight up [documented: the direction rules, §5.1;
-   design: the numbers — the wiki's "Havok force" is not converted]. A push on an actor
-   already lying throws its body again and marks it pushed. An explosion throws the body
-   away from the blast at `BLAST_KNOCKDOWN_SPEED` = 300 units a second plus the same lift
-   [design].
+   for a negative force), plus `PUSH_RISE` = 220 units a second upwards (no more than the
+   push's own speed); without a source, or with the source on the target, straight up
+   [documented: the direction rules, §5.1; observed: the numbers, §5.5]. A push on an
+   actor already lying throws its body again and marks it pushed. An explosion throws the
+   body away from the blast at `BLAST_KNOCKDOWN_SPEED` = 300 units a second plus
+   `PUSH_LIFT` = 0.25 of that upwards [design].
 5. **Scripts**: GetKnockedState reads 0 while an actor pushed down lies, also once
    knocked out meanwhile; 2 for an explosion's knockdown; the other values as §2.8
    [documented: §5.1]. GetUnconscious still reads only SetUnconscious.
@@ -261,8 +271,8 @@ rules), `engine/nvforever/src/player_knockdown.rs` (on screen), `engine/nvf-play
    there), where the third-person camera was in third person. For the getting up the view
    is the ordinary third-person camera behind the player, in first person too; a
    first-person view comes back once the get-up clip is over.
-6. **Getting up**: after `PLAYER_KNOCKDOWN_DOWN` = 2.4 s [observed; NPCs keep
-   `KNOCKDOWN_DOWN`, 3 s, design] (`KnockOut::rising`) the ragdoll
+6. **Getting up**: after `PLAYER_KNOCKDOWN_DOWN` = 2.4 s [observed; NPCs'
+   `KNOCKDOWN_DOWN` is the same 2.4 s, observed §5.5] (`KnockOut::rising`) the ragdoll
    leaves the world, the character stands on the ground under the ragdoll's pelvis, and the
    IDLE `GetUpFaceUp` or `GetUpFaceDown` (§1) is asked for on the player as PlayIdle would
    (`Game::ask_idle`), so `idles.rs` plays its clip on the third-person body. Two frames
@@ -319,3 +329,44 @@ Second run (2026-10-18, attended, the game in front throughout; output
 - **Distance**: the player reference moved about 50 units (first) and 25 (third), but not
   away from the can (§ the first run); the body flew farther than the reference in the
   pictures. Not fitted: `PUSH_SPEED` stays a guess.
+
+### 5.5 NPC pushes measured in the original (2026-10-19)
+
+AI observer campaign `tools/capture/observe/knockdown_look.campaign.json` (save `nvftest`,
+GSGasStation; outputs `C:\fnv-private\capture\out\obs_knockdown_look_0[123]_push_*.jsonl`,
+private): the player, 120 units east of RingoRef, runs `player.PushActorAway RingoRef
+<force>` at a set sample (a `timed` hook, ai-observer.md §12) while Ringo's position,
+heading, GetAnimAction and AI procedure are sampled every game loop (about 60 a second).
+Five pushes: force 10 three times (the session restarted twice for a plugin fault, §12),
+40 and 120 once [observed]:
+
+- **The reference follows the body**: Ringo's GetPos moved with the ragdoll (230–264
+  units for forces 10 and 40), unlike the player's reference (§5.4); GetAngle Z did not
+  change while he flew and lay.
+- **Speed**: the reference flew 330–420 units/s at force 10 (slowing to 330 before it
+  landed) and 1,000–1,300 at force 40; at force 120 about 3,000 (50 units a sample) until
+  a wall 275 units away threw him back to 65. About 30 units/s per point of force, as
+  `PUSH_SPEED` had it.
+- **Height**: the reference rose 42 units at force 10 (top at 0.13 s) and 31 at force 40
+  (0.05 s), then fell as under gravity (landing at 0.47 s and 0.34 s); not at all at force
+  120 (straight into the wall). The rise does not grow with the force: `PUSH_RISE` = 220
+  units/s up whatever the force (no more than the push's own speed) replaces the quarter of
+  the speed (which gave 4 units at force 10 and 66 at force 40).
+- **Time down**: GetAnimAction became 13 (ANIM_ACTION_FORCE_SCRIPT_ANIM, which the wiki
+  lists for "getting up from the ground after getting knocked down" [documented: GECK wiki
+  GetAnimAction]) **2.38 s after the push** in four of the five, at forces 10 and 120 and
+  whatever the distance flown, the player's own 2.4 s (§5.4); after the force-40 push
+  (the body slid into a wall) at 5.40 s. `KNOCKDOWN_DOWN` is now 2.4 s (was 3 s, design).
+- **Getting up**: 13 lasted 2.41 s (force 40) and 2.53 s (force 120), then −1; the AI
+  procedure read 21 (GET_UP) for a moment 0.5 s later, then the package went on.
+  `GETUP_MAX` (an undrawn actor's getting up) is now 2.5 s (was 3 s, design). Ringo stood
+  up facing where his body lay (heading 272.7° → 343.3° after the force-40 push, 94.6° →
+  85.2° after the force-120 one), as §4 lays the get-up clip over the ragdoll.
+- **GetKnockedState read 0** throughout, as the wiki says for a pushed actor [documented,
+  now observed].
+- **Events** (xNVSE, ai-observer.md §12): each push was heard as an **OnHit** on Ringo with
+  no attacker and an **OnHitWith** with the form `000001F4`, before any damage (Health 120);
+  he lost 0.2 Health in the fall at force 40 and none at 10 or 120.
+- Not measured: an explosion's knockdown (`BLAST_KNOCKDOWN_SPEED` and its lift stay
+  design), the distance a body slides on open ground (every push here ended at a wall or
+  inside the gas station), a negative force.

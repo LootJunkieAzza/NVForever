@@ -17,15 +17,15 @@ use std::fs;
 use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::{Mutex, TryLockError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
 use ffi::*;
-use runner::{Event, Host, Job, Runner, Shot, Value};
+use runner::{Event, EventSpec, Heard, Host, Job, Runner, Shot, Value, MAX_EVENTS};
 
-pub const PLUGIN_VERSION: u32 = 8;
+pub const PLUGIN_VERSION: u32 = 9;
 const PLUGIN_NAME: &CStr = c"NVForeverCapture";
 pub const DEFAULT_DIR: &str = r"C:\fnv-private\capture";
 
@@ -115,9 +115,91 @@ fn console_line(console: &ConsoleInterface, line: &str) -> Result<(), String> {
     }
 }
 
+/// A function's result element as a value. A string result is owned by the game's heap;
+/// it is copied and left there (a few bytes per query) because freeing it needs game
+/// internals.
+///
+/// # Safety
+/// `el` was filled by xNVSE's CallFunction.
+unsafe fn element_value(el: &Element) -> Result<Value, String> {
+    match el.kind {
+        ELEMENT_INVALID => Ok(Value::Nothing),
+        ELEMENT_NUMBER => Ok(Value::Number(el.data.num)),
+        ELEMENT_STRING if !el.data.text.is_null() => Ok(Value::Text(CStr::from_ptr(el.data.text).to_string_lossy().into_owned())),
+        ELEMENT_STRING => Ok(Value::Text(String::new())),
+        k => Err(format!("unsupported result type {k} (return numbers or strings)")),
+    }
+}
+
+/// Game events being heard (plugin version 9; docs/spec-notes/ai-observer.md §12). Kept
+/// apart from `PLUGIN`: the game calls the handlers from inside its own processing, which
+/// can be inside a script the plugin is running (StartCombat in a scene action).
+struct Listening {
+    script: &'static ScriptInterface,
+    /// The compiled probe of each handler slot (null: not listening).
+    probes: [*mut c_void; MAX_EVENTS],
+    queue: Vec<Heard>,
+}
+
+// SAFETY: touched only on the game's main thread (xNVSE defers handlers called from other
+// threads [documented: xNVSE 6.4.9 EventManager.cpp]); the pointers are game objects.
+unsafe impl Send for Listening {}
+
+static LISTEN: Mutex<Option<Listening>> = Mutex::new(None);
+/// Events heard while LISTEN was busy (a probe that set off another event).
+static LOST: AtomicU32 = AtomicU32::new(0);
+/// More than this many events waiting is a runaway; later ones are counted as lost.
+const QUEUE_MAX: usize = 100_000;
+
+/// One game event for handler slot `slot`: run its probe on the event's two arguments.
+fn on_event(slot: usize, params: *mut c_void) {
+    let Ok(mut g) = LISTEN.try_lock() else {
+        LOST.fetch_add(1, Ordering::SeqCst);
+        return;
+    };
+    let Some(l) = g.as_mut() else { return };
+    let probe = l.probes[slot];
+    if probe.is_null() {
+        return;
+    }
+    if l.queue.len() >= QUEUE_MAX {
+        LOST.fetch_add(1, Ordering::SeqCst);
+        return;
+    }
+    let args = params as *const *mut c_void;
+    // SAFETY: xNVSE passes an array of the event's two arguments (form pointers or null)
+    // [documented: xNVSE 6.4.9 EventManager.cpp]; CallFunction takes forms as pointers.
+    let v = unsafe {
+        let (a, b) = if args.is_null() { (std::ptr::null_mut(), std::ptr::null_mut()) } else { (*args, *args.add(1)) };
+        let mut el = Element::empty();
+        if (l.script.call_function)(probe, std::ptr::null_mut(), std::ptr::null_mut(), &mut el, 2, a, b) {
+            element_value(&el)
+        } else {
+            Err("script call failed".into())
+        }
+    };
+    l.queue.push((slot, v));
+}
+
+macro_rules! handlers {
+    ($($n:literal => $f:ident),* $(,)?) => {
+        $(unsafe extern "C" fn $f(_this: *mut c_void, params: *mut c_void) {
+            let _ = catch_unwind(AssertUnwindSafe(|| on_event($n, params)));
+        })*
+        /// One native handler per slot: xNVSE tells a handler nothing of the event's name.
+        const HANDLERS: [NativeEventHandler; MAX_EVENTS] = [$($f),*];
+    };
+}
+handlers!(0 => ev0, 1 => ev1, 2 => ev2, 3 => ev3, 4 => ev4, 5 => ev5, 6 => ev6, 7 => ev7,
+          8 => ev8, 9 => ev9, 10 => ev10, 11 => ev11, 12 => ev12, 13 => ev13, 14 => ev14, 15 => ev15);
+
 struct GameHost {
     console: &'static ConsoleInterface,
     script: &'static ScriptInterface,
+    /// Absent when xNVSE gives no event manager (events then fail with an error).
+    events: Option<&'static EventManagerInterface>,
+    /// Event names registered, by slot.
+    registered: Vec<(usize, CString)>,
     compiled: HashMap<String, *mut c_void>,
     /// The capture directory (screenshots go into its `shots` folder).
     dir: PathBuf,
@@ -148,17 +230,60 @@ impl Host for GameHost {
         if !ok {
             return Err("script call failed".into());
         }
-        // A string result is owned by the game's heap; it is copied and left there (a
-        // few bytes per query) because freeing it needs game internals.
-        unsafe {
-            match el.kind {
-                ELEMENT_INVALID => Ok(Value::Nothing),
-                ELEMENT_NUMBER => Ok(Value::Number(el.data.num)),
-                ELEMENT_STRING if !el.data.text.is_null() => {
-                    Ok(Value::Text(CStr::from_ptr(el.data.text).to_string_lossy().into_owned()))
+        // SAFETY: filled by CallFunction above.
+        unsafe { element_value(&el) }
+    }
+
+    fn listen(&mut self, events: &[EventSpec]) -> Result<(), String> {
+        self.unlisten();
+        let em = self.events.ok_or("xNVSE gave no event manager interface")?;
+        let mut probes = [std::ptr::null_mut(); MAX_EVENTS];
+        let mut failed = Vec::new();
+        for (k, e) in events.iter().enumerate().take(MAX_EVENTS) {
+            match self.compile(&e.probe) {
+                Ok(p) => probes[k] = p,
+                Err(err) => {
+                    failed.push(format!("{}: {err}", e.name));
+                    continue;
                 }
-                ELEMENT_STRING => Ok(Value::Text(String::new())),
-                k => Err(format!("unsupported result type {k} (return numbers or strings)")),
+            }
+            let name = CString::new(e.name.as_str()).map_err(|_| "event name contains NUL".to_string())?;
+            // SAFETY: interface pointer from xNVSE; the handler is a static function.
+            if unsafe { (em.set_native_event_handler)(name.as_ptr(), HANDLERS[k]) } {
+                self.registered.push((k, name));
+            } else {
+                failed.push(format!("{}: not an event xNVSE knows", e.name));
+            }
+        }
+        if let Ok(mut g) = LISTEN.lock() {
+            *g = Some(Listening { script: self.script, probes, queue: Vec::new() });
+        }
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(failed.join("; "))
+        }
+    }
+
+    fn heard(&mut self) -> (Vec<Heard>, u32) {
+        let queue = match LISTEN.try_lock() {
+            Ok(mut g) => g.as_mut().map(|l| std::mem::take(&mut l.queue)).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        (queue, LOST.swap(0, Ordering::SeqCst))
+    }
+
+    fn unlisten(&mut self) {
+        if let Some(em) = self.events {
+            for (k, name) in self.registered.drain(..) {
+                // SAFETY: as in `listen`.
+                unsafe { (em.remove_native_event_handler)(name.as_ptr(), HANDLERS[k]) };
+            }
+        }
+        // The queue is kept for the last `heard`.
+        if let Ok(mut g) = LISTEN.lock() {
+            if let Some(l) = g.as_mut() {
+                l.probes = [std::ptr::null_mut(); MAX_EVENTS];
             }
         }
     }
@@ -404,7 +529,9 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NvseInterface) -> bool {
             return false;
         }
         let handle = (n.get_plugin_handle)();
-        let host = GameHost { console: &*console, script: &*script, compiled: HashMap::new(), dir: dir.clone() };
+        let events = (n.query_interface)(INTERFACE_EVENT_MANAGER) as *const EventManagerInterface;
+        let events = if events.is_null() { None } else { Some(&*events) };
+        let host = GameHost { console: &*console, script: &*script, events, registered: Vec::new(), compiled: HashMap::new(), dir: dir.clone() };
         let mut runner = Runner::new(PLUGIN_VERSION, n.nvse_version, n.runtime_version);
         let auto = take_auto(&dir, now(), &mut |s| log_to(&dir, &s));
         runner.set_auto_start(auto.as_ref().map(|a| a.start_frames));

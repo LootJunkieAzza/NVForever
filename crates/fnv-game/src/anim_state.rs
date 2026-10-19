@@ -163,8 +163,10 @@ pub struct AnimState {
     /// The player only: aiming down a gun's sights (IsPlayerActionActive 9).
     pub iron_sights: bool,
     /// The player only: within [`THROW_ACTION_SECONDS`] of a throw's start
-    /// (IsPlayerActionActive 2).
+    /// (IsPlayerActionActive 2, or 4 for a mine).
     pub throwing: bool,
+    /// The player only: the throw is a mine being laid (IsPlayerActionActive 4).
+    pub mine: bool,
     /// When ([`Game::time`]) it was told (for traces; it does not expire).
     pub at: f64,
 }
@@ -189,11 +191,12 @@ pub fn shot_action(t: f32, fire: f32, len: f32, dt: f32, repeating: bool) -> Opt
     }
 }
 
-/// How long IsPlayerActionActive 2 stays 1 from the start of a throw, seconds [observed:
-/// 181 game loops on both of the player's grenade throws, from the first loop of its 5
-/// through its 6 and 4 and 73 loops after; about 2.6 s at the 69 loops a second of the
-/// same day's `disable_fade_getdisabled` job; capture `player_actions_anim2`, 2026-10-18].
-pub const THROW_ACTION_SECONDS: f32 = 2.6;
+/// How long IsPlayerActionActive 2 (a grenade) or 4 (a mine) stays 1 from the start of a
+/// throw, seconds [observed: 181 game loops on both of the player's grenade throws,
+/// capture `player_actions_anim2` 2026-10-18, and on a laid frag mine, AI observer
+/// campaign `functions_round` 2026-10-19, there 3.02 s by the game clock from the first
+/// loop of its 5 (the mine's clip: 5 for 48 loops, 6 for 30, 4 for 48, then 55 more)].
+pub const THROW_ACTION_SECONDS: f32 = 3.0;
 
 /// How long a throw reads 6 after the weapon left the hand when its clip has no `Attach`
 /// key, seconds [observed: median 36 samples, 11–40, at about 60 a second; campaign
@@ -274,6 +277,9 @@ pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 ///   PLAYER_ACTION_IRON_SIGHTS; not while the player is in combat [documented: the page's
 ///   notes]. Both shipped calls (Old World Blues) ask 9.
 /// - 2 from the start of a grenade throw for [`THROW_ACTION_SECONDS`].
+/// - 4 from the start of a mine's throw (a frag mine laid) for the same time [observed:
+///   AI observer campaign `functions_round` 2026-10-19; GetLastPlayerAction read 4 over
+///   the same loops and 0 before and after; no shipped script or condition asks it].
 /// - Nothing (1–10 all 0) while firing a pistol or a revolver, sneaking, firing while
 ///   sneaking, jumping, swinging a knife, drawing or holstering, though the page says
 ///   firing stays active about two game minutes: no index answered it.
@@ -284,7 +290,8 @@ pub fn is_player_action_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
     let index = a.num_or(0, 0.0) as i32;
     let s = g.anim_state(FormId::PLAYER_REF);
     match index {
-        2 => yes(s.is_some_and(|s| s.throwing)),
+        2 => yes(s.is_some_and(|s| s.throwing && !s.mine)),
+        4 => yes(s.is_some_and(|s| s.throwing && s.mine)),
         9 => {
             let sights = s.is_some_and(|s| s.iron_sights);
             yes(sights && !g.awareness.hunted(FormId::PLAYER_REF))

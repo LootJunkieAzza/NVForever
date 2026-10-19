@@ -65,7 +65,7 @@ use crate::goal::{self, dist};
 use crate::sandbox::Rng;
 use fnv_game::game::Game;
 use fnv_game::package::{fallout, flags, type_flags, PackageDef, PackageType};
-use fnv_nav::follow::{heading_delta, heading_of};
+use fnv_nav::follow::{heading_delta, heading_of, turn_towards};
 use fnv_nav::{NavGraph, Place, Space};
 use fnv_sim::FormId;
 use serde::Serialize;
@@ -118,8 +118,9 @@ pub(crate) struct Social {
     greeted: BTreeSet<FormId>,
     pub(crate) rng: Rng,
     pub(crate) stats: SocialStats,
-    /// The Looks turning bodies, by actor: the target and how far the turn is.
-    looks: BTreeMap<FormId, (FormId, LookTurn)>,
+    /// The Looks turning bodies, by actor: the target, how far the turn is, and the body's
+    /// heading (radians; a walker's own heading stays its route's).
+    looks: BTreeMap<FormId, (FormId, LookTurn, f32)>,
 }
 
 /// Where the body of an actor held by a Look with `rotateBody` is.
@@ -130,10 +131,14 @@ enum LookTurn {
     Held(&'static str),
 }
 
-/// A body held by a Look that is further than this off its target turns again (and the
-/// turn is logged), radians [design: a few degrees, so a target moving about is followed
-/// without a log line every frame].
+/// A body held by a Look that is further than this off its target is logged as turning
+/// again, radians [design: a few degrees, so a target moving about is followed without a
+/// log line every frame; the body itself follows at any angle].
 pub const LOOK_TURN_FROM: f32 = 0.1;
+/// How fast a Look with `rotateBody` turns the body, radians a second [observed: RingoRef
+/// turned 0 to 89 degrees at 140-145 degrees a second, evenly from the first frame, AI
+/// observer campaign `knockdown_look` 2026-10-19, docs/design/script-stubs.md section 3].
+pub const LOOK_TURN_RATE: f32 = 145.0 * std::f32::consts::PI / 180.0;
 
 /// Counts for the log's summary, to set the conversation rate against the original's
 /// (docs/spec-notes/npc-behaviour-compare.md §5).
@@ -445,12 +450,16 @@ impl Ai {
 
 impl Ai {
     /// An actor a script's Look turns whole (`rotateBody` 1, [`Game::body_looks`])
-    /// turns its body to the target at the walker's turn rate and keeps facing it, over
-    /// the package's own facing, until StopLook; the body then keeps its heading
-    /// [documented: GECK wiki Look, "rotate his entire body"; hypothesis: the rate, and
-    /// what happens after StopLook]. Not turned (its head still is, the engine's): an
-    /// actor out of the loaded area, dead, in furniture, on its way (its route has its
-    /// heading), or turning to the player for its Dialogue package.
+    /// turns its body to the target at [`LOOK_TURN_RATE`] and keeps it on the target to
+    /// within a degree, whatever the target does, until StopLook [observed: RingoRef,
+    /// campaign `knockdown_look` 2026-10-19; documented: GECK wiki Look, "rotate his
+    /// entire body"]. A walker walks on along its package's route with its body turned to
+    /// the target (Ringo walked 120 units to a chair facing the player); it does not sit
+    /// down while the Look lasts, and does once it ends (`Ai::set_using`). After StopLook
+    /// nothing turns the body back: a standing actor keeps its heading, a walker takes its
+    /// route's again [observed: same]. Not turned (its head still is, the engine's): an
+    /// actor out of the loaded area, dead, in furniture, or turning to the player for its
+    /// Dialogue package.
     fn face_looks(&mut self, game: &mut Game, dt: f32) {
         let wanted = game.body_looks();
         let over: Vec<FormId> = self.social.looks.keys().copied().filter(|a| !wanted.iter().any(|(w, t)| w == a && self.social.looks.get(a).is_some_and(|l| l.0 == *t))).collect();
@@ -462,6 +471,11 @@ impl Ai {
                 }
             }
         }
+        // A seat a Look kept the actor from is taken once the Look is over.
+        let free: Vec<(FormId, FormId)> = self.agents.iter().filter(|(r, _)| !wanted.iter().any(|(w, _)| w == *r)).filter_map(|(r, a)| a.held_seat.map(|f| (*r, f))).collect();
+        for (who, f) in free {
+            self.set_using(game, who, Some(f));
+        }
         for (who, to) in wanted {
             let Some(a) = self.agents.get(&who) else { continue };
             let why = if game.extra.get(&who).is_some_and(|e| e.dead) {
@@ -470,40 +484,51 @@ impl Ai {
                 Some("it is out of the loaded area")
             } else if a.using.is_some() {
                 Some("it is in furniture")
-            } else if a.activity == Activity::Travelling {
-                Some("it is on its way (its route turns it)")
             } else if a.talk == Some(Talking::Speaking) {
                 Some("it faces whom it talks to (its Dialogue package)")
             } else {
                 None
             };
-            let state = self.social.looks.get(&who).map(|l| l.1);
+            let prev = self.social.looks.get(&who).copied();
+            let state = prev.map(|l| l.1);
             if let Some(why) = why {
                 if state != Some(LookTurn::Held(why)) {
-                    self.social.looks.insert(who, (to, LookTurn::Held(why)));
+                    self.social.looks.insert(who, (to, LookTurn::Held(why), a.walker.heading));
                     self.log(game, who, AiEvent::LookHeld { target: to, why });
                 }
                 continue;
             }
             let Some(at) = goal::place_of_ref(game, to) else { continue };
-            let (feet, from) = (a.walker.feet, a.walker.heading);
+            let (feet, space, walking) = (a.walker.feet, a.walker.space, a.activity == Activity::Travelling);
             let d = [at.pos[0] - feet[0], at.pos[1] - feet[1]];
             if d[0].hypot(d[1]) < 1.0 {
                 continue;
             }
             let want = heading_of(d);
-            if state != Some(LookTurn::Turning) && heading_delta(from, want).abs() > LOOK_TURN_FROM {
-                self.social.looks.insert(who, (to, LookTurn::Turning));
-                self.log(game, who, AiEvent::LookTurn { target: to, from, to: want });
-            } else if state.is_none() || matches!(state, Some(LookTurn::Held(_))) {
-                self.social.looks.insert(who, (to, LookTurn::Facing));
+            // A walker's own heading is its route's: the body's is kept here.
+            let from = match prev {
+                Some((_, LookTurn::Turning | LookTurn::Facing, h)) if walking => h,
+                _ => a.walker.heading,
+            };
+            let mut turn = match state {
+                Some(LookTurn::Turning) => LookTurn::Turning,
+                _ if heading_delta(from, want).abs() > LOOK_TURN_FROM => {
+                    self.log(game, who, AiEvent::LookTurn { target: to, from, to: want });
+                    LookTurn::Turning
+                }
+                _ => LookTurn::Facing,
+            };
+            let body = turn_towards(from, want, LOOK_TURN_RATE * dt.max(0.0));
+            if turn == LookTurn::Turning && heading_delta(body, want).abs() < 0.02 {
+                turn = LookTurn::Facing;
+                self.log(game, who, AiEvent::LookFaced { target: to, heading: body });
             }
-            self.face(game, who, at, dt);
-            let heading = self.agents[&who].walker.heading;
-            if self.social.looks.get(&who).map(|l| l.1) == Some(LookTurn::Turning) && heading_delta(heading, want).abs() < 0.02 {
-                self.social.looks.insert(who, (to, LookTurn::Facing));
-                self.log(game, who, AiEvent::LookFaced { target: to, heading });
+            if !walking {
+                self.agents.get_mut(&who).expect("listed").walker.heading = body;
             }
+            let cell = goal::cell_of_place(game.world.placed, &Place { space, pos: feet });
+            let _ = game.set_actor_place(who, cell, feet, body);
+            self.social.looks.insert(who, (to, turn, body));
         }
     }
 }

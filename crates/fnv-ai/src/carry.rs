@@ -345,6 +345,9 @@ pub struct Agent {
     /// The furniture the actor uses, or is to use where it stands (a seat, a bed): the
     /// engine sits it down and gets it up; headless it is only known.
     pub using: Option<FormId>,
+    /// Furniture the actor would use but a script's Look turning its body keeps it from
+    /// until StopLook (`crate::social`, `Ai::face_looks`).
+    pub(crate) held_seat: Option<FormId>,
     /// The actor's sandbox, while it is in the area of a Sandbox or Wander package.
     pub sandbox: Option<Sandbox>,
     /// Waiting at a patrol point until this `Game::time`.
@@ -501,7 +504,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None });
         Ok(())
     }
 
@@ -1161,6 +1164,16 @@ impl Ai {
     /// The furniture `actor` uses changes (to none: it gets up).
     pub(crate) fn set_using(&mut self, game: &Game, actor: FormId, furniture: Option<FormId>) {
         let Some(a) = self.agents.get_mut(&actor) else { return };
+        // A script's Look turning the body keeps the actor standing by the seat, kept for
+        // it, until StopLook [observed: RingoRef sat down 0.15 s after StopLook, beside
+        // his chair since the Look began, campaign `knockdown_look` 2026-10-19].
+        a.held_seat = None;
+        if let Some(f) = furniture.filter(|_| a.using.is_none() && game.body_looks().iter().any(|(w, _)| *w == actor)) {
+            a.held_seat = Some(f);
+            self.taken.retain(|_, user| *user != actor);
+            self.taken.insert(f, actor);
+            return;
+        }
         if a.using == furniture {
             return;
         }

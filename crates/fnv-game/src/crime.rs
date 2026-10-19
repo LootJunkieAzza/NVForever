@@ -24,9 +24,10 @@
 //!   `fKarmaModStealing` (−5) unless the owner is Evil (an Evil faction, or an owning
 //!   actor of Evil alignment) or a faction that does not track crime [documented: GECK
 //!   wiki Category:Factions, Evil and Track Crime; Reference, "karma gain/loss is affected
-//!   by the karma level of the owning actor"; the lock: design]; killing an Evil or Very
-//!   Evil actor gives `fKarmaModKillingEvilActor` (100) [documented: the setting;
-//!   hypothesis: the amount]; killing a Good or Very Good one takes as much [design];
+//!   by the karma level of the owning actor"; the lock: design]; killing an Evil actor
+//!   gives no karma [observed: crime-karma.md §4.1], a Very Evil one
+//!   `fKarmaModKillingEvilActor` (100) [documented: the setting; hypothesis: that it is
+//!   for Very Evil]; killing a Good or Very Good one takes as much [design];
 //!   murdering a Neutral NPC takes a quarter of it [design]. NPCs only [design].
 //! - **Trespassing** in a cell (§3.3): in an owned cell without the Public place flag
 //!   that the player does not own [documented: GECK wiki SetCellPublicFlag, "Cells which
@@ -535,10 +536,15 @@ impl Game<'_> {
         let murder = npc && !alignment.evil() && (!aggressor || self.player.crime_enemies.contains(&victim));
         let name = self.data.name(victim);
         // NPCs only: creatures' karma includes plain animals (a dead radroach is Evil in
-        // FalloutNV.esm) [design].
+        // FalloutNV.esm) [design]. Killing an Evil NPC gives nothing [observed: the player
+        // shot dead an NCRCF convict (LvlNCRCFPowderGangerMelee, Karma -500, GetIsAlignment
+        // Evil 1) that attacked it: GetAV Karma stayed 0 for the 15 s after, AI observer
+        // campaign `player_kills` 2026-10-19, crime-karma.md §4.1]; a Very Evil one
+        // fKarmaModKillingEvilActor [hypothesis: not observed].
         let change = match alignment {
             _ if !npc => 0.0,
-            a if a.evil() => s.killing_evil,
+            Alignment::VeryEvil => s.killing_evil,
+            Alignment::Evil => 0.0,
             a if a.good() => -s.killing_evil,
             _ if murder => -s.killing_evil * NEUTRAL_MURDER_SHARE,
             _ => 0.0,

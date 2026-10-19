@@ -122,6 +122,55 @@ class ScriptRules(unittest.TestCase):
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(c, EDIDS)
 
+    def test_events_more_timed_and_shots(self):
+        jobs = ob.campaign_jobs(campaign(events=["fight", "OnPackageStart", "OnHit"], more=True,
+                                         timed=[{"after": 20, "do": ["{0}.PushActorAway {1} 50", "Bob", "Ann"]}],
+                                         shots={"label": "down", "when": ["{0}.GetKnockedState != 0", "Ann"], "gap": 5}),
+                                EDIDS)
+        job = jobs["obs_c1_01_s1"][1]
+        self.check(job)
+        o = [s["observe"] for s in job["steps"] if "observe" in s][0]
+        self.assertEqual([e["name"] for e in o["events"]], ["OnHit", "OnDeath", "OnStartCombat", "OnCombatEnd", "OnPackageStart"])
+        probe = o["events"][0]["probe"]
+        self.assertIn("Begin Function {rEa, rEb}", probe)
+        self.assertNotIn("0x", probe)
+        head = probe.split("Begin Function")[0]
+        self.assertIn("ref rEa", head, "declarations before the block")
+        self.assertEqual(probe.count("SetFunctionValue"), 4, "one per combination of empty arguments")
+        self.assertEqual(o["fields"]["events"], [e["name"] for e in o["events"]])
+        self.assertEqual(len(o["groups"][0]["probe"]), len(ob.PARTS) + 1, "the more part for nearby actors")
+        self.assertEqual(len(o["groups"][1]["probe"]), ob.TRACKED_PARTS, "tracked actors without it")
+        self.assertEqual(len(o["header"]), len(ob.HEADER) + len(ob.MORE_HEADER))
+        self.assertIn("IsPlayerActionActive 10", "".join(o["header"]))
+        timed = [h for h in o["hooks"] if h["name"] == "timed_0"][0]
+        self.assertEqual((timed["after"], timed["once"]), (20, True))
+        self.assertIn("rF1.PushActorAway rF2 50", timed["then"])
+        self.assertEqual((o["shots"]["label"], o["shots"]["gap"], o["shots"]["max"]), ("down", 5, 100))
+        self.assertIn("if rF1.GetKnockedState != 0", o["shots"]["when"])
+        for bad in (dict(events=["OnNothing"]), dict(timed=[{"after": 0, "do": ["x"]}]), dict(shots={"label": "a b", "when": ["1"]})):
+            with self.assertRaises((ob.InputError, cs.InputError), msg=bad):
+                ob.campaign_jobs(campaign(**bad), EDIDS)
+        self.assertEqual(ob.event_names("all"), ob.EVENTS)
+        custom = ob.campaign_jobs(campaign(more=True, extra=[["crit", "num", "IsInCriticalStage GooStart"]],
+                                           extra_header=[["pipboy", "num", "MenuMode 1002"]]), EDIDS)["obs_c1_01_s1"][1]
+        self.check(custom)
+        co = [s["observe"] for s in custom["steps"] if "observe" in s][0]
+        self.assertEqual(len(co["groups"][0]["probe"]), len(ob.PARTS) + 2)
+        self.assertIn("rA.IsInCriticalStage GooStart", co["groups"][0]["probe"][-1])
+        self.assertEqual(co["fields"]["header"][-1], ["pipboy", "num"])
+        self.assertIn("MenuMode 1002", co["header"][-1])
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(campaign(extra=[["x y", "num", "GetAV Health"]]), EDIDS)
+        cond = ob.campaign_jobs(campaign(timed=[{"after": 1, "when": ["{0}.GetCurrentPackage == {1}", "Bob", "Ann"],
+                                                 "script": {"lines": ["{0}.PlaceAtMe {1} 1 256 0", "{0}.AddItem {1} 1"],
+                                                            "names": ["Bob", "Ann"]}}]), EDIDS)["obs_c1_01_s1"][1]
+        hook = [h for h in [s["observe"] for s in cond["steps"] if "observe" in s][0]["hooks"] if h["name"] == "timed_0"][0]
+        self.assertIn("if rF1.GetCurrentPackage == rF2", hook["when"])
+        self.assertIn("rF1.PlaceAtMe rF2 1 256 0\nrF1.AddItem rF2 1", hook["then"])
+        self.assertTrue(hook["once"])
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(campaign(timed=[{"after": 1, "do": ["x"], "script": {"lines": ["y"]}}]), EDIDS)
+
     def test_plugin_parses_generated_jobs(self):
         # The plugin's own parser is checked against the committed diag job by its Rust
         # tests; here only the step keys the plugin knows are used.
@@ -195,6 +244,27 @@ class Timeline(unittest.TestCase):
         self.assertAlmostEqual(ob.game_time({"days": 13 + 0.01 / 24, "hour": 23.99}), 12 * 24 + 23.99, msg="across midnight")
         self.assertAlmostEqual(ob.game_time({"days": 2.5}), 60.0)
         self.assertIsNone(ob.game_time({"hour": 3}))
+
+    def test_game_events_and_shots_are_read(self):
+        lines = output([(10.25, [actor("00001001")], [])])
+        obs = json.loads(lines[3])
+        obs["fields"] = ob.fields_doc(["Bob"], events=["OnHit", "OnDeath"])
+        lines[3] = json.dumps(obs)
+        extra = [{"kind": "event", "step": 3, "n": 0, "name": "OnHit", "value": "00001001|00001002|10.25|6|80|0|0"},
+                 {"kind": "event", "step": 3, "n": 0, "name": "OnDeath", "value": "00001001|0|10.25|6.5|0|0|1"},
+                 {"kind": "event", "step": 3, "n": 0, "name": "OnHit", "error": "script call failed"},
+                 {"kind": "events_lost", "step": 3, "n": 0, "count": 2},
+                 {"kind": "screenshot", "step": 3, "n": 0, "label": "down", "file": "shots/x.png"}]
+        lines[5:5] = [json.dumps(x) for x in extra]
+        tl = ob.timeline([("o.jsonl", lines)], {0x1001: "BobRef"})
+        hit, death, bad = tl["game_events"]
+        self.assertEqual((hit["name"], hit["first"], hit["second"], hit["health"]), ("OnHit", "0x00001001", "0x00001002", 80.0))
+        self.assertEqual(hit["first_edid"], "BobRef")
+        self.assertAlmostEqual(death["t"], 10 * 24 + 6.5)
+        self.assertIsNone(death["second"], "an empty argument")
+        self.assertEqual(bad["error"], "script call failed")
+        self.assertEqual(tl["sessions"][0]["events_lost"], 2)
+        self.assertEqual(tl["sessions"][0]["shots"][0]["file"], "shots/x.png")
 
     def test_crashed_output_is_read_up_to_its_last_line(self):
         lines = output([(1.0, [actor("00001001")], []), (1.1, [actor("00001001")], [])], end=False)
