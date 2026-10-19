@@ -69,11 +69,12 @@ const BUTTONS_TOP: f32 = 670.0;
 /// 472, 256 square].
 const ICON_AT: Vec2 = Vec2::new(ITEMS_AT.x + 22.0, ITEMS_AT.y + 472.0);
 const ICON_SIZE: f32 = 256.0;
-/// The dark sheet behind the menu [documented: `RM_Background` solid black at brightness
-/// 128 and the background fill alpha, 1144 by 970 from (-40, -105); the strength is the
-/// other menus' over the world, `crate::interface::MENU_BACKING`: the original blurs the
-/// world behind it instead].
-const SHEET_ALPHA: f32 = crate::interface::MENU_BACKING;
+/// The sheet behind the menu [documented: `RM_Background` solid black at brightness 128
+/// and the background fill alpha, 1144 by 970 from (-40, -105)]: faint, as the original's,
+/// which shows only the frame's lines over the world [observed: the owner's screenshot,
+/// 2026-10-19; the 0.75 of the other menus drew a dark box far past the frame]. The
+/// original also blurs the world behind the menu (not built).
+const SHEET_ALPHA: f32 = crate::interface::BACKGROUND_FILL_ALPHA;
 /// A recipe that cannot be made yet: a little dimmer than one that can [observed: the
 /// owner's screenshots, where no recipe could be made, show the rows a shade under the
 /// titles; the brightness is a guess].

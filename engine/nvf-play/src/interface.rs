@@ -24,6 +24,13 @@ pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
 /// its sheet is lighter: about 0.33 to 0.4 measured on the screenshots].
 pub const MENU_BACKING: f32 = 0.75;
 
+/// The menu files' shared fill: `_background_fill_alpha`, 32 of 255 [documented:
+/// globals.xml]. The sheets the recipe and repair-services menus spread behind themselves
+/// (`RM_Background`, `RSM_Background`) take it; at this strength their edge cannot be seen
+/// over the world [observed: the owner's screenshots of both menus, 2026-10-19,
+/// docs/spec-notes/repair.md §3].
+pub const BACKGROUND_FILL_ALPHA: f32 = 32.0 / 255.0;
+
 /// The interface's colour at a brightness (0 to 255, as the interface files give it).
 pub fn amber(brightness: f32) -> Color {
     let b = brightness / 255.0;

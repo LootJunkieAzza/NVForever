@@ -83,9 +83,12 @@ const METER: Rect = Rect { min: Vec2::new(85.0, 17.0), max: Vec2::new(235.0, 37.
 /// The buttons' right end, top and spacing [documented: `RSM_ButtonRect`].
 const BUTTONS: Vec2 = Vec2::new(1010.0, 75.0);
 const BUTTON_STEP: f32 = 47.0;
-/// The dark sheet behind the menu [documented: `RSM_Background`, 1134 by 910 from (-55,
-/// -115); the strength is the other menus' over the world].
-const SHEET_ALPHA: f32 = crate::interface::MENU_BACKING;
+/// The sheet behind the menu [documented: `RSM_Background`, solid black at brightness 128
+/// and the background fill alpha, 1134 by 910 from (-55, -115)]: faint, as the original's,
+/// whose edge cannot be seen [observed: the owner's screenshot, 2026-10-19; the 0.75 of
+/// the other menus drew a dark box far past the frame]. The original also blurs the world
+/// behind the menu (not built).
+const SHEET_ALPHA: f32 = crate::interface::BACKGROUND_FILL_ALPHA;
 /// A row or a figure that cannot be had: dimmer than the rest [observed: the dim rows of
 /// the owner's screenshots stand at about two thirds of the bright ones].
 const DIM: f32 = 165.0;
