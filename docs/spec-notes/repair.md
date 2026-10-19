@@ -49,7 +49,19 @@ screen's height):
 
 - The menu is a rectangle 1020 x 680 centred on the screen; behind it a black picture
   (`interface\shared\background\solid_black.dds`) 55 left of it and 115 above, 1134 x
-  910, at brightness 128 and the shared background opacity.
+  910, at brightness 128 and the shared background opacity (`_background_fill_alpha`,
+  32 of 255 [documented: globals.xml]).
+- **The shade** (2026-10-19) [observed: the owner's screenshot at 1920 x 1080,
+  C:\fnv-private\references\crafting_repair\repair_services.jpg]: the world behind is
+  blurred; no edge of a dark sheet shows. The frame's lines stand at x 388 and 1533,
+  y 158 and 924 (1145 wide, 1020 in the file's units at 1080/960). Where the file's
+  sheet would end (x about 324, 62 pixels left of the frame) the brightness runs
+  smoothly (56, 48, 33 of 255 at x 300, 330, 360, y 950); just under the frame's bottom
+  line the middle stays as dark as inside (8 to 23) because the shape behind is dark,
+  so the darker look inside the frame is the scene, not a fill. NVForever draws the sheet
+  at the file's 32 of 255 black (it was the other menus' 0.75, a hard box well past the
+  frame). The blur is not built; whether the blur also darkens the world is not known
+  [hypothesis, owner-review].
 - The headline: a short side fading down at the left, a line 50 long, the title in font 6
   at x 70, 13 above the line ("Repair Services", the string `sRepairServicesTitle`), the
   line again from 20 after the title to a second short side; at the right, two labels

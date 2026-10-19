@@ -54,6 +54,13 @@ menu: scripts see it as open until the player leaves it.
   "<name> (<have>/<need>)".
 - Under the list: the first output's WG and VAL.
 - Accept A) and Exit X).
+- **The shade** (2026-10-19) [observed: the owner's screenshot at 1920 x 1080,
+  C:\fnv-private\references\crafting_repair\recipes.jpg; documented: `RM_Background`,
+  solid black at brightness 128 and `_background_fill_alpha`, 32 of 255 (globals.xml),
+  1144 x 970 from (-40, -105)]: only the frame's lines over the blurred world (outer
+  frame x 407 to 1559, y 113 to 924), no dark box. NVForever draws the sheet at the
+  file's 32 of 255 black, which leaves no visible edge (it was the other menus' 0.75, a
+  hard box well past the frame). The blur is not built.
 - Making a recipe once removes its ingredients from the player and adds its outputs.
   Each output gets an "added" line in the corner.
 - **The output's picture** (2026-10-19) [documented: `RM_ItemIcon`, 22 right of the list

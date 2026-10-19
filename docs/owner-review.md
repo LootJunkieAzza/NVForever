@@ -6431,6 +6431,16 @@ and the VNPCFollowers command lines. Guesses to check:
 - **Look**: the lit slice at 0.3 of the amber, the matte darkening the world to 0.8 inside
   the wheel (fitted by eye to your screenshots); the arrow from the hub towards the picked
   slice and the blur behind the wheel are not drawn.
+## Crafting and repair-services menus: no dark box (2026-10-19, branch claude/menu-sheet-fill)
+
+docs/spec-notes/crafting.md §3, repair.md §3. Both menus drew a 0.75 black sheet far past
+their frames; they now use the files' own fill, 32 of 255 black, over the same rectangle,
+which shows no edge, as in your screenshots.
+- **The blur is not built**: the world behind stays sharp. *Check:* whether the faint
+  sheet reads well enough over a bright world until the blur exists, or whether you want a
+  light full-screen dim meanwhile.
+- **Whether the original darkens the world as well as blurring it** could not be measured
+  (the screenshots show no unblurred world to compare). [hypothesis] it only blurs.
 ## Script function audit, second round (2026-10-19, branch claude/script-param-audit)
 
 docs/design/script-function-audit-2026-10-19.md. Each was fixed from the GECK wiki; these
