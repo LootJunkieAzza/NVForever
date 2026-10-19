@@ -42,6 +42,8 @@ untimed = [
 sep = ","
 [timed.NVF_PLAY_TEST_CONTROL]
 sep = ","
+[timed.NVF_PLAY_TEST_WHEEL]
+sep = ","
 [timed.NVF_PLAY_TEST_MOVE]
 sep = ","
 [timed.NVF_PLAY_TEST_LOOK]
@@ -2848,6 +2850,36 @@ expect = [
 forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
   { re = 'provocation: CraigBooneREF .*fights back', label = "Boone turns on the player" },
+]
+
+[[scenario]]
+name = "companion-wheel-boone"
+source = "outstanding.md §2: the companion wheel, passive/aggressive and sneaking with the player (docs/spec-notes/companion-wheel.md)"
+note = "Written 2026-10-19 by the companion-wheel session without running the game (another session held it): not run yet, for the merge session. VFreeformNovac.nSnipersRevengeStage is set to 30 at 2.5 s, as his hire chain's INFO 0x0015F30C does (his trade line, INFO 0x000B16BF, asks for it); Boone is hired by his recruit line at 3 s (as follower-boone), hurt by 60 at 10 s, the player given 3 Stimpaks; the wheel is opened on him at 14 s (Wait), closed at 20 s, opened at 30 s (Follow, Far, Aggressive, Melee, Use Stimpak, Back Up), closed at 47 s; the player sneaks at 50 s; the wheel opens at 56 s and Open Inventory closes it into his inventory. Boone's labels follow his hire state: following, passive, near, ranged"
+areas = ["followers", "menus"]
+paths = ["crates/fnv-game/src/companion_wheel.rs", "engine/nvf-play/src/companion_wheel.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/sneaking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:3", NVF_PLAY_TEST_SCRIPT = "2.5:var:VFreeformNovac:nSnipersRevengeStage:30,3:info:0x0015F30D:CraigBooneREF,10:damage:CraigBooneREF:health:60", NVF_PLAY_TEST_WHEEL = "14:open:CraigBooneREF,15:stay_follow,20:close,30:open,31:stay_follow,36:near_far,38:aggressive_passive,40:ranged_melee,42:stimpak,45:back_up,47:close,56:open,57:inventory", NVF_PLAY_TEST_CONTROL = "50:sneak" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 65
+expect = [
+  { re = 'companion wheel: open on CraigBooneREF', label = "activating the hired companion opens the wheel" },
+  { re = 'companion wheel: stay_follow \(Wait\): CraigBooneREF says \S+ \(FollowersWait\)', label = "Wait says his FollowersWait line" },
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerWAIT', label = "his Wait package after the wheel closes" },
+  { re = 'companion wheel: stay_follow \(Follow\): CraigBooneREF says \S+ \(FollowersLetsGo\)', label = "Follow says his Let's Go line" },
+  { re = 'companion wheel: near_far \(Far\): CraigBooneREF says \S+ \(FollowersTacticsDistanceLong\)', label = "Far says the long-distance line" },
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerLONG', label = "his long Follow package" },
+  { re = 'companion wheel: aggressive_passive \(Aggressive\): CraigBooneREF says \S+ \(FollowersTacticsCombatAggressive\)', label = "Aggressive" },
+  { re = 'companion wheel: ranged_melee \(Melee\): CraigBooneREF says \S+ \(FollowersTacticsCombatMelee\)', label = "Melee (his combat style)" },
+  { re = 'companion wheel: stimpak \(Use Stimpak\): \S+ used on CraigBooneREF', label = "a stimpak used on the hurt companion" },
+  { re = 'CraigBooneREF: backs up from the player', label = "Back Up walks him away" },
+  { re = 'sneaking: CraigBooneREF .*crouches and sneaks', label = "he sneaks with the player" },
+  { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Open Inventory opens his inventory" },
+  { re = 'companion wheel summary: opened 3 times', label = "the summary" },
+]
+forbid = [
+  { re = 'companion wheel: \S+ \(.*\): failed', label = "a command failed" },
+  { re = 'companion wheel: .*has no line of', label = "a command had no line to say" },
+  { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
 ]
 
 # ------------------------------------------------------------------ playtest list 4: dialogue and message boxes

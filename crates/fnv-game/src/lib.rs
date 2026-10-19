@@ -48,6 +48,7 @@ pub mod combat;
 pub mod combat_group;
 pub mod combat_lines;
 pub mod combat_style;
+pub mod companion_wheel;
 pub mod cond;
 pub mod crafting;
 pub mod crime;

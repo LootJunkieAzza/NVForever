@@ -246,7 +246,8 @@ impl Game<'_> {
     /// package has "Always Sneak" ("Actor always sneaks during this package"
     /// [documented: GECK wiki Packages, Flags tab]). In a combat state an actor stands up
     /// to fight unless its package goes on during combat ("Continue During Combat")
-    /// [hypothesis].
+    /// [hypothesis]. A teammate following the player sneaks while the player does
+    /// [documented: GECK wiki SetPlayerTeammate].
     pub fn sneaks(&self, actor: FormId) -> bool {
         if actor == FormId::PLAYER_REF || self.extra.get(&actor).is_some_and(|e| e.dead) {
             return false;
@@ -266,6 +267,12 @@ impl Game<'_> {
         }
         // A person hiding at its flee spot, in any combat state (§12.2.1).
         if self.at_flee_spot(actor) && self.world.placed.get(actor).is_some_and(|p| &p.sig == b"ACHR") {
+            return true;
+        }
+        // A teammate following the player imitates the player's sneak state
+        // (`crate::companion_wheel`); in a fight it stands up to fight [hypothesis, as for
+        // the packages' Always Sneak].
+        if !fighting && self.sneaks_with_player(actor) {
             return true;
         }
         self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))

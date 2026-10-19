@@ -157,6 +157,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != fnv_game::crafting::RECIPE_MENU
         && code != fnv_game::repair::REPAIR_SERVICES_MENU
         && code != crate::roulette::MENU_ROULETTE
+        && code != fnv_game::companion_wheel::MENU_CODE
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -762,6 +763,16 @@ impl Runtime {
         let mut done = None;
         for (i, actor) in wanted {
             let g = &mut self.game;
+            // A teammate: the companion wheel opens instead (`crate::companion_wheel`).
+            if g.has_companion_wheel(actor) {
+                if g.open_companion_wheel(actor) {
+                    self.skip.insert(i);
+                    info!("companion wheel: the player activates {}: the wheel opens", g.data.name(actor));
+                    done = Some(ByHand::Wheel);
+                    continue;
+                }
+                info!("companion wheel: {} is a teammate, but a menu or conversation is open: talked to instead", g.data.name(actor));
+            }
             match g.start_dialogue(actor, None) {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
@@ -827,7 +838,7 @@ impl Runtime {
     pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
         let from = self.game.events.len();
         let done = self.by_hand(r)?;
-        if !matches!(done, ByHand::Talk | ByHand::Greeted) {
+        if !matches!(done, ByHand::Talk | ByHand::Greeted | ByHand::Wheel) {
             self.skip.retain(|&i| i < from);
         }
         Ok(done)
@@ -1021,6 +1032,9 @@ pub enum ByHand {
     /// The player's perks offer choices on the target: their list opened
     /// (`fnv_game::activate_choices`, `crate::script_hud`).
     Choices,
+    /// The target is the player's teammate: the companion wheel opened
+    /// (`crate::companion_wheel`).
+    Wheel,
     /// The target is a destroyed door or activator: nothing happened
     /// (`fnv_game::Game::activation_refused`).
     Refused,
@@ -1692,12 +1706,13 @@ type EngineMenus<'w> = (
 /// moving, looking or activating, and the game clock stops (sim.rs) [observed: the pack
 /// boxes held the world clock, layer5-captures.md §10.1]. The engine's own menus manage
 /// the state themselves (menu.rs).
+#[allow(clippy::type_complexity)]
 fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe, roulette, repair): EngineMenus,
-    (blackjack, poker, caravan): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>),
+    (blackjack, poker, caravan, wheel): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
@@ -1705,8 +1720,9 @@ fn hold_player(
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
     // menu (`crate::crafting`), the repair services (`crate::repair`), the blackjack table (`crate::blackjack`), the roulette
-    // table (`crate::roulette`), the poker table (`crate::poker`) and the Caravan table (`crate::caravan`).
-    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some());
+    // table (`crate::roulette`), the poker table (`crate::poker`), the Caravan table (`crate::caravan`) and the
+    // companion wheel (`crate::companion_wheel`).
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || repair.is_some_and(|r| r.is_open()) || table {
         return;
     }

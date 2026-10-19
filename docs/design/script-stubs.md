@@ -283,6 +283,7 @@ outstanding.md §1 rows 6, 7, 9 and 18; the menu codes in `fnv_game::game::menus
   scripts' "from load" flags]. NVForever's VATS marking is 1056 beside GameMode
   [design]. The pause menu's 1013 is not reported (scripts do not run under it). The
   blackjack table moved from 1035 (the repair list's) to its own 1102.
+  The companion wheel reports 1075 (2026-10-19, [hypothesis], docs/spec-notes/companion-wheel.md §3).
 - **ShowTutorialMenu** (2 calls, CGTutorial's crippled-limb help from its
   `Begin MenuMode 1` block): the tutorial menu, MenuMode 1059 [observed: capture mh1_tutorial], over the menu
   that is open, which it gives back when closed (docs/spec-notes/tutorial-menu.md).

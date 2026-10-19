@@ -81,8 +81,10 @@ are not built.
   the player faction"]. Log: `provocation: CraigBooneREF … helps the player against …`.
 - **"Teammate state is cleared on death of the actor"** (`Game::kill`, after OnDeath
   [hypothesis: the order]).
-- **"The teammate will imitate the player's sneak state"**: not built (NPCs never sneak).
-- **Companion wheel, Pip-Boy map marker, essential in Hardcore**: not built (§5).
+- **The teammate imitates the player's sneak state**: built with the companion wheel
+  (docs/spec-notes/companion-wheel.md §6).
+- **Companion wheel**: built (docs/spec-notes/companion-wheel.md). **Pip-Boy map marker,
+  essential in Hardcore**: not built (§5).
 
 ## 4. Friendly fire
 
@@ -99,15 +101,12 @@ ignores a hit by the player: it ignores friendly hits`.
   container menu on the companion's inventory, for teammates, or anyone with the flag 1
   [documented: GECK wiki]. The menu waits for the conversation to end [design]. Taking from
   an actor's inventory is not theft (crime-karma.md).
-- **The companion wheel** is not built: its buttons set the companion's script variables
-  (Waiting, IsFollowingLong, CombatStyleRanged/Melee, FollowerSwitchAggressive …) [observed:
-  the variables the packages and scripts read], but which button sets what, and the menu
-  itself (its files, layout), are not documented in the sources at hand; it needs the
-  original's menu files and a reference picture, like the other menus. Until then the test
-  aid `NVF_PLAY_TEST_SCRIPT=<s>:var:CraigBooneREF:waiting:1` stands in for "Wait here".
-- Aggressive / passive (FollowerSwitchAggressive), ranged / melee (the OnLoad's
-  SetCombatStyle, a stub of the combat workstream), the companions' perks' effects,
-  Hardcore essential: not built.
+- **The companion wheel** (built 2026-10-19, docs/spec-notes/companion-wheel.md): its
+  commands say the companions' own VNPCFollowers command lines, whose scripts set Waiting,
+  IsFollowingLong, FollowerSwitchAggressive and the combat style; a passive companion
+  fights only who fights the player's side; Use Stimpak, Back Up, Talk, Open Inventory;
+  following companions sneak with the player. Test aid `NVF_PLAY_TEST_WHEEL`.
+- The companions' perks' effects, Hardcore essential: not built.
 
 ## 6. Checks
 

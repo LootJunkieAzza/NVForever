@@ -418,7 +418,8 @@ fn play(
     // Whatever holds a line's timer holds its sound: the sink is paused, the sound's end
     // moves on by the time held, and both go on together.
     for (speaker, p) in st.playing.iter_mut() {
-        let hold = line_held(p.conversation, paused.0, g.in_menu(), g.menu.is_some());
+        // The companion wheel's reply goes on behind it (`fnv_game::companion_wheel`).
+        let hold = if g.line_goes_on_in_menu(*speaker) { paused.0 } else { line_held(p.conversation, paused.0, g.in_menu(), g.menu.is_some()) };
         if hold {
             p.ends_at += time.delta_secs_f64();
             p.held_secs += time.delta_secs_f64();

@@ -59,6 +59,9 @@ pub struct ScriptHud {
     lines: HashMap<u32, Vec<String>>,
     /// The message box on screen (as last drawn).
     on_screen: Option<BoxMessage>,
+    /// The response the companion wheel's companion says now, drawn by the wheel
+    /// (`crate::companion_wheel`) instead of here.
+    pub wheel_line: Option<String>,
 }
 
 impl ScriptHud {
@@ -224,6 +227,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     let mut on_screen = Vec::new();
     // In a conversation with the player only the dialogue menu's own line is on screen.
     let talking = g.dialogue.is_some();
+    let mut wheel = None;
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
@@ -240,6 +244,12 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         if text.is_empty() {
             continue;
         }
+        // The companion wheel's companion: drawn in the wheel (`crate::companion_wheel`).
+        if g.line_goes_on_in_menu(s.speaker) {
+            subs.push(format!("{who}: {text} (in the companion wheel)"));
+            wheel = Some(text);
+            continue;
+        }
         subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
         if !talking {
             on_screen.push(text);
@@ -248,7 +258,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.
     subs.extend(crate::dialogue::subtitle(g, sim));
-    (panel, front, Subtitles { logged: subs.join("\n"), on_screen })
+    (panel, front, Subtitles { logged: subs.join("\n"), on_screen, wheel })
 }
 
 /// The subtitles: all of them for the log ("Speaker: text"), those drawn here for the
@@ -257,6 +267,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
 struct Subtitles {
     logged: String,
     on_screen: Vec<String>,
+    wheel: Option<String>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -278,6 +289,9 @@ fn draw(
         subs.on_screen.clear();
     }
     hud.on_screen = front;
+    if hud.wheel_line != subs.wheel {
+        hud.wheel_line = subs.wheel.clone();
+    }
     if panel.view != p {
         panel.set(p);
     }

@@ -746,6 +746,8 @@ pub mod menus {
     /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [observed: MenuMode 1059
     /// was 1, and 1001 and 1060 were 0, with it open, capture mh1_tutorial, save nvfstrip, 2026-10-18]. Not a message box.
     pub const TUTORIAL: u16 = 1059;
+    /// The companion wheel (`crate::companion_wheel`) [hypothesis: the code, see there].
+    pub const COMPANION_WHEEL: u16 = crate::companion_wheel::MENU_CODE;
 
     /// The codes of the Pip-Boy's menus, which `MenuMode 1` answers for: its three pages
     /// and the repair list it opens [hypothesis: the repair list counts as the Pip-Boy's;
@@ -933,6 +935,9 @@ pub struct Game<'a> {
     /// `crate::followers`), for the engine to show as a container menu. Not part of the
     /// saved state.
     pub teammate_containers: Vec<FormId>,
+    /// The companion wheel's state: the open wheel, back-up orders, who sneaks with the
+    /// player (`crate::companion_wheel`). Not saved.
+    pub companions: crate::companion_wheel::Companions,
     /// Teammates brought to the player when the player changed cells
     /// (`crate::followers`), for the engine's log; they are in [`Game::teleported`] too.
     /// Not part of the saved state.
@@ -1261,6 +1266,7 @@ impl<'a> Game<'a> {
             blackjack_requests: Vec::new(),
             caravan_requests: Vec::new(),
             teammate_containers: Vec::new(),
+            companions: Default::default(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
             rest: Default::default(),
@@ -1842,6 +1848,10 @@ impl<'a> Game<'a> {
             self.tick_knockouts(dt);
             self.update_speech(dt);
             self.apply_rotations(dt);
+            self.companions_sneak();
+        } else {
+            // The companion wheel's reply goes on behind it (`crate::companion_wheel`).
+            self.update_wheel_line(dt);
         }
         self.rotations.clear();
         // The conversation's own lines go on in real time while it pauses the game;
@@ -2262,12 +2272,18 @@ impl<'a> Game<'a> {
     /// runs on its speaker, then the speaker's SayToDone blocks (after Say too, D1). A speaker
     /// that was disabled, deleted or died stops its line [hypothesis].
     fn update_speech(&mut self, dt: f64) {
+        self.update_speech_of(dt, None);
+        self.combat_lines_tick();
+    }
+
+    /// [`Game::update_speech`] for the lines of one speaker only (`Some`), or of all.
+    pub(crate) fn update_speech_of(&mut self, dt: f64, only: Option<FormId>) {
         let mut ended = Vec::new();
         let mut cut = Vec::new();
         self.speech_responses();
         // A Death line goes on after its speaker died (`crate::combat_lines`).
         let death = self.data.by_edid("Death");
-        for s in &mut self.speech {
+        for s in self.speech.iter_mut().filter(|s| only.is_none_or(|o| o == s.speaker)) {
             s.remaining -= dt;
             let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
             if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
@@ -2316,7 +2332,6 @@ impl<'a> Game<'a> {
             // tutorials, docs/spec-notes/level-design.md §11.2 D1].
             self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
         }
-        self.combat_lines_tick();
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
