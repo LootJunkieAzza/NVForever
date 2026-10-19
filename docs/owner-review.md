@@ -6367,3 +6367,14 @@ docs/spec-notes/pipboy.md §5, repair.md §5.
 - **The "+10 XP" line and Locations Discovered** were already built (the HUD's XP meter shows any
   rise of experience; the misc statistics, 2026-10-18): this branch only adds the smoke
   scenario `pipboy-general-locations` and takes them off the outstanding list.
+
+## Crafting: the output's picture, its effects, several at once (2026-10-19, branch claude/crafting-icon-effects-batch)
+
+docs/spec-notes/crafting.md §3.
+- **How many?** Accept asks "How many?" (the barter prompt) only when the ingredients
+  allow more than one making; it starts at 1. *Check:* whether your game asks at all,
+  and whether it starts at 1 or at the most.
+- **The effects line** stands under the WG and VAL cards as "EFFECTS" and the text; the
+  menu file only says there is an effects card. *Check:* where your game shows it.
+- **Items Crafted** goes up by the number of makings (four Antivenom from two makings
+  count 2).

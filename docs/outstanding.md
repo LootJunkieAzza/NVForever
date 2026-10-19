@@ -53,8 +53,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 
 - **Gameplay**: VATS mode built for single-shot guns (bursts, melee and thrown weapons not yet); people's power attacks (creatures' are built); melee
   weapon use through UseWeapon; the companion wheel, aggressive/passive companions and
-  companions sneaking with the player; perks that change skill points; slot machines; crafting's icon, effects line and making several at
-  once; reputation disguises and resets.
+  companions sneaking with the player; perks that change skill points; slot machines; reputation disguises and resets.
 - **Animation**: actors' jumps, NPCs' sneaking weapon clips, PickIdle; armour ragdoll
   templates.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8

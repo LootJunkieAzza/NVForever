@@ -3321,6 +3321,22 @@ expect = [
 order = [["pause menu: open", "pause menu: quit?", "pause menu: quit cancelled", "settings: god-mode on", "pause menu: load page", "pause menu: resume", "wait menu: open"]]
 
 [[scenario]]
+name = "crafting-several"
+source = "outstanding.md §2 Gameplay (2026-10-19; docs/spec-notes/crafting.md §3): with ingredients for several, Accept asks How many?, the amount goes up by one and two Antivenom batches are made at once; the output's effects line is shown; frame recipe_menu.png in the working folder"
+areas = ["crafting", "menus"]
+paths = ["engine/nvf-play/src/crafting.rs", "engine/nvf-play/src/menu/look.rs"]
+env = { NVFOREVER_HOME = "crafting-several-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.3:player.additem 0002210F 10;12.6:player.additem 0013B2B8 10;13:player.ShowRecipeMenu CampfireRecipes;13.5:close", NVF_PLAY_TEST_RECIPE = "16:accept,17:more,18:shot,19:accept,21:exit" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 24
+expect = [
+  { re = 'recipe menu: Antivenom \(2\) effects: \S', label = "the output's effects line" },
+  { re = 'recipe menu: how many\? 1 of ([2-9]|\d\d+) \("Antivenom"\)', label = "Accept asks how many" },
+  { re = 'recipe menu: made 2 x "Antivenom" \(4 x Antivenom\)', label = "two batches made at once" },
+  "recipe menu: closed",
+]
+order = [["recipe menu: how many?", "recipe menu: made 2 x"]]
+
+[[scenario]]
 name = "crafting"
 source = "owner todo 5 item 72: the recipe menu (engine/nvf-play/src/crafting.rs, crates/fnv-game/src/crafting.rs) opened by ShowRecipeMenu, the campfire's recipes from the records, Antivenom refused without its ingredients then made with them; frame recipe_menu.png in the working folder"
 areas = ["crafting", "menus"]
