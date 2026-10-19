@@ -229,7 +229,8 @@ fn an_npc_starts_at_its_record_and_the_formulas() {
     assert!(close(get(&mut g, GUARD_REF, av::UNARMED_DAMAGE), 0.5 + 0.05 * 23.0));
     assert_eq!(get(&mut g, GUARD_REF, av::POISON_RESISTANCE), 15.0);
     assert_eq!(get(&mut g, GUARD_REF, av::RAD_RESISTANCE), 6.0);
-    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 50.0 + 4.0 * 5.0 + 4.0 * 5.0);
+    // A hand-set NPC: Base Health + (Endurance − 1) × 5, no level part (combat-rules.md §9).
+    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 50.0 + 3.0 * 5.0);
     // Limb conditions start whole, the rest at nothing.
     for c in av::LIMB_CONDITIONS {
         assert_eq!(get(&mut g, GUARD_REF, c), 100.0);
@@ -363,14 +364,14 @@ fn reset_health_heals_and_cures_limbs_and_karma_keeps_its_modifier() {
     let mut g = game(&f);
     call(&mut g, DAMAGE, GUARD_REF, &[code(av::HEALTH), n(30.0)]);
     call(&mut g, DAMAGE, GUARD_REF, &[code(27), n(100.0)]);
-    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 60.0);
-    assert!(close(call(&mut g, GET_HEALTH_PERCENTAGE, GUARD_REF, &[]), 60.0 / 90.0));
+    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 35.0);
+    assert!(close(call(&mut g, GET_HEALTH_PERCENTAGE, GUARD_REF, &[]), 35.0 / 65.0));
     call(&mut g, RESET_HEALTH, GUARD_REF, &[]);
-    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 90.0);
+    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 65.0);
     assert_eq!(get(&mut g, GUARD_REF, 27), 100.0);
     // Health's maximum follows Endurance.
     call(&mut g, MOD, GUARD_REF, &[code(av::ENDURANCE), n(2.0)]);
-    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 100.0);
+    assert_eq!(get(&mut g, GUARD_REF, av::HEALTH), 75.0);
 
     call(&mut g, MOD, PLAYER, &[code(av::KARMA), n(10.0)]);
     call(&mut g, REWARD_KARMA, PLAYER, &[n(25.0)]);

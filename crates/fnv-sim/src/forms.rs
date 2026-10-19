@@ -187,9 +187,9 @@ pub struct LeveledEntry {
     pub level: u16,
     pub item: FormId,
     pub count: u16,
-    /// The condition of the items it gives, a fraction of full health: set by
-    /// AddItemToLeveledList's health (`World::add_to_leveled_list`); `None` for the
-    /// authored entries (whole items).
+    /// The condition of the items it gives, a fraction of full health: the entry's
+    /// COED, or AddItemToLeveledList's health (`World::add_to_leveled_list`); `None`
+    /// for entries without one (whole items).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<f32>,
 }
@@ -699,7 +699,26 @@ fn leveled(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Is
             Err(l) => issues.note("FormID outside master list", || format!("{id} LVLG 0x{l:08X}")),
         }
     }
-    for v in extract::all(d, b"LVLO") {
+    // A COED right after an LVLO gives that entry's items their condition (the CondNV…
+    // lists: CondNVServiceRiflelLoot rolls a Service Rifle at 30 to 60 %) [documented:
+    // xEdit's leveled entry is LVLO plus an optional COED; GECK wiki Container, "Health
+    // %: the condition of the object"; observed: the original's NCR troopers drew those
+    // rifles at 30 to 50 %, npc-behaviour-compare.md §9]. Its owner is not kept.
+    let mut last_kept = false;
+    for x in d {
+        let v = match (&x.sig, x.value.as_ref()) {
+            (b"COED", Some(c)) if last_kept => {
+                let e = out.entries.last_mut().expect("last_kept");
+                e.condition = num(c, "item_condition").map(|c| c as f32);
+                continue;
+            }
+            (b"LVLO", Some(v)) => v,
+            _ => {
+                last_kept = false;
+                continue;
+            }
+        };
+        last_kept = false;
         let (Some(level), Some(local)) = (int(v, "level"), v.get("reference").and_then(local_fid)) else {
             issues.note("LVLO without level/reference", || format!("{id}"));
             continue;
@@ -715,7 +734,10 @@ fn leveled(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Is
             }
         };
         match global(lo, pi, local) {
-            Ok(Some(item)) => out.entries.push(LeveledEntry { level: level as u16, item, count, condition: None }),
+            Ok(Some(item)) => {
+                out.entries.push(LeveledEntry { level: level as u16, item, count, condition: None });
+                last_kept = true;
+            }
             Ok(None) => issues.note("LVLO with null reference", || format!("{id}")),
             Err(l) => issues.note("FormID outside master list", || format!("{id} LVLO 0x{l:08X}")),
         }

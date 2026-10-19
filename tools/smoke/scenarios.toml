@@ -454,13 +454,17 @@ name = "actor-values"
 kind = "tool"
 source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"
 areas = ["actor-values"]
-paths = ["crates/fnv-game/src/actor_values.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnvtool/src/actor_values.rs"]
-commands = [["actor", "values", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "player", "--actor", "SunnyRef"]]
-# §7: Sunny Smiles Guns 35, Health 100; the player every skill 15, Action Points 80.
+paths = ["crates/fnv-game/src/actor_values.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnvtool/src/actor_values.rs", "crates/fnv-game/src/combat.rs"]
+commands = [["actor", "values", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "player", "--actor", "SunnyRef", "--actor", "FiendCookCookRef"]]
+# §7: Sunny Smiles Guns 35, Health 90 (the original's, AI observer goodsprings captures; 100
+# before the NPC Health form of combat-rules.md §9 was corrected, 2026-10-19); Cook-Cook
+# Health 215 (the original's GetBaseAV Health, npc-behaviour-compare.md §9); the player
+# every skill 15, Action Points 80.
 # §3.1: the fit table (NPCs, the attribute that fits, the share it fits; "100 %" read as ≥ 99.95 %).
 expect = [
   { json = "actors.?actor=SunnyRef.values.Guns", equals = 35.0 },
-  { json = "actors.?actor=SunnyRef.values.Health", equals = 100.0 },
+  { json = "actors.?actor=SunnyRef.values.Health", equals = 90.0 },
+  { json = "actors.?actor=FiendCookCookRef.values.Health", equals = 215.0 },
   { json = "actors.?actor=player.values.Barter", equals = 15.0 },
   { json = "actors.?actor=player.values.Big Guns", equals = 15.0 },
   { json = "actors.?actor=player.values.Energy Weapons", equals = 15.0 },

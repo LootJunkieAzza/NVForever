@@ -188,9 +188,20 @@ pub fn skill_bonus(r: &Rules, skill: f32) -> f32 {
     r.damage_skill_base + r.damage_skill_mult * skill.clamp(0.0, 100.0) / 100.0
 }
 
-/// Condition multiplier [design, CombatTuning::condition_min_mult].
-pub fn condition_mult(t: &CombatTuning, condition: f32) -> f32 {
-    t.condition_min_mult + (1.0 - t.condition_min_mult) * condition.clamp(0.0, 1.0)
+/// Weapon condition at and above which a weapon deals all its damage
+/// [documented: GECK wiki SetConditionDamagePenalty (JIP), "the 75% threshold"].
+pub const CONDITION_DAMAGE_THRESHOLD: f32 = 0.75;
+/// How fast damage falls below [`CONDITION_DAMAGE_THRESHOLD`]: the engine's hard-coded
+/// multiplier [documented: GECK wiki SetConditionDamagePenalty, "0.67, by default"].
+pub const CONDITION_DAMAGE_PENALTY: f32 = 0.67;
+
+/// The damage multiplier of a weapon at `condition` (0..=1): 1 at or above 75 %, below it
+/// `1 − (0.75 − condition) × 0.67`, 0.4975 at zero [documented: GECK wiki
+/// SetConditionDamagePenalty, the formula the JIP function overrides; observed: troopers'
+/// Service Rifles at 30, 45 and 50 % dealt 0.698, 0.799 and 0.832 of the full-condition
+/// hit, AI observer campaign fight_stats_round 2026-10-19, npc-behaviour-compare.md §9].
+pub fn condition_mult(condition: f32) -> f32 {
+    1.0 - (CONDITION_DAMAGE_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * CONDITION_DAMAGE_PENALTY
 }
 
 /// The MeleeDamage actor value's base: Strength × mult + offset [documented].
@@ -228,7 +239,7 @@ pub fn hit(
     let kind = AttackKind::of(w);
     let n = h.projectiles.max(1) as f32;
     let weapon_base = w.base_damage as f32 * r.damage_weapon_mult;
-    let cond = condition_mult(t, h.condition);
+    let cond = condition_mult(h.condition);
     // Crippled-arm penalty for melee and unarmed [documented].
     let arm = weapon_base * (r.damage_arm_condition_base - 1.0 + r.damage_arm_condition_mult * a.arm_condition.clamp(0.0, 1.0)) / 2.0;
     let base = match kind {

@@ -10,14 +10,20 @@
 //!   other values), from permanent Endurance:
 //!   - player: `fAVDHealthEnduranceOffset` + Endurance × `fAVDHealthEnduranceMult` +
 //!     (level − 1) × `fAVDHealthLevelMult` + its NPC_ Base Health;
-//!   - NPC: Base Health + Endurance × `fAVDNPCHealthEnduranceMult` + level ×
-//!     `fAVDNPCHealthLevelMult`;
+//!   - NPC: Base Health + (Endurance − 1) × `fAVDNPCHealthEnduranceMult`, plus (level
+//!     − 1) × `fAVDNPCHealthLevelMult` when its stats are auto-calculated ("Auto-calc
+//!     stats"); a hand-set NPC's level adds nothing;
 //!   - creature: its DATA Health.
 //!
 //!   [documented: the settings' names and values are in the masters, combat-data.md §3,
 //!   and the Stats Tab pages say NPC health derives from Endurance and level plus Base
-//!   Health; hypothesis: the exact forms above, to be settled by capture.] A template
-//!   with the "Stats" flag supplies the stats when it is an NPC_ or CREA.
+//!   Health; observed: the NPC form fits all fifteen NPCs the AI observer saw at full
+//!   Health in the original (auto-calculated: the NCR troopers 50, Fiends 65 to 105,
+//!   Joe Cobb, Sunny Smiles, Ringo, settlers, the Strip crowd, Violet 170; hand-set:
+//!   Cook-Cook 215 at level 14, Doc Mitchell, Trudy, the Geckoman, Ramos),
+//!   npc-behaviour-compare.md §9; hypothesis: the player's form, to be settled by
+//!   capture.] A template with the "Stats" flag supplies the stats when it is an NPC_ or
+//!   CREA.
 //! - **A hit** lowers Health's damage part (as `DamageActorValue`), remembers the hit
 //!   (location, critical, attacker, weapon) and runs the target's OnHit (the attacker as
 //!   subject) and OnHitWith (the weapon) blocks [documented: block names, catalogue;
@@ -199,7 +205,8 @@ impl Game<'_> {
         if &d.sig == b"CREA" {
             return (d.base_health as f64).max(1.0);
         }
-        (d.base_health as f64 + end * setting(self, "fAVDNPCHealthEnduranceMult", 5.0) + level * setting(self, "fAVDNPCHealthLevelMult", 5.0)).max(1.0)
+        let by_level = if d.autocalc { (level - 1.0).max(0.0) * setting(self, "fAVDNPCHealthLevelMult", 5.0) } else { 0.0 };
+        (d.base_health as f64 + (end - 1.0).max(0.0) * setting(self, "fAVDNPCHealthEnduranceMult", 5.0) + by_level).max(1.0)
     }
 
     pub fn is_dead(&self, r: FormId) -> bool {

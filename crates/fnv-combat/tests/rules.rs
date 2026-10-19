@@ -118,10 +118,18 @@ fn ammo_effects_child_miss_armour_flag() {
     assert!(zero.miss && !zero.critical && zero.dealt == 0.0);
     let piercing = WeaponStats { flags: vec!["Ignores Normal Weapon Resistance".into()], ..gun(20) };
     assert!(close(hit(&piercing, 1, &skilled(), &Target { dt: 15.0, ..Target::default() }, &[], HitPart::default(), 0.99).dealt, 20.0));
-    // Condition 0 halves the damage [design].
-    let h = HitInput { weapon: &w, projectiles: 1, condition: 0.0, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
-    let d = damage::hit(&Rules::defaults(), &CombatTuning::default(), &h, &skilled(), &Target::default(), &NoPerks, &NoPerks, 0.99);
-    assert!(close(d.dealt, 10.0));
+    // Full damage at and above 75 % condition, then 1 − (0.75 − condition) × 0.67: 0.4975
+    // at zero (GECK wiki SetConditionDamagePenalty).
+    let at = |condition: f32| {
+        let h = HitInput { weapon: &w, projectiles: 1, condition, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
+        damage::hit(&Rules::defaults(), &CombatTuning::default(), &h, &skilled(), &Target::default(), &NoPerks, &NoPerks, 0.99).dealt
+    };
+    assert!(close(at(1.0), 20.0) && close(at(0.75), 20.0) && close(at(0.0), 9.95), "{} {}", at(0.75), at(0.0));
+    // The troopers' Service Rifles of the original (npc-behaviour-compare.md §9): at 50, 45
+    // and 30 % they dealt 0.832, 0.799 and 0.698 of the full-condition hit.
+    for (c, seen) in [(0.5, 0.832), (0.45, 0.799), (0.3, 0.698)] {
+        assert!((damage::condition_mult(c) - seen).abs() < 0.002, "{c}: {}", damage::condition_mult(c));
+    }
 }
 
 #[test]

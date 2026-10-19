@@ -6308,3 +6308,30 @@ against the original. Decisions and what is still mine:
   script or condition asks it, so it is not built.
 - **Screenshots in dialogue** came out black at 3,840 × 2,160 full screen; in the 1,280 ×
   720 window you set they work. Keep the window for captures with pictures.
+
+## NPC hit damage (2026-10-19, branch claude/npc-hit-damage)
+
+Hits between NPCs did two to fifteen times the original's damage. A new observer
+campaign (`fight_stats_round`) read every fighter's level, Health, Guns, DT and item
+health in the original's NCR–Fiend fight and settled it (npc-behaviour-compare.md §9):
+
+- **NPC weapons and armour start worn** in the original: the masters' CondNV… leveled
+  lists give each entry a condition (a trooper's Service Rifle 30–60 %). We read the lists
+  but dropped that condition, so our NPCs fought with new guns. Fixed.
+- **Condition's effect is now the engine's documented hard-coded rule**: full damage
+  from 75 % condition, `1 − (0.75 − c) × 0.67` below (the troopers' rifles matched to
+  three places); armour full from 50 %, `1 − (0.5 − c)` below. Before it was a guessed
+  line. This also changes the player's worn weapons and armour: a weapon above 75 % now
+  does full damage, one at 50 % does 83 % (was 75 %); armour above half condition now
+  gives all its DT. The repair menus show the same numbers.
+- **NPC armour no longer wears from hits** (the original's stayed at the same health
+  through 60 hits). The player's still does. *Check:* if you remember NPC armour coming
+  off a fight damaged in the original, say so.
+- **NPC Health** is Base Health + (Endurance − 1) × 5, plus (level − 1) × 5 only for
+  auto-calculated NPCs; fifteen NPCs fit it. Most NPCs have 10 less Health than before
+  (Sunny 90, troopers 50), hand-set high-level ones much less (Cook-Cook 215, was 290).
+  The `actor-values` smoke check now expects Sunny's 90.
+- Result: Cook-Cook takes a median 1.9 a hit (original 2.0) and wins, as in the original.
+  The last trooper still dies about 40 s sooner than the original's.
+- Not done: NPC weapons wear from firing in the original (2.19 health a shot for the
+  Incinerator) but not in ours.

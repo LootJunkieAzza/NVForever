@@ -210,7 +210,8 @@ fnvtool actor values --schema schemas/fnv <Data> FalloutNV.esm \
   where it has none).
 
 Checked with it on 2026-10-10 (FalloutNV.esm): Sunny Smiles has Guns, Melee Weapons and
-Sneak 35 and Health 100; Doc Mitchell has Medicine and Science 33 and Energy Weapons 50
+Sneak 35 and Health 100 (90 since the NPC Health form was corrected to the original's,
+2026-10-19, combat-rules.md §9); Doc Mitchell has Medicine and Science 33 and Energy Weapons 50
 (a stored 16 and an offset of 34); the player has 15 in every skill, 80 Action Points
 and 200 Carry Weight.
 

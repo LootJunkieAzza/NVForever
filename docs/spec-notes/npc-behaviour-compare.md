@@ -333,12 +333,62 @@ OnStartCombat events; `tools/capture/fight_stats.py` counts shots, hits and dama
 
   The hit rates are alike; **the damage a hit is two to fifteen times the original's** in
   ours, most of all a Fiend's gun on the troopers, and the actors' maximum Health differs
-  too (Cook-Cook 290 against 215; the leveled actors' levels follow the player's, which
-  differs between the two saves). Not fixed here: the damage threshold and resistance or
-  the NPC damage formula between NPCs need their own look (owner-review).
+  too (Cook-Cook 290 against 215). Settled below ("Why the damage differed").
 - The player moved 3,500 units off the fight at 52 s (the second run): the NPCs went on
   fighting with **IsInCombat 1** while 2,500–5,500 units from the player, until the last
   trooper died; then the rest left combat.
+
+**Why the damage differed** (campaign `fight_stats_round`,
+tools/capture/observe/fight_stats_round.campaign.json: the same fight every 10 game loops
+with each fighter's GetLevel, GetBaseAV Health, Endurance, Agility, Guns, DamageThreshold
+and DamageResist and GetEquippedCurrentHealth of its weapon, body armour and headgear;
+output `obs_fight_stats_round_01_ncr_fiends_stats.1792409539.jsonl`, private) [observed
+unless tagged]:
+
+- The fighters' levels and skills are the record's in both games: troopers level 5,
+  Guns 46; Fiend3 level 9, Guns 63; Cook-Cook level 14, Guns 58. The player's level (1)
+  plays no part. The skill bonus is as documented.
+- **NPC weapons are worn in the original, ours were new.** The troopers' Service Rifles
+  had 120–200 of 400 health (30–50 %), the Fiend's Hunting Rifle 135 of 300, Cook-Cook's
+  Incinerator 110 of 200. They come from the masters: the troopers' inventory names
+  CondNVServiceRiflelLoot, a leveled list whose entries carry a COED item condition of
+  0.30 to 0.60 (CondNVTrooperArmor 0.35 and 0.50, CondKnifeLoot 0.45 to 0.75). Our
+  leveled-list reader dropped the COED that follows an LVLO, so every rolled item was
+  whole. Fixed (fnv-sim `forms::leveled`).
+- **Condition's damage penalty.** Raw trooper hits (the damage on Cook-Cook, DT 13,
+  divided by the 20 % floor; on Fiends, DT 5, plus 5) were 10.94, 10.50 and 9.18 with
+  rifles at 50, 45 and 30 %: 0.832, 0.799 and 0.698 of 18 × the skill bonus 0.73. That is
+  `1 − (0.75 − condition) × 0.67` to three places [documented: GECK wiki
+  SetConditionDamagePenalty, the hard-coded rule the JIP function overrides; full damage
+  from 75 %]. Ours was a [design] line from 50 % at zero. Armour has the matching rule
+  below 50 % [documented: SetArmorConditionPenalty]. Both now in fnv-combat.
+- **NPC armour does not wear.** Cook-Cook's armour stayed at health 85 and his DT at 13
+  through 60 hits; the troopers' and Fiends' armour likewise. Ours took 0.35 of each hit
+  from it: his DT fell from 12 to 7 in the fight and the troopers' rifles did 6.5 instead
+  of 2.6. Now only the player's armour wears. NPC weapons do wear from firing in the
+  original (the Incinerator lost 2.19 a shot); ours do not yet (follow-up).
+- **The 20 % floor holds**: Cook-Cook's hits were exactly 0.2 × the raw hit (2.1875 of
+  10.9375); a critical added the weapon's full Crit Damage (18) before DT.
+- **NPC Health**: the original's GetBaseAV Health is Base Health + (Endurance − 1) × 5,
+  plus (level − 1) × 5 for an NPC with "Auto-calc stats"; a hand-set NPC's level adds
+  nothing. Fifteen NPCs at full Health fit it (troopers 50, Fiends 65–105, Cook-Cook 215,
+  Sunny 90, Doc Mitchell 65, Ringo 120, Trudy 75, Violet 170, …). Ours added Endurance ×
+  5 + level × 5 for every NPC: 10 more for most, 75 more for Cook-Cook. Fixed (fnv-game
+  `max_health`, combat-rules.md §9).
+
+**After the fix** (smoke `battle-ncr-fiends-four`, 2026-10-19, one run):
+
+| Target | Original: hits, median damage a hit | Ours before | Ours after |
+|---|---|---|---|
+| Cook-Cook | 60, 2.0 (200 of 215) | 46, 6.2 (290 of 290, dead) | 48, 1.9 (152 of 215, lives) |
+| Fiends | 7–17 each, 4.2–11.1 | 3–10 each, 8.3–8.8 | 2–13 each, 5.1–5.2 (one 60.7: two hits from a Fiend's own Hunting Rifle) |
+| NCR troopers | 5–13 each, 0.1–1.9 | 2–12 each, 1.7–30.4 | 9–23 each, 1.7–2.3 (one 8.2: the Hunting Rifle) |
+
+Cook-Cook now wins, as in the original: the troopers died 34, 48, 50 and 57 s after the
+first fighter engaged (the original's at 29.7, 51.5, 52.3 and 99.1 s), three of them by
+his flamer. What is left: the last trooper dies some 40 s sooner than the original's, and
+our Fiends live longer (17–52 s against the original's three dead within 8 s); one run
+each, so the spread is not known.
 
 **Melee against the player, with and without god mode** (inside GSGasStation; a MoveTo to
 the outdoor spot failed, so both are in the same room; 30 s each; "no god mode" is Damage

@@ -265,14 +265,8 @@ impl Rules {
 pub struct CombatTuning {
     /// Armour never takes more than this share of a hit away (DT floor, §5.3).
     pub dt_floor: f32,
-    /// Damage multiplier of a weapon at zero condition; full condition is 1, linear
-    /// between (the original's rule is hard-coded and undocumented).
-    pub condition_min_mult: f32,
     /// A headshot on a target that is unaware of the attacker is always a critical.
     pub headshot_unaware_crit: bool,
-    /// Share of its DT and DR that armour at zero condition still gives; full condition
-    /// gives all of it, linear between ([`crate::condition::armor_mult`]).
-    pub armor_condition_min_mult: f32,
     /// Spread added per shot, as a share of the weapon's Min Spread (in spread units).
     pub bloom_per_shot: f32,
     /// Bloom (spread units) recovered per second.
@@ -345,9 +339,7 @@ impl Default for CombatTuning {
     fn default() -> Self {
         CombatTuning {
             dt_floor: 0.2,
-            condition_min_mult: 0.5,
             headshot_unaware_crit: true,
-            armor_condition_min_mult: 0.5,
             bloom_per_shot: 0.03,
             bloom_recovery: 1.0,
             bloom_max: 0.25,
