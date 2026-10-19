@@ -185,8 +185,6 @@ pub enum Outcome {
     Stimpak { item: FormId, line: Option<FormId> },
     /// The companion steps back.
     BackUp,
-    /// The companion had no trade line to say: its inventory is asked for all the same.
-    Inventory,
     /// The command cannot be used now (its button is not enabled).
     Refused,
 }
@@ -292,13 +290,11 @@ impl Game<'_> {
             let mut context = None;
             let enabled = match c {
                 Command::Talk | Command::BackUp => true,
-                // Always: without a trade line the inventory opens all the same
-                // ([`Game::wheel_command`]).
                 Command::OpenInventory => {
                     if let Ok(e) = self.world.encumbrance(companion) {
                         context = Some(format!("WG {:.0}/{:.0}", e.weight.floor(), e.capacity));
                     }
-                    true
+                    c.topic(alt).is_some_and(|t| self.can_say_topic(companion, t))
                 }
                 Command::UseStimpak => {
                     let carried = self.wheel_stimpak();
@@ -316,11 +312,7 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
 
     /// The player picks a command on the open wheel. Talk closes the wheel and starts the
     /// conversation (the greeting); Open Inventory's line asks for the container menu,
-    /// which the engine opens once the wheel is closed (`Game::teammate_containers`). A
-    /// companion with no trade line it can say now has its inventory opened all the same
-    /// [hypothesis: the wheel's button does not hang on the dialogue; observed: Boone's only
-    /// FollowersTrade line, INFO 0x000B16BF, also asks VFreeformNovac's variable 1 to be 30,
-    /// his own quest's state, which a companion hired otherwise does not have].
+    /// which the engine opens once the wheel is closed (`Game::teammate_containers`).
     pub fn wheel_command(&mut self, command: Command) -> Result<Outcome, String> {
         let c = self.wheel_companion().ok_or("the companion wheel is not open")?;
         let state = self.wheel_buttons(c).into_iter().find(|s| s.command == command).ok_or("no such button")?;
@@ -351,14 +343,9 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
             }
             _ => {
                 let name = command.topic(state.alt).expect("a topic");
-                let topic = self.data.by_edid(name);
-                let said = topic.and_then(|t| self.say(c, player, t, true).map(|info| (t, info)));
-                Ok(match said {
-                    Some((topic, info)) => Outcome::Said { topic, info },
-                    None if command == Command::OpenInventory => {
-                        self.teammate_containers.push(c);
-                        Outcome::Inventory
-                    }
+                let topic = self.data.by_edid(name).ok_or_else(|| format!("the load order has no topic {name}"))?;
+                Ok(match self.say(c, player, topic, true) {
+                    Some(info) => Outcome::Said { topic, info },
                     None => Outcome::NoLine { topic: name },
                 })
             }
