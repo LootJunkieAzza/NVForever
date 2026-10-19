@@ -27,7 +27,7 @@
 //!   runs (`fnv_game::companion_wheel::MENU_CODE`).
 //!
 //! Test aid `NVF_PLAY_TEST_WHEEL=<seconds>:<step>[,…]`: `open:<ref>` (the player activates
-//! the reference, as with E), a command by name (`stay_follow`, `aggressive_passive`,
+//! the reference, as with E), `open` (again on the companion last opened on), a command by name (`stay_follow`, `aggressive_passive`,
 //! `near_far`, `ranged_melee`, `stimpak`, `inventory`, `back_up`, `talk`), `close`. Log
 //! lines: `companion wheel: open on <companion> (<buttons>)`, `companion wheel: <command>
 //! (<label>): <outcome>`, `companion wheel: closed (<how>)`; at exit, when it was used,
@@ -205,6 +205,8 @@ struct WheelStats {
 #[derive(Resource, Default)]
 struct WheelAid {
     steps: Vec<(f32, AidStep)>,
+    /// The companion the aid last opened the wheel on (a bare `open` opens it again).
+    last: Option<FormId>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -219,9 +221,11 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
         .map(|(t, what)| {
             let step = match what.split_once(':') {
                 Some(("open", r)) if !r.is_empty() => AidStep::Open(r.to_string()),
+                // Again on the companion it was last opened on.
+                None if what == "open" => AidStep::Open(String::new()),
                 None if what == "close" => AidStep::Input(WheelInput::Close),
-                None => AidStep::Input(WheelInput::Use(Command::parse(what).ok_or_else(|| format!("{what:?}: expected open:<ref>, close or a command"))?)),
-                _ => return Err(format!("{what:?}: expected open:<ref>, close or a command")),
+                None => AidStep::Input(WheelInput::Use(Command::parse(what).ok_or_else(|| format!("{what:?}: expected open[:<ref>], close or a command"))?)),
+                _ => return Err(format!("{what:?}: expected open[:<ref>], close or a command")),
             };
             Ok((t, step))
         })
@@ -243,7 +247,7 @@ impl Plugin for CompanionWheelPlugin {
         app.init_resource::<WheelScreen>()
             .init_resource::<WheelStats>()
             .init_resource::<WheelView>()
-            .insert_resource(WheelAid { steps })
+            .insert_resource(WheelAid { steps, last: None })
             .add_message::<WheelInput>()
             .add_systems(Update, (run_aid, open, (keys, apply).chain().run_if(in_state(PlayState::Menu)), follow_game, draw).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close)
@@ -264,12 +268,13 @@ fn run_aid(time: AidTime, mut aid: ResMut<WheelAid>, mut input: MessageWriter<Wh
         match step {
             AidStep::Open(who) => {
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { continue };
+                let last = aid.last;
                 let r = with_world(rt, &mut sim, |rt| {
-                    let r = fnv_game::runner::resolve(&rt.game, &who)?;
+                    let r = if who.is_empty() { last.ok_or_else(|| "a bare open needs an earlier open:<ref>".to_string())? } else { fnv_game::runner::resolve(&rt.game, &who)? };
                     rt.activate_as_player(r).map(|done| (r, matches!(done, crate::script::ByHand::Wheel)))
                 });
                 match r {
-                    Ok((_, true)) => {}
+                    Ok((r, true)) => aid.last = Some(r),
                     Ok((r, false)) => warn!("test aid NVF_PLAY_TEST_WHEEL: activating {who} ({r}) opened no companion wheel"),
                     Err(e) => warn!("test aid NVF_PLAY_TEST_WHEEL: {who}: {e}"),
                 }
@@ -654,11 +659,26 @@ mod tests {
 
     #[test]
     fn the_aid_reads_its_steps() {
-        let s = parse_aid("10:open:CraigBooneREF,12:stay_follow,13:stimpak,20:close").unwrap();
+        let s = parse_aid("10:open:CraigBooneREF,12:stay_follow,13:stimpak,20:close,30:open").unwrap();
+        assert_eq!(s[4].1, AidStep::Open(String::new()));
         assert_eq!(s[0], (10.0, AidStep::Open("CraigBooneREF".into())));
         assert_eq!(s[1].1, AidStep::Input(WheelInput::Use(Command::StayFollow)));
         assert_eq!(s[2].1, AidStep::Input(WheelInput::Use(Command::UseStimpak)));
         assert_eq!(s[3].1, AidStep::Input(WheelInput::Close));
         assert!(parse_aid("1:dance").is_err());
+    }
+
+    #[test]
+    fn the_smoke_scenarios_steps_parse() {
+        // Every NVF_PLAY_TEST_WHEEL value in tools/smoke/scenarios.toml (a bare `open` there
+        // once made the whole list fail at run time).
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tools/smoke/scenarios.toml")).unwrap();
+        let mut n = 0;
+        for part in text.split("NVF_PLAY_TEST_WHEEL = \"").skip(1) {
+            let value = part.split('"').next().unwrap();
+            parse_aid(value).unwrap_or_else(|e| panic!("{value:?}: {e}"));
+            n += 1;
+        }
+        assert!(n > 0, "the scenario uses the aid");
     }
 }
