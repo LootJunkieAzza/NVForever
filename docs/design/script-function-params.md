@@ -57,7 +57,7 @@ add-ons' by hand.
 | Say | is2D | 0 here; 103 in Old World Blues | heard flat and whole wherever the player is, subtitle included [hypothesis] |
 | Say | Actor, isVoice | Actor: 103 in Old World Blues, naming the speaker's own base; isVoice: 0 | **not read**: the wiki gives only the names; the shipped Actor calls name the speaker itself, so what another actor would change is not seen |
 | PlaceAtMe | Distance, Direction | 8 | nothing to do: "The Distance and Direction parameters do not work. No matter what is specified for them, the created reference will be placed in safe location nearby" [documented: PlaceAtMe notes] |
-| SexChange | resetAppearance | 6 (all pass 1) | **left to the actor-changes workstream** (SexChange and AgeRace for NPCs). Its note: the wiki says that with 1, on a change of sex, the player's look becomes "the default preset for their race+gender" |
+| SexChange | resetAppearance | 6 (all pass 1) | done by the actor-changes workstream (PR #460, `fnv_game::appearance`, docs/spec-notes/appearance-changes.md): with 1 the player's face becomes the race's first starting face for the new sex; the wiki says "the default preset for their race+gender" |
 | PlaceLeveledActorAtMe | levelMod, encounterZoneID | 0 (the 5 calls pass the actor only) | nothing to do for the shipped scripts: levelMod defaults to 4, "None" [documented]. A level modifier would need leveled actors resolved at the player's level, which they are not (docs/spec-notes/actors.md §2.1) |
 | RemoveAllItems | retainOwnershipFlag | 5 | moved items lose their owner unless it is non-zero (`World::transfer_all_owned`) |
 | SetTagSkills | addedPoints, showInitialTaggedSkills | 2 (`3`, `3 1`) | the menu's count is addedPoints in all, those tagged before counting; with 0 the tags before are not shown and may be chosen over |
@@ -69,12 +69,17 @@ add-ons' by hand.
 
 Another session's unpushed branch `claude/script-params-engine` (2026-10-18) covered the
 same rows; from it come the add-ons' call counts above, SayTo's subtitle flag, and keeping
-a reference that scripts draw (`nvf_play::script_draw`) until its fade-out ends.
+a reference that scripts draw (`nvf_play::script_draw`) until its fade-out ends. That
+branch (PR #461), merged after this one, adds: SwapTexture on a mesh drawn see-through, by
+a fade or by SetActorAlpha, changes the mesh's own material, so the fade's or the alpha's
+end does not bring the old texture back (nvforever `texture_swap.rs`; the psych test's card
+fades in as Doc Mitchell's line swaps its texture), and the smoke test `ref-fade` on a
+reference only scripts draw.
 
 ## 4. Still ignored
 
 Rerun of `tools/script_param_audit.py` after this branch, candidates read by hand as in §1:
-Say's Actor and isVoice, and SexChange's resetAppearance (left to the actor-changes
-workstream). The other rows it prints read their parameters through
+Say's Actor and isVoice (SexChange's resetAppearance, listed here at first, was done by the
+actor-changes workstream, §3). The other rows it prints read their parameters through
 a helper (false hits, §1); Look's rotateBody is read as its second argument (the
 catalogue lists three parameters: a false hit too).

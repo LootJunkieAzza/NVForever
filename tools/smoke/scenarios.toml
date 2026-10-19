@@ -1225,6 +1225,34 @@ expect = [
 order = [["player body: not drawn while the idle drives the view in first person", "player body: drawn again in first person"]]
 
 [[scenario]]
+name = "ref-fade"
+source = "script function parameters (docs/design/script-function-params.md §3): Enable fades in by default, Disable 1 fades out and only then hides, Enable 0 pops in [documented: GECK wiki Enable, Disable]; on a reference only scripts draw (nvf_play::script_draw), the psych test's card TempRorschachTest01REF in Doc Mitchell's house"
+note = "The card is enabled at 9 s (a 2 s fade in), disabled with Disable 1 at 12 s (held enabled 2 s while it fades out, fnv_game FADE_OUT_HOLD) and enabled with Enable 0 at 17 s, after the hold: no fade. When the hold ends, script_draw drops the card's model and activate's visuals sync hides it, in either order in the same frame (each alone takes it off screen): one order chain for each"
+areas = ["scripts", "rendering", "script-params"]
+paths = ["engine/nvf-play/src/fade.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/script_draw.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "9:001084B0.enable;9.3:close;12:001084B0.disable 1;12.3:close;17:001084B0.enable 0;17.3:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'fade: 0x001084B0 in over 2 s', count = 1, label = "one fade in: Enable 0 pops" },
+  { re = 'fade: 0x001084B0 out over 2 s', count = 1, label = "one fade out" },
+  { text = "fade: 0x001084B0 in done", count = 1, label = "the fade in ends" },
+  { text = "fade: 0x001084B0 out done", count = 1, label = "the fade out ends" },
+]
+order = [[
+  "fade: 0x001084B0 in over 2 s",
+  "fade: 0x001084B0 in done",
+  "fade: 0x001084B0 out over 2 s",
+  "fade: 0x001084B0 out done",
+  "reference 0x001084B0 no longer drawn by scripts",
+  "reference 0x001084B0 present:",
+], [
+  "fade: 0x001084B0 out over 2 s",
+  "reference 0x001084B0 gone:",
+  "reference 0x001084B0 present:",
+]]
+
+[[scenario]]
 name = "rorschach-cards"
 source = "SwapTexture (playtest list 5 item 38; docs/design/script-stubs.md §4): Doc Mitchell's lines put the psych test's cards on TempRorschachTest01REF behind him; the line that enables the card shows card 1, an inkblot answer's line swaps in the inkblot"
 areas = ["scripts", "rendering"]

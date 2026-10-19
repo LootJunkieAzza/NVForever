@@ -73,14 +73,29 @@ impl Fades {
     }
 }
 
-/// On a mesh drawn see-through for a fade: its own material, and the copy drawn.
+/// On a mesh drawn see-through for a fade: its own material, and the copy drawn. Another
+/// system that changes the mesh's own material while it fades (SwapTexture,
+/// nvforever `texture_swap.rs`) gives the mesh the new one and takes this away
+/// ([`Fading::copy`] to drop): the next step copies the new material.
 #[derive(Component)]
-struct Fading {
+pub struct Fading {
     original: Handle<NifMaterial>,
     copy: Handle<NifMaterial>,
     /// The original's alpha and cut-out, which the fade multiplies.
     alpha: f32,
     cut: Option<f32>,
+}
+
+impl Fading {
+    /// The mesh's own material, which it gets back when the fade ends.
+    pub fn original(&self) -> &Handle<NifMaterial> {
+        &self.original
+    }
+
+    /// The see-through copy drawn while it fades.
+    pub fn copy(&self) -> &Handle<NifMaterial> {
+        &self.copy
+    }
 }
 
 /// The alpha of a fade `t` seconds in (1 at the end of a fade in, 0 at the end of one out).
