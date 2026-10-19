@@ -599,6 +599,18 @@ impl<'a> World<'a> {
 
     /// Add `count` of an item or leveled list; returns the items actually added.
     pub fn add_item(&mut self, to: FormId, item: FormId, count: i32) -> Result<Vec<(FormId, i32)>, SimError> {
+        self.add_item_with(to, item, count, None)
+    }
+
+    /// As [`World::add_item`], every item given at `condition` (a fraction; `None` full),
+    /// a leveled list's own condition included: AddItemHealthPercent [documented: GECK
+    /// wiki AddItemHealthPercent, "the specified health percent overrides the health
+    /// percentage set by the leveled list"].
+    pub fn add_item_at_condition(&mut self, to: FormId, item: FormId, count: i32, condition: Option<f32>) -> Result<Vec<(FormId, i32)>, SimError> {
+        self.add_item_with(to, item, count, Some(condition))
+    }
+
+    fn add_item_with(&mut self, to: FormId, item: FormId, count: i32, condition: Option<Option<f32>>) -> Result<Vec<(FormId, i32)>, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
@@ -613,7 +625,11 @@ impl<'a> World<'a> {
             .into_iter()
             .filter(|e| e.count > 0)
             .map(|e| {
-                inv.add_extra(e.item, e.count, e.extra);
+                let extra = match condition {
+                    Some(c) => Extra { condition: c, ..e.extra },
+                    None => e.extra,
+                };
+                inv.add_extra(e.item, e.count, extra);
                 (e.item, e.count)
             })
             .collect())
@@ -656,7 +672,14 @@ impl<'a> World<'a> {
         forms.item(item).is_some_and(|it| it.non_playable)
     }
 
-    /// Move everything but non-playable items (as [`World::remove_all_items`], the same
+    /// Whether RemoveAllItems leaves `item` with `from`: non-playable items, and the
+    /// player's quest items [documented: GECK wiki RemoveAllItems, the exceptions are
+    /// unplayable items and, "If the calling reference is the player, Quest Items"].
+    fn stays(&self, from: FormId, item: FormId) -> bool {
+        Self::non_playable(self.forms, item) || (from == FormId::PLAYER_REF && self.is_quest_item(item))
+    }
+
+    /// Move everything but non-playable items and the player's quest items (as [`World::remove_all_items`], the same
     /// script function with a target); returns the stacks moved. Extra data (condition,
     /// owner) moves with the items; equipped items are unequipped.
     pub fn transfer_all(&mut self, from: FormId, to: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
@@ -669,8 +692,8 @@ impl<'a> World<'a> {
     /// ownership is cleared"].
     pub fn transfer_all_owned(&mut self, from: FormId, to: FormId, keep_owner: bool) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
-        let forms = self.forms;
-        let stacks: Vec<_> = self.inventory(from)?.iter().filter(|&(i, _)| !Self::non_playable(forms, i)).collect();
+        let all: Vec<_> = self.inventory(from)?.iter().collect();
+        let stacks: Vec<_> = all.into_iter().filter(|&(i, _)| !self.stays(from, i)).collect();
         for &(item, n) in &stacks {
             let groups = unequipped(self.inventory(from)?.take_at(item, n, None));
             let dest = self.inventory(to)?;
@@ -684,15 +707,16 @@ impl<'a> World<'a> {
         Ok(stacks)
     }
 
-    /// Empty an inventory except for non-playable items, which stay as they are
+    /// Empty an inventory except for non-playable items (and the player's quest items,
+    /// [`World::stays`]), which stay as they are
     /// (equipped ones stay equipped); returns the stacks removed. [observed in game,
     /// docs/spec-notes/simulation.md §3: `player.RemoveAllItems` left the Pip-Boy Glove
     /// and the Pip-Boy 3000, both still equipped, and nothing else (`cl_a_pipboy_nvftest`);
     /// that other non-playable items and other holders behave alike is hypothesis]
     pub fn remove_all_items(&mut self, from: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
-        let forms = self.forms;
+        let groups: Vec<_> = self.inventory(from)?.groups().collect();
+        let keep: Vec<_> = groups.into_iter().filter(|&(i, _, _)| self.stays(from, i)).collect();
         let inv = self.inventory(from)?;
-        let keep: Vec<_> = inv.groups().filter(|&(i, _, _)| Self::non_playable(forms, i)).collect();
         let mut kept = Inventory::new();
         for &(item, extra, n) in &keep {
             kept.add_extra(item, n, extra);
@@ -753,6 +777,18 @@ impl<'a> World<'a> {
     /// [`World::player_drop_item`].
     pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
         self.drop_item_at(from, item, count, None)
+    }
+
+    /// As [`World::drop_item`], the dropped references keeping only their owner: DropMe
+    /// "does not preserve the health, charges, or script variables" [documented: GECK
+    /// wiki DropMe].
+    pub fn drop_item_fresh(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
+        }
+        let groups = unequipped(self.inventory(from)?.take_at(item, count, None));
+        let groups = groups.into_iter().map(|(e, n)| (Extra { owner: e.owner, ..Extra::default() }, n)).collect();
+        self.drop_groups(from, item, groups)
     }
 
     /// As [`World::drop_item`], dropping only the units `at` picks.

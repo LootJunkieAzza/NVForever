@@ -212,15 +212,19 @@ fn find_target(
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
     // A dead actor is searched rather than talked to (combat C5); a living one is talked
     // to only when it may be ([`actor_action`]). Actors are named by their template's
-    // name where the template supplies it (playtest list 4, item 20).
+    // name where the template supplies it (playtest list 4, item 20). A destroyed door
+    // or activator gives no rollover text (`fnv_game::Game::activation_refused`).
     let mut rt = script.as_deref_mut().and_then(|s| s.rt.as_mut());
     let mut describe_once = |id: u32| {
         described
             .entry(id)
             .or_insert_with(|| {
+                if rt.as_deref().is_some_and(|rt| rt.game.activation_refused(FormId(id))) {
+                    return None;
+                }
                 describe(&sim, play.index, id).map(|(n, a)| match a {
                     Action::Talk => {
-                        let name = sim.ref_name(rt.as_deref().map(|rt| rt.game.data), id).map_or(n, str::to_string);
+                        let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
                     }
                     a => (n, a),
@@ -423,6 +427,10 @@ fn activate(
             info!("activate 0x{:08X} {} ({}): the perks' choice list opened", t.form_id, t.name, t.action.label());
             return;
         }
+        Ok(crate::script::ByHand::Refused) => {
+            info!("activate 0x{:08X} {}: destroyed, it cannot be activated", t.form_id, t.name);
+            return;
+        }
         Ok(crate::script::ByHand::Greeted) => {
             // Heard and shown like a SayTo line; the player stays free.
             info!("activate 0x{:08X} {} ({}): it said its greeting, no conversation", t.form_id, t.name, t.action.label());
@@ -491,17 +499,28 @@ fn activate(
 type NewVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility), Added<RefVisual>>;
 type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibility)>;
 
-/// Hide or show `RefVisual` entities from the simulation's state: every entity of a
-/// reference named by `RefChanged`, and new entities as cells stream in (a taken item
+/// Whether a reference is drawn: present in the simulation ([`SimState::present`]) and not
+/// culled by its critical stage (GooEnd, DisintegrateEnd: `fnv_game::Game::culled`). A
+/// hidden actor has no hit volume (`crate::hitvol`) and its corpse leaves the physics world
+/// (nvforever `ragdoll.rs`): "cull its 3D, and remove its Havok data" [documented: GECK
+/// wiki SetCriticalStage].
+pub(crate) fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>, id: u32) -> bool {
+    sim.present(id) && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.culled(FormId(id)))
+}
+
+/// Hide or show `RefVisual` entities from the simulation's state ([`drawn`]): every entity
+/// of a reference named by `RefChanged`, and new entities as cells stream in (a taken item
 /// must not come back when its cell reloads).
 pub(crate) fn sync_visuals(
     sim: Res<SimState>,
+    script: Option<Res<crate::script::ScriptState>>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,
 ) {
+    let script = script.as_deref();
     let mut present: HashMap<u32, bool> = HashMap::new();
     for (r, mut v) in &mut visuals.p0() {
-        if !*present.entry(r.0).or_insert_with(|| sim.present(r.0)) {
+        if !*present.entry(r.0).or_insert_with(|| drawn(&sim, script, r.0)) {
             v.set_if_neq(Visibility::Hidden);
         }
     }
@@ -511,11 +530,18 @@ pub(crate) fn sync_visuals(
     }
     for (r, mut v) in &mut visuals.p1() {
         if let Some(n) = changed.get_mut(&r.0) {
-            v.set_if_neq(if sim.present(r.0) { Visibility::Inherited } else { Visibility::Hidden });
+            v.set_if_neq(if drawn(&sim, script, r.0) { Visibility::Inherited } else { Visibility::Hidden });
             *n += 1;
         }
     }
     for (id, n) in changed {
-        info!("reference 0x{id:08X} {}: {n} render entities updated", if sim.present(id) { "present" } else { "gone" });
+        let how = if !sim.present(id) {
+            "gone"
+        } else if drawn(&sim, script, id) {
+            "present"
+        } else {
+            "culled (critical stage)"
+        };
+        info!("reference 0x{id:08X} {how}: {n} render entities updated");
     }
 }

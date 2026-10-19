@@ -19,7 +19,9 @@ pub enum EventKind {
     /// `SetStage` had no effect, and why.
     StageIgnored { quest: FormId, stage: i32, reason: &'static str },
     ObjectiveDisplayed { quest: FormId, index: i32, on: bool },
-    ObjectiveCompleted { quest: FormId, index: i32, on: bool },
+    /// `silent`: no "COMPLETED" line, the objective was not displayed or the quest was
+    /// already completed [documented: GECK wiki SetObjectiveCompleted]; not serialised.
+    ObjectiveCompleted { quest: FormId, index: i32, on: bool, #[serde(skip)] silent: bool },
     /// A script variable was written: `owner` names the instance (`quest:…`,
     /// `ref:…`, `item:…@…`), `index` and `name` the variable.
     VarSet { owner: String, index: u16, #[serde(skip_serializing_if = "Option::is_none")] name: Option<String>, #[serde(serialize_with = "value_json")] value: Value },

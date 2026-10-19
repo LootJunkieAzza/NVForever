@@ -1082,8 +1082,15 @@ fn step(
     }
 }
 
-/// Feet, cell and heading last written to the simulation.
-type SimPose = ([f32; 3], Option<u32>, f32);
+/// Feet, cell, heading and pitch last written to the simulation.
+type SimPose = ([f32; 3], Option<u32>, f32, f32);
+
+/// The simulation's X angle of the player (radians) for a view pitch: the view's pitch with
+/// the sign turned, so that GetAngle X reads -89 looking up and 89 looking at the feet
+/// [documented: GECK wiki GetAngle]; [`Player::pitch`] is negative looking down.
+pub fn sim_pitch(pitch: f32) -> f32 {
+    -pitch
+}
 
 /// The simulation's player reference stands where the character does, in the cell of the
 /// worldspace being played (`PhysState::worldspace`, which door travel changes) or the interior.
@@ -1102,7 +1109,7 @@ fn sync_sim(
             d.index.worldspaces.get(&phys.worldspace).and_then(|w| w.grid.get(&g)).copied()
         }
     };
-    let now = (c.feet, cell, player.heading);
+    let now = (c.feet, cell, player.heading, player.pitch);
     if *last == Some(now) {
         return;
     }
@@ -1114,6 +1121,9 @@ fn sync_sim(
             // The reference's z rotation is its compass heading in radians [hypothesis:
             // as door teleport markers' rotations are read for Travel].
             s.rot[2] = player.heading;
+            // Its x rotation is the view's pitch (`sim_pitch`); a script's SetAngle of the
+            // player is not read back into the view [design: no shipped call].
+            s.rot[0] = sim_pitch(player.pitch);
         }
         Err(e) => warn_once!("simulation player reference: {e}"),
     }
@@ -1199,6 +1209,14 @@ mod tests {
         assert_eq!(MoveSpeeds::from_settings(Some(77.0), Some(4.0)), SPEEDS);
         assert_eq!(MoveSpeeds::from_settings(None, None), SPEEDS);
         assert_eq!(MoveSpeeds::from_settings(Some(100.0), Some(-1.0)), MoveSpeeds { walk: 100.0, run: 400.0 });
+    }
+
+    #[test]
+    fn the_simulation_pitch_is_positive_looking_down() {
+        let (_, down) = look(0.0, 0.0, Vec2::new(0.0, 1.0e6));
+        assert_eq!(sim_pitch(down).to_degrees().round(), 89.0, "GetAngle X 89 at the feet");
+        let (_, up) = look(0.0, 0.0, Vec2::new(0.0, -1.0e6));
+        assert_eq!(sim_pitch(up).to_degrees().round(), -89.0, "GetAngle X -89 looking up");
     }
 
     #[test]

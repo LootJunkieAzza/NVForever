@@ -563,7 +563,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ModPCMiscStat | 0x1137 | 6 / 0 | match | - | - |  |
 | ModWeaponHealthPerc | 0x11F6 | 8 / 0 | match | - | - |  |
 | MoveTo | 0x109E | 1463 / 0 | match | - | - |  |
-| MoveToMarkerWithFade | 0x124F | 272 / 0 | match | - | - |  |
+| MoveToMarkerWithFade | 0x124F | 272 / 0 | match | - | - | Fades out, waits FADE_OUT_HOLD, moves, fades in (2026-10-19); the wait is the Disable 1 hold [hypothesis: capture asked]. |
 | OpenTeammateContainer | 0x11C8 | 26 / 0 | match | - | - |  |
 | PickIdle | 0x1064 | 2 / 0 | wrong | IDLE-tree idles picked by scripts | - | Stub; furniture and weapon fidgets use the IDLE tree already. |
 | PipBoyRadio | 0x11A7 | 6 / 0 | match | - | - |  |
@@ -628,7 +628,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetCellOwnership | 0x1119 | 18 / 0 | match | - | - |  |
 | SetCellPublicFlag | 0x10BB | 12 / 0 | match | - | - |  |
 | SetCombatStyle | 0x10B1 | 92 / 0 | match | - | - |  |
-| SetCriticalStage | 0x1212 | 7 / 0 | no-system | dismemberment and critical deaths | - | The stage is kept; goo and disintegration effects are not built. |
+| SetCriticalStage | 0x1212 | 7 / 0 | no-system | dismemberment and critical deaths | - | The stage is kept; GooEnd / DisintegrateEnd hide the body and drop its hit volume and ragdoll (2026-10-19, `Game::culled`); the Start stages' ragdoll changes are not built. |
 | SetDestroyed | 0x10CC | 517 / 0 | match | - | - |  |
 | SetDisposition | 0x1184 | 2 / 0 | match | - | - | GetDisposition reads the value set [observed: probes]. |
 | SetEnemy | 0x1078 | 478 / 0 | match | - | - |  |

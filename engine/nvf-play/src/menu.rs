@@ -330,8 +330,8 @@ pub(crate) fn open_menus(
                 Mode::Container(r) | Mode::Barter(r) => Some(r),
                 _ => None,
             };
-            let data = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data);
-            if let Some(name) = who.filter(|r| sim.refs.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))).and_then(|r| sim.ref_name(data, r.0)) {
+            let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+            if let Some(name) = who.filter(|r| sim.refs.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))).and_then(|r| sim.ref_name(game, r.0)) {
                 m.title = name.to_string();
             }
             info!("menu: open {:?} \"{}\"", m.mode, m.title);

@@ -673,6 +673,10 @@ impl Runtime {
     }
 
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // A destroyed door or activator cannot be activated (`Game::activation_refused`).
+        if self.game.activation_refused(target) {
+            return Ok(ByHand::Refused);
+        }
         // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
         // opens first, unless it was just answered with the default action.
         if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
@@ -1017,6 +1021,9 @@ pub enum ByHand {
     /// The player's perks offer choices on the target: their list opened
     /// (`fnv_game::activate_choices`, `crate::script_hud`).
     Choices,
+    /// The target is a destroyed door or activator: nothing happened
+    /// (`fnv_game::Game::activation_refused`).
+    Refused,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -1521,12 +1528,24 @@ pub(crate) fn run_scripts(
     // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
     // collision and enable children follow.
     let late = std::mem::take(&mut rt.game.script_looks.disabled_after_fade);
+    // References a critical stage culled or brought back (SetCriticalStage,
+    // `activate::drawn`), and MoveToMarkerWithFade's fades (`fade`).
+    let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
+    let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
     for r in late {
         info!("script: {} disabled after its fade", rt.game.data.name(r));
         effects.push(ScriptEffect::RefChanged(r.0));
         effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
+    }
+    for r in culled {
+        info!("script: {} {} by its critical stage", rt.game.data.name(r), if rt.game.culled(r) { "culled" } else { "drawn again" });
+        effects.push(ScriptEffect::RefChanged(r.0));
+    }
+    for (r, fade_in) in move_fades {
+        info!("script: {} fades {} for MoveToMarkerWithFade", rt.game.data.name(r), if fade_in { "in after its move" } else { "out before its move" });
+        effects.push(ScriptEffect::Fade { form_id: r.0, fade_in });
     }
     for r in marked {
         info!("script: {r} marked for delete");
@@ -1708,7 +1727,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::QuestCompleted { quest } => info!("script: quest {} completed", n(*quest)),
         EventKind::QuestStopped { quest } => debug!("script: quest {} stopped", n(*quest)),
         EventKind::ObjectiveDisplayed { quest, index, on } => info!("script: {} objective {index} displayed {on}", n(*quest)),
-        EventKind::ObjectiveCompleted { quest, index, on } => info!("script: {} objective {index} completed {on}", n(*quest)),
+        EventKind::ObjectiveCompleted { quest, index, on, .. } => info!("script: {} objective {index} completed {on}", n(*quest)),
         EventKind::MessageShown { message, text, buttons, hidden } => {
             let hidden = if hidden.is_empty() { String::new() } else { format!(" (hidden by their conditions: {hidden:?})") };
             info!("script: message {} {:?}{}{hidden}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })
