@@ -157,6 +157,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != fnv_game::crafting::RECIPE_MENU
         && code != fnv_game::repair::REPAIR_SERVICES_MENU
         && code != crate::roulette::MENU_ROULETTE
+        && code != fnv_game::companion_wheel::MENU_CODE
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -673,6 +674,10 @@ impl Runtime {
     }
 
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // A destroyed door or activator cannot be activated (`Game::activation_refused`).
+        if self.game.activation_refused(target) {
+            return Ok(ByHand::Refused);
+        }
         // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
         // opens first, unless it was just answered with the default action.
         if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
@@ -758,6 +763,16 @@ impl Runtime {
         let mut done = None;
         for (i, actor) in wanted {
             let g = &mut self.game;
+            // A teammate: the companion wheel opens instead (`crate::companion_wheel`).
+            if g.has_companion_wheel(actor) {
+                if g.open_companion_wheel(actor) {
+                    self.skip.insert(i);
+                    info!("companion wheel: the player activates {}: the wheel opens", g.data.name(actor));
+                    done = Some(ByHand::Wheel);
+                    continue;
+                }
+                info!("companion wheel: {} is a teammate, but a menu or conversation is open: talked to instead", g.data.name(actor));
+            }
             match g.start_dialogue(actor, None) {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
@@ -823,7 +838,7 @@ impl Runtime {
     pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
         let from = self.game.events.len();
         let done = self.by_hand(r)?;
-        if !matches!(done, ByHand::Talk | ByHand::Greeted) {
+        if !matches!(done, ByHand::Talk | ByHand::Greeted | ByHand::Wheel) {
             self.skip.retain(|&i| i < from);
         }
         Ok(done)
@@ -1017,6 +1032,12 @@ pub enum ByHand {
     /// The player's perks offer choices on the target: their list opened
     /// (`fnv_game::activate_choices`, `crate::script_hud`).
     Choices,
+    /// The target is the player's teammate: the companion wheel opened
+    /// (`crate::companion_wheel`).
+    Wheel,
+    /// The target is a destroyed door or activator: nothing happened
+    /// (`fnv_game::Game::activation_refused`).
+    Refused,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -1521,12 +1542,24 @@ pub(crate) fn run_scripts(
     // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
     // collision and enable children follow.
     let late = std::mem::take(&mut rt.game.script_looks.disabled_after_fade);
+    // References a critical stage culled or brought back (SetCriticalStage,
+    // `activate::drawn`), and MoveToMarkerWithFade's fades (`fade`).
+    let culled = std::mem::take(&mut rt.game.script_looks.critical_changed);
+    let move_fades = std::mem::take(&mut rt.game.script_looks.fades);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
     for r in late {
         info!("script: {} disabled after its fade", rt.game.data.name(r));
         effects.push(ScriptEffect::RefChanged(r.0));
         effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
+    }
+    for r in culled {
+        info!("script: {} {} by its critical stage", rt.game.data.name(r), if rt.game.culled(r) { "culled" } else { "drawn again" });
+        effects.push(ScriptEffect::RefChanged(r.0));
+    }
+    for (r, fade_in) in move_fades {
+        info!("script: {} fades {} for MoveToMarkerWithFade", rt.game.data.name(r), if fade_in { "in after its move" } else { "out before its move" });
+        effects.push(ScriptEffect::Fade { form_id: r.0, fade_in });
     }
     for r in marked {
         info!("script: {r} marked for delete");
@@ -1673,12 +1706,13 @@ type EngineMenus<'w> = (
 /// moving, looking or activating, and the game clock stops (sim.rs) [observed: the pack
 /// boxes held the world clock, layer5-captures.md §10.1]. The engine's own menus manage
 /// the state themselves (menu.rs).
+#[allow(clippy::type_complexity)]
 fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe, roulette, repair): EngineMenus,
-    (blackjack, poker, caravan): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>),
+    (blackjack, poker, caravan, wheel): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
@@ -1686,8 +1720,9 @@ fn hold_player(
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
     // menu (`crate::crafting`), the repair services (`crate::repair`), the blackjack table (`crate::blackjack`), the roulette
-    // table (`crate::roulette`), the poker table (`crate::poker`) and the Caravan table (`crate::caravan`).
-    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some());
+    // table (`crate::roulette`), the poker table (`crate::poker`), the Caravan table (`crate::caravan`) and the
+    // companion wheel (`crate::companion_wheel`).
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || repair.is_some_and(|r| r.is_open()) || table {
         return;
     }
@@ -1708,7 +1743,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::QuestCompleted { quest } => info!("script: quest {} completed", n(*quest)),
         EventKind::QuestStopped { quest } => debug!("script: quest {} stopped", n(*quest)),
         EventKind::ObjectiveDisplayed { quest, index, on } => info!("script: {} objective {index} displayed {on}", n(*quest)),
-        EventKind::ObjectiveCompleted { quest, index, on } => info!("script: {} objective {index} completed {on}", n(*quest)),
+        EventKind::ObjectiveCompleted { quest, index, on, .. } => info!("script: {} objective {index} completed {on}", n(*quest)),
         EventKind::MessageShown { message, text, buttons, hidden } => {
             let hidden = if hidden.is_empty() { String::new() } else { format!(" (hidden by their conditions: {hidden:?})") };
             info!("script: message {} {:?}{}{hidden}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })

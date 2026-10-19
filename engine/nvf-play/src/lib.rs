@@ -52,6 +52,7 @@ pub mod main_menu;
 pub mod lockpick;
 pub mod roulette;
 pub mod blackjack;
+pub mod companion_wheel;
 pub mod caravan;
 pub mod poker;
 pub mod menu;
@@ -284,6 +285,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
             .add_plugins(blackjack::BlackjackPlugin)
+            .add_plugins(companion_wheel::CompanionWheelPlugin)
             .add_plugins(caravan::CaravanPlugin)
             .add_plugins(poker::PokerPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin))

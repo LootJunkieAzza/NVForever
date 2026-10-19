@@ -59,6 +59,9 @@ pub struct ScriptHud {
     lines: HashMap<u32, Vec<String>>,
     /// The message box on screen (as last drawn).
     on_screen: Option<BoxMessage>,
+    /// The response the companion wheel's companion says now, drawn by the wheel
+    /// (`crate::companion_wheel`) instead of here.
+    pub wheel_line: Option<String>,
 }
 
 impl ScriptHud {
@@ -184,8 +187,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 /// The perks' choice list as a box: the target's name, the choices' labels, then the
 /// default action (Search on a corpse, else Talk) [design: fnv_game::activate_choices].
 pub fn activate_panel(g: &fnv_game::Game, sim: &SimState, m: &fnv_game::activate_choices::ActivateMenu) -> PanelView {
-    let base = sim.base_of(m.target.0).unwrap_or(m.target);
-    let name = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(m.target));
+    let name = sim.ref_name(Some(g), m.target.0).map(str::to_string).unwrap_or_else(|| g.data.name(m.target));
     let default = if g.is_dead(m.target) { "Search" } else { "Talk" };
     let mut buttons: Vec<String> = m.choices.iter().map(|c| c.label.clone()).collect();
     buttons.push(default.into());
@@ -225,6 +227,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     let mut on_screen = Vec::new();
     // In a conversation with the player only the dialogue menu's own line is on screen.
     let talking = g.dialogue.is_some();
+    let mut wheel = None;
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
@@ -236,10 +239,15 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
         let i = crate::voice::speech_response(g, sim, s);
         let Some(text) = texts.get(i).or_else(|| texts.last()) else { continue };
-        let base = sim.base_of(s.speaker.0).unwrap_or(s.speaker);
-        let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
+        let who = sim.ref_name(Some(g), s.speaker.0).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         let text = crate::dialogue::shown_text(text);
         if text.is_empty() {
+            continue;
+        }
+        // The companion wheel's companion: drawn in the wheel (`crate::companion_wheel`).
+        if g.line_goes_on_in_menu(s.speaker) {
+            subs.push(format!("{who}: {text} (in the companion wheel)"));
+            wheel = Some(text);
             continue;
         }
         subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
@@ -250,7 +258,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.
     subs.extend(crate::dialogue::subtitle(g, sim));
-    (panel, front, Subtitles { logged: subs.join("\n"), on_screen })
+    (panel, front, Subtitles { logged: subs.join("\n"), on_screen, wheel })
 }
 
 /// The subtitles: all of them for the log ("Speaker: text"), those drawn here for the
@@ -259,6 +267,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
 struct Subtitles {
     logged: String,
     on_screen: Vec<String>,
+    wheel: Option<String>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -280,6 +289,9 @@ fn draw(
         subs.on_screen.clear();
     }
     hud.on_screen = front;
+    if hud.wheel_line != subs.wheel {
+        hud.wheel_line = subs.wheel.clone();
+    }
     if panel.view != p {
         panel.set(p);
     }

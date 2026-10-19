@@ -111,8 +111,10 @@ pub fn get_script_variable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 pub fn set_quest_delay(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = quest(g, a, 0)?;
     let d = a.num(1)?;
-    // A delay of 0 means the default [documented: GECK wiki SetQuestDelay].
-    g.quest(q).delay = (d > 0.0).then_some(d);
+    // A delay of 0 is the INI default, 5 s, not the quest's own DATA delay [documented:
+    // GECK wiki SetQuestDelay, "Setting delay to 0 tells the quest to process at the INI
+    // setting default (5 seconds)"].
+    g.quest(q).delay = Some(if d > 0.0 { d } else { crate::quest::DEFAULT_QUEST_DELAY });
     none()
 }
 

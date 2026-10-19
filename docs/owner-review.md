@@ -2819,13 +2819,15 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    rerun from `nvftest` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
    and for
    you while one hunts you (the documentation says so). This can change quest scripts
-   that test IsInCombat; nothing showed in the runs, but watch for it.
+   that test IsInCombat; nothing showed in the runs, but watch for it. **2026-10-19 [observed]:** no recording
+   holds an Alert without combat; IsInCombat is 1 while the combat package runs, also with the
+   target unseen (spec-notes/npc-behaviour-compare.md §11).
    **Captured 2026-10-19 [observed]:** `alert_noise` ran twice from `nvftest`. Fiends in
    combat with the player kept IsInCombat 1 while they lost sight of the player (Lost),
    which matches ours. The detection Alert itself never occurred: the hidden player was
    in combat with part of the camp on arrival, and the rest joined combat directly. The
    Alert row stays the wiki's reading (spec-notes/owner-decision-captures.md §7;
-   npc-behaviour-compare.md §11 of PR #486 found no alert without combat in 480,000
+   npc-behaviour-compare.md §11 found no alert without combat in 480,000
    samples).
 5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
    body was in the way of the ray, and a small transparent fence hid you. Both changed
@@ -6462,3 +6464,62 @@ docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
   thumbnail, then removes the file and its `.bak`. The original shows its Delete hint only
   with a controller. *Check:* the key you want for it.
 - **`;` separates console statements**; the original's console may not allow several.
+
+## The companion wheel (2026-10-19, branch claude/upbeat-jepsen-2629fd)
+
+docs/spec-notes/companion-wheel.md. Built from the game's menu file, your two screenshots
+and the VNPCFollowers command lines. Guesses to check:
+- **The menu code** is 1075 (the wiki's MenuMode list as remembered; no script asks for it).
+  *Check:* `MenuMode 1075` with the wheel open, if a capture is cheap.
+- **The wheel stays open after a command** and the companion's reply plays and shows in
+  it; only Talk and Open Inventory close it. *Check:* whether your game closes the wheel
+  after Wait or a toggle.
+- **The commands make the companion say its own command line** (FollowersWait,
+  FollowersTacticsCombatPassive …), whose scripts set Waiting, FollowerSwitchAggressive,
+  IsFollowingLong, the combat style. *Check:* that the companion answers aloud when you
+  pick a command, and with the same line the dialogue's "Wait here" would give.
+- **The words** under the title are the action ("Wait" while following, "Follow" while
+  waiting, "Aggressive" while passive, "Far" while near, "Melee" while ranged); the icon is
+  the state. Your screenshots confirm the icon and "Use Stimpak" only. *Check:* the words
+  on the other buttons.
+- **The bottom lines**: "HP 94/285" / "Stimpak 84" (yours) for Use Stimpak and
+  "WG 95/100" for Open Inventory (your figures; the "WG" is mine). *Check:* the word
+  before the weight, and whether other buttons show anything there.
+- **Passive** companions fight only who fights you or another companion (or hits them);
+  aggressive ones attack your enemies on sight. Boone is passive after hiring (his hire
+  line sets it). *Check:* how a passive companion behaves when a Fiend is in sight but has
+  not noticed you.
+- **Use Stimpak** works only while the companion is hurt, takes a plain Stimpak before a
+  Super Stimpak, and heals by the companion's own Medicine. *Check:* whether your game
+  lets you use it at full health, and which stimpak it takes.
+- **Back Up** walks the companion 192 units straight away from you. *Check:* how far it
+  goes.
+- **Sneaking**: a following companion crouches when you do and says its "going quiet"
+  line as it starts. *Check:* whether the line comes every time.
+- **Look**: the lit slice at 0.3 of the amber, the matte darkening the world to 0.8 inside
+  the wheel (fitted by eye to your screenshots); the arrow from the hub towards the picked
+  slice and the blur behind the wheel are not drawn.
+## Crafting and repair-services menus: no dark box (2026-10-19, branch claude/menu-sheet-fill)
+
+docs/spec-notes/crafting.md §3, repair.md §3. Both menus drew a 0.75 black sheet far past
+their frames; they now use the files' own fill, 32 of 255 black, over the same rectangle,
+which shows no edge, as in your screenshots.
+- **The blur is not built**: the world behind stays sharp. *Check:* whether the faint
+  sheet reads well enough over a bright world until the blur exists, or whether you want a
+  light full-screen dim meanwhile.
+- **Whether the original darkens the world as well as blurring it** could not be measured
+  (the screenshots show no unblurred world to compare). [hypothesis] it only blurs.
+## Script function audit, second round (2026-10-19, branch claude/script-param-audit)
+
+docs/design/script-function-audit-2026-10-19.md. Each was fixed from the GECK wiki; these
+parts are guesses. Captures asked of the observer session are in its §3.
+- **RemoveMe to a container** shows no "added" line either. *Check:* a `RemoveMe player`.
+- **SetDestroyed** also switches off terminals and talking activators (the wiki names doors
+  and activators). NPCs still walk through destroyed doors on their way.
+- **SetGhost**: melee blows pass through a ghost as shots do; enemies ignore a ghosted
+  player too (they can still hurt them, as the wiki says).
+- **MoveToMarkerWithFade** fades out over 2 s, as `Disable 1`; the player moves at once.
+- **SetCriticalStage GooEnd/DisintegrateEnd** hides the body but leaves it enabled.
+- **SetFactionRank** below −1 reads −1; **EnableFastTravel**: any kept ban ignores a later
+  ban without keep (the wiki shows only `0 0 1` then `0 0 0`).
+- **SetUnconscious 1 on a corpse** brings it back lying unconscious.

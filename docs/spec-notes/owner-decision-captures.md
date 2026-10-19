@@ -245,6 +245,9 @@ order: package, type, procedure, …, x, y, z, heading.
 - **Item 15, `alert_noise`: not settled.** The session ran (965 samples, 118 state
   changes), but the Fiends it relies on are dead in `nvfstrip` (§2). It needs a rerun
   from `nvftest`.
+  **2026-10-19:** the existing recordings were read for it instead
+  (npc-behaviour-compare.md §11): no search or alert state was recorded anywhere; IsInCombat
+  reads 1 exactly while the combat package runs, including while the target is unseen.
 - **Item 7 from `nvfstrip`: all three sessions crashed.** The first try of
   `hv_initiates` crashed after about 150 s, and the retries within about 15 s of
   starting. The observer gave up after three cut-offs each. They were rerun from
@@ -609,5 +612,5 @@ Done; alert_noise the fight events. Timeline: `C:\fnv-private\capture\observe\ow
     is out of sight** (the detection "Lost" state) [observed].
   - **Not seen.** No sample had a weapon out with in_combat 0 and the procedure
     searching, so the detection Alert never occurred. This agrees with
-    npc-behaviour-compare.md §11 (PR #486), which found no alert without combat in about
+    npc-behaviour-compare.md §11, which found no alert without combat in about
     480,000 recorded samples. The "Alert" row of design/alert.md stays the wiki's reading.

@@ -556,7 +556,32 @@ impl Game<'_> {
     /// teammate when `other` is the player. Actors with a faction in common, or of the
     /// same base form, never attack each other [engineering choice: without it Very
     /// Aggressive creatures of one kind, neutral to each other, would fight].
+    ///
+    /// Nobody attacks a ghost (SetGhost 1): "Enemies of this calling ref will not go into
+    /// combat or detect an actor with this flag" [documented: GECK wiki SetGhost notes];
+    /// that holds for a ghosted player too, the note naming no exception (the player's
+    /// exception is about damage only, `Game::is_immune`). Not even StartCombat or a
+    /// grudge makes a ghost a target [hypothesis: the note names no exception for them].
+    /// A ghost still attacks others ("Can inflict damage").
     pub fn would_attack(&mut self, actor: FormId, other: FormId) -> bool {
+        !self.is_ghost(other) && self.hostile_to(actor, other)
+    }
+
+    /// Whether `r` is a ghost now (SetGhost 1).
+    pub fn is_ghost(&self, r: FormId) -> bool {
+        self.extra.get(&r).is_some_and(|e| e.ghost)
+    }
+
+    /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not
+    /// detect it [documented: GECK wiki SetGhost notes, "Enemies of this calling ref will
+    /// not go into combat or detect an actor with this flag"]. Others (and the player)
+    /// detect a ghost as anyone.
+    pub fn ghost_hidden_from(&mut self, detector: FormId, target: FormId) -> bool {
+        self.is_ghost(target) && self.hostile_to(detector, target)
+    }
+
+    /// [`Game::would_attack`] without the ghost rule.
+    fn hostile_to(&mut self, actor: FormId, other: FormId) -> bool {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
             return false;
         }
@@ -581,9 +606,16 @@ impl Game<'_> {
             return false;
         }
         if other_mate {
-            return self.would_attack(actor, FormId::PLAYER_REF);
+            return self.hostile_to(actor, FormId::PLAYER_REF);
         }
-        if mate && self.would_attack(other, FormId::PLAYER_REF) {
+        // A companion set passive on the wheel (`FollowerSwitchAggressive` 0) leaves alone
+        // whoever does not fight the player's side, its own enmities too; a grudge (a hit)
+        // counted above [hypothesis: the wheel's Passive "follows your lead",
+        // docs/spec-notes/companion-wheel.md §4].
+        if mate && self.is_passive_teammate(actor) {
+            return self.fights_the_players_side(other);
+        }
+        if mate && self.hostile_to(other, FormId::PLAYER_REF) {
             return true;
         }
         if other == FormId::PLAYER_REF {

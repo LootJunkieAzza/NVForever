@@ -702,6 +702,32 @@ fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
     assert!(!s.game.is_teammate(mate) && !s.game.extra[&mate].teammate);
 }
 
+/// The companion wheel's Back Up (docs/spec-notes/companion-wheel.md §5): the companion
+/// walks about `BACK_UP` units straight away from the player and stands; its Follow package
+/// does not call it back while it is within the follow distance.
+#[test]
+fn a_companion_told_to_back_up_steps_away_from_the_player() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_COMPANION]);
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    {
+        let p = s.game.world.get(player).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_A)), [100.0, 50.0, 0.0], [0.0; 3]);
+    }
+    s.game.extra.entry(mate).or_default().teammate = true;
+    s.run(20.0);
+    assert!(s.game.follows_player(mate));
+    let before = s.ai.agents[&mate].walker.feet;
+    let ppos = [100.0, 50.0, 0.0];
+    let away = |p: [f32; 3]| (p[0] - ppos[0]).hypot(p[1] - ppos[1]);
+    s.game.companions.back_ups.insert(mate, s.game.time);
+    s.run(6.0);
+    let after = s.ai.agents[&mate].walker.feet;
+    assert!(s.ai.events.iter().any(|e| e.actor == mate && matches!(e.event, AiEvent::BackUp { .. })), "backed up");
+    assert!(away(after) > away(before) + 100.0, "{before:?} -> {after:?}");
+    assert!(s.game.companions.back_ups.is_empty(), "the order was taken");
+}
+
 // ---- patrol waits, package furniture, sandboxes -------------------------------------------
 
 #[test]

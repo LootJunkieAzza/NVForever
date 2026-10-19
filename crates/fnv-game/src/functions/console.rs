@@ -298,7 +298,8 @@ pub fn show_quests(g: &mut Game, _ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec
         out.push("No quest is running".into());
     }
     let done = g.quests.values().filter(|s| !s.running && (s.completed || s.failed)).count();
-    out.push(format!("{} running, {done} finished and stopped", out.len()));
+    let running = g.quests.values().filter(|s| s.running).count();
+    out.push(format!("{running} running, {done} finished and stopped"));
     Ok(out)
 }
 

@@ -42,6 +42,8 @@ untimed = [
 sep = ","
 [timed.NVF_PLAY_TEST_CONTROL]
 sep = ","
+[timed.NVF_PLAY_TEST_WHEEL]
+sep = ","
 [timed.NVF_PLAY_TEST_MOVE]
 sep = ","
 [timed.NVF_PLAY_TEST_LOOK]
@@ -703,6 +705,22 @@ expect = [
 forbid = [
   { re = 'alert: \S*FiendViolet 000F570B Combat → Lost', label = "Violet loses a dead target" },
   { re = 'alert: \S*FiendViolet 000F570B says (CombatToLost|LostIdle|LostToNormal) line', label = "a Lost line about a dead target" },
+]
+
+[[scenario]]
+name = "combat-ghost-player"
+source = "script-function audit 2026-10-19: SetGhost, GECK wiki notes 'Enemies of this calling ref will not go into combat or detect an actor with this flag' (Game::would_attack, Game::ghost_hidden_from)"
+note = "the combat-target-killed setup with the player made a ghost by the console at 8 s before Violet (FiendVioletRef 0x000F570B) is set on the player at 9 s: StartCombat on a ghost is forgotten at the next measurement, so she never shoots the player down (health 10; a ghosted player is still hurt, so a shot would kill)"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setghost 1;8.1:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  { re = '(?i)console: SetGhost on player', label = "the console makes the player a ghost" },
+]
+forbid = [
+  { re = "combat: the player died", label = "Violet kills a ghosted player" },
 ]
 
 [[scenario]]
@@ -2466,7 +2484,7 @@ launch = "ncr-fiends"
 source = "owner's list 2 (combat AI, E2): fights between NPCs at scale, a group fight resolving (docs/design/combat-ai.md §12.7)"
 note = "observed 2026-10-12 (branch claude/combat-ai-2): 11 actors on 2 sides, resolved in about 62 s in one run, one against one still fighting at 75 s in another; who wins varies"
 areas = ["combat", "combat-groups"]
-paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/residents.rs"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/attack_anims.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
@@ -2479,6 +2497,7 @@ expect = [
   { re = 'takes a flank place', label = "the gunmen of a group spread round their target (flank places)" },
   { re = 'battle summary: .*?(?P<n>\d+) fights started by a hit between actors', range = [1, 1000], label = "fights started by a hit between actors (NPC against NPC)" },
   { re = 'fight move summary: .* moved [\d.]+ s forward, (?P<n>[\d.]+) s sideways', range = [5, 100000], label = "fighters strafe, facing their target (owner 2026-10-16)" },
+  { re = 'attack anims summary: .* (?P<n>\d+) shots followed a shot still shown', range = [5, 1000000], label = "shots follow on from the last one held over the fighters' movement (owner 2026-10-19: shooting takes priority)" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
@@ -2831,6 +2850,36 @@ expect = [
 forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
   { re = 'provocation: CraigBooneREF .*fights back', label = "Boone turns on the player" },
+]
+
+[[scenario]]
+name = "companion-wheel-boone"
+source = "outstanding.md §2: the companion wheel, passive/aggressive and sneaking with the player (docs/spec-notes/companion-wheel.md)"
+note = "Written 2026-10-19 by the companion-wheel session without running the game (another session held it): not run yet, for the merge session. VFreeformNovac.nSnipersRevengeStage is set to 30 at 2.5 s, as his hire chain's INFO 0x0015F30C does (his trade line, INFO 0x000B16BF, asks for it); Boone is hired by his recruit line at 3 s (as follower-boone), hurt by 60 at 10 s, the player given 3 Stimpaks; the wheel is opened on him at 14 s (Wait), closed at 20 s, opened at 30 s (Follow, Far, Aggressive, Melee, Use Stimpak, Back Up), closed at 47 s; the player sneaks at 50 s; the wheel opens at 56 s and Open Inventory closes it into his inventory. Boone's labels follow his hire state: following, passive, near, ranged"
+areas = ["followers", "menus"]
+paths = ["crates/fnv-game/src/companion_wheel.rs", "engine/nvf-play/src/companion_wheel.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/sneaking.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:3", NVF_PLAY_TEST_SCRIPT = "2.5:var:VFreeformNovac:nSnipersRevengeStage:30,3:info:0x0015F30D:CraigBooneREF,10:damage:CraigBooneREF:health:60", NVF_PLAY_TEST_WHEEL = "14:open:CraigBooneREF,15:stay_follow,20:close,30:open,31:stay_follow,36:near_far,38:aggressive_passive,40:ranged_melee,42:stimpak,45:back_up,47:close,56:open,57:inventory", NVF_PLAY_TEST_CONTROL = "50:sneak" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 65
+expect = [
+  { re = 'companion wheel: open on CraigBooneREF', label = "activating the hired companion opens the wheel" },
+  { re = 'companion wheel: stay_follow \(Wait\): CraigBooneREF says \S+ \(FollowersWait\)', label = "Wait says his FollowersWait line" },
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerWAIT', label = "his Wait package after the wheel closes" },
+  { re = 'companion wheel: stay_follow \(Follow\): CraigBooneREF says \S+ \(FollowersLetsGo\)', label = "Follow says his Let's Go line" },
+  { re = 'companion wheel: near_far \(Far\): CraigBooneREF says \S+ \(FollowersTacticsDistanceLong\)', label = "Far says the long-distance line" },
+  { re = 'CraigBooneREF: package FollowersBooneFollowPlayerLONG', label = "his long Follow package" },
+  { re = 'companion wheel: aggressive_passive \(Aggressive\): CraigBooneREF says \S+ \(FollowersTacticsCombatAggressive\)', label = "Aggressive" },
+  { re = 'companion wheel: ranged_melee \(Melee\): CraigBooneREF says \S+ \(FollowersTacticsCombatMelee\)', label = "Melee (his combat style)" },
+  { re = 'companion wheel: stimpak \(Use Stimpak\): \S+ used on CraigBooneREF', label = "a stimpak used on the hurt companion" },
+  { re = 'CraigBooneREF: backs up from the player', label = "Back Up walks him away" },
+  { re = 'sneaking: CraigBooneREF .*crouches and sneaks', label = "he sneaks with the player" },
+  { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Open Inventory opens his inventory" },
+  { re = 'companion wheel summary: opened 3 times', label = "the summary" },
+]
+forbid = [
+  { re = 'companion wheel: \S+ \(.*\): failed', label = "a command failed" },
+  { re = 'companion wheel: .*has no line of', label = "a command had no line to say" },
+  { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
 ]
 
 # ------------------------------------------------------------------ playtest list 4: dialogue and message boxes
@@ -4201,6 +4250,29 @@ order = [[
 # progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
 
 [[scenario]]
+name = "destroyed-activator"
+source = "GECK wiki SetDestroyed: destroyed doors and activators give no rollover text and cannot be activated (fnv_game::Game::activation_refused); the saloon jukebox destroyed at 15 s loses its prompt and E at 20 s does nothing, cleared at 25 s it is offered again and E at 28 s switches it off"
+areas = ["scripts", "activators"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/activate.rs", "engine/nvforever/src/activators.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_SCRIPT = "15:call:0x00107D73:SetDestroyed:1,25:call:0x00107D73:SetDestroyed:0", NVF_PLAY_TEST_ACTIVATE = "20,28" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+order = [[
+  { re = 'target 0x00107D73 ', label = "the jukebox under the crosshair" },
+  "script: test aid calls SetDestroyed on …",
+  { re = 'target (none|0x(?!00107D73))', label = "destroyed: the jukebox no longer targeted" },
+  "script: test aid calls SetDestroyed on …",
+  { re = 'target 0x00107D73 ', label = "cleared: the jukebox targeted again" },
+], [
+  "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle",
+  "00107D73 (JukeBoxDirtyNVCountry) off: …",
+  "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle",
+  "00107D73 (JukeBoxDirtyNVCountry) off: …",
+]]
+# The second group: on at load, its look off while destroyed (activators.rs), on again when
+# cleared at 25 s (E at 20 s changed nothing), off by E at 28 s.
+
+[[scenario]]
 name = "poker"
 source = "docs/design/poker.md: refused with 50 caps; with 500 the table opens at The Tops (buy-in 200), the player's seat plays by itself for a few hands, then leaves and the difference is settled in caps"
 areas = ["poker", "menus"]
@@ -5312,3 +5384,44 @@ expect = [
   { text = "menu: One: 9mm Pistol can't be equipped", label = "locked off: the inventory cannot put it on" },
   { text = "menu: One: Unequipped 9mm Pistol", label = "a plain EquipItem freed it" },
 ]
+
+[[scenario]]
+name = "move-to-marker-fade"
+source = "script-function audit 2026-10-19: MoveToMarkerWithFade fades the object out, moves it, then fades it back in [documented: GECK wiki MoveToMarkerWithFade]; the fade-out wait is the Disable 1 hold (fnv_game FADE_OUT_HOLD) [hypothesis: capture asked]"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console moves him with MoveToMarkerWithFade 600 units north of the player: he fades out where he stands (2 s), is moved, then fades in"
+areas = ["scripts", "rendering", "script-params"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/fade.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:EasyPeteRef.movetomarkerwithfade player 0 600 0;16.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { text = "fades out before its move for MoveToMarkerWithFade", count = 1, label = "Easy Pete fades out first" },
+  { text = "fades in after its move for MoveToMarkerWithFade", count = 1, label = "then he is moved and fades in" },
+  { re = 'fade: 0x[0-9A-F]{8} out over 2 s \([1-9]\d* meshes\)', min = 1, label = "his meshes fade out" },
+  { re = 'fade: 0x[0-9A-F]{8} in over 2 s \([1-9]\d* meshes\)', min = 1, label = "his meshes fade in" },
+]
+order = [[
+  "console: > EasyPeteRef.movetomarkerwithfade player 0 600 0",
+  "fades out before its move for MoveToMarkerWithFade",
+  "fades in after its move for MoveToMarkerWithFade",
+]]
+
+[[scenario]]
+name = "critical-stage-cull"
+source = "script-function audit 2026-10-19: SetCriticalStage GooEnd / DisintegrateEnd cull the reference's 3D and remove its Havok data [documented: GECK wiki SetCriticalStage]; it stays enabled"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s and killed at 15 s (he drops as a ragdoll); at 19 s the console sets his critical stage to GooEnd: his body is no longer drawn and its ragdoll leaves the physics world; IsInCriticalStage GooEnd reads 1"
+areas = ["scripts", "rendering", "combat"]
+paths = ["crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0,15:kill:EasyPeteRef", NVF_PLAY_TEST_CONSOLE = "19:EasyPeteRef.setcriticalstage gooend;19.3:EasyPeteRef.isincriticalstage gooend;19.6:EasyPeteRef.getdisabled;19.9:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "culled by its critical stage", count = 1, label = "the script runtime culls Easy Pete" },
+  { re = 'reference 0x[0-9A-F]{8} culled \(critical stage\): [1-9]\d* render entities updated', label = "his body is hidden" },
+  { re = 'console: IsInCriticalStage on EasyPeteRef >> 1\.00', label = "IsInCriticalStage GooEnd reads 1" },
+  { re = 'console: GetDisabled on EasyPeteRef >> 0\.00', label = "he stays enabled" },
+]
+order = [[
+  "console: > EasyPeteRef.setcriticalstage gooend",
+  "culled by its critical stage",
+]]
