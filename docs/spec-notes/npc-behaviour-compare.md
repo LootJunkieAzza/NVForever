@@ -460,3 +460,66 @@ What still differs, and why [observed; the causes from the records]:
 - MP B's 17 % and MP A's 3 %: the SS2 escort, above.
 
 Nothing in the AI itself is shown wrong by this capture; the comparison tool was fixed.
+
+## 11. IsInCombat while on alert: what the recordings already hold (2026-10-19)
+
+Owner item "IsInCombat while Alert" (owner-review.md "NPCs on alert", item 4; docs/outstanding.md
+AI list). Before any new run, every observer output on the desktop with the full field set
+(`C:\fnv-private\capture\out\obs_*.jsonl`, 2026-10-08 to 2026-10-19: Goodsprings, the gunfight,
+conversations, package kinds, cazador speed, the owner-decision sessions, gecko food, the
+Strip) was read for IsInCombat beside the package type, procedure, combat target,
+GetDetected player, IsWeaponOut and GetIsAlerted. The fights_round outputs are not on this
+machine. All [observed] unless tagged.
+
+- **No search state was ever recorded.** In about 480,000 living-actor samples, procedure
+  SEARCH (36), PURSUE (15) and ALARM (14) never appear, nor package type
+  SEARCH_FOR_ATTACKER (29) or ALARM (8). GetIsAlerted read 0 in every sample (as
+  owner-decision-captures.md §3 found for the 2026-10-08 files).
+- **IsInCombat goes with the combat package.** IsInCombat 1 was read only with package type
+  COMBAT (5; 14,312 samples) or DIALOGUE (6; 175 samples, combat barks); package type
+  COMBAT never came with IsInCombat 0. Onlookers in procedure OBSERVE_COMBAT read 0 (hv_knights,
+  geckos: 606 samples). Fleeing on a flee package reads 0; FLEE as a combat procedure reads 1.
+- **Unseen, still in combat.** Actors in combat with the player kept IsInCombat 1, the
+  player as combat target and procedure COMBAT while GetDetected player read 0: 73 such
+  stretches, most under 10 real s, the longest 293 s (a gecko of `geckos_package_chain`, to
+  the session's end) [real seconds from game time at TimeScale 30]. 53 ended with the player
+  seen again, 3 with the session; 17 with the actor leaving combat (IsInCombat 0, target
+  cleared, back to PATROL or WANDER), 8 of them while still not detecting the player, after
+  1.1 to 11.9 real s.
+- **Entering and leaving.** An actor goes from its package's procedure (WANDER, GUARD, …)
+  to COMBAT in one sample, with IsInCombat 1 and no combat target for 0.1–0.3 real s (up
+  to 1.2 s for spawned gunmen) before the target is set. At the end of a fight the
+  survivors read IsInCombat 1 with no target for 0.8–2.1 real s, then 0 (the Goodsprings
+  gunfight's one game minute, ai-observer.md §7).
+- **The `alert_noise` output** (`obs_owner_decisions_01_alert_noise.1792326458.jsonl`) has
+  Cook-Cook and the camp Fiends alive (the file does not say which save it came from).
+  Cook-Cook and two Fiends were already in combat with the hidden player at the first
+  sample, before the shots; the other two joined within 0.2 real s each, straight into
+  COMBAT with the player as target. No Fiend showed weapon out without combat. So it does
+  not show an alert-before-combat state either.
+
+**Reading** [hypothesis]: in the original, what scripts see as IsInCombat is the combat
+package: 1 from the moment an actor takes it (before it has a target) until it drops it,
+including the stretches where it has lost sight of its target, and 0 for onlookers. Our
+alert.md has 1 on Alert, Combat and Lost; the recordings agree for Combat and for an unseen
+target (our Lost), and have no case of an alert without combat, so the Alert row stays a
+[documented] reading of the wiki, unconfirmed. The original went from unaware to combat in
+one sample in every recording; a capture that should show an Alert has to give a hostile a
+sound with no sight line at all (the shots of `alert_noise` came after the Fiends had seen
+the player). No new run is planned for it in this round.
+
+## 12. The next round of observer campaigns (2026-10-19, written, not yet run)
+
+Written on the desktop; run on the other machine (owner's request), one at a time with both
+game locks, each once. Generated jobs were checked against the masters (`observe.py jobs
+--data`): every reference and form resolves.
+
+| Campaign (tools/capture/observe/) | Save | Question | How to run |
+|---|---|---|---|
+| `fight_spacing` | nvftest | §8.3: fight length and damage per hit by start distance (500 / 1,000 / 2,000 units), guns only | each session alone (`--only spacing_500` …) |
+| `melee_holdoff` | nvfstrip | §8.4: hold-off against a player without god mode, tgm sessions as the control at the same spot | one run |
+| `creature_spacing` | nvftest | §8.2: swing distance of deathclaws, young deathclaws, radroaches, cazadors against NPCs | each session alone |
+| `package_durations` | nvftest | owner-review "Package durations": a Novac day, switches against start + duration and the goal | one run (~50 real min) |
+| `followers` | nvftest | Boone: through doors (both ways), follow distance, sneaking, joining combat | one run |
+
+Findings go here (§8.2–8.4), into docs/spec-notes/packages.md (durations) and a followers note.

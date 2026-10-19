@@ -2798,7 +2798,9 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    rerun from `nvftest` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
    and for
    you while one hunts you (the documentation says so). This can change quest scripts
-   that test IsInCombat; nothing showed in the runs, but watch for it.
+   that test IsInCombat; nothing showed in the runs, but watch for it. **2026-10-19 [observed]:** no recording
+   holds an Alert without combat; IsInCombat is 1 while the combat package runs, also with the
+   target unseen (spec-notes/npc-behaviour-compare.md §11).
 5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
    body was in the way of the ray, and a small transparent fence hid you. Both changed
    (`docs/design/alert.md` §7).
