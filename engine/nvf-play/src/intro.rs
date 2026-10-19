@@ -1,8 +1,9 @@
 //! Films: the intro film before a new game, and the films scripts play (PlayBink).
 //!
-//! **The intro** (`Video\FNVIntro.bik`, the owner's choice of film, 2026-10-15): chosen
-//! New Game on the main menu (`crate::main_menu`) plays it, then the opening begins. Any
-//! key or a click skips it. The game stays held under it as under the main menu
+//! **The intro** (`Video\FNVIntro.bik`, the owner's choice of film, 2026-10-15, or the
+//! INI's `sIntroMovie`, none when that is empty: `crate::game_start`): chosen New Game on
+//! the main menu (`crate::main_menu`) plays it, then the opening begins. Any key or a
+//! click skips it. The game stays held under it as under the main menu
 //! (`crate::pause::Paused`).
 //!
 //! **PlayBink** (`fnv_game::functions::misc::play_bink`, docs/spec-notes/bink-films.md):
@@ -76,8 +77,8 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// The film [owner, 2026-10-15].
-pub const FILM: &str = "video\\fnvintro.bik";
+/// The film unless the INI names another [owner, 2026-10-15] (`crate::game_start`).
+pub const FILM: &str = crate::game_start::DEFAULT_INTRO;
 /// Frames decoded ahead of the one shown.
 #[cfg(feature = "intro-video")]
 const AHEAD: usize = 8;
@@ -145,6 +146,9 @@ pub struct Intro {
     shot_at: Option<f32>,
     /// Films scripts asked for, waiting for the world.
     queue: VecDeque<FilmRequest>,
+    /// The intro film New Game plays (`crate::game_start`, the INI's `sIntroMovie`);
+    /// `None`: none.
+    film: Option<String>,
     /// The intro film has been shown (played or skipped) in this run.
     intro_shown: bool,
     /// Scripted films are played (not in an unattended run without `NVF_PLAY_TEST_FILMS`).
@@ -169,10 +173,15 @@ impl Intro {
         })
     }
 
+    /// `path` is the intro film's.
+    fn is_intro(&self, path: &str) -> bool {
+        self.film.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(path))
+    }
+
     /// A script's film: queued to play, or passed over (the intro film shown already,
     /// or an unattended run). Returns whether it was queued.
     fn ask(&mut self, film: FilmRequest) -> bool {
-        if film.path == FILM && self.intro_shown {
+        if self.is_intro(&film.path) && self.intro_shown {
             info!("film: {}: the intro film, shown before the opening already; not played again", film.path);
             return false;
         }
@@ -243,7 +252,8 @@ impl Plugin for IntroPlugin {
     fn build(&self, app: &mut App) {
         let aid = |name: &str| std::env::var(name).ok().and_then(|v| v.trim().parse().ok());
         let script_films = !crate::test_aid::Unattended::from_env().0 || std::env::var("NVF_PLAY_TEST_FILMS").is_ok_and(|v| v.trim() == "1");
-        app.insert_resource(Intro { skip_after: aid("NVF_PLAY_TEST_INTRO_SKIP"), shot_at: aid("NVF_PLAY_TEST_INTRO_SHOT"), script_films, ..default() })
+        let film = crate::game_start::GameStart::of_app(app).intro;
+        app.insert_resource(Intro { skip_after: aid("NVF_PLAY_TEST_INTRO_SKIP"), shot_at: aid("NVF_PLAY_TEST_INTRO_SHOT"), script_films, film, ..default() })
             .add_message::<PlayIntro>()
             .add_audio_source::<IntroSound>()
             .add_systems(Update, (take_films, start, play).chain().in_set(PlaySet::Ui));
@@ -281,7 +291,10 @@ fn world_free(state: &State<PlayState>, paused: &Paused, loading: &crate::loadin
 #[cfg(not(feature = "intro-video"))]
 fn start(mut asked: MessageReader<PlayIntro>, mut intro: ResMut<Intro>, mut paused: ResMut<Paused>, mut next: ResMut<NextState<PlayState>>) {
     if asked.read().last().is_some() {
-        info!("intro: not built in (cargo feature intro-video); {FILM} is not played");
+        match &intro.film {
+            Some(f) => info!("intro: not built in (cargo feature intro-video); {f} is not played"),
+            None => info!("intro: none ({} is empty)", crate::game_start::INTRO_KEY),
+        }
         intro.intro_shown = true;
         begin_game(&mut paused, &mut next);
     }
@@ -317,10 +330,15 @@ fn start(
     }
     let (film, opened) = if asked.read().last().is_some() {
         intro.intro_shown = true;
-        match open_film(data.as_deref(), FILM) {
+        let Some(file) = intro.film.clone() else {
+            info!("intro: none ({} is empty)", crate::game_start::INTRO_KEY);
+            begin_game(&mut paused, &mut next);
+            return;
+        };
+        match open_film(data.as_deref(), &file) {
             Ok(x) => (Film::Intro, x),
             Err(e) => {
-                warn!("intro: {FILM}: {e}");
+                warn!("intro: {file}: {e}");
                 begin_game(&mut paused, &mut next);
                 return;
             }
@@ -334,7 +352,7 @@ fn start(
             let Some(f) = intro.queue.pop_front() else { return };
             match open_film(data.as_deref(), &f.path) {
                 Ok(x) => {
-                    if f.path == FILM {
+                    if intro.is_intro(&f.path) {
                         intro.intro_shown = true;
                     }
                     paused.0 = true;
@@ -532,13 +550,16 @@ mod tests {
 
     #[test]
     fn scripted_films_queue_unless_the_intro_was_shown_or_the_run_is_unattended() {
-        let mut intro = Intro { script_films: true, ..default() };
+        let mut intro = Intro { script_films: true, film: Some(FILM.into()), ..default() };
         assert!(intro.ask(film(FILM)), "the opening's call plays the intro film when the main menu did not");
         assert!(intro.ask(film("video\\fnvlogo1.bik")));
         intro.intro_shown = true;
         assert!(!intro.ask(film(FILM)), "not twice");
         assert!(intro.ask(film("video\\other.bik")));
         assert_eq!(intro.queue.len(), 3);
+        // With no intro film (`sIntroMovie=`) the opening's call plays it.
+        let mut none = Intro { script_films: true, intro_shown: true, ..default() };
+        assert!(none.ask(film(FILM)));
         let mut unattended = Intro::default();
         assert!(!unattended.ask(film("video\\other.bik")));
         assert!(unattended.queue.is_empty());

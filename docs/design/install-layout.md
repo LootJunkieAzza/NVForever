@@ -64,6 +64,21 @@ Default`, `Invert Y` and `Mouse Sensitivity`. Each start reads them and writes a
 an existing INI lacks, so the file lists every control to edit by hand; the settings
 page's Controls tab rebinds a control and writes the section again.
 
+What a new game starts with is kept under `[General]`, by the original's own key names so
+a mod's INI lines can be copied in (`nvf_play::game_start`): `sCharGenQuest` is the quest
+New Game starts, by FormID (`001FFFF8`) or Editor ID, VCG00 without the key (the
+original's `00102037`); `sIntroMovie` is the film New Game plays from `Data\Video`, none
+when empty, `FNVIntro.bik` without the key. Tale of Two Wastelands asks for
+
+```ini
+[General]
+SCharGenQuest=001FFFF8
+SIntroMovie=
+```
+
+Both are read once at start and never written; unattended runs read them only under their
+own `NVFOREVER_HOME`.
+
 **Before every start** the folder must pass (`fnv_install::GameInstall`):
 
 - `Data\FalloutNV.esm` exists (the folder is a game install at all);
