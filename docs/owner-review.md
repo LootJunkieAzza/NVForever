@@ -6296,7 +6296,10 @@ against the original. Decisions and what is still mine:
 - **NCR against Fiends**: the original's MoveTo reaches only four of the six troopers;
   with four, ours ends in 47 s with Cook-Cook dead, the original's Cook-Cook kills all
   four (89–99 s). The engine now logs each target's hits and damage (`npc hits
-  summary`) to find why; not fixed in this round.
+  summary`): hit rates are alike, but our hits between NPCs do two to fifteen times the
+  original's damage (Cook-Cook: median 6.2 a hit against 2.0; a Fiend's shot on a trooper
+  22–30 against under 2). Not fixed in this round: the damage formula between NPCs
+  (threshold, resistance) needs its own look (npc-behaviour-compare.md §9).
 - **The Strip**: our AI chose the same packages as the original for 97–100 % of the
   samples once the comparison had the quest variable and the enabled crowd; the
   travellers' walking back and forth and the troopers' scene come from scripts the

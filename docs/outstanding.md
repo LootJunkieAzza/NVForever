@@ -147,8 +147,10 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   original's MoveTo reaches only four of the six troopers (two are non-persistent); with
   the same four ours lasts 47 s and Cook-Cook dies, where the original's Cook-Cook (215
   Health, a flamer) kills all four by 89–99 s. Hit rates are alike (0.28–0.49 a shot in
-  the original); smoke `battle-ncr-fiends-four` logs each target's hits and damage for the
-  next step.
+  the original); but a hit does two to fifteen times the original's damage in ours (a
+  median 6.2 on Cook-Cook against 2.0; 22–30 a Fiend's shot on a trooper against under 2),
+  measured with smoke `battle-ncr-fiends-four`'s `npc hits summary`. The damage between
+  NPCs (threshold, resistance, the NPC formula) is the next thing to look at.
 - Melee attackers keeping away from a god-mode player: not god mode's doing. In the same
   room a knife, a sledgehammer and a dog closed in and swung alike with and without god
   mode (npc-behaviour-compare.md §9), as ours do; the outdoor hold-off is unexplained.

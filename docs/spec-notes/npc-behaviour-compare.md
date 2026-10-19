@@ -322,6 +322,20 @@ OnStartCombat events; `tools/capture/fight_stats.py` counts shots, hits and dama
 - Troopers: 36–138 shots each, **0.28–0.49 hits per shot**, a median **2.0–5.5 damage per
   hit** (most 23–27), shots from a median 650–1,500 units; all fighters together 291
   shots, 187 hits on actors (0.64 a shot), a median 2.0 damage a hit.
+- **Ours with the same four troopers** (smoke `battle-ncr-fiends-four`, the engine's new
+  `npc hits summary` line): over in 38–47 s, Cook-Cook dead. Hits from actors, by target:
+
+  | Target | Original: hits, median damage a hit | Ours: hits, median damage a hit |
+  |---|---|---|
+  | Cook-Cook | 60, 2.0 (200 in all, of 215 Health) | 46, 6.2 (290 in all, of 290 Health) |
+  | Fiends | 7–17 each, 4.2–11.1 | 3–10 each, 8.3–8.8 |
+  | NCR troopers | 5–13 each, 0.1–1.9 (most died of burning) | 2–12 each, 1.7–30.4 (three died of 2–3 hits) |
+
+  The hit rates are alike; **the damage a hit is two to fifteen times the original's** in
+  ours, most of all a Fiend's gun on the troopers, and the actors' maximum Health differs
+  too (Cook-Cook 290 against 215; the leveled actors' levels follow the player's, which
+  differs between the two saves). Not fixed here: the damage threshold and resistance or
+  the NPC damage formula between NPCs need their own look (owner-review).
 - The player moved 3,500 units off the fight at 52 s (the second run): the NPCs went on
   fighting with **IsInCombat 1** while 2,500–5,500 units from the player, until the last
   trooper died; then the rest left combat.
