@@ -83,6 +83,12 @@ pub struct PartShape {
 }
 
 impl PartShape {
+    /// The look its material stores, for clips that drive it (`material_anim`).
+    pub fn stored_look(&self) -> crate::material_anim::StoredLook {
+        let (emissive, mult) = self.props.emissive_parts();
+        crate::material_anim::StoredLook(crate::material_anim::Look::stored(emissive, mult, self.props.alpha_part()))
+    }
+
     /// The diffuse texture the model names (NIF texture path), if any.
     pub fn base_texture(&self) -> Option<&str> {
         self.props.textures.first().map(String::as_str).filter(|t| !t.is_empty())
@@ -629,7 +635,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                 }
             };
             if let Some(n) = &s.name {
-                commands.entity(e).insert(ShapeName(n.to_ascii_lowercase()));
+                commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
             }
             out.drawn.push(e);
             out.part_of.push(pi);

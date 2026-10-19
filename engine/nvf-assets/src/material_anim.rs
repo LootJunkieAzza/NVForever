@@ -17,9 +17,18 @@
 //! (`uv + offset`) [hypothesis: the direction is not documented; the textures tile, so
 //! only the direction of the scroll depends on it]. An alpha track replaces the
 //! material's alpha [hypothesis]; it shows only on a shape drawn blended or tested (one
-//! with an `NiAlphaProperty`).
+//! with an `NiAlphaProperty`). Scale and rotation tracks scale and turn the texture about
+//! its centre (0.5, 0.5), then the offset moves it: `uv' = c + R·S·(uv − c) + offset`
+//! [hypothesis: nif.xml gives TexDesc a Center and a Transform Method but not the
+//! formula; with scale 1 and no rotation it is the offset alone].
+//!
+//! Actors: the clips an actor's [`BlendPlayer`] plays drive the materials of its parts'
+//! shapes by name too (the Securitron screen's flicker, roll and static,
+//! docs/spec-notes/effects-animation-audit.md §2): [`actor_material_values`], posed
+//! by nvforever's `actor_materials.rs`.
 
-use crate::anim_play::{MaterialTarget, MaterialTrack, Playing};
+use crate::anim_blend::Animator;
+use crate::anim_play::{cycle_time, BlendPlayer, MaterialTarget, MaterialTrack, Playing};
 use crate::nif_material::{multiply_emissive, NifMaterial};
 use bevy::math::Affine2;
 use bevy::prelude::*;
@@ -56,8 +65,98 @@ impl MaterialSlot {
 pub struct Look {
     pub colour: [f32; 3],
     pub mult: f32,
+    /// Base texture offset, scale and rotation (radians).
     pub uv: [f32; 2],
+    pub scale: [f32; 2],
+    pub rotate: f32,
     pub alpha: f32,
+}
+
+impl Look {
+    /// A material's stored look: its emissive colour and multiplier and its alpha, the
+    /// texture where the model puts it.
+    pub fn stored(colour: [f32; 3], mult: f32, alpha: f32) -> Look {
+        Look { colour, mult, uv: [0.0; 2], scale: [1.0; 2], rotate: 0.0, alpha }
+    }
+
+    /// Take the value of a track of `target` (`v`: its sample) into the look.
+    pub fn take(&mut self, target: MaterialTarget, v: [f32; 3]) {
+        match target {
+            MaterialTarget::SelfIllum => self.colour = v,
+            MaterialTarget::EmissiveMult => self.mult = v[0].max(0.0),
+            MaterialTarget::UvOffset(axis) => self.uv[axis] = v[0],
+            MaterialTarget::UvScale(axis) => self.scale[axis] = v[0],
+            MaterialTarget::UvRotate => self.rotate = v[0],
+            MaterialTarget::Alpha => self.alpha = v[0].clamp(0.0, 1.0),
+        }
+    }
+
+    /// The base texture's transform (module notes).
+    pub fn uv_transform(&self) -> Affine2 {
+        let c = Vec2::splat(0.5);
+        Affine2::from_translation(c + Vec2::from_array(self.uv))
+            * Affine2::from_angle(self.rotate)
+            * Affine2::from_scale(Vec2::from_array(self.scale))
+            * Affine2::from_translation(-c)
+    }
+}
+
+/// On a drawn shape of an actor's part (with its `ShapeName`): the look its model
+/// stores, which a member no clip drives goes back to.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct StoredLook(pub Look);
+
+/// The members of a material that tracks drive.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Driven {
+    pub emissive: bool,
+    pub texture: bool,
+    pub alpha: bool,
+}
+
+impl Driven {
+    pub const ALL: Driven = Driven { emissive: true, texture: true, alpha: true };
+
+    pub fn of(target: MaterialTarget) -> Driven {
+        match target {
+            MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult => Driven { emissive: true, ..default() },
+            MaterialTarget::UvOffset(_) | MaterialTarget::UvScale(_) | MaterialTarget::UvRotate => Driven { texture: true, ..default() },
+            MaterialTarget::Alpha => Driven { alpha: true, ..default() },
+        }
+    }
+
+    pub fn or(self, o: Driven) -> Driven {
+        Driven { emissive: self.emissive || o.emissive, texture: self.texture || o.texture, alpha: self.alpha || o.alpha }
+    }
+
+    pub fn any(self) -> bool {
+        self.emissive || self.texture || self.alpha
+    }
+}
+
+/// Write the `driven` members of `look` into `m`. With `unlit_glow`, an unlit shape's
+/// emissive light is its colour: drawn colour = texture × emissive colour × multiplier
+/// [hypothesis, effects-animation-audit.md §2: the Securitron idle's screen glow keys
+/// average 0.032 × multiplier 30 ≈ 1 and its screen-change flash reaches 0.99 × 30,
+/// while an unlit shape here otherwise draws its texture as it is, so its emissive light
+/// would not show].
+pub fn pose_material(m: &mut NifMaterial, look: &Look, driven: Driven, unlit_glow: bool) {
+    let Look { colour, mult, alpha, .. } = *look;
+    if driven.emissive {
+        if unlit_glow && m.base.unlit && !matches!(m.base.alpha_mode, AlphaMode::Multiply) {
+            let a = m.base.base_color.alpha();
+            m.base.base_color = Color::LinearRgba(LinearRgba::new(colour[0] * mult, colour[1] * mult, colour[2] * mult, a));
+        } else {
+            let value = |c: f32| if matches!(m.base.alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * mult) } else { c * mult };
+            m.base.emissive = LinearRgba::rgb(value(colour[0]), value(colour[1]), value(colour[2]));
+        }
+    }
+    if driven.texture {
+        m.base.uv_transform = look.uv_transform();
+    }
+    if driven.alpha {
+        m.base.base_color.set_alpha(alpha);
+    }
 }
 
 /// On the root of a rig whose clips drive materials.
@@ -83,17 +182,21 @@ pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, clock: f
     slots
         .iter()
         .map(|s| {
-            let mut l = Look { colour: s.emissive, mult: s.emissive_mult, uv: s.last.map_or([0.0; 2], |l| l.uv), alpha: s.last.map_or(s.alpha, |l| l.alpha) };
+            let mut l = Look::stored(s.emissive, s.emissive_mult, s.alpha);
+            if let Some(last) = s.last {
+                (l.uv, l.scale, l.rotate, l.alpha) = (last.uv, last.scale, last.rotate, last.alpha);
+            }
             for tr in tracks.iter().filter(|tr| tr.shape == s.shape) {
                 let t = tr.cycle.map_or(t, |c| c.time(clock));
                 match tr.target {
                     MaterialTarget::SelfIllum if dark => l.colour = [0.0; 3],
                     MaterialTarget::EmissiveMult if dark => l.mult = 0.0,
                     _ if dark => {}
-                    MaterialTarget::SelfIllum => l.colour = tr.values.at(t).unwrap_or(l.colour),
-                    MaterialTarget::EmissiveMult => l.mult = tr.values.at(t).map_or(l.mult, |v| v[0].max(0.0)),
-                    MaterialTarget::UvOffset(axis) => l.uv[axis] = tr.values.at(t).map_or(l.uv[axis], |v| v[0]),
-                    MaterialTarget::Alpha => l.alpha = tr.values.at(t).map_or(l.alpha, |v| v[0].clamp(0.0, 1.0)),
+                    target => {
+                        if let Some(v) = tr.values.at(t) {
+                            l.take(target, v);
+                        }
+                    }
                 }
             }
             l
@@ -112,11 +215,7 @@ impl RigMaterials {
                 continue;
             }
             let Some(mut m) = materials.get_mut(&slot.handle) else { continue };
-            let Look { colour, mult, uv, alpha } = v;
-            let value = |c: f32| if matches!(m.base.alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * mult) } else { c * mult };
-            m.base.emissive = LinearRgba::rgb(value(colour[0]), value(colour[1]), value(colour[2]));
-            m.base.uv_transform = Affine2::from_translation(Vec2::from_array(uv));
-            m.base.base_color.set_alpha(alpha * fade);
+            pose_material(&mut m, &Look { alpha: v.alpha * fade, ..v }, Driven::ALL, false);
             slot.last = Some(v);
             slot.faded = fade;
         }
@@ -155,6 +254,50 @@ pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut
     }
 }
 
+/// The values the playing layers of an actor give the materials of its shapes: for each
+/// (shape, member) the layer with the most weight that drives it [design: a material is
+/// not blended as bones are; the strongest clip's value is the one drawn]. `out` gets
+/// (shape, target, value) and is cleared first; shapes are named as the clips name them.
+pub fn actor_material_values<'a>(player: &'a BlendPlayer, out: &mut Vec<(&'a str, MaterialTarget, [f32; 3], f32)>) {
+    out.clear();
+    for layer in player.layers.iter().flatten().filter(|l| l.weight > 0.0) {
+        let bc = &layer.clip;
+        if bc.clip.materials.is_empty() {
+            continue;
+        }
+        let time = cycle_time(bc.time_at(layer.phase), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
+        for tr in &bc.clip.materials {
+            let Some(v) = tr.values.at(tr.cycle.map_or(time, |c| c.time(time - bc.clip.start))) else { continue };
+            match out.iter_mut().find(|(s, t, ..)| *t == tr.target && s.eq_ignore_ascii_case(&tr.shape)) {
+                Some(e) if e.3 >= layer.weight => {}
+                Some(e) => *e = (tr.shape.as_str(), tr.target, v, layer.weight),
+                None => out.push((tr.shape.as_str(), tr.target, v, layer.weight)),
+            }
+        }
+    }
+}
+
+/// [`actor_material_values`] for the layers of an [`Animator`] (the player's rigs): a
+/// layer's strength is its weight times its fade.
+pub fn animator_material_values<'a>(animator: &'a Animator, out: &mut Vec<(&'a str, MaterialTarget, [f32; 3], f32)>) {
+    out.clear();
+    for layer in &animator.layers {
+        let w = layer.weight * layer.ease;
+        if w <= 0.0 || layer.clip.materials.is_empty() {
+            continue;
+        }
+        let time = layer.sample_time(animator.phase);
+        for tr in &layer.clip.materials {
+            let Some(v) = tr.values.at(tr.cycle.map_or(time, |c| c.time(time - layer.clip.start))) else { continue };
+            match out.iter_mut().find(|(s, t, ..)| *t == tr.target && s.eq_ignore_ascii_case(&tr.shape)) {
+                Some(e) if e.3 >= w => {}
+                Some(e) => *e = (tr.shape.as_str(), tr.target, v, w),
+                None => out.push((tr.shape.as_str(), tr.target, v, w)),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +332,7 @@ mod tests {
         let v = sample(&slots, &tracks, 2.0, 2.0, false);
         assert!((v[0].colour[0] - 0.349).abs() < 1e-5 && v[0].mult == 1.0 && v[0].uv == [0.0, 0.0]);
         assert!((v[1].uv[0] - 1.5).abs() < 1e-5 && v[1].colour == [0.86; 3]);
-        assert_eq!(v[2], Look { colour: [0.86; 3], mult: 1.0, uv: [0.0, 0.0], alpha: 0.0 });
+        assert_eq!(v[2], Look::stored([0.86; 3], 1.0, 0.0));
         // Dark: the light goes out, the notes stay where they were.
         let d = sample(&slots, &tracks, 2.0, 2.0, true);
         assert_eq!(d[0].colour, [0.0; 3]);
@@ -212,6 +355,45 @@ mod tests {
     }
 
     #[test]
+    fn scale_and_rotation_turn_the_texture_about_its_centre() {
+        let mut l = Look::stored([0.0; 3], 1.0, 1.0);
+        assert!(l.uv_transform().abs_diff_eq(Affine2::IDENTITY, 1e-6));
+        // An offset alone moves the texture as before.
+        l.take(MaterialTarget::UvOffset(1), [0.25; 3]);
+        assert!(l.uv_transform().abs_diff_eq(Affine2::from_translation(Vec2::new(0.0, 0.25)), 1e-6));
+        // Scale 2 about the centre: the centre stays, a corner goes twice as far.
+        let mut l = Look::stored([0.0; 3], 1.0, 1.0);
+        l.take(MaterialTarget::UvScale(0), [2.0; 3]);
+        l.take(MaterialTarget::UvScale(1), [2.0; 3]);
+        assert!(l.uv_transform().transform_point2(Vec2::splat(0.5)).abs_diff_eq(Vec2::splat(0.5), 1e-6));
+        assert!(l.uv_transform().transform_point2(Vec2::ZERO).abs_diff_eq(Vec2::splat(-0.5), 1e-6));
+        // A quarter turn about the centre.
+        let mut l = Look::stored([0.0; 3], 1.0, 1.0);
+        l.take(MaterialTarget::UvRotate, [std::f32::consts::FRAC_PI_2; 3]);
+        assert!(l.uv_transform().transform_point2(Vec2::new(1.0, 0.5)).abs_diff_eq(Vec2::new(0.5, 1.0), 1e-5));
+    }
+
+    #[test]
+    fn an_unlit_shape_glows_by_its_emissive_value() {
+        // The Securitron screen: unlit, emissive 0.032 × 30 in the idle.
+        let mut m = NifMaterial::default();
+        m.base.unlit = true;
+        let mut l = Look::stored([0.032; 3], 30.0, 1.0);
+        pose_material(&mut m, &l, Driven { emissive: true, ..default() }, true);
+        assert!((m.base.base_color.to_linear().red - 0.96).abs() < 1e-5);
+        assert_eq!(m.base.emissive, LinearRgba::BLACK);
+        // Without the rule, and on a lit shape, it is emissive light.
+        l.colour = [0.1; 3];
+        let mut lit = NifMaterial::default();
+        pose_material(&mut lit, &l, Driven { emissive: true, ..default() }, true);
+        assert!((lit.base.emissive.red - 3.0).abs() < 1e-5);
+        // Members not driven stay.
+        let before = lit.base.uv_transform;
+        pose_material(&mut lit, &l, Driven { alpha: true, ..default() }, true);
+        assert_eq!(lit.base.uv_transform, before);
+    }
+
+    #[test]
     fn a_controller_of_its_own_keeps_its_own_cycle() {
         // `fxsmokewisps01.nif`: the wisps' texture scrolls along V from 0 to 1 in 36.67 s
         // and along U in 44.1 s, each looping by itself.
@@ -222,7 +404,7 @@ mod tests {
             cycle: Some(crate::anim_play::OwnCycle { start: 0.0, stop, frequency: 1.0, phase: 0.0, cycle_type: 0 }),
         };
         let tracks = [track(1, 36.666668), track(0, 44.1)];
-        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec());
+        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec(), Vec::new());
         assert!((clip.stop - 44.1).abs() < 1e-4);
         let slots = [slot("WispsGeo:0")];
         // 50 s of play: V is 13.33 s into its second cycle, U 5.9 s into its second,

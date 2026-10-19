@@ -17,6 +17,7 @@
 
 mod activators;
 mod actor_feet;
+mod actor_materials;
 mod anim_objects;
 mod anim_state;
 mod actor_groups;
@@ -1137,6 +1138,9 @@ fn main() -> AppExit {
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
+    // Clips that drive actors' part materials (the Securitron screens), once posed.
+    .add_systems(Update, actor_materials::pose.after(locomotion::drive))
+    .add_systems(Update, actor_materials::pose_player.after(nvf_play::player::BodySet))
     .add_systems(Update, timelapse.after(sky::update_sky))
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));

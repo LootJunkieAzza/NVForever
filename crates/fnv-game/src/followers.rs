@@ -32,9 +32,13 @@ use crate::package::{PackageType, TargetKind};
 use crate::provocation::Note;
 
 /// How far beside the player a teammate is put when the player changes cells, and the
-/// step between several teammates [design: the wiki says "teleport to the player"; standing
-/// in the player's place would push the two apart].
-pub const BESIDE: f32 = 64.0;
+/// step between several teammates. Through a load door the original put a following
+/// Boone about 170 units to the player's left and 12 to 30 ahead, settling about 145 to
+/// 155 left [observed: od_03_teammate_door 2026-10-18 and 2026-10-19, Novac's motel
+/// door, owner-decision-captures.md §7]; was 64 to the right [design: the wiki says only
+/// "teleport to the player"]. One door was measured: the side and distance may depend on
+/// where the door's marker stands [hypothesis].
+pub const BESIDE: f32 = 160.0;
 
 impl Game<'_> {
     /// Whether `r` is the player's teammate now (SetPlayerTeammate 1, alive).
@@ -56,22 +60,31 @@ impl Game<'_> {
         })
     }
 
-    /// The player has just changed cells (a load door, MoveTo): every teammate whose
-    /// package follows the player is put beside the player, in the player's cell, facing
-    /// the player's way [documented: "Changing cells will teleport the teammate to the
-    /// player"; hypothesis: only those following, not those told to wait, which keep a
-    /// Guard package where they stand]. They go to [`Game::teleported`] like a MoveTo and
+    /// Whether a teammate was told to wait: its current package is a Guard package (the
+    /// companions' Wait packages are, chosen by their `Waiting` variable) [hypothesis].
+    pub fn told_to_wait(&mut self, actor: FormId) -> bool {
+        let data = self.data;
+        self.current_package(actor).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.ty == PackageType::Guard)
+    }
+
+    /// The player has just changed cells (a load door, MoveTo): every teammate not told
+    /// to wait is put beside the player, in the player's cell, facing the player's way
+    /// [documented: "Changing cells will teleport the teammate to the player"; observed:
+    /// the original brought Boone along on his own PATROL package, not following, through
+    /// a door and by MoveTo, and left him behind with `Waiting` 1 (od_03 and the
+    /// `followers` campaign, owner-decision-captures.md §7, npc-behaviour-compare.md §13);
+    /// hypothesis: that waiting is what kept him, read here as a Guard package]. They go to [`Game::teleported`] like a MoveTo and
     /// to [`Game::brought_along`] for the log. Returns them.
     pub fn bring_teammates(&mut self) -> Vec<FormId> {
         let Some((Some(cell), pos, rot)) = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot)) else { return Vec::new() };
         let mut out = Vec::new();
         for t in self.teammates() {
-            if !self.present(t) || !self.follows_player(t) {
+            if !self.present(t) || self.told_to_wait(t) {
                 continue;
             }
-            // To the player's right, then left, one step further for each.
+            // To the player's left (as observed), then right, one step further for each.
             let n = out.len();
-            let side = if n % 2 == 0 { 1.0 } else { -1.0 } * BESIDE * (1 + n / 2) as f32;
+            let side = if n % 2 == 0 { -1.0 } else { 1.0 } * BESIDE * (1 + n / 2) as f32;
             let h = rot[2];
             let at = [pos[0] + h.cos() * side, pos[1] - h.sin() * side, pos[2]];
             let cell = self.world.placed.exterior_cell_at(cell, at).unwrap_or(cell);

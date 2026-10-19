@@ -8,9 +8,9 @@ are lab rules or design choices stay with the owner and have no job here: L5.scr
 the `delay_*` inputs, holdouts, comparator tolerances, the living dialogue pause, and
 walking away mid-conversation.
 
-The first run was on 2026-10-18; its outcomes are in §4. Section 3's "settles it"
-column states each expected outcome as a [hypothesis]. A row counts as settled only
-where §4 says so.
+The first run was on 2026-10-18; its outcomes are in §4. The second run was on
+2026-10-19; its outcomes are in §7. Section 3's "settles it" column states each expected
+outcome as a [hypothesis]. A row counts as settled only where §4 or §7 says so.
 
 ## 1. What was written
 
@@ -123,7 +123,7 @@ This note was written from the readings the coordinator relayed, not from the ra
 It claims no more than those readings give. In the `ai` field the values are in this
 order: package, type, procedure, …, x, y, z, heading.
 
-**Still pending.** The second round's jobs (§5).
+**Second round.** Its jobs (§5) ran on 2026-10-19 (§7).
 
 ### Settled
 
@@ -395,3 +395,225 @@ the player hidden 1,500 units from gecko 0x0016518B:
   nothing_it_wants`). People on such packages (prospectors looting containers, Freeside
   thugs, slavers: 17 Find packages carry the flag) keep the old rule, attacking only an
   actor carrying what they look for [hypothesis: no person was observed].
+
+## 7. Second run, 2026-10-19 [observed]
+
+**Source.** This session ran the §5 jobs in the original game on the owner's desktop
+(plugin version 9, 1280 × 720 windowed, save `nvftest`), holding both game locks. The
+outputs are in `C:\fnv-private\capture\out` (`od_*` from 1792429265 on), the screenshots in
+`\shots`, the run reports in `C:\fnv-private\capture\od-run`; none is committed. Every
+screenshot named below was looked at by this session; a topic list or a subtitle read off
+a picture is [observed].
+
+**Runs.** Four launches of `capture_run.py` and a fifth per dialogue job:
+- the ten §5 jobs together (the game crashed in od_22, in Freeside, after nine had ended);
+- od_02, 03, 05, 09b, 12, 13 and 20 again with the job fixes below;
+- od_12, od_20 and od_09b last (od_09b's geckos had killed Ringo before od_12 ran);
+- od_21, od_22 and od_20 each in a game of its own; od_22 twice more after a rework.
+
+**The Saves folder.** od_03's trip through Novac's door made the game write
+`autosave.fos` again (the first run did too). The rolling saves from before are in
+`C:\fnv-private\capture\saves-backup\1792429246`; nothing was restored (the owner's call).
+
+### Job fixes made during the run (in the generator; the test checks them)
+
+- **od_03.** Activating the outside door by script (0x000CAFA5) did not take the player
+  in either. The player now faces it and taps Activate; that failed too (600 loops), so
+  the job falls back to `player.MoveTo` the inner door and records `way_in.by_activate`.
+- **od_05.** The settler reached DONE about 90 loops into his walk, before SetActorsAI 0,
+  so the AI now goes off 30 loops in.
+- **od_09b.** Ringo set on the player never entered combat (in_combat 0 for both), so
+  each holder gets a spawned gecko to fight. The gecko then killed Ringo, so he gets
+  2,000 more Health and the job runs last. The token is a non-playable armour, so both
+  holders also equip it.
+- **od_12.** A conversation sometimes needed a third activation, so `open_dialogue` turns
+  to the actor and tries once more.
+- **od_13.** Holding the attack key in third person landed no hit. Now, like the
+  observer's `player_kills` campaign, the swings are inside an observe step (plugin 9):
+  a once hook switches to first person, a repeated hook aims at the victim every sample,
+  once hooks tap Attack every 60 loops, and OnHit / OnStartCombat / OnCombatEnd are
+  recorded.
+- **od_20, od_21.** The topic list shows three entries and scroll arrows. TapKey of the
+  Down arrow, and then of the mouse wheel (key code 265 [hypothesis]), did not move it.
+- **od_22.** TapKey of Tab never closed the dialogue. The job now has Ralph say GOODBYE by
+  script (`Say`, twelve times) inside an observe step, with SayToDone events and a
+  screenshot while he talks.
+
+### Settled
+
+- **od_11, the clock in dialogue: it stops.**
+  - **Readings.** GameHour read 13.0191 in all six samples (300 loops apart) while
+    MenuMode 1009 was 1. Before and after, it rose about 0.0018 per 300 loops.
+  - **Verdict.** The original stops the game clock while the dialogue menu is open, as
+    ai-observer.md §7 saw with Sunny. NVForever freezes it too; owner-review item 34 (2)
+    is only the owner's choice now.
+- **od_12, an attack during dialogue: the conversation stays open and the world holds.**
+  - **The gecko half.** A gecko spawned behind the player and set on them (StartCombat)
+    read in_combat 1, no combat target and the same position at 30, 150 and 300 loops.
+    MenuMode 1009 stayed 1 and the player's health 200.
+  - **The speaker half.** Ringo set on the player in the middle of his own conversation:
+    in_combat 1, no combat target, his pose and the player's unchanged, MenuMode 1009 1
+    for 300 loops. The picture `speaker_attacks_150` shows Ringo's topic list still up.
+  - **Verdict.** An attack does not end a conversation, and the attacker does not act
+    while it is open. That is the "pair untouchable" proposal of item 34 (3), which the
+    runtime already does (the conversation holds combat, `WorldHeld`).
+- **od_13, an assault on one NCR trooper: the faction does not turn.**
+  - **Readings.** Five taps landed two hits (OnHit on 000F36F5 by the player, Health 50,
+    44.26, then 38.52). The trooper started a fight with the player (OnStartCombat) and
+    shot back. GetMajorCrimeCount went from 0 to 2. GetActorFactionPlayerEnemy stayed 0
+    on the victim and on the three Primm troopers.
+  - **Distant troopers.** PrimmNCRTrooper1REF, loaded and detecting the player
+    (GetDetected 1), stayed on its sandbox with in_combat 0 for 30 samples (about 30 s)
+    when the player came. Trooper 4 stayed out of combat too; trooper 3 was not loaded.
+  - **Verdict.** An assault with no witnesses counts as major crimes and turns the
+    victim, not its faction. That matches our decision (owner-review "Karma and crime"
+    item 8).
+- **od_06, ResetAI and the AI codes.**
+  - **(a) A script package run to its goal.** Ringo's DefaultStayAtEditorLocation read
+    TRAVEL (0) while he walked and DONE (17) at its end, for at least 600 loops. 1,500
+    loops after it was given he was back on his list package (0010ABA9, Sandbox), with no
+    ResetAI. The wiki: a script package "takes precedence over all other packages until
+    it is done" [documented: GECK wiki AddScriptPackage]. So "goal met reads 17" is
+    confirmed, and a finished script package is let go at the next choice. **Runtime
+    changed:** `Game::select_package` now drops a script package whose goal was met
+    (test `a_script_package_whose_goal_was_met_is_removed_at_the_next_choice`). The
+    runtime used to keep it until ResetAI or RemoveScriptPackage.
+  - **ResetAI on a seated actor.** On his sandbox, seated (procedure 48), ResetAI gave
+    procedure 21 (GET_UP) one loop later and then TRAVEL. He got up and chose again.
+  - **(b) ResetAI mid-package.** The script package was gone one loop later (his list
+    package back). That confirms the wiki's ResetAI note.
+  - **(c) Asleep.** After 23:00 his package was 0010ABA8 with GetCurrentAIPackage 4
+    (SLEEP), so "code 4" is SLEEP. His procedure stayed WANDER (7) and GetSleeping 0 for
+    12 samples and the 1,800-loop wait: he never lay down in the gas station. ResetAI
+    gave procedure 8 (SLEEP) for one loop, then 7 again. Whether ResetAI wakes a
+    sleeping actor is not settled: he never slept.
+- **od_05, SetActorsAI 0: decisions freeze, the walk does not stop.**
+  - **Readings.** Switched off 30 loops into his walk back (TRAVEL, moving 1), the
+    settler kept moving in a straight line on the heading he had (189.65°). He covered
+    about 1,100 units in 30 samples, past his goal, while his package, procedure and
+    heading stayed as they were. His height followed the ground. GetDetected player read 1
+    throughout. After SetActorsAI 1 he turned (heading 23°, 15°) and walked back, ran a
+    package made at run time (FF001317, FOLLOW, procedure 11) for a few samples, then took
+    his script package again.
+  - **Verdict.** SetActorsAI 0 stops package choice, turning and the procedure, but not
+    the movement in progress. Our runtime stops the walk instead ("the actor stands in its
+    idle"). **Not changed here:** carrying on the last velocity needs the engine's
+    character movement; it is left as a follow-up.
+- **od_02, actors "with no greeting": the premise was wrong.**
+  - **The ranger.** HVRangerREF (Dobson) greeted the player. The pictures
+    `hv_ranger_activated_30` and `_150` show his name and a GREETING line's subtitle.
+  - **Why our tool said "no greeting".** The three actors are disabled in a new game, so
+    `fnvtool dialogue talk` could not talk to them at all ("not there to talk to"). With
+    `enable` first, our runtime picks the same line for the ranger, INFO 0x000ACD4D
+    (quest VDialogueHiddenValley, start-game enabled, condition GetIsID HVRanger).
+  - **The deputy.** PrimmNCRDeputyRef1 opened no dialogue menu (MenuMode 1009 0).
+    Enabled, our runtime gives him a GREETING line with the Goodbye flag (0x00155158),
+    which is said without a menu, so the two agree. The picture shows no subtitle at 30
+    loops; that is not read as "nothing said".
+  - **The powder ganger.** GSPG01Ref opened nothing (dialogue target none), and our
+    runtime cannot talk to him even when enabled.
+  - **Verdict.** Nothing here contradicts the runtime. The rule "an actor with no
+    eligible greeting cannot be talked to" still has no clean test case: two of the
+    three had a greeting.
+
+### Not settled, with the reason
+
+- **od_03, where a teammate arrives (partly settled).**
+  - **Through the door out, following.** As in the first run, Boone arrived about 171
+    units left of the player and 30 ahead, and settled about 142 left and 31 ahead
+    (heading 126.76°). Two runs at one door agree. **Runtime changed:** teammates are
+    now put 160 units to the player's **left** (`followers::BESIDE`, was 64 right; test
+    `a_teammate_following_the_player_is_brought_along_to_another_cell`).
+  - **Boone's package changed at the door.** After the door his package was his own
+    PATROL (000CB118), no longer the Follow script package.
+  - **Back in by MoveTo.** Boone, on that PATROL package and still a teammate, came along
+    and arrived on the player's own spot (about 3 units off).
+  - **Out again with Waiting 1.** On the same PATROL package (the Wait package was not
+    chosen), Boone stayed inside.
+  - **What this means.** The rule "only teammates whose package follows come" does not
+    describe it: a teammate on PATROL came. Waiting 1 or the way of leaving (door against
+    MoveTo) made the difference, and one run cannot tell which. **Later the same day**
+    the round-3 `followers` campaign brought Boone on PATROL back in **through the door**
+    onto the player's spot (npc-behaviour-compare.md §13), so the door is not it.
+    **Runtime changed:** every teammate comes unless told to wait, read as a Guard package
+    (`Game::told_to_wait`) [hypothesis for that reading].
+- **od_09b, a scripted item in an NPC's inventory.** Not settled, because the control
+  failed in both tries:
+  - the aura cast directly on the player read IsSpellTarget 1, so the reading works;
+  - yet the token's script never cast it on the player either, though the token was
+    carried and equipped, and the player was in combat for 15 s;
+  - Perception stayed 5 throughout.
+
+  This token cannot answer the question; another item with a visible effect is needed.
+- **od_20 and od_21, the topic lists (visual).** The lists show three entries with
+  scroll arrows, and the plugin could not scroll them. The three visible entries are the
+  same as our runtime's first three, in the same order, for Ringo, Johnson Nash and Red
+  Lucy (`ringo_900`, `johnson_nash_900`, `red_lucy_900`).
+
+  Red Lucy's first entry is VMS38RedLucyTopic004 in our runtime, which has a line of its
+  own. Topic047, with only a shared line, has the same prompt, so the picture cannot tell
+  the two apart. Whether a generic Goodbye stands below Nash's Caravan offer (D1), and
+  whether a second entry with that prompt is offered (D2), need the list scrolled. The
+  owner can do that by hand, or the plugin needs a way to move the cursor.
+- **od_22, Ralph's goodbyes.** Not settled. Three ways to see which GOODBYE line Ralph
+  says all failed:
+  - TapKey of Tab did not reach the dialogue menu;
+  - the SayToDone event's second argument read the topic (0x000000D4), not the line;
+  - the pictures taken while he spoke show no subtitle.
+
+  Ralph spoke the GOODBYE topic twelve times by script. Telling INFO 0x00143A87 from
+  0x00143A89 needs subtitles or the voice file named.
+
+### The campaign sessions, from `nvftest` (plugin 9)
+
+`observe.py run owner_decisions.campaign.json --only alert_noise hv_initiates hv_knights
+geckos_package_chain`. The package sessions now record xNVSE's OnPackageStart, Change and
+Done; alert_noise the fight events. Timeline: `C:\fnv-private\capture\observe\owner_decisions_round2.timeline.json`.
+
+- **`hv_initiates`: confirms the first run.** The game crashed once at 10:05 (sample 412)
+  and the session restarted from the save; the rerun ran 06:00–18:00, 1,120 samples. The
+  initiates changed package 35 to 40 times each in 12 hours, as in the first run.
+  - **Too many events.** Their packages made at run time sent about 81,900 OnPackage
+    events in one session. Most are OnPackageDone, as often as every sample. The crash may
+    come from that load [hypothesis]; `events: packages` is not worth it on such crowds.
+- **`hv_knights`: the knights switch every 10 to 70 game minutes.** Knights 000A41DB and
+  000A41DC alternated between HVKnightWeaponRepair (0x000D76E6) and
+  HVKnightWeaponRepair2 (0x000D781C), 41 package starts between them in 12 hours.
+  - **Both packages.** Each is a Sandbox scheduled 06:00 for 16 hours, and each begin
+    script is `SetPackDuration 60` [observed: `fnvtool ai show`, `script decompile`].
+  - **Start times of 000A41DB.** 7.00, 7.17, 7.33, 7.50, 8.00, 8.17, 8.50, 8.67, 8.98,
+    10.00, 10.35 and 11.50 h, with OnPackageDone between some of them. The gaps are 10,
+    10, 10, 30, 10, 20, 10, 19, 61, 21 and 69 minutes.
+  - **Verdict.** SetPackDuration makes these packages change "every 30–90 game minutes,
+    not all day", which settles the check's direction. But the periods do not match "60
+    game minutes from the call" (ours): most are shorter. What 60 counts, and whether the
+    sandbox's own Done ends them first, are open [hypothesis both]. The runtime is
+    unchanged.
+- **`geckos_package_chain`: the duration again did not end an unfinished package.** From
+  17:02 both geckos ran VCrGeckoFindFood (Find, 2 h, no start hour, Once Per Day), WANDER
+  with short ACQUIRE turns, and never reached DONE. 0x0016518C held it for all 13 game
+  hours; 0x0016518B held it for 10 h, then read no package from 03:21. That is the third
+  session in which a package with a duration and no start hour ran far past its duration
+  while its goal was not met (§4: the patrol for 4.7 and 8 h, a find for over 4 h); the
+  one find that reached DONE ended exactly at its 2 h. **Runtime changed:** a schedule
+  duration now ends a package only once its goal was met, and then at once
+  (`Game::end_timed_packages`; test
+  `a_schedule_duration_ends_the_package_and_the_next_one_takes_over`). The package events
+  add nothing here: the geckos changed no package, so none was sent.
+- **`alert_noise`: not settled, run twice.**
+  - **First try.** The three shots came from the session's `do` steps, which run before
+    the observation starts, so the Fiends were in combat with the hidden player at the
+    first sample.
+  - **Second try.** The shots were moved to timed hooks after 30 quiet samples. Three of
+    the Fiends (0x000F9CE6, 0x000F9CE7, 0x000F5704) were still in combat with the player
+    at the first sample, before any shot: the player arriving hidden at that spot is
+    enough. The other two (0x000F9CE8, 0x000F9CE9) went from WANDER to combat about 200
+    samples after the shots, with GetDetected 0. They read in_combat 1 with no target for
+    one sample, then the player as target, and drew their weapons a few samples later.
+  - **What both show.** In_combat stayed 1, and the target stayed the player, through
+    many changes of GetDetected between 1 and 0. So **IsInCombat stays 1 while the target
+    is out of sight** (the detection "Lost" state) [observed].
+  - **Not seen.** No sample had a weapon out with in_combat 0 and the procedure
+    searching, so the detection Alert never occurred. This agrees with
+    npc-behaviour-compare.md §11, which found no alert without combat in about
+    480,000 recorded samples. The "Alert" row of design/alert.md stays the wiki's reading.

@@ -190,6 +190,22 @@
    "frames": 30
   },
   {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nplayer.EquipItem rF2 1 1\nrF1.EquipItem rF2 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetEquipped rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: tokens given",
+   "field": "equipped"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetEquipped rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: tokens given",
+   "field": "equipped"
+  },
+  {
    "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
    "label": "player: tokens given",
    "field": "aura"
@@ -230,7 +246,28 @@
    "field": "tokens"
   },
   {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.StartCombat player\nSetFunctionValue 1\nEnd\n"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.ModAV Health 2000\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rB\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1407805\nlet rB := rF2.GetBaseObject\nrF1.PlaceAtMe rB 1 200 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rA\nref rG\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  rG.StartCombat rF1\nendif\nif rG\n  rF1.StartCombat rG\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet rB := rF1.GetBaseObject\nplayer.PlaceAtMe rB 1 300 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "ref rA\nref rG\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  rG.StartCombat player\nendif\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 150
@@ -403,6 +440,15 @@
    "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
    "label": "ringo: in combat, 900 loops",
    "field": "tokens"
+  },
+  {
+   "script": "ref rA\nref rG\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  rG.Kill\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "ref rA\nref rG\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  rG.Kill\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
   },
   {
    "script": "float fM1\nref rF1\nref rF2\nref rF3\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet rF3 := BuildRef fM1 976522\nrF1.StopCombat\nplayer.RemoveItem rF2 1 1\nrF1.RemoveItem rF2 1 1\nplayer.RemoveFromFaction rF3\nrF1.RemoveFromFaction rF3\nSetFunctionValue 1\nEnd\n"

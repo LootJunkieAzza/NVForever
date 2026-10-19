@@ -73,7 +73,10 @@ Two ways of choosing:
 
 **How long a package runs** (2026-10-13, playtest list 4 item 18; only with
 `package_interval` set): a list package with a **duration and no starting hour** ends
-that many game hours after the actor chose it (`start_schedule_duration`,
+that many game hours after the actor chose it, **once its goal was met** (until then it
+runs on, and it ends as soon as the goal is met) [observed 2026-10-18/19: the Goodsprings
+geckos' FindFood and patrol ran 4.7 to 13 h when unfinished; owner-decision-captures.md
+§4, §7] (`start_schedule_duration`,
 `end_timed_packages`, the same ending as SetPackDuration's: end script, then choose
 again) [documented: GECK wiki SetPackDuration "sets the duration of the actor's current
 package", the Schedule tab gives it in hours; Continue If PC Near holds a package "even

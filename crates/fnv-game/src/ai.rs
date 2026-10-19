@@ -151,9 +151,10 @@ impl Game<'_> {
 
     /// The package an actor runs when it evaluates its packages.
     ///
-    /// - A script package (AddScriptPackage) overrides the list [documented: catalogue
-    ///   summary of AddScriptPackage; observed: RingoRef and SunnyRef ran packages that
-    ///   are in no list of theirs].
+    /// - A script package (AddScriptPackage) overrides the list until its goal is met;
+    ///   then this choice removes it [documented: catalogue summary of AddScriptPackage;
+    ///   observed: RingoRef and SunnyRef ran packages that are in no list of theirs, and
+    ///   od_06 (owner-decision-captures.md §7) saw a finished one let go].
     /// - Otherwise the first package of the list that is valid
     ///   ([`Game::check_package`]) [documented: GECK wiki, How Are Packages Evaluated;
     ///   observed: `L5.quest.condition_groups`, and 232,755 of 234,335 observer samples
@@ -165,6 +166,16 @@ impl Game<'_> {
     ///   hypothesis: that this is "keep the current one" rather than "the last of the
     ///   list", which are the same package there].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
+        if let Some(e) = self.extra.get_mut(&actor) {
+            // A script package whose goal was met is removed at the next choice
+            // [documented: GECK wiki AddScriptPackage, "takes precedence over all other
+            // packages until it is done"; observed: od_06_reset_ai 2026-10-19, RingoRef's
+            // DefaultStayAtEditorLocation read DONE (17) for at least 600 game loops and
+            // his list package by 900 loops later, with no ResetAI].
+            if e.script_package.is_some() && e.script_package == e.current_package && e.package_goal_met {
+                e.script_package = None;
+            }
+        }
         if let Some(p) = self.extra.get(&actor).and_then(|e| e.script_package) {
             return Some(p);
         }
@@ -350,7 +361,7 @@ impl Game<'_> {
     }
 
     /// Packages whose time is up end (SetPackDuration's, or the schedule duration of
-    /// [`Game::start_schedule_duration`]): the package counts as done (its end script
+    /// [`Game::start_schedule_duration`] once the package's goal was met): the package counts as done (its end script
     /// and OnPackageDone run, as for a goal met), the actor lets it go and chooses again
     /// at once, by the usual rules [hypothesis: what "duration" ends into is not
     /// documented; choosing again may pick the same package, which then starts afresh
@@ -376,6 +387,14 @@ impl Game<'_> {
                 continue;
             }
             if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule) && self.package_held(a).is_some() {
+                continue;
+            }
+            // A schedule duration ends the package only once its goal was met; until then
+            // it runs on past its time, and ends as soon as the goal is met [observed:
+            // owner-decision-captures.md §4 and §7, the Goodsprings geckos' Once Per Day
+            // FindFood (2 h) and patrol (3 h) ran 4.7 to 13 h when they never finished,
+            // and a FindFood that reached DONE ended 2 h after it began].
+            if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule && !e.package_goal_met) {
                 continue;
             }
             self.extra.entry(a).or_default().package_ends = None;

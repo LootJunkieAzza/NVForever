@@ -765,14 +765,22 @@ packages, packages in no list, placed actors whose base lists packages).
   lets run [hypothesis]) and a duration without a starting hour (358 packages: since
   2026-10-13 treated as how long the package runs from its choice [hypothesis built on
   the documented SetPackDuration "duration of the actor's current package";
-  docs/design/actor-behaviour.md §3], not yet seen in a capture); the day a window that crosses
+  docs/design/actor-behaviour.md §3]; since 2026-10-19 only once the package's goal was
+  met, as the Goodsprings geckos showed in three observer sessions, owner-decision-captures.md
+  §4 and §7); the day a window that crosses
   midnight belongs to; months, seasons and dates (no master package uses them).
 - With no valid package: does the actor keep its current package or take the last of
   its list (§4), and what does an actor that has run none do?
 - How Once Per Day, Must Complete and Continue If PC Near interact with the periodic
   choice (implemented as documented; not yet seen in a capture), and whether a package
   needing a linked reference is skipped for types other than Patrol.
-- Script packages: one or several, and when one without Must Complete ends (§4).
+- Script packages: **answered in part.** One at a time (od_08, owner-decision-captures.md
+  §4). One whose goal was met is let go at a later choice: Ringo's travel package read
+  DONE for at least 600 game loops and his list package 1,500 loops after it was given,
+  with no ResetAI (od_06, owner-decision-captures.md §7), as the Use Item At package
+  above did after 0.12 game hours [observed]. The runtime now drops it at the next
+  choice (`Game::select_package`). Whether one that is not done ever goes without
+  ResetAI or RemoveScriptPackage is open: EvaluatePackage kept a sandbox one (od_08).
 - The meaning of the type-specific bits on package types without such flags (§2), and of
   Fallout behaviour bit 3.
 - The run-time type code of Follow, Wander and Use Weapon packages (paired by name, not
