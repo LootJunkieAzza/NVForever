@@ -145,11 +145,11 @@ note = "As GetCasinoWinningsLevel."
 
 [function.EquipItem]
 status = "match"
-note = "The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]."
+note = "The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. NoUnequipFlag locks the item on (fnv_sim EquipLock; smoke equip-lock-inventory) [documented]."
 
 [function.UnequipItem]
 status = "match"
-note = "As EquipItem."
+note = "As EquipItem; NoEquipFlag locks the item off [documented]."
 
 [function.GetChallengeCompleted]
 status = "wrong"
@@ -186,10 +186,14 @@ status = "match"
 system = "animation state told to the rules"
 note = "The way told by the engine: the player's movement keys, an NPC's walk in its own axes, 1-4 [documented: GECK wiki IsMoving]; 0 at rest matches [observed: probes] (anim-state.md §2, 2026-10-18)."
 
+[function.GetAnimAction]
+status = "match"
+note = "New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-11 never (none observed); 12 the player's landing (12 observed after a jump); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions)."
+
 [function.IsPlayerActionActive]
 status = "match"
 system = "animation state told to the rules"
-note = "Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18). 0 at rest matches [observed: probes]."
+note = "Action 9 (iron sights, not in combat [documented; observed: aiming read 9]), the only one the shipped scripts ask (OWB); 2 for 2.6 s from a grenade throw [observed: player_actions_anim2]; firing, sneaking, jumping and swinging lit no index [observed]; the others read 0 (anim-state.md §4)."
 
 [function.IsSpellTarget]
 status = "match"
@@ -518,3 +522,50 @@ note = "Rules state right (dead, cause, health) [observed: probes]; the engine d
 status = "open"
 system = "knockdowns and knock-outs"
 note = "AI off (no walking, packages, talk) and holds a lying actor down until cleared; alone it lays nobody down, as the pods and the fake-death thugs need (unconscious.md §5.1) [hypothesis]."
+
+# ---------------------------------------------------------------- parameters honoured 2026-10-18
+# (docs/design/script-function-params.md §3)
+
+[function.Enable]
+status = "match"
+note = "FadeIn (default 1) fades the reference in over 2 s [hypothesis: the length, as the measured fade out]; enable children fade unless Pop In (script-function-params.md §3, smoke enable-disable-fade)."
+
+[function.Disable]
+status = "match"
+note = "FadeOut 1 fades the reference out over 2 s, kept enabled meanwhile (GetDisabled 0 about 2 s [observed: capture disable_fade_long]); children pop out [documented]."
+
+[function.Say]
+status = "match"
+note = "ForceSubtitles shows the subtitle out of hearing; is2D heard flat anywhere [hypothesis]; Actor and isVoice not read (undocumented, never passed)."
+
+[function.SetPlayerTagSkill]
+status = "match"
+note = "Four slots; a slot's old skill is untagged; index above 3 ignored [documented]."
+
+[function.SetTagSkills]
+status = "match"
+note = "addedPoints is the menu's count in all; showInitialTaggedSkills 0 hides the tags before [documented]."
+
+[function.ShowLoveTesterMenuParams]
+status = "match"
+note = "iPoints is the attributes' total, as SetSPECIALPoints [documented]."
+
+[function.RemoveAllItems]
+status = "match"
+note = "retainOwnershipFlag 0 clears moved items' owner [documented]."
+
+[function.AddItemToLeveledList]
+status = "match"
+note = "fHealthPercent100 (0-100) is the condition of the items the entry gives [documented]; capture job leveled_list_health checks Honest Hearts' 1."
+
+[function.SetGlobalTimeMultiplier]
+status = "match"
+note = "Sounds follow the multiplier unless keepSoundUnchanged [documented; hypothesis: which sounds]."
+
+[function.StartConversation]
+status = "match"
+note = "allowMovement 1 lets two actors walk while they talk; left out they stand [hypothesis: the default]."
+
+[function.PlaceAtMe]
+status = "match"
+note = "Distance and Direction do nothing in the original [documented: wiki notes]."

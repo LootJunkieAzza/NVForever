@@ -225,6 +225,8 @@ pub struct Attack {
     pub reload: bool,
     /// What it plays, and whether it is a blow (melee, a creature's) rather than a shot.
     pub kind: Move,
+    /// A reload's opening clip (`…reloadxstart.kf`) of a weapon that loads round by round.
+    pub opening: bool,
     pub melee: bool,
     /// Seconds into the clip of its `Hit` key (a blow's strike); shots leave at the start.
     pub hit: f32,
@@ -232,12 +234,14 @@ pub struct Attack {
 
 impl Attack {
     /// GetAnimAction's code for it (`fnv_game::anim_state`), `dt` being the step the clip
-    /// was advanced by this frame: a reload 9, a blocked blow's recoil 8, a block's
+    /// was advanced by this frame: a reload 9, its opening clip 17 when the weapon loads
+    /// round by round (`AnimAction::ReloadOpen`, hypothesis), a blocked blow's recoil 8, a block's
     /// reaction 7, a blow 2 until it strikes and 4 after, a shot 2 on its first frame
     /// (and while an automatic weapon's loop goes round), 3 the frame after and 4 for
     /// the rest of the clip.
     pub fn action(&self, dt: f32) -> Option<AnimAction> {
         match self.kind {
+            Move::Reload if self.opening => Some(AnimAction::ReloadOpen),
             Move::Reload | Move::ReloadRound => Some(AnimAction::Reload),
             Move::Recoil => Some(AnimAction::Stagger),
             Move::BlockHit => Some(AnimAction::Block),
@@ -669,6 +673,8 @@ fn start(
                 st.shots += 1;
             }
             let name = path.rsplit('\\').next().unwrap_or(&path).to_string();
+            // The opening clips are named `<stem>reloadxstart.kf` [observed: base archives].
+            let opening = a.kind == Move::Reload && name.to_ascii_lowercase().ends_with("start.kf");
             if !st.clips.contains_key(&name) {
                 info!("attack anims: {id:08X} plays {path} ({len:.2} s{})", hit_time(&clip).map_or(String::new(), |h| format!(", hit at {h:.2} s")));
             }
@@ -676,7 +682,7 @@ fn start(
             let repeat = repeat_of(&clip).filter(|_| !a.melee && !reloads);
             let t = repeat.map_or(0.0, |(from, _)| from);
             let hit = if a.melee { hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len) } else { 0.0 };
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in: a.kind != Move::ReloadRound, reload: reloads, kind: a.kind, melee: a.melee, hit });
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in: a.kind != Move::ReloadRound, reload: reloads, kind: a.kind, opening, melee: a.melee, hit });
         }
         match pose {
             Some(mut p) => *p = new_pose,

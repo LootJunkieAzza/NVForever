@@ -669,8 +669,10 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   fight, standing or on its way (closing in, a flank, a step aside, a step back); its
   legs play the walk or run clip of the way it goes in its own axes (forward, left,
   right, back: `Locomotion::velocity`, actors.md §8), so it fires on the move instead of
-  turning between its way and its target. Not while it flees or runs to cover: it faces
-  the way it runs. Creatures face the way they go. Summary at exit: `fight move summary:
+  turning between its way and its target. Not while it flees or runs to new cover: it
+  faces the way it runs. Once at its cover it stays facing its target, so it strafes out
+  to its peek point and back behind (a `Duck` post, not a `Cover` one) [design: owner
+  2026-10-18, Violet turned between her way and her target at a caravan]. Creatures face the way they go. Summary at exit: `fight move summary:
   drawn fighters facing their target moved … s forward, … s sideways (strafing), … s
   back`.
 - Melee fighters and creatures close in as before (§5); they flee by the same rules.

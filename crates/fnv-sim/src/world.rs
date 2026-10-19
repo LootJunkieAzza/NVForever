@@ -116,6 +116,22 @@ pub struct RefState {
     /// placement's (XSCL).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scale: Option<f32>,
+    /// Items a script locked on or off this actor (EquipItem's NoUnequipFlag,
+    /// UnequipItem's NoEquipFlag), by base form ([`World::lock_equip`]).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub equip_locks: BTreeMap<FormId, EquipLock>,
+}
+
+/// A script's lock on an item of an actor [documented: GECK wiki EquipItem, "If
+/// NoUnequipFlag = 1, actor (including the player) will be unable to unequip the item.
+/// Once the item is unequipped with the UnequipItem function, the item can be equipped
+/// and unequipped as normal"; UnequipItem, the same for NoEquipFlag and EquipItem].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EquipLock {
+    /// Put on with NoUnequipFlag: it stays on, and nothing else takes its slot.
+    NoUnequip,
+    /// Taken off with NoEquipFlag: it cannot be put on.
+    NoEquip,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -155,6 +171,10 @@ pub enum SimError {
     /// ([`World::equip`]) [design: the owner's rule, 2026-10-11].
     #[error("{0} is broken: it cannot be equipped until it is repaired")]
     Broken(FormId),
+    /// A script locked the item on or off ([`EquipLock`]): `item` is the locked one
+    /// (the item itself, or the one holding its slot).
+    #[error("{item} was locked by a script and cannot be {}", if *on { "unequipped" } else { "equipped" })]
+    EquipLocked { item: FormId, on: bool },
     /// The player has no Power Armor Training for power armour ([`World::equip`],
     /// `World::set_power_armor_training`).
     #[error("{0} is power armour: the player lacks the training to wear it")]
@@ -371,6 +391,7 @@ impl<'a> World<'a> {
             actor_values: BTreeMap::new(),
             last_restock: None,
             scale: None,
+            equip_locks: BTreeMap::new(),
             outfitted: false,
         })
     }
@@ -407,9 +428,12 @@ impl<'a> World<'a> {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
             leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
-            // COED on an entry applies to whatever it resolves to. [hypothesis]
-            for r in &mut out[from..] {
-                r.extra = e.extra;
+            // COED on an entry applies to whatever it resolves to [hypothesis]; without
+            // one an item keeps the condition a script's leveled entry gave it.
+            if !e.extra.is_plain() {
+                for r in &mut out[from..] {
+                    r.extra = e.extra;
+                }
             }
         }
         for e in out {
@@ -589,7 +613,7 @@ impl<'a> World<'a> {
             .into_iter()
             .filter(|e| e.count > 0)
             .map(|e| {
-                inv.add(e.item, e.count);
+                inv.add_extra(e.item, e.count, e.extra);
                 (e.item, e.count)
             })
             .collect())
@@ -636,11 +660,26 @@ impl<'a> World<'a> {
     /// script function with a target); returns the stacks moved. Extra data (condition,
     /// owner) moves with the items; equipped items are unequipped.
     pub fn transfer_all(&mut self, from: FormId, to: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        self.transfer_all_owned(from, to, true)
+    }
+
+    /// As [`World::transfer_all`]; with `keep_owner` false the moved items lose their
+    /// owner [documented: GECK wiki RemoveAllItems, "If the retain ownership flag is set
+    /// to a non-zero value, the items' original ownership is retained; otherwise the
+    /// ownership is cleared"].
+    pub fn transfer_all_owned(&mut self, from: FormId, to: FormId, keep_owner: bool) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
         let forms = self.forms;
         let stacks: Vec<_> = self.inventory(from)?.iter().filter(|&(i, _)| !Self::non_playable(forms, i)).collect();
         for &(item, n) in &stacks {
-            self.transfer(from, to, item, n)?;
+            let groups = unequipped(self.inventory(from)?.take_at(item, n, None));
+            let dest = self.inventory(to)?;
+            for (mut e, c) in groups {
+                if !keep_owner {
+                    e.owner = None;
+                }
+                dest.add_extra(item, c, e);
+            }
         }
         Ok(stacks)
     }
@@ -761,6 +800,7 @@ impl<'a> World<'a> {
                     last_restock: None,
                     outfitted: false,
                     scale: None,
+                    equip_locks: BTreeMap::new(),
                 },
             );
             out.push(id);
@@ -827,6 +867,17 @@ impl<'a> World<'a> {
                 _ => false,
             }
         };
+        let locks = &self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?.equip_locks;
+        if locks.get(&item) == Some(&EquipLock::NoEquip) {
+            return Err(SimError::EquipLocked { item, on: false });
+        }
+        // "EquipItem will not work if there is already an item in that slot that has
+        // been equipped with the NoUnequipFlag set" [documented: GECK wiki EquipItem].
+        let inv = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).ok_or(SimError::NoInventory(actor))?;
+        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
+            return Err(SimError::EquipLocked { item: held, on: true });
+        }
+        let inv = self.inventory(actor)?;
         let mut unequipped = Vec::new();
         for other in inv.equipped() {
             if clashes(other) && inv.clear_equipped(other) {
@@ -839,9 +890,30 @@ impl<'a> World<'a> {
         Ok(Equip { consumed: false, unequipped })
     }
 
-    /// Unequip `item`; returns whether it was equipped.
+    /// Unequip `item`; returns whether it was equipped. An item a script locked on
+    /// ([`EquipLock::NoUnequip`]) stays on.
     pub fn unequip(&mut self, actor: FormId, item: FormId) -> Result<bool, SimError> {
+        if self.equip_lock(actor, item) == Some(EquipLock::NoUnequip) && self.inventory(actor)?.is_equipped(item) {
+            return Err(SimError::EquipLocked { item, on: true });
+        }
         Ok(self.inventory(actor)?.clear_equipped(item))
+    }
+
+    /// The script lock on an actor's item, if any.
+    pub fn equip_lock(&self, actor: FormId, item: FormId) -> Option<EquipLock> {
+        self.refs.get(&actor).and_then(|s| s.equip_locks.get(&item)).copied()
+    }
+
+    /// Set (or with `None` take away) a script's lock on an actor's item: EquipItem and
+    /// UnequipItem take away the lock they undo and set the one their flag asks for
+    /// [documented: GECK wiki EquipItem, UnequipItem].
+    pub fn lock_equip(&mut self, actor: FormId, item: FormId, lock: Option<EquipLock>) -> Result<(), SimError> {
+        let locks = &mut self.get(actor)?.equip_locks;
+        match lock {
+            Some(l) => locks.insert(item, l),
+            None => locks.remove(&item),
+        };
+        Ok(())
     }
 
     /// An actor value: S.P.E.C.I.A.L. from the base NPC_ record unless changed at run
@@ -1175,6 +1247,7 @@ impl<'a> World<'a> {
                 last_restock: None,
                 outfitted,
                 scale: None,
+                equip_locks: BTreeMap::new(),
             },
         );
         Ok(id)

@@ -5119,6 +5119,21 @@ expect = [
   { re = 'anim state summary: .*follow-through \(3\) (?P<n>\d+)', range = [6, 100000], label = "then 3" },
   { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
   { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
+  { re = 'anim state summary: .*reload open \(17\) (?P<n>\d+)', range = [1, 100000], label = "the .357's reload opens with 17 (anim-state.md §1.1)" },
+]
+
+[[scenario]]
+name = "anim-state-throw"
+source = "docs/spec-notes/anim-state.md §1: GetAnimAction 5 while gearing up to throw, 6 once the throwable left the hand, then 4 (GECK wiki GetAnimAction, New Vegas table)"
+note = "The player (GOD) is given five frag grenades (00004330), draws them and throws two; the anim state summary at exit counts how often each code began on the player"
+areas = ["combat", "scripts"]
+paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/anim_state.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00004330:5", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,21:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'anim state summary: .*throw wind-up \(5\) (?P<n>\d+)', range = [1, 100000], label = "gearing up to throw reads 5" },
+  { re = 'anim state summary: .*thrown \(6\) (?P<n>\d+)', range = [1, 100000], label = "the grenade leaving the hand reads 6" },
 ]
 
 [[scenario]]
@@ -5135,3 +5150,36 @@ expect = [
   { re = 'swimming summary: .* (?P<n>\d+) swam without swimming clips', range = [0, 0], label = "they swim on their folder's swimmt clips" },
 ]
 forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]
+
+[[scenario]]
+name = "enable-disable-fade"
+source = "docs/design/script-function-params.md §3: Enable fades in unless FadeIn is 0, Disable fades out only with FadeOut 1 (GECK wiki Enable, Disable; 544 shipped calls pass the flag)"
+note = "Sunny (SunnyRef 00104E85) is disabled with a fade at 14 s, enabled with the default fade at 17 s, then disabled and enabled without one at 20 s and 22 s: one fade each way. A fade lasts 2 s: the time the original kept a Disable 1 reference enabled (capture disable_fade_long); the fade in's length is a guess"
+areas = ["script-params", "scripts"]
+paths = ["engine/nvf-play/src/fade.rs", "engine/nvf-play/src/script_events.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "14:SunnyRef.disable 1;14.3:close;17:SunnyRef.enable;17.3:close;20:SunnyRef.disable;20.3:close;22:SunnyRef.enable 0;22.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'script: \S*Sunny\S* disabled \(fading out\)', label = "Disable 1 asks for a fade" },
+  { re = 'fade: 0x00104E85 out over 2 s', count = 1, label = "one fade out" },
+  { re = 'fade: 0x00104E85 out done', count = 1, label = "the fade out ends" },
+  { re = 'script: \S*Sunny\S* enabled \(fading in\)', label = "a plain Enable fades in" },
+  { re = 'fade: 0x00104E85 in over 2 s', count = 1, label = "one fade in: Enable 0 pops" },
+  { re = 'fade: 0x00104E85 in done', count = 1, label = "the fade in ends" },
+]
+
+[[scenario]]
+name = "equip-lock-inventory"
+source = "docs/design/script-function-params.md §3: EquipItem's NoUnequipFlag locks the item on and UnequipItem's NoEquipFlag locks it off, for the player too (GECK wiki EquipItem, UnequipItem)"
+note = "The console gives and equips a 9mm Pistol (000E3778) locked on; the inventory's Enter on it is refused; UnequipItem 1 takes it off locked off and Enter is refused again; a plain EquipItem frees it and Enter takes it off"
+areas = ["script-params", "menus"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-game/src/functions/items.rs", "engine/nvf-play/src/menu/model.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "14:player.additem 000E3778 1;14.3:player.equipitem 000E3778 1;14.6:close;19:player.unequipitem 000E3778 1;19.3:close;23:player.equipitem 000E3778;23.3:close", NVF_PLAY_TEST_DROP = "16:000E3778:use,20.5:000E3778:use,25:000E3778:use" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 29
+expect = [
+  { text = "menu: One: 9mm Pistol can't be unequipped", label = "locked on: the inventory cannot take it off" },
+  { text = "menu: One: 9mm Pistol can't be equipped", label = "locked off: the inventory cannot put it on" },
+  { text = "menu: One: Unequipped 9mm Pistol", label = "a plain EquipItem freed it" },
+]

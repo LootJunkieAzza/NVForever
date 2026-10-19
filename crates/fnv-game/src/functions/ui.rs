@@ -29,9 +29,15 @@ pub struct UiRequests {
     /// AddTagSkills: skills to tag in the next tag-skill menu besides those tagged
     /// (`crate::chargen::TagSheet::for_menu`).
     pub extra_tags: Option<usize>,
+    /// SetTagSkills: how many skills the next tag-skill menu has tagged in all, and
+    /// whether the skills tagged before show (`crate::chargen::TagSheet::for_menu`).
+    pub set_tags: Option<(usize, bool)>,
     /// SetGlobalTimeMultiplier: the game's speed (`None`: never set, 1). The engine
     /// applies it to its clock while no menu holds the game.
     pub time_multiplier: Option<f64>,
+    /// SetGlobalTimeMultiplier's keepSoundUnchanged: sounds keep their speed; otherwise
+    /// they play at the multiplier too.
+    pub time_keeps_sound: bool,
     /// Autosave calls the engine has not taken yet.
     pub autosaves: u32,
     /// SystemSave and ForceSave calls the engine has not taken yet.

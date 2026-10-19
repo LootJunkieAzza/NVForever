@@ -47,6 +47,7 @@ fn state(cell: Option<u32>, pos: [f32; 3]) -> RefState {
         last_restock: None,
         outfitted: false,
         scale: None,
+        equip_locks: Default::default(),
     }
 }
 

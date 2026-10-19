@@ -850,16 +850,25 @@ impl MenuModel {
             (Mode::Inventory, Command::One) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 out.changed = true;
+                // An item a script locked on or off stays as it is (EquipItem's
+                // NoUnequipFlag, UnequipItem's NoEquipFlag, `fnv_sim::world::EquipLock`)
+                // [documented: GECK wiki EquipItem, "actor (including the player) will be
+                // unable to unequip the item"; the line is ours].
                 if r.equipped {
-                    world.unequip(PLAYER, r.item)?;
+                    match world.unequip(PLAYER, r.item) {
+                        Err(SimError::EquipLocked { .. }) => return Ok(format!("{} can't be unequipped", name(&r))),
+                        other => other?,
+                    };
                     return Ok(format!("Unequipped {}", name(&r)));
                 }
                 let e = match world.equip_at(PLAYER, r.item, r.at) {
+                    Err(SimError::EquipLocked { item, .. }) if item == r.item => return Ok(format!("{} can't be equipped", name(&r))),
+                    Err(SimError::EquipLocked { item, .. }) => return Ok(format!("{} can't be equipped while {} is worn", name(&r), display_name(forms, item))),
                     Err(SimError::NoPowerArmorTraining(_)) => {
                         out.power_armor_refused = true;
                         return Ok(format!("Cannot wear {} without Power Armor Training", name(&r)));
                     }
-                    e => e?,
+                    other => other?,
                 };
                 if e.consumed {
                     out.used = Some(r.item);

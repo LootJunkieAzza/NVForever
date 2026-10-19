@@ -924,6 +924,14 @@ impl<'a> Game<'a> {
         self.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == actor || s.target == Some(actor)))
     }
 
+    /// Whether `actor` talks to another actor in a conversation a script started with
+    /// allowMovement 1 (StartConversation): it goes on with its package while it talks.
+    /// The engine keeps the others in a conversation where they stand (`nvforever`'s
+    /// residents).
+    pub fn conversation_moves(&self, actor: FormId) -> bool {
+        self.moving_talkers.contains(&actor) && self.in_actor_conversation(actor)
+    }
+
     /// Line `lines` of a conversation between actors (`said`) is over and its end result
     /// script has run: the next line, or the end of the conversation. In order:
     /// 1. a line with the Goodbye flag ends it [documented: Conversation Tab: a
