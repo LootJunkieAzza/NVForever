@@ -64,7 +64,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 
 - It picks the scenarios whose paths your branch changed (`--only NAME…`, `--area A…`,
   `--all` otherwise), shares a game launch between scenarios where that was checked to be
-  safe, takes both game locks for each launch and waits while another session holds them,
+  safe, takes both game locks for each launch and waits while another session holds them
+  (smoke runners wait in a first-come, first-served queue, `smoke-queue` beside the first
+  lock, and keep their place for the whole run),
   and prints one line per scenario. **The summary is enough**: open a log in
   `target/smoke/` only for a FAIL, and then only the lines it quotes. `plan` shows what
   would run; `check` judges the saved logs again after you edit a scenario; `--no-merge`

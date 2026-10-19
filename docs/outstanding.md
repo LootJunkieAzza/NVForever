@@ -187,10 +187,12 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   the coordinator builds each PR merged with main and runs its scenarios in one ordered
   queue, so the shared game is never contended.
 
-- **Game lock queue**: the smoke runner takes the game locks per launch, and the waiter
-  that polls fastest wins, so a multi-scenario run is split up and early waiters can
-  starve (2026-10-17: a run waited over four hours). A first-come, first-served queue, or a
-  lock held for a whole run, would fix it.
+- **Game lock queue** (done 2026-10-19): smoke runners that wait for the game locks take
+  a ticket in `smoke-queue` beside the first lock and try the locks only while theirs is
+  the oldest live ticket, keeping it for the whole run, so a multi-scenario run is no
+  longer split up and early waiters do not starve (`tools/smoke/smoke/runner.py` `Queue`).
+  Plain `mkdir` lockers (captures) take no ticket; the runner at the head of the queue
+  polls every 5 s so they do not keep winning the race.
 - **`scenarios.toml` merges**: git's merge of two branches that both append scenarios at
   the end drops the `]` and `[[scenario]]` lines between them (at least five times on
   2026-10-16/17). After a merge, check the file parses and holds every scenario of both
