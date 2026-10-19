@@ -22,6 +22,7 @@
 use crate::goal::{self, Goal, Route, Talk};
 use crate::sandbox::{Doing, Sandbox};
 use fnv_game::ai::AiPhase;
+use fnv_game::companion_wheel::{BACK_UP, BACK_UP_SECONDS};
 use fnv_game::game::Game;
 use fnv_game::package::{flags, PackageType};
 use fnv_game::use_weapon::Source;
@@ -216,6 +217,9 @@ pub enum AiEvent {
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
+    /// Told to back up on the companion wheel, `away` units from the player: it walks
+    /// back a way of `length` units ([`Ai::back_up`]).
+    BackUp { away: f32, length: f32 },
     /// A script gave it a weapon use (`fnv_game::use_weapon`, UseWeapon): it goes to
     /// where it is to stand, a way of `length` units (0: it stands there), to shoot at
     /// `target`.
@@ -377,6 +381,9 @@ pub struct Agent {
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
     /// (`crate::errand`).
     pub errand: Option<crate::errand::Errand>,
+    /// Told to back up on the companion wheel: on its way back until then (`Game::time`)
+    /// ([`Ai::back_up`]).
+    pub(crate) backing: Option<f64>,
 }
 
 #[derive(Default)]
@@ -504,7 +511,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None });
         Ok(())
     }
 
@@ -670,6 +677,41 @@ impl Ai {
         self.log(game, actor, AiEvent::BackHome { away, length });
     }
 
+    /// Told to back up on the companion wheel: it walks [`BACK_UP`] units straight away
+    /// from the player (along the player's view when it stands where the player does),
+    /// onto the navmesh, and stands there; meanwhile its Follow package does not call it
+    /// back, and after [`BACK_UP_SECONDS`] the walk ends where it is
+    /// [hypothesis: the distance; design: the rest]. One already on its way is not.
+    pub fn back_up(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+        let Some(player) = goal::place_of_ref(game, FormId::PLAYER_REF) else { return };
+        let a = &self.agents[&actor];
+        if a.rooted || a.walker.space != player.space {
+            return;
+        }
+        let feet = a.walker.feet;
+        let d = [feet[0] - player.pos[0], feet[1] - player.pos[1]];
+        let len = d[0].hypot(d[1]);
+        let dir = if len > 1.0 {
+            [d[0] / len, d[1] / len]
+        } else {
+            let h = game.world.peek(FormId::PLAYER_REF).map_or(0.0, |p| p.rot[2]);
+            fnv_nav::follow::dir_of(h)
+        };
+        let want = [feet[0] + dir[0] * BACK_UP, feet[1] + dir[1] * BACK_UP, feet[2]];
+        let Some((_, to)) = nav.nearest(player.space, want, BACK_UP) else { return };
+        let params = self.path_params(game, actor);
+        let speed = self.calm_speeds(actor).walk;
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.walker.speed = speed;
+        let Ok(length) = a.walker.go_to(nav, Place { space: player.space, pos: to }, &params).map(|p| p.length) else { return };
+        a.activity = Activity::Travelling;
+        a.trip_started = game.time;
+        a.trip_from = a.walker.travelled;
+        (a.following, a.face_to) = (None, None);
+        a.backing = Some(game.time + BACK_UP_SECONDS);
+        self.log(game, actor, AiEvent::BackUp { away: len, length });
+    }
+
     pub(crate) fn log(&mut self, game: &Game, actor: FormId, event: AiEvent) {
         let c = game.world.calendar().ok();
         self.events.push(Logged { time: game.time, days: c.map_or(0.0, |c| c.days_passed), hour: c.map_or(0.0, |c| c.hour), actor, event });
@@ -799,6 +841,7 @@ impl Ai {
             a.face_to = None;
             a.following = None;
             a.errand = None;
+            a.backing = None;
             self.set_using(game, actor, None);
             self.taken.retain(|_, user| *user != actor);
             // What the old package had it use ends with it.
@@ -818,6 +861,18 @@ impl Ai {
         let ordered = !quiet && self.weapon_step(game, nav, actor, dt);
         let alerted = !quiet && !ordered && self.alert_step(game, nav, actor, dt);
         let chatting = self.agents[&actor].chat.is_some();
+        // The companion wheel's Back Up (`fnv_game::companion_wheel`).
+        if !quiet && !chatting && !alerted && !ordered && game.take_back_up(actor).is_some() {
+            self.back_up(game, nav, actor);
+        }
+        if let Some(until) = self.agents[&actor].backing {
+            let a = self.agents.get_mut(&actor).expect("listed");
+            if a.activity != Activity::Travelling {
+                a.backing = None;
+            } else if game.time >= until {
+                (a.backing, a.walker.follower, a.activity) = (None, None, Activity::There);
+            }
+        }
         if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
             self.back_after_push(game, nav, actor);
         }
@@ -839,7 +894,8 @@ impl Ai {
         if !quiet && !alerted && !ordered && self.agents[&actor].talk.is_some() {
             self.talk_step(game, nav, actor, dt);
         }
-        if !alerted && !chatting && !ordered && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
+        let backing = self.agents[&actor].backing.is_some();
+        if !alerted && !chatting && !ordered && !backing && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
             self.follow_step(game, nav, actor);
         }
         if !quiet && !alerted && !chatting && !ordered && self.agents[&actor].errand.is_some() {

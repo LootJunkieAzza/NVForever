@@ -6396,3 +6396,38 @@ docs/design/save-load.md §6.1, docs/design/console.md. All [design]:
   thumbnail, then removes the file and its `.bak`. The original shows its Delete hint only
   with a controller. *Check:* the key you want for it.
 - **`;` separates console statements**; the original's console may not allow several.
+
+## The companion wheel (2026-10-19, branch claude/upbeat-jepsen-2629fd)
+
+docs/spec-notes/companion-wheel.md. Built from the game's menu file, your two screenshots
+and the VNPCFollowers command lines. Guesses to check:
+- **The menu code** is 1075 (the wiki's MenuMode list as remembered; no script asks for it).
+  *Check:* `MenuMode 1075` with the wheel open, if a capture is cheap.
+- **The wheel stays open after a command** and the companion's reply plays and shows in
+  it; only Talk and Open Inventory close it. *Check:* whether your game closes the wheel
+  after Wait or a toggle.
+- **The commands make the companion say its own command line** (FollowersWait,
+  FollowersTacticsCombatPassive …), whose scripts set Waiting, FollowerSwitchAggressive,
+  IsFollowingLong, the combat style. *Check:* that the companion answers aloud when you
+  pick a command, and with the same line the dialogue's "Wait here" would give.
+- **The words** under the title are the action ("Wait" while following, "Follow" while
+  waiting, "Aggressive" while passive, "Far" while near, "Melee" while ranged); the icon is
+  the state. Your screenshots confirm the icon and "Use Stimpak" only. *Check:* the words
+  on the other buttons.
+- **The bottom lines**: "HP 94/285" / "Stimpak 84" (yours) for Use Stimpak and
+  "WG 95/100" for Open Inventory (your figures; the "WG" is mine). *Check:* the word
+  before the weight, and whether other buttons show anything there.
+- **Passive** companions fight only who fights you or another companion (or hits them);
+  aggressive ones attack your enemies on sight. Boone is passive after hiring (his hire
+  line sets it). *Check:* how a passive companion behaves when a Fiend is in sight but has
+  not noticed you.
+- **Use Stimpak** works only while the companion is hurt, takes a plain Stimpak before a
+  Super Stimpak, and heals by the companion's own Medicine. *Check:* whether your game
+  lets you use it at full health, and which stimpak it takes.
+- **Back Up** walks the companion 192 units straight away from you. *Check:* how far it
+  goes.
+- **Sneaking**: a following companion crouches when you do and says its "going quiet"
+  line as it starts. *Check:* whether the line comes every time.
+- **Look**: the lit slice at 0.3 of the amber, the matte darkening the world to 0.8 inside
+  the wheel (fitted by eye to your screenshots); the arrow from the hub towards the picked
+  slice and the blur behind the wheel are not drawn.

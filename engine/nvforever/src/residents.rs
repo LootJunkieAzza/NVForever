@@ -1136,6 +1136,7 @@ impl Core {
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. }
                 | AiEvent::BackHome { .. }
+                | AiEvent::BackUp { .. }
                 | AiEvent::WeaponUse { .. }
                 | AiEvent::WeaponUseOver
                 | AiEvent::EscortWaits { .. }
@@ -1347,6 +1348,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
         ),
+        AiEvent::BackUp { away, length } => format!("backs up from the player ({away:.0} units off), {length:.0} units to go"),
         AiEvent::WeaponUse { target, length } => format!(
             "is to use its weapon on {}: {}",
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },

@@ -583,6 +583,13 @@ impl Game<'_> {
         if other_mate {
             return self.would_attack(actor, FormId::PLAYER_REF);
         }
+        // A companion set passive on the wheel (`FollowerSwitchAggressive` 0) leaves alone
+        // whoever does not fight the player's side, its own enmities too; a grudge (a hit)
+        // counted above [hypothesis: the wheel's Passive "follows your lead",
+        // docs/spec-notes/companion-wheel.md §4].
+        if mate && self.is_passive_teammate(actor) {
+            return self.fights_the_players_side(other);
+        }
         if mate && self.would_attack(other, FormId::PLAYER_REF) {
             return true;
         }

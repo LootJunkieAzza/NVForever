@@ -419,6 +419,10 @@ fn activate(
             info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
             return;
         }
+        Ok(crate::script::ByHand::Wheel) => {
+            info!("activate 0x{:08X} {} ({}): the companion wheel opened", t.form_id, t.name, t.action.label());
+            return;
+        }
         Ok(crate::script::ByHand::Choices) => {
             info!("activate 0x{:08X} {} ({}): the perks' choice list opened", t.form_id, t.name, t.action.label());
             return;
