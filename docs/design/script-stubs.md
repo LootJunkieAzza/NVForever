@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11); 48 (1 assigned, 1 implementable, 46 need a system) after the used items (§3.12); 47 (1 implementable, 46 need a system) after GetOwnerLastTarget (unconscious actors, 2026-10-17); 46 (1 implementable, 45 need a system) after ShowRepairMenu (repair services, 2026-10-17); 44 (1 implementable, 43 need a system) after GetVATSValue and GetVATSMode (VATS mode, 2026-10-18); 43 (1 implementable, 42 need a system) after ShowBarberMenu (the barber, #414); 41 (1 implementable, 40 need a system) after ShowPlasticSurgeonMenu and PushActorAway (knockdowns, 2026-10-18); 38 (1 implementable, 37 need a system) after SystemSave, ForceSave and PlaceAtReticle (2026-10-18); 37 (1 implementable, 36 need a system) after IsPlayerActionActive (§3.13); 33 (33 need a system) after the menu hooks (§3.15); 30 (30 need a system) after EnableNavMesh, DisableNavmesh and setAllReachable (§3.16); 23 (23 need a system) after the actor changes (§3.17); 18 (18 need a system) after the films and screen splatter (§3.18); 16 (16 need a system) after Caravan (docs/spec-notes/caravan.md) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11); 48 (1 assigned, 1 implementable, 46 need a system) after the used items (§3.12); 47 (1 implementable, 46 need a system) after GetOwnerLastTarget (unconscious actors, 2026-10-17); 46 (1 implementable, 45 need a system) after ShowRepairMenu (repair services, 2026-10-17); 44 (1 implementable, 43 need a system) after GetVATSValue and GetVATSMode (VATS mode, 2026-10-18); 43 (1 implementable, 42 need a system) after ShowBarberMenu (the barber, #414); 41 (1 implementable, 40 need a system) after ShowPlasticSurgeonMenu and PushActorAway (knockdowns, 2026-10-18); 38 (1 implementable, 37 need a system) after SystemSave, ForceSave and PlaceAtReticle (2026-10-18); 37 (1 implementable, 36 need a system) after IsPlayerActionActive (§3.13); 33 (33 need a system) after the menu hooks (§3.15); 30 (30 need a system) after EnableNavMesh, DisableNavmesh and setAllReachable (§3.16); 23 (23 need a system) after the actor changes (§3.17); 18 (18 need a system) after the films and screen splatter (§3.18); 16 (16 need a system) after Caravan (docs/spec-notes/caravan.md); 11 (11 need a system) after IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (§3.19) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11); 619 (242 calls, 377 condition uses) after the used items (§3.12); 614 (237 calls, 377 condition uses) after GetOwnerLastTarget; 599 (222 calls, 377 condition uses) after ShowRepairMenu; 345 (220 calls, 125 condition uses) after VATS mode; 341 (216 calls, 125 condition uses) after ShowBarberMenu; 304 (179 calls, 125 condition uses) after ShowPlasticSurgeonMenu and PushActorAway (35 calls); 294 (169 calls, 125 condition uses) after SystemSave, ForceSave and PlaceAtReticle (10 calls); 292 (167 calls, 125 condition uses) after IsPlayerActionActive (§3.13); 283 (158 calls, 125 condition uses) after the menu hooks (§3.15); 162 (136 calls, 26 condition uses) after the actor changes (§3.17); 145 (119 calls, 26 condition uses) after the films and screen splatter (§3.18); 112 (86 calls, 26 condition uses) after Caravan (docs/spec-notes/caravan.md) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11); 619 (242 calls, 377 condition uses) after the used items (§3.12); 614 (237 calls, 377 condition uses) after GetOwnerLastTarget; 599 (222 calls, 377 condition uses) after ShowRepairMenu; 345 (220 calls, 125 condition uses) after VATS mode; 341 (216 calls, 125 condition uses) after ShowBarberMenu; 304 (179 calls, 125 condition uses) after ShowPlasticSurgeonMenu and PushActorAway (35 calls); 294 (169 calls, 125 condition uses) after SystemSave, ForceSave and PlaceAtReticle (10 calls); 292 (167 calls, 125 condition uses) after IsPlayerActionActive (§3.13); 283 (158 calls, 125 condition uses) after the menu hooks (§3.15); 162 (136 calls, 26 condition uses) after the actor changes (§3.17); 145 (119 calls, 26 condition uses) after the films and screen splatter (§3.18); 112 (86 calls, 26 condition uses) after Caravan (docs/spec-notes/caravan.md); 93 (74 calls, 19 condition uses) after §3.19 |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -378,6 +378,62 @@ the opening's but SetCellImageSpace's (Old World Blues' Think Tank). Tests: `fun
 tests; smoke `film-opening`, `film-console`, `screen-splatter`, `cell-image-space`, and
 an expectation more in `main-menu`.
 
+### 3.19 Swimming, PickIdle, the AI's frame switches and EnableLoadingMenu (2026-10-19)
+
+Five stubs over systems that already existed (16 → 11 stubs, 86 → 74 calls, 26 → 19
+condition uses [observed: the calls decoded from the ten masters with `fnvtool script
+decompile`, 2026-10-19]):
+
+- **IsSwimming** (0x10B9, 7 condition uses; `functions/senses.rs`): 1 while the actor
+  swims [documented: GECK wiki IsSwimming]. The engine tells it with the rest of an
+  actor's movement every time detection measures (`Motion::swimming`, nvforever
+  `detection.rs`): the swimming state of the actor's physics character (`fnv_phys`
+  character `swimming`, physics.md §6.6), the player's and every drawn NPC's. On the
+  player it always reads 0 [documented: GECK wiki IsSwimming notes, "will always
+  return 0 if called on the player"; the extender's IsPlayerSwimming exists for that],
+  so the player's state is told but not answered. An actor not measured (not drawn,
+  far) reads 0 [engineering choice, as IsMoving]. The uses are idle conditions
+  (`CowerIdles` wants IsSwimming 0, `crate::idles::Game::flee_idle`).
+- **PickIdle** (0x1064, 2 calls; `crate::idles::pick_idle`): the actor "choose[s] and
+  play[s] an Idle Animation", and nothing happens when none fits [documented: GECK wiki
+  PickIdle]. The rules do not know an actor's animation folder, so the call queues the
+  actor (`Game::idle_picks`); the engine's idle system (nvforever `idles.rs`) walks the
+  tree for the drawn actor (`Game::pick_idle`: the actor's folder's roots in chain order,
+  the first node whose conditions pass gone into, the first leaf with a file whose
+  conditions pass; the fidgets' walk with no branch kept out [hypothesis]) and asks for
+  the pick as `IdleSource::Picked`, which GetAnimAction counts as a special idle, 13
+  [hypothesis: as PlayIdle's]. Log: `pick idle: <actor> picks <idle>` or `finds no
+  idle`. Both calls are one object script's OnStartCombat (SCPT 0x0017491E) [observed].
+- **SetAllVisible** (0x115A, 5 calls) and **SetNoAvoidance** (0x115B, 3 calls;
+  `functions/navigation.rs` `FrameSwitches`): two of the original's four performance
+  switches for crowded fights, "cleared every frame" [documented: GECK wiki
+  SetAllVisible, SetNoAvoidance]. The rules clear them at each `Game::tick` before the
+  scripts run; not saved. SetAllVisible: actors skip line-of-sight tests and see what
+  they look at [documented]; the engine's detection takes an NPC's line of sight as
+  clear while it is on (no rays), the field of view still applies, the player's camera
+  sight keeps its rays [hypothesis]. SetNoAvoidance: actors skip "avoid box movement",
+  "do not open doors or angle away from each other" [documented]; kept and read by
+  nothing: there is no avoid-box steering here, and `fnv_ai::apart` stands for the
+  character controllers' blocking [hypothesis]; NPCs still open doors [design]. Calls
+  [observed: decompiled scripts]: `VHDBattleOptimizerScript` (quest, SCPT 0x001418DB,
+  beside setAllReachable), an object script that starts a fight with the player (SCPT
+  0x0015E8F9, beside SetSceneIsComplex), `ComplexSceneScriptPS3SCRIPT` (PS3 only) and
+  two Lonesome Road object scripts (SetAllVisible alone).
+- **EnableLoadingMenu** (0x1270, 2 calls; `functions/ui.rs`): "forces a loading screen
+  to appear for a few seconds", one that does not use the location's own screens
+  [documented: GECK wiki EnableLoadingMenu]. Both calls are `EnableLoadingMenu 1` in a
+  door activator's OnActivate just before `player.MoveTo` a marker (SCPT 0x00168A8B,
+  0x00141144) [observed]. The move brings its own loading screen here
+  (`nvf_play::loading`), so the call makes that screen one for anywhere
+  (`Loading::generic_next`; log `script: EnableLoadingMenu: the travel's loading
+  screen is one for anywhere`). A call with no move after it shows nothing (not built,
+  no shipped call does that; logged).
+
+Tests: `functions.rs` `audited_stubs_answer_from_the_engine_state_and_leave_requests`
+(IsSwimming), `script_stubs_round_3_requests` (PickIdle's queue, the frame switches
+cleared by the tick, EnableLoadingMenu's request); `idles.rs` `pick_idle_walks_the_tree`;
+nvf-play `loading` `enable_loading_menu_screen_is_for_anywhere`.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -419,13 +475,13 @@ exists; the note says what is missing); **deliberately no-op**.
 | SetVatsTarget | 0x11EB | 10 | 0 | needs a system not built yet | combat (VATS) |
 | ForceFlee | 0x10F5 | 8 | 0 | implemented 2026-10-16 (§3.7) | `Game::start_flight` from the combat target |
 | TriggerScreenSplatter | 0x1240 | 8 | 0 | implemented 2026-10-18 (§3.18) | screen splatter: docs/spec-notes/screen-splatter.md |
-| IsSwimming | 0x10B9 | 0 | 7 | needs a system not built yet | movement (swimming) |
+| IsSwimming | 0x10B9 | 0 | 7 | implemented 2026-10-19 (§3.19) | the physics character's swimming, told by the engine; 0 on the player (wiki) |
 | GetVATSTargetHeight | 0x10EB | 0 | 7 | needs a system not built yet | combat (VATS) |
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
 | IsCombatTarget | 0x1203 | 6 | 1 | implemented 2026-10-16 (§3.7) | the target list in a combat state |
 | ShowBlackJackMenuParams | 0x1254 | 6 | 0 | implemented 2026-10-17 (claude/blackjack) | menus (casino) |
 | ShowRouletteMenuParams | 0x1256 | 6 | 0 | implemented 2026-10-17 (claude/roulette, §3.11) | menus (casino) |
-| SetAllVisible | 0x115A | 5 | 0 | needs a system not built yet | detection |
+| SetAllVisible | 0x115A | 5 | 0 | implemented 2026-10-19 (§3.19) | detection: NPCs' line of sight taken as clear for the frame |
 | EnableNavMesh | 0x11C0 | 5 | 0 | implemented 2026-10-18 (§3.16) | navigation (the nav graph's navmesh switches) |
 | ShowSlotMachineMenuParams | 0x1252 | 5 | 0 | needs a system not built yet | menus (casino) |
 | SystemSave | 0x127B | 5 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md) | saving |
@@ -437,11 +493,11 @@ exists; the note says what is missing); **deliberately no-op**.
 | ResetPipboyManager | 0x1201 | 4 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | Pip-Boy: default page and tabs, the light off |
 | AttachAshPile | 0x1211 | 4 | 0 | needs a system not built yet | rendering (death effects) |
 | AddCardToPlayer | 0x125B | 4 | 0 | implemented 2026-10-19 (claude/caravan) | Caravan: docs/spec-notes/caravan.md §2 |
-| SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
+| SetNoAvoidance | 0x115B | 3 | 0 | implemented 2026-10-19 (§3.19): kept for the frame, nothing to skip here | AI |
 | GetGroupTargetCount | 0x11A1 | 0 | 3 | implemented 2026-10-16 (§3.7) | the group's foes |
 | PlaceAtReticle | 0x1263 | 3 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md §4) | HUD (reticle) |
 | GetArmorRating | 0x1051 | 1 | 1 | implemented 2026-10-16 (§3.7) | equipped ARMO DNAM DR |
-| PickIdle | 0x1064 | 2 | 0 | needs a system not built yet | animation |
+| PickIdle | 0x1064 | 2 | 0 | implemented 2026-10-19 (§3.19) | animation: the idle tree's pick by conditions |
 | GetSandman | 0x10E2 | 0 | 2 | implemented 2026-10-18 (§3.17) | perks: docs/spec-notes/perk-activation.md |
 | setAllReachable | 0x1159 | 2 | 0 | implemented 2026-10-18 (§3.16): kept and saved, nothing to skip here | navigation |
 | SetSceneIsComplex | 0x115D | 2 | 0 | deliberately no-op | performance switch of the original's AI |
@@ -452,12 +508,12 @@ exists; the note says what is missing); **deliberately no-op**.
 | DisableNavmesh | 0x11BF | 2 | 0 | implemented 2026-10-18 (§3.16) | navigation (the nav graph's navmesh switches) |
 | ShowTutorialMenu | 0x11E3 | 2 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | menus (tutorial): docs/spec-notes/tutorial-menu.md |
 | AgeRace | 0x11E4 | 2 | 0 | implemented 2026-10-18 (§3.17) | appearance: docs/spec-notes/appearance-changes.md |
-| ShowPlasticSurgeonMenu | 0x11F2 | 2 | 0 | needs a system not built yet | menus (appearance) |
+| ShowPlasticSurgeonMenu | 0x11F2 | 2 | 0 | implemented 2026-10-18 (claude/plastic-surgeon) | menus (appearance): the character creator as the surgeon |
 | ForceSave | 0x1217 | 2 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md) | saving |
 | AutoDisplayObjectives | 0x1225 | 2 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | the HUD keeps the objective list on screen while it is on |
 | SetScreenSplatterFade | 0x1243 | 2 | 0 | implemented 2026-10-18 (§3.18) | screen splatter |
 | GetForceHitReaction | 0x1259 | 0 | 2 | needs a system not built yet | combat (hit reactions forced by power attacks) |
-| EnableLoadingMenu | 0x1270 | 2 | 0 | needs a system not built yet | menus (loading) |
+| EnableLoadingMenu | 0x1270 | 2 | 0 | implemented 2026-10-19 (§3.19) | the following travel's loading screen is one for anywhere |
 | StartMisterSandman | 0x107C | 1 | 0 | implemented 2026-10-18 (§3.17) | perks: docs/spec-notes/perk-activation.md |
 | GetCannibal | 0x10E3 | 0 | 1 | implemented 2026-10-18 (§3.17) | perks: docs/spec-notes/perk-activation.md |
 | trapUpdate | 0x110C | 1 | 0 | needs a system not built yet | physics (traps) |

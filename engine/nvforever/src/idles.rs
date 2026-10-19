@@ -64,8 +64,12 @@
 //!   the actor next stands still. Flee Not Combat packages (procedure 34) are not
 //!   carried out (`fnv_ai::goal`), so only combat flights cower.
 //!
+//! - **PickIdle**. A script's `PickIdle` asks for the tree's pick for its actor
+//!   (`Game::idle_picks`); the actor's folder walked as for its fidgets, with no branch
+//!   kept out (`Game::pick_idle`), and the pick played as a script's idle.
+//!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
-//! conditions: `PickIdle`, other fidgets), the sounds and other text keys of idle clips,
+//! conditions: other fidgets), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
 //! drawn by `anim_objects.rs`.
 
@@ -733,6 +737,32 @@ pub fn drive(
         }
     }
 
+    // PickIdle: the tree's pick for each actor a script asked, by the actor's own folder
+    // (`Game::pick_idle`); nothing when none fits [documented: GECK wiki PickIdle].
+    for actor in std::mem::take(&mut game.idle_picks) {
+        let folder = if actor.0 == player_ref { Some(PEOPLE_FOLDER.to_string()) } else { actors.iter().find(|(_, v, ..)| v.0 == actor.0).and_then(|(_, _, rig, ..)| skeleton_folder(&rig.skeleton)) };
+        let name = game.data.name(actor);
+        let Some(folder) = folder else {
+            debug!("pick idle: {name} is not drawn: plays nothing");
+            continue;
+        };
+        let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
+        let held_back = |idle: FormId| {
+            let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
+            delay > 0.0 && last.get(&(actor.0, idle.0)).is_some_and(|t| clock - t < delay)
+        };
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.pick_idle(actor, &folder, &held_back));
+        match pick {
+            Some(idle) => {
+                info!("pick idle: {name} picks {}", game.data.name(idle));
+                st.fidget_last.insert((actor.0, idle.0), st.clock);
+                game.ask_idle(actor, idle, IdleSource::Picked);
+            }
+            None => info!("pick idle: {name} finds no idle whose conditions it meets"),
+        }
+    }
+
     // Start what was asked for.
     let requests = std::mem::take(&mut game.idle_requests);
     if !requests.is_empty() {
@@ -743,7 +773,7 @@ pub fn drive(
                 st.stats.asked += 1;
             }
             match source {
-                IdleSource::Script => st.stats.script += 1,
+                IdleSource::Script | IdleSource::Picked => st.stats.script += 1,
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,

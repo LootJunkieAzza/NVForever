@@ -6,7 +6,8 @@
 //!   reload clip playing (`attack_anims::Attack::action`: a reload 9, a shot 2/3/4, a
 //!   blow 2/4, a blocked blow's recoil 8, a block's reaction 7), else blocking 7, else
 //!   drawing (0) or putting away (1) the weapon, else a crippled limb's stagger
-//!   (`Flinch`), a PlayIdle idle, a package's begin, end or change idle, a cowering idle
+//!   (`Flinch`), a PlayIdle or PickIdle idle [hypothesis for PickIdle: a script's idle
+//!   as PlayIdle's], a package's begin, end or change idle, a cowering idle
 //!   or a script's PlayGroup group: 13 [documented: GECK wiki GetAnimAction, 13 is
 //!   "furniture anim, playidle anims, staggering from crippled limbs"]. Fidgets,
 //!   collections' idles and conversation gestures are not 13 [observed: the AI observer's
@@ -120,7 +121,7 @@ type Body = (&'static ActorRig, &'static InheritedVisibility, Option<&'static Lo
 
 /// The idles that are GetAnimAction 13 (module notes).
 fn special(source: IdleSource) -> bool {
-    matches!(source, IdleSource::Script | IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange | IdleSource::Cower)
+    matches!(source, IdleSource::Script | IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange | IdleSource::Cower | IdleSource::Picked)
 }
 
 /// The movement group of a way and pace (`fnv_actor::locomotion::Move::group`).

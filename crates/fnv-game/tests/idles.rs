@@ -48,6 +48,9 @@ const IDLE_FOLDER: u32 = 0xA03;
 const IDLE_OWN: u32 = 0xA04;
 const IDLE_UNREAD: u32 = 0xA05;
 const IDLE_COWER: u32 = 0xA06;
+/// Two leaves under `IDLE_FOLDER`: one for Somebody only, then one for anybody.
+const IDLE_LEAF_OWN: u32 = 0xA07;
+const IDLE_LEAF_ANY: u32 = 0xA08;
 const P_FIRST: u32 = 0xB01;
 const P_SECOND: u32 = 0xB02;
 const P_PLAIN: u32 = 0xB03;
@@ -84,6 +87,14 @@ fn idle_if(fid: u32, edid: &str, conds: Vec<Subrecord>) -> Vec<u8> {
 }
 
 const GET_IS_ID: u16 = 72;
+
+/// An IDLE with a file below `parent` in the tree, after `previous` (ANAM), with conditions.
+fn leaf(fid: u32, edid: &str, parent: u32, previous: u32, conds: Vec<Subrecord>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"MODL", z("Characters\\_Male\\IdleAnims\\Leaf.kf"))];
+    subs.extend(conds);
+    subs.extend([sub(b"ANAM", [parent.to_le_bytes(), previous.to_le_bytes()].concat()), sub(b"DATA", vec![7, 0, 0, 0, 0, 0, 0, 0])]);
+    record(b"IDLE", fid, &subs)
+}
 
 /// A condition `function == value` on the subject, joined to the next by OR when `or`.
 fn ctda_eq(function: u16, value: f32, or: bool) -> Subrecord {
@@ -131,6 +142,8 @@ fn plugin_bytes() -> Vec<u8> {
         // As FalloutNV.esm's CowerIdles: not moving, fleeing (16) or fleeing a non-combat
         // threat (34).
         idle_if(IDLE_COWER, "Cower", vec![ctda_eq(IS_MOVING, 0.0, false), ctda_eq(GET_CURRENT_AI_PROCEDURE, 16.0, true), ctda_eq(GET_CURRENT_AI_PROCEDURE, 34.0, false)]),
+        leaf(IDLE_LEAF_OWN, "LeafOwn", IDLE_FOLDER, 0, vec![ctda(GET_IS_ID, NPC)]),
+        leaf(IDLE_LEAF_ANY, "LeafAny", IDLE_FOLDER, IDLE_LEAF_OWN, vec![]),
     ]
     .concat();
     let packs = [
@@ -197,7 +210,7 @@ fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
 fn idle_records_and_package_idle_data_are_read() {
     let f = fixture();
     let d = &f.data;
-    assert_eq!(d.idles.len(), 6);
+    assert_eq!(d.idles.len(), 8);
     let wake = &d.idles[&FormId(IDLE_WAKE)];
     assert_eq!((wake.model.as_deref(), wake.loop_min, wake.loop_max, wake.has_file()), (Some("Characters\\_Male\\IdleAnims\\Wake.kf"), 255, 255, true));
     assert!(!d.idles[&FormId(IDLE_FOLDER)].has_file());
@@ -317,4 +330,22 @@ fn a_fleeing_actor_standing_still_gets_the_cower_idle() {
     g.end_flight(actor);
     assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "fighting again");
     assert!(g.wants_weapon_out(actor), "fighting again: drawn again");
+}
+
+/// PickIdle: the actor is queued for the animating layer, which knows its folder; the
+/// tree's pick is the first leaf whose conditions pass (script-stubs.md §3.19).
+#[test]
+fn pick_idle_walks_the_tree() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    call(&mut g, 0x1064, actor, &[]);
+    call(&mut g, 0x1064, actor, &[]);
+    assert_eq!(g.idle_picks, vec![actor], "each actor once");
+    assert!(asked(&mut g).is_empty(), "nothing played before the animating layer picks");
+    let folder = "characters\\_male";
+    assert_eq!(g.pick_idle(actor, folder, &|_| false), Some(FormId(IDLE_LEAF_OWN)));
+    assert_eq!(g.pick_idle(FormId::PLAYER_REF, folder, &|_| false), Some(FormId(IDLE_LEAF_ANY)), "the player is not Somebody");
+    assert_eq!(g.pick_idle(actor, folder, &|i| i == FormId(IDLE_LEAF_OWN)), Some(FormId(IDLE_LEAF_ANY)), "held back");
+    assert_eq!(g.pick_idle(actor, "creatures\\dog", &|_| false), None, "another folder: nothing");
 }

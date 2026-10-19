@@ -46,6 +46,8 @@ pub enum IdleSource {
     /// A fleeing actor standing still cowers: an idle at the root of the tree that
     /// wants the flee procedure ([`Game::flee_idle`]).
     Cower,
+    /// A script's `PickIdle`: the idle tree's pick by its conditions ([`Game::pick_idle`]).
+    Picked,
 }
 
 /// Which fidgets of the idle tree are played: the branch below a node whose conditions
@@ -266,7 +268,7 @@ impl<'a> Game<'a> {
                 if !self.idle_allowed(actor, root) {
                     continue;
                 }
-                if let Some((leaf, gated)) = self.first_leaf(actor, root, kind, kind.gates(data, root), held_back) {
+                if let Some((leaf, gated)) = self.first_leaf(actor, root, Some(kind), kind.gates(data, root), held_back) {
                     return gated.then_some(leaf);
                 }
             }
@@ -282,7 +284,7 @@ impl<'a> Game<'a> {
                 stack.extend(kids.iter().rev());
             }
         }
-        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, kind, true, held_back)).flatten().map(|(leaf, _)| leaf))
+        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, Some(kind), true, held_back)).flatten().map(|(leaf, _)| leaf))
     }
 
     /// The idle a fleeing `actor` plays from the idle tree now, or `None` (idles.md §13).
@@ -315,16 +317,40 @@ impl<'a> Game<'a> {
         roots.into_iter().find(|r| !held_back(*r) && self.idle_allowed(actor, *r))
     }
 
+    /// The idle `actor` plays for a script's `PickIdle`, or `None`: the idle tree walked
+    /// as for an NPC's fidget ([`Game::fidget`]: the roots of the actor's own `folder` in
+    /// chain order, the first node whose conditions pass gone into, the first leaf with
+    /// a file whose conditions pass is the pick), with no branch kept out
+    /// [documented: GECK wiki PickIdle, "causes the calling actor to choose and play an
+    /// Idle Animation", and "will do nothing if no Idle Animations can be found with
+    /// matching conditions"; hypothesis: the walk is the fidgets' (animation.md §2.2),
+    /// on the player too]. `held_back` as for [`Game::fidget`].
+    pub fn pick_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(|r| own(r) && data.idle_children.contains_key(&Some(*r))).collect();
+        for root in roots {
+            if !self.idle_allowed(actor, root) {
+                continue;
+            }
+            if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, held_back) {
+                return Some(leaf);
+            }
+        }
+        None
+    }
+
     /// The first leaf below `node` whose way down passes, and whether a node on that
     /// way (or `gated`, said of those above) gates `kind`.
-    fn first_leaf(&mut self, actor: FormId, node: FormId, kind: FidgetKind, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
+    fn first_leaf(&mut self, actor: FormId, node: FormId, kind: Option<FidgetKind>, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
         let data = self.data;
         for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
             let leaf = !data.idle_children.contains_key(&Some(child));
             if (leaf && (!data.idles[&child].has_file() || held_back(child))) || !self.idle_allowed(actor, child) {
                 continue;
             }
-            let gated = gated || kind.gates(data, child);
+            let gated = gated || kind.is_some_and(|k| k.gates(data, child));
             if leaf {
                 return Some((child, gated));
             }
@@ -538,6 +564,22 @@ pub fn play_idle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         _ => a.form(0)?,
     };
     g.ask_idle(actor, idle, IdleSource::Script);
+    none()
+}
+
+/// `actor.PickIdle`: the actor chooses an idle from the idle tree by its conditions and
+/// plays it; nothing when none fits [documented: GECK wiki PickIdle]. The rules do not
+/// know the actor's animation folder (its skeleton), so the call asks the animating
+/// layer ([`Game::idle_picks`]), which walks the tree for the actor it draws
+/// ([`Game::pick_idle`]) and asks for the pick as any other idle ([`IdleSource::Picked`]);
+/// an actor that is not drawn plays nothing, as for every idle. The shipped calls are
+/// one object script's OnStartCombat (SCPT 0x0017491E: `PickIdle`, and again when
+/// GetCurrentAIProcedure is 21) [observed: decompiled scripts, 2026-10-19].
+pub fn pick_idle(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let actor = ctx.subject()?;
+    if !g.idle_picks.contains(&actor) {
+        g.idle_picks.push(actor);
+    }
     none()
 }
 

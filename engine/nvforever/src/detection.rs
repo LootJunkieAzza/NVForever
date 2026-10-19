@@ -218,6 +218,8 @@ struct Person {
     sneaking: bool,
     /// IsTurning's code: 0 not turning, 1 left, 2 right.
     turning: u8,
+    /// Its character swims (the physics' word; IsSwimming).
+    swimming: bool,
 }
 
 impl Person {
@@ -449,6 +451,7 @@ fn measure(
         running: pmoving && !intent.as_deref().is_some_and(|i| i.walk),
         sneaking: control.as_deref().is_some_and(|c| c.sneak),
         turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
+        swimming: phys.as_deref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming),
     });
     for (rig, g, vis, dying, corpse, name) in &actors {
         if !vis.get() || dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
@@ -475,6 +478,7 @@ fn measure(
             running: speed > RUNNING_SPEED,
             sneaking: rt.game.sneaks(FormId(rig.reference)),
             turning: turning(rig.reference, flat.x.atan2(flat.y), &mut state.headings),
+            swimming: phys.as_deref().and_then(|p| p.npcs.get(&rig.reference)).is_some_and(|n| n.ch.swimming),
         });
     }
     state.last.retain(|_, (_, t)| now - *t < 5.0);
@@ -512,13 +516,13 @@ fn measure(
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
     let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
-        // What the scripts read of movement and sneaking (IsMoving, IsRunning,
-        // IsSneaking): the people measured now; the others are forgotten.
+        // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
+        // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
         for p in &people {
             // The player's speed mode is the Walk toggle, moving or not (IsRunning).
             let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };
-            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode });
+            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode, swimming: p.swimming });
         }
         // Every two within reach of each other, both ways; the player detects too.
         let feet: Vec<[f32; 3]> = people.iter().map(|p| p.feet).collect();
@@ -529,6 +533,10 @@ fn measure(
         // detection-1 det2, 2026-10-17].
         let beyond: Vec<(usize, usize)> = (1..people.len()).filter(|&j| !near_player[j]).map(|j| (0, j)).collect();
         let ordered = within.into_iter().flat_map(|(a, b)| [(a, b), (b, a)]).chain(beyond);
+        // SetAllVisible this frame: NPCs skip the line-of-sight rays and see what they
+        // look at [documented: GECK wiki SetAllVisible]; the player's sight is the
+        // camera's and keeps its rays [hypothesis].
+        let all_visible = g.frame_switches.all_visible;
         for (i, j) in ordered {
             let (d, t) = (&people[i], &people[j]);
             let by_player = i == 0;
@@ -543,7 +551,7 @@ fn measure(
             let sit = Situation {
                 distance: dist as f64,
                 exterior,
-                line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.view, target) || sight(phys.as_deref_mut(), land, world, exterior, d.view, t.eyes),
+                line_of_sight: (all_visible && !by_player) || sight(phys.as_deref_mut(), land, world, exterior, d.view, target) || sight(phys.as_deref_mut(), land, world, exterior, d.view, t.eyes),
                 in_view: in_view(d.view, d.forward, target),
                 light: light[j],
                 moving: t.moving,

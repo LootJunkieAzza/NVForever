@@ -54,6 +54,9 @@ pub struct UiRequests {
     pub pipboy_resets: u64,
     /// ExitGame calls the engine has not taken yet (`nvf_play::script`).
     pub exit_game: u32,
+    /// EnableLoadingMenu 1 this frame ([`enable_loading_menu`]): the engine takes it
+    /// after the frame's scripts (`nvf_play::script`).
+    pub loading_menu: bool,
 }
 
 /// A film a script asked for (`PlayBink`), for the engine's film player
@@ -196,6 +199,22 @@ pub fn increment_scripted_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
 pub fn autosave(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     g.ui.autosaves += 1;
     Ok(Value::ZERO)
+}
+
+/// `EnableLoadingMenu flag`: "forces a loading screen to appear for a few seconds",
+/// one that "does not use any loading screens specific to the current location"
+/// [documented: GECK wiki EnableLoadingMenu]. Both shipped calls are `EnableLoadingMenu
+/// 1` in a door activator's OnActivate just before `player.MoveTo` a marker (SCPT
+/// 0x00168A8B and 0x00141144, the way in and out of one place) [observed: decompiled
+/// scripts, 2026-10-19]; the move brings its own loading screen here, so the engine
+/// makes that screen one for anywhere (`nvf_play::loading::Loading::generic_next`).
+/// A call with no move after it shows nothing (not built; no shipped call does so).
+/// `EnableLoadingMenu 0` asks for nothing [hypothesis: the parameter reads as a switch].
+pub fn enable_loading_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    if a.num_or(0, 1.0) != 0.0 {
+        g.ui.loading_menu = true;
+    }
+    none()
 }
 
 /// `SystemSave`: the one system save, overwritten by each later call; listed for loading,

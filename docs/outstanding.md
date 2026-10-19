@@ -19,7 +19,7 @@ left of knockdowns), used items and the remaining package types and flags (#400)
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
 (#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413), race and sex
 changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking activators
-(claude/actor-changes). 23 functions are still stubs. Saves from scripts and PlaceAtReticle
+(claude/actor-changes), Caravan, and IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (script-stubs.md §3.19). 11 functions are still stubs. Saves from scripts and PlaceAtReticle
 are built (rows 2 and 12, 2026-10-18,
 [script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)).
 
@@ -55,7 +55,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   weapon use through UseWeapon; a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
   [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
-- **Animation**: actors' jumps, NPCs' sneaking weapon clips, PickIdle; armour ragdoll
+- **Animation**: actors' jumps, NPCs' sneaking weapon clips; armour ragdoll
   templates.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,

@@ -948,6 +948,34 @@ fn radio_functions() {
 /// The stubs implemented by the audit of 2026-10-12 (docs/design/script-stubs.md §3):
 /// what the engine tells (movement, sight, the camera), heads held by Look, subtitles,
 /// the weather, scripted challenges and the menus' requests.
+/// PickIdle's queue, the AI's frame switches (cleared by every tick) and EnableLoadingMenu's
+/// request (script-stubs.md §3.19).
+#[test]
+fn script_stubs_round_3_requests() {
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    call(&mut g, 0x1064, Some(ADULT_REF), &[]);
+    assert_eq!(g.idle_picks, vec![adult]);
+    // SetAllVisible and SetNoAvoidance hold until the next frame, which clears them.
+    call(&mut g, 0x115A, None, &[n(1.0)]);
+    call(&mut g, 0x115B, None, &[n(1.0)]);
+    assert!(g.frame_switches.all_visible && g.frame_switches.no_avoidance);
+    g.tick();
+    assert!(!g.frame_switches.all_visible && !g.frame_switches.no_avoidance, "cleared every frame");
+    call(&mut g, 0x115A, None, &[n(1.0)]);
+    call(&mut g, 0x115A, None, &[n(0.0)]);
+    assert!(!g.frame_switches.all_visible);
+    // EnableLoadingMenu: a request for the engine; 0 asks for nothing.
+    call(&mut g, 0x1270, None, &[n(0.0)]);
+    assert!(!g.ui.loading_menu);
+    call(&mut g, 0x1270, None, &[n(1.0)]);
+    assert!(g.ui.loading_menu);
+    for op in [0x1064, 0x115A, 0x115B, 0x1270, 0x10B9] {
+        assert!(fnv_game::functions::implemented(op), "0x{op:04X}");
+    }
+}
+
 #[test]
 fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
     use fnv_game::chargen::{SpecialSheet, TagSheet};
@@ -971,14 +999,23 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
-    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0, run_mode: false });
+    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0, run_mode: false, swimming: false });
     assert_eq!(call(&mut g, 0x111E, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x1019, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x111F, None, &[]), 0.0);
-    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0, run_mode: true });
+    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0, run_mode: true, swimming: false });
     assert_eq!(call(&mut g, 0x111F, Some(ADULT_REF), &[]), 1.0);
     g.forget_motion(adult);
     assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
+    // IsSwimming: an NPC's physics swim state; the player always reads 0 (wiki note).
+    assert_eq!(call(&mut g, 0x10B9, Some(ADULT_REF), &[]), 0.0);
+    g.set_motion(adult, Motion { swimming: true, ..Motion::default() });
+    assert_eq!(call(&mut g, 0x10B9, Some(ADULT_REF), &[]), 1.0);
+    let before = g.motion(FormId::PLAYER_REF);
+    g.set_motion(FormId::PLAYER_REF, Motion { swimming: true, ..before });
+    assert_eq!(call(&mut g, 0x10B9, None, &[]), 0.0);
+    g.set_motion(FormId::PLAYER_REF, before);
+    g.forget_motion(adult);
 
     // Line of sight from the detection the engine measured for the pair.
     assert_eq!(call(&mut g, 0x101B, Some(ADULT_REF), &[r(CHILD_REF)]), 0.0);
