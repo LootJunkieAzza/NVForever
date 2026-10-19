@@ -3573,6 +3573,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-beam"
+source = "the owner: the laser rifle's beam looks static beside the game's (docs/spec-notes/combat-rules.md §15 'Controllers of the effect models'): laser rifle shots at Goodsprings (fire pressed twice for a shot, as other scenarios do: a lone press can be lost); the beam model plays its two looping texture scrolls and every beam drawn fades out over the PROJ's Fade Duration"
+areas = ["combat"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "00004336", NVF_PLAY_TEST_GIVE = "00004485:50", NVF_PLAY_TEST_LOOK = "2:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.2:fire,9:fire,9.2:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'shot fx: projectile meshes.projectiles.testlaserbeamsteady.nif: 2 shapes, .*; plays Effect \(3\.67 s: 0 node track\(s\), 0 visibility, 2 material\)' },
+  { re = 'shot fx: [1-9]\d* muzzle flashes .*, ([1-9]\d*) projectile models drawn, ' },
+  { re = 'shot fx: ([1-9]\d*) beams played their own animation, \1 faded out over their fade duration' },
+]
+
+[[scenario]]
 name = "missile-explosion"
 source = "explosions look like the game's (docs/spec-notes/explosion-effects.md): a missile fired at the ground by the Prospector Saloon plays its EXPL model's SpecialIdle_AreaEffect sequence (fireball meshes growing, fading, shown and hidden), the dirt impact's own controllers, and the EXPL's image space modifier for the player within its IS radius"
 areas = ["combat", "particles"]

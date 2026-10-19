@@ -291,6 +291,9 @@ pub struct ShotVisual {
     pub beam: Option<f32>,
     /// How far it has flown since it left.
     pub travelled: f32,
+    /// How strongly it is drawn, 1 to 0: a beam fades out over its PROJ's Fade Duration
+    /// (docs/spec-notes/combat-rules.md §15); everything else is 1.
+    pub strength: f32,
 }
 
 /// The player's projectiles to draw this frame (nvforever `shot_fx` draws their models).
@@ -616,10 +619,24 @@ struct Ghost {
     travelled: f32,
     beam: bool,
     left: f32,
+    /// The whole of `left` when made (the PROJ's Fade Duration).
+    fade: f32,
     /// Made this frame: drawn at its start before it moves.
     fresh: bool,
     /// A beam from the muzzle: its start stays on the muzzle while it shows.
     follow: bool,
+}
+
+/// How strongly a shot is drawn with `left` of its `fade` seconds to go: a beam fades
+/// from full to nothing over its PROJ's Fade Duration, in a straight line [hypothesis:
+/// what Fade Duration means, from its name and the beam staying that long; the line is
+/// [design]]; anything else is drawn in full.
+pub fn beam_strength(beam: bool, left: f32, fade: f32) -> f32 {
+    if beam && fade > 0.0 {
+        (left / fade).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
 }
 
 /// What a [`Mark`] shows.
@@ -2439,7 +2456,7 @@ fn fly(
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
             let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
-            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fresh: true, follow: follow && beam };
+            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
                 match e {
@@ -2501,12 +2518,12 @@ fn fly(
         }
     });
     visuals.flying.clear();
-    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled }));
+    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled, strength: 1.0 }));
     visuals.flying.extend(c.ghosts.iter().map(|g| {
         let d = vec::sub(g.to, g.from);
         let len = vec::len(d);
         let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
-        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled }
+        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled, strength: beam_strength(g.beam, g.left, g.fade) }
     }));
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
@@ -2904,6 +2921,18 @@ pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32
 mod tests {
     use super::*;
     use crate::phys::NpcBody;
+
+    /// The laser rifle's beam (BeamLaserProjectile, Fade Duration 0.14 s) is drawn in
+    /// full when made, at half strength half way through and not at all at the end; a
+    /// bullet, or a beam whose PROJ gives no fade, in full.
+    #[test]
+    fn a_beam_fades_over_its_fade_duration() {
+        assert_eq!(beam_strength(true, 0.14, 0.14), 1.0);
+        assert!((beam_strength(true, 0.07, 0.14) - 0.5).abs() < 1e-6);
+        assert_eq!(beam_strength(true, -0.01, 0.14), 0.0);
+        assert_eq!(beam_strength(false, 0.0, 0.14), 1.0);
+        assert_eq!(beam_strength(true, 0.0, 0.0), 1.0);
+    }
 
     /// A blast is its cause's hit: an NPC's Incinerator burst on a trooper is that NPC's
     /// with that weapon, not the player's (every blast used to be the player's, with the

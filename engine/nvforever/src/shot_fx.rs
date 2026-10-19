@@ -41,10 +41,17 @@
 //!   within the EXPL's image-space radius, its image space modifier plays on the screen
 //!   (`crate::imagespace::ScreenModifiers::play`).
 //! - **The models' own animation** (docs/spec-notes/explosion-effects.md): a flash,
-//!   impact or explosion model plays its effect clip from when it appears
+//!   impact, explosion or projectile model plays its effect clip from when it appears
 //!   (`nvf_assets::model::Rig::effect`): its `SpecialIdle_AreaEffect` sequence and the
 //!   controllers no sequence drives, so fireballs and dust splashes grow, move, fade and
-//!   show and hide as their files say ([`spawn_effect`]).
+//!   show and hide as their files say ([`spawn_effect`]), and the energy beams scroll
+//!   their textures along and across themselves (combat-rules.md §15).
+//! - **Beam fade.** A beam is drawn at [`ShotVisual::strength`]: the alpha of every
+//!   shape of its model (and with it all it adds, the beams being additive) falls from
+//!   full to nothing over the PROJ's Fade Duration (`nvf_play::combat::beam_strength`),
+//!   unless the model fades itself with an alpha controller (the green laser's, the
+//!   pulse gun's) [hypothesis, combat-rules.md §15]. A beam model with no controllers
+//!   at all (`DLC03ScatterBeam`'s) has no rig and is not faded.
 //! - Not built: impact decals, the models' refraction (heat haze) controllers, NPCs'
 //!   muzzles.
 
@@ -52,9 +59,10 @@ use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_nif::anim::BoolTrack;
-use nvf_assets::anim_play::Playing;
+use nvf_assets::anim_play::{MaterialTarget, Playing};
+use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisuals};
+use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisual, ShotVisuals};
 use nvf_play::phys::PhysState;
 use fnv_sim::FormId;
 use nvf_play::sfx::{PlaySound, Sfx};
@@ -158,6 +166,9 @@ struct ShotFx {
     /// image space modifier went on the screen.
     animated: u32,
     screen_effects: u32,
+    /// Beams that played a clip of their own, and those drawn fading.
+    beams_animated: u32,
+    beams_faded: u32,
 }
 
 pub struct ShotFxPlugin;
@@ -206,16 +217,17 @@ fn spawn_model(commands: &mut Commands, parent: Entity, pm: &PreparedModel, plac
 /// Spawn an effect model under `parent` at `place`: its rig playing its effect clip when
 /// something in the file moves (`Rig::effect`), else its node tree ([`spawn_model`]).
 /// Its billboards turn and its add-on nodes emit either way. Returns the entity above it
-/// and the length of its clip in seconds (0: none).
-fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &PreparedModel, place: Transform, source: &str) -> (Entity, f32) {
+/// and the length of its clip in seconds (0: none). `beam`: a beam, which fades with its
+/// [`ShotVisual::strength`] ([`Fade`]).
+fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &PreparedModel, place: Transform, source: &str, beam: bool) -> (Entity, f32) {
     let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.effect.as_ref()?))) else {
         return (spawn_model(commands, parent, pm, place), 0.0);
     };
     // Under a holder at the place: a track of the clip may drive the file's root node.
     let holder = commands.spawn((place, Visibility::Inherited, ChildOf(parent))).id();
     let (root, drawn, by_name) = rig.spawn_playing(commands, holder, Transform::IDENTITY, source, 0.0, Some(clip));
-    for e in drawn {
-        commands.entity(e).insert(NotShadowCaster);
+    for e in &drawn {
+        commands.entity(*e).insert(NotShadowCaster);
     }
     for n in &pm.nodes {
         let Some(&e) = n.name.as_ref().and_then(|k| by_name.get(k)) else { continue };
@@ -230,8 +242,38 @@ fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &P
     if !shown.is_empty() {
         commands.entity(root).insert(EffectVisibility(shown));
     }
+    if beam {
+        // Every shape gets a material of its own to fade, not only those the clip drives
+        // (the laser beam's white core is not).
+        let fades_itself = clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha);
+        if !fades_itself {
+            let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
+            commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
+        }
+        commands.entity(holder).insert(Fade { root, own: fades_itself });
+        fx.beams_animated += 1;
+    }
     fx.animated += 1;
     (holder, clip.length() / clip.frequency.max(1e-6))
+}
+
+/// On a beam's holder: the root of its rig, whose materials fade with the beam's
+/// strength, unless `own`: its model fades itself (an alpha track of its clip).
+#[derive(Component)]
+struct Fade {
+    root: Entity,
+    own: bool,
+}
+
+/// Draw a beam at its strength (see the module notes); the beams that faded are counted
+/// once each.
+fn fade_beam(fx: &mut ShotFx, m: &mut RigMaterials, v: &ShotVisual) {
+    if m.fade >= 1.0 && v.strength < 1.0 {
+        fx.beams_faded += 1;
+    }
+    if m.fade != v.strength {
+        m.fade = v.strength;
+    }
 }
 
 /// Show and hide the nodes of effect models as their clips' visibility tracks say.
@@ -333,7 +375,7 @@ fn flash(
         };
         let Some((parent, place)) = place else { continue };
         let Some(pm) = load(&mut models, &mut fx, "muzzle flash", model) else { continue };
-        let (holder, _) = spawn_effect(&mut commands, &mut fx, parent, &pm, place, model);
+        let (holder, _) = spawn_effect(&mut commands, &mut fx, parent, &pm, place, model, false);
         // Made after this frame's flashes were aged: it is drawn this frame whatever
         // its duration, and goes in the first frame its time is up.
         commands.entity(holder).insert(Flash { left: p.muzzle_flash_duration });
@@ -351,6 +393,7 @@ fn flash(
 }
 
 /// The projectiles in flight: each one's PROJ model where combat says it is drawn.
+#[allow(clippy::too_many_arguments)]
 fn draw_flying(
     mut commands: Commands,
     visuals: Res<ShotVisuals>,
@@ -359,6 +402,8 @@ fn draw_flying(
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     mut transforms: Query<&mut Transform>,
+    fading: Query<&Fade>,
+    mut materials: Query<&mut RigMaterials>,
 ) {
     let Ok(world_root) = root.single() else { return };
     let fx = &mut *fx;
@@ -384,11 +429,15 @@ fn draw_flying(
                     *t = place(beam_end);
                 }
                 commands.entity(e).try_insert(out(tail));
+                if let Some(mut m) = fading.get(e).ok().filter(|f| !f.own).and_then(|f| materials.get_mut(f.root).ok()) {
+                    fade_beam(fx, &mut m, v);
+                }
             }
             Some(None) => {}
             None => {
                 let p = combat.forms.projectiles.get(&v.projectile);
-                let pm = p.and_then(|p| p.model.as_deref()).and_then(|m| load(&mut models, fx, "projectile", m));
+                let model = p.and_then(|p| p.model.as_deref());
+                let pm = model.and_then(|m| load(&mut models, fx, "projectile", m));
                 let spawned = pm.map(|pm| {
                     let end = pm.nodes.iter().find(|n| n.name.as_deref().is_some_and(|x| x.eq_ignore_ascii_case("BeamEnd"))).map(|n| n.local.translation.y);
                     debug!(
@@ -400,7 +449,7 @@ fn draw_flying(
                         v.beam.map_or(String::new(), |l| format!(", a beam {l:.0} units long"))
                     );
                     let tail = pm.bounds.map_or(0.0, |(lo, _)| (-lo.y).max(0.0));
-                    let e = spawn_model(&mut commands, world_root, &pm, place(end));
+                    let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, place(end), model.unwrap_or_default(), v.beam.is_some());
                     commands.entity(e).insert(out(tail));
                     (e, end, tail)
                 });
@@ -510,7 +559,7 @@ fn impacts(
             _ => normal,
         };
         let place = Transform { translation: Vec3::from_array(hit.point), rotation: Quat::from_rotation_arc(Vec3::Z, along), scale: Vec3::ONE };
-        let (holder, _) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, model);
+        let (holder, _) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, model, false);
         // Its own particle systems, if any (the debris of an explosion's dirt impact).
         commands.entity(holder).insert((Flash { left: i.effect_duration }, crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model))));
         fx.impacts += 1;
@@ -553,7 +602,7 @@ fn explosions(
         let place = Transform::from_translation(Vec3::from_array(b.point));
         let (holder, length) = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
             Some((m, pm)) => {
-                let (h, length) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, m);
+                let (h, length) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, m, false);
                 commands.entity(h).insert(crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(m)));
                 (h, length)
             }
@@ -634,5 +683,8 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
             fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
         info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
+        if fx.beams_animated > 0 {
+            info!("shot fx: {} beams played their own animation, {} faded out over their fade duration", fx.beams_animated, fx.beams_faded);
+        }
     }
 }
