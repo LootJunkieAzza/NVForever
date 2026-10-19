@@ -6347,3 +6347,23 @@ docs/design/combat-ai.md §12.6.1. All [design]; the original's cover search is 
   that pins it down instead.
 - **When that gunman stops firing at it**, the cover is kept against its own target if
   the edge faces it, else given up.
+
+## Pip-Boy ITEMS extras and a clickable repair list (2026-10-19, branch claude/pipboy-items-extras)
+
+docs/spec-notes/pipboy.md §5, repair.md §5.
+- **DPS over DAM**: the menu file puts its DPS and DAM cards at the same place and picks
+  one in code. Your screenshots show DAM there, so DAM stays and DPS sits above it (as
+  STR sits above VAL). *Check:* say where DPS shows in your game, and whether DAM shows
+  at all.
+- **The DPS figure** is a guess: damage a shot at the item's condition times shots a
+  second (an automatic's fire rate, else its attack shots a second, else one). Melee
+  weapons get their damage once a second.
+- **The badge** at the picture's lower left is the ammunition's own inventory picture.
+- **"Mod X)"** shows for weapons with mod slots, bright when you carry a mod that fits,
+  dim otherwise. There is no mod menu yet and X still drops an item, so the hint does
+  nothing.
+- **The repair list** takes the pointer as the ITEMS list does: hovering chooses a row,
+  a click on a row chooses it, a click on the chosen part uses it.
+- **The "+10 XP" line and Locations Discovered** were already built (the HUD's XP meter shows any
+  rise of experience; the misc statistics, 2026-10-18): this branch only adds the smoke
+  scenario `pipboy-general-locations` and takes them off the outstanding list.

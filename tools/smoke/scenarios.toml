@@ -3362,6 +3362,37 @@ expect = [
 order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
 
 [[scenario]]
+name = "pipboy-items-extras"
+source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's DPS card, the ammunition's badge and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: a click on the part chooses it, a second click uses it"
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs"]
+env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:click=260:201,17.5:click=260:201,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_extras.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy items: 10mm Pistol selected: .*dps: Some\("[1-9]\d*"\)', label = "a DPS figure for the pistol" },
+  { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("', label = "the ammunition's badge" },
+  { re = 'pipboy items: 10mm Pistol Mod X\)', label = "Mod X) for a weapon with mod slots" },
+  { text = "pipboy repair: clicked row 1", min = 2, label = "two clicks on the part's row" },
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the second click repairs the pistol" },
+]
+order = [["pipboy repair: open", "pipboy repair: clicked row 1", "pipboy repair: 10mm Pistol"]]
+
+[[scenario]]
+name = "pipboy-general-locations"
+source = "outstanding.md §2 Interface (2026-10-19; hud.md §11, misc-stats.md): leaving the start finds Goodsprings: the HUD's XP meter shows +10 XP and the Pip-Boy's General list counts it under Locations Discovered"
+areas = ["hud", "pipboy"]
+paths = ["engine/nvf-play/src/xp_meter.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/misc_stats.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=4,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23.5:down" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 28
+expect = [
+  { re = 'compass: discovered .*\+10 XP', label = "the town found, 10 XP" },
+  { re = 'xp meter: \+10 XP', label = "the HUD's +10 XP line" },
+  { re = 'pipboy stats: General \(General\): Locations Discovered [1-9]\d* selected', label = "Locations Discovered counts it" },
+]
+
+[[scenario]]
 name = "pipboy-repair"
 source = "todo 6 item 5: repair from the Pip-Boy (engine/nvf-play/src/pipboy/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md §5): two worn 10mm Pistols (Weap10mmPistol, first in the Weapons tab by name), the ITEMS page's Repair R) hint, R lists the other pistol as the part, using it scraps it and raises the first by the GECK wiki's repair formula at the player's Repair skill; frame pipboy_repair.png in the working folder"
 areas = ["repair", "pipboy"]

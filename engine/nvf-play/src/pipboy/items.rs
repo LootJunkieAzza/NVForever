@@ -19,6 +19,16 @@
 //!   380 square) and its figures (`IM_ItemInfoRect`, 385, 340, 446 × 150, three cards a
 //!   row of a third of it, 10 apart, a third of its height high, `item_stats_display.xml`)
 //!   [documented: places]: [`info_tiles`].
+//! - A weapon's DPS (`DPSInfo`, `sInventoryDamagePerSecond`) over its DAM card: the
+//!   damage a shot does at the weapon's condition times the shots a second
+//!   ([`weapon_dps`]) [documented: the card; hypothesis: the formula and the place, the
+//!   file puts DPS and DAM both at the first card's place and leaves which shows to code].
+//! - The ammunition's badge (`IM_ItemIconBadge`, 390, 260, 64 square): the picture of the
+//!   ammunition the ammo card names [documented: place; hypothesis: the ammo's own icon].
+//! - "Mod X)" under the Repair hint (`IM_ModButton`, 47 lower, `sInventoryMod`) for a
+//!   weapon with mod slots: bright when the player carries a mod that fits it, dim
+//!   otherwise [documented: place, key; hypothesis: when it shows]. The item mod menu is
+//!   not built and X still drops (design): the hint only tells.
 
 use super::frame::{self, Align, Card, Ctx, Kit, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy};
@@ -70,6 +80,10 @@ const INFO: Rect = Rect { min: Vec2::new(385.0, 340.0), max: Vec2::new(831.0, 49
 /// The condition meter inside its card: 62 in, 15 down, 20 high, 72 short of the card
 /// [documented: item_stats_display.xml ConditionMeter].
 const METER: (f32, f32, f32, f32) = (62.0, 15.0, 20.0, 72.0);
+/// The ammunition's badge [documented: `IM_ItemIconBadge`].
+const BADGE: Rect = Rect { min: Vec2::new(390.0, 260.0), max: Vec2::new(454.0, 324.0) };
+/// "Mod X)": the Repair hint's place 47 lower [documented: `IM_ModButton` `_y` 47].
+const MOD_HINT: Vec2 = Vec2::new(855.0, 45.0 + 47.0);
 /// The scroll bar: 32 wide, arrows 32 × 16 [documented: list_box.xml, the DATA lists].
 const SCROLLBAR: f32 = 32.0;
 
@@ -88,6 +102,27 @@ pub struct Info {
     pub beside: Option<String>,
     /// The effects' text ("HP +40", "AGL -1").
     pub effects: Option<String>,
+    /// A weapon's damage a second, over the DAM card.
+    pub dps: Option<String>,
+    /// The ammunition's picture for the badge.
+    pub badge: Option<String>,
+    /// A weapon with mod slots: whether the player carries a mod that fits it.
+    pub mod_hint: Option<bool>,
+}
+
+/// Damage a second of a weapon at `condition`: the damage a shot does at that condition
+/// times its shots a second (the fire rate of an automatic weapon, else its attack shots a
+/// second, else one) [hypothesis: the GECK's DPS calculator uses the damage and an
+/// automatic weapon's fire rate, GECK wiki Weapons].
+pub fn weapon_dps(w: &fnv_combat::data::WeaponStats, condition: f32) -> f32 {
+    let per_second = if w.automatic && w.fire_rate > 0.0 {
+        w.fire_rate
+    } else if w.attack_shots_per_sec > 0.0 {
+        w.attack_shots_per_sec
+    } else {
+        1.0
+    };
+    w.base_damage.max(0) as f32 * fnv_combat::damage::condition_mult(condition) * per_second
 }
 
 /// One card of the figures, canvas units inside the figures' rectangle.
@@ -118,6 +153,9 @@ pub fn info_tiles(i: &Info) -> Vec<Tile> {
     out.push(tile(col(2.0), 0.0, w, "VAL", i.value.clone().unwrap_or_else(|| "--".into())));
     if let Some(s) = i.strength {
         out.push(tile(col(2.0), -h, w, "STR", s.to_string()));
+    }
+    if let Some(d) = &i.dps {
+        out.push(tile(0.0, -h, w, "DPS", d.clone()));
     }
     let mut row = 1.0;
     if i.condition.is_some() || i.beside.is_some() {
@@ -159,6 +197,13 @@ fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, 
                 // [hypothesis].
                 i.first = (w.base_damage > 0).then(|| ("DAM", w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
+                if w.base_damage > 0 {
+                    i.dps = Some(format!("{:.0}", weapon_dps(w, r.condition.unwrap_or(1.0))));
+                }
+                let fits: Vec<FormId> = w.mods.iter().filter_map(|m| m.item).collect();
+                if !fits.is_empty() {
+                    i.mod_hint = Some(fits.iter().any(|&m| sim.world.item_count(FormId::PLAYER_REF, m).unwrap_or(0) > 0));
+                }
                 let f = cf.expect("weapon stats came from it");
                 let choices = f.ammo_choices(w);
                 let carried: Vec<i32> = choices.iter().map(|&a| sim.world.item_count(FormId::PLAYER_REF, a).unwrap_or(0)).collect();
@@ -170,6 +215,7 @@ fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, 
                     // "(2/30)" on the owner's screenshot reads as clip/carried].
                     let clip = (w.clip_size as i32).min(count).max(0);
                     i.beside = Some(format!("{name} ({clip}/{count})"));
+                    i.badge = sim.forms.item(ammo).and_then(|it| it.icon.clone());
                 }
             }
         }
@@ -315,6 +361,10 @@ pub fn draw(
         super::repair::draw_hint(p, &mut c, offer.as_ref());
         if let Some((icon, i)) = &info {
             item_info(p, &mut c, icon.as_deref(), i);
+            if let (Some(bright), Some(r)) = (i.mod_hint, selected) {
+                info!("pipboy items: {} Mod X){}", r.name, if bright { "" } else { " (dim)" });
+                c.text(p, 2, "Mod X)", MAIN.min.x + MOD_HINT.x - 10.0, MAIN.min.y + MOD_HINT.y, Align::Right, amber(if bright { TEXT } else { frame::DIMMED }));
+            }
         }
     });
 }
@@ -325,6 +375,10 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
     if let Some(icon) = icon {
         let r = Rect::from_corners(MAIN.min + ICON.min, MAIN.min + ICON.max);
         c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
+    }
+    if let Some(b) = i.badge.as_deref() {
+        let r = Rect::from_corners(MAIN.min + BADGE.min, MAIN.min + BADGE.max);
+        c.image(p, b, at(r.min.x, r.min.y, r.width(), r.height()), bright);
     }
     let o = MAIN.min + INFO.min;
     for t in info_tiles(i) {
@@ -412,6 +466,18 @@ mod tests {
     }
 
     #[test]
+    fn dps_is_the_damage_at_the_condition_times_the_shots_a_second() {
+        let auto = fnv_combat::data::WeaponStats { base_damage: 5, automatic: true, fire_rate: 10.0, attack_shots_per_sec: 2.0, ..Default::default() };
+        assert!((weapon_dps(&auto, 1.0) - 50.0).abs() < 1e-3);
+        let semi = fnv_combat::data::WeaponStats { automatic: false, ..auto.clone() };
+        assert!((weapon_dps(&semi, 1.0) - 10.0).abs() < 1e-3);
+        // Worn, it does less.
+        assert!(weapon_dps(&semi, 0.5) < weapon_dps(&semi, 1.0));
+        let none = fnv_combat::data::WeaponStats { base_damage: 7, ..Default::default() };
+        assert!((weapon_dps(&none, 1.0) - 7.0).abs() < 1e-3);
+    }
+
+    #[test]
     fn the_scroll_bar_shows_only_for_a_longer_list() {
         assert_eq!(scroll_part(0, 5, 5), None);
         assert_eq!(scroll_part(0, 0, 0), None);
@@ -431,14 +497,18 @@ mod tests {
             condition: Some(0.8),
             beside: Some("40mm Grenade (1/19)".into()),
             effects: None,
+            dps: Some("72".into()),
+            badge: None,
+            mod_hint: None,
         };
         let t = info_tiles(&weapon);
         let titles: Vec<&str> = t.iter().map(|t| t.title.as_str()).collect();
-        assert_eq!(titles, ["DAM", "WG", "VAL", "STR", "CND", "40mm Grenade (1/19)"]);
+        assert_eq!(titles, ["DAM", "WG", "VAL", "STR", "DPS", "CND", "40mm Grenade (1/19)"]);
+        assert_eq!(t[4].rect.min, Vec2::new(0.0, -h));
         assert_eq!(t[1].rect.min, Vec2::new(w + 10.0, 0.0));
         assert_eq!(t[3].rect.min, Vec2::new(2.0 * (w + 10.0), -h));
-        assert_eq!(t[4].meter, Some(0.8));
-        assert!((t[5].rect.width() - (2.0 * w + 10.0)).abs() < 1e-4);
+        assert_eq!(t[5].meter, Some(0.8));
+        assert!((t[6].rect.width() - (2.0 * w + 10.0)).abs() < 1e-4);
         // An aid item: WG and VAL, effects on the second row.
         let aid = Info { value: Some("675".into()), effects: Some("HP +40".into()), ..Info::default() };
         let t = info_tiles(&aid);

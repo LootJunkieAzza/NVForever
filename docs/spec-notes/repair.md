@@ -181,7 +181,8 @@ screen's height):
   at (855, 45), right-aligned, at alpha 128 unless it can be used; the Mod button (X)
   after it.
 
-**What the screenshots add** [observed, C:nv-privateepairmenuPlayer, Repair 17]:
+**What the screenshots add** [observed, C:nv-private
+epairmenuPlayer, Repair 17]:
 
 - "Maintain R)" on the NCR Face Wrap Armor at about 55 %, "Repair R)" on the NCR Mantle
   Armor at about 35 % and on a Service Rifle at about 40 %; weapons also show "Mod X)".
@@ -201,13 +202,16 @@ screen's height):
   included), below full condition [owner's rule] and not equipped [design]; another unit
   of the item's own group counts. Each group of units is a row, by name.
 - Up/Down (W/S) choose, Enter or Space uses the chosen part, E or Esc cancels, Tab puts
-  the Pip-Boy away [documented: `_PCButton_E`; design: the rest]. Rows are not clicked
-  [design: not built].
+  the Pip-Boy away [documented: `_PCButton_E`; design: the rest]. With the pointer
+  (2026-10-19) [design: as the ITEMS list]: the row under it is chosen, a click on a row
+  chooses it, a click on the part already chosen uses it, a click on "Cancel E)" cancels.
+  Log `pipboy repair: clicked row <n>`.
 - Using a part: one unit of it leaves the inventory, the item's condition becomes
   `merged_condition` (above) at the player's Repair skill when the list opened, and the
   ITEMS list comes back; `UIRepairWeapon` plays [hypothesis, as the vendor's].
 - The hint: "Maintain R)" from 75 % (weapons) or 50 % (apparel), "Repair R)" below;
-  dim when R would do nothing. The Mod hint is not drawn (weapon mods are not built).
+  dim when R would do nothing. "Mod X)" is drawn under it for weapons with mod slots
+  (pipboy.md §5); the mod menu itself is not built.
 - The figures are our damage and DT at the condition (combat-rules.md §17), as the
   vendor's menu.
 - Scripts do not see MenuMode 1035 (`fnv_game::repair::REPAIR_MENU`) while the list is

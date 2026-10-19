@@ -20,8 +20,11 @@
 //!   855, 75 down. The list's first row is the item being repaired, boxed; the others are
 //!   the parts [observed: the screenshots]. On the item itself only its figures show; on
 //!   a part, the figures before and after with the gains ("+9 %", "+0").
-//! - Keys: Up/Down (W/S) choose, Enter or Space (or a click) uses the chosen part, E or Esc
-//!   goes back to the list [documented: `_PCButton_E` RM_CancelButton; design: the rest].
+//! - Keys: Up/Down (W/S) choose, Enter or Space uses the chosen part, E or Esc goes back to
+//!   the list [documented: `_PCButton_E` RM_CancelButton; design: the rest].
+//! - The pointer [design: as the ITEMS list's rows, `items.rs`]: a row under the pointer is
+//!   chosen, a click on a row chooses it and a click on the chosen part uses it; a click on
+//!   "Cancel E)" goes back. Log: `pipboy repair: clicked row <n>`.
 //!   After a repair the ITEMS list comes back.
 //! - The repair list's rows are silent [documented: the template's `&nosound;`]; a repair
 //!   plays `UIRepairWeapon` (`crate::ui_sounds`, as the vendor's).
@@ -78,6 +81,46 @@ pub enum RepairInput {
     Down,
     Use,
     Cancel,
+    /// The pointer came onto the row at this place (0 the item, then its parts).
+    Hover(usize),
+    /// A click on the row at this place: chooses it, or uses the part already chosen.
+    Click(usize),
+}
+
+/// A row of the repair list under the pointer.
+#[derive(Component, Clone, Copy)]
+struct RepairRow(usize);
+
+/// "Cancel E)" under the pointer.
+#[derive(Component, Clone, Copy)]
+struct RepairCancel;
+
+fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RepairRow>, mut out: MessageWriter<RepairInput>) {
+    if let Ok(r) = rows.get(over.entity) {
+        out.write(RepairInput::Hover(r.0));
+    }
+}
+
+fn on_row_click(click: On<Pointer<Click>>, rows: Query<&RepairRow>, mut out: MessageWriter<RepairInput>) {
+    if let Ok(r) = rows.get(click.entity) {
+        out.write(RepairInput::Click(r.0));
+    }
+}
+
+fn on_cancel_click(click: On<Pointer<Click>>, cancel: Query<&RepairCancel>, mut out: MessageWriter<RepairInput>) {
+    if cancel.get(click.entity).is_ok() {
+        out.write(RepairInput::Cancel);
+    }
+}
+
+/// What a step does with the list as it is: a click on the chosen part uses it, any
+/// other click chooses its row.
+pub fn resolve(selected: Option<usize>, step: RepairInput) -> RepairInput {
+    match (selected, step) {
+        (Some(s), RepairInput::Click(i)) if i == s && i > 0 => RepairInput::Use,
+        (_, RepairInput::Click(i)) => RepairInput::Hover(i),
+        (_, x) => x,
+    }
 }
 
 /// The repair list while it is shown.
@@ -202,6 +245,10 @@ pub fn keys(
     }
     let mut script = script.map(|s| s.into_inner());
     for step in steps {
+        if let RepairInput::Click(i) = step {
+            info!("pipboy repair: clicked row {i}");
+        }
+        let step = resolve(repair.0.as_ref().map(|s| s.selected), step);
         match (repair.0.as_mut(), step) {
             (None, RepairInput::Open) => {
                 let Some(o) = current(&active, &mut sim, script.as_deref()) else { continue };
@@ -224,6 +271,8 @@ pub fn keys(
             (None, _) => {}
             (Some(s), RepairInput::Up) => s.selected = s.selected.saturating_sub(1),
             (Some(s), RepairInput::Down) => s.selected = (s.selected + 1).min(s.offer.parts.len()),
+            (Some(s), RepairInput::Hover(i)) => s.selected = i.min(s.offer.parts.len()),
+            (Some(_), RepairInput::Click(_)) => {}
             (Some(_), RepairInput::Cancel) => {
                 info!("pipboy repair: cancel");
                 sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Back });
@@ -290,6 +339,8 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let o = &s.offer;
     frame::heading(p, c, Page::Items.title(), &[Card::new(MAIN.width() - SKILL_W, SKILL_W, "Repair Skill", format!("{:.0}", s.skill.max(0.0).floor()))]);
     c.text(p, 2, "Cancel E)", MAIN.min.x + BUTTONS.x - 10.0, MAIN.min.y + BUTTONS.y, Align::Right, bright);
+    let cw = c.width(2, "Cancel E)");
+    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - cw, MAIN.min.y + BUTTONS.y - 5.0, cw + 10.0, 40.0), RepairCancel, Pickable::default())).observe(on_cancel_click);
     // The rows: the item, then its parts.
     let rows: Vec<(&str, f32, bool)> = std::iter::once((o.name.as_str(), o.condition, o.extra.equipped)).chain(o.parts.iter().map(|q| (q.name.as_str(), q.condition, q.extra.equipped))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
@@ -314,6 +365,7 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
             c.set(p, 2, l, x0 + NAME_X, y + NAME_Y - frame::THICK + LINE_PITCH * k as f32, Align::Left, bright);
         }
         bar(p, Rect::new(x0 + BAR.min.x, y + BAR.min.y, x0 + BAR.max.x, y + BAR.max.y), *cond, bright);
+        p.spawn((at(x0, y, ROW_W, h), RepairRow(i), Pickable::default())).observe(on_row_over).observe(on_row_click);
         y += h;
     }
     // The picture and the figures.
@@ -387,5 +439,15 @@ mod tests {
         assert!(!offer(&full, &forms, &[], b, Some(1.0), false).unwrap().usable());
         // Not a weapon or armour.
         assert_eq!(offer(&groups, &forms, &[], misc, None, false), None);
+    }
+
+    #[test]
+    fn a_click_chooses_a_row_and_a_second_click_uses_the_part() {
+        assert_eq!(resolve(Some(0), RepairInput::Click(2)), RepairInput::Hover(2));
+        assert_eq!(resolve(Some(2), RepairInput::Click(2)), RepairInput::Use);
+        // The item itself is not used on itself.
+        assert_eq!(resolve(Some(0), RepairInput::Click(0)), RepairInput::Hover(0));
+        assert_eq!(resolve(None, RepairInput::Click(1)), RepairInput::Hover(1));
+        assert_eq!(resolve(Some(1), RepairInput::Down), RepairInput::Down);
     }
 }
