@@ -83,11 +83,14 @@ pub struct OwnCycle {
 }
 
 impl OwnCycle {
-    /// The controller's time after `clock` seconds of play: start + clock × frequency +
-    /// phase, then wrapped by the cycle type [hypothesis: the order of frequency and
-    /// phase; every looping controller surveyed has phase 0].
+    /// The controller's time after `clock` seconds of play: clock × frequency + phase,
+    /// then brought into start..stop by the cycle type (clamped, the first key held until
+    /// the start time) [hypothesis: the order of frequency and phase, every looping
+    /// controller surveyed has phase 0; that the clock is not offset by the start time:
+    /// an impact model's second splash has its keys and its controller's start at
+    /// 0.133 s, after the first's, docs/spec-notes/explosion-effects.md §2].
     pub fn time(&self, clock: f32) -> f32 {
-        cycle_time(self.start + clock * self.frequency + self.phase, self.start, self.stop, self.cycle_type)
+        cycle_time(clock * self.frequency + self.phase, self.start, self.stop, self.cycle_type)
     }
 
     /// The length of one cycle in seconds of play.
@@ -670,6 +673,19 @@ mod tests {
     use super::*;
     use fnv_nif::anim::{Channel, Key, KeyKind, Keys, Track};
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+
+    #[test]
+    fn an_own_controller_runs_on_the_effect_clock_from_zero() {
+        // `impactexplosiondirt.nif` FastMesh03's alpha: clamp, 0.133 s to 0.433 s. Its
+        // first key holds until 0.133 s of the effect, then the keys play in step.
+        let c = OwnCycle { start: 0.133, stop: 0.433, frequency: 1.0, phase: 0.0, cycle_type: 2 };
+        assert_eq!(c.time(0.0), 0.133);
+        assert!((c.time(0.2) - 0.2).abs() < 1e-6);
+        assert!((c.time(1.0) - 0.433).abs() < 1e-6);
+        // A looping one from 0 (the scrolling smoke) is as before.
+        let l = OwnCycle { start: 0.0, stop: 13.3, frequency: 1.0, phase: 0.0, cycle_type: 0 };
+        assert!((l.time(14.3) - 1.0).abs() < 1e-4);
+    }
 
     fn seq(tracks: &[&str]) -> Sequence {
         let track = |n: &&str| Track {

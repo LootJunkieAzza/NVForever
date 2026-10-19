@@ -137,8 +137,9 @@ systems of models placed in cells (fires, steam, dust devils). Code:
 
 ## 5. Not built, open
 
-- Not built: turbulence, spawn on death, `NiPSysModifierActiveCtlr` (modifiers switched
-  on and off over time), strip and mesh particle systems, other emitter shapes than
+- Built 2026-10-19: `NiPSysModifierActiveCtlr` for gravity and drag modifiers
+  (explosion-effects.md §3).
+- Not built: turbulence, spawn on death, the bomb modifier, strip and mesh particle systems, other emitter shapes than
   box, sphere and cylinder, colour-key modifiers, the ADDN's sound and particle cap,
   particle systems of models placed in cells (the dust devils `fxdustwhirlwind01.nif`
   emit from a mesh emitter that moves along a path). Placed smoke that is built so (not drawn at
