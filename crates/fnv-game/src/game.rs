@@ -1186,6 +1186,14 @@ pub struct GameSnapshot {
     /// Navmeshes the scripts switched, and setAllReachable (`functions::navigation`).
     #[serde(default, skip_serializing_if = "crate::functions::navigation::NavSwitches::is_empty")]
     pub nav_switches: crate::functions::navigation::NavSwitches,
+    /// Securitron faces SetSecuritronExpression set: target -> screen texture
+    /// (`functions::misc::TextureSwaps::securitron`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub securitron_faces: BTreeMap<FormId, String>,
+    /// `MoveToMarkerWithFade` moves still waiting for their fade out
+    /// (`functions::misc::ScriptLooks::fade_moves`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fade_moves: BTreeMap<FormId, crate::functions::misc::FadeMove>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -1708,9 +1716,17 @@ impl<'a> Game<'a> {
                 self.script_looks.disabled_after_fade.push(r);
             }
         }
-        // Without an engine taking them (a headless run) the list is kept short.
+        // `MoveToMarkerWithFade` moves whose fade out has ended.
+        crate::functions::refs::finish_fade_moves(self);
+        // Without an engine taking them (a headless run) the lists are kept short.
         if self.script_looks.disabled_after_fade.len() > 256 {
             self.script_looks.disabled_after_fade.drain(..128);
+        }
+        if self.script_looks.critical_changed.len() > 256 {
+            self.script_looks.critical_changed.drain(..128);
+        }
+        if self.script_looks.fades.len() > 256 {
+            self.script_looks.fades.drain(..128);
         }
         for r in std::mem::take(&mut self.pending_onload) {
             if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
@@ -2301,6 +2317,13 @@ impl<'a> Game<'a> {
     /// Whether a reference is in the world and enabled (enable parents followed).
     pub fn present(&self, r: FormId) -> bool {
         self.world.peek(r).is_none_or(|s| !s.deleted) && self.world.is_enabled(r).unwrap_or(false)
+    }
+
+    /// Whether a reference's critical stage culls it (GooEnd, DisintegrateEnd): the
+    /// engine does not draw it and it has no collision or ragdoll, though it is still
+    /// enabled (`functions::objects::set_critical_stage`).
+    pub fn culled(&self, r: FormId) -> bool {
+        self.extra.get(&r).is_some_and(|e| crate::functions::objects::critical_stage_culls(e.critical_stage))
     }
 
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
@@ -2964,6 +2987,8 @@ impl<'a> Game<'a> {
             grudges: self.provocations.grudges.iter().map(|(k, v)| (*k, *v)).collect(),
             forgiven: self.provocations.forgiven.clone(),
             nav_switches: self.nav_switches.clone(),
+            securitron_faces: self.texture_swaps.securitron.clone(),
+            fade_moves: self.script_looks.fade_moves.clone(),
         }
     }
 
@@ -3005,6 +3030,14 @@ impl<'a> Game<'a> {
         g.provocations.grudges = s.grudges.iter().copied().collect();
         g.provocations.forgiven = s.forgiven.clone();
         g.nav_switches = s.nav_switches.clone();
+        for (&on, texture) in &s.securitron_faces {
+            g.texture_swaps.set_securitron(on, texture.clone());
+        }
+        // Moves a save caught during their fade are made at once: the restored engine
+        // draws the reference where it ends up [design].
+        for (r, m) in &s.fade_moves {
+            let _ = crate::functions::refs::move_ref(&mut g, *r, m.marker, m.offset);
+        }
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

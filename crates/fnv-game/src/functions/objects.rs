@@ -60,7 +60,12 @@ pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let base = a.form(0)?;
     let count = a.num_or(1, 1.0).max(1.0) as i32;
     let s = g.world.get(at).map_err(|e| e.to_string())?;
-    let (cell, pos, rot) = (s.cell, s.pos, s.rot);
+    let (cell, pos, mut rot) = (s.cell, s.pos, s.rot);
+    // The player's X angle is its view's pitch (`refs::get_angle`): what is placed at it
+    // stands upright [hypothesis: the pitch was never written before 2026-10-19].
+    if at == FormId::PLAYER_REF {
+        rot = [0.0, 0.0, rot[2]];
+    }
     let (refs, each) = if is_item(g, base) { (1, count) } else { (count, 1) };
     let mut last = None;
     for _ in 0..refs {
@@ -361,12 +366,33 @@ pub fn set_minimal_use(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     none()
 }
 
-/// `SetCriticalStage stage` (0 none, 1 goo start, 2 goo end, 3 disintegrate start,
-/// 4 disintegrate end; scripts.md §2.4): kept for IsInCriticalStage; the visual
-/// effects are the engine's.
+/// `SetCriticalStage` code of GooEnd (0 none, 1 goo start, 2 goo end, 3 disintegrate
+/// start, 4 disintegrate end; scripts.md §2.4).
+pub const CRITICAL_GOO_END: u16 = 2;
+/// `SetCriticalStage` code of DisintegrateEnd.
+pub const CRITICAL_DISINTEGRATE_END: u16 = 4;
+
+/// Whether a critical stage culls its reference: GooEnd and DisintegrateEnd "cull its
+/// 3D, and remove its Havok data from the world" [documented: GECK wiki
+/// SetCriticalStage]. The ragdoll changes of GooStart / DisintegrateStart are not built.
+pub fn critical_stage_culls(stage: u16) -> bool {
+    matches!(stage, CRITICAL_GOO_END | CRITICAL_DISINTEGRATE_END)
+}
+
+/// `SetCriticalStage stage` (codes above): kept for IsInCriticalStage (and saved with the
+/// reference's extra state). A stage that culls the reference ([`critical_stage_culls`])
+/// is listed for the engine (`ScriptLooks::critical_changed`), which stops drawing it and
+/// drops its collision and ragdoll (`Game::culled`); the reference stays enabled
+/// (GetDisabled 0) [hypothesis: the wiki speaks only of its 3D and Havok data].
 pub fn set_critical_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().critical_stage = a.code(0)?;
+    let stage = a.code(0)?;
+    let e = g.extra.entry(r).or_default();
+    let was = critical_stage_culls(e.critical_stage);
+    e.critical_stage = stage;
+    if was != critical_stage_culls(stage) {
+        g.script_looks.critical_changed.push(r);
+    }
     none()
 }
 

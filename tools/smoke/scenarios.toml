@@ -5312,3 +5312,44 @@ expect = [
   { text = "menu: One: 9mm Pistol can't be equipped", label = "locked off: the inventory cannot put it on" },
   { text = "menu: One: Unequipped 9mm Pistol", label = "a plain EquipItem freed it" },
 ]
+
+[[scenario]]
+name = "move-to-marker-fade"
+source = "script-function audit 2026-10-19: MoveToMarkerWithFade fades the object out, moves it, then fades it back in [documented: GECK wiki MoveToMarkerWithFade]; the fade-out wait is the Disable 1 hold (fnv_game FADE_OUT_HOLD) [hypothesis: capture asked]"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console moves him with MoveToMarkerWithFade 600 units north of the player: he fades out where he stands (2 s), is moved, then fades in"
+areas = ["scripts", "rendering", "script-params"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/fade.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:EasyPeteRef.movetomarkerwithfade player 0 600 0;16.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { text = "fades out before its move for MoveToMarkerWithFade", count = 1, label = "Easy Pete fades out first" },
+  { text = "fades in after its move for MoveToMarkerWithFade", count = 1, label = "then he is moved and fades in" },
+  { re = 'fade: 0x[0-9A-F]{8} out over 2 s \([1-9]\d* meshes\)', min = 1, label = "his meshes fade out" },
+  { re = 'fade: 0x[0-9A-F]{8} in over 2 s \([1-9]\d* meshes\)', min = 1, label = "his meshes fade in" },
+]
+order = [[
+  "console: > EasyPeteRef.movetomarkerwithfade player 0 600 0",
+  "fades out before its move for MoveToMarkerWithFade",
+  "fades in after its move for MoveToMarkerWithFade",
+]]
+
+[[scenario]]
+name = "critical-stage-cull"
+source = "script-function audit 2026-10-19: SetCriticalStage GooEnd / DisintegrateEnd cull the reference's 3D and remove its Havok data [documented: GECK wiki SetCriticalStage]; it stays enabled"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s and killed at 15 s (he drops as a ragdoll); at 19 s the console sets his critical stage to GooEnd: his body is no longer drawn and its ragdoll leaves the physics world; IsInCriticalStage GooEnd reads 1"
+areas = ["scripts", "rendering", "combat"]
+paths = ["crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0,15:kill:EasyPeteRef", NVF_PLAY_TEST_CONSOLE = "19:EasyPeteRef.setcriticalstage gooend;19.3:EasyPeteRef.isincriticalstage gooend;19.6:EasyPeteRef.getdisabled;19.9:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "culled by its critical stage", count = 1, label = "the script runtime culls Easy Pete" },
+  { re = 'reference 0x[0-9A-F]{8} culled \(critical stage\): [1-9]\d* render entities updated', label = "his body is hidden" },
+  { re = 'console: IsInCriticalStage on EasyPeteRef >> 1\.00', label = "IsInCriticalStage GooEnd reads 1" },
+  { re = 'console: GetDisabled on EasyPeteRef >> 0\.00', label = "he stays enabled" },
+]
+order = [[
+  "console: > EasyPeteRef.setcriticalstage gooend",
+  "culled by its critical stage",
+]]

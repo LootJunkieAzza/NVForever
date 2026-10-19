@@ -132,7 +132,8 @@ Read here as [hypothesis where marked]:
 - **SetSecuritronExpression** (37 calls) [documented: GECK wiki]: `SetSecuritronExpression
   ref face expression` sets the monitor of a Securitron; the function works from the
   file names in `textures\creatures\securitron\` (`<face>_<expression>.dds`, e.g.
-  `victor_alert.dds`), and persists across saves. [observed: the screen models
+  `victor_alert.dds`), and persists across saves (kept in the game snapshot,
+  `GameSnapshot::securitron_faces`, 2026-10-19). [observed: the screen models
   `meshes\creatures\nvsecuritron\nvsecuritron*screen01.nif` draw `<face>_Neutral.dds`
   (`BlackTron.dds` for the blank one) on the shape `Screen01:0`; the folder holds
   `_neutral` and `_alert` files for victor, mrhouse, marilyn, jane, infantry, police and

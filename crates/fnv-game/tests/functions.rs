@@ -1555,3 +1555,101 @@ fn animation_state_through_the_console() {
     let c = fnv_game::functions::console::call_words(&mut g, Some(adult), "GetAnimAction", &[], "console").unwrap();
     assert_eq!(c.value, Value::Num(9.0));
 }
+
+/// SetCriticalStage: GooEnd and DisintegrateEnd cull the reference (not drawn, no
+/// collision) though it stays enabled; the engine is told when that turns on or off.
+#[test]
+fn critical_end_stages_cull_the_reference() {
+    const SET: u16 = 0x1212;
+    const IS_IN: u16 = 0x1213;
+    let f = fixture();
+    let mut g = game(&f);
+    let on = FormId(ADULT_REF);
+    call(&mut g, SET, Some(ADULT_REF), &[ArgValue::Enum(1)]);
+    assert!(!g.culled(on), "GooStart only changes the ragdoll");
+    assert!(g.script_looks.critical_changed.is_empty());
+    call(&mut g, SET, Some(ADULT_REF), &[ArgValue::Enum(fnv_game::functions::CRITICAL_GOO_END)]);
+    assert!(g.culled(on));
+    assert_eq!(call(&mut g, IS_IN, Some(ADULT_REF), &[ArgValue::Enum(2)]), 1.0);
+    assert_eq!(call(&mut g, 0x1023, Some(ADULT_REF), &[]), 0.0, "still enabled");
+    call(&mut g, SET, Some(ADULT_REF), &[ArgValue::Enum(fnv_game::functions::CRITICAL_DISINTEGRATE_END)]);
+    assert!(g.culled(on));
+    assert_eq!(g.script_looks.critical_changed, vec![on], "still culled: no second notice");
+    call(&mut g, SET, Some(ADULT_REF), &[ArgValue::Enum(0)]);
+    assert!(!g.culled(on));
+    assert_eq!(g.script_looks.critical_changed, vec![on, on]);
+}
+
+/// The player's X angle is its view's pitch as the engine writes it (GetAngle X), and
+/// what is placed at or moved to the player stands upright.
+#[test]
+fn player_x_angle_is_the_view_pitch() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.get(FormId::PLAYER_REF).unwrap().rot = [45f32.to_radians(), 0.0, 90f32.to_radians()];
+    let x = call(&mut g, 0x1008, Some(PLAYER), &[ArgValue::Axis('X')]);
+    assert!((x - 45.0).abs() < 1e-3, "{x}");
+    call(&mut g, 0x109E, Some(ACTI_REF), &[r(PLAYER)]);
+    let rot = g.world.peek(FormId(ACTI_REF)).unwrap().rot;
+    assert_eq!(rot[0], 0.0);
+    assert!((rot[2] - 90f32.to_radians()).abs() < 1e-6);
+}
+
+/// MoveToMarkerWithFade: the reference stays while it fades out, then moves and fades in;
+/// a save during the wait moves it on load.
+#[test]
+fn move_to_marker_with_fade_waits_for_the_fade() {
+    const FADE_MOVE: u16 = 0x124F;
+    let f = fixture();
+    let mut g = game(&f);
+    let on = FormId(ADULT_REF);
+    let pos = |g: &mut Game| g.world.peek(on).unwrap().pos;
+    call(&mut g, FADE_MOVE, Some(ADULT_REF), &[r(CONT_REF), n(100.0), n(0.0), n(0.0)]);
+    assert_eq!(pos(&mut g), [0.0; 3], "not moved before the fade out");
+    assert_eq!(g.script_looks.fades, vec![(on, false)]);
+    let snap = g.snapshot();
+    assert_eq!(snap.fade_moves.len(), 1);
+    // A second call changes where it goes, not the wait.
+    g.frames(30);
+    call(&mut g, FADE_MOVE, Some(ADULT_REF), &[r(CONT_REF), n(200.0), n(0.0), n(0.0)]);
+    assert_eq!(g.script_looks.fades, vec![(on, false)]);
+    let frames = (fnv_game::functions::FADE_OUT_HOLD / g.cfg.frame_seconds).ceil() as u64;
+    g.frames(frames - 30 - 2);
+    assert_eq!(pos(&mut g), [0.0; 3]);
+    g.frames(4);
+    assert_eq!(pos(&mut g), [200.0, 0.0, 0.0]);
+    assert_eq!(g.script_looks.fades, vec![(on, false), (on, true)]);
+    assert!(g.script_looks.fade_moves.is_empty());
+    // The player moves at once.
+    call(&mut g, FADE_MOVE, Some(PLAYER), &[r(CONT_REF), n(0.0), n(50.0), n(0.0)]);
+    assert_eq!(g.world.peek(FormId::PLAYER_REF).unwrap().pos, [0.0, 50.0, 0.0]);
+    // The saved wait is made on load.
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let h = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
+    assert_eq!(h.world.peek(on).unwrap().pos, [100.0, 0.0, 0.0]);
+}
+
+/// SetSecuritronExpression's face is saved and put back on a load.
+#[test]
+fn securitron_expression_survives_a_load() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x1248, None, &[r(ADULT_REF), s("Victor"), s("Alert")]);
+    let snap = g.snapshot();
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let h = Game::restore(&f.data, world, GameConfig::default(), &back).unwrap();
+    assert_eq!(
+        h.texture_swaps.by_ref[&FormId(ADULT_REF)],
+        vec![("screen01:0".to_string(), r"textures\creatures\securitron\victor_alert.dds".to_string())]
+    );
+    assert!(h.texture_swaps.generation > 0, "the engine sees the restored swap");
+    // An old save without the field still loads.
+    let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    v.as_object_mut().unwrap().remove("securitron_faces");
+    let old: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
+    assert!(old.securitron_faces.is_empty());
+}

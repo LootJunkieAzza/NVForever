@@ -76,15 +76,73 @@ fn place(g: &mut Game, r: FormId) -> Result<Place, String> {
     Ok((s.cell, s.pos, s.rot))
 }
 
+/// The offsets of a MoveTo call (its optional x y z after the marker).
+fn move_offsets(a: &Args) -> [f64; 3] {
+    [a.num_or(1, 0.0), a.num_or(2, 0.0), a.num_or(3, 0.0)]
+}
+
 /// `MoveTo marker [x y z]`: the calling reference goes to the marker's cell and position
 /// plus the offsets. Moving the player loads the destination's cells.
-/// `MoveToMarkerWithFade` is the same with a fade (presentation).
 pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let marker = a.form(0)?;
-    let (cell, mut pos, rot) = place(g, marker)?;
-    for (i, p) in pos.iter_mut().enumerate() {
-        *p += a.num_or(1 + i, 0.0) as f32;
+    move_ref(g, r, marker, move_offsets(a))?;
+    none()
+}
+
+/// `ref.MoveToMarkerWithFade marker [x y z]`: "fades the object out, moves it to the
+/// reference and then fades it back in"; it "has to wait for the fade out effect to
+/// finish" [documented: GECK wiki MoveToMarkerWithFade]. The reference stays where it is
+/// for [`FADE_OUT_HOLD`] while the engine fades it out (`ScriptLooks::fades`), then
+/// `Game::tick` makes the move ([`move_ref`], to where the marker is then) and the engine
+/// fades it in [hypothesis: the fade-out length is the `Disable 1` one, not measured for
+/// this function; capture asked]. A second call during the wait changes the destination
+/// and keeps the wait. The player, and a reference that is not drawn (disabled), move at
+/// once as by MoveTo [hypothesis: the wiki speaks of the object's fade only].
+pub fn move_to_marker_with_fade(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let marker = a.form(0)?;
+    let offset = move_offsets(a);
+    place(g, marker)?;
+    if r == FormId::PLAYER_REF || !g.present(r) {
+        move_ref(g, r, marker, offset)?;
+        return none();
+    }
+    let at = match g.script_looks.fade_moves.get(&r) {
+        Some(m) => m.at,
+        None => {
+            g.script_looks.fades.push((r, false));
+            g.time + FADE_OUT_HOLD
+        }
+    };
+    g.script_looks.fade_moves.insert(r, super::misc::FadeMove { marker, offset, at });
+    none()
+}
+
+/// Make the `MoveToMarkerWithFade` moves whose wait has ended (`Game::tick`) and ask the
+/// engine to fade those references in.
+pub(crate) fn finish_fade_moves(g: &mut Game) {
+    let now = g.time;
+    let due: Vec<(FormId, super::misc::FadeMove)> = g.script_looks.fade_moves.iter().filter(|(_, m)| m.at <= now).map(|(&r, &m)| (r, m)).collect();
+    for (r, m) in due {
+        g.script_looks.fade_moves.remove(&r);
+        // A marker gone since the call leaves the reference where it is.
+        let _ = move_ref(g, r, m.marker, m.offset);
+        g.script_looks.fades.push((r, true));
+    }
+}
+
+/// Move `r` to `marker`'s cell and position plus `offset` (MoveTo and
+/// MoveToMarkerWithFade).
+pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]) -> Result<(), String> {
+    let (cell, mut pos, mut rot) = place(g, marker)?;
+    for (p, o) in pos.iter_mut().zip(offset) {
+        *p += o as f32;
+    }
+    // The player's X angle is its view's pitch (`get_angle`): a reference moved to the
+    // player stands upright [hypothesis: the pitch was never written before 2026-10-19].
+    if marker == FormId::PLAYER_REF {
+        rot = [0.0, 0.0, rot[2]];
     }
     let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
     {
@@ -110,7 +168,7 @@ pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         g.player_entered(cell);
         g.bring_teammates();
     }
-    none()
+    Ok(())
 }
 
 pub fn get_self(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -222,7 +280,9 @@ fn placed_by_script(g: &mut Game, r: FormId, moved: bool) {
 }
 
 /// Angles in degrees in scripts, radians in the world state [documented: catalogue,
-/// GetAngle/SetAngle take degrees].
+/// GetAngle/SetAngle take degrees]. The player's X angle is its view's pitch, -89 looking
+/// up and 89 looking at its feet [documented: GECK wiki GetAngle], written by the engine
+/// (nvf-play `player::sync_sim`).
 pub fn get_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;

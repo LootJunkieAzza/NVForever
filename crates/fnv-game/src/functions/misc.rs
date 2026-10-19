@@ -603,6 +603,27 @@ pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
 pub struct TextureSwaps {
     pub by_ref: std::collections::BTreeMap<fnv_sim::FormId, Vec<(String, String)>>,
     pub generation: u64,
+    /// The screen textures SetSecuritronExpression set, by target: unlike SwapTexture's
+    /// they are saved (`GameSnapshot::securitron_faces`) and put back on a load.
+    pub securitron: std::collections::BTreeMap<fnv_sim::FormId, String>,
+}
+
+impl TextureSwaps {
+    /// Draw `texture` on `on`'s shape `shape` (the last call per shape kept).
+    fn swap(&mut self, on: fnv_sim::FormId, shape: String, texture: String) {
+        let swaps = self.by_ref.entry(on).or_default();
+        swaps.retain(|(s, _)| *s != shape);
+        swaps.push((shape, texture));
+        self.generation += 1;
+    }
+
+    /// Show `texture` (a path as [`texture_swap_names`] gives it) on the Securitron
+    /// `on`'s screen, and keep it for the save.
+    pub fn set_securitron(&mut self, on: fnv_sim::FormId, texture: String) {
+        let shape = SECURITRON_SCREEN.to_ascii_lowercase();
+        self.securitron.insert(on, texture.clone());
+        self.swap(on, shape, texture);
+    }
 }
 
 /// The shape name and texture path a `SwapTexture` call names, as the engine looks
@@ -634,10 +655,7 @@ pub fn texture_swap_names(shape: &str, texture: &str) -> (String, String) {
 pub fn swap_texture(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = a.form(0)?;
     let (shape, texture) = texture_swap_names(a.str(1)?, a.str(2)?);
-    let swaps = g.texture_swaps.by_ref.entry(on).or_default();
-    swaps.retain(|(s, _)| *s != shape);
-    swaps.push((shape, texture));
-    g.texture_swaps.generation += 1;
+    g.texture_swaps.swap(on, shape, texture);
     none()
 }
 
@@ -645,15 +663,15 @@ pub fn swap_texture(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 /// `textures\creatures\securitron\<face>_<expression>.dds` [documented: GECK wiki
 /// SetSecuritronExpression; observed: the screen models draw `<face>_Neutral.dds` on the
 /// shape `Screen01:0`, docs/spec-notes/effect-shaders.md §5]. A texture swap of that
-/// shape on the target (`TextureSwaps`); not saved yet [design].
+/// shape on the target (`TextureSwaps::set_securitron`), kept in the save: "this function
+/// persists across saves and game restarts" [documented: GECK wiki
+/// SetSecuritronExpression]. A later SwapTexture of the same shape shows until a load,
+/// which puts the last expression back [hypothesis].
 pub fn set_securitron_expression(g: &mut Game, _: &Ctx, a: &Args) -> Result<Value, String> {
     let on = a.form(0)?;
     let texture = format!(r"creatures\securitron\{}_{}", a.str(1)?.trim(), a.str(2)?.trim());
-    let (shape, texture) = texture_swap_names(SECURITRON_SCREEN, &texture);
-    let swaps = g.texture_swaps.by_ref.entry(on).or_default();
-    swaps.retain(|(s, _)| *s != shape);
-    swaps.push((shape, texture));
-    g.texture_swaps.generation += 1;
+    let (_, texture) = texture_swap_names(SECURITRON_SCREEN, &texture);
+    g.texture_swaps.set_securitron(on, texture);
     none()
 }
 
@@ -691,6 +709,23 @@ pub struct ScriptLooks {
     /// References whose fade-out hold ended and that are now disabled, for the engine to
     /// take (their collision and enable children follow).
     pub disabled_after_fade: Vec<fnv_sim::FormId>,
+    /// References whose critical stage turned to or from one that culls them
+    /// (`objects::set_critical_stage`), for the engine to draw again or hide.
+    pub critical_changed: Vec<fnv_sim::FormId>,
+    /// `MoveToMarkerWithFade` moves waiting for their reference's fade out
+    /// (`refs::move_to_marker_with_fade`); saved, so a save during the fade still moves.
+    pub fade_moves: std::collections::BTreeMap<fnv_sim::FormId, FadeMove>,
+    /// Fades for the engine to start, (reference, in): those of `MoveToMarkerWithFade`.
+    pub fades: Vec<(fnv_sim::FormId, bool)>,
+}
+
+/// A `MoveToMarkerWithFade` waiting for its fade out: the marker and offsets of the call,
+/// and the [`Game::time`] at which the move is made.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FadeMove {
+    pub marker: fnv_sim::FormId,
+    pub offset: [f64; 3],
+    pub at: f64,
 }
 
 impl ScriptLooks {
