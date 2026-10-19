@@ -402,6 +402,7 @@ fn apply(
                     Ok(Outcome::Talk { info }) => format!("the conversation starts with {}", g.data.name(*info)),
                     Ok(Outcome::Stimpak { item, line }) => format!("{} used on {}{}", g.data.name(*item), g.data.name(c), line.map_or_else(String::new, |l| format!(": {}", said(l)))),
                     Ok(Outcome::BackUp) => format!("{} is told to back up", g.data.name(c)),
+                    Ok(Outcome::Inventory) => format!("{} has no trade line to say: its inventory opens all the same", g.data.name(c)),
                     Ok(Outcome::Refused) => "the button cannot be used now".to_string(),
                     Err(e) => format!("failed: {e}"),
                 };
@@ -414,7 +415,7 @@ fn apply(
                 }
                 // Open Inventory: the line asked for the container (OpenTeammateContainer),
                 // which opens once the wheel is closed (`crate::menu`).
-                if command == Command::OpenInventory && matches!(r, Ok(Outcome::Said { .. })) {
+                if command == Command::OpenInventory && matches!(r, Ok(Outcome::Said { .. } | Outcome::Inventory)) {
                     rt.game.close_companion_wheel();
                     info!("companion wheel: closed (the companion's inventory opens)");
                     screen.0 = None;

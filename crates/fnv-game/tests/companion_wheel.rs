@@ -273,6 +273,14 @@ fn talk_closes_the_wheel_and_inventory_asks_for_the_teammates_container() {
     assert!(b.context.as_deref().is_some_and(|c| c == "WG 0/200"), "{b:?}");
     assert!(matches!(g.wheel_command(Command::OpenInventory).unwrap(), Outcome::Said { .. }));
     assert_eq!(g.teammate_containers, vec![companion()]);
+    // A companion with no trade line it can say (here: its quest stopped, as Boone's line
+    // fails without his quest's state) has its inventory opened all the same.
+    g.teammate_containers.clear();
+    g.quests.get_mut(&FormId(QUEST)).unwrap().running = false;
+    assert!(button(&mut g, Command::OpenInventory).enabled);
+    assert_eq!(g.wheel_command(Command::OpenInventory).unwrap(), Outcome::Inventory);
+    assert_eq!(g.teammate_containers, vec![companion()]);
+    g.quests.get_mut(&FormId(QUEST)).unwrap().running = true;
     let out = g.wheel_command(Command::Talk).unwrap();
     assert!(matches!(out, Outcome::Talk { info } if info == FormId(0xB00)), "{out:?}");
     assert_eq!(g.wheel_companion(), None);
