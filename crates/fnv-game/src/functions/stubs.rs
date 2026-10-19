@@ -19,6 +19,9 @@ pub enum Status {
 }
 
 impl Status {
+    /// Every [`Status::key`], in the order `fnvtool script stubs` lists them.
+    pub const KEYS: [&'static str; 4] = ["assigned", "implementable", "needs_system", "no_op"];
+
     pub fn key(self) -> &'static str {
         match self {
             Status::NeedsSystem(_) => "needs_system",
@@ -79,5 +82,33 @@ mod tests {
         let a = audit();
         assert!(a.iter().any(|(_, n, s)| *n == "SetRumble" && s.key() == "no_op"));
         assert!(a.iter().all(|(op, ..)| !super::super::implemented(*op) || matches!(lookup(*op), Some(Kind::NoOp(_)))));
+    }
+
+    /// The smoke scenario script-stubs expects the totals of tools/smoke/expected/script-stubs.toml;
+    /// those the registry decides alone (stubs, by status) are checked here, without game data,
+    /// so a branch that implements a stub and leaves the file behind fails `cargo test`.
+    #[test]
+    fn smoke_totals_match_the_registry() {
+        let text = include_str!("../../../../tools/smoke/expected/script-stubs.toml");
+        let mut table = "";
+        let mut file = std::collections::BTreeMap::new();
+        for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
+            if let Some(t) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+                table = t;
+            } else if let Some((k, v)) = line.split_once('=') {
+                let v: u64 = v.trim().parse().unwrap_or_else(|_| panic!("not a count: {line}"));
+                assert!(file.insert(format!("{table}.{}", k.trim()), v).is_none(), "{table}.{} twice", k.trim());
+            }
+        }
+        let mut want: std::collections::BTreeMap<_, _> =
+            Status::KEYS.iter().map(|k| (format!("summary.by_status.{k}"), 0u64)).collect();
+        for (.., s) in audit() {
+            *want.entry(format!("summary.by_status.{}", s.key())).or_default() += 1;
+        }
+        let stubs = want.iter().filter(|(k, _)| !k.ends_with(".no_op")).map(|(_, n)| n).sum::<u64>();
+        want.insert("summary.stubs".into(), stubs);
+        let got: std::collections::BTreeMap<_, _> =
+            file.into_iter().filter(|(k, _)| k == "summary.stubs" || k.starts_with("summary.by_status.")).collect();
+        assert_eq!(got, want, "tools/smoke/expected/script-stubs.toml disagrees with the registry: update its stubs and by_status");
     }
 }
