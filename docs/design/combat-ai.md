@@ -661,7 +661,10 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   second (334 target changes among 11 fighters in a 52 s battle). For 5 s after turning
   to a target (`awareness::TARGET_COMMIT`) the margin does not apply: it keeps the
   target while it detects it and turns earlier only when that one dies, goes or is out
-  of sight [design: owner 2026-10-19, fighters "flicker between targets"]. A target out
+  of sight [design: owner 2026-10-19, fighters "flicker between targets"], or when
+  another is nearer than half its target's distance (`TARGET_COMMIT_NEARER`: without
+  it NCR troopers kept firing at Fiends 2,000 units off while melee Fiends charged
+  them, took no cover and lost the battle). A target out
   of sight is remembered, and the fighter goes back to it when it shows again within
   the margin.
 - **Strafing** [design: owner 2026-10-16, troopers "look like they dont know if they want

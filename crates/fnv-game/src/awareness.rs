@@ -278,8 +278,10 @@ pub struct Awareness {
     pub fighting: Option<FormId>,
     pub fighting_since: f64,
     /// Within [`TARGET_COMMIT`] of turning to `fighting`: it keeps it while it detects it,
-    /// whatever the others' values ([`Awareness::settle`] sets it).
+    /// unless another is much nearer ([`Awareness::settle`] sets it).
     pub committed: bool,
+    /// Where it stood at its latest measurement (game space), for the commitment.
+    pub at: Option<[f32; 3]>,
 }
 
 /// A fighter keeps its target while it detects it, unless another detected one is more
@@ -291,8 +293,16 @@ pub const TARGET_KEEP_MARGIN: f64 = 50.0;
 /// For this many seconds after turning to a target a fighter keeps it while it detects
 /// it, whatever the others' values; it turns earlier only when the target dies, goes or
 /// is out of sight [design: owner 2026-10-19, fighters with several enemies "flicker
-/// between targets"; a target switch cooldown of about 5 seconds].
+/// between targets"; a target switch cooldown of about 5 seconds], or when another is
+/// nearer than [`TARGET_COMMIT_NEARER`] of its target's distance.
 pub const TARGET_COMMIT: f64 = 5.0;
+
+/// A fighter committed to a target turns to another nearer than this share of its
+/// target's distance [design: with the commitment alone, NCR troopers kept firing at
+/// Fiends 2,000 units off while melee Fiends charged them, took no cover and lost the
+/// battle (smoke battle-ncr-fiends and combat-cover, merge run of PR #470, 2026-10-19);
+/// detection value grows as the square of nearness, so the margin let them turn].
+pub const TARGET_COMMIT_NEARER: f32 = 0.5;
 
 /// A change of state, for the engine's log and the tools.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -363,11 +373,14 @@ impl Awareness {
     }
 
     /// Who it fights: the target detected now with the highest value, or the one it
-    /// fought last while that is still detected and either within [`TARGET_COMMIT`] of
-    /// turning to it or within [`TARGET_KEEP_MARGIN`] of the highest.
+    /// fought last while that is still detected and either within [`TARGET_KEEP_MARGIN`]
+    /// of the highest or within [`TARGET_COMMIT`] of turning to it, the highest not much
+    /// nearer ([`TARGET_COMMIT_NEARER`]).
     pub fn combat_target(&self) -> Option<(FormId, &Target)> {
         let best = self.targets.iter().filter(|(_, t)| t.band == Band::Detected).max_by(|a, b| a.1.value.total_cmp(&b.1.value)).map(|(id, t)| (*id, t))?;
-        let kept = self.fighting.and_then(|f| self.targets.get(&f).map(|t| (f, t))).filter(|(_, t)| t.band == Band::Detected && (self.committed || t.value + TARGET_KEEP_MARGIN >= best.1.value));
+        let away = |t: &Target| self.at.map_or(f32::INFINITY, |m| (t.at[0] - m[0]).hypot(t.at[1] - m[1]));
+        let held = |t: &Target| self.committed && away(best.1) >= away(t) * TARGET_COMMIT_NEARER;
+        let kept = self.fighting.and_then(|f| self.targets.get(&f).map(|t| (f, t))).filter(|(_, t)| t.band == Band::Detected && (t.value + TARGET_KEEP_MARGIN >= best.1.value || held(t)));
         Some(kept.unwrap_or(best))
     }
 
@@ -640,7 +653,10 @@ impl Game<'_> {
         if det.band == Band::Hidden && !self.awareness.actors.contains_key(&detector) {
             return;
         }
-        self.awareness.actors.entry(detector).or_default().observe(target, det, at, now, &t);
+        let me = position(self, detector);
+        let a = self.awareness.actors.entry(detector).or_default();
+        a.at = me.or(a.at);
+        a.observe(target, det, at, now, &t);
     }
 
     /// Raise a detection event for the engine to measure (CreateDetectionEvent, an
@@ -1077,10 +1093,16 @@ mod tests {
         a.observe(FormId(2), &det(40.0), [0.0; 3], 0.0, &t);
         step(&mut a, 0.0);
         assert_eq!(a.fighting, Some(FormId(1)));
-        // Far above its target within the commitment: it keeps its target.
-        a.observe(FormId(2), &det(60.0 + TARGET_KEEP_MARGIN + 10.0), [0.0; 3], 1.0, &t);
+        // Far above its target within the commitment: it keeps its target, unless the
+        // other is much nearer.
+        a.at = Some([0.0; 3]);
+        a.observe(FormId(1), &det(60.0), [1000.0, 0.0, 0.0], 1.0, &t);
+        a.observe(FormId(2), &det(60.0 + TARGET_KEEP_MARGIN + 10.0), [600.0, 0.0, 0.0], 1.0, &t);
         step(&mut a, 1.0);
         assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(1)));
+        a.observe(FormId(2), &det(60.0 + TARGET_KEEP_MARGIN + 10.0), [400.0, 0.0, 0.0], 1.0, &t);
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(2)), "a much nearer one breaks it");
+        a.observe(FormId(2), &det(60.0 + TARGET_KEEP_MARGIN + 10.0), [600.0, 0.0, 0.0], 1.0, &t);
         // The commitment over: the margin decides.
         step(&mut a, TARGET_COMMIT);
         assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(2)));
