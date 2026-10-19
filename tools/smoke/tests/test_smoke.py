@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE))
 from smoke import choose, cli  # noqa: E402
 from smoke.expect import Expect, ScenarioError, check_forbid, check_one, check_order  # noqa: E402
 from smoke.plan import merge, plan, shift  # noqa: E402
-from smoke.runner import FROM_SCRIPTS, Locks, aid_free_environ, game_env, judge  # noqa: E402
+from smoke.runner import FROM_SCRIPTS, Locks, Queue, aid_free_environ, game_env, judge  # noqa: E402
 from smoke.scenarios import Timed, load, load_text  # noqa: E402
 
 LOG = [
@@ -395,6 +395,47 @@ class LockTests(unittest.TestCase):
                 busy.acquire()
             self.assertFalse(any("ABANDONED" in x for x in said))  # a game runs: just waiting
             self.assertTrue(any("mkdir lock, made at" in x for x in said))
+
+
+class QueueTests(unittest.TestCase):
+    def test_first_come_first_served(self):
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "run.lock"
+            live = {101, 102}
+            first = Queue(Path(d) / "smoke-queue", pid=101, alive=lambda p: p in live)
+            second = Queue(Path(d) / "smoke-queue", pid=102, alive=lambda p: p in live)
+            first.join()
+            time.sleep(0.002)
+            second.join()
+            self.assertEqual(first.ahead(), [])
+            self.assertEqual(len(second.ahead()), 1)
+            # The second runner does not take the free lock while the first is queued.
+            waiting = Locks([lock], poll=0.01, wait_max=0.05, say=lambda s: None, queue=second)
+            with self.assertRaises(TimeoutError):
+                waiting.acquire()
+            self.assertFalse(lock.exists())
+            # The first takes it, gives it back between launches and keeps its place.
+            ahead = Locks([lock], poll=0.01, wait_max=0.05, say=lambda s: None, queue=first)
+            ahead.acquire()
+            ahead.release()
+            self.assertEqual(len(second.ahead()), 1)
+            ahead.finish()
+            self.assertEqual(second.ahead(), [])
+            waiting.acquire()
+            self.assertTrue(lock.is_dir())
+            waiting.finish()
+            self.assertFalse(lock.exists())
+            self.assertEqual(list((Path(d) / "smoke-queue").glob("*.ticket")), [])
+
+    def test_a_dead_runners_ticket_is_cleared(self):
+        with tempfile.TemporaryDirectory() as d:
+            gone = Queue(Path(d) / "q", pid=7, alive=lambda p: False)
+            gone.join()
+            time.sleep(0.002)
+            me = Queue(Path(d) / "q", pid=8, alive=lambda p: p == 8)
+            me.join()
+            self.assertEqual(me.ahead(), [])
+            self.assertFalse(gone.ticket.exists())
 
 
 class CheckCommandTests(unittest.TestCase):
