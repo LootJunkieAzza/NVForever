@@ -201,7 +201,17 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
   muzzle, 0 from the eyes)`, 8 hits.
 - Not done: recoil of the `##` weapon parts on the muzzle node,
   turning a standing NPC that is not run on its packages to face its target, aiming
-  while moving (the movement clips drive the spine above the aim, animation.md §9.6).
+  while moving between shots (the movement clips drive the spine above the aim,
+  animation.md §9.6).
+- Shots take priority over movement [design: owner 2026-10-19, "shooting should always
+  take priority"]: a shot's clip is held at its last frame at full weight for 1 s after
+  it ends (`attack_anims::SHOT_HOLD`), and a shot that comes meanwhile takes over
+  without a fade in. Attack clips drive the arms and spine at 55, above the armed run's
+  36 [observed: `2haattackloop.kf`, `2hafastforward.kf`, 2026-10-19], so a fighter firing
+  on the move holds its gun where the shots put it while its legs run. Before, a Powder
+  Ganger running with a 9mm SMG showed the plain armed run: its 0.17 s attack clip
+  faded in and out with each shot and never reached full weight [observed in NVForever:
+  owner's playtest 2026-10-19].
 
 ## 10. Being attacked, allies, styles and sights (playtest list 2026-10-11)
 

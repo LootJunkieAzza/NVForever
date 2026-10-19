@@ -2482,7 +2482,7 @@ launch = "ncr-fiends"
 source = "owner's list 2 (combat AI, E2): fights between NPCs at scale, a group fight resolving (docs/design/combat-ai.md §12.7)"
 note = "observed 2026-10-12 (branch claude/combat-ai-2): 11 actors on 2 sides, resolved in about 62 s in one run, one against one still fighting at 75 s in another; who wins varies"
 areas = ["combat", "combat-groups"]
-paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/residents.rs"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/attack_anims.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
@@ -2495,6 +2495,7 @@ expect = [
   { re = 'takes a flank place', label = "the gunmen of a group spread round their target (flank places)" },
   { re = 'battle summary: .*?(?P<n>\d+) fights started by a hit between actors', range = [1, 1000], label = "fights started by a hit between actors (NPC against NPC)" },
   { re = 'fight move summary: .* moved [\d.]+ s forward, (?P<n>[\d.]+) s sideways', range = [5, 100000], label = "fighters strafe, facing their target (owner 2026-10-16)" },
+  { re = 'attack anims summary: .* (?P<n>\d+) shots followed a shot still shown', range = [5, 1000000], label = "shots follow on from the last one held over the fighters' movement (owner 2026-10-19: shooting takes priority)" },
 ]
 forbid = [{ re = 'the player died', label = "the player dies" }]
 
