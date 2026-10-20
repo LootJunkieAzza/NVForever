@@ -2,8 +2,8 @@
 
 Status 2026-10-11: built for the effects of the player's shots (muzzle sparks and smoke,
 a missile's trail, the flamer's flame, impact dust and debris) and, since 2026-10-16, for
-the systems inside explosion and impact models (§3 `ModelEmitter`). Not built for particle
-systems of models placed in cells (fires, steam, dust devils). Code:
+the systems inside explosion and impact models (§3 `ModelEmitter`), and since 2026-10-20
+for models placed in cells (§5: fires, steam, smoke). Code:
 `engine/nvf-assets/src/particles.rs` (the reader), `engine/nvforever/src/particles.rs`
 (the simulation and drawing). Claim tags as in CLAUDE.md.
 
@@ -145,10 +145,22 @@ systems of models placed in cells (fires, steam, dust devils). Code:
 - Built 2026-10-20 (§6): mesh emitters, strip systems, the bomb modifier, planar
   colliders, the colour-key modifier, the emitter and gravity float controllers and
   keyed birth rates.
+- Built 2026-10-20: models placed in cells emit their own particle systems and their
+  add-on nodes' (`world::spawn_emitters`), from a holder at the reference, while the
+  reference is shown. Gomorrah's roof fires are two such STATs in TheStripWorldNew:
+  ref `0013BA36` (`NVFiregomorrah01`, `effects/nv/nvfiregomorrah01.nif`) and ref
+  `00174ECC` (`NVFiregomorrah02`, scale 1.2); each file is one looping box-emitter
+  system with `explosionfire01.dds` plus a `BSValueNode` add-on node 14 (ADDN
+  `MPSFireSmall01`) [observed, `fnvtool world refs`, `fnvtool nif decode`, 2026-10-20].
+  A reference's scale moves and sizes the emitter box but not the particles' radii
+  [hypothesis: the game's rule not known]. An add-on node below a `BSDamageStage` node
+  emits only while its reference is at one of that node's model damage stages (a
+  motorcycle's smoke once it is damaged, never on the Prospector Saloon's static bikes):
+  `destruction-stages.md`.
 - Not built: turbulence, spawn on death, spherical colliders, the ADDN's sound and particle cap,
-  particle systems of models placed in cells (the dust devils `fxdustwhirlwind01.nif`
-  emit from a mesh emitter that moves along a path). Placed smoke that is built so (not drawn at
-  all): `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
+  the dust devils' path (`fxdustwhirlwind01.nif` emits from a mesh emitter that moves along
+  a path). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
+  `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
   dlc03fxdarksmoke.nif` (13, Primm), `effects/nv/fxtiresmoke.nif` (16),
   `clutter/ashtray/ashtray03smoke.nif` (19), `effects/fxhelios_steam.nif` (8)
   [observed, `fnvtool world refs`, `fnvtool nif decode`, 2026-10-13]. The more common

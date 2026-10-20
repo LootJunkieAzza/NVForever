@@ -110,6 +110,17 @@ actor-behaviour.md §1 (packages that send actors to furniture), ai-observer.md 
   [observed]. The picker knows the first eleven and treats an IDLE with any other
   function as not chosen [design], which leaves out only the value-3 extras; those are
   chosen by the game's rules instead (§8).
+- `IsCurrentFurnitureObj` (and `IsCurrentFurnitureRef`) may name a form list: the
+  dance group `NVDance` (00117BAD, under `Sitting` before `ChildBar`) has one condition,
+  `IsCurrentFurnitureObj` of FLST `DanceMarkerObjects` (00117E55: DanceMarker03,
+  DanceMarker01, DanceMarker02, DanceMarker). Dance markers use the child bar's model
+  (`markers\childbarmarker.nif`, marker ID 20), so when the list is not looked into
+  `ChildBar` (`GetFurnitureMarkerID == 20`) is chosen and the Strip's courtesans outside
+  Gomorrah (refs 0012299D, 0012299F, packages VStreetHooker01Dance/02Dance travelling to
+  DanceMarker03 refs 0012299C, 0012299E) lean on a counter [observed: `fnvtool esm
+  decode`, `actor furniture`, 2026-10-20; the owner saw them dance in the original].
+  Any member matching counts, as `GetIsVoiceType` takes a list [hypothesis: the GECK
+  wiki types the parameter as a furniture only; the shipped data relies on a list].
 - IDs 10 and 22 have no enter, loop or exit clip in the tree [observed]: work spots play
   their special idles while standing.
 

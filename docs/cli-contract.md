@@ -189,6 +189,33 @@ also files whose container cannot be read). `key` is `path#block`.
 Lab comparator: **keyed** on `key` for `/objects` and for `/shapes` (all fields), plus
 **exact** on `/skipped`.
 
+## `fnvtool nif nodes <sources…> --schema s [--examples 3] [--values 20]` → `fnv.nif.nodes/1`
+
+```json
+{
+  "schema": "fnv.nif.nodes/1",
+  "sources": ["Fallout - Meshes.bsa", "Update.bsa"],
+  "files": 19277,
+  "undecoded_blocks": 0,
+  "skipped": [{"path": "...", "reason": "..."}],
+  "block_types": [{"name": "NiNode", "files": 4271, "count": 38714, "types": {}, "values": [], "examples": ["meshes\\..."]}],
+  "node":     [{"name": "ProjectileNode", "files": 218, "count": 221, "types": {"NiNode": 221}, "values": [], "examples": []}],
+  "object":   [],
+  "other":    [],
+  "extra":    [{"name": "Prn", "files": 466, "count": 466, "types": {"NiStringExtraData": 466}, "values": [["Weapon", 190]], "examples": []}],
+  "text_key": [{"name": "Eject", "files": 86, "count": 86, "types": {"NiTextKeyExtraData": 86}, "values": [], "examples": []}]
+}
+```
+
+For finding names the engine never reads (docs/spec-notes/nif-node-audit.md). Each list is
+sorted by `files` (how many files have the name), then by name; `count` is how many
+blocks. `node`: names of blocks derived from NiNode; `object`: other NiAVObjects (shapes,
+lights, cameras, particle systems); `other`: other named NiObjectNETs (properties,
+controllers); `extra`: NiExtraData names with their string, integer or float values (the
+`--values` most common); `text_key`: every NiTextKeyExtraData key text. `examples` keeps
+the first `--examples` paths. A key list (`node`, `object`…) is absent when nothing has
+that kind. Not used by the lab.
+
 ## `fnvtool dds list <archive>` → `fnv.dds.listing/1`
 
 Defined in docs/spec-notes/dds.md together with the texture notes.

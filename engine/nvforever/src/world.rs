@@ -12,7 +12,7 @@ use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
 use nvf_assets::actor::{ActorCtx, ActorParts};
-use nvf_assets::model::ModelCtx;
+use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::{RefVisual, RenderCell};
 use std::collections::{HashMap, HashSet};
@@ -648,6 +648,15 @@ pub fn spawn_model(
         } else if activator.is_some() {
             commands.entity(root).insert(crate::activators::ActivatorRig::new(r, base.form_id, model.clone(), &path, nodes.clone()));
         }
+        // Its particle systems and add-on nodes emit from its own nodes.
+        if model.particles {
+            commands.entity(root).insert(crate::particles::ModelEmitter::new(path.clone()));
+        }
+        for (i, n) in model.nodes.iter().enumerate() {
+            if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
+                crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
+            }
+        }
         if !rig.groups.is_empty() {
             commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
             stats.refs_group_rigs += 1;
@@ -690,7 +699,34 @@ pub fn spawn_model(
         }
         stats.shapes += 1;
     }
+    spawn_emitters(commands, parent, r, &model, &path, rt);
     stats.refs_drawn += 1;
+}
+
+/// A placed model's own particle systems (a fire's flames: Gomorrah's roof,
+/// `nvfiregomorrah01.nif`) and its add-on nodes (`BSValueNode`, the ADDN fire beside
+/// them): emitted from a holder at the reference with its nodes below it, which a
+/// static model's baked shapes do not have. Under `RefVisual(r)`, so a disabled
+/// reference does not burn (`particles::emit`).
+fn spawn_emitters(commands: &mut Commands, parent: Entity, r: u32, model: &PreparedModel, path: &str, rt: Affine3A) {
+    let addons = model.nodes.iter().any(|n| n.addon.is_some());
+    if !model.particles && !addons {
+        return;
+    }
+    let holder = commands.spawn((Transform::from_matrix(Mat4::from(rt)), Visibility::Inherited, RefVisual(r), ChildOf(parent))).id();
+    if model.particles {
+        commands.entity(holder).insert(crate::particles::ModelEmitter::new(path));
+    }
+    if !addons {
+        return;
+    }
+    let nodes: Vec<Entity> = model.nodes.iter().map(|n| commands.spawn((Transform::from_matrix(Mat4::from(n.local)), Visibility::Inherited)).id()).collect();
+    for (i, (n, &e)) in model.nodes.iter().zip(&nodes).enumerate() {
+        commands.entity(n.parent.map_or(holder, |p| nodes[p])).add_child(e);
+        if let Some(index) = n.addon {
+            crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
+        }
+    }
 }
 
 /// Whether a base record type is an item a reference can pick up.

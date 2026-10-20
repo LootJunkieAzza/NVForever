@@ -122,11 +122,9 @@ rest of its 2.8 s, by its data.
 
 ## 6. Not built, open
 
-- **Impact decals** (scorch marks): IPCT `DODT` decal data and the texture set; impact
-  decals are not built for any impact. A step of its own (projected decals on
-  terrain and statics).
-- Spawn on death. Mesh emitters, the bomb modifier and particle colliders are built
-  since 2026-10-20 (particles.md §6).
+- Spawn on death. Impact decals (scorch marks, bullet holes) are built: impact-decals.md.
+  Mesh emitters, the bomb modifier and particle colliders are built since 2026-10-20
+  (particles.md §6).
 - Everything in §2–§5 tagged hypothesis is checked only against how it looks; to compare
   with frames of the game: a frag grenade and a missile going off at a known distance and
   hour (compare-frames rules in owner-review.md).
@@ -188,7 +186,7 @@ script over `fnvtool nif decode`; supported types taken from the code of
 | `BSStripParticleSystem` + `BSPSysStripUpdateModifier` | 2 | `projectiles\flamerflame01.nif` (every flamer), Cleansing Flame | particles session |
 | `NiPSysEmitterSpeedCtlr`, `NiPSysGravityStrengthCtlr`, `NiPSysEmitterInitialRadiusCtlr`, declination/planar angle controllers | 11, 8, 4, 1, 1 | `bloodspraylimb01.nif`, `explosiongenericl01.nif` | particles session |
 | `NiPSysBombModifier`; `NiPSysColliderManager`/`NiPSysPlanarCollider` | 8; 4 | `impactexplosiondirt.nif`, laser projectiles | particles session |
-| Impact decals (IPCT DODT, texture sets) | all impacts | flamer scorch, bullet holes | decals session |
+| Impact decals (IPCT DODT, texture sets) | all impacts | flamer scorch, bullet holes | built: impact-decals.md (claude/impact-decals) |
 | NPCs' muzzle flashes at the shot's start, unturned | — | every NPC gun | NPC muzzle session |
 | Model files absent from the data | 2 | `sonicredprojectile01.nif`, `sonicredmuzzleflash01.nif` (Old World Blues) | the game's data |
 | Texture absent | 1 | `nvdlc04flashbanggrenade_n.dds` | the game's data |

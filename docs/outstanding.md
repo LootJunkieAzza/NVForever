@@ -57,8 +57,8 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books, which Comprehension changes, is not built); slot machines; reputation disguises and resets.
 - **Animation**: open in [actor jumps](spec-notes/actor-jumps.md) (built 2026-10-20): how the original takes ledge-up links and obstacles.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
-  exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
-  motion blur, the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
+  exterior reference frames meets the threshold; all 7 interior ones do); ~~depth of field~~ (built 2026-10-20, image-modifiers.md §8; constants to set against game frames),
+  ~~motion blur~~ (built 2026-10-20, image-modifiers.md §9; constants to set against game frames), the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
   66 particle-system smokes not drawn (playtest list 4 item 16).
 - **Interface**: credits. The weapon mod menu is built (2026-10-20,
   [weapon-mods](spec-notes/weapon-mods.md)): X on a weapon lists the carried mods that
@@ -186,8 +186,14 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
     sampled area.
   - Mr. Holdout sat on VMrHoldoutHangOutSell, and the securitrons held their gates.
 
-  It is not compared with our engine yet. Of the casinos, only Gomorrah's first 12 game
-  hours were observed.
+  ~~It is not compared with our engine yet.~~ Compared 2026-10-20 (queue item 13,
+  npc-behaviour-compare.md §10.1, smoke `strip-crowd-evening`: the player comes through
+  the gate door, whose script starts the crowd and the SS2 scene): the crowd's packages,
+  the travellers' fade moves and troopers C/D's SS2 chain now match within a few game
+  minutes (fixed: a timed script package stays until its duration is up). Still open:
+  what ended MP A's escort patrol and troopers A–C's patrols mid-way in one sample in the
+  original (ours end 0.4–0.5 h later); positions not compared per sample. Of the
+  casinos, only Gomorrah's first 12 game hours were observed.
 - No spawn aid for creature fights in our engine's test runs.
 - **Owner-decision captures still open after the second run** (2026-10-19,
   owner-decision-captures.md §7). Each has the reason it could not be settled:

@@ -187,6 +187,41 @@ order = [[
 ]]
 
 [[scenario]]
+name = "imagespace-dof"
+source = "queue item 14 (docs/spec-notes/image-modifiers.md §8): a script's modifier with a depth of field blurs the picture by depth; the log names its strength, distance and range"
+note = "looking down Goodsprings' street at noon; AntNectarISFX (the Ant Nectar script's: strength 0.25, clean to 64, fully blurred from 1024) applied at 4 s and removed at 8 s; FlashBangISfx (the flash-bang explosion's, animated 10 s: strength 2 down to 0) applied at 10 s and ending by itself. Frames: dof_before.png at 3 s, dof_antnectar.png at 6.5 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:AntNectarISFX,8:call:-:RemoveImageSpaceModifier:AntNectarISFX,10:call:-:ApplyImageSpaceModifier:FlashBangISfx", NVF_PLAY_TEST_SHOTS = "3:dof_before.png,6.5:dof_antnectar.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 24
+order = [[
+  { re = 'depth of field: strength 0\.[23], distance 64, range 1024 \(AntNectarISFX\)$', label = "Ant Nectar's depth of field: clean to 64, blurred from 1024" },
+  { re = 'depth of field: off$', label = "gone when the script removes it" },
+  { re = 'depth of field: strength 2\.0, distance 0, range 0 \(FlashBangISfx\)$', label = "the flash-bang's: strength 2 at its start" },
+  { re = 'depth of field: strength 1\.0, distance 0, range 0 \(FlashBangISfx\)$', label = "strength 1 about half way" },
+  { re = 'depth of field: off$', label = "off when the flash-bang's modifier has run its 10 s" },
+]]
+manual = "dof_antnectar.png against dof_before.png: the far street and hills softly blurred, the near ground sharp"
+
+[[scenario]]
+name = "imagespace-motion-blur"
+source = "queue item 15 (docs/spec-notes/image-modifiers.md §9): a modifier's motion blur smears the picture while the view moves; the log names its strength and source"
+note = "looking down Goodsprings' street at noon; VATScamNoDOF (the VATS camera shots' modifier, not animatable: motion blur 0.15) applied by script at 4 s, the view turned 125 degrees a second from 5 to 6 s, removed at 8 s; MS10DrinkSapISFX (animated 5 s: 0 up to 0.1 at 0.3 s, back to 0) applied at 9 s and ending by itself. Frames: motion_still.png at 4.4 s (on, view still), motion_turning.png at 5.5 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:VATScamNoDOF,8:call:-:RemoveImageSpaceModifier:VATScamNoDOF,9:call:-:ApplyImageSpaceModifier:MS10DrinkSapISFX", NVF_PLAY_TEST_LOOK = "4.5:0:-5,5.00:0.0:-5,5.02:2.5:-5,5.04:5.0:-5,5.06:7.5:-5,5.08:10.0:-5,5.10:12.5:-5,5.12:15.0:-5,5.14:17.5:-5,5.16:20.0:-5,5.18:22.5:-5,5.20:25.0:-5,5.22:27.5:-5,5.24:30.0:-5,5.26:32.5:-5,5.28:35.0:-5,5.30:37.5:-5,5.32:40.0:-5,5.34:42.5:-5,5.36:45.0:-5,5.38:47.5:-5,5.40:50.0:-5,5.42:52.5:-5,5.44:55.0:-5,5.46:57.5:-5,5.48:60.0:-5,5.50:62.5:-5,5.52:65.0:-5,5.54:67.5:-5,5.56:70.0:-5,5.58:72.5:-5,5.60:75.0:-5,5.62:77.5:-5,5.64:80.0:-5,5.66:82.5:-5,5.68:85.0:-5,5.70:87.5:-5,5.72:90.0:-5,5.74:92.5:-5,5.76:95.0:-5,5.78:97.5:-5,5.80:100.0:-5,5.82:102.5:-5,5.84:105.0:-5,5.86:107.5:-5,5.88:110.0:-5,5.90:112.5:-5,5.92:115.0:-5,5.94:117.5:-5,5.96:120.0:-5,5.98:122.5:-5,6.00:125.0:-5", NVF_PLAY_TEST_SHOTS = "4.4:motion_still.png,5.5:motion_turning.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'motion blur: strength 0\.15 \(VATScamNoDOF\)$', label = "the camera shots' modifier: motion blur 0.15" },
+  { re = 'motion blur: off$', label = "gone when the script removes it" },
+  { re = 'motion blur: strength 0\.10 \(MS10DrinkSapISFX\)$', label = "the sap's: up to 0.1 early in its 5 s" },
+  { re = 'motion blur: off$', label = "off when the sap's modifier has run" },
+]]
+manual = "motion_turning.png against motion_still.png: the street and hills smeared sideways along the turn, the player's own arms (if drawn) sharp"
+
+[[scenario]]
 name = "shadows-sun"
 source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 3 cascades and the arms' shade light draws only what is near the arms"
 areas = ["renderer", "graphics", "sky"]
@@ -430,6 +465,28 @@ expect = [
   { json = "files.*.actors.?actor=VStripNCRMPAREF.same_package", range = [1100, 100000] },
 ]
 manual = "2026-10-19: 97-100 % of 1,219 samples on the same package for these actors (VStripNCRMPBREF 83 %: the SS2 escort a scene script gives); explain a change against npc-behaviour-compare.md §10"
+
+[[scenario]]
+name = "strip-crowd-evening"
+source = "docs/spec-notes/npc-behaviour-compare.md §10.1: the Strip's crowd in the engine with its scripts, from where the original's observer capture (campaign strip, session strip_evening) had the player, at its hour (20:08), for about 2 game hours"
+areas = ["ai"]
+paths = ["engine/nvforever/src/residents.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "00119875:1", NVF_PLAY_TEST_SCRIPT = "1:activate:FreesideGateToStripREF", NVF_PLAY_TEST_GOTO = "30:847:8561:1019", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--world", "FreesideWorld", "--pos=-6850,-10120,1040", "--heading", "220", "--hour", "20.1", "--no-voice", "--npc-packages", "all,MrHoldoutREF,VStreetTravelerAREF,VStreetTravelerBREF,VStreetGamblerAREF,VStreetGamblerBREF,VStreetGamblerCREF,VStreetHooker01REF,VStreetHooker02REF,VStreetHooker03REF,VStripNCRMPAREF,VStripNCRMPBREF,VStripNCRTrooperAREF,VStripNCRTrooperBREF,VStripNCRTrooperCREF,VStripNCRTrooperDREF,VMQTopsSecMessengerREF,VStreetBot02REF"]
+run_seconds = 270
+expect = [
+  # The arrival through the gate runs VFSVegasDoorSCRIPT: the crowd's quest variables and the SS2 scene.
+  "VStripNCRMPBREF: package VStripSS2StartMPBEscort",
+  "VStripNCRTrooperDREF: package VStripSS2TravelEndD",
+  # A 3 h Must Complete script package stays after the trooper reached the wall (the original held it 0.7 h).
+  "VStripNCRTrooperCREF: package VStripSS2WallDrunk3",
+  { re = 'ai \[20:[2-5]\d\] VStripNCRTrooperCREF: package VStripFluff1HookerCheerC', count = 0, label = "trooper C keeps VStripSS2WallDrunk3 at the wall (no return to its list before 21:00)" },
+  # The travellers' end scripts fade them to another port (the original: 6 in 2 game hours).
+  { re = 'VStreetTravelerAREF: put at .* by a script \(MoveTo\)', min = 4, label = "traveller A sent on by its package's end script" },
+  # Victor's messenger, enabled when the player walks into its trigger by the gate.
+  "VMQTopsSecMessengerREF: package VMQTopsSecuritronMsgDialog38",
+  "ai summary",
+]
 
 [[scenario]]
 name = "residents"
@@ -1266,6 +1323,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "dance-fidgets-tree"
+kind = "tool"
+source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D) on her dance marker (0012299C, ID 20) gets NVDance's fidgets, which ask IsCurrentFurnitureObj of a form list (DanceMarkerObjects); 0 before lists were looked into. 2026-10-20: 127 of 1000 checks, DanceFemaleFidget01-06"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/functions/furniture.rs", "crates/fnv-game/src/idles.rs"]
+commands = [
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "0012299D", "--furniture", "0012299C:20"],
+]
+expect = [
+  { json = "actors.?actor=VStreetHooker01REF.fidgets", schema = "fnv.actor.fidgets/1", range = [60, 250], label = "a dancer on her dance marker: dance fidgets, not none" },
+  { json = "actors.?actor=VStreetHooker01REF.by_idle.DanceFemaleFidget01", schema = "fnv.actor.fidgets/1", range = [5, 60], label = "the first of the female dance fidgets" },
+]
+
+[[scenario]]
 name = "furniture-fidgets"
 source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
 note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair. 15:00, not 12:00: from 12 to 14 his package is EasyPeteEat12x2 (fnvtool ai day), whose procedure 10 EAT picks the IDLE tree's SitChairFood branch (GetCurrentAIProcedure == 10) and he eats on the chair (SitChairEatB, food in hand) instead, as the game does [observed 2026-10-20 once procedure codes were read]; from 14 EasyPeteChairPackage14x4"
@@ -1612,6 +1683,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "varmint-first-person"
+source = "owner report 2026-10-20: in first person the varmint rifle was sometimes not drawn, only the hands; the rifle equipped from the start, drawn, then fired twice"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_GIVE = "00004240:20", NVF_PLAY_TEST_LOOK = "9:46:-4", NVF_PLAY_TEST_CONTROL = "9:weapon,13:fire,13.2:fire", NVF_PLAY_TEST_SHOTS = "12:varmint_held.png,14:varmint_fired.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+expect = [
+  { re = 'player weapon model \(First person\): \S+varmint\S*\.nif, [1-9]\d* nodes' },
+  { re = 'combat: [1-9]\d* shots' },
+]
+
+[[scenario]]
+name = "varmint-after-fists"
+source = "owner report 2026-10-20: the varmint rifle not drawn in first person at Sunny's bottles (shoot-bottles), when the test aid drew the fists before VCG02 gave the rifle"
+note = "The fists' draw clip hangs the Weapon node from Bip01 R ForeTwist; before 2026-10-20 a weapon equipped while the fists were out kept that bone, and the rifle hung from the forearm below the view (its shapes culled). Here the console equips the rifle after the fists are drawn, as the quest's EquipItem did"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0007EA24:1,00004240:20", NVF_PLAY_TEST_LOOK = "7:46:-4", NVF_PLAY_TEST_CONTROL = "8:weapon,13:fire", NVF_PLAY_TEST_CONSOLE = "10:player.equipitem 0007EA24;10.3:close", NVF_PLAY_TEST_SHOTS = "12:varmint_after_fists.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'player First rig weapon none: now on \S*Bip01 R ForeTwist', label = "the fists drawn first" },
+  { re = 'player First rig weapon 0x0007EA24: now on \S*Bip01 R Hand', label = "the rifle equipped after them hangs from the hand" },
+  { re = 'combat: [1-9]\d* shots' },
+]
+
+[[scenario]]
 name = "third-person-shots"
 source = "playtest list 4 item 12 (2026-10-12): in third person the player's shots land under the crosshair (the over-the-shoulder camera's line), not left of it: Sunny's bottles shot from third person"
 note = "The aim aid puts the point under the third-person crosshair (control::Crosshair::aim_at), so a shot along the eye's own view would pass the bottles about 40 units to their left"
@@ -1779,6 +1878,23 @@ expect = [
   "actor group summary: 6 asked (Aim 2, Equip 1, Idle 1, SpecialIdle 1, Unequip 1); 3 started",
   "1 waited for what played, 1 back to normal by Idle",
   "1 for actors not drawn, 1 without a clip",
+]
+
+[[scenario]]
+name = "weapon-parts-rest"
+source = "owner's audit 2026-10-20: the game's 9mm pistol is held with its hammer cocked and shows its magazine in the reload (docs/spec-notes/animation.md §9.8)"
+note = "the player draws the 9mm pistol (000E3778) at 8 s, fires at 11 s, reloads at 13 s and goes to third person at 17 s; every NPC's weapon is out (--actor-weapons drawn): two settlers near the player carry the short .357 revolver, whose aim clip holds ##357Hammer at 45°, and GSSettlerAM (00104F0A) the varmint rifle, whose clips leave every part at its place (2026-10-20). The draw clips turn ##nmHammer 45° and the aim clips do not key it; the attack and reload clips leave it there. The model has two nodes named ##nmClip (the first empty), and the reload clip moves both"
+areas = ["weapon-parts", "animation"]
+paths = ["engine/nvf-assets/src/anim_blend.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,13:reload,17:view,19:fire" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "drawn"]
+run_seconds = 24
+expect = [
+  { re = 'player First rig: weapon at rest in the hand, parts away from their place: .*##nmHammer 0\.0 units 45°', min = 3, label = "first person: hammer cocked after the draw, the shot and the reload" },
+  { re = 'player Third rig: weapon at rest in the hand, parts away from their place: .*##nmHammer 0\.0 units 45°', min = 3, label = "third person: the same" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s \[.*"##nmClip", "##nmClip"', label = "the first-person reload moves both ##nmClip nodes" },
+  { re = 'actor weapons: \w+ meshes\\weapons\\1handpistol\\357revolvershort\.nif: \d+ shape\(s\) under parts the aim or draw clip moves', label = "an NPC's .357 revolver held with its hammer cocked" },
+  { re = 'actor weapons: \w+ meshes\\weapons\\2handrifle\\varmintrifle\.nif: \d+ shape\(s\) under parts', count = 0, label = "the varmint rifle's parts stay at their place" },
 ]
 
 [[scenario]]
@@ -2293,6 +2409,32 @@ expect = [
   "actor materials: reference 0013BB1F shape screenstatic:0 driven by its clips",
   { re = 'ultraluxsignglow\.nif: 0 material and 1 transform track', label = "the Ultra-Luxe sign glow's own transform controller" },
   { re = 'nv_thetops-casino04\.nif: [1-9]\d* material and', label = "The Tops sign's own material controllers" },
+]
+
+[[scenario]]
+name = "gomorrah-roof-fire"
+source = "docs/spec-notes/particles.md §5: Gomorrah's roof fires are placed STATs (refs 0013BA36, 00174ECC: effects/nv/nvfiregomorrah01/02.nif) whose own particle system and add-on node 14 (ADDN MPSFireSmall01) now emit; two frames 0.3 s apart at night in target/smoke (gomorrah_fire_N.png): flames behind the main sign and on the side sign"
+areas = ["particles", "effects"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "5:340:32", NVF_PLAY_TEST_SHOTS = "7:gomorrah_fire_0.png,7.3:gomorrah_fire_1.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-1100,5400,1030", "--hour", "21", "--no-voice", "--no-messages"]
+run_seconds = 9
+expect = [
+  { re = 'particles: model \S*nvfiregomorrah01\.nif: 1 system', label = "the first roof fire's own flames emit" },
+  { re = 'particles: model \S*nvfiregomorrah02\.nif: 1 system', label = "the second roof fire's own flames emit" },
+  { re = 'particles: add-on node 14 \S+: [1-9]', label = "their add-on fire (MPSFireSmall01) emits" },
+]
+
+[[scenario]]
+name = "gomorrah-dancers"
+source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
+areas = ["furniture", "idles"]
+paths = ["crates/fnv-actor/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "1:0012299D.enable;1.2:close", NVF_PLAY_TEST_GOTO = "8:-634:6980:1030", NVF_PLAY_TEST_LOOK = "8.5:0:-8", NVF_PLAY_TEST_SHOTS = "12:gomorrah_dancer.png,12.5:gomorrah_dancer_1.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-700,6900,1030", "--hour", "21", "--no-voice", "--no-messages", "--npc-sit", "0012299D=0012299C:45"]
+run_seconds = 14
+expect = [
+  { re = 'furniture: 0012299D goes to 0012299C by marker \d+ \(ID 20\).*clips \S*dance\S* / \S*dance', label = "the dance clips, not the child bar's counter lean" },
 ]
 
 [[scenario]]
@@ -3721,6 +3863,51 @@ expect = [
   { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif' },
   { re = 'particles: model meshes.effects.explosiongrenadefrag.nif: 4 system' },
   { re = 'shot fx:.*\b1 explosions' },
+  { re = 'decals: ExplosionDirtImpact leaves DecalDirtScorch .* on the world', label = "the blast leaves its scorch on the ground (impact-decals.md)" },
+]
+
+[[scenario]]
+name = "impact-decals-bullets"
+source = "owner 2026-10-20: audit of shot effects, impact decals not built (docs/spec-notes/impact-decals.md): 9mm pistol shots at a rock by the Prospector Saloon leave bullet holes"
+note = "the rock NVNRockCanyon12 (00106B0C) stands 143 units east of the start: two shots without spread at it, two at the ground to the north-east (dirt), more than the IPCT's placement radius (16) apart; frames of the ground at 10.2 s and of the rock at 11.2 s"
+areas = ["combat", "effects"]
+paths = ["engine/nvforever/src/decals.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_LOOK = "2:97:-4,6.8:93:-1,7.6:60:-30,8.4:75:-30,9.6:68:-26,10.6:96:-3", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.2:fire,7:fire,7.2:fire,7.8:fire,8:fire,8.6:fire,8.8:fire", NVF_PLAY_TEST_SHOTS = "10.2:decals_bullets_ground.png,11.2:decals_bullets_rock.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 13
+expect = [
+  { re = 'decals: Ballistic\w*Impact leaves Decal\w+Ballistic \(Decals\\ImpactDecal\w+\.dds\) on the world', label = "a bullet hole" },
+  { re = 'decals summary: (?P<n>\d+) placed', range = [2, 8], label = "the shots' holes" },
+]
+
+[[scenario]]
+name = "impact-decals-flamer"
+source = "owner 2026-10-20: audit of shot effects, impact decals not built (docs/spec-notes/impact-decals.md): the flamer's stream scorches the ground (FlamerScorchBigImpact, texture set DecalDirtScorch 00019073)"
+note = "the flamer held at the ground by the Prospector Saloon from 6 s to 8 s; the stream lands every frame, so most impacts fall within the placement radius (16) of a live scorch and leave none; the frame at 8.5 s shows the scorches"
+areas = ["combat", "effects"]
+paths = ["engine/nvforever/src/decals.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:300", NVF_PLAY_TEST_LOOK = "2:46:-30,7:60:-30", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,8:fire", NVF_PLAY_TEST_SHOTS = "8.5:decals_flamer.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'decals: FlamerScorchBigImpact leaves DecalDirtScorch \(Decals\\ImpactDecalScorch01\.dds\) on the world: side \d+ of 150-250, depth 96', label = "the flamer's scorch on the ground" },
+  { re = 'decals summary: (?P<n>\d+) placed', range = [1, 100], label = "scorches placed" },
+  { re = 'decals summary: .* (?P<n>\d+) within the placement radius of another', range = [1, 100000], label = "the stream does not pile a scorch on every impact" },
+]
+
+[[scenario]]
+name = "impact-decals-cap"
+source = "owner 2026-10-20: scorch marks and bullet holes must not be persistent (\"i dont want to jam up the engine remembering all these\"): a small fixed cap, a limited life, gone with their cell (docs/spec-notes/impact-decals.md §3)"
+note = "the minigun (20 shots a second) held for 10 s by the Prospector Saloon while the view sweeps round in 7-degree steps every 0.1 s, pitch -20 and -35 in turn, so the bullets keep landing more than the placement radius (16) from the live holes: more holes are placed than the cap (64) allows alive, and the oldest go"
+areas = ["combat", "effects"]
+paths = ["engine/nvforever/src/decals.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:600", NVF_PLAY_TEST_LOOK = "2:0:-20,6.0:0:-20,6.1:7:-35,6.2:14:-20,6.3:21:-35,6.4:28:-20,6.5:35:-35,6.6:42:-20,6.7:49:-35,6.8:56:-20,6.9:63:-35,7.0:70:-20,7.1:77:-35,7.2:84:-20,7.3:91:-35,7.4:98:-20,7.5:105:-35,7.6:112:-20,7.7:119:-35,7.8:126:-20,7.9:133:-35,8.0:140:-20,8.1:147:-35,8.2:154:-20,8.3:161:-35,8.4:168:-20,8.5:175:-35,8.6:182:-20,8.7:189:-35,8.8:196:-20,8.9:203:-35,9.0:210:-20,9.1:217:-35,9.2:224:-20,9.3:231:-35,9.4:238:-20,9.5:245:-35,9.6:252:-20,9.7:259:-35,9.8:266:-20,9.9:273:-35,10.0:280:-20,10.1:287:-35,10.2:294:-20,10.3:301:-35,10.4:308:-20,10.5:315:-35,10.6:322:-20,10.7:329:-35,10.8:336:-20,10.9:343:-35,11.0:350:-20,11.1:357:-35,11.2:4:-20,11.3:11:-35,11.4:18:-20,11.5:25:-35,11.6:32:-20,11.7:39:-35,11.8:46:-20,11.9:53:-35,12.0:60:-20,12.1:67:-35,12.2:74:-20,12.3:81:-35,12.4:88:-20,12.5:95:-35,12.6:102:-20,12.7:109:-35,12.8:116:-20,12.9:123:-35,13.0:130:-20,13.1:137:-35,13.2:144:-20,13.3:151:-35,13.4:158:-20,13.5:165:-35,13.6:172:-20,13.7:179:-35,13.8:186:-20,13.9:193:-35,14.0:200:-20,14.1:207:-35,14.2:214:-20,14.3:221:-35,14.4:228:-20,14.5:235:-35,14.6:242:-20,14.7:249:-35,14.8:256:-20,14.9:263:-35,15.0:270:-20,15.1:277:-35,15.2:284:-20,15.3:291:-35,15.4:298:-20,15.5:305:-35,15.6:312:-20,15.7:319:-35,15.8:326:-20,15.9:333:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,5.9:fire,16:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 19
+expect = [
+  { re = 'decals summary: (?P<n>\d+) placed', range = [65, 100000], label = "more holes placed than the cap" },
+  { re = 'decals summary: .* at most (?P<n>\d+) alive \(cap 64\)', range = [1, 64], label = "never more than 64 alive" },
+  { re = 'decals summary: .* (?P<n>\d+) removed at the cap', range = [1, 100000], label = "the oldest go at the cap" },
 ]
 
 [[scenario]]
@@ -4516,6 +4703,37 @@ expect = [
 ]
 
 [[scenario]]
+name = "true-iron-sights"
+source = "owner 2026-10-20 (screenshots of the Varmint Rifle and Weathered 10mm aimed with and without true iron sights): aimed, the arms rig lines the gun's ##SightingNode up with the eye and the crosshair goes (engine/nvforever/src/iron_sights.rs)"
+note = "the 10mm pistol (0000434F) drawn at 9 s, Block held 12-15 s; screenshot at 14 s"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/iron_sights.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,15:aim", NVF_PLAY_TEST_SHOTS = "14" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'true iron sights: the sights are on the eye', label = "aimed, the pistol's sights come onto the eye" },
+  { re = 'true iron sights: off the eye', label = "letting go of Block lowers the pistol again" },
+  { re = 'crosshair: hidden down the true iron sights', label = "no crosshair down the sights" },
+  { re = 'crosshair: shown again', label = "the crosshair is back after aiming" },
+]
+
+[[scenario]]
+name = "true-iron-sights-laser"
+source = "owner 2026-10-20: the laser rifle's model has no sighting node, so it keeps the original aim and its crosshair (engine/nvforever/src/iron_sights.rs)"
+note = "Laser rifle drawn at 3 s, Block held 6-9 s"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/iron_sights.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00004336", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aim,9:aim" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'aim zoom: \S+ \(\S+\) sight FOV', label = "the laser rifle still zooms when aimed" },
+  { re = 'true iron sights: the sights are on the eye', count = 0, label = "the laser rifle keeps the original aim" },
+  { re = 'crosshair: hidden down the true iron sights', count = 0, label = "the laser rifle keeps its crosshair" },
+]
+
+[[scenario]]
 name = "weapon-mount-bones"
 kind = "tool"
 source = "owner's playtest 2026-10-16 (Fiends held the baseball bat the wrong way round): the drawn bone is the equip clip's, docs/spec-notes/animation.md §9.10"
@@ -5125,6 +5343,25 @@ expect = [
   { re = 'vats mode summary: entered 1 times, 1 marks, 0 shots, 0 AP spent', label = "nothing fired or spent" },
 ]
 forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
+
+[[scenario]]
+name = "vats-mode-dof"
+source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode the view's depth of field is focused on the mark, what is beyond it blurred (fVATSDOFStrengthCap 0.6, fVATSDOFRange 500), faded with the mode's look"
+note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
+areas = ["imagespace", "vats"]
+paths = ["engine/nvforever/src/imagespace*", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.5:mouse-right,10.55:mouse-right", NVF_PLAY_TEST_SHOTS = "9.5:vats_dof_before.png,10.45:vats_dof_marked.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: marked .* mark 1;', label = "a dog marked" },
+  { re = 'depth of field: strength 0\.6, distance 0, range 500, focus \d+, back \(VATS\)$', label = "focused on the mark, beyond it blurred at full strength" },
+  { re = 'vats mode: unmarked .*, 0 marks left', label = "the right click takes the mark back" },
+  { re = 'depth of field: off$', label = "with no mark there is nothing to focus on" },
+  { re = 'vats mode: off', label = "the mode ends" },
+]]
+manual = "vats_dof_marked.png: the marked dog sharp, the ground and hills beyond it blurred, the near ground sharp"
 
 [[scenario]]
 name = "vats-mode-ammo-limit"
@@ -5993,3 +6230,34 @@ expect = [
   { re = 'dismember: .* 0x00157B3F: Head exploded \(KillActor\)', label = "KillActor explodes gecko 4's head" },
 ]
 manual = "geckos_head.png, geckos_severed.png and geckos_after.png: gecko 2 headless with a neck cap and bits about; gecko 3's head and a foreleg lying apart, capped; gecko 4 headless"
+
+[[scenario]]
+name = "bike-smoke-intact"
+source = "docs/spec-notes/destruction-stages.md §3 (owner report 2026-10-20): the three Motorcycle01Static bikes in front of the Prospector Saloon (00106341, 00106342, 0010750C; STAT, no DEST) never smoke: motorcycle01.nif's smoke (AddOnNode2, ADDN MPSSmokeMed01) sits under DamageStage1-3 and waits for a damage stage they never reach; frame bike_smoke_intact.png in target/smoke shows them without smoke"
+areas = ["particles", "effects", "destruction"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:bike_smoke_intact.png" }
+args = ["--cell", "Goodsprings", "--pos=-67900,2650,8420", "--heading", "0", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'damage stage: 00106341 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the first bike's smoke waits for stages 1-3" },
+  { re = 'damage stage: 00106342 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the second bike's smoke waits" },
+  { re = 'damage stage: 0010750C add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the third bike's smoke waits" },
+  "Screenshot saved to bike_smoke_intact.png",
+]
+forbid = [{ re = 'damage stage: 0010(6341|6342|750C) add-on node \d+ on', label = "a saloon bike starts smoking" }]
+
+[[scenario]]
+name = "bike-smoke-damaged"
+source = "docs/spec-notes/destruction-stages.md §1-2: a destructible Motorcycle01 (MSTT 00077B40, 200 health; ref 00157C97) smokes only from damage stage 1 (89 %) to 3; 30 damage takes it to stage 1, its self-damage and stage explosions take it on to the destroying stage 4 (65 %) and 5, where the intact model's smoke stops (the hulk model is not swapped in yet); god mode against its stage explosions; frames bike_smoke_0..2.png in target/smoke from the west of the wreck pile (bike_smoke_1 mostly shows its stage-2 explosion; the log is the check)"
+areas = ["particles", "effects", "destruction", "combat"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:prid 00157C97;8.2:damageobject 30;8.4:close", NVF_PLAY_TEST_SHOTS = "7:bike_smoke_0.png,11:bike_smoke_1.png,24:bike_smoke_2.png" }
+args = ["--cell", "Goodsprings", "--pos=32550,16717,4700", "--heading", "90", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = 'damage stage: 00157C97 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the intact bike's smoke waits" },
+  { re = 'damage stage: 00157C97 add-on node 2 on at model stage 1', label = "30 damage (stage 1) starts the smoke" },
+  { re = 'damage stage: 00157C97 add-on node 2 off at model stage [45]', label = "the destroying stage stops the intact model's smoke (its stage explosions can take it from 2 through 4 to 5 in one frame)" },
+]]
+expect = ["Screenshot saved to bike_smoke_2.png"]
