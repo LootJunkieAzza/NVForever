@@ -593,6 +593,40 @@ fn a_teammate_reacts_as_if_in_the_player_faction() {
 }
 
 #[test]
+fn an_escort_joins_its_charges_fights() {
+    // packages.md §3.1 [documented: GECK wiki Defensive Combat, "if the target is
+    // attacked, the actor will join into the combat"]. The helper (a rat, no enemy of the
+    // bandit) escorts the player; the bandit attacks the player.
+    use fnv_game::package::{PackageDef, PackageType, Target, TargetKind};
+    const ESCORT_PACK: u32 = 0x8F0;
+    let mut f = fixture();
+    let def = PackageDef { ty: PackageType::Escort, target: Some(Target { kind: TargetKind::Reference(Some(FormId::PLAYER_REF)), count_distance: 0 }), ..Default::default() };
+    f.data.package_defs.insert(FormId(ESCORT_PACK), def);
+    let mut g = game(&f);
+    let (bandit, escort, watchman, player) = (FormId(BANDIT_REF), FormId(HELPER_REF), FormId(WATCHMAN_REF), FormId::PLAYER_REF);
+    assert!(!g.would_attack(escort, bandit));
+    g.extra.entry(escort).or_default().current_package = Some(FormId(ESCORT_PACK));
+    fighting(&mut g, BANDIT_REF, PLAYER);
+    // Only once it perceives its charge.
+    assert_eq!(g.escorts_assist(), 0);
+    g.detection.pairs.insert((escort, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.escorts_assist(), 1);
+    assert!(g.would_attack(escort, bandit), "it holds a grudge against the attacker");
+    assert!(g.awareness.get(escort).is_some_and(|a| a.alarms.iter().any(|x| x.owner == bandit && x.cause == Cause::Ally)));
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Assists { helper, victim, attacker } if *helper == escort && *victim == player && *attacker == bandit)));
+    assert_eq!(g.escorts_assist(), 0, "once");
+    // A fight its charge starts is not joined until the other fights back [hypothesis]:
+    // the player fighting the watchman (which does not fight back) brings nothing.
+    fighting(&mut g, PLAYER, WATCHMAN_REF);
+    assert_eq!(g.escorts_assist(), 0);
+    assert!(!g.provocations.holds(escort, watchman));
+    // Another package: no help.
+    g.extra.entry(escort).or_default().current_package = None;
+    fighting(&mut g, WATCHMAN_REF, PLAYER);
+    assert_eq!(g.escorts_assist(), 0);
+}
+
+#[test]
 fn open_teammate_container_asks_for_the_teammates_inventory() {
     // [documented: GECK wiki OpenTeammateContainer] only on teammates unless the flag is 1.
     const OPEN_TEAMMATE_CONTAINER: u16 = 0x11C8;

@@ -79,8 +79,8 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   enemy gunmen firing at it first, nearest first, then from its own target
   (docs/design/combat-ai.md §12.6.1); smoke combat-cover passes again without its three
   known_failing marks.
-- **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
-  package types and flags are carried out since #400).
+- **AI packages**: Find's Allow Buying (the other package types and flags are carried out
+  since #400; an escort joining its charge's fights since 2026-10-20, packages.md §3.1).
   - Find's Allow Killing: settled 2026-10-19 [observed, AI observer `gecko_find`]: an
     Unaggressive gecko on FindFood started fights with bloatflies, radroaches and a
     protectron that carries no food at all, so a creature on Find with Allow Killing now

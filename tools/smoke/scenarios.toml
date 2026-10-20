@@ -4801,6 +4801,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "package-escort-fights"
+source = "An escort joins its charge's fights (fnv-game provocation.rs escorts_assist; docs/spec-notes/packages.md §3.1)"
+note = "the package-escort setup (a Goodsprings settler 256 units from the player given GomezEscortToAtrium, whose charge is the player); at 7 s Victor (VVictorFaction, neutral to the settler and the player) is put 700 units off and set on the player with StartCombat; the player is in god mode. The settler, which would leave Victor alone, takes up the player's fight against him"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler01Ref:player:256:0:0,4:call:GoodspringsSettler01Ref:AddScriptPackage:GomezEscortToAtrium,7:moveto:VictorREF:player:700:0:0,8:call:VictorREF:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler01Ref: package GomezEscortToAtrium",
+  { re = 'provocation: GoodspringsSettler01Ref 0x00104F03 helps the player against VictorREF 0x00103DFE', label = "the escort takes up the player's fight against Victor" },
+]
+
+[[scenario]]
 name = "package-find"
 source = "Find packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): FFER24FindFood given to a Goodsprings settler"
 note = "mole rat meat is placed at the player and a settler 300 units off is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): it walks to the meat and takes it"

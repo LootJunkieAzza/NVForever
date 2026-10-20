@@ -371,7 +371,25 @@ not work" on Escort]:
   player followed led the player to its location; our choice: the 64]. At the destination its goal is met. A target that is gone or dead
   is not waited for [our choice]. Without PKE2, 200 [our choice: the most common value].
   The target's own count / distance (256, 800) is not used [hypothesis: unknown meaning].
-- Not built: joining the target's fights (Defensive Combat's exception).
+- **Joining the target's fights** (since 2026-10-20, `Game::escorts_assist` in
+  `fnv_game::provocation`, called with `Game::call_allies`) [documented: Defensive Combat,
+  "if the target is attacked, the actor will join into the combat"]: while its current
+  package is Escort, the actor takes up its charge's fight against each actor attacking
+  the charge (in a combat state with the charge on its target list, or having hurt it):
+  it holds a grudge against the attacker and is alarmed at its position, as an assisting
+  ally (combat-ai.md §10.3), whatever its Assistance and whether or not the package is
+  Defensive Combat. Never against its own allies or friends [documented: they "cannot
+  attack each other under any circumstances"]; a Cowardly escort stays out (combat-ai.md
+  §10.3, owner's list 4 item 14). Choices [hypothesis]: the escort must perceive its
+  charge (band Detected), with no other range; a fight the charge starts is joined only
+  once the other side fights back (then it attacks the charge); a charge that provoked
+  the attacker is helped all the same; it holds from the package's start to its end, also
+  once the destination is reached; an escort that is the player's teammate is left to
+  the teammate rule (followers.md §3). Follow and Accompany share the documented
+  exception and are not built. No placed actor runs an Escort package without a quest
+  stage (NellisRaquelIntroEscortAIPackage, GomezEscortTo*), so the smoke scenario
+  `package-escort-fights` gives one by script. Log: `provocation: <escort> helps <charge>
+  against <attacker>`.
 
 **Find** [documented: Category:Packages "Standard Search Data" (a search location with a
 radius; Allow Buying, Allow Killing, Allow Stealing; "Replace after use?" greyed out on
