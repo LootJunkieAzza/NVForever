@@ -63,8 +63,8 @@
 //!   of the one it escorts (the package's target) against everyone attacking it: actors
 //!   in a combat state with the charge on their target list, and whoever hurt it. Its
 //!   Assistance does not matter; it never fights its own allies or friends, and a coward
-//!   stays out. Choices [hypothesis]: the escort must perceive its charge (band
-//!   Detected, as for assistance); a fight the charge starts is joined only once the foe
+//!   stays out. Choices [hypothesis]: the escort must at least notice its charge (band
+//!   Noticed or Detected); a fight the charge starts is joined only once the foe
 //!   fights back; a charge that provoked the attacker is still helped; it holds for the
 //!   whole package, also once at the destination; the player's teammates are left to
 //!   `crate::followers`. Follow and Accompany (the same exception) are not built here.
@@ -464,8 +464,10 @@ impl Game<'_> {
             if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) {
                 continue;
             }
-            // It must perceive its charge [hypothesis: as an ally's assistance needs].
-            if !self.detection.pairs.get(&(escort, charge)).is_some_and(|(d, _)| d.band == Band::Detected) {
+            // It must at least notice its charge [hypothesis: an escort keeps track of the
+            // one it leads even while walking ahead with its back to it, so Noticed is
+            // enough where an ally's assistance needs Detected].
+            if !self.detection.pairs.get(&(escort, charge)).is_some_and(|(d, _)| d.band != Band::Hidden) {
                 continue;
             }
             for (attacker, at) in self.attackers_of(charge) {

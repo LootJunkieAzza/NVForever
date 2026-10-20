@@ -6712,7 +6712,8 @@ Accompany) "will join into the combat" when its target is attacked, even with De
 Combat. Now an actor running an Escort package takes up the fight against whoever attacks
 the one it escorts, as an assisting ally would, whatever its Assistance. My choices, to
 check in game:
-- **It must see or hear its charge** (detected), no other range. *Check:* does an escort
+- **It must at least notice its charge** (noticed or detected, as it walks ahead with its
+  back to it), no other range. *Check:* does an escort
   far ahead of the player still turn back when the player is attacked?
 - **Fights the charge starts**: the escort joins only once the other side fights back. A
   charge that provoked the attacker (the player shooting a neutral who answers) is still

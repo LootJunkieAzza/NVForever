@@ -607,9 +607,11 @@ fn an_escort_joins_its_charges_fights() {
     assert!(!g.would_attack(escort, bandit));
     g.extra.entry(escort).or_default().current_package = Some(FormId(ESCORT_PACK));
     fighting(&mut g, BANDIT_REF, PLAYER);
-    // Only once it perceives its charge.
+    // Only once it at least notices its charge (hidden: no help).
     assert_eq!(g.escorts_assist(), 0);
-    g.detection.pairs.insert((escort, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    g.detection.pairs.insert((escort, player), (Detection { value: -30.0, band: Band::Hidden, ..Default::default() }, g.time));
+    assert_eq!(g.escorts_assist(), 0);
+    g.detection.pairs.insert((escort, player), (Detection { value: -10.0, band: Band::Noticed, ..Default::default() }, g.time));
     assert_eq!(g.escorts_assist(), 1);
     assert!(g.would_attack(escort, bandit), "it holds a grudge against the attacker");
     assert!(g.awareness.get(escort).is_some_and(|a| a.alarms.iter().any(|x| x.owner == bandit && x.cause == Cause::Ally)));

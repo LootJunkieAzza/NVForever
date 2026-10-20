@@ -380,8 +380,10 @@ not work" on Escort]:
   ally (combat-ai.md §10.3), whatever its Assistance and whether or not the package is
   Defensive Combat. Never against its own allies or friends [documented: they "cannot
   attack each other under any circumstances"]; a Cowardly escort stays out (combat-ai.md
-  §10.3, owner's list 4 item 14). Choices [hypothesis]: the escort must perceive its
-  charge (band Detected), with no other range; a fight the charge starts is joined only
+  §10.3, owner's list 4 item 14). Choices [hypothesis]: the escort must at least notice
+  its charge (band Noticed or Detected: it walks ahead with its back to the charge, which
+  it then only hears [observed: smoke run, the settler noticed the player at 270 units,
+  out of view]), with no other range; a fight the charge starts is joined only
   once the other side fights back (then it attacks the charge); a charge that provoked
   the attacker is helped all the same; it holds from the package's start to its end, also
   once the destination is reached; an escort that is the player's teammate is left to
