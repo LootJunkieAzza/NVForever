@@ -75,12 +75,20 @@ pub struct Item {
     /// WEAP/ARMO DATA: full health (condition 1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<i32>,
-    /// ARMO BMDT general flag "Non-Playable" [documented: xEdit wbBMDT]. The Pip-Boy 3000
-    /// and the Pip-Boy Glove carry it [observed: `fnvtool esm decode`]; the game never
+    /// The "Non-Playable" flag: ARMO BMDT general flags, WEAP DNAM flags 1, AMMO DATA
+    /// flags [documented: xEdit wbBMDT, wbDefinitionsFNV.pas WEAP and AMMO]. The Pip-Boy
+    /// 3000 and the Pip-Boy Glove carry it [observed: `fnvtool esm decode`]; the game never
     /// shows the glove in the inventory and it stays equipped [observed by the owner,
-    /// 2026-10-08]. Not part of `fnv.sim.items/1`.
+    /// 2026-10-08]. Boone's rifle and machete and `AmmoCompanion` ("Magical Companion
+    /// Ammo") carry it too [observed: `fnvtool esm decode`]. What it hides differs by type
+    /// ([`Item::listed`], [`Item::non_playable_biped`]). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub non_playable: bool,
+    /// WEAP DNAM flags 1 "Can't Drop" [documented: xEdit]: the weapon does not leave the
+    /// actor's hands, not at death and not shot out of them [documented: GECK wiki
+    /// Weapon, Flags]. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub cant_drop: bool,
     /// ARMO BMDT general flags "Medium" and "Heavy" [documented: xEdit wbBMDT]: the
     /// armour's class, light when neither is set. Detection's armour penalty reads it
     /// (docs/spec-notes/actor-behaviour.md §2.1). Not part of `fnv.sim.items/1`.
@@ -141,6 +149,22 @@ pub struct Item {
 }
 
 impl Item {
+    /// Whether a menu lists the item in an inventory, the player's (`players`) or another
+    /// holder's: non-playable items are not shown in inventories other than the player's,
+    /// and non-playable biped items (armour) not in the player's either, while
+    /// non-playable weapons and ammo are [documented: GECK wiki "Unplayable Items"]. Other
+    /// kinds never carry the flag in the records; set on one, it hides it everywhere.
+    pub fn listed(&self, players: bool) -> bool {
+        !self.non_playable || (players && matches!(self.kind, ItemKind::Weapon | ItemKind::Ammo))
+    }
+
+    /// A non-playable biped item: RemoveAllItems and RemoveAllTypedItems leave it where
+    /// it is [documented: GECK wiki RemoveAllItems and RemoveAllTypedItems, the exception
+    /// is "Unplayable Biped items"; non-playable weapons and ammo move like the rest].
+    pub fn non_playable_biped(&self) -> bool {
+        self.non_playable && self.kind == ItemKind::Armor
+    }
+
     /// The weight of one unit with the mod flags `mods` on (1 slot 1, 2 slot 2, 4 slot 3):
     /// each Decrease Weight mod on takes its value off, never below 0, as
     /// `fnv_combat::WeaponStats::modded` does for the figures (weapon-mods.md §3).
@@ -454,6 +478,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         projectile: None,
                         health: None,
                         non_playable: false,
+                        cant_drop: false,
                         armor_class: ArmorClass::Light,
                         power_armor: false,
                         armor_dr: None,
@@ -598,8 +623,13 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("biped_flags")).and_then(|f| int(f, "value")),
         _ => None,
     };
-    let non_playable = matches!(kind, ItemKind::Armor)
-        && first(d, b"BMDT").and_then(|v| v.get("general_flags")).is_some_and(|f| has_flag(f, "Non-Playable"));
+    let weapon_flags = matches!(kind, ItemKind::Weapon).then(|| first(d, b"DNAM").and_then(|v| v.get("flags1"))).flatten();
+    let non_playable = match kind {
+        ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("general_flags")).is_some_and(|f| has_flag(f, "Non-Playable")),
+        ItemKind::Weapon => weapon_flags.is_some_and(|f| has_flag(f, "Non-Playable")),
+        ItemKind::Ammo => data.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Non-Playable")),
+        _ => false,
+    };
     let general = matches!(kind, ItemKind::Armor).then(|| first(d, b"BMDT").and_then(|v| v.get("general_flags"))).flatten();
     let armor_class = match general {
         Some(f) if has_flag(f, "Heavy") => ArmorClass::Heavy,
@@ -609,6 +639,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
     Some(Item {
         kind,
         non_playable,
+        cant_drop: weapon_flags.is_some_and(|f| has_flag(f, "Can't Drop")),
         armor_class,
         power_armor: general.is_some_and(|f| has_flag(f, "Power Armor")),
         armor_dr: match kind {

@@ -271,7 +271,7 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     };
     for (item, n) in stacks {
         let Some(it) = forms.item(item) else { continue };
-        if it.non_playable || except.contains(&item) {
+        if it.non_playable_biped() || except.contains(&item) {
             continue;
         }
         if from == FormId::PLAYER_REF && g.world.is_quest_item(item) {

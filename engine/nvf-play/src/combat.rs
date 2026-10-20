@@ -1116,10 +1116,16 @@ fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut p
 /// `HelpCrippling`, "Arms: … Enemies will be disarmed at the moment their arm is
 /// crippled"; hypothesis: either arm, every actor but the player, as the text names
 /// enemies]. The weapon falls as a broken one does (`WeaponBroken`): a reference in front
-/// of it, out of its inventory.
+/// of it, out of its inventory. A weapon with the "Can't Drop" flag stays in the hand
+/// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
+/// actors"].
 fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stats: ResMut<CombatStats>, parts: Res<ActorParts>, mut broken: MessageWriter<WeaponBroken>) {
     for actor in std::mem::take(&mut feedback.disarms) {
         let Some(item) = parts.by_ref.get(&actor.0).and_then(|p| p.weapon) else { continue };
+        if sim.forms.item(item).is_some_and(|it| it.cant_drop) {
+            info!("combat: {actor}'s arm crippled: its {} ({item}) can't be dropped and stays in its hand", item_name(&sim, item));
+            continue;
+        }
         if sim.world.inventory_mut(actor).is_ok_and(|i| i.count(item) == 0) {
             let _ = sim.world.add_item(actor, item, 1);
         }
@@ -1860,7 +1866,10 @@ fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: F
 /// Take `points` health points from the weapon `item` that `actor` uses (§17). At zero
 /// it breaks: the player's is unequipped and stays in the inventory, where it cannot be
 /// equipped until it is repaired; another actor's falls to the ground (at `at`, when
-/// given) and [`WeaponBroken`] tells the renderer. `None` when the weapon does not wear
+/// given) and [`WeaponBroken`] tells the renderer, unless it has the "Can't Drop" flag:
+/// then it is unequipped and stays in the inventory as the player's does [documented:
+/// GECK wiki Weapon, a Can't Drop weapon "can still be disabled and rendered inoperable";
+/// hypothesis: that it is unequipped rather than kept in the hand]. `None` when the weapon does not wear
 /// (not carried, or its record has no health).
 #[allow(clippy::too_many_arguments)]
 pub fn wear_weapon(
@@ -1889,6 +1898,14 @@ pub fn wear_weapon(
         with_world(rt, sim, |rt| rt.game.combat_line(actor, None, "WeaponBroke"));
     }
     let name = item_name(sim, item);
+    if actor != FormId::PLAYER_REF && sim.forms.item(item).is_some_and(|it| it.cant_drop) {
+        let _ = sim.world.unequip(actor, item);
+        info!("combat: {actor}'s {name} ({item}) broke: it can't be dropped, so it is unequipped and kept");
+        if let Some(b) = broken {
+            b.write(WeaponBroken { form_id: actor.0, weapon: item, dropped: None });
+        }
+        return Some(w);
+    }
     if actor == FormId::PLAYER_REF {
         let _ = sim.world.unequip(actor, item);
         if let Some(h) = hud {

@@ -365,7 +365,7 @@ impl<'a> World<'a> {
             // over is the intro's script, Layer 5]
             if let Some(inv) = inventory.as_mut() {
                 for item in inv.iter().map(|(i, _)| i).collect::<Vec<_>>() {
-                    if self.forms.item(item).is_some_and(|it| it.kind == ItemKind::Armor && it.non_playable) {
+                    if self.forms.item(item).is_some_and(|it| it.non_playable_biped()) {
                         inv.set_equipped(item);
                     }
                 }
@@ -670,16 +670,12 @@ impl<'a> World<'a> {
         Ok(n)
     }
 
-    /// Whether `item` is a non-playable item (ARMO BMDT "Non-Playable").
-    fn non_playable(forms: &FormStore, item: FormId) -> bool {
-        forms.item(item).is_some_and(|it| it.non_playable)
-    }
-
-    /// Whether RemoveAllItems leaves `item` with `from`: non-playable items, and the
-    /// player's quest items [documented: GECK wiki RemoveAllItems, the exceptions are
-    /// unplayable items and, "If the calling reference is the player, Quest Items"].
+    /// Whether RemoveAllItems leaves `item` with `from`: non-playable biped items
+    /// ([`Item::non_playable_biped`]), and the player's quest items [documented: GECK
+    /// wiki RemoveAllItems, the exceptions are unplayable biped items and, "If the calling
+    /// reference is the player, Quest Items"].
     fn stays(&self, from: FormId, item: FormId) -> bool {
-        Self::non_playable(self.forms, item) || (from == FormId::PLAYER_REF && self.is_quest_item(item))
+        self.forms.item(item).is_some_and(|it| it.non_playable_biped()) || (from == FormId::PLAYER_REF && self.is_quest_item(item))
     }
 
     /// Move everything but non-playable items and the player's quest items (as [`World::remove_all_items`], the same
@@ -1391,7 +1387,13 @@ impl<'a> World<'a> {
         // reference activated three times gave 1, 2, 3 stimpaks; a hand-taken one gave
         // another; a never-taken cap disabled with `Disable` still gave a cap and stayed
         // disabled; GetDisabled and GetParentCell do not change after a pick-up]
-        if let Some(BaseData::Item(_)) = base.map(|b| &b.data) {
+        if let Some(BaseData::Item(it)) = base.map(|b| &b.data) {
+            // A non-playable weapon or ammo lying in the world cannot be picked up
+            // [documented: GECK wiki "Unplayable Items"; scripted activation is not
+            // covered there and still gives it, hypothesis].
+            if !scripted && it.non_playable && matches!(it.kind, ItemKind::Weapon | ItemKind::Ammo) {
+                return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
+            }
             let count = if scripted { t.count.min(1) } else { t.count };
             self.inventory(actor)?.add_extra(t.base, count, t.extra);
             let s = self.get(target)?;
