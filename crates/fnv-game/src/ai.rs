@@ -166,13 +166,21 @@ impl Game<'_> {
     ///   hypothesis: that this is "keep the current one" rather than "the last of the
     ///   list", which are the same package there].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
+        let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
         if let Some(e) = self.extra.get_mut(&actor) {
             // A script package whose goal was met is removed at the next choice
             // [documented: GECK wiki AddScriptPackage, "takes precedence over all other
             // packages until it is done"; observed: od_06_reset_ai 2026-10-19, RingoRef's
             // DefaultStayAtEditorLocation read DONE (17) for at least 600 game loops and
-            // his list package by 900 loops later, with no ResetAI].
-            if e.script_package.is_some() && e.script_package == e.current_package && e.package_goal_met {
+            // his list package by 900 loops later, with no ResetAI], unless it has a
+            // schedule duration still running ([`Game::start_schedule_duration`]): then
+            // it stays until that runs out [observed: the Strip's SS2 scene,
+            // npc-behaviour-compare.md §10.1, the 3 h Must Complete travels
+            // VStripSS2WallDrunk2 and VStripSS2WallDrunk3 stayed current after their
+            // trooper arrived, 0.7 h for the latter until the next script package;
+            // hypothesis: that the duration is what holds them].
+            let timed = e.package_ends.is_some_and(|(p, until)| e.package_ends_by_schedule && Some(p) == e.script_package && now < until);
+            if e.script_package.is_some() && e.script_package == e.current_package && e.package_goal_met && !timed {
                 e.script_package = None;
             }
         }
@@ -345,11 +353,14 @@ impl Game<'_> {
     /// Day VCrGeckoFindFood 2 h, VCrGeckoPatrolRunningLinkedRef 3 h, VCrGeckoFindFood02
     /// 2 h, VCrGeckoPatrolRunning02LinkedRef 3 h, then a sandbox with no duration].
     /// A package with a starting hour ends with its window instead (the schedule
-    /// check); a script package (AddScriptPackage) is left alone [our choice: its end is
-    /// a separate open question, packages.md §6].
+    /// check). A script package (AddScriptPackage) with a duration and no starting hour
+    /// is timed the same way: done before its time, it stays until the time is up
+    /// ([`Game::select_package`]) [observed: the Strip's SS2 scene,
+    /// npc-behaviour-compare.md §10.1; hypothesis: from the moment it was given, as for a
+    /// list package from its choice].
     fn start_schedule_duration(&mut self, actor: FormId) {
         let Some(e) = self.extra.get(&actor) else { return };
-        let Some(p) = e.current_package.filter(|p| e.script_package != Some(*p)) else { return };
+        let Some(p) = e.current_package else { return };
         let Some(def) = self.data.package_defs.get(&p) else { return };
         if def.schedule.hour >= 0 || def.schedule.duration == 0 {
             return;
