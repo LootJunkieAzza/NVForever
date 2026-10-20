@@ -508,6 +508,73 @@ What still differs, and why [observed; the causes from the records]:
 
 Nothing in the AI itself is shown wrong by this capture; the comparison tool was fixed.
 
+### 10.1 The same evening in the engine, with the scripts (2026-10-20, queue item 13)
+
+The original's first 2.2 game hours of `strip_evening` [observed, private timeline]
+against `nvforever --play` (smoke `strip-crowd-evening`, release build of branch
+claude/q13-strip-crowd, 4 runs; logs private): the package changes of the 17 actors of
+§10 by the game clock, and the travellers' fade moves.
+
+**Setting the scene.** The save `nvfstrip` holds the player just inside the Strip's north
+gate (847, 8561, 1019), 20:08, with the crowd running. Our first run put the player there
+with `--pos`: every crowd actor read "no package", as in §10's first headless run. The
+cause is in the records, not the AI [observed: the decompiled scripts]: the gate door's
+script (VFSVegasDoorSCRIPT on FreesideGateToStripREF, 0x00116425) is what sets
+VStreetFluffNPC's `iplayerinarea` and `npcnormal` to 1 (the variable the packages test,
+§10), names the street securitrons, and the first time through starts VStripSS2 (the
+troopers' scene, `bstartsstation`). The scenario therefore starts in FreesideWorld at the
+gate, gives the player the Vegas Gate Key (0x00119875) and activates the door, then puts
+the player on the capture's spot 30 s later (Victor's messenger, VMQTopsSecMessengerREF,
+is placed disabled and enabled by VMQTopsSecuritonMSGTrgB when the player walks into it,
+0x0013B6D8 / 0x0016B48A beside the arrival point) and leaves the messenger's conversation.
+
+**What matched** (from the second run on):
+
+| Actor(s) | The original (first 2 h) | Ours |
+|---|---|---|
+| Mr. Holdout, the dancers, gambler C, the gate securitron | one package each (§10) | the same, all run |
+| Travellers A/B, gamblers A/B | their port package all along; 6 fade moves each in 2 h (the end script: ResetAI, then MoveToMarkerWithFade to one of two markers by GetRandomPercent) | the same package; 7 fade moves each in 2.1 h |
+| Trooper D | WallDrunk2 → Start1TrooperDMove 20.24 → Sandbox38B 20.61 → TravelEndD 20.81 | WallDrunk2 → Move 20.23 → Sandbox38B 20.60 → TravelEndD 20.82 (after the fix below) |
+| Trooper C | Start1TrooperCMove → (HookerCheerC 0.02 h) → WallDrunk3 20.31 → TravelEndD 21.03 | Move → WallDrunk3 20.30 → TravelEndD 21.03 (after the fix) |
+| Troopers A, B | Move until 20.29, then TravelEndA 20.44 / TravelEndB 20.33 | Move until 20.33, then TravelEnd at 20.33 |
+| MP B | SS2StartMPBEscort until 20.91, then VStripMPABPatrol38 | the escort until 20.73, then the patrol |
+| The messenger | VMQTopsSecuritronMsgDialog38 from the start (talking at the first sample) | enabled at 20.15 by the trigger, Dialog38 from 20.16, talks to the player |
+
+**Fixed: a timed script package stays after its goal.** VStripSS2WallDrunk2 and
+VStripSS2WallDrunk3 are Travel packages, Must Complete, with a 3-hour schedule duration
+and no starting hour, given by AddScriptPackage (the quest script and the trooper
+trigger scripts). In the original they stayed current after the trooper reached the wall:
+WallDrunk3 0.72 h, until the next script package (TravelEndD) replaced it [observed]. Ours
+let a script package go at the first choice after its goal (the od_06 rule, packages.md
+§6), so trooper C went back to HookerCheerC at 20.48 for half an hour, and trooper D to
+his sandbox 0.05 h early. Now a script package with a schedule duration and no starting
+hour is timed as a list package is (`Game::start_schedule_duration`, from the moment it is
+given) and is let go only once its goal is met and the duration has run out
+(`Game::select_package`) [hypothesis: that the duration is what holds it; Ringo's
+DefaultStayAtEditorLocation and RingoTravelPackage of od_06, let go after their goal,
+have no duration, so the earlier observation still fits].
+
+**Still differs, and why (not fixed):**
+
+- **MP A's escort ends early in the original.** SS2StartMPAEscort (a five-point patrol,
+  not looping, no duration) gave way to VStripFluff1MPCheckA at 20.29, while MP A was
+  walking from its second point to the third, in the same sample in which troopers A, B
+  and C left their Move patrols. Ours walks all five points (with the markers' waits)
+  and ends at 20.72–20.80. Nothing in the scripts removes it (no RemoveScriptPackage,
+  EvaluatePackage or ResetAI names MP A) [observed: every script that names the
+  reference]; what ends four script packages in one sample is not known [hypothesis:
+  something the scene does at that moment, e.g. a Say of the quest script; not
+  settled].
+- **Troopers A and B** spent 0.04 h (B) and 0.15 h (A) on a list package between their
+  Move and their TravelEnd in the original; ours go straight from one to the other. Their
+  TravelEnd packages come from the trigger activators VStripSS2Trooper*EndPack when the
+  trooper walks into one; the 0.15 h is the walk to it, which the cut above starts
+  earlier in the original [hypothesis].
+- **MP B's escort** ends 0.18 h sooner in ours: the six-point patrol's walking and waits
+  (our patrol waits come from the markers), not compared point by point.
+- Positions were compared only by cell and by the fade moves; a per-sample position
+  comparison needs an engine-side sampler, which this run did not need for packages.
+
 ## 11. IsInCombat while on alert: what the recordings already hold (2026-10-19)
 
 Owner item "IsInCombat while Alert" (owner-review.md "NPCs on alert", item 4; docs/outstanding.md

@@ -6745,6 +6745,47 @@ package of the game has the flag (Eat packages have it), so every rule is my cho
 *Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
 smoke test turns the flag on for FFER24FindFood with a test aid.
 
+## The Strip's crowd against the original (2026-10-20, session "q13", branch claude/q13-strip-crowd)
+
+npc-behaviour-compare.md §10.1. The original's `strip_evening` capture (from `nvfstrip`)
+against our engine with its scripts, over the first two game hours. Choices made:
+- **How the scene is set up**: the player comes through the Freeside gate door (with the
+  gate key), as the save evidently did, because that door's script is what starts the
+  Strip's crowd and the troopers' scene; then the player is put on the save's spot, which
+  walks into Victor's messenger trigger. Placing the player on the Strip directly leaves
+  the whole crowd without packages.
+- **Timed script packages** (the one engine change): a package given by AddScriptPackage
+  that has a schedule duration and no starting hour now stays after the actor reaches its
+  place until that duration has run out, counted from when it was given. In the original
+  the drunk trooper stayed at the wall 0.7 h on such a package; ours went back to his own
+  list at once. That the duration is the reason is my reading.
+- **Left as it is**: in the original MP A gave up her escort walk half-way, at the same
+  moment three troopers left theirs; nothing in the scripts explains it, so ours still
+  walks the whole route (about 0.5 h longer).
+*Check:* walk in through the Strip's north gate for the first time at night: the four
+troopers walk in, two lean on the wall and stay there until they go on towards the
+embassy; Victor's securitron comes up to talk.
+
+## True iron sights (2026-10-20, branch claude/true-iron-sights)
+
+docs/spec-notes/camera.md §4.1. Aiming a gun now lines up its sights with the eye: each
+weapon model's `##SightingNode` (behind the gun, at sight height) is put on the camera,
+with the barrel along the view, eased in with the zoom. My choices:
+- **Which weapons**: as you said, the model decides: a weapon whose model has a sighting
+  node (`##SightingNode`, or `SightingNode` on 18 guns) gets them. The laser rifle,
+  laser pistol and minigun have none; the plasma rifle has one, so it does get them.
+  *Check:* the plasma rifle down its sights.
+- **Crosshair**: hidden from the moment the sights start coming up until they are down
+  again; the prompt under it ("E) Take") goes with it.
+- **Switch**: on by default, "True iron sights" on the settings page's Gameplay tab
+  (`--no-true-iron-sights`) gives the original aim and crosshair.
+- **What moves**: the arms and gun together (`Bip01 Translate`), turned and moved; the
+  camera stays where the clip puts it. Sway is laid on top.
+- **Eye on the node exactly**: the gun's rear end ends up as close to the eye as the node
+  says (12.5 units behind the varmint rifle's origin, 25.8 behind the 10mm's).
+  *Check:* compare against your three screenshots of each weapon.
+- **Scoped weapons** get the same treatment; their scope overlay is still not built.
+
 ## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
 
 docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
@@ -6762,3 +6803,56 @@ rest, so these are my choices:
   reproduced.
 *Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
 him into a wall and see whether the original's actor also stops dead there.
+
+## Depth of field (2026-10-20, session "q14", branch claude/q14-depth-of-field)
+
+docs/spec-notes/image-modifiers.md §8. The GECK wiki describes the three values in a few
+words and nothing says how the engine draws them, so these are my choices:
+- **The ramp**: the blur goes from none at Distance to full at Range (game units from the
+  eye), in a straight line. Distance above Range turns it round (blurred foreground, clear
+  background, as the wiki says). Distance equal to Range blurs everything beyond it.
+- **Use Target**: the same ramp measured from the target's distance. Mode - Front blurs
+  only what is nearer than the target, Mode - Back only what is beyond it, neither does
+  both sides. A modifier with Use Target and no engine target focuses on what is under
+  the screen's centre.
+- **Strength**: how far each point is mixed from sharp towards a blur of fixed radius 3
+  (the modifiers' blur units). It is not clamped, so FlashBangISfx's 2 goes past the blur
+  into a harsh, contrast-like look (the wiki says strengths above 1 do that).
+- **VATS**: focused on the mark (the last one marked, or the one being shot), strength
+  `fVATSDOFStrengthCap` 0.6, range `fVATSDOFRange` 500, only what is beyond the mark is
+  blurred (so the player's own gun stays sharp), faded with VATS's amber look. With no
+  mark nothing is blurred. The records VATScamDOFCloseBlur and VATScamDOF50 are not
+  referenced anywhere in the masters, so I did not use them.
+- **Down the sights**: by `fIronSightsDOFDistance` 275 / `fIronSightsDOFRange` 650, but the
+  game's `fIronSightsDOFStrengthCap` is 0, so there is none in the shipped game.
+- **Not used**: PipBackgroundFX and PauseBackgroundFX (nothing in the masters plays them; the
+  Pip-Boy keeps its own blur); kill-camera modifiers (CAMS) are not played at all yet.
+*Check:* in the game, enter VATS with a dog in front of the trailers (the smoke test's
+spot in Goodsprings): is the background blurred, by about as much as smoke
+`vats-mode-dof`'s vats_dof_marked.png, and is the near ground blurred too (then the mode
+is both sides, not Back)? Throw a flash-bang (or `player.placeatme FlashBangExplosion`) and
+compare the first seconds.
+
+## Motion blur (2026-10-20, session "q15", branch claude/q15-motion-blur)
+
+docs/spec-notes/image-modifiers.md §9. The GECK wiki says only "how much to blur the
+screen while moving", 0 none to 10 the most; these are my choices:
+- **What moves**: each point is smeared along its own motion on the screen, found from its
+  depth and the last frame's camera. Turning smears everything, walking smears the near
+  ground more than the hills, a still view stays sharp. Other actors' own motion is not
+  counted (the renderer has no motion vectors).
+- **How much**: the smear covers the last strength × 1/30 s of motion, at most 8 % of the
+  screen height, 12 samples along the line. With VATScamNoDOF's 0.15 a brisk turn
+  already smears plainly in our frame.
+- **The player's own body** (nearer than 40 units: arms, weapon) is never smeared.
+  `fIronSightsGunMotionBlur` is 0 in the game anyway.
+- **Sources**: the largest among the modifiers on the screen; down the sights
+  `fIronSightsMotionBlur` × the zoom's blend (0 in the game, so none).
+- **Cuts**: a camera that jumps over 300 units or turns over 45° in one frame is not smeared.
+- **Not played**: the VATS kill cameras (most of the game's motion-blur records are theirs);
+  NightScopeISFX (motion blur 0.2), which nothing in the data plays, so maybe the engine
+  plays it for night-vision scopes.
+*Check:* in the game, `imod VATScamNoDOF` from the console and turn the view quickly: is
+there a visible smear, by about as much as smoke `imagespace-motion-blur`'s
+motion_turning.png? Does walking forward smear the ground? Does the gun stay sharp?
+`rimod VATScamNoDOF` afterwards.

@@ -21,6 +21,15 @@ struct Grade {
     sharp: f32,
     // VATS mode: swipe edge, band, wash, grade (imagespace.rs).
     vats: vec4<f32>,
+    // Depth of field: strength, distance, range, the target's distance (< 0: the screen
+    // centre's); use target, flags, the camera's near plane (imagespace.rs).
+    dof: vec4<f32>,
+    dof_mode: vec4<f32>,
+    // Motion blur: the exposure in frames (0: none), the sharp depth of the player's own
+    // body, the longest smear (a part of the screen height); this frame's clip space to
+    // the last one's (imagespace.rs).
+    motion: vec4<f32>,
+    reproject: mat4x4<f32>,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;

@@ -822,6 +822,12 @@ packages, packages in no list, placed actors whose base lists packages).
   above did after 0.12 game hours [observed]. The runtime now drops it at the next
   choice (`Game::select_package`). Whether one that is not done ever goes without
   ResetAI or RemoveScriptPackage is open: EvaluatePackage kept a sandbox one (od_08).
+  One with a schedule duration and no starting hour stays after its goal until the
+  duration has run out, counted from when it was given (2026-10-20: the Strip's SS2
+  troopers kept their 3 h Must Complete wall travels 0.7 h after arriving,
+  npc-behaviour-compare.md §10.1 [observed]; that the duration is the reason
+  [hypothesis]). Open from the same capture: what ended MP A's untimed escort patrol and
+  three troopers' patrols in one sample mid-way (§10.1).
 - The meaning of the type-specific bits on package types without such flags (§2), and of
   Fallout behaviour bit 3.
 - The run-time type code of Follow, Wander and Use Weapon packages (paired by name, not

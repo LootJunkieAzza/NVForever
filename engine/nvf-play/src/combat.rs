@@ -327,6 +327,9 @@ pub struct ImpactFx {
     pub point: V3,
     pub normal: V3,
     pub dir: V3,
+    /// The reference of the actor it struck, if it struck one (its decal goes on the
+    /// actor's body, nvforever `decals`).
+    pub actor: Option<u32>,
 }
 
 /// An explosion went off: its EXPL and where.
@@ -469,6 +472,28 @@ fn limb_hit(bp: Option<&BodyPart>, dealt: f32, w: &WeaponStats) -> Option<LimbHi
     let condition = fnv_game::combat::limb_condition(bp.actor_value.as_deref()?)?;
     let damage = (dealt * w.limb_dmg_mult.max(0.0)) as f64;
     (damage > 0.0).then_some(LimbHit { condition, health_percent: bp.health_percent as f64, damage })
+}
+
+/// A hit that may dismember (`crate::dismember`): one that killed the actor, or landed on
+/// its corpse, on a body part. The player is not dismembered.
+pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats, r: &HitResult, by: Option<FormId>, point: V3, dir: V3) -> Option<crate::dismember::Check> {
+    let part = part.filter(|&p| p != WEAPON_PART && p != fnv_phys::gore::GORE_PART && p != fnv_phys::actors::WHOLE)?;
+    if target == FormId::PLAYER_REF || !(r.died || r.corpse) {
+        return None;
+    }
+    Some(crate::dismember::Check {
+        target,
+        part: part as usize,
+        on_hit: fnv_combat::dismember::OnHit::from_label(w.on_hit.as_deref()),
+        crippled: r.limb.is_some_and(|(_, c)| c <= 0.0),
+        corpse: r.corpse,
+        overkill: r.overkill as f32,
+        max_health: r.max_health as f32,
+        by,
+        point,
+        dir,
+        scripted: None,
+    })
 }
 
 /// Whether the script runtime has the actor dead.
@@ -1032,10 +1057,12 @@ impl Plugin for CombatPlugin {
             .add_message::<WeaponBroken>()
             .add_message::<ActorFire>()
             .add_message::<ActorStrike>()
+            .init_resource::<crate::dismember::Dismemberment>()
+            .add_message::<crate::dismember::Dismembered>()
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -2142,7 +2169,7 @@ fn melee(
     (mut messages, mut pushes, mut broken): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    mut vats: Option<ResMut<crate::vats_mode::VatsMode>>,
+    (mut vats, mut dm): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -2256,7 +2283,7 @@ fn melee(
                     Some(impact) => {
                         stats.melee_impacts += 1;
                         debug!("combat: melee impact {impact} ({material}) at ({:.0}, {:.0}, {:.0})", h.point[0], h.point[1], h.point[2]);
-                        show_impact(s, ImpactFx { impact, shooter: FormId::PLAYER_REF, point: h.point, normal: h.normal, dir }, &mut sounds, &mut impacts);
+                        show_impact(s, ImpactFx { impact, shooter: FormId::PLAYER_REF, point: h.point, normal: h.normal, dir, actor: actor.map(|a| a as u32) }, &mut sounds, &mut impacts);
                     }
                     None => debug!("combat: {} has no impact for {material}", w.edid.as_deref().unwrap_or("?")),
                 }
@@ -2303,6 +2330,9 @@ fn melee(
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
             let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken);
+            if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
+                dm.checks.push(check);
+            }
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
             }
@@ -2517,7 +2547,7 @@ fn actor_attacks(
         if let Some(s) = sfx.as_deref() {
             if let (Some(impact), _) = impact_for(s, &sim, id, Some(b.target.0 as ActorId), None) {
                 stats.melee_impacts += 1;
-                show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
+                show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir, actor: Some(b.target.0) }, &mut sounds, &mut impacts);
             }
         }
         // A blow that lands wears the weapon once, as the player's (§17); the Fists and
@@ -2572,6 +2602,7 @@ fn fly(
     anim: Res<WeaponAnim>,
     sfx: Option<Res<Sfx>>,
     mut effects: ShotEffects,
+    mut dm: ResMut<crate::dismember::Dismemberment>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -2590,6 +2621,13 @@ fn fly(
                     match script_shot(&sim, from, weapon) {
                         Some(shot) => c.script_shots.push(shot),
                         None => debug!("combat: FireWeapon on {from}: no such reference in the world"),
+                    }
+                    continue;
+                }
+                CombatRequest::Dismember { actor, location, by } => {
+                    match crate::dismember::scripted_check(c, &parts, &sim, actor, location, by) {
+                        Some(check) => dm.checks.push(check),
+                        None => info!("dismember: KillActor on {actor}: no part at location {location} can go (or its body is not drawn)"),
                     }
                     continue;
                 }
@@ -2727,7 +2765,7 @@ fn fly(
             let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
             let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
             if let (Some(impact), Some(g)) = (impact, ground) {
-                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0] });
+                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None });
                 if let Some(i) = sfx.as_deref().and_then(|s| s.forms.impacts.get(&impact)) {
                     for sound in i.sound_1.into_iter().chain(i.sound_2) {
                         effects.0.write(PlaySound { sound, at: Some(g.point) });
@@ -2821,7 +2859,7 @@ fn fly(
         if let Some(s) = sfx.as_deref() {
             let (impact, material) = impact_for(s, &sim, id, p.actor, p.material);
             if let Some(impact) = impact {
-                show_impact(s, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir }, &mut effects.0, &mut effects.1);
+                show_impact(s, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32) }, &mut effects.0, &mut effects.1);
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
@@ -2873,6 +2911,10 @@ fn fly(
             strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
             continue;
         }
+        // A piece of gore (an exploded part's bits, dismemberment.md §6) is seen hit, no more.
+        if p.part == Some(fnv_phys::gore::GORE_PART) {
+            continue;
+        }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
         // Without body parts the whole capsule counts as the torso (location 0).
@@ -2884,6 +2926,9 @@ fn fly(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false);
+        if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
+            dm.checks.push(check);
+        }
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
         }

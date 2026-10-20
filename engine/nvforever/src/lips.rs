@@ -319,28 +319,23 @@ pub struct LipRig {
 }
 
 /// The rig of a freshly spawned actor (`actors::spawn`): `uses[i]` is part
-/// `a.parts[part_index[i]]`, and `spawned.drawn` lists the shapes `spawn_actor` drew in
-/// the order it walks them (caps and hidden shapes left out). `None` when no part has a
-/// `.tri`, or when that order cannot be followed. `facegen` is what shaped the face
+/// `a.parts[part_index[i]]`, and `spawned` names the part and shape of each shape
+/// `spawn_actor` drew (`part_of`, `shape_of`; caps are drawn too, with no triangles).
+/// `None` when no part has a `.tri`. `facegen` is what shaped the face
 /// (`Appearance::shape_facegen`; `None` with FaceGen off).
 pub fn rig(a: &Appearance, part_index: &[usize], uses: &[PartUse], spawned: &SpawnedActor, data: &GameData, facegen: Option<FaceGen>) -> Option<LipRig> {
     let mut shapes = Vec::new();
-    let mut drawn = spawned.drawn.iter().zip(&spawned.part_of);
-    for (ui, u) in uses.iter().enumerate() {
+    let mut has_tri: Vec<Option<bool>> = vec![None; uses.len()];
+    for ((&entity, &ui), &i) in spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of) {
+        let u = uses.get(ui)?;
+        let s = u.part.shapes.get(i)?;
+        if s.cap {
+            continue;
+        }
         let model = &a.parts.get(*part_index.get(ui)?)?.model;
-        let has_tri = data.vfs.exists(&sibling(model, "tri"));
-        for (i, s) in u.part.shapes.iter().enumerate() {
-            if s.cap || s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
-                continue;
-            }
-            let (&entity, &pi) = drawn.next()?;
-            if pi != ui {
-                return None;
-            }
-            if has_tri {
-                let rest = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
-                shapes.push(LipShape { entity, model: model.clone(), cpu: s.cpu.clone(), rest });
-            }
+        if *has_tri[ui].get_or_insert_with(|| data.vfs.exists(&sibling(model, "tri"))) {
+            let rest = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
+            shapes.push(LipShape { entity, model: model.clone(), cpu: s.cpu.clone(), rest });
         }
     }
     (!shapes.is_empty()).then(|| LipRig { shapes, facegen })

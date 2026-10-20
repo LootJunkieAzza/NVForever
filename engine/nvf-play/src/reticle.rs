@@ -320,8 +320,8 @@ fn draw(
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32)>,
-    (locks, bindings, creator): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>),
+    mut logged: Local<(bool, i32, bool)>,
+    (locks, bindings, creator, sights): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -343,10 +343,16 @@ fn draw(
         return;
     };
     let show = |on: bool| if on { Visibility::Inherited } else { Visibility::Hidden };
-    for mut v in &mut root {
-        v.set_if_neq(show(playing));
+    // Down a gun's true iron sights the sights are the aim: no crosshair.
+    let sights = sights.is_some_and(|s| s.0);
+    if sights != logged.2 {
+        logged.2 = sights;
+        info!("crosshair: {}", if sights { "hidden down the true iron sights" } else { "shown again" });
     }
-    if !playing {
+    for mut v in &mut root {
+        v.set_if_neq(show(playing && !sights));
+    }
+    if !playing || sights {
         return;
     }
     let locks = locks.as_deref().copied().unwrap_or_default();
@@ -371,7 +377,7 @@ fn draw(
     let now = (foe, spread.round() as i32);
     if now.0 != logged.0 || (*spread == want && (now.1 - logged.1).abs() >= 2) {
         info!("reticle: {} spread {:.1} (cone {:.2} deg)", if foe { "hostile" } else { "plain" }, *spread, combat.as_ref().and_then(|c| c.crosshair_cone).unwrap_or(0.0));
-        *logged = now;
+        (logged.0, logged.1) = now;
     }
     let shift = (*spread - TIP).max(0.0);
     for (c, mut v, mut node, image) in &mut crosses {

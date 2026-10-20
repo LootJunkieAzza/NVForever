@@ -181,6 +181,12 @@ pub struct WeaponHold {
     /// The model's shapes on a bone of their own (the flamer's tank and the minigun's
     /// backpack on `Bip01 Spine2`): on the body whether the weapon is drawn or not.
     pub back: Vec<Entity>,
+    /// The model's shapes under a part the aim or draw clip moves (the pistols' hammers):
+    /// the shape, its place holstered (the model's) and in the hand ([`drawn_place`]),
+    /// and which of the two it has now. NPCs play no clips on the weapon's parts: they
+    /// hold this pose, shots included.
+    pub parts: Vec<(Entity, Transform, Transform)>,
+    parts_in_hand: Option<bool>,
     /// Crouched (the actor sneaks, [`WeaponHold::set_crouched`]), and whether the clip
     /// fading out (`anim.prev`) is a crouched one.
     pub crouched: bool,
@@ -191,7 +197,7 @@ pub struct WeaponHold {
 
 impl WeaponHold {
     pub fn new(stance: Arc<Stance>, drawn: bool, skel_parent: usize) -> WeaponHold {
-        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new(), crouched: false, prev_crouched: false, logged: Vec::new() }
+        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new(), parts: Vec::new(), parts_in_hand: None, crouched: false, prev_crouched: false, logged: Vec::new() }
     }
 
     /// Crouch with the weapon or stand up with it (the actor's locomotion sneaking,
@@ -294,9 +300,13 @@ impl WeaponHold {
     /// and the left hand missed it [observed in NVForever: owner's playtest 2026-10-16,
     /// Cook-Cook's flamer]. Holstered, the node keeps its bind transform.
     fn rest(&self, player: &mut BlendPlayer) {
+        player.set_rest(self.stance.weapon_node, self.stance.weapon_rest.filter(|_| self.in_hand()));
+    }
+
+    /// Whether the weapon hangs from the hand now.
+    fn in_hand(&self) -> bool {
         let st = &self.stance;
-        let in_hand = self.anim.parent(&st.holster, &st.drawn, st.facts_for(self.crouched)) == st.drawn;
-        player.set_rest(st.weapon_node, st.weapon_rest.filter(|_| in_hand));
+        self.anim.parent(&st.holster, &st.drawn, st.facts_for(self.crouched)) == st.drawn
     }
 
     /// Only where the weapon hangs, as player layers 2 and 3: for an actor whose body plays
@@ -377,6 +387,9 @@ pub struct SpawnedWeapon {
     pub gun: Vec<(Entity, String)>,
     /// Those on a bone of their own ([`WeaponHold::back`]).
     pub back: Vec<Entity>,
+    /// Those under a part the aim or draw clip moves: the shape, its place in the model
+    /// and its place in the hand ([`WeaponHold::parts`]).
+    pub posed: Vec<(Entity, Transform, Transform)>,
 }
 
 /// On a weapon shape that hangs from a bone of its own (the flamer's tank): not part of
@@ -389,7 +402,10 @@ pub struct OnBack;
 /// (`bones`, by node name) names a bone of the skeleton hangs from that bone instead,
 /// with its place in the whole model (the flamer's tank and the minigun's backpack say
 /// `Bip01 Spine2`), as the player body does [hypothesis: that is the string's meaning;
-/// animation.md §9.7]. Shapes under a node named in `gun_nodes` are listed apart.
+/// animation.md §9.7]. Shapes under a node named in `gun_nodes` are listed apart, and so
+/// are those under a node the `held` clips move, with their place in the hand
+/// ([`drawn_place`]).
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_model(
     commands: &mut Commands,
     actor: &SpawnedActor,
@@ -398,6 +414,7 @@ pub fn spawn_model(
     part: &PreparedPart,
     bones: &HashMap<String, String>,
     gun_nodes: &[String],
+    held: &[&nvf_assets::anim_play::Clip],
 ) -> SpawnedWeapon {
     let mut out = SpawnedWeapon::default();
     for s in part.shapes.iter().filter(|s| !s.cap) {
@@ -417,9 +434,34 @@ pub fn spawn_model(
         } else if let Some(g) = names().find_map(|n| gun_nodes.iter().find(|g| g.eq_ignore_ascii_case(n))) {
             out.gun.push((e, g.clone()));
         }
+        if let Some(drawn) = bone.is_none().then(|| drawn_place(held, s)).flatten() {
+            out.posed.push((e, tr, Transform::from_matrix(Mat4::from(part.root * drawn))));
+        }
         out.all.push(e);
     }
     out
+}
+
+/// Shape `s`'s place below the model's root with the weapon in the hand: each part above
+/// it where the first of the `held` clips (the aim clip, then the draw clip) that keys it
+/// leaves it at its end; `None` when they leave all of them at their place. The aim
+/// clips hold the .357 revolver's, the Cowboy Repeater's and the lever-action shotgun's
+/// hammers cocked; the 9mm pistol's aim clip does not key its hammer and its draw clip
+/// cocks it, and the game's 9mm is held cocked [observed: animation.md §9.8; hypothesis:
+/// the game leaves a part where the last clip put it, §9.7].
+fn drawn_place(held: &[&nvf_assets::anim_play::Clip], s: &nvf_assets::actor::PartShape) -> Option<bevy::math::Affine3A> {
+    use bevy::math::Affine3A;
+    let mut moved = false;
+    // `ancestors` runs from the shape's parent up; the product is outermost first.
+    let m = s.ancestors.iter().rev().fold(Affine3A::IDENTITY, |acc, (name, local)| {
+        let bind = Transform::from_matrix(Mat4::from(*local));
+        let pose = name.as_deref().and_then(|n| held.iter().find_map(|c| nvf_assets::anim_blend::track_end(c, n, bind)));
+        // Only a part away from its place in the model counts (the aim clips hold most
+        // parts there).
+        moved |= pose.is_some_and(|p| p.translation.distance(bind.translation) > 0.01 || p.rotation.angle_between(bind.rotation) > 0.1f32.to_radians());
+        acc * pose.map_or(*local, |p| Affine3A::from_scale_rotation_translation(p.scale, p.rotation, p.translation))
+    });
+    moved.then_some(m * s.own)
 }
 
 /// Whether the gun shapes under node `name` ([`WeaponHold::gun`]) show now: as the
@@ -450,6 +492,13 @@ pub fn reparent(mut commands: Commands, mut q: Query<(&mut WeaponHold, &BlendPla
                 commands.entity(*e).try_insert(if shown { Visibility::Inherited } else { Visibility::Hidden });
                 *last = Some(shown);
             }
+        }
+        let in_hand = w.in_hand();
+        if w.parts_in_hand != Some(in_hand) {
+            for (e, holstered, drawn) in &w.parts {
+                commands.entity(*e).try_insert(if in_hand { *drawn } else { *holstered });
+            }
+            w.parts_in_hand = Some(in_hand);
         }
         let Some(p) = w.parent_node() else { continue };
         if p != w.parent {
