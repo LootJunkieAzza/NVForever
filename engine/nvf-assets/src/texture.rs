@@ -104,6 +104,24 @@ pub fn pc_texture(path: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
     exists(&pc).then_some(pc)
 }
 
+/// The first-person form of a texture a model names: the same folder with `1stperson`
+/// before the file name, when that file exists. [observed: `meshes\weapons\2handrifle\
+/// laserrifle.nif`, the only laser rifle model, names `LaserRifle01.dds` (128x128), and
+/// `1stpersonlaserrifle01.dds` (1024x1024) lies beside it; 413 of the 455 `1stperson`
+/// textures in the archives, all weapons', have such a plain twin and no model names
+/// them; the owner's screenshot of the game shows the gun's small print sharp in first
+/// person. hypothesis: the game draws the first-person weapon with these;
+/// docs/spec-notes/first-person-textures.md §3]
+pub fn first_person_texture(path: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    let path = fnv_vfs::texture_path(path);
+    let file = path.rfind('\\').map_or(0, |i| i + 1);
+    if path[file..].starts_with("1stperson") {
+        return None;
+    }
+    let first = format!("{}1stperson{}", &path[..file], &path[file..]);
+    exists(&first).then_some(first)
+}
+
 impl TextureCache {
     /// Drop the textures nothing else holds (no live material uses them), after their
     /// grace time (`crate::release`); the number dropped. Keys: (path, sRGB, clamped).
@@ -191,5 +209,22 @@ impl TextureCache {
         };
         (if clamp { &mut self.clamped } else { &mut self.map }).insert((path, srgb), handle.clone());
         handle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_person_texture;
+
+    #[test]
+    fn the_first_person_twin_is_used_when_it_exists() {
+        let twin = r"textures\weapons\2handrifle\1stpersonlaserrifle01.dds";
+        let exists = |p: &str| p == twin;
+        assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle01.dds", exists).as_deref(), Some(twin));
+        // A path as models write it, without the `textures` folder.
+        assert_eq!(first_person_texture(r"weapons\2handrifle\LaserRifle01.dds", exists).as_deref(), Some(twin));
+        assert_eq!(first_person_texture(r"textures\weapons\2handrifle\LaserRifle02.dds", exists), None);
+        // Already a first-person texture: kept.
+        assert_eq!(first_person_texture(r"textures\weapons\2handrifle\1stPersonLaserRifle01.dds", |_| true), None);
     }
 }

@@ -3637,6 +3637,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "first-person-weapon-textures"
+source = "the owner (2026-10-20, screenshot of the game beside ours): the first-person laser rifle looked low-res; its model names the 128x128 LaserRifle01.dds and the game draws the 1024x1024 1stpersonlaserrifle01.dds beside it (docs/spec-notes/first-person-textures.md)"
+areas = ["combat"]
+paths = ["engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "00004336", NVF_PLAY_TEST_LOOK = "2:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 8
+expect = [
+  { re = 'laserrifle\.nif: first person, ([4-9]|\d\d+) texture\(s\) in their 1stperson form', label = "the arms rig's laser rifle wears its 1stperson textures" },
+  { re = 'player weapon model \(First person\): meshes.weapons.2handrifle.laserrifle\.nif' },
+]
+manual = "a --screenshot of this view: the small print on the rifle's focus housing (Focus 625 nm) legible, as in the owner's screenshot of the game"
+
+[[scenario]]
 name = "missile-explosion"
 source = "explosions look like the game's (docs/spec-notes/explosion-effects.md): a missile fired at the ground by the Prospector Saloon plays its EXPL model's SpecialIdle_AreaEffect sequence (fireball meshes growing, fading, shown and hidden), the dirt impact's own controllers, and the EXPL's image space modifier for the player within its IS radius"
 areas = ["combat", "particles"]
