@@ -3685,9 +3685,9 @@ expect = [
 
 [[scenario]]
 name = "cave-skeletons"
-source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose"
-areas = ["world", "ragdoll"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs"]
+source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
+areas = ["world", "ragdoll", "physics"]
+paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
 args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -3695,6 +3695,10 @@ expect = [
   { re = 'clutter pose: 0x00153171 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
   { re = 'clutter pose: 0x001531F5 \S*skeletonmale50scasual\.nif drawn in its stored pose' },
   { re = 'clutter pose: 0x0017B38F \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+  { re = 'phys: 0x00153170 \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)', label = "collision lies with the drawing" },
+  { re = 'phys: 0x00153171 \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)' },
+  { re = 'phys: 0x001531F5 \S*skeletonmale50scasual\.nif: collision posed from XRGD' },
+  { re = 'phys: 0x0017B38F \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)' },
 ]
 
 [[scenario]]
@@ -4833,6 +4837,66 @@ order = [[
   { re = 'vats mode: mark refused: No more rounds loaded\.', label = "the second mark is refused for the rounds" },
   { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the one mark is fired" },
 ]]
+
+[[scenario]]
+name = "vats-mode-burst"
+source = "owner's todo 6 follow-up: an automatic weapon fires a burst a mark (docs/design/vats-mode.md §16.1)"
+note = "as vats-mode-two-marks, with the 10mm SMG (Weap10mmSubmachineGun 00004321: 22 AP a mark from its DNAM override, fire rate 9, so bursts of round(9 x 0.4) = 4; god mode keeps its 30 rounds). Two marks, E: two bursts of 4 rounds, 44 AP. Written 2026-10-20 by a worker session that does not run the game: not yet run"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:90", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(Weap10mmSubmachineGun, burst of 4, 22 AP a mark, 30 rounds loaded', label = "V enters VATS mode with the SMG: bursts of 4, 22 AP" },
+  { re = 'vats mode: marked .* mark 2; 44 AP reserved', label = "two marks reserve 44 AP" },
+  "vats mode: firing 2 marked bursts",
+  { re = 'vats mode: burst 1 of 2 at .*, 4 shots, 22 AP spent', label = "the first burst" },
+  { re = 'vats mode: burst 2 of 2 at .*, 4 shots, 22 AP spent', label = "the second burst" },
+  { re = 'vats mode: off \(8 shots fired, 44 AP spent; all shots fired\)', label = "eight rounds, 44 AP" },
+]]
+expect = [
+  { text = "the VATS mode shot could not leave", count = 0, label = "every round left the weapon" },
+]
+
+[[scenario]]
+name = "vats-mode-melee"
+source = "owner's todo 6 follow-up and owner 2026-10-20: melee marks within 5 m, the player teleports beside each mark and swings (docs/design/vats-mode.md §16.2)"
+note = "a machete (WeapNVMachete 000CE569: 20 AP a swing) among the Goodsprings dogs, which attack the player (god mode), so by 10 s they are within 5 m. One mark, E: a teleport beside the dog and one swing that lands on it. Written 2026-10-20 by a worker session that does not run the game: not yet run"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONTROL = "3:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNVMachete, melee, 20 AP a mark', label = "V enters VATS mode with the machete" },
+  { re = 'vats mode: marked .* mark 1; 20 AP reserved', label = "one mark within 5 m" },
+  "vats mode: firing 1 marked swings",
+  { re = 'vats mode: teleported to ', label = "the player is put beside the mark" },
+  { re = 'vats mode: swing 1 of 1 at .*, 20 AP spent', label = "one swing" },
+  { re = 'combat: vats mode blow on .*: .* struck', label = "the blow lands on the mark" },
+  { re = 'vats mode: off \(1 shots fired, 20 AP spent; all shots fired\)', label = "the mode ends after the swing" },
+]]
+
+[[scenario]]
+name = "vats-mode-thrown"
+source = "owner's todo 6 follow-up: grenades and thrown weapons are thrown at each mark (docs/design/vats-mode.md §16.3)"
+note = "three frag grenades (WeapGrenadeFrag 00004330: 24 AP a throw) among the Goodsprings dogs (god mode). One mark, E: one throw on the low arc onto the dog. Written 2026-10-20 by a worker session that does not run the game: not yet run"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_GIVE = "00004330:3", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "3:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapGrenadeFrag, thrown, 24 AP a mark, \d+ carried', label = "V enters VATS mode with three frag grenades" },
+  { re = 'vats mode: marked .* mark 1; 24 AP reserved', label = "one mark" },
+  "vats mode: firing 1 marked throws",
+  { re = 'vats mode: throw 1 of 1 at .*, 24 AP spent', label = "one throw" },
+  { re = 'vats mode: off \(1 shots fired, 24 AP spent; all shots fired\)', label = "the mode ends after the throw" },
+]]
+expect = [
+  { text = "the VATS mode shot could not leave", count = 0, label = "the throw left the hand" },
+]
 
 [[scenario]]
 name = "barber-menu"

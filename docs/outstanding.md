@@ -51,7 +51,7 @@ six functions still waiting for an in-game capture to settle their answers.
 
 From [status.md](status.md); the playthrough blockers above are not repeated.
 
-- **Gameplay**: VATS mode built for single-shot guns (bursts, melee and thrown weapons not yet); people's power attacks (creatures' are built); melee
+- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); people's power attacks (creatures' are built); melee
   weapon use through UseWeapon; a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
   [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
@@ -73,7 +73,9 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   2026-10-19.)
 - **Audio and video**: reverb, spatial sinks; a film's `muteAudio 0` (world sounds under a film).
 - **Saves**: loading into another load order, AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1).
-- **World**: skeleton collision still upright (playtest list 5 item 71).
+- **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
+  pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in
+  game against the original.
 - **Combat cover from the shooter** (done 2026-10-19): a gunman takes cover from the
   enemy gunmen firing at it first, nearest first, then from its own target
   (docs/design/combat-ai.md §12.6.1); smoke combat-cover passes again without its three
