@@ -122,9 +122,7 @@ rest of its 2.8 s, by its data.
 
 ## 6. Not built, open
 
-- **Impact decals** (scorch marks): IPCT `DODT` decal data and the texture set; impact
-  decals are not built for any impact. A step of its own (projected decals on
-  terrain and statics).
+- Impact decals (scorch marks, bullet holes) are built: impact-decals.md.
 - Heat haze (refraction), the bomb modifier, particle colliders, spawn on death, mesh
   emitters (7 explosion files emit from meshes: their systems are not drawn).
 - Everything in §2–§5 tagged hypothesis is checked only against how it looks; to compare

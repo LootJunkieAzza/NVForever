@@ -52,8 +52,8 @@
 //!   unless the model fades itself with an alpha controller (the green laser's, the
 //!   pulse gun's) [hypothesis, combat-rules.md §15]. A beam model with no controllers
 //!   at all (`DLC03ScatterBeam`'s) has no rig and is not faded.
-//! - Not built: impact decals, the models' refraction (heat haze) controllers, NPCs'
-//!   muzzles.
+//! - The decal an impact leaves is drawn by `crate::decals`.
+//! - Not built: the models' refraction (heat haze) controllers, NPCs' muzzles.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
