@@ -21,13 +21,11 @@
 //!   first body, put the thighs 30 units below the arm].
 //! - Nodes without a body keep their place under their parent.
 //!
-//! Only the drawing is posed: the collision stays in the file's pose (the jointed bodies
-//! are held where placed, `nvf_play::phys::prepare::hold_jointed`) [not done: posing the
-//! collision needs the node hierarchy on the physics side].
+//! The collision is posed by the same rule from the same entries, on the physics side
+//! (`nvf_play::phys::prepare`, `fnv_collide::nif::NodeTree`), and held where it lies.
 
 use crate::authored_pose::{self, Bone};
 use bevy::math::{Affine3A, Mat3, Vec3};
-use fnv_esm::LoadOrder;
 use fnv_nif::scene::Decoded;
 use fnv_nif::NifFile;
 use nvf_assets::data::GameData;
@@ -41,20 +39,7 @@ type BodyNodes = Arc<Vec<Option<String>>>;
 /// [`BodyNodes`] by archive path (`None`: no collision).
 static BODIES: LazyLock<Mutex<HashMap<String, Option<BodyNodes>>>> = LazyLock::new(Default::default);
 
-/// The base record types whose references are posed [observed: the clutter skeletons are
-/// MSTT; the 1,570 REFR with `XRGD` in FalloutNV.esm were not sorted by type].
-pub fn posable(sig: &[u8; 4]) -> bool {
-    matches!(sig, b"MSTT" | b"STAT" | b"MISC")
-}
-
-/// The `XRGD` entries of reference `r`, if it has any.
-pub fn stored(lo: &LoadOrder, r: u32) -> Option<Vec<Bone>> {
-    let d = lo.index.get(&r)?.last()?;
-    let subs = lo.records[d.plugin as usize][d.ordinal as usize].subrecords().ok()?;
-    let x = subs.iter().find(|s| &s.sig == b"XRGD")?;
-    let bones = authored_pose::parse(&x.data);
-    (!bones.is_empty()).then_some(bones)
-}
+pub use fnv_world::xrgd::{posable, stored};
 
 /// The nodes the collision objects of the file at `path` hang on, in body order.
 pub fn body_nodes(data: &GameData, path: &str) -> Option<BodyNodes> {

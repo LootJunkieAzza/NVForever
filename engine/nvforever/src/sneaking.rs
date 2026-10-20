@@ -15,9 +15,14 @@
 //!
 //! Not built: an actor sneaking because its Follow leader sneaks (Pretend In Combat and
 //! Continue During Combat Follow packages, fCombatFollowSneakFollowRadius [documented:
-//! GECK wiki Combat Package Flags]). With its weapon out an actor moves on the stance's
-//! crouched clips where it has them (`sneak2hhforward.kf`, `locomotion::WeaponMoves`),
-//! else holds it with the standing aim clip over the crouched legs.
+//! GECK wiki Combat Package Flags]).
+//! - **With its weapon out**: it moves on the stance's crouched walks and runs where it
+//!   has them (only `sneak2hh*.kf`, `locomotion::WeaponMoves`), and draws, holds and puts
+//!   away the weapon with the stance's crouched equip, aim and unequip clips
+//!   (`sneak1hpaim.kf` …, `weapons::WeaponHold::set_crouched`), whose legs are the
+//!   crouched idle's; the standing aim's upright legs outranked the crouched idle's
+//!   [observed: docs/spec-notes/actors.md §9.4]. Fighting, its aim forms, attacks and
+//!   reloads are the crouched ones (`attack_anims::CombatPose`).
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;

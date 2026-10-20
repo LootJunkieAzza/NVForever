@@ -51,6 +51,8 @@ pub struct Traveller {
     waiting: Option<(u32, f32)>,
     /// Doors it opened and how long it waited at each (seconds).
     pub doors_opened: Vec<(u32, f32)>,
+    /// Landings over ledges logged so far.
+    landed: u32,
 }
 
 /// The actor `--follow-npc` follows: the first traveller, else the first resident
@@ -122,7 +124,7 @@ fn resolve(world: &WorldData, refs: &RefTable, spec: &str, space: Space) -> Resu
 
 impl NavState {
     /// Build the nav graph and plan each `ACTOR=TARGET` trip.
-    pub fn build(world: &WorldData, trips: &[String], speed: f32, show: bool, follow: bool) -> Result<NavState, String> {
+    pub fn build(world: &WorldData, trips: &[String], speed: f32, ledges: bool, show: bool, follow: bool) -> Result<NavState, String> {
         let mut startup: Vec<(bool, String)> = Vec::new();
         let t0 = std::time::Instant::now();
         let records = NavRecords::read(world.lo);
@@ -139,16 +141,26 @@ impl NavState {
             s.doors_unresolved,
             t0.elapsed().as_secs_f64()
         )));
-        let params = PathParams::default();
+        // `--npc-ledges`: the paths may go over the navmesh's ledge links, jumping
+        // (docs/spec-notes/actor-jumps.md).
+        let params = PathParams { ledges, ..PathParams::default() };
         let mut travellers = Vec::new();
         if !trips.is_empty() {
             let refs = RefTable::from_index(world.lo, world.schema, world.index);
             let here = Space::World(world.world);
             for trip in trips {
                 let (who, to) = trip.split_once('=').ok_or_else(|| format!("--npc-travel {trip}: expected ACTOR=TARGET"))?;
-                let (from, Some(reference), label) = resolve(world, &refs, who.trim(), here)? else {
+                // "ACTOR@x,y,z": the actor set off from there (in its own space).
+                let (who, start_at) = match who.split_once('@') {
+                    Some((a, at)) if a.split(',').count() != 3 => (a, Some(at)),
+                    _ => (who, None),
+                };
+                let (mut from, Some(reference), label) = resolve(world, &refs, who.trim(), here)? else {
                     return Err(format!("--npc-travel {trip}: {who} is not a placed reference"));
                 };
+                if let Some(at) = start_at {
+                    from.pos = resolve(world, &refs, at.trim(), from.space)?.0.pos;
+                }
                 let base = refs.get(fnv_sim::FormId(reference)).map(|r| r.base.0).unwrap_or(0);
                 let (target, _, target_label) = resolve(world, &refs, to.trim(), from.space)?;
                 let heading = refs.get(fnv_sim::FormId(reference)).map_or(0.0, |r| r.rot[2]);
@@ -194,7 +206,7 @@ impl NavState {
                     started: None,
                     arrived: None,
                     failed,
-                    next_report: 5.0, waiting: None, doors_opened: Vec::new(),
+                    next_report: 5.0, waiting: None, doors_opened: Vec::new(), landed: 0,
                 });
             }
         }
@@ -307,6 +319,26 @@ pub fn drive(
         };
         let tr = &mut nav.travellers[i];
         let elapsed = now - tr.started.unwrap_or(now);
+        // Over a ledge link (`fnv_nav::jump`): logged at take-off and on landing.
+        if let Some(a) = tr.walker.air.filter(|a| a.t <= dt + 1e-4) {
+            let (f, t) = (a.flight.from, a.flight.to);
+            info!(
+                "nav: {} {} a ledge at ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0}), {:.2}s in the air",
+                tr.label,
+                if a.flight.up { "jumps up" } else { "drops off" },
+                f[0],
+                f[1],
+                f[2],
+                t[0],
+                t[1],
+                t[2],
+                a.flight.duration
+            );
+        }
+        if tr.walker.landings > tr.landed {
+            tr.landed = tr.walker.landings;
+            info!("nav: {} lands at ({:.0}, {:.0}, {:.0})", tr.label, tr.walker.feet[0], tr.walker.feet[1], tr.walker.feet[2]);
+        }
         match (ev, tr.waiting) {
             (WalkEvent::WaitingForDoor(d), w) if w.is_none_or(|w| w.0 != d) => {
                 info!("nav: {} opens door {d:08X} and waits", tr.label);
@@ -359,7 +391,8 @@ pub fn drive(
         let visible = tr.walker.space == drawn;
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        let air = tr.walker.air.is_some();
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false, air }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -377,6 +410,10 @@ pub(crate) struct Who {
     /// Drawn facing a heading of its own while it moves (a fighter facing its target):
     /// the locomotion gets its velocity in the body's axes, so it steps sideways or back.
     pub strafe: bool,
+    /// Flying over a ledge (`fnv_nav::Walker::air`): its locomotion plays the jump
+    /// (`locomotion::Locomotion::in_air`; one with a physics character is told by
+    /// `actor_jumps.rs` instead).
+    pub air: bool,
 }
 
 /// Keep the visual of an actor that a walker moves in step with it: drawn while
@@ -399,7 +436,7 @@ pub(crate) fn show_actor(
     moving: bool,
     dt: f32,
 ) -> Result<(), &'static str> {
-    let Who { reference, base, creature, scale, strafe } = who;
+    let Who { reference, base, creature, scale, strafe, air } = who;
     if !visible {
         if let Some(e) = root.take() {
             commands.entity(e).despawn();
@@ -450,6 +487,7 @@ pub(crate) fn show_actor(
         };
         let d = (heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         lo.turn = if dt > 0.0 { -d / dt } else { 0.0 };
+        lo.in_air = air;
     }
     Ok(())
 }
@@ -551,7 +589,8 @@ pub fn report(mut exit: MessageReader<AppExit>, nav: Res<NavState>) {
             .iter()
             .map(|t| match (&t.failed, t.arrived) {
                 (Some(e), _) => format!("{}: failed ({e})", t.label),
-                (None, Some(s)) if t.doors_opened.is_empty() => format!("{}: arrived after {s:.1}s", t.label),
+                (None, Some(s)) if t.doors_opened.is_empty() && t.walker.flights == 0 => format!("{}: arrived after {s:.1}s", t.label),
+                (None, Some(s)) if t.doors_opened.is_empty() => format!("{}: arrived after {s:.1}s, over {} ledges ({} landings)", t.label, t.walker.flights, t.walker.landings),
                 (None, Some(s)) => format!(
                     "{}: arrived after {s:.1}s, opened {}",
                     t.label,

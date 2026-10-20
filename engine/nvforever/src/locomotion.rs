@@ -56,6 +56,54 @@ pub struct ClipSet {
     /// Getting up from a knockout (docs/spec-notes/unconscious.md §4): lying face up, and
     /// face down ([`GET_UPS`]).
     pub getup: [Option<Arc<BoundClip>>; 2],
+    /// The stance's jump clips (docs/spec-notes/actor-jumps.md, [`JumpClips`]).
+    pub jump: JumpClips,
+}
+
+/// A stance's jump clips beside its skeleton: looped in the air (`[0]`) and landing
+/// (`[1]`), each without a direction and for the four ways
+/// (`fnv_actor::jump::dir_index`): `mtjumploop.kf`, `mtjumplandforward.kf`,
+/// `1hpjumploopleft.kf` … Empty for creatures (no folder has any [observed]).
+#[derive(Default, Clone)]
+pub struct JumpClips {
+    pub clips: [[Option<Arc<BoundClip>>; 5]; 2],
+}
+
+impl JumpClips {
+    /// The clips of `stance` in `folder` (the skeleton's), bound to `skel`.
+    pub fn load(ctx: &mut ActorCtx, folder: &str, skel: &PreparedSkeleton, stance: &str) -> JumpClips {
+        let mut out = JumpClips::default();
+        for (k, land) in [false, true].into_iter().enumerate() {
+            for (i, name) in fnv_actor::jump::clip_names(stance, land).iter().enumerate() {
+                let path = format!("{folder}\\{name}");
+                out.clips[k][i] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+            }
+        }
+        out
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.clips.iter().flatten().all(Option::is_none)
+    }
+
+    /// `self` with `top`'s clips in place of its own where `top` has one.
+    fn over(&self, top: &JumpClips) -> JumpClips {
+        let mut out = self.clone();
+        for (k, row) in top.clips.iter().enumerate() {
+            for (i, c) in row.iter().enumerate() {
+                if c.is_some() {
+                    out.clips[k][i] = c.clone();
+                }
+            }
+        }
+        out
+    }
+
+    /// The clip for a direction (`fnv_actor::jump::dir_index`), else the plain one.
+    pub fn get(&self, land: bool, dir: usize) -> Option<&Arc<BoundClip>> {
+        let row = &self.clips[usize::from(land)];
+        row[dir].as_ref().or(row[0].as_ref())
+    }
 }
 
 impl ClipSet {
@@ -155,6 +203,12 @@ impl ClipSet {
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let found = LocomotionSet::find(&folder, body, stance, |p| ctx.models.data.vfs.exists(p));
         let (mut set, report) = ClipSet::bind_moves(ctx, skel, found);
+        set.jump = JumpClips::load(ctx, &folder, skel, stance);
+        if stance == SNEAK_STANCE {
+            // Crouched jumps have no plain loop (`sneakmtjump{loop,land}<dir>.kf` only,
+            // animation.md §9.1): the standing ones fill in.
+            set.jump = JumpClips::load(ctx, &folder, skel, STANCE).over(&set.jump);
+        }
         for p in DEATH_POSES {
             let path = format!("{folder}\\{p}");
             if let Some(clip) = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten() {
@@ -206,11 +260,12 @@ impl ClipSet {
     /// `keep` says yes to; `base` itself when there are none.
     fn overlay(base: &Arc<ClipSet>, top: &ClipSet, keep: impl Fn(Move) -> bool) -> Arc<ClipSet> {
         let mut over = top.clips.iter().filter(|(m, _)| keep(**m)).peekable();
-        if over.peek().is_none() {
+        if over.peek().is_none() && top.jump.is_empty() {
             return base.clone();
         }
         let mut set = ClipSet::clone(base);
         set.clips.extend(over.map(|(m, c)| (*m, c.clone())));
+        set.jump = base.jump.over(&top.jump);
         Arc::new(set)
     }
 
@@ -276,8 +331,10 @@ impl WeaponMoves {
             let found = fnv_actor::locomotion::weapon_moves(&folder, stance, |p| ctx.models.data.vfs.exists(p));
             ClipSet::bind_moves(ctx, skel, found).0
         };
-        let stand = find(prefix);
+        let mut stand = find(prefix);
         let sneak = find(&format!("sneak{prefix}"));
+        // The weapon's own jump clips (`1hpjumploopforward.kf`), over the unarmed ones.
+        stand.jump = JumpClips::load(ctx, &folder, skel, prefix);
         let hurt = ClipSet::load_hurt(ctx, skeleton, skel, &ClipSet::default(), &[prefix]).map(|(s, _)| s).unwrap_or_default();
         let list = |set: &ClipSet| set.clips.keys().map(|m| m.group()).collect::<Vec<_>>();
         let line = format!("{folder} {prefix} moves: standing {:?}, crouched {:?}, limping {:?}", list(&stand), list(&sneak), list(&hurt));
@@ -340,6 +397,11 @@ pub struct Locomotion {
     /// The speed (at the clips' pace) smoothed over [`GAIT_SMOOTHING`], which decides
     /// between walking and running.
     pub gait_speed: f32,
+    /// In the air this frame (set by what moves the actor: the walker's flight over a
+    /// ledge, `nav::show_actor`, or its character off the ground, `actor_jumps.rs`), and
+    /// the jump it is in (docs/spec-notes/actor-jumps.md).
+    pub in_air: bool,
+    pub jump: fnv_actor::jump::JumpState,
     /// The sets with the drawn weapon's moves in them, built for the last weapon drawn,
     /// and whether they play ([`Locomotion::set_armed`]).
     armed: Option<Armed>,
@@ -350,7 +412,7 @@ pub struct Locomotion {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, armed: None, armed_on: false, armed_logged: Vec::new() }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new() }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -536,6 +598,9 @@ impl Locomotion {
         }
         let before = self.blend.cur.mv;
         self.blend.step(choice, dt, |m| set.info(m));
+        let dir = fnv_actor::jump::dir_index(fnv_actor::jump::jump_dir(self.velocity));
+        let land_len = self.set.jump.get(true, dir).map(|c| c.clip.length());
+        self.jump.step(self.in_air, dt, land_len);
         // The other set's pose has faded out, or a fade within this set has taken over
         // (a new move starts only once a fade has ended).
         if self.blend.prev.is_none() || self.blend.cur.mv != before {
@@ -551,6 +616,25 @@ impl Locomotion {
         player.layers[0] = layer(&self.set, self.blend.cur.mv, self.blend.cur.phase, w);
         let prev_set = self.prev_set.as_deref().unwrap_or(&self.set);
         player.layers[1] = self.blend.prev.and_then(|p| layer(prev_set, p.mv, p.phase, 1.0 - w));
+        // In the air or landing: the jump clip over the movement clip.
+        if let Some(clip) = self.jump_clip() {
+            let len = clip.clip.length();
+            if let Some((_, phase, jw)) = self.jump.clip(len) {
+                player.layers[1] = player.layers[0].take().map(|l| Layer { weight: l.weight * (1.0 - jw), ..l });
+                player.layers[0] = Some(Layer { clip: clip.clone(), phase, weight: jw });
+            }
+        }
+    }
+
+    /// The jump clip of the actor's set that plays now (the loop in the air, the landing
+    /// after), for the way it moves; `None` on the ground or without one.
+    pub fn jump_clip(&self) -> Option<&Arc<BoundClip>> {
+        let land = match self.jump.phase {
+            fnv_actor::jump::JumpPhase::Ground => return None,
+            fnv_actor::jump::JumpPhase::Air(_) => false,
+            fnv_actor::jump::JumpPhase::Land(_) => true,
+        };
+        self.set.jump.get(land, fnv_actor::jump::dir_index(fnv_actor::jump::jump_dir(self.velocity)))
     }
 }
 
@@ -679,7 +763,13 @@ pub fn drive(
         let drawn = crate::attack_anims::drawn(weapon.as_deref());
         if let Some(mut w) = weapon {
             if !w.hold {
+                // Sneaking: the stance's crouched equip, aim and unequip clips
+                // (`weapons::WeaponHold::set_crouched`); in water the body is upright.
+                w.set_crouched(lo.sneaking && !lo.swimming);
                 w.step(dt);
+                if let Some((clip, path)) = w.crouched_clip_news() {
+                    info!("crouched weapon: {} {} {clip:?} plays {path}", name.map_or("actor", |n| n.as_str()), w.stance.prefix);
+                }
             }
             w.layers(&mut player);
         }

@@ -222,6 +222,7 @@ impl<'a> Nav<'a> {
                     "arrival": d.arrival,
                 })),
                 "door_stops": l.door_stops.iter().map(|s| json!({"door": fid(s.door), "at": l.points[s.point]})).collect::<Vec<_>>(),
+                "hops": l.hops.iter().map(|h| json!({"up": h.up, "take_off": l.points[h.point], "landing": l.points[h.point + 1]})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })
     }

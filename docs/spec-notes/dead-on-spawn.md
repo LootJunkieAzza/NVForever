@@ -152,7 +152,7 @@ resting pose it feeds. Surveyed with a private script over FalloutNV.esm (not co
   death pose.
 - Not checked against the original: whether its bodies show exactly this pose (no capture
   taken). Creature corpses follow the same rule, checked only by the entry count against
-  their skeleton's bodies; `REFR` ragdolls (clutter skeletons) are not posed.
+  their skeleton's bodies; `REFR` ragdolls (clutter skeletons): §5.1.
 
 ### 5.1 Clutter skeletons (`REFR` with `XRGD`) [2026-10-16, playtest list 5 item 71]
 
@@ -178,7 +178,23 @@ owner's screenshot of the original shows one lying on the floor.
   root, here the root itself.
 - **In NVForever** [design]: an MSTT, STAT or MISC reference whose model's collision
   objects match its `XRGD` one for one is drawn with those nodes so posed (nodes without
-  a body keep their place under their parent). Only the drawing: the collision stays in
-  the file's pose, held where placed (`nvf_play::phys::prepare::hold_jointed`), so shots
-  and pushes meet the standing skeleton [not done].
+  a body keep their place under their parent).
+- **Its collision follows the same pose** [design, 2026-10-20, playtest list 5 item 71:
+  before, the drawing lay on the floor while the bodies stood upright in the file's pose,
+  so shots and the player met an invisible standing skeleton]. Each collision object
+  hangs on a node; its place under the model's root is worked out again along the node
+  chain with each body node's local transform replaced by its entry (position and
+  rotation; the node's own scale kept, so the shapes keep their size), every other node
+  keeping the file's. The body's own offset under its node is unchanged. The same rule
+  and the same entries as the drawing (`fnv_world::xrgd`), so the two cannot part.
+  The posed bodies are held where they lie (keyframed, `hold_jointed`) like any jointed
+  clutter: the game's constraints are not modelled [hypothesis that the original keeps
+  them at rest until touched; not checked]. Such a reference has no drawn-floor
+  surfaces (`DrawnFloors`, read from the file's unposed geometry). Tallied
+  `xrgd_posed` in the physics loader, which logs `phys: 0x… <model>: collision posed from
+  XRGD (N bodies)` for each. When the entries do not fit (count or a body without
+  a node) neither the drawing nor the collision is posed.
+- Not checked: whether the original's bodies are solid in exactly this pose (no capture
+  taken); the 1,570 REFR were not sorted by base type, so `XRGD` on other types is not
+  posed.
 

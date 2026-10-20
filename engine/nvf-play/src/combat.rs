@@ -228,7 +228,7 @@ pub struct ActorStrike {
     pub point: V3,
     pub dir: V3,
     /// A power attack's attack group ("AttackForwardPower"), for an unarmed attack effect
-    /// that names it; `None`: an ordinary blow.
+    /// that names it and, a person's, its damage multiplier; `None`: an ordinary blow.
     pub anim: Option<&'static str>,
 }
 
@@ -840,21 +840,52 @@ impl Combat {
         self.forms.chain(self.weapon?, self.ammo)?.projectile
     }
 
-    /// The weapon in hand as VATS mode needs it (docs/design/vats-mode.md §3, §7), or why
-    /// it cannot enter: a gun with a firing cycle that fires a projectile, not reloading or
-    /// jammed, a round loaded.
-    pub fn vats_weapon(&self) -> Result<VatsWeapon, &'static str> {
-        const NO_GUN: &str = "VATS mode needs a gun.";
-        let id = self.equipped.flatten().ok_or(NO_GUN)?;
+    /// The weapon in hand as VATS mode needs it (docs/design/vats-mode.md §3, §7, §16), or
+    /// why it cannot enter: a gun with a firing cycle that fires a projectile, not
+    /// reloading or jammed, a round loaded; a melee or unarmed weapon (the Fists too); a
+    /// grenade or thrown weapon (not a mine), one carried.
+    pub fn vats_weapon(&self, sim: &SimState, gravity: f32) -> Result<VatsWeapon, &'static str> {
+        const NO_GUN: &str = "VATS mode needs a weapon to aim.";
+        use fnv_combat::vats::{shot_ap_cost, throw_reach, AttackStyle};
+        let id = self.weapon.ok_or(NO_GUN)?;
         let w = &self.player_stats(id).ok_or(NO_GUN)?;
-        if self.melee || self.self_ammo || AttackKind::of(w) != AttackKind::Gun {
+        let cost = shot_ap_cost(w, &self.rules.ap_attack);
+        let edid = w.edid.clone().unwrap_or_else(|| id.to_string());
+        if self.melee {
+            return Ok(VatsWeapon {
+                id,
+                edid,
+                cost,
+                style: AttackStyle::Melee,
+                rounds_per_shot: 1,
+                rounds: u32::MAX / 2,
+                reach: crate::vats_mode::MELEE_MARK_REACH,
+                melee_reach: damage::melee_reach(&self.rules, w, 1.0),
+            });
+        }
+        // A gun needs to be equipped: the Fists are melee.
+        if self.equipped.flatten() != Some(id) || self.player_weapon_is_mine() {
             return Err(NO_GUN);
         }
         let proj = self.forms.chain(id, self.ammo).and_then(|ch| ch.projectile).ok_or(NO_GUN)?;
+        if self.self_ammo {
+            let carried = player_count(sim, Some(id));
+            if carried == 0 {
+                return Err("Out of ammo.");
+            }
+            let p = self.forms.projectiles.get(&proj);
+            let range = p.map_or(0.0, |p| if p.range > 0.0 { p.range } else { crate::vats_mode::REACH });
+            let lob = p.map_or(f32::INFINITY, |p| throw_reach(p.speed, p.gravity * gravity));
+            return Ok(VatsWeapon { id, edid, cost, style: AttackStyle::Thrown, rounds_per_shot: 1, rounds: carried, reach: range.min(lob), melee_reach: 0.0 });
+        }
+        if AttackKind::of(w) != AttackKind::Gun {
+            return Err(NO_GUN);
+        }
         let cy = self.cycle.as_ref().ok_or(NO_GUN)?;
         if cy.reloading() || cy.jammed() {
             return Err("Not while reloading.");
         }
+        let style = AttackStyle::of(w, false, false);
         // God mode keeps the magazine full (the shots take nothing).
         let rounds = if cy.no_ammo {
             u32::MAX / 2
@@ -869,11 +900,14 @@ impl Combat {
         let range = self.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         Ok(VatsWeapon {
             id,
-            edid: w.edid.clone().unwrap_or_else(|| id.to_string()),
-            cost: fnv_combat::vats::shot_ap_cost(w, &self.rules.ap_attack),
-            rounds_per_shot: if cy.no_ammo { 1 } else { cy.ammo_use },
+            edid,
+            cost,
+            style,
+            // A burst's rounds are one mark's (§16.1).
+            rounds_per_shot: if cy.no_ammo { 1 } else { cy.ammo_use * style.shots_per_mark() },
             rounds,
             reach: if range > 0.0 { range } else { crate::vats_mode::REACH },
+            melee_reach: 0.0,
         })
     }
 
@@ -928,6 +962,11 @@ impl Combat {
         anim.ready && aiming && self.sight_fov().is_some()
     }
 
+    /// The player's melee swing is playing (VATS mode waits for it, vats-mode.md §16.2).
+    pub fn player_swinging(&self) -> bool {
+        self.melee && self.swings.swing.is_some()
+    }
+
     /// The BPTD part an actor's hit volume part is (VATS mode's marks).
     pub fn vats_part(&self, parts: &ActorParts, actor: u32, part: Option<u8>) -> Option<BodyPart> {
         body_part(self, parts, actor as ActorId, part)
@@ -939,14 +978,20 @@ impl Combat {
 pub struct VatsWeapon {
     pub id: FormId,
     pub edid: String,
-    /// AP a shot (`fnv_combat::vats::shot_ap_cost`).
+    /// AP a mark (`fnv_combat::vats::shot_ap_cost`): a shot, a burst, a swing, a throw.
     pub cost: f32,
+    /// How a mark is spent (vats-mode.md §16).
+    pub style: fnv_combat::vats::AttackStyle,
+    /// Rounds one mark takes (a burst's all).
     pub rounds_per_shot: u32,
-    /// Rounds in the magazine now (the marks' limit).
+    /// Rounds in the magazine now, or the thrown weapons carried (the marks' limit).
     pub rounds: u32,
     /// How far the crosshair's ray looks for a target: the projectile's range, else
-    /// `vats_mode::REACH`.
+    /// `vats_mode::REACH`; a thrown weapon's no farther than it throws; a melee
+    /// weapon's `vats_mode::MELEE_MARK_REACH`.
     pub reach: f32,
+    /// A melee weapon's own reach (`damage::melee_reach`), units; 0 otherwise.
+    pub melee_reach: f32,
 }
 
 pub struct CombatPlugin;
@@ -1190,7 +1235,7 @@ fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs,
 }
 
 /// How many of `item` the player carries.
-fn player_count(sim: &SimState, item: Option<FormId>) -> u32 {
+pub(crate) fn player_count(sim: &SimState, item: Option<FormId>) -> u32 {
     let inv = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref());
     item.and_then(|i| inv.map(|inv| inv.count(i))).unwrap_or(0).max(0) as u32
 }
@@ -1610,7 +1655,13 @@ pub(crate) fn fire(
                 // In third person the view ray is the camera's, through the crosshair over
                 // the shoulder: the shot aims from the eye at what lies under it, as the
                 // eye's view ray does in first person (playtest list 4, item 12).
-                let leaving = {
+                let leaving = if let Some(point) = vats_shot.filter(|_| c.self_ammo) {
+                    // VATS mode's throw: from the eye on the low arc that lands on the mark
+                    // (vats-mode.md §16.3), at 45° when it is out of reach.
+                    let (speed, g) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.speed, p.gravity * gravity));
+                    let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
+                    shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
+                } else {
                     let world = view(&mut phys, ghosts(script.as_deref()));
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
@@ -2031,9 +2082,12 @@ fn melee(
     (mut messages, mut pushes, mut broken): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
+    mut vats: Option<ResMut<crate::vats_mode::VatsMode>>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
+    // VATS mode's swing due now: one tap of Use (vats-mode.md §16.2).
+    let vats_tap = vats.as_deref_mut().is_some_and(|v| v.take_swing());
     let Some(id) = c.weapon.filter(|_| c.melee) else { return };
     if !anim.ready {
         c.swings.reset();
@@ -2053,7 +2107,7 @@ fn melee(
     // Both legs crippled: no directional power attacks outside VATS mode (crippled-limbs.md
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
-    let input = MeleeInput { trigger: control.trigger, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
+    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
@@ -2086,24 +2140,44 @@ fn melee(
         // A blow that meets no one but strikes the world within reach (a wall, the
         // ground ahead) shows its impact there.
         let mut struck_world: Option<WorldHit> = None;
+        // VATS mode's swing lands on its mark when the mark is still close and the first
+        // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
+        let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
         let hits = {
             let world = view(&mut phys, ghosts(script.as_deref()));
-            // Low and high: a short creature at the player's feet is struck within the
-            // reach across the ground (`swing_reaching`).
-            let hits = fnv_combat::projectile::swing_reaching(&world, &c.tuning, eye, player.feet[2], player.look_dir(), reach, PLAYER);
-            let fan = fnv_combat::projectile::swing(&world, &c.tuning, eye, player.look_dir(), [0.0, 0.0, 1.0], reach, PLAYER).len();
-            if hits.len() > fan {
-                info!("combat: swing reaches {} actors (reach {reach:.0}), {} of them out of the fan of rays at eye height", hits.len(), hits.len() - fan);
-            }
-            if hits.is_empty() {
-                let ahead = world.ray(eye, vec::add(eye, vec::scale(player.look_dir(), 400.0)), &[]);
-                struck_world = ahead.clone().filter(|h| h.actor.is_none() && h.distance <= reach);
+            let straight = vats_mark.and_then(|(target, point, close)| {
+                let flat = ((point[0] - eye[0]).powi(2) + (point[1] - eye[1]).powi(2)).sqrt();
+                let d = vec::sub(point, eye);
+                let end = vec::add(eye, vec::scale(vec::normalize(d), vec::len(d) + VATS_BLOW_PAST));
+                let hit = (flat <= close).then(|| world.ray(eye, end, &[PLAYER])).flatten().filter(|h| h.actor == Some(target as ActorId));
                 info!(
-                    "combat: swing misses (reach {reach:.0}); straight ahead: {}",
-                    ahead.map_or("nothing within 400".to_string(), |h| format!("{} at {:.0}", h.actor.map_or("the world".to_string(), |a| format!("actor {a:08X}")), h.distance))
+                    "combat: vats mode blow on {target:08X} ({}): {:.0} units across, {}",
+                    hit.as_ref().and_then(|h| h.part).map_or("whole".to_string(), |p| format!("part {p}")),
+                    flat,
+                    if hit.is_some() { "struck" } else { "not in reach or not first on the line: an ordinary swing" }
                 );
+                hit.map(|h| vec![(target as ActorId, h)])
+            });
+            if let Some(hits) = straight {
+                hits
+            } else {
+                // Low and high: a short creature at the player's feet is struck within the
+                // reach across the ground (`swing_reaching`).
+                let hits = fnv_combat::projectile::swing_reaching(&world, &c.tuning, eye, player.feet[2], player.look_dir(), reach, PLAYER);
+                let fan = fnv_combat::projectile::swing(&world, &c.tuning, eye, player.look_dir(), [0.0, 0.0, 1.0], reach, PLAYER).len();
+                if hits.len() > fan {
+                    info!("combat: swing reaches {} actors (reach {reach:.0}), {} of them out of the fan of rays at eye height", hits.len(), hits.len() - fan);
+                }
+                if hits.is_empty() {
+                    let ahead = world.ray(eye, vec::add(eye, vec::scale(player.look_dir(), 400.0)), &[]);
+                    struck_world = ahead.clone().filter(|h| h.actor.is_none() && h.distance <= reach);
+                    info!(
+                        "combat: swing misses (reach {reach:.0}); straight ahead: {}",
+                        ahead.map_or("nothing within 400".to_string(), |h| format!("{} at {:.0}", h.actor.map_or("the world".to_string(), |a| format!("actor {a:08X}")), h.distance))
+                    );
+                }
+                hits
             }
-            hits
         };
         // A blow that lands wears the weapon, once however many it strikes (§17); the
         // blow itself is dealt at the condition the weapon had.
@@ -2135,7 +2209,7 @@ fn melee(
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-            let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
+            let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
@@ -2189,6 +2263,9 @@ fn melee(
         }
     }
 }
+
+/// A VATS mode blow's line goes this far past its mark's point, units [design].
+const VATS_BLOW_PAST: f32 = 32.0;
 
 /// Explosions set off per frame at most (chains of destructibles) [design].
 const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
@@ -2329,7 +2406,13 @@ fn actor_attacks(
         }
         stats.actor_strikes += 1;
         let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
-        let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power: 1.0 };
+        // A person's power attack: × its direction's fDamagePowerAttack…Bonus, as the
+        // player's (combat-rules.md §10.1); a creature's deals its usual damage.
+        let power = b.anim.filter(|_| b.creature_damage.is_none()).and_then(fnv_combat::melee::PowerDir::of_group).map_or(1.0, |d| d.damage(&c.rules));
+        let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power };
+        if power != 1.0 {
+            info!("combat: {}'s power attack {} on {}: damage x{power:.1}", b.attacker, b.anim.unwrap_or("?"), b.target);
+        }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
         let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
@@ -3003,7 +3086,7 @@ mod tests {
         let mut phys = PhysState::default();
         let id = 0x1234;
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
-        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], sink: 0.0 });
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0 });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
     }

@@ -30,20 +30,7 @@ use bevy::math::{Mat3, Vec3};
 use fnv_collide::Iso;
 use nvf_assets::actor::PreparedSkeleton;
 
-/// One `XRGD` entry: position (game units) and angles (radians).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Bone {
-    pub position: [f32; 3],
-    pub angles: [f32; 3],
-}
-
-/// The entries of an `XRGD` subrecord: 28 bytes each, a byte (not used), three bytes of
-/// padding, then six little-endian floats [documented: xEdit wbRagdoll].
-pub fn parse(data: &[u8]) -> Vec<Bone> {
-    let f = |c: &[u8; 28], i: usize| f32::from_le_bytes([c[4 + 4 * i], c[5 + 4 * i], c[6 + 4 * i], c[7 + 4 * i]]);
-    let (entries, _) = data.as_chunks::<28>();
-    entries.iter().map(|c| Bone { position: [f(c, 0), f(c, 1), f(c, 2)], angles: [f(c, 3), f(c, 4), f(c, 5)] }).collect()
-}
+pub use fnv_world::xrgd::{parse, Bone};
 
 /// A reference-style rotation as a matrix (`v' = M v`).
 pub fn rotation(angles: [f32; 3]) -> Mat3 {
