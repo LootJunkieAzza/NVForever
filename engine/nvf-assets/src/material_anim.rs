@@ -49,6 +49,8 @@ pub struct MaterialSlot {
     pub emissive_mult: f32,
     /// Stored material alpha.
     pub alpha: f32,
+    /// Stored refraction strength (0 unless the shape refracts).
+    pub refraction: f32,
     /// What was last written, before the rig's fade, and the fade it was written with.
     last: Option<Look>,
     faded: f32,
@@ -56,7 +58,7 @@ pub struct MaterialSlot {
 
 impl MaterialSlot {
     pub fn new(shape: String, entity: Entity, handle: Handle<NifMaterial>, emissive: [f32; 3], emissive_mult: f32, alpha: f32) -> MaterialSlot {
-        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, last: None, faded: 1.0 }
+        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, refraction: 0.0, last: None, faded: 1.0 }
     }
 }
 
@@ -70,13 +72,15 @@ pub struct Look {
     pub scale: [f32; 2],
     pub rotate: f32,
     pub alpha: f32,
+    /// Refraction strength (`nif_material`, "Refraction").
+    pub refraction: f32,
 }
 
 impl Look {
     /// A material's stored look: its emissive colour and multiplier and its alpha, the
     /// texture where the model puts it.
     pub fn stored(colour: [f32; 3], mult: f32, alpha: f32) -> Look {
-        Look { colour, mult, uv: [0.0; 2], scale: [1.0; 2], rotate: 0.0, alpha }
+        Look { colour, mult, uv: [0.0; 2], scale: [1.0; 2], rotate: 0.0, alpha, refraction: 0.0 }
     }
 
     /// Take the value of a track of `target` (`v`: its sample) into the look.
@@ -88,6 +92,7 @@ impl Look {
             MaterialTarget::UvScale(axis) => self.scale[axis] = v[0],
             MaterialTarget::UvRotate => self.rotate = v[0],
             MaterialTarget::Alpha => self.alpha = v[0].clamp(0.0, 1.0),
+            MaterialTarget::Refraction => self.refraction = v[0].max(0.0),
         }
     }
 
@@ -112,25 +117,27 @@ pub struct Driven {
     pub emissive: bool,
     pub texture: bool,
     pub alpha: bool,
+    pub refraction: bool,
 }
 
 impl Driven {
-    pub const ALL: Driven = Driven { emissive: true, texture: true, alpha: true };
+    pub const ALL: Driven = Driven { emissive: true, texture: true, alpha: true, refraction: true };
 
     pub fn of(target: MaterialTarget) -> Driven {
         match target {
             MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult => Driven { emissive: true, ..default() },
             MaterialTarget::UvOffset(_) | MaterialTarget::UvScale(_) | MaterialTarget::UvRotate => Driven { texture: true, ..default() },
             MaterialTarget::Alpha => Driven { alpha: true, ..default() },
+            MaterialTarget::Refraction => Driven { refraction: true, ..default() },
         }
     }
 
     pub fn or(self, o: Driven) -> Driven {
-        Driven { emissive: self.emissive || o.emissive, texture: self.texture || o.texture, alpha: self.alpha || o.alpha }
+        Driven { emissive: self.emissive || o.emissive, texture: self.texture || o.texture, alpha: self.alpha || o.alpha, refraction: self.refraction || o.refraction }
     }
 
     pub fn any(self) -> bool {
-        self.emissive || self.texture || self.alpha
+        self.emissive || self.texture || self.alpha || self.refraction
     }
 }
 
@@ -157,6 +164,9 @@ pub fn pose_material(m: &mut NifMaterial, look: &Look, driven: Driven, unlit_glo
     if driven.alpha {
         m.base.base_color.set_alpha(alpha);
     }
+    if driven.refraction && m.extension.refract {
+        m.extension.refraction = look.refraction;
+    }
 }
 
 /// On the root of a rig whose clips drive materials.
@@ -182,7 +192,7 @@ pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, clock: f
     slots
         .iter()
         .map(|s| {
-            let mut l = Look::stored(s.emissive, s.emissive_mult, s.alpha);
+            let mut l = Look { refraction: s.refraction, ..Look::stored(s.emissive, s.emissive_mult, s.alpha) };
             if let Some(last) = s.last {
                 (l.uv, l.scale, l.rotate, l.alpha) = (last.uv, last.scale, last.rotate, last.alpha);
             }

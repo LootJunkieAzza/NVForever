@@ -73,8 +73,7 @@ Survey of the 76 files under `meshes\effects\` whose names hold "explosion", "im
   length (5.03 s for the frag grenade), else 5 s [design]; its particles live on in the
   world (particles.md §2). An impact's model stays for its IPCT's effect duration
   [documented: xEdit IPCT "Effect - Duration"].
-- **Not played**: `BSRefractionStrengthController` (the renderer has no refraction),
-  `NiGeomMorpherController` (`explosionsplash.nif`), `NiPSysGravityStrengthCtlr`,
+- **Not played**: `NiGeomMorpherController` (`explosionsplash.nif`), `NiPSysGravityStrengthCtlr`,
   `NiPSysEmitterSpeedCtlr`, `NiPSysEmitterInitialRadiusCtlr` (`fxhelios_laserimpact.nif`),
   the bomb modifier (`NiPSysBombModifier`, 4 files), particle colliders.
 
@@ -125,8 +124,103 @@ rest of its 2.8 s, by its data.
 - **Impact decals** (scorch marks): IPCT `DODT` decal data and the texture set; impact
   decals are not built for any impact. A step of its own (projected decals on
   terrain and statics).
-- Heat haze (refraction), the bomb modifier, particle colliders, spawn on death, mesh
+- The bomb modifier, particle colliders, spawn on death, mesh
   emitters (7 explosion files emit from meshes: their systems are not drawn).
 - Everything in §2–§5 tagged hypothesis is checked only against how it looks; to compare
   with frames of the game: a frag grenade and a missile going off at a known distance and
   hour (compare-frames rules in owner-review.md).
+
+## 7. Heat haze (refraction) [2026-10-20]
+
+The owner saw the Incinerator's fire burst as "an untextured dome shape that expands".
+
+- **The file** [observed, `fnvtool nif decode` of `meshes\dlc03\effects\dlc03flamerexplosion.nif`,
+  the model of EXPLs `NVIncineratorFireBurst` and `DLC03FlamerFireBurst`]: under its root a
+  billboard node `Refract` with one shape `Refract:0` (a `BSShaderPPLightingProperty` with
+  shader flags 0x82018101: bits 15 "Refraction" and 16 "Fire_Refraction" [documented:
+  nif.xml BSShaderFlags], refraction strength 0.0556, fire period 10, textures
+  `FXPartTinyGlowy.dds` and `FXNormalDistort_n.dds`, no `NiAlphaProperty`); a billboard
+  `Core` (an additive glow, stored alpha 0, faded in and out by its alpha controller);
+  add-on nodes `AddOnNode00` (ADDN MPSFireMed01, the flames) and `AddOnNode35`
+  (MPSSmokeSmall01). Its sequence grows `Refract` and `Core` (transform tracks), shows
+  `Refract` for 0.3 s (visibility keys), and keys the refraction strength 0.056 → 0.156 at
+  0.033 s → 0.056 at 0.23 s (`BSRefractionStrengthController` on the shape's shader
+  property).
+- Drawn as an ordinary lit shape, `Refract:0` is opaque and shows its glow texture as a
+  grey dome over the flames: the owner's report.
+- **Census** [observed, 2026-10-20]: of the 257 models that PROJ (model, muzzle flash),
+  EXPL, IPCT and ADDN records of FalloutNV.esm and the add-on plugins name, 31 have a
+  shape with the Refraction flag, all on `BSShaderPPLightingProperty` (28 with Fire
+  Refraction too, 28 with a refraction strength controller): explosion shells of the
+  missile (`explosiongenericl01.nif`), the nukes (`explosionlarge01.nif`,
+  `explosionbigfiry.nif`), the gas trap and flamer crit burst (`fxgastrapblast.nif`), the
+  Nuka grenade, the Gauss rifle (`dlcanchgaussexplosion01.nif`), the orbital strike. Outside
+  weapons, Mister Handy's jet (`creatures\mistergutsy\fxmrhandyjetaddon.nif`) has three
+  refracting cloud meshes whose diffuse is plain white (`FXWHITE.dds`) and whose normal map
+  is flat (`FXFlatNormal_n.dds`), strength 0.04.
+- **Rule** [hypothesis]: a shape with the Refraction flag is not drawn as a surface; it
+  shows what lies behind it shifted on the screen by its normal (normal map applied) in
+  view space times its refraction strength, in screen UV. Reasons: the jet's white,
+  flat-normal clouds only make sense as distortion, and with a flat normal map the bend
+  must come from the mesh's own normals; a strength of 0.05 as a share of the screen is a
+  visible but small shift. The diffuse texture is not used. Fire Refraction (bit 16) and
+  the fire period are not used: what they change is not known (perhaps a scroll of the
+  normal map; `BSRefractionFirePeriodController` exists in 13 files).
+- Built (`nvf_assets::nif_material`, "Refraction"): drawn after the opaque pass from
+  Bevy's copy of it, as the water is; no depth written, so the flames and smoke inside
+  the shell show; nothing drawn into shadow maps. Particles and blended shapes are drawn
+  later and are not bent by it. The strength keys play with the effect clip
+  (`MaterialTarget::Refraction`), and placed objects' free strength controllers too.
+- Checked by eye only (smoke `incinerator-heat-haze`, frames 0.1–2 s after the burst):
+  flames and smoke, no dome. Not compared with game frames.
+
+## 8. Audit of weapon effect models [2026-10-20]
+
+The census in §7 also listed, per model, what the engine reads or plays [observed,
+script over `fnvtool nif decode`; supported types taken from the code of
+`nvf_assets::particles`, `model.rs` effect clips and `material_anim.rs`]:
+
+| Gap | Models | Examples | Where |
+|---|---|---|---|
+| Refraction shells drawn as solid shapes | 31 | Incinerator, missile, nukes, Gauss | fixed here (§7) |
+| `NiPSysMeshEmitter`: systems not drawn | 21 | `fxexplosionplasma.nif`, `fxgastrapblast.nif`, `explosionfiresmall01.nif` | particles session |
+| `BSStripParticleSystem` + `BSPSysStripUpdateModifier` | 2 | `projectiles\flamerflame01.nif` (every flamer), Cleansing Flame | particles session |
+| `NiPSysEmitterSpeedCtlr`, `NiPSysGravityStrengthCtlr`, `NiPSysEmitterInitialRadiusCtlr`, declination/planar angle controllers | 11, 8, 4, 1, 1 | `bloodspraylimb01.nif`, `explosiongenericl01.nif` | particles session |
+| `NiPSysBombModifier`; `NiPSysColliderManager`/`NiPSysPlanarCollider` | 8; 4 | `impactexplosiondirt.nif`, laser projectiles | particles session |
+| Impact decals (IPCT DODT, texture sets) | all impacts | flamer scorch, bullet holes | decals session |
+| NPCs' muzzle flashes at the shot's start, unturned | — | every NPC gun | NPC muzzle session |
+| Model files absent from the data | 2 | `sonicredprojectile01.nif`, `sonicredmuzzleflash01.nif` (Old World Blues) | the game's data |
+| Texture absent | 1 | `nvdlc04flashbanggrenade_n.dds` | the game's data |
+
+Texture paths written absolute in five Old World Blues projectiles and a Honest Hearts
+muzzle flash (`d:\projects\fallout\game\data\textures\...`) resolve: `fnv_vfs::texture_path`
+keeps what follows `\textures\`.
+
+## 9. Unlit cards without an alpha property [2026-10-20]
+
+The owner saw the Fat Man leave "a white mushroom cloud shape" behind.
+
+- **The file** [observed, `fnvtool nif decode` of `meshes\effects\explosionlarge01.nif`, the
+  model of `FatManNukeExplosion`, also of `SatcomNukeExplosion`, `vHDHooverDamExplosion` and
+  others]: a billboard `SmokeGeo` with one shape `SmokeGeo:0`, a mushroom-cloud card
+  (`FXNukeCloud02.dds`) under a `BSShaderNoLightingProperty` with shader flags 0x82080148
+  (bits 3 "Vertex_Alpha" and 19 "Dynamic_Alpha" among them [documented: nif.xml
+  BSShaderFlags]), a `NiMaterialProperty` with alpha 0, and no `NiAlphaProperty`. The
+  sequence shows `SmokeGeo` until 4.97 s and keys its alpha 0 until 1.3 s, 0.99 at 1.77 s,
+  0.96 at 3.8 s, 0 at 4.9 s.
+- Without an `NiAlphaProperty` the shape was drawn opaque, so the alpha keys did nothing
+  and the card stood whole from the burst until 4.97 s.
+- **Census** [observed]: of the 257 weapon effect models only two shapes have an unlit
+  shader with Dynamic_Alpha and no `NiAlphaProperty`: `SmokeGeo:0` and `WhiteBG:0` of
+  `explosionincendiarygrenade.nif`, and alpha tracks fade both from a stored alpha of 0.
+  In the base mesh archives 29 more shapes have such a shader without the property
+  (Lucky 38's light glows, `terminal01.nif`'s screen and keyboard, Mr. House's screens,
+  the Purity tank fog); no clip drives their alpha.
+- **Rule** [hypothesis]: an unlit shape with Dynamic_Alpha whose alpha a clip of its model
+  drives is drawn blended (source alpha, inverse source alpha); the others stay opaque as
+  they were checked against the owner's frames. Reading: a fade keyed from 0 to 1 and
+  back only means something if the shape blends.
+- Smoke `fatman-mushroom`: frames before, during and after the card's time.
+- The Fat Man file's mesh emitters emit from two hidden mushroom-shaped meshes
+  (`pCloudSkyEmit01:0`, `pCloudGroundEmit02:0`, Hidden flag set, no texture); they are
+  never drawn (§8: mesh emitters belong to the particles session).

@@ -20,6 +20,11 @@
 // sun's shadows on the shape are those in the shade light's shadow map
 // (`with_shade_light`) [engineering choice].
 //
+// REFRACT (shapes with the Refraction shader flag, main pass): what lies behind the shape
+// (Bevy's view transmission texture), shifted on the screen by the shape's normal (normal
+// map applied) in view space times `surface.refraction` [hypothesis, nif_material.rs
+// "Refraction"]; nothing of the shape's own colour or lighting.
+//
 // SOFT_EDGES (alpha-tested shapes in the main pass of a multisampled view): instead of
 // the alpha test, the fragment's alpha is the share of the pixel's samples it covers
 // (nif_material.rs `soft_edges`).
@@ -43,7 +48,8 @@
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
     pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD},
     lighting::{EnvBRDFApprox, F_AB},
-    mesh_view_bindings::{lights, view},
+    mesh_view_bindings::{lights, view, view_transmission_texture, view_transmission_sampler},
+    view_transformations::frag_coord_to_uv,
 }
 #ifdef SHADE_LIGHT
 #import bevy_pbr::{
@@ -65,6 +71,8 @@ struct NifSurface {
     // 1: an additive shape with source factor ONE, which adds its colour whole (only the
     // view-angle falloff fades it); 0 otherwise.
     add_whole: f32,
+    // REFRACT: the screen shift (UV) per unit of the view-space normal; 0 otherwise.
+    refraction: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
@@ -171,6 +179,13 @@ fn fragment(
     visibility_range_dither(in.position, in.visibility_range_dither);
 #endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+#ifdef REFRACT
+    let tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
+    let shifted = clamp(frag_coord_to_uv(in.position.xy) + vec2(tilt.x, -tilt.y) * surface.refraction, vec2(0.0), vec2(1.0));
+    var refracted: FragmentOutput;
+    refracted.color = vec4(textureSampleLevel(view_transmission_texture, view_transmission_sampler, shifted, 0.0).rgb, 1.0);
+    return refracted;
+#endif
     // |N·V|: the normal is already flipped towards the viewer on back faces of double-sided
     // shapes; abs() also covers single-sided ones seen edge-on.
     let cos_angle = abs(dot(normalize(pbr_input.world_normal), pbr_input.V));

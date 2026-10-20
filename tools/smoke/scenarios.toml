@@ -3767,6 +3767,35 @@ expect = [
   { re = 'shot fx: (?P<n>\d+) effect models played their own animation, 1 explosion screen effects', range = [2, 1000] },
 ]
 
+[[scenario]]
+name = "incinerator-heat-haze"
+source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
+note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; steps from 9 s so a slow start does not run the draw and the shots in one frame; frames at 0.3-2 s after the shots for the eye (the shell shows only for its first 0.3 s)"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "000906DA", NVF_PLAY_TEST_GIVE = "00029371:60", NVF_PLAY_TEST_LOOK = "9:46:-8", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "12.5:incinerator_0.png,12.7:incinerator_1.png,12.9:incinerator_2.png,13.3:incinerator_3.png,14:incinerator_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'combat: explosion \S*IncineratorFireBurst at', label = "the Incinerator's fire burst goes off" },
+  { re = 'shot fx: explosion meshes.dlc03.effects.dlc03flamerexplosion.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect \(.*, [1-9]\d* material\)', label = "its model: one refracting shell, material tracks played" },
+  { re = 'particles: add-on node 0 meshes.mps.mpsfiremed01.nif: [1-9]\d* system', label = "the fire add-on (MPSFireMed01) has systems to emit" },
+]
+
+[[scenario]]
+name = "fatman-mushroom"
+source = "owner 2026-10-20: the Fat Man left a white mushroom-cloud shape behind (docs/spec-notes/explosion-effects.md §9): its EXPL model explosionlarge01.nif has an unlit mushroom card SmokeGeo:0 with no NiAlphaProperty, stored alpha 0, faded in from 1.3 s and out by 4.9 s by its alpha track; it blends now, and its heat-haze shell GeoSphere03:0 refracts (§7)"
+note = "Fat Man (0000432C) with two mini nukes (00020799) fired at the ground beyond the Prospector Saloon, god mode; frames before, during and after the mushroom card's time for the eye: it fades in and out, never stands as a solid white shape"
+areas = ["combat", "particles"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "9:46:-2", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "13.5:fatman_0.png,14.5:fatman_1.png,15.5:fatman_2.png,17:fatman_3.png,19:fatman_4.png,21:fatman_5.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 24
+expect = [
+  { re = 'combat: explosion FatManNukeExplosion at', label = "the mini nuke goes off" },
+  { re = 'shot fx: explosion meshes.effects.explosionlarge01.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect', label = "its model: one refracting shell, its sequence played" },
+]
+
 # ------------------------------------------------------------------ playtest list 5: HUD (workstream D1)
 
 [[scenario]]
@@ -4846,6 +4875,20 @@ run_seconds = 40
 expect = [
   "GoodspringsSettler01Ref: package GomezEscortToAtrium",
   { re = 'GoodspringsSettler01Ref: escorts 0x00000014: waits, it is (?P<n>\d+) units behind', range = [300, 420], label = "it waits about the escort distance (300) ahead of the player" },
+]
+
+[[scenario]]
+name = "package-escort-fights"
+source = "An escort joins its charge's fights (fnv-game provocation.rs escorts_assist; docs/spec-notes/packages.md §3.1)"
+note = "the package-escort setup (a Goodsprings settler 256 units from the player given GomezEscortToAtrium, whose charge is the player); at 7 s Victor (VVictorFaction, neutral to the settler and the player) is put 700 units off and set on the player with StartCombat; the player is in god mode. The settler, which would leave Victor alone, takes up the player's fight against him"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler01Ref:player:256:0:0,4:call:GoodspringsSettler01Ref:AddScriptPackage:GomezEscortToAtrium,7:moveto:VictorREF:player:700:0:0,8:call:VictorREF:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler01Ref: package GomezEscortToAtrium",
+  { re = 'provocation: GoodspringsSettler01Ref 0x00104F03 helps the player against VictorREF 0x00103DFE', label = "the escort takes up the player's fight against Victor" },
 ]
 
 [[scenario]]

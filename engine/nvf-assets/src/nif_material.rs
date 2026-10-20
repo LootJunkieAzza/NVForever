@@ -39,6 +39,16 @@
 //! a cut ([`NifSurface::alpha_cut`]): fragments below it are dropped, the rest blend
 //! (docs/spec-notes/nif.md §6 "Alpha", "Vertex alpha and the test").
 //!
+//! Refraction: a shape with the Refraction shader flag (`nif_spawn::refracts`: explosions'
+//! heat-haze shells, Mister Handy's jet) is not drawn as a surface; it shows what lies
+//! behind it, shifted on the screen by its normal (normal map applied) in view space times
+//! its refraction strength ([`NifSurface::refraction`], which the model's
+//! `BSRefractionStrengthController` animates) [hypothesis, docs/spec-notes/
+//! explosion-effects.md §7]. It is drawn after the opaque pass from Bevy's copy of it (the
+//! view transmission texture, as the water is), writes no depth, so the flames and smoke
+//! inside a fireball's shell still show, and draws nothing into the depth-only passes
+//! (shadows). Particles and other blended shapes are drawn later and are not bent.
+//!
 //! Shade light: a shape can take the sun's shadows from another light's shadow map
 //! instead of the sun's own ([`NifSurface::shade_light`]). That light is a second
 //! directional light with shadows, pointing as the sun does, so its shadow map holds the
@@ -54,7 +64,7 @@ use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, CompareFunction, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
 /// fade_prepass.wgsl.
@@ -146,6 +156,12 @@ pub struct NifSurface {
     /// other shape (an additive SRC_ALPHA / ONE shape adds colour × [`add_alpha`]).
     #[uniform(100)]
     pub add_whole: f32,
+    /// The screen shift of a refracting shape per unit of its view-space normal (module
+    /// notes, "Refraction"), in screen UV; 0 for every other shape.
+    #[uniform(100)]
+    pub refraction: f32,
+    /// The shape refracts (module notes, "Refraction").
+    pub refract: bool,
     /// The shape lies on another surface (a decal shader flag is set): drawn with
     /// [`decal_bias`].
     pub decal: bool,
@@ -158,7 +174,7 @@ pub struct NifSurface {
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, add_whole: 0.0, decal: false, hard_edges: false, shade_light: false }
+        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, add_whole: 0.0, refraction: 0.0, refract: false, decal: false, hard_edges: false, shade_light: false }
     }
 }
 
@@ -166,13 +182,14 @@ impl Default for NifSurface {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NifSurfaceKey {
     pub decal: bool,
+    pub refract: bool,
     pub hard_edges: bool,
     pub shade_light: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
     fn from(surface: &NifSurface) -> Self {
-        NifSurfaceKey { decal: surface.decal, hard_edges: surface.hard_edges, shade_light: surface.shade_light }
+        NifSurfaceKey { decal: surface.decal, refract: surface.refract, hard_edges: surface.hard_edges, shade_light: surface.shade_light }
     }
 }
 
@@ -200,6 +217,9 @@ impl MaterialExtension for NifSurface {
                 fragment.shader_defs.push("SHADE_LIGHT".into());
             }
         }
+        if key.bind_group_data.refract {
+            refraction_pipeline(descriptor);
+        }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
             depth_stencil.bias.constant = raster_bias(depth_stencil.bias.constant);
@@ -208,6 +228,24 @@ impl MaterialExtension for NifSurface {
             }
         }
         Ok(())
+    }
+}
+
+/// The pipeline of a refracting shape (module notes, "Refraction"): in the main pass the
+/// shader gets `REFRACT` and no depth is written; a depth-only pass (the shadow maps; Bevy
+/// leaves such materials out of the view's prepass) passes no fragment.
+fn refraction_pipeline(descriptor: &mut RenderPipelineDescriptor) {
+    let prepass = descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE"));
+    if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
+        depth_stencil.depth_write_enabled = Some(false);
+        if prepass {
+            depth_stencil.depth_compare = Some(CompareFunction::Never);
+        }
+    }
+    if !prepass {
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("REFRACT".into());
+        }
     }
 }
 
@@ -465,20 +503,25 @@ mod tests {
         let lod = decal_bias(DepthBiasState { constant: -50, ..default() });
         assert_eq!(lod.constant, DECAL_BIAS - 50);
         assert_eq!(raster_bias(decal.constant), decal.constant);
-        // Only the decal and hard-edge switches select the pipeline; the falloff and the
+        // Only the decal, refraction, hard-edge and shade-light switches select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, hard_edges: false, shade_light: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false });
         assert_eq!(surface.alpha_cut, 0.0);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         surface.alpha_cut = 0.5;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: false, shade_light: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: true, shade_light: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: true, shade_light: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true });
+        // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
+        surface.refraction = 0.1;
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true });
+        surface.refract = true;
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true });
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).
