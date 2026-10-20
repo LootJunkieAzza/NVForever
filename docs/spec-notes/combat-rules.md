@@ -637,7 +637,8 @@ module notes).
     other objects.
 
   Bullets damage the destructible they hit with the hit's damage (no armour). The
-  stages' damaged models and `BSDamageStage` nodes are not drawn yet; they are logged.
+  stages' damaged models are not drawn yet (logged); of the `BSDamageStage` nodes only
+  the add-on nodes below them follow the stage (smoke, fire: `destruction-stages.md`).
 - **Test aids:** `equip=<FormID>` switches weapons during a run.
 - **Checked** [observed 2026-10-09, `nvforever --play`, exit 0, "run finished"]:
   - **Truck02** (0x000E7F40, 450 health, 6 stages): one missile's blast took it to stage

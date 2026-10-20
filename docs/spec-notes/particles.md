@@ -153,7 +153,10 @@ for models placed in cells (§5: fires, steam, smoke). Code:
   system with `explosionfire01.dds` plus a `BSValueNode` add-on node 14 (ADDN
   `MPSFireSmall01`) [observed, `fnvtool world refs`, `fnvtool nif decode`, 2026-10-20].
   A reference's scale moves and sizes the emitter box but not the particles' radii
-  [hypothesis: the game's rule not known].
+  [hypothesis: the game's rule not known]. An add-on node below a `BSDamageStage` node
+  emits only while its reference is at one of that node's model damage stages (a
+  motorcycle's smoke once it is damaged, never on the Prospector Saloon's static bikes):
+  `destruction-stages.md`.
 - Not built: turbulence, spawn on death, spherical colliders, the ADDN's sound and particle cap,
   the dust devils' path (`fxdustwhirlwind01.nif` emits from a mesh emitter that moves along
   a path). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
