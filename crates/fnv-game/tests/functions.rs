@@ -718,6 +718,24 @@ fn destruction_stages_from_combat_damage() {
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
 }
 
+/// The model damage stage follows the destruction stage reached (the fixture's DSTDs
+/// give each stage its index as damage stage), 0 before any damage, after
+/// ClearDestruction and for a reference without destruction data.
+#[test]
+fn model_damage_stage_follows_the_stage_reached() {
+    let f = fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert_eq!(g.model_damage_stage(acti), 0);
+    g.damage_object(acti, 60.0);
+    assert_eq!(g.model_damage_stage(acti), 1);
+    g.damage_object(acti, 100.0);
+    assert_eq!(g.model_damage_stage(acti), 2);
+    call(&mut g, 0x11D8, Some(ACTI_REF), &[]);
+    assert_eq!(g.model_damage_stage(acti), 0);
+    assert_eq!(g.model_damage_stage(FormId(ADULT_REF)), 0);
+}
+
 /// DamageObject from a script queues the stage changes for the engine (their
 /// explosions and models), as a hit's are; a call that reaches no new stage queues none.
 #[test]

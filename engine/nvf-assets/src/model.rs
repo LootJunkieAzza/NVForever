@@ -98,6 +98,25 @@ pub struct ModelNode {
     /// stands for [observed: the value is the number in the node's name `AddOnNode<n>`
     /// in every file looked at; docs/spec-notes/particles.md].
     pub addon: Option<i32>,
+    /// A `BSDamageStage`: the model damage stages, lowest and highest, its children are
+    /// shown at (its `min` and `max`, from the name `DamageStage<min>-<max>`)
+    /// [documented: nif.xml BSRangeNode fields; hypothesis: their meaning,
+    /// docs/spec-notes/destruction-stages.md].
+    pub damage_stages: Option<(i32, i32)>,
+}
+
+/// The model damage stages node `i` of `nodes` is shown at: the overlap of the ranges of
+/// the `BSDamageStage` nodes it is, or is below; `None`: at every stage.
+pub fn damage_stages_of(nodes: &[ModelNode], i: usize) -> Option<(i32, i32)> {
+    let mut out: Option<(i32, i32)> = None;
+    let mut at = Some(i);
+    while let Some(n) = at {
+        if let Some((lo, hi)) = nodes[n].damage_stages {
+            out = Some(out.map_or((lo, hi), |(a, b)| (a.max(lo), b.min(hi))));
+        }
+        at = nodes[n].parent;
+    }
+    out
 }
 
 /// The nodes of a file below its roots, parents before children, and each one's index
@@ -122,7 +141,8 @@ pub fn model_nodes(objects: &[SceneObject]) -> (Vec<ModelNode>, HashMap<usize, u
             // a scene object's fields.
             let billboard = (co.type_name == "NiBillboardNode").then_some(0);
             let addon = (co.type_name == "BSValueNode").then_some(-1);
-            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform), billboard, addon });
+            let damage_stages = (co.type_name == "BSDamageStage").then_some((0, i32::MAX));
+            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform), billboard, addon, damage_stages });
             queue.push(c);
         }
     }
@@ -713,6 +733,11 @@ impl ModelCtx<'_> {
             if nodes[*i].addon.is_some() {
                 nodes[*i].addon = dec.blocks[*block].as_ref().ok().and_then(|s| s.int("value")).map(|v| v as i32);
             }
+            if nodes[*i].damage_stages.is_some() {
+                let field = |k: &str| dec.blocks[*block].as_ref().ok().and_then(|s| s.int(k)).map(|v| v as i32);
+                // Unread: shown once damaged at all, never on the intact model [design].
+                nodes[*i].damage_stages = Some(field("min").zip(field("max")).unwrap_or((1, i32::MAX)));
+            }
         }
         out.nodes = nodes;
         out.particles = file.blocks.iter().any(|b| matches!(b.type_name.as_str(), "NiParticleSystem" | "BSStripParticleSystem"));
@@ -953,6 +978,18 @@ impl ModelCtx<'_> {
 mod tests {
     use super::*;
     use fnv_nif::scene::Transform as NifTransform;
+
+    #[test]
+    fn nodes_below_damage_stages_take_their_ranges() {
+        let node = |parent, damage_stages| ModelNode { name: None, parent, local: Affine3A::IDENTITY, billboard: None, addon: None, damage_stages };
+        // motorcycle01.nif's shape: Motorbike > DamageStage1-3 > AddOnNode2, and a
+        // range nested in another.
+        let nodes = [node(None, None), node(Some(0), Some((1, 3))), node(Some(1), None), node(Some(1), Some((2, 5))), node(Some(0), None)];
+        assert_eq!(damage_stages_of(&nodes, 0), None);
+        assert_eq!(damage_stages_of(&nodes, 2), Some((1, 3)));
+        assert_eq!(damage_stages_of(&nodes, 3), Some((2, 3)));
+        assert_eq!(damage_stages_of(&nodes, 4), None);
+    }
 
     #[test]
     fn a_cached_model_goes_once_nothing_draws_it() {
