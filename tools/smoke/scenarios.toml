@@ -4600,6 +4600,37 @@ expect = [
 ]
 
 [[scenario]]
+name = "true-iron-sights"
+source = "owner 2026-10-20 (screenshots of the Varmint Rifle and Weathered 10mm aimed with and without true iron sights): aimed, the arms rig lines the gun's ##SightingNode up with the eye and the crosshair goes (engine/nvforever/src/iron_sights.rs)"
+note = "the 10mm pistol (0000434F) drawn at 9 s, Block held 12-15 s; screenshot at 14 s"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/iron_sights.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,15:aim", NVF_PLAY_TEST_SHOTS = "14" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'true iron sights: the sights are on the eye', label = "aimed, the pistol's sights come onto the eye" },
+  { re = 'true iron sights: off the eye', label = "letting go of Block lowers the pistol again" },
+  { re = 'crosshair: hidden down the true iron sights', label = "no crosshair down the sights" },
+  { re = 'crosshair: shown again', label = "the crosshair is back after aiming" },
+]
+
+[[scenario]]
+name = "true-iron-sights-laser"
+source = "owner 2026-10-20: the laser rifle's model has no sighting node, so it keeps the original aim and its crosshair (engine/nvforever/src/iron_sights.rs)"
+note = "Laser rifle drawn at 3 s, Block held 6-9 s"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/iron_sights.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00004336", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aim,9:aim" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'aim zoom: \S+ \(\S+\) sight FOV', label = "the laser rifle still zooms when aimed" },
+  { re = 'true iron sights: the sights are on the eye', count = 0, label = "the laser rifle keeps the original aim" },
+  { re = 'crosshair: hidden down the true iron sights', count = 0, label = "the laser rifle keeps its crosshair" },
+]
+
+[[scenario]]
 name = "weapon-mount-bones"
 kind = "tool"
 source = "owner's playtest 2026-10-16 (Fiends held the baseball bat the wrong way round): the drawn bone is the equip clip's, docs/spec-notes/animation.md §9.10"

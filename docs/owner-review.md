@@ -6765,6 +6765,27 @@ against our engine with its scripts, over the first two game hours. Choices made
 *Check:* walk in through the Strip's north gate for the first time at night: the four
 troopers walk in, two lean on the wall and stay there until they go on towards the
 embassy; Victor's securitron comes up to talk.
+
+## True iron sights (2026-10-20, branch claude/true-iron-sights)
+
+docs/spec-notes/camera.md §4.1. Aiming a gun now lines up its sights with the eye: each
+weapon model's `##SightingNode` (behind the gun, at sight height) is put on the camera,
+with the barrel along the view, eased in with the zoom. My choices:
+- **Which weapons**: as you said, the model decides: a weapon whose model has a sighting
+  node (`##SightingNode`, or `SightingNode` on 18 guns) gets them. The laser rifle,
+  laser pistol and minigun have none; the plasma rifle has one, so it does get them.
+  *Check:* the plasma rifle down its sights.
+- **Crosshair**: hidden from the moment the sights start coming up until they are down
+  again; the prompt under it ("E) Take") goes with it.
+- **Switch**: on by default, "True iron sights" on the settings page's Gameplay tab
+  (`--no-true-iron-sights`) gives the original aim and crosshair.
+- **What moves**: the arms and gun together (`Bip01 Translate`), turned and moved; the
+  camera stays where the clip puts it. Sway is laid on top.
+- **Eye on the node exactly**: the gun's rear end ends up as close to the eye as the node
+  says (12.5 units behind the varmint rifle's origin, 25.8 behind the 10mm's).
+  *Check:* compare against your three screenshots of each weapon.
+- **Scoped weapons** get the same treatment; their scope overlay is still not built.
+
 ## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
 
 docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
