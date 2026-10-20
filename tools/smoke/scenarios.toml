@@ -4513,6 +4513,21 @@ expect = [
 order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
 
 [[scenario]]
+name = "ragdoll-armour-template"
+source = "docs/spec-notes/ragdoll.md §6: an armour's BMCT names a Ragdoll Template laid over the wearer's ragdoll; the 17 armours that name one (the power armours among them) all name RagdollConstraint\\default.rdt, which no archive of the game holds, so Ringo killed in T-45d power armour falls on his skeleton's own bodies and joints, and the log says why"
+areas = ["combat", "ragdoll"]
+paths = ["crates/fnv-collide/src/ragdoll.rs", "crates/fnv-actor/src/records.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs", "schemas/nif/havok.json"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "10:00104C7D.additem 00014E13 1;10.3:00104C7D.equipitem 00014E13;10.6:00104C7D.getequipped 00014E13;11.5:00104C7D.killactor;14:00104C7D.getdead;14.5:close" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'console: GetEquipped on .*>> 1\.00', label = "Ringo wears the T-45d power armour" },
+  { re = 'console: GetDead on .*>> 1\.00', label = "Ringo is dead" },
+  { re = 'ragdoll template: meshes\\ragdollconstraint\\default\.rdt: not in the data; the skeleton.s own bodies and joints', label = "the armour's template is looked up and is not in the game's data" },
+]
+order = [[{ re = 'GetEquipped on .*>> 1\.00' }, { re = 'ragdoll template: meshes' }, { re = 'GetDead on .*>> 1\.00' }]]
+
+[[scenario]]
 name = "abilities-worn"
 source = "docs/spec-notes/aid-items.md §13 (capture abilities-1): authored abilities are on loaded actors only, so Victor outside reads 0 for his template's SecuritronDT from the gas station; the gambler hat's enchantment (Perception +1) is on the player while worn and gone once unequipped"
 areas = ["scripts", "items"]

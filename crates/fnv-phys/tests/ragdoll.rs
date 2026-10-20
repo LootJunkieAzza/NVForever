@@ -47,6 +47,7 @@ fn body(name: &str, shape: Shape, mass: f32, rest: [f32; 3]) -> RagdollBody {
         linear_damping: 0.1,
         angular_damping: 0.05,
         stored: at(rest),
+        unit: 7.0,
     }
 }
 
