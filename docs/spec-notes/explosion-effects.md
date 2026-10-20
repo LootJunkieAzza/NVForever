@@ -73,9 +73,10 @@ Survey of the 76 files under `meshes\effects\` whose names hold "explosion", "im
   length (5.03 s for the frag grenade), else 5 s [design]; its particles live on in the
   world (particles.md §2). An impact's model stays for its IPCT's effect duration
   [documented: xEdit IPCT "Effect - Duration"].
-- **Not played**: `NiGeomMorpherController` (`explosionsplash.nif`), `NiPSysGravityStrengthCtlr`,
-  `NiPSysEmitterSpeedCtlr`, `NiPSysEmitterInitialRadiusCtlr` (`fxhelios_laserimpact.nif`),
-  the bomb modifier (`NiPSysBombModifier`, 4 files), particle colliders.
+- **Not played**: `NiGeomMorpherController` (`explosionsplash.nif`). Played since
+  2026-10-20 (particles.md §6): `NiPSysGravityStrengthCtlr`, `NiPSysEmitterSpeedCtlr`,
+  `NiPSysEmitterInitialRadiusCtlr` and the other emitter float controllers, keyed birth
+  rates, the bomb modifier, planar colliders.
 
 ## 3. Particle modifiers switched on and off
 
@@ -121,9 +122,9 @@ rest of its 2.8 s, by its data.
 
 ## 6. Not built, open
 
-- Impact decals (scorch marks, bullet holes) are built: impact-decals.md.
-- The bomb modifier, particle colliders, spawn on death, mesh
-  emitters (7 explosion files emit from meshes: their systems are not drawn).
+- Spawn on death. Impact decals (scorch marks, bullet holes) are built: impact-decals.md.
+  Mesh emitters, the bomb modifier and particle colliders are built since 2026-10-20
+  (particles.md §6).
 - Everything in §2–§5 tagged hypothesis is checked only against how it looks; to compare
   with frames of the game: a frag grenade and a missile going off at a known distance and
   hour (compare-frames rules in owner-review.md).

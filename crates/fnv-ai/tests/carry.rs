@@ -493,6 +493,51 @@ fn a_restrained_actor_stays_in_place_until_released() {
     assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
 }
 
+/// A caller whose character movement carries an actor straight on along its heading
+/// (as the engine's character controller does on open ground).
+struct StraightOn;
+
+impl fnv_ai::Mover for StraightOn {
+    fn coast(&mut self, _actor: FormId, walker: &mut fnv_nav::Walker, dt: f32) -> bool {
+        let d = fnv_nav::follow::dir_of(walker.heading);
+        let s = walker.moving_speed() * dt;
+        walker.feet = [walker.feet[0] + d[0] * s, walker.feet[1] + d[1] * s, walker.feet[2]];
+        true
+    }
+}
+
+#[test]
+fn set_actors_ai_0_keeps_a_walking_actor_going_straight_on_until_switched_back_on() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(3.0);
+    assert!(s.ai.agents[&actor].walker.moving, "walking before the AI goes off");
+    s.game.extra.entry(actor).or_default().ai_off = true;
+    let (start, heading) = (s.feet(R_TRAVEL), s.ai.agents[&actor].walker.heading);
+    for _ in 0..4 {
+        s.game.tick();
+        s.ai.update_moved(&mut s.game, &s.nav, 0.5, &mut StraightOn);
+    }
+    // Two seconds at 100 units/s, on its heading, the heading kept, the game told.
+    let a = &s.ai.agents[&actor];
+    assert!((dist(a.walker.feet, start) - 200.0).abs() < 1.0, "{:?} from {start:?}", a.walker.feet);
+    assert_eq!(a.walker.heading, heading);
+    assert_eq!(a.activity, Activity::Travelling);
+    assert!(dist(s.game.world.peek(actor).unwrap().pos, a.walker.feet) < 1.0);
+    // Without character movement (headless) it stands, and stays standing.
+    let here = s.feet(R_TRAVEL);
+    s.run(2.0);
+    assert!(dist(s.feet(R_TRAVEL), here) < 1e-3);
+    assert!(!s.ai.agents[&actor].walker.moving);
+    s.run(2.0);
+    assert!(dist(s.feet(R_TRAVEL), here) < 1e-3);
+    // Back on: it walks on to its package's place.
+    s.game.extra.get_mut(&actor).unwrap().ai_off = false;
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+}
+
 #[test]
 fn time_passed_in_a_menu_takes_the_actor_to_its_packages_place() {
     let f = fixture();

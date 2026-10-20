@@ -6744,3 +6744,21 @@ package of the game has the flag (Eat packages have it), so every rule is my cho
 - **Killing and buying both allowed**: a living vendor is bought from, not attacked.
 *Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
 smoke test turns the flag on for FFER24FindFood with a test aid.
+
+## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
+
+docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
+when his AI went off (owner-decision-captures.md §7). Ours now does the same, moved by the
+character controller so it collides and follows the ground. The capture did not show the
+rest, so these are my choices:
+- **At a wall or another actor** it keeps walking into it and goes nowhere. It does not
+  steer round, jump or turn.
+- **Its clip**: drawn walking while it moves, standing while it is blocked.
+- **Away from the player** (no collision loaded there), headless, or in hours passed in the
+  Wait menu, it stops and stays stopped until the AI is back on.
+- **Doors** are walls to it.
+- **AI back on**: it steers back to its path's next corner, so one that went past turns
+  round. The original's short run-time FOLLOW package after SetActorsAI 1 is not
+  reproduced.
+*Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
+him into a wall and see whether the original's actor also stops dead there.
