@@ -379,6 +379,25 @@ fn non_playable_items_are_not_listed_and_stay_in_containers() {
 }
 
 #[test]
+fn non_playable_weapons_show_only_in_the_players_inventory() {
+    let mut f = fixture();
+    // The rifle stands in for a companion's non-playable weapon (Boone's rifle).
+    match f.forms.bases.get_mut(&FormId(RIFLE)).map(|b| &mut b.data) {
+        Some(BaseData::Item(i)) => i.non_playable = true,
+        other => panic!("rifle: {other:?}"),
+    }
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(m.list(Side::Container).rows.iter().all(|r| r.item != FormId(RIFLE)));
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1, "the hidden rifle stays");
+    // The player's own non-playable weapon is listed (GECK wiki "Unplayable Items").
+    w.add_item(PLAYER, FormId(RIFLE), 1).unwrap();
+    let inv = MenuModel::open_inventory(&mut w).unwrap();
+    assert!(inv.list(Side::Player).rows.iter().any(|r| r.item == FormId(RIFLE)));
+}
+
+#[test]
 fn quest_items_cannot_be_dropped_but_can_be_stored() {
     let f = fixture();
     assert!(f.forms.issues.is_empty(), "{:?}", f.forms.issues.to_json());

@@ -2930,7 +2930,7 @@ name = "companion-wheel-boone"
 source = "outstanding.md §2: the companion wheel, passive/aggressive and sneaking with the player (docs/spec-notes/companion-wheel.md)"
 note = "Written 2026-10-19 by the companion-wheel session without running the game (another session held it): not run yet, for the merge session. VFreeformNovac.nSnipersRevengeStage is set to 30 at 2.5 s, as his hire chain's INFO 0x0015F30C does (his trade line, INFO 0x000B16BF, asks for it); Boone is hired by his recruit line at 3 s (as follower-boone), hurt by 60 at 10 s, the player given 3 Stimpaks; the wheel is opened on him at 19 s (Wait), closed at 25 s, opened at 35 s (Follow, Far, Aggressive, Melee, Use Stimpak, Back Up), closed at 52 s; the player sneaks at 55 s; the wheel opens at 61 s and Open Inventory closes it into his inventory. The wheel steps were 5 s earlier until 2026-10-19: on a busy run (scripts ready in 12 s, F:/nvf-wt/batch-p487) the script steps come 8 s late but the wheel steps only 4 s (pause.rs WorldAidClock, script_events::delay_late_aids), so the first wheel opened 7 s after his hire, while he was still caught for about 8.7 s on something past his room door at (2842, 1208) (main runs: moved on along his path 8.7 s after the hire, 70 ms before the wheel opened); the Wait then held him 501 units off, and Back Up did nothing there (Ai::back_up returns without a log line; hypothesis: no navmesh within 192 units of the spot behind him, his back to the door). Boone's labels follow his hire state: following, passive, near, ranged"
 areas = ["followers", "menus"]
-paths = ["crates/fnv-game/src/companion_wheel.rs", "engine/nvf-play/src/companion_wheel.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/sneaking.rs"]
+paths = ["crates/fnv-game/src/companion_wheel.rs", "engine/nvf-play/src/companion_wheel.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/sneaking.rs", "engine/nvf-play/src/menu/model.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:3", NVF_PLAY_TEST_SCRIPT = "2.5:var:VFreeformNovac:nSnipersRevengeStage:30,3:info:0x0015F30D:CraigBooneREF,10:damage:CraigBooneREF:health:60", NVF_PLAY_TEST_WHEEL = "19:open:CraigBooneREF,20:stay_follow,25:close,35:open,36:stay_follow,41:near_far,43:aggressive_passive,45:ranged_melee,47:stimpak,50:back_up,52:close,61:open,62:inventory", NVF_PLAY_TEST_CONTROL = "55:sneak" }
 args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 70
@@ -2947,6 +2947,7 @@ expect = [
   { re = 'CraigBooneREF: backs up from the player', label = "Back Up walks him away" },
   { re = 'sneaking: CraigBooneREF .*crouches and sneaks', label = "he sneaks with the player" },
   { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Open Inventory opens his inventory" },
+  { re = 'menu: open Container.*\(\d+ non-playable stacks hidden\)', label = "his rifle and Magical Companion Ammo (Non-Playable) are not listed (owner, 2026-10-20)" },
   { re = 'companion wheel summary: opened 3 times', label = "the summary" },
 ]
 forbid = [
