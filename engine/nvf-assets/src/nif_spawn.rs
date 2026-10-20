@@ -447,7 +447,7 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
 /// "Microfacet Models for Refraction through Rough Surfaces"], used as the GGX alpha,
 /// and Bevy's perceptual roughness is sqrt(alpha) [hypothesis: the game's highlight
 /// size follows glossiness as a Phong exponent].
-pub(crate) fn gloss_roughness(gloss: f32) -> f32 {
+pub fn gloss_roughness(gloss: f32) -> f32 {
     (2.0 / (gloss.max(0.0) + 2.0)).sqrt().sqrt()
 }
 
@@ -515,10 +515,10 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (
 /// 2.0 × 0.5 × mask) [observed: `crates/fnv-nif/examples/normal_mask_survey.rs` over
 /// `Fallout - Textures.bsa` and `Textures2.bsa`, 2,998 masked normal maps, quartiles of
 /// their mean alpha 21 / 35 / 58; the choice of the median is a hypothesis].
-pub(crate) const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
+pub const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
 
 /// Whether a loaded normal map has no alpha channel to hold a specular mask (DXT1).
-pub(crate) fn lacks_alpha(image: &Image) -> bool {
+pub fn lacks_alpha(image: &Image) -> bool {
     use bevy::render::render_resource::TextureFormat;
     matches!(image.texture_descriptor.format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
 }

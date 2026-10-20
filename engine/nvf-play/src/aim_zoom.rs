@@ -50,11 +50,17 @@ pub fn zoomed_fov(base: f32, sight: f32, blend: f32) -> f32 {
     base + (sight - base) * s
 }
 
+/// The gun in hand is lined up with the eye down its sights (true iron sights, set by
+/// nvforever `iron_sights.rs`): the crosshair is not drawn meanwhile (`crate::reticle`)
+/// [design: the owner, 2026-10-20].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+pub struct TrueSights(pub bool);
+
 pub struct AimZoomPlugin;
 
 impl Plugin for AimZoomPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AimZoom>().add_systems(Update, zoom.in_set(PlaySet::Sync));
+        app.init_resource::<AimZoom>().init_resource::<TrueSights>().add_systems(Update, zoom.in_set(PlaySet::Sync));
     }
 }
 
