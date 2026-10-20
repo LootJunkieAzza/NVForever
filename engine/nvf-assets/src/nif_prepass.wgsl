@@ -26,9 +26,13 @@ struct NifSurface {
     alpha_cut: f32,
     add_whole: f32,
     refraction: f32,
+    holes: vec4<f32>,
+    holes_edge: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var holes_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var holes_sampler: sampler;
 
 // Bevy's cutoff for blended shapes in a depth-only pass (its PREMULTIPLIED_ALPHA_CUTOFF).
 const BLENDED_CUTOFF: f32 = 0.05;
@@ -56,6 +60,14 @@ fn fragment(in: VertexOutput) {
     if alpha < surface.alpha_cut {
         discard;
     }
+#ifdef VERTEX_UVS_A
+    // The holes of the main pass (nif_material.rs "Holes").
+    if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
+        if textureSampleLevel(holes_texture, holes_sampler, in.uv, 0.0).a * 255.0 >= surface.holes.x {
+            discard;
+        }
+    }
+#endif
     let alpha_mode = flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK {
         if alpha < pbr_bindings::material.alpha_cutoff {

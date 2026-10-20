@@ -6880,3 +6880,33 @@ screen while moving", 0 none to 10 the most; these are my choices:
 there a visible smear, by about as much as smoke `imagespace-motion-blur`'s
 motion_turning.png? Does walking forward smear the ground? Does the gun stay sharp?
 `rimod VATScamNoDOF` afterwards.
+
+## Effect shaders' holes and add-on models (2026-10-21, session "q19", branch claude/q19-efsh-holes)
+
+docs/spec-notes/effect-shaders.md §7-§8. The GECK wiki's EffectShader page says nothing of
+either, so the meanings come from xEdit's field names and the records; my choices:
+- **Holes only with a holes texture.** Most other records carry holes numbers (0, 10, 255, 0) but no
+  texture; only the 8 with one dissolve.
+- **Direction**: where the holes texture's alpha is at or above the value there is a hole;
+  the value moves linearly from the start value (until the start time) to the end value
+  (by the end time). The death shaders go 255 to 0, so the body is whole at first and gone
+  at the end (GooShader01 over 0.2-1.75 s; the gooification script hides the body at 1.4 s).
+- **Edge band**: the "edge width" alpha units next to the holes are drawn unlit in the holes'
+  edge colour (orange for the laser, cyan for the alien blaster, red for the nuke).
+- **Texture coordinates**: the holes texture is read at each mesh's own UVs.
+- **After the play** the meshes get their own materials back.
+- **Add-on models**: one model of the DEBR (by its percentages) on each of up to 8 bones of
+  the actor, spread over its skeleton; an object gets one. Played as effect models
+  (billboards face the camera).
+- **Add-on timing**: grow from "scale start" to full size over "scale in time" and fade in
+  over "fade in time" from the start; after the end shrink to "scale end" over "scale out
+  time" and fade out over "fade out time". GlowingOneFXShader's short record has no timing:
+  full size at once, gone at once.
+- `HaroldLiniment` (0 to 127) would start with the body a hole under these rules; no script
+  plays it.
+*Check:* in the game, kill an NPC with a plasma critical (or `player.pms GooShader01` on a
+target): does the body break up in patches from the inside out with a thin light rim, as
+smoke `effect-shader-holes-addons`'s effect_holes.png shows? Set an NPC on fire with a
+flamer: how many fireballs ride on the body, and where (hands, head, chest)? Do they shrink
+and fade over about 2 s after the burning stops? A Legion explorer (GlowingOneFXShader): are
+glow meshes visible on the body?

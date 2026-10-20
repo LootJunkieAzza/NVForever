@@ -1,7 +1,7 @@
 //! Effect shaders: EFSH records drawn over a reference's own meshes (holograms, cloaks,
 //! glows, burning), played by scripts (PlayMagicShaderVisuals) and magic effects. The
-//! membrane and the particle shader are read here with their timing; holes and add-on
-//! models are not. Layout and rules: docs/spec-notes/effect-shaders.md.
+//! membrane, the particle shader, the holes and the add-on models are read here with
+//! their timing. Layout and rules: docs/spec-notes/effect-shaders.md.
 
 use crate::fields::{winner, Fields};
 use fnv_esm::{LoadOrder, Schema};
@@ -88,6 +88,90 @@ pub struct EffectShader {
     /// The particle shader, when the record has one: not flagged "No Particle Shader",
     /// a particle texture, and the fields in its DATA (effect-shaders.md §6).
     pub particles: Option<ParticleShader>,
+    /// The holes (dissolve), when the record names a holes texture (effect-shaders.md §7).
+    pub holes: Option<Holes>,
+    /// The add-on models (a DEBR) and their timing, when the record names one
+    /// (effect-shaders.md §8).
+    pub addons: Option<Addons>,
+}
+
+/// The holes: the reference's surface is eaten away where the holes texture's alpha
+/// passes a value that moves over time (effect-shaders.md §7).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Holes {
+    /// The holes texture (`NAM7`), as stored.
+    pub texture: String,
+    /// Seconds from the start: the value is `start_value` until `start_time`, moves
+    /// linearly to `end_value` by `end_time` and stays there.
+    pub start_time: f32,
+    pub end_time: f32,
+    /// Values in the texture's alpha units, 0–255.
+    pub start_value: f32,
+    pub end_value: f32,
+    /// The band of alpha units next to the holes drawn in `edge_color` (0: none).
+    pub edge_width: f32,
+    /// sRGB bytes (xEdit "Edge Color" of the holes group, the schema's `edge_color_2`).
+    pub edge_color: [u8; 3],
+}
+
+impl Holes {
+    /// The value `t` seconds after the shader started [hypothesis: linear between the
+    /// times, held outside them; effect-shaders.md §7].
+    pub fn value(&self, t: f32) -> f32 {
+        if t <= self.start_time {
+            self.start_value
+        } else if t >= self.end_time || self.end_time <= self.start_time {
+            self.end_value
+        } else {
+            self.start_value + (self.end_value - self.start_value) * (t - self.start_time) / (self.end_time - self.start_time)
+        }
+    }
+
+    /// Whether a point whose holes-texture alpha is `alpha` (0–255) is still drawn at
+    /// `value`: below the value it is, at or above it it is a hole; at 255 or more
+    /// nothing is a hole [hypothesis: the masters' dissolves run from 255 to 0 and end
+    /// with the reference gone (GooShader01 before GooEnd, PuffOfSmokeVanish);
+    /// effect-shaders.md §7]. The shaders (`nif_material.wgsl`) test the same.
+    pub fn keeps(value: f32, alpha: f32) -> bool {
+        value >= 255.0 || alpha < value
+    }
+}
+
+/// The add-on models: a DEBR's models put on the reference while the shader plays
+/// (effect-shaders.md §8).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Addons {
+    /// The DEBR record.
+    pub debris: u32,
+    /// Seconds to fade in from the start and out after the end.
+    pub fade_in: f32,
+    pub fade_out: f32,
+    /// The scale at the start (growing to 1 over `scale_in`) and at the end (shrinking
+    /// to it from 1 over `scale_out`) [hypothesis, effect-shaders.md §8].
+    pub scale_start: f32,
+    pub scale_end: f32,
+    pub scale_in: f32,
+    pub scale_out: f32,
+}
+
+impl Addons {
+    /// Scale and alpha `t` seconds after the start, `since_end` seconds after the end
+    /// (`None`: still playing) [hypothesis: linear ramps; effect-shaders.md §8].
+    pub fn look(&self, t: f32, since_end: Option<f32>) -> (f32, f32) {
+        let ramp = |x: f32, len: f32| if len > 0.0 { (x / len).clamp(0.0, 1.0) } else { 1.0 };
+        let mut scale = self.scale_start + (1.0 - self.scale_start) * ramp(t, self.scale_in);
+        let mut alpha = ramp(t, self.fade_in);
+        if let Some(e) = since_end {
+            scale += (self.scale_end - scale) * ramp(e, self.scale_out);
+            alpha *= 1.0 - ramp(e, self.fade_out);
+        }
+        (scale.max(0.0), alpha)
+    }
+
+    /// Seconds the models stay after the end.
+    pub fn linger(&self) -> f32 {
+        self.fade_out.max(self.scale_out).max(0.0)
+    }
 }
 
 /// A colour key of the particle shader: sRGB bytes, alpha, and the share of the
@@ -258,10 +342,16 @@ mod off {
     pub const TEXTURE_COUNT: usize = 276;
     /// The shortest DATA with every particle field but the texture counts.
     pub const PARTICLES_NEEDED: usize = 244;
+    /// Add-on models (a DEBR FormID), the holes, their edge, the add-on timing.
+    pub const ADDON_MODELS: usize = 244;
+    pub const HOLES: usize = 248;
+    pub const HOLES_EDGE_WIDTH: usize = 264;
+    pub const HOLES_EDGE_COLOR: usize = 268;
+    pub const ADDON_TIMES: usize = 284;
 }
 
-/// Read the membrane fields from an EFSH `DATA` payload (at least 96 bytes).
-pub fn from_data(form_id: u32, edid: String, data: &[u8], fill_texture: Option<String>, particle_texture: Option<String>) -> Option<EffectShader> {
+/// Read an EFSH `DATA` payload (at least 96 bytes) with the record's texture paths.
+pub fn from_data(form_id: u32, edid: String, data: &[u8], fill_texture: Option<String>, particle_texture: Option<String>, holes_texture: Option<String>) -> Option<EffectShader> {
     if data.len() < off::NEEDED {
         return None;
     }
@@ -294,7 +384,47 @@ pub fn from_data(form_id: u32, edid: String, data: &[u8], fill_texture: Option<S
         edge_fall_off: f(off::EDGE_FALL_OFF),
         particles: particle_shader(data, &particle_texture),
         particle_texture,
+        holes: holes(data, holes_texture),
+        addons: addons(data),
     })
+}
+
+/// The holes, when the record names a holes texture and DATA holds the holes fields
+/// [hypothesis: without a texture there are none; most records carry the numbers
+/// (0, 10, 255, 0) and no texture; effect-shaders.md §7].
+fn holes(data: &[u8], texture: Option<String>) -> Option<Holes> {
+    let texture = texture?;
+    if data.len() < off::HOLES + 16 {
+        return None;
+    }
+    let f = |o: usize| f32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]);
+    let (width, color) = if data.len() >= off::HOLES_EDGE_COLOR + 4 {
+        (f(off::HOLES_EDGE_WIDTH), [data[off::HOLES_EDGE_COLOR], data[off::HOLES_EDGE_COLOR + 1], data[off::HOLES_EDGE_COLOR + 2]])
+    } else {
+        (0.0, [255; 3])
+    };
+    let h = off::HOLES;
+    Some(Holes { texture, start_time: f(h), end_time: f(h + 4), start_value: f(h + 8), end_value: f(h + 12), edge_width: width.max(0.0), edge_color: color })
+}
+
+/// The add-on models, when DATA names a DEBR. A record too short for the timing fields
+/// shows them at once at full size and takes them away at once [hypothesis:
+/// `GlowingOneFXShader`'s 248-byte DATA; effect-shaders.md §8].
+fn addons(data: &[u8]) -> Option<Addons> {
+    if data.len() < off::ADDON_MODELS + 4 {
+        return None;
+    }
+    let u = |o: usize| u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]);
+    let f = |o: usize| f32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]);
+    let debris = u(off::ADDON_MODELS);
+    if debris == 0 {
+        return None;
+    }
+    let a = off::ADDON_TIMES;
+    if data.len() < a + 24 {
+        return Some(Addons { debris, fade_in: 0.0, fade_out: 0.0, scale_start: 1.0, scale_end: 1.0, scale_in: 0.0, scale_out: 0.0 });
+    }
+    Some(Addons { debris, fade_in: f(a), fade_out: f(a + 4), scale_start: f(a + 8), scale_end: f(a + 12), scale_in: f(a + 16), scale_out: f(a + 20) })
 }
 
 /// The particle fields, when the shader has particles (no "No Particle Shader" flag, a
@@ -349,7 +479,7 @@ pub fn effect_shader(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Effect
     let f = Fields::new(r, pi, schema).ok()?;
     let path = |sig: &[u8; 4]| f.string(sig).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let data = &f.raw(b"DATA")?.data;
-    from_data(fid, f.string(b"EDID").unwrap_or_default(), data, path(b"ICON"), path(b"ICO2"))
+    from_data(fid, f.string(b"EDID").unwrap_or_default(), data, path(b"ICON"), path(b"ICO2"), path(b"NAM7"))
 }
 
 #[cfg(test)]
@@ -384,7 +514,7 @@ mod tests {
 
     #[test]
     fn reads_the_membrane_fields() {
-        let s = from_data(1, "Holo".into(), &hologram(), Some("x.dds".into()), None).unwrap();
+        let s = from_data(1, "Holo".into(), &hologram(), Some("x.dds".into()), None, None).unwrap();
         assert_eq!(s.fill_color, [119, 218, 255]);
         assert_eq!(s.edge_color, [164, 206, 240]);
         assert_eq!((s.source_blend, s.blend_op, s.z_test, s.dest_blend), (5, 1, 3, 5));
@@ -395,7 +525,7 @@ mod tests {
         assert_eq!(s.edge.persistent, 0.8);
         assert!(s.has_membrane());
         assert_eq!(s.flags & EDGE_INVERSE, EDGE_INVERSE);
-        assert!(from_data(1, String::new(), &hologram()[..95], None, None).is_none());
+        assert!(from_data(1, String::new(), &hologram()[..95], None, None, None).is_none());
     }
 
     /// A 308-byte DATA with the particle numbers of `Flames01` (0x0005F9B6, the
@@ -450,7 +580,7 @@ mod tests {
 
     #[test]
     fn reads_the_particle_shader() {
-        let s = from_data(0x5F9B6, "Flames01".into(), &flames(), None, Some("Effects\\FXFlameSmallSub02.dds".into())).unwrap();
+        let s = from_data(0x5F9B6, "Flames01".into(), &flames(), None, Some("Effects\\FXFlameSmallSub02.dds".into()), None).unwrap();
         assert_eq!(s.edge_color, [215, 86, 0]);
         let p = s.particles.expect("particles");
         assert_eq!((p.source_blend, p.dest_blend, p.z_test), (5, 2, 4));
@@ -486,12 +616,51 @@ mod tests {
         assert_eq!(smoke.tint(0.95)[3], 0.0);
         assert_eq!(smoke.tint(1.0), [1.0, 1.0, 1.0, 0.0]);
         // No texture, the flag, or a short DATA: no particles, or no frame counts.
-        assert!(from_data(1, String::new(), &flames(), None, None).unwrap().particles.is_none());
+        assert!(from_data(1, String::new(), &flames(), None, None, None).unwrap().particles.is_none());
         let mut flagged = flames();
         flagged[0] = NO_PARTICLES;
-        assert!(from_data(1, String::new(), &flagged, None, Some("x.dds".into())).unwrap().particles.is_none());
-        let short = from_data(1, String::new(), &flames()[..244], None, Some("x.dds".into())).unwrap();
+        assert!(from_data(1, String::new(), &flagged, None, Some("x.dds".into()), None).unwrap().particles.is_none());
+        let short = from_data(1, String::new(), &flames()[..244], None, Some("x.dds".into()), None).unwrap();
         assert_eq!(short.particles.unwrap().frames, [1, 1]);
+    }
+
+    #[test]
+    fn reads_holes_and_add_on_models() {
+        // GooShader01's holes (0x0009BA49): 255 to 0 from 0.2 s to 1.75 s, edge 1 unit white.
+        let mut d = flames();
+        let put_f = |d: &mut Vec<u8>, o: usize, v: f32| d[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        for (o, v) in [(248, 0.2), (252, 1.75), (256, 255.0), (260, 0.0), (264, 1.0)] {
+            put_f(&mut d, o, v);
+        }
+        d[268..271].copy_from_slice(&[255, 255, 255]);
+        // Flames01's add-on models: debrisFlameMesh, fade 0.75 / 2, scale 0.5 / 0.2 over 1 s.
+        d[244..248].copy_from_slice(&0x0005F9B7u32.to_le_bytes());
+        for (o, v) in [(284, 0.75), (288, 2.0), (292, 0.5), (296, 0.2), (300, 1.0), (304, 1.0)] {
+            put_f(&mut d, o, v);
+        }
+        let s = from_data(1, String::new(), &d, None, None, Some("Effects\\FXMagicDisolveAlpha01.dds".into())).unwrap();
+        let h = s.holes.expect("holes");
+        assert_eq!((h.start_time, h.end_time, h.start_value, h.end_value, h.edge_width, h.edge_color), (0.2, 1.75, 255.0, 0.0, 1.0, [255; 3]));
+        assert_eq!(h.value(0.0), 255.0);
+        assert!((h.value(0.975) - 127.5).abs() < 1e-3);
+        assert_eq!(h.value(5.0), 0.0);
+        // Whole at 255, gone at 0, half the texture's range in between.
+        assert!(Holes::keeps(255.0, 255.0) && !Holes::keeps(0.0, 0.0));
+        assert!(Holes::keeps(127.5, 100.0) && !Holes::keeps(127.5, 200.0));
+        let a = s.addons.expect("add-on models");
+        assert_eq!(a.debris, 0x5F9B7);
+        assert_eq!(a.look(0.0, None), (0.5, 0.0));
+        assert_eq!(a.look(1.0, None), (1.0, 1.0));
+        let (sc, al) = a.look(3.0, Some(1.0));
+        assert!((sc - 0.2).abs() < 1e-6 && (al - 0.5).abs() < 1e-6);
+        assert_eq!(a.linger(), 2.0);
+        // No holes texture: no holes, whatever the numbers; no DEBR: no add-ons.
+        let plain = from_data(1, String::new(), &flames(), None, None, None).unwrap();
+        assert!(plain.holes.is_none() && plain.addons.is_none());
+        // A 248-byte DATA (GlowingOneFXShader): add-ons with no timing, no holes fields.
+        let short = from_data(1, String::new(), &d[..248], None, None, Some("x.dds".into())).unwrap();
+        assert!(short.holes.is_none());
+        assert_eq!(short.addons.unwrap().look(0.0, None), (1.0, 1.0));
     }
 
     #[test]

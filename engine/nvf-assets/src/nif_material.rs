@@ -49,6 +49,14 @@
 //! inside a fireball's shell still show, and draws nothing into the depth-only passes
 //! (shadows). Particles and other blended shapes are drawn later and are not bent.
 //!
+//! Holes: a shape can be eaten away by a holes texture (an effect shader's dissolve,
+//! nvforever `effect_shaders.rs`, docs/spec-notes/effect-shaders.md §7): where the
+//! texture's alpha (0–255, read at the shape's own texture coordinates) is at or above
+//! [`NifSurface::holes`]`.x` nothing is drawn, in every pass, and the band of `.y` units
+//! below it is drawn in [`NifSurface::holes_edge`]; `.x` negative (every other shape): no
+//! holes. A shape with holes is drawn alpha-tested, so the depth-only passes run the
+//! same test (`nif_prepass.wgsl`).
+//!
 //! Shade light: a shape can take the sun's shadows from another light's shadow map
 //! instead of the sun's own ([`NifSurface::shade_light`]). That light is a second
 //! directional light with shadows, pointing as the sun does, so its shadow map holds the
@@ -170,11 +178,38 @@ pub struct NifSurface {
     /// The shape's sun shadows are those of the shade light (module docs, "Shade light"),
     /// where the view has one.
     pub shade_light: bool,
+    /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
+    /// which the holes texture's alpha leaves a hole, negative for none; y the width of
+    /// the edge band below it; z, w unused.
+    #[uniform(100)]
+    pub holes: Vec4,
+    /// The colour of the holes' edge band (linear, alpha unused).
+    #[uniform(100)]
+    pub holes_edge: Vec4,
+    /// The holes texture; `None` with no holes.
+    #[texture(101)]
+    #[sampler(102)]
+    pub holes_texture: Option<Handle<Image>>,
 }
+
+/// [`NifSurface::holes`] of a shape with no holes.
+pub const NO_HOLES: Vec4 = Vec4::new(-1.0, 0.0, 0.0, 0.0);
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, add_whole: 0.0, refraction: 0.0, refract: false, decal: false, hard_edges: false, shade_light: false }
+        NifSurface {
+            falloff: Falloff::NONE.params,
+            alpha_cut: 0.0,
+            add_whole: 0.0,
+            refraction: 0.0,
+            refract: false,
+            decal: false,
+            hard_edges: false,
+            shade_light: false,
+            holes: NO_HOLES,
+            holes_edge: Vec4::ONE,
+            holes_texture: None,
+        }
     }
 }
 

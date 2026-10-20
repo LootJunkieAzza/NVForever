@@ -11,20 +11,35 @@
 //!   falloff). The player's are the meshes of its third-person body. Both are unlit, cast no shadow and sit a decal's depth step in front of
 //!   the surface. Their alpha follows the record's cycle every frame; a mesh drawn later
 //!   (a cell loaded again, armour put on) gets its overlays then.
+//! - **Holes** (§7 of the notes): a shader with a holes texture gives every mesh it
+//!   covers (and its own overlays) a copy of the mesh's material that the holes texture
+//!   eats away as the record's value moves (`nvf_assets::nif_material`, "Holes"), the
+//!   band next to the holes in the holes' edge colour; an opaque mesh's copy is drawn
+//!   alpha-tested so the depth passes cut the same holes. When the play ends the mesh
+//!   gets its own material back.
+//! - **Add-on models** (§8): a shader naming a DEBR puts one of its models (by the
+//!   models' percentages) on up to [`ADDON_PLACES`] bones of the reference's skinned
+//!   meshes, spread over them (an unskinned reference: one, at its first mesh), each
+//!   played as an effect model (`crate::shot_fx::spawn_attached`: billboards turn to the
+//!   camera, its clip plays), grown and faded in from the start and shrunk and faded out
+//!   after the end by the record's add-on timing.
 //! - **Ending**: a script's play with a duration ends after max(duration, one cycle),
 //!   without one when stopped; an effect's when the effect ends.
 //! - **Actor alpha**: the meshes of an actor with an alpha below 1 get blended copies of
 //!   their materials with the alpha multiplied in; 1 gives the originals back.
 //!
 //! Log: `effect shader: <EDID> on <who> (…)` when one starts, `… ends (…)` when it ends,
-//! `actor alpha: <who> <a> (<n> meshes)`, and at exit `effect shaders summary: …`.
+//! `effect shader: <EDID> holes on <n> meshes of <who> (…)`, `effect shader: <EDID> puts
+//! <n> add-on models of DEBR <id> on <who> (…)`, `actor alpha: <who> <a> (<n> meshes)`,
+//! and at exit `effect shaders summary: …`.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use fnv_game::data::MagicEffectDef;
 use fnv_sim::FormId;
-use fnv_world::effect_shader::{blend, EffectShader};
+use fnv_world::effect_shader::{blend, Addons, EffectShader, Holes};
+use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::nif_material::nif_material;
 use nvf_assets::NifMaterial;
@@ -38,7 +53,10 @@ pub struct EffectShadersPlugin;
 
 impl Plugin for EffectShadersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Shaders>().init_resource::<crate::effect_particles::EffectParticles>().add_systems(Update, (play, actor_alpha.after(crate::texture_swap::apply), crate::effect_particles::draw.after(play))).add_systems(Last, (report, crate::effect_particles::report));
+        app.init_resource::<Shaders>()
+            .init_resource::<crate::effect_particles::EffectParticles>()
+            .add_systems(Update, (play, actor_alpha.after(crate::texture_swap::apply), crate::effect_particles::draw.after(play), addons_leaving.after(play)))
+            .add_systems(Last, (report, crate::effect_particles::report));
     }
 }
 
@@ -65,6 +83,26 @@ pub(crate) struct Active {
     edge: Option<Handle<NifMaterial>>,
     /// The meshes covered, and their overlays.
     pub(crate) covered: HashMap<Entity, Vec<Entity>>,
+    /// The holes texture, when the shader has holes and it was found.
+    holes_texture: Option<Handle<Image>>,
+    /// Meshes given a material with holes: their own material and the copy.
+    holed: HashMap<Entity, (Handle<NifMaterial>, Handle<NifMaterial>)>,
+    /// The add-on models put on the reference: (entity above the model, rig root that
+    /// fades it); empty until the reference is drawn.
+    addons: Vec<(Entity, Option<Entity>)>,
+}
+
+/// How many bones of a reference get an add-on model at most [design: the record does
+/// not say how many; effect-shaders.md §8].
+pub const ADDON_PLACES: usize = 8;
+
+/// Add-on models shrinking and fading after their play ended.
+struct Leaving {
+    addons: Addons,
+    models: Vec<(Entity, Option<Entity>)>,
+    /// `Time::elapsed_secs` of the play's start and end.
+    since: f32,
+    ended: f32,
 }
 
 /// Put on an overlay mesh (not covered itself, not faded by actor alpha).
@@ -88,7 +126,10 @@ pub(crate) struct Shaders {
     pub(crate) active: HashMap<Source, Active>,
     /// Blended copies of materials for actor alpha: (original, alpha in 1/256) → copy.
     faded: HashMap<(AssetId<NifMaterial>, u16), Handle<NifMaterial>>,
+    leaving: Vec<Leaving>,
     played: u32,
+    holed: u32,
+    addons: u32,
     ended: u32,
     overlays: u32,
     alpha_calls: u32,
@@ -142,12 +183,13 @@ fn play(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut st: ResMut<Shaders>,
-    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>), (With<MeshMaterial3d<NifMaterial>>, Without<Overlay>)>,
+    drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), Without<Overlay>>,
     (body, children, body_meshes): (
         Option<Res<crate::player_body::PlayerBody>>,
         Query<&Children>,
-        Query<(&Mesh3d, Option<&SkinnedMesh>), (With<MeshMaterial3d<NifMaterial>>, Without<Overlay>, Without<RefVisual>)>,
+        Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
     ),
+    (combat, mut fades, mut transforms): (Option<Res<nvf_play::combat::Combat>>, Query<&mut RigMaterials>, Query<&mut Transform>),
 ) {
     let (Some(rt), Some(world)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), world) else { return };
     let st = &mut *st;
@@ -182,6 +224,20 @@ fn play(
         for h in [a.fill, a.edge].into_iter().flatten() {
             models.materials.remove(&h);
         }
+        // The meshes get their own materials back, unless something else changed them since.
+        for (e, (original, copy)) in a.holed {
+            if drawn.get(e).map(|d| d.4 .0 == copy).or_else(|_| body_meshes.get(e).map(|d| d.2 .0 == copy)).unwrap_or(false) {
+                commands.entity(e).try_insert(MeshMaterial3d(original));
+            }
+            models.materials.remove(&copy);
+        }
+        if let Some(addons) = a.shader.addons.filter(|x| x.linger() > 0.0 && !a.addons.is_empty()) {
+            st.leaving.push(Leaving { addons, models: a.addons, since: a.since, ended: now });
+        } else {
+            for (holder, _) in a.addons {
+                commands.entity(holder).try_despawn();
+            }
+        }
         if let Source::Script(serial) = k {
             game.script_looks.end(serial);
         }
@@ -203,21 +259,26 @@ fn play(
             }
             continue;
         };
-        let texture = s.fill_texture.as_deref().and_then(|t| {
-            let mut path = t.replace('/', "\\").to_ascii_lowercase();
-            if !path.starts_with("textures\\") {
-                path = format!("textures\\{path}");
-            }
+        let mut load = |what: &str, t: &str| {
+            let path = texture_path(t);
             let a = &mut models;
             let image = a.textures.get(&path, true, &a.data, &mut a.images, a.formats.as_deref());
             if image.is_none() {
-                warn!("effect shader: {}: fill texture {path} not found", s.edid);
+                warn!("effect shader: {}: {what} texture {path} not found", s.edid);
             }
             image
-        });
+        };
+        let texture = s.fill_texture.as_deref().and_then(|t| load("fill", t));
+        let holes_texture = s.holes.as_ref().and_then(|h| load("holes", &h.texture));
         let shows = |c: &fnv_world::effect_shader::AlphaCycle| c.full > 0.0 || (persist && c.persistent > 0.0);
-        let fill = (s.has_membrane() && shows(&s.fill)).then(|| models.materials.add(overlay_material(&s, s.fill_color, texture, None)));
-        let edge = (s.has_membrane() && shows(&s.edge)).then(|| models.materials.add(overlay_material(&s, s.edge_color, None, Some(edge_falloff(s.edge_fall_off)))));
+        let with_holes = |mut m: NifMaterial| {
+            if let (Some(h), Some(tex)) = (&s.holes, &holes_texture) {
+                set_holes(&mut m, h, tex.clone(), h.value(0.0));
+            }
+            m
+        };
+        let fill = (s.has_membrane() && shows(&s.fill)).then(|| models.materials.add(with_holes(overlay_material(&s, s.fill_color, texture, None))));
+        let edge = (s.has_membrane() && shows(&s.edge)).then(|| models.materials.add(with_holes(overlay_material(&s, s.edge_color, None, Some(edge_falloff(s.edge_fall_off))))));
         let until = duration.map(|d| (d as f32).max(s.cycle()));
         st.played += 1;
         info!(
@@ -232,29 +293,37 @@ fn play(
                 (None, Source::Effect(_)) => "while the effect lasts".to_string(),
             }
         );
-        st.active.insert(k, Active { on, shader: s, since: now, until, persist, fill, edge, covered: HashMap::new() });
+        st.active.insert(k, Active { on, shader: s, since: now, until, persist, fill, edge, covered: HashMap::new(), holes_texture, holed: HashMap::new(), addons: Vec::new() });
     }
 
     // Cover the meshes drawn for each reference; animate the materials.
-    let mut by_ref: HashMap<u32, Vec<(Entity, &Mesh3d, Option<&SkinnedMesh>)>> = HashMap::new();
-    for (e, rv, mesh, skin) in &drawn {
-        by_ref.entry(rv.0).or_default().push((e, mesh, skin));
+    type Drawn<'a> = (Entity, &'a Mesh3d, Option<&'a SkinnedMesh>, &'a MeshMaterial3d<NifMaterial>);
+    let mut by_ref: HashMap<u32, Vec<Drawn<'_>>> = HashMap::new();
+    for (e, rv, mesh, skin, mat) in &drawn {
+        by_ref.entry(rv.0).or_default().push((e, mesh, skin, mat));
     }
     // The player: the meshes of its third-person body (`player_body.rs`), which carry no
-    // RefVisual; hidden in first person, so are their overlays.
+    // RefVisual; hidden in first person, so are their overlays. Add-on models hanging
+    // from its bones are not its own.
     if let Some(root) = body.as_deref().and_then(|b| b.roots().first().copied()) {
+        let addon_parts: HashSet<Entity> = st.active.values().flat_map(|a| a.addons.iter().map(|x| x.0)).chain(st.leaving.iter().flat_map(|l| l.models.iter().map(|x| x.0))).flat_map(|h| std::iter::once(h).chain(children.iter_descendants(h))).collect();
         let list = by_ref.entry(FormId::PLAYER_REF.0).or_default();
         for e in children.iter_descendants(root) {
-            if let Ok((mesh, skin)) = body_meshes.get(e) {
-                list.push((e, mesh, skin));
+            if addon_parts.contains(&e) {
+                continue;
+            }
+            if let Ok((mesh, skin, mat)) = body_meshes.get(e) {
+                list.push((e, mesh, skin, mat));
             }
         }
     }
+    let (holed_count, addon_count) = (&mut st.holed, &mut st.addons);
     for a in st.active.values_mut() {
         let meshes = by_ref.get(&a.on).map(Vec::as_slice).unwrap_or(&[]);
         a.covered.retain(|e, _| meshes.iter().any(|(m, ..)| m == e));
+        a.holed.retain(|e, _| meshes.iter().any(|(m, ..)| m == e));
         let before = a.covered.len();
-        for &(e, mesh, skin) in meshes {
+        for &(e, mesh, skin, _) in meshes {
             if a.covered.contains_key(&e) {
                 continue;
             }
@@ -275,6 +344,114 @@ fn play(
             info!("effect shader: {} covers {} meshes of {}", a.shader.edid, a.covered.len(), game.data.name(FormId(a.on)));
         }
         let t = now - a.since;
+        // Holes: each mesh drawn with a copy of its material that the holes eat away.
+        if let (Some(h), Some(tex)) = (a.shader.holes.as_ref(), a.holes_texture.as_ref()) {
+            let value = h.value(t);
+            let first = a.holed.is_empty();
+            for &(e, _, _, mat) in meshes {
+                let current = &mat.0;
+                if a.holed.get(&e).is_some_and(|(_, copy)| copy == current) {
+                    continue;
+                }
+                // New, or something else gave it another material since: copy that one.
+                let Some(own) = models.materials.get(current).cloned() else { continue };
+                let mut m = own;
+                set_holes(&mut m, h, tex.clone(), value);
+                if matches!(m.base.alpha_mode, AlphaMode::Opaque) {
+                    m.base.alpha_mode = AlphaMode::Mask(0.0);
+                    m.extension.hard_edges = true;
+                }
+                let copy = models.materials.add(m);
+                commands.entity(e).try_insert(MeshMaterial3d(copy.clone()));
+                if let Some((_, old)) = a.holed.insert(e, (current.clone(), copy)) {
+                    models.materials.remove(&old);
+                }
+                *holed_count += 1;
+            }
+            if first && !a.holed.is_empty() {
+                info!(
+                    "effect shader: {} holes on {} meshes of {} ({}, {:.0} to {:.0} from {:.2} to {:.2} s, edge {:.1} units of ({}, {}, {}))",
+                    a.shader.edid,
+                    a.holed.len(),
+                    game.data.name(FormId(a.on)),
+                    texture_path(&h.texture),
+                    h.start_value,
+                    h.end_value,
+                    h.start_time,
+                    h.end_time,
+                    h.edge_width,
+                    h.edge_color[0],
+                    h.edge_color[1],
+                    h.edge_color[2]
+                );
+            }
+            for (_, copy) in a.holed.values() {
+                if let Some(mut m) = models.materials.get_mut(copy) {
+                    m.extension.holes.x = value;
+                }
+            }
+            for mat in [&a.fill, &a.edge].into_iter().flatten() {
+                if let Some(mut m) = models.materials.get_mut(mat) {
+                    m.extension.holes.x = value;
+                }
+            }
+        }
+        // Add-on models: put on once the reference is drawn, then grown and faded in.
+        if let Some(ad) = a.shader.addons {
+            if a.addons.is_empty() && !meshes.is_empty() {
+                let mut bones: Vec<Entity> = meshes.iter().filter_map(|m| m.2).flat_map(|s| s.joints.iter().copied()).collect();
+                bones.sort();
+                bones.dedup();
+                let places: Vec<Entity> = if bones.is_empty() { vec![meshes[0].0] } else { spread(&bones, ADDON_PLACES) };
+                let choices: Vec<(u8, String)> = combat.as_deref().and_then(|c| c.forms.debris.get(&FormId(ad.debris))).map(|m| m.iter().map(|m| (m.percent, m.model.clone())).collect()).unwrap_or_default();
+                let total: u32 = choices.iter().map(|c| c.0 as u32).sum();
+                let mut first_model = String::new();
+                for (i, &place) in places.iter().enumerate() {
+                    if total == 0 {
+                        break;
+                    }
+                    // A fixed pick per place and play [design].
+                    let mut pick = (mix(a.on as u64 ^ ((a.since.to_bits() as u64) << 20) ^ i as u64) % total as u64) as i64;
+                    let Some((_, model)) = choices.iter().find(|c| {
+                        pick -= c.0 as i64;
+                        pick < 0
+                    }) else {
+                        continue;
+                    };
+                    let path = fnv_actor::resolve::mesh_path(model);
+                    let Some(pm) = models.model(&path) else { continue };
+                    let (scale, _) = ad.look(t, None);
+                    let made = crate::shot_fx::spawn_attached(&mut commands, place, &pm, Transform::from_scale(Vec3::splat(scale)), &path);
+                    if first_model.is_empty() {
+                        first_model = path;
+                    }
+                    a.addons.push(made);
+                }
+                if a.addons.is_empty() {
+                    // Nothing to put on (no DEBR, or none of its models loads): do not try again.
+                    a.shader.addons = None;
+                    warn!("effect shader: {}: no add-on model of DEBR {:08X} could be drawn", a.shader.edid, ad.debris);
+                } else {
+                    *addon_count += a.addons.len() as u32;
+                    info!(
+                        "effect shader: {} puts {} add-on models of DEBR {:08X} on {} ({} first; fade in {:.2} s, out {:.2} s, scale {:.2} to 1 over {:.2} s, to {:.2} over {:.2} s at the end)",
+                        a.shader.edid,
+                        a.addons.len(),
+                        ad.debris,
+                        game.data.name(FormId(a.on)),
+                        first_model,
+                        ad.fade_in,
+                        ad.fade_out,
+                        ad.scale_start,
+                        ad.scale_in,
+                        ad.scale_end,
+                        ad.scale_out
+                    );
+                }
+            }
+            let (scale, alpha) = ad.look(t, None);
+            addon_look(&a.addons, scale, alpha, &mut transforms, &mut fades);
+        }
         if let Some(mut m) = a.fill.as_ref().and_then(|h| models.materials.get_mut(h)) {
             m.base.base_color.set_alpha(a.shader.fill.alpha(t, a.persist));
             let [u, v] = a.shader.fill_speed;
@@ -284,6 +461,71 @@ fn play(
             m.base.base_color.set_alpha(a.shader.edge.alpha(t, a.persist));
         }
     }
+}
+
+/// The path of a texture as the records store it, under `textures\`.
+fn texture_path(t: &str) -> String {
+    let path = t.replace('/', "\\").to_ascii_lowercase();
+    if path.starts_with("textures\\") {
+        path
+    } else {
+        format!("textures\\{path}")
+    }
+}
+
+/// Give a material the shader's holes at `value` (nif_material.rs, "Holes").
+fn set_holes(m: &mut NifMaterial, h: &Holes, texture: Handle<Image>, value: f32) {
+    m.extension.holes = Vec4::new(value, h.edge_width, 0.0, 0.0);
+    m.extension.holes_edge = Vec4::from_array(linear(h.edge_color).to_f32_array());
+    m.extension.holes_texture = Some(texture);
+}
+
+/// Up to `n` of `items`, spread evenly over them.
+fn spread<T: Copy>(items: &[T], n: usize) -> Vec<T> {
+    if items.len() <= n {
+        return items.to_vec();
+    }
+    (0..n).map(|i| items[i * items.len() / n]).collect()
+}
+
+/// A 64-bit mix (splitmix64's finaliser), for the add-on models' picks.
+fn mix(mut x: u64) -> u64 {
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+/// Scale and fade the add-on models.
+fn addon_look(models: &[(Entity, Option<Entity>)], scale: f32, alpha: f32, transforms: &mut Query<&mut Transform>, fades: &mut Query<&mut RigMaterials>) {
+    for &(holder, root) in models {
+        if let Ok(mut tr) = transforms.get_mut(holder) {
+            if tr.scale.x != scale {
+                tr.scale = Vec3::splat(scale);
+            }
+        }
+        if let Some(mut m) = root.and_then(|r| fades.get_mut(r).ok()) {
+            if m.fade != alpha {
+                m.fade = alpha;
+            }
+        }
+    }
+}
+
+/// Shrink and fade the add-on models of ended plays; take them away when done.
+fn addons_leaving(mut commands: Commands, time: Res<Time>, mut st: ResMut<Shaders>, mut transforms: Query<&mut Transform>, mut fades: Query<&mut RigMaterials>) {
+    let now = time.elapsed_secs();
+    st.leaving.retain(|l| {
+        let since_end = now - l.ended;
+        if since_end >= l.addons.linger() {
+            for (holder, _) in &l.models {
+                commands.entity(*holder).try_despawn();
+            }
+            return false;
+        }
+        let (scale, alpha) = l.addons.look(l.ended - l.since, Some(since_end));
+        addon_look(&l.models, scale, alpha, &mut transforms, &mut fades);
+        true
+    });
 }
 
 /// Draw actors with an alpha below 1 see-through; give the others their materials back.
@@ -345,15 +587,23 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<Shaders>) {
         return;
     }
     info!(
-        "effect shaders summary: {} played, {} ended, {} overlays drawn, {} actor alpha changes",
-        st.played, st.ended, st.overlays, st.alpha_calls
+        "effect shaders summary: {} played, {} ended, {} overlays drawn, {} actor alpha changes, {} meshes given holes, {} add-on models",
+        st.played, st.ended, st.overlays, st.alpha_calls, st.holed, st.addons
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nvf_assets::nif_material::Falloff;
+    use nvf_assets::nif_material::{Falloff, NO_HOLES};
+
+    #[test]
+    fn add_on_places_spread_over_the_bones() {
+        assert_eq!(spread(&[1, 2, 3], 8), vec![1, 2, 3]);
+        assert_eq!(spread(&(0..16).collect::<Vec<_>>(), 4), vec![0, 4, 8, 12]);
+        assert_ne!(mix(1), mix(2));
+        assert_eq!(NO_HOLES.x, -1.0);
+    }
 
     #[test]
     fn edge_is_half_strong_where_the_fall_off_says() {

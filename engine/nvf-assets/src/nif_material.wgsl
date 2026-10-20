@@ -25,6 +25,10 @@
 // map applied) in view space times `surface.refraction` [hypothesis, nif_material.rs
 // "Refraction"]; nothing of the shape's own colour or lighting.
 //
+// Holes (nif_material.rs "Holes"): where `surface.holes.x` is 0 or more, the holes
+// texture's alpha (0-255) at or above it leaves a hole and the band of `surface.holes.y`
+// below it is drawn in `surface.holes_edge`; at 255 or more there are none.
+//
 // SOFT_EDGES (alpha-tested shapes in the main pass of a multisampled view): instead of
 // the alpha test, the fragment's alpha is the share of the pixel's samples it covers
 // (nif_material.rs `soft_edges`).
@@ -73,9 +77,15 @@ struct NifSurface {
     add_whole: f32,
     // REFRACT: the screen shift (UV) per unit of the view-space normal; 0 otherwise.
     refraction: f32,
+    // Holes: x the value (alpha units, negative: no holes), y the edge band's width.
+    holes: vec4<f32>,
+    // The edge band's colour (linear).
+    holes_edge: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var holes_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var holes_sampler: sampler;
 
 // View-angle falloff of BSShaderNoLightingProperty (docs/spec-notes/nif.md §6): linear in
 // the cosine from the start opacity at the start angle to the stop opacity at the stop
@@ -178,6 +188,17 @@ fn fragment(
 #ifdef VISIBILITY_RANGE_DITHER
     visibility_range_dither(in.position, in.visibility_range_dither);
 #endif
+    // Holes (nif_material.rs "Holes"): 1 in the edge band, 0 elsewhere.
+    var holes_band = 0.0;
+#ifdef VERTEX_UVS_A
+    if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
+        let h = textureSampleLevel(holes_texture, holes_sampler, in.uv, 0.0).a * 255.0;
+        if h >= surface.holes.x {
+            discard;
+        }
+        holes_band = select(0.0, 1.0, h >= surface.holes.x - surface.holes.y);
+    }
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 #ifdef REFRACT
     let tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
@@ -237,6 +258,7 @@ fn fragment(
     } else {
         out.color = pbr_input.material.base_color;
     }
+    out.color = vec4(mix(out.color.rgb, surface.holes_edge.rgb, holes_band), out.color.a);
 #ifdef BLEND_MULTIPLY
     // The colour is a factor, not light: no fog and no tonemapping. Bevy's multiply blend
     // is destination × colour + destination × (1 − alpha), so the colour is premultiplied

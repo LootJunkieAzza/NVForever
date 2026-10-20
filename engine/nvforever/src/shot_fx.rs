@@ -237,6 +237,26 @@ fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &P
     let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.effect.as_ref()?))) else {
         return (spawn_model(commands, parent, pm, place), 0.0);
     };
+    let (holder, root, drawn) = spawn_rig(commands, parent, pm, rig, clip, place, source);
+    if beam {
+        // Every shape gets a material of its own to fade, not only those the clip drives
+        // (the laser beam's white core is not).
+        let fades_itself = clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha);
+        if !fades_itself {
+            let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
+            commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
+        }
+        commands.entity(holder).insert(Fade { root, own: fades_itself });
+        fx.beams_animated += 1;
+    }
+    fx.animated += 1;
+    (holder, clip.length() / clip.frequency.max(1e-6))
+}
+
+/// Spawn `rig` under a holder at `place` playing `clip`, with the billboards, add-on
+/// nodes and visibility tracks of [`spawn_effect`]; returns the holder, the rig's root
+/// and its drawn shapes.
+fn spawn_rig(commands: &mut Commands, parent: Entity, pm: &PreparedModel, rig: &nvf_assets::model::Rig, clip: &nvf_assets::anim_play::Clip, place: Transform, source: &str) -> (Entity, Entity, Vec<Entity>) {
     // Under a holder at the place: a track of the clip may drive the file's root node.
     let holder = commands.spawn((place, Visibility::Inherited, ChildOf(parent))).id();
     let (root, drawn, by_name) = rig.spawn_playing(commands, holder, Transform::IDENTITY, source, 0.0, Some(clip));
@@ -256,19 +276,25 @@ fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &P
     if !shown.is_empty() {
         commands.entity(root).insert(EffectVisibility(shown));
     }
-    if beam {
-        // Every shape gets a material of its own to fade, not only those the clip drives
-        // (the laser beam's white core is not).
-        let fades_itself = clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha);
-        if !fades_itself {
-            let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
-            commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
-        }
-        commands.entity(holder).insert(Fade { root, own: fades_itself });
-        fx.beams_animated += 1;
+    (holder, root, drawn)
+}
+
+/// Spawn a model another effect puts on something (an effect shader's add-on models,
+/// `crate::effect_shaders`) under `parent` at `place`, as [`spawn_effect`] does: its rig
+/// playing its effect clip, its billboards turning, its add-on nodes emitting. Returns
+/// the entity above it and the rig root whose [`RigMaterials::fade`] fades it (`None`:
+/// no rig, or its clip drives its own alpha).
+pub(crate) fn spawn_attached(commands: &mut Commands, parent: Entity, pm: &PreparedModel, place: Transform, source: &str) -> (Entity, Option<Entity>) {
+    let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.effect.as_ref()?))) else {
+        return (spawn_model(commands, parent, pm, place), None);
+    };
+    let (holder, root, drawn) = spawn_rig(commands, parent, pm, rig, clip, place, source);
+    if clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha) {
+        return (holder, None);
     }
-    fx.animated += 1;
-    (holder, clip.length() / clip.frequency.max(1e-6))
+    let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
+    commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
+    (holder, Some(root))
 }
 
 /// On a beam's holder: the root of its rig, whose materials fade with the beam's
