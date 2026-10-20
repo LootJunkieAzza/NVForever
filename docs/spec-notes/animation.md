@@ -649,7 +649,8 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
     every named node and shape of it is given to the rig's animator as an extra node
     (`nvf_assets::anim_blend::Animator::set_extra`): a track drives the skeleton node of
     its name, else the weapon's. Parts blend by priority and fade like bones; a part no
-    playing clip drives is at its place in the model. Both rigs, first and third person;
+    playing clip drives is at its place in the model (since 2026-10-20 in the hand: where
+    the draw clip leaves it, below). Both rigs, first and third person;
   - an attack clip with a `Loop` key is not started again by the shots that follow
     while it runs; it goes round from its `Fire` key to its `Loop` key while shots come
     no more than 0.25 s apart [engineering choice], then plays out from where it is
@@ -706,10 +707,54 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
   many times a second, which looked like recoil [observed in NVForever: owner's playtest
   2026-10-16]. Run (smoke `cook-cook-flamer`): 4 clip starts and 10 shots carried on
   by a running clip in 40 s.
-- Open: whether the game holds a part where the last clip left it when no clip drives
-  it (as §9.7 reads the `Weapon` node) rather than at its place in the model: the
-  10mm's parts have no track in `1hpaim.kf`, so the two readings differ wherever a clip
-  ends with a part away from its place. Not compared with the game frame by frame.
+- Where the parts rest [observed unless tagged; measured 2026-10-20 with
+  `crates/fnv-nif/examples/weapon_rest_survey.rs` (each `##` node of a model: the turn
+  and offset each clip gives it at its start and end against its place in the model,
+  `-` where the clip has no transform track for it) on `Fallout - Meshes.bsa` and
+  `Update.bsa`, both folders (`_1stperson`, `_male`), each weapon's WEAP attack and
+  reload clips]:
+  - 9mm pistol (`WeapNV9mmPistol`, `weapons\1handpistol\9mm.nif`, `AttackRight`,
+    `ReloadL`): the draw clip `1hpequip.kf` turns `##nmHammer` from 0° to 45° about
+    its z axis (between 0.10 and 0.23 s, held to the end); `1hpaim.kf` has no track for
+    any `##nm…` part (neither archive's file) and `1hpaimis.kf` has only translations
+    for them in first person; `1hpattackright.kf` starts the hammer at 0° and has it
+    back at 45° by 0.033 s (Euler keys in first person, a B-spline in third),
+    holding it to the end; `1hpreloadl.kf` holds it at 45° throughout; `1hpunequip.kf`
+    brings it from 45° to 0°. The owner's screenshot of the game's 9mm in first person,
+    idle with 13 of 8 rounds, shows the hammer back [observed: owner, 2026-10-20].
+    Reading [hypothesis, as §9.7 reads the `Weapon` node]: a part no playing clip
+    drives stays where the last clip put it, so the hammer is cocked from the draw on,
+    falls as the shot leaves and is cocked again at once, and goes down as the pistol
+    is put away. NVForever had the hammer forward (the model's pose) at idle.
+  - The 9mm model has two nodes named `##nmClip` under the root: the first has no
+    children, the second holds the magazine shape `##nmClip:0`. The reload clips'
+    `##nmClip` track (54 units of travel in first person) moved only the first in
+    NVForever, so the magazine never left the grip [observed: owner, 2026-10-20].
+    Which of the two the game drives is not known; ours drives both.
+  - .357 revolver (`WeapNV357Revolver`, `357revolver.nif`, `Attack5`, `ReloadX`): the
+    aim clips (`1hpaim.kf`, `1hpaimis.kf`, both folders) hold `##357Hammer` at 45°
+    (cocked); `1hpattack5.kf` goes 0° to 45°; `1hpreloadxstart.kf` lowers it to 0°
+    and opens `##LoadingGate` 85°, `1hpreloadx.kf` closes the gate and cocks the
+    hammer again; the draw clip cocks it (0° to 45°) as the 9mm's.
+  - Cowboy Repeater (`Attack5`, `ReloadZ`) and lever-action shotgun (`Attack5`,
+    `ReloadX`): the `2hr` aim clips hold `##CRHammer` at 91° and `##LASHammer` at
+    61.3°; the attack and the reload clips end there; the draw clip keys neither.
+  - 10mm pistol (`AttackRight`, `ReloadA`), hunting rifle (`Attack3`, `ReloadA`) and
+    varmint rifle (`Attack8`, `ReloadM`): every clip starts and ends each part at its
+    place in the model (`##Hammer`, `##HRBolt`, `##VRBolt` and the rest at 0° and 0
+    units); the two readings agree for them.
+- Engine (since 2026-10-20):
+  - player (`nvforever::player_body`, both rigs): while the weapon is in the hand, each
+    part the draw clip has a track for rests where that clip leaves it at its end
+    (`Animator::set_extra_rest`), as the `Weapon` node does (§9.7); the others rest at
+    their place in the model. Holstered, all at their place. A track drives every node
+    of its name (`Animator::set_extra`). Each time the weapon comes to rest in the
+    hand (no draw, attack or reload clip playing) the body logs the parts away from
+    their place, and each reload clip that starts lists the parts it moves;
+  - NPCs (`nvforever::weapons`, rigid models with no clips on their parts): in the
+    hand, a shape under a part takes the pose of the stance's aim clip for that part,
+    else the draw clip's end (`drawn_place`); holstered, the model's pose;
+  - smoke `weapon-parts-rest`.
 
 ### 9.9 The muzzle: `ProjectileNode` [observed unless tagged]
 
