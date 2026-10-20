@@ -64,6 +64,10 @@ pub enum CombatRequest {
     Detonate(FormId),
     /// `from` fires one shot of `weapon` from its centre, straight ahead (`FireWeapon`).
     Fire { from: FormId, weapon: FormId },
+    /// Dismember the part at `location` (GetHitLocation's numbering) of a dead actor:
+    /// KillActor's limb argument. The engine knows the actor's body parts
+    /// (docs/spec-notes/dismemberment.md §5).
+    Dismember { actor: FormId, location: i32, by: Option<FormId> },
 }
 
 /// What damage did to a destructible reference (step C7).
@@ -99,6 +103,11 @@ pub struct HitResult {
     pub limb: Option<(u16, f64)>,
     /// That hit crippled the limb (its condition reached 0 now).
     pub crippled: bool,
+    /// Damage beyond the health the target had left: on the hit that killed it, and the
+    /// whole damage on a corpse (docs/spec-notes/dismemberment.md §4).
+    pub overkill: f64,
+    /// The target was dead before the hit.
+    pub corpse: bool,
 }
 
 /// A hit on a body part (step C8).
@@ -363,7 +372,8 @@ impl Game<'_> {
         let max_health = actor::actor_value_base(self, target, HEALTH);
         if self.is_dead(target) || self.is_immune(target) {
             let health = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
-            return HitResult { health, max_health, immune: true, ..HitResult::default() };
+            let corpse = self.is_dead(target);
+            return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, ..HitResult::default() };
         }
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
         let essential = self.is_essential(target);
@@ -406,6 +416,9 @@ impl Game<'_> {
                 out.knocked_out = self.knock_out(target, crate::unconscious::Cause::Essential, info.attacker);
             } else {
                 out.died = self.kill(target, info.attacker);
+                if out.died {
+                    out.overkill = (damage - dealt).max(0.0);
+                }
                 if out.died && info.attacker == Some(FormId::PLAYER_REF) {
                     let xp = self.kill_xp(target);
                     out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
@@ -525,6 +538,38 @@ impl Game<'_> {
     /// Whether the actor's limb (condition actor value code) is crippled.
     pub fn is_crippled(&mut self, r: FormId, condition: u16) -> bool {
         actor::actor_value(self, r, condition).is_ok_and(|v| v <= 0.0)
+    }
+
+    /// Whether the actor has Bloody Mess: its `Bloody Mess` actor value is above 0 (the
+    /// perk's ability raises it [hypothesis], docs/spec-notes/dismemberment.md §3).
+    pub fn has_bloody_mess(&mut self, r: FormId) -> bool {
+        actor::av_by_name("Bloody Mess").is_some_and(|code| actor::actor_value(self, r, code).is_ok_and(|v| v > 0.0))
+    }
+
+    /// Whether the body part at `location` (GetHitLocation's numbering) of the actor is gone.
+    pub fn limb_gone(&self, r: FormId, location: i32) -> bool {
+        self.extra.get(&r).is_some_and(|e| e.limbs_gone.contains_key(&location))
+    }
+
+    /// The actor's gone body parts: location, and whether it exploded.
+    pub fn limbs_gone(&self, r: FormId) -> Vec<(i32, bool)> {
+        self.extra.get(&r).map_or_else(Vec::new, |e| e.limbs_gone.iter().map(|(&l, &x)| (l, x)).collect())
+    }
+
+    /// Dismember the actor's parts at these locations (true: exploded, false: severed),
+    /// `by` the attacker. Parts already gone stay as they went. The player's hits count
+    /// toward Dismembered Limbs, one per part (docs/spec-notes/dismemberment.md §5).
+    /// Returns the parts newly gone.
+    pub fn dismember(&mut self, r: FormId, parts: &[(i32, bool)], by: Option<FormId>) -> Vec<(i32, bool)> {
+        let e = self.extra.entry(r).or_default();
+        let new: Vec<(i32, bool)> = parts.iter().copied().filter(|(l, _)| *l >= 0 && !e.limbs_gone.contains_key(l)).collect();
+        for &(l, exploded) in &new {
+            e.limbs_gone.insert(l, exploded);
+        }
+        if by == Some(FormId::PLAYER_REF) && !new.is_empty() {
+            self.count_stat(crate::misc_stats::DISMEMBERED_LIMBS, new.len() as f64);
+        }
+        new
     }
 
     /// Whether the reference's base has destruction data.

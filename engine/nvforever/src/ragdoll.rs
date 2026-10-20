@@ -216,6 +216,13 @@ pub struct Corpse {
     calm: f32,
 }
 
+impl Corpse {
+    /// Per ragdoll body, its bone's index in the skeleton (`crate::dismember` cuts by it).
+    pub fn body_bones(&self) -> &[usize] {
+        &self.bones
+    }
+}
+
 pub struct RagdollPlugin;
 
 impl Plugin for RagdollPlugin {

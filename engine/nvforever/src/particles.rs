@@ -22,8 +22,16 @@
 //! - **Modifiers switched on and off** (`NiPSysModifierActiveCtlr`): a gravity or drag
 //!   modifier acts on a particle while the emitter it came from is at a time its keys
 //!   say on (`nvf_assets::particles::ModifierActive`).
-//! - Not built: turbulence, spawn-on-death, the bomb modifier, strip and mesh particle
-//!   systems, particle systems of models placed in cells (fires, steam).
+//! - **Mesh emitters** start particles on their meshes (vertices, face or edge centres,
+//!   anywhere on the faces or edges) thrown along the mesh's normal there; **strip
+//!   systems** trail a strip of recorded points behind each particle, drawn as a ribbon;
+//!   the **bomb** modifier pushes particles away from its object, **planar colliders**
+//!   bounce or kill them; float controllers key emitter fields, gravity strength and
+//!   birth rates over the emitter's time (particles.md §6). Bombs, colliders and
+//!   spherical gravity sit where the emitter's node placed them when the particle was
+//!   born (`Particle::frame`).
+//! - Not built: turbulence, spawn-on-death, particle systems of models placed in cells
+//!   (fires, steam).
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
@@ -32,7 +40,7 @@ use bevy::mesh::Indices;
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
 use nvf_assets::model::ModelCtx;
-use nvf_assets::particles::{particle_mesh, ParticleSystemDef, PreparedParticles};
+use nvf_assets::particles::{particle_mesh, InitialVelocity, ParticleSystemDef, PreparedParticles};
 use nvf_play::sfx::Sfx;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -82,6 +90,9 @@ enum Source {
 }
 
 struct Particle {
+    /// Its emitter node's place in the world when it was born: where its file's bombs,
+    /// colliders and gravity points are.
+    frame: Affine3A,
     pos: Vec3,
     vel: Vec3,
     /// Its emitter's time when it was born: the emitter's time now is this plus `age`
@@ -93,6 +104,9 @@ struct Particle {
     angle: f32,
     spin: f32,
     tex: usize,
+    /// A strip system's recorded points, oldest first, and the time since the last.
+    trail: Vec<Vec3>,
+    trail_clock: f32,
 }
 
 struct Live {
@@ -107,6 +121,8 @@ struct Live {
     /// about one particle, and a count kept by each flash would round most of them away
     /// [design].
     owed: f32,
+    /// Particles born into it so far (the exit report).
+    born: u64,
 }
 
 #[derive(Resource)]
@@ -174,7 +190,7 @@ fn systems_of<'a>(
                 "particles: {what} {}: {} system(s) [{}]{}",
                 path.as_deref().unwrap_or("?"),
                 pp.systems.len(),
-                pp.systems.iter().map(|s| format!("{} {}/s, at most {}", s.name, s.rate, s.max)).collect::<Vec<_>>().join("; "),
+                pp.systems.iter().map(ParticleSystemDef::describe).collect::<Vec<_>>().join("; "),
                 if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) }
             );
             pp.systems
@@ -184,7 +200,7 @@ fn systems_of<'a>(
                     let entity = commands
                         .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(def.material.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root)))
                         .id();
-                    Live { def: def.clone(), particles: Vec::new(), mesh, entity, served: 0, owed: 0.0 }
+                    Live { def: def.clone(), particles: Vec::new(), mesh, entity, served: 0, owed: 0.0, born: 0 }
                 })
                 .collect()
         });
@@ -245,45 +261,70 @@ fn emit(
                 continue;
             }
             live.served += 1;
-            *owed += d.rate * on;
+            // A keyed rate at the middle of the frame (particles.md §6.6).
+            *owed += d.rate_at(age + dt * 0.5) * on;
             let frame = node * d.emitter.frame;
             let (_, turn, origin) = frame.to_scale_rotation_translation();
+            let vals = d.emitter.values(age);
             while *owed >= 1.0 {
                 *owed -= 1.0;
                 if live.particles.len() >= d.max {
                     continue;
                 }
                 let m = &d.emitter;
-                // Somewhere in the emitter's volume.
-                let offset = if m.round {
-                    let a = rng.next_f32() * std::f32::consts::TAU;
-                    let r = m.size.x * rng.next_f32().sqrt();
-                    Vec3::new(a.cos() * r, a.sin() * r, m.size.z * spread(&mut rng) * 0.5)
-                } else {
-                    m.size * Vec3::new(spread(&mut rng), spread(&mut rng), spread(&mut rng)) * 0.5
+                // Where it starts and the axis of its cone: on a mesh, along the normal
+                // there (or at random, or a set axis); else somewhere in the emitter's
+                // volume, about its +z.
+                let (start, axis) = match &m.mesh {
+                    Some(me) => {
+                        let mesh = &me.meshes[((rng.next_f32() * me.meshes.len() as f32) as usize).min(me.meshes.len() - 1)];
+                        let Some((at, normal)) = mesh.pick(me.from, &mut || rng.next_f32()) else { continue };
+                        let mf = node * mesh.frame;
+                        let along = match me.velocity {
+                            InitialVelocity::Normals => mf.transform_vector3(normal),
+                            InitialVelocity::Random => Vec3::new(spread(&mut rng), spread(&mut rng), spread(&mut rng)),
+                            InitialVelocity::Direction(a) => mf.transform_vector3(a),
+                        };
+                        (mf.transform_point3(at), Quat::from_rotation_arc(Vec3::Z, along.normalize_or(Vec3::Z)))
+                    }
+                    None => {
+                        let offset = if m.round {
+                            let a = rng.next_f32() * std::f32::consts::TAU;
+                            let r = m.size.x * rng.next_f32().sqrt();
+                            Vec3::new(a.cos() * r, a.sin() * r, m.size.z * spread(&mut rng) * 0.5)
+                        } else {
+                            m.size * Vec3::new(spread(&mut rng), spread(&mut rng), spread(&mut rng)) * 0.5
+                        };
+                        (origin + turn * offset, turn)
+                    }
                 };
-                // Thrown within the cone: so far from the emitter's +z, any way round it.
-                let decl = m.declination + m.declination_variation * spread(&mut rng);
-                let planar = m.planar_angle + m.planar_angle_variation * spread(&mut rng);
+                // Thrown within the cone: so far from the axis, any way round it.
+                let decl = vals.declination + vals.declination_variation * spread(&mut rng);
+                let planar = vals.planar_angle + vals.planar_angle_variation * spread(&mut rng);
                 let dir = Vec3::new(decl.sin() * planar.cos(), decl.sin() * planar.sin(), decl.cos());
-                let speed = m.speed + m.speed_variation * spread(&mut rng) * 0.5;
+                let speed = vals.speed + vals.speed_variation * spread(&mut rng) * 0.5;
                 let rot = d.rotation.clone().unwrap_or_default();
                 let mut spin = rot.speed + rot.speed_variation * spread(&mut rng);
                 if rot.random_sign && rng.next_f32() < 0.5 {
                     spin = -spin;
                 }
                 live.particles.push(Particle {
-                    pos: origin + turn * offset,
-                    vel: turn * dir * speed,
+                    frame: node,
+                    pos: start,
+                    vel: axis * dir * speed,
                     born_at: age,
                     age: 0.0,
-                    life: (m.life + m.life_variation * spread(&mut rng) * 0.5).max(0.02),
-                    radius: (m.radius + m.radius_variation * spread(&mut rng)).max(0.0),
+                    life: (vals.life + vals.life_variation * spread(&mut rng) * 0.5).max(0.02),
+                    radius: (vals.radius + vals.radius_variation * spread(&mut rng)).max(0.0),
                     angle: rot.angle + rot.angle_variation * spread(&mut rng),
                     spin,
                     tex: if d.subtextures.is_empty() { 0 } else { ((rng.next_f32() * d.subtextures.len() as f32) as usize).min(d.subtextures.len() - 1) },
+                    // A strip starts where its particle is born.
+                    trail: if d.strip.is_some() { vec![start] } else { Vec::new() },
+                    trail_clock: 0.0,
                 });
                 born += 1;
+                live.born += 1;
             }
         }
         p.rng = rng;
@@ -301,8 +342,11 @@ fn simulate(time: Res<Time>, mut p: ResMut<Particles>) {
             q.age += dt;
             let at = q.born_at + q.age;
             for g in d.gravity.iter().filter(|g| g.active.on(at, d.period, d.loops)) {
-                let pull = if g.spherical { (g.origin - q.pos).normalize_or_zero() } else { g.direction };
-                q.vel += pull * g.strength * dt;
+                let pull = if g.spherical { (q.frame.transform_point3(g.origin) - q.pos).normalize_or_zero() } else { g.direction };
+                q.vel += pull * g.strength_at(at) * dt;
+            }
+            for b in d.bombs.iter().filter(|b| b.active.on(at, d.period, d.loops)) {
+                q.vel += b.push(&q.frame, q.pos) * dt;
             }
             for drag in d.drag.iter().filter(|g| g.active.on(at, d.period, d.loops)) {
                 // The share of the speed along the axis kept after `dt`.
@@ -310,8 +354,28 @@ fn simulate(time: Res<Time>, mut p: ResMut<Particles>) {
                 let along = q.vel.dot(drag.axis);
                 q.vel -= drag.axis * along * (1.0 - keep);
             }
-            q.pos += q.vel * dt;
+            let to = q.pos + q.vel * dt;
+            match d.colliders.iter().find_map(|c| c.hit(&q.frame, q.pos, to, q.vel)) {
+                None => q.pos = to,
+                Some(None) => q.life = q.age,
+                Some(Some((at, vel))) => {
+                    q.pos = at;
+                    q.vel = vel;
+                }
+            }
             q.angle += q.spin * dt;
+            if let Some(st) = d.strip {
+                q.trail_clock += dt;
+                while q.trail_clock >= st.step {
+                    q.trail_clock -= st.step;
+                    q.trail.push(q.pos);
+                }
+                // The recorded points and the particle itself make at most `max_points`.
+                let keep = st.max_points.saturating_sub(1).max(1);
+                if q.trail.len() > keep {
+                    q.trail.drain(..q.trail.len() - keep);
+                }
+            }
         }
         live.particles.retain(|q| q.age < q.life);
         alive += live.particles.len();
@@ -351,7 +415,38 @@ fn draw(
         let mut uvs = Vec::with_capacity(n * 4);
         let mut colors = Vec::with_capacity(n * 4);
         let mut indices = Vec::with_capacity(n * 6);
-        for (k, q) in live.particles.iter().enumerate() {
+        if d.strip.is_some() {
+            // Ribbons through each particle's recorded points and its place, facing the
+            // camera; the texture rectangle's width across, its height along, the oldest
+            // point at its bottom (particles.md §6.2).
+            for q in &live.particles {
+                let points: Vec<Vec3> = q.trail.iter().copied().chain([q.pos]).collect();
+                let count = points.len();
+                if count < 2 {
+                    continue;
+                }
+                let t = (q.age / q.life).clamp(0.0, 1.0);
+                let half = q.radius * d.scale(q.age, q.life);
+                let [u, w, v, h] = d.subtextures.get(q.tex).copied().unwrap_or([0.0, 1.0, 0.0, 1.0]);
+                let tint = d.tint(t);
+                let e = d.emitter.color;
+                let colour = display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]);
+                let base = positions.len() as u32;
+                for (i, p) in points.iter().enumerate() {
+                    let tangent = points[(i + 1).min(count - 1)] - points[i.saturating_sub(1)];
+                    let side = tangent.cross(back).normalize_or(right) * half;
+                    positions.extend([(*p - side).to_array(), (*p + side).to_array()]);
+                    let along = v + h * (1.0 - i as f32 / (count - 1) as f32);
+                    uvs.extend([[u, along], [u + w, along]]);
+                    colors.extend([colour; 2]);
+                }
+                for i in 0..(count as u32 - 1) {
+                    let a = base + i * 2;
+                    indices.extend([a, a + 1, a + 3, a, a + 3, a + 2]);
+                }
+            }
+        }
+        for (k, q) in live.particles.iter().enumerate().filter(|_| d.strip.is_none()) {
             let t = (q.age / q.life).clamp(0.0, 1.0);
             let half = q.radius * d.scale(q.age, q.life);
             let (s, c) = q.angle.sin_cos();
@@ -361,13 +456,13 @@ fn draw(
             }
             let [u, w, v, h] = d.subtextures.get(q.tex).copied().unwrap_or([0.0, 1.0, 0.0, 1.0]);
             uvs.extend([[u, v + h], [u + w, v + h], [u + w, v], [u, v]]);
-            let tint = d.color.as_ref().map_or([1.0; 4], |c| c.at(t));
+            let tint = d.tint(t);
             let e = d.emitter.color;
             colors.extend([display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]); 4]);
             let b = (k * 4) as u32;
             indices.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
         }
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![back.to_array(); n * 4]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![back.to_array(); positions.len()]);
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
@@ -390,6 +485,18 @@ fn display_colour(c: [f32; 4]) -> [f32; 4] {
 fn report(mut exit: MessageReader<AppExit>, p: Res<Particles>) {
     if exit.read().last().is_some() && p.born > 0 {
         info!("particles: {} born in {} add-on systems, at most {} alive at once", p.born, p.systems.values().flatten().count(), p.most_alive);
+        // Each system that emitted, by its file.
+        for (source, live) in &p.systems {
+            let Some(live) = live else { continue };
+            let file = match source {
+                Source::Addon(i) => format!("add-on node {i}"),
+                Source::Model(path) => path.clone(),
+            };
+            let born: Vec<String> = live.iter().filter(|l| l.born > 0).map(|l| format!("{} {}", l.def.name, l.born)).collect();
+            if !born.is_empty() {
+                info!("particles: born in {file}: {}", born.join(", "));
+            }
+        }
     }
 }
 

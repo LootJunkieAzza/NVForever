@@ -6765,3 +6765,20 @@ against our engine with its scripts, over the first two game hours. Choices made
 *Check:* walk in through the Strip's north gate for the first time at night: the four
 troopers walk in, two lean on the wall and stay there until they go on towards the
 embassy; Victor's securitron comes up to talk.
+## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
+
+docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
+when his AI went off (owner-decision-captures.md §7). Ours now does the same, moved by the
+character controller so it collides and follows the ground. The capture did not show the
+rest, so these are my choices:
+- **At a wall or another actor** it keeps walking into it and goes nowhere. It does not
+  steer round, jump or turn.
+- **Its clip**: drawn walking while it moves, standing while it is blocked.
+- **Away from the player** (no collision loaded there), headless, or in hours passed in the
+  Wait menu, it stops and stays stopped until the AI is back on.
+- **Doors** are walls to it.
+- **AI back on**: it steers back to its path's next corner, so one that went past turns
+  round. The original's short run-time FOLLOW package after SetActorsAI 1 is not
+  reproduced.
+*Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
+him into a wall and see whether the original's actor also stops dead there.

@@ -11,11 +11,204 @@ use bevy::asset::RenderAssetUsages;
 use bevy::math::Affine3A;
 use bevy::mesh::PrimitiveTopology;
 use bevy::prelude::*;
-use fnv_nif::scene::{scene_objects, Decoded, SceneObject, Transform as NifTransform};
+use crate::anim_play::OwnCycle;
+use fnv_nif::anim::{Channel, Keys, ValueTrack};
+use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject, Transform as NifTransform};
 use fnv_nif::value::Struct;
 use fnv_nif::NifFile;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// A float a controller keys over time (`NiPSysEmitterSpeedCtlr`,
+/// `NiPSysGravityStrengthCtlr`, a keyed birth rate…): the controller's own keys on its own
+/// cycle, or a sequence's keys on the sequence's time and cycle (particles.md §6.6).
+#[derive(Debug, Clone)]
+pub struct FloatKeys {
+    pub channel: Channel<1>,
+    pub cycle: OwnCycle,
+}
+
+impl FloatKeys {
+    /// The value `t` seconds after the emitter appeared.
+    pub fn at(&self, t: f32) -> Option<f32> {
+        self.channel.sample(self.cycle.time(t)).map(|[v]| v).filter(|v| v.is_finite() && *v > -1e30)
+    }
+}
+
+/// The emitter fields a float controller can drive [documented: nif.xml
+/// `NiPSysEmitter…Ctlr` names].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmitterParam {
+    Speed,
+    Radius,
+    Declination,
+    DeclinationVariation,
+    PlanarAngle,
+    PlanarAngleVariation,
+    LifeSpan,
+}
+
+impl EmitterParam {
+    fn of_controller(ty: &str) -> Option<EmitterParam> {
+        Some(match ty {
+            "NiPSysEmitterSpeedCtlr" => EmitterParam::Speed,
+            "NiPSysEmitterInitialRadiusCtlr" => EmitterParam::Radius,
+            "NiPSysEmitterDeclinationCtlr" => EmitterParam::Declination,
+            "NiPSysEmitterDeclinationVarCtlr" => EmitterParam::DeclinationVariation,
+            "NiPSysEmitterPlanarAngleCtlr" => EmitterParam::PlanarAngle,
+            "NiPSysEmitterPlanarAngleVarCtlr" => EmitterParam::PlanarAngleVariation,
+            "NiPSysEmitterLifeSpanCtlr" => EmitterParam::LifeSpan,
+            _ => return None,
+        })
+    }
+}
+
+/// Where on a mesh a mesh emitter's particles start [documented: nif.xml EmitFrom].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmitFrom {
+    Vertices,
+    FaceCenter,
+    EdgeCenter,
+    FaceSurface,
+    EdgeSurface,
+}
+
+/// Which way a mesh emitter throws its particles [documented: nif.xml VelocityType].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InitialVelocity {
+    /// Along the mesh's normal where the particle starts.
+    Normals,
+    /// Any way.
+    Random,
+    /// Along this axis, in the mesh's frame.
+    Direction(Vec3),
+}
+
+/// One mesh of a `NiPSysMeshEmitter`: its place in the file and its geometry, with the
+/// running totals of its faces' areas and edges' lengths to pick by (particles.md §6.1).
+#[derive(Debug, Clone, Default)]
+pub struct EmitterMesh {
+    pub frame: Affine3A,
+    pub positions: Vec<Vec3>,
+    pub normals: Vec<Vec3>,
+    pub triangles: Vec<[u32; 3]>,
+    pub edges: Vec<[u32; 2]>,
+    area_total: Vec<f32>,
+    length_total: Vec<f32>,
+}
+
+impl EmitterMesh {
+    pub fn new(frame: Affine3A, positions: Vec<Vec3>, normals: Vec<Vec3>, triangles: Vec<[u32; 3]>) -> EmitterMesh {
+        let n = positions.len() as u32;
+        let triangles: Vec<[u32; 3]> = triangles.into_iter().filter(|t| t.iter().all(|&i| i < n)).collect();
+        let mut edges: Vec<[u32; 2]> = triangles.iter().flat_map(|&[a, b, c]| [[a.min(b), a.max(b)], [b.min(c), b.max(c)], [a.min(c), a.max(c)]]).collect();
+        edges.sort_unstable();
+        edges.dedup();
+        let p = |i: u32| positions[i as usize];
+        let mut sum = 0.0;
+        let area_total = triangles
+            .iter()
+            .map(|&[a, b, c]| {
+                sum += (p(b) - p(a)).cross(p(c) - p(a)).length() * 0.5;
+                sum
+            })
+            .collect();
+        let mut sum = 0.0;
+        let length_total = edges
+            .iter()
+            .map(|&[a, b]| {
+                sum += p(a).distance(p(b));
+                sum
+            })
+            .collect();
+        EmitterMesh { frame, positions, normals, triangles, edges, area_total, length_total }
+    }
+
+    fn normal(&self, i: u32) -> Option<Vec3> {
+        self.normals.get(i as usize).copied().filter(|n| n.length_squared() > 1e-12)
+    }
+
+    /// The index of the entry a share `r` (0..1) of the running total falls in.
+    fn by_weight(totals: &[f32], r: f32) -> usize {
+        let total = totals.last().copied().unwrap_or(0.0);
+        if total <= 0.0 {
+            return ((r * totals.len() as f32) as usize).min(totals.len().saturating_sub(1));
+        }
+        totals.partition_point(|&t| t < r * total).min(totals.len() - 1)
+    }
+
+    /// A start point and the normal there, in the mesh's frame, picked as `from` says
+    /// (particles.md §6.1); `rand` gives numbers in 0..1. On a face the vertex normals are
+    /// blended at the point, else the face's own normal is taken.
+    pub fn pick(&self, from: EmitFrom, rand: &mut dyn FnMut() -> f32) -> Option<(Vec3, Vec3)> {
+        let p = |i: u32| self.positions[i as usize];
+        let face_normal = |[a, b, c]: [u32; 3]| (p(b) - p(a)).cross(p(c) - p(a)).normalize_or(Vec3::Z);
+        let blend = |ids: &[u32], w: &[f32], fallback: Vec3| {
+            let n: Option<Vec3> = ids.iter().zip(w).map(|(&i, &k)| self.normal(i).map(|n| n * k)).sum();
+            n.map_or(fallback, |n| n.normalize_or(fallback))
+        };
+        match from {
+            EmitFrom::Vertices => {
+                if self.positions.is_empty() {
+                    return None;
+                }
+                let i = ((rand() * self.positions.len() as f32) as usize).min(self.positions.len() - 1) as u32;
+                Some((p(i), self.normal(i).map_or(Vec3::Z, Vec3::normalize)))
+            }
+            EmitFrom::FaceCenter | EmitFrom::FaceSurface => {
+                if self.triangles.is_empty() {
+                    return None;
+                }
+                let t = if from == EmitFrom::FaceSurface {
+                    self.triangles[Self::by_weight(&self.area_total, rand())]
+                } else {
+                    self.triangles[((rand() * self.triangles.len() as f32) as usize).min(self.triangles.len() - 1)]
+                };
+                // Uniform over the triangle: the square-root rule for barycentric weights.
+                let (u, v) = if from == EmitFrom::FaceSurface { (rand().sqrt(), rand()) } else { (1.0, 0.5) };
+                let w = if from == EmitFrom::FaceSurface { [1.0 - u, u * (1.0 - v), u * v] } else { [1.0 / 3.0; 3] };
+                let at = p(t[0]) * w[0] + p(t[1]) * w[1] + p(t[2]) * w[2];
+                Some((at, blend(&t, &w, face_normal(t))))
+            }
+            EmitFrom::EdgeCenter | EmitFrom::EdgeSurface => {
+                if self.edges.is_empty() {
+                    return None;
+                }
+                let [a, b] = if from == EmitFrom::EdgeSurface {
+                    self.edges[Self::by_weight(&self.length_total, rand())]
+                } else {
+                    self.edges[((rand() * self.edges.len() as f32) as usize).min(self.edges.len() - 1)]
+                };
+                let k = if from == EmitFrom::EdgeSurface { rand() } else { 0.5 };
+                let along = (p(b) - p(a)).normalize_or(Vec3::X);
+                Some((p(a).lerp(p(b), k), blend(&[a, b], &[1.0 - k, k], along.any_orthonormal_vector())))
+            }
+        }
+    }
+}
+
+/// A `NiPSysMeshEmitter`'s meshes and how it uses them.
+#[derive(Debug, Clone)]
+pub struct MeshEmission {
+    pub meshes: Vec<EmitterMesh>,
+    pub from: EmitFrom,
+    pub velocity: InitialVelocity,
+}
+
+/// The emitter's values at a time, its float controllers applied.
+#[derive(Debug, Clone, Copy)]
+pub struct EmitterValues {
+    pub speed: f32,
+    pub speed_variation: f32,
+    pub declination: f32,
+    pub declination_variation: f32,
+    pub planar_angle: f32,
+    pub planar_angle_variation: f32,
+    pub radius: f32,
+    pub radius_variation: f32,
+    pub life: f32,
+    pub life_variation: f32,
+}
 
 /// A `NiPSys…Emitter`: where particles are born and what they start with.
 #[derive(Debug, Clone)]
@@ -39,6 +232,151 @@ pub struct Emitter {
     pub radius_variation: f32,
     pub life: f32,
     pub life_variation: f32,
+    /// A mesh emitter's meshes (`frame` is then unused unless it has none).
+    pub mesh: Option<MeshEmission>,
+    /// Fields driven by float controllers (particles.md §6.6).
+    pub keyed: Vec<(EmitterParam, FloatKeys)>,
+}
+
+impl Emitter {
+    fn blank() -> Emitter {
+        Emitter {
+            frame: Affine3A::IDENTITY,
+            size: Vec3::ZERO,
+            round: false,
+            speed: 0.0,
+            speed_variation: 0.0,
+            declination: 0.0,
+            declination_variation: 0.0,
+            planar_angle: 0.0,
+            planar_angle_variation: 0.0,
+            color: [1.0; 4],
+            radius: 1.0,
+            radius_variation: 0.0,
+            life: 1.0,
+            life_variation: 0.0,
+            mesh: None,
+            keyed: Vec::new(),
+        }
+    }
+
+    /// Its values `t` seconds after it appeared: each keyed field's controller value in
+    /// place of the field's own.
+    pub fn values(&self, t: f32) -> EmitterValues {
+        let mut v = EmitterValues {
+            speed: self.speed,
+            speed_variation: self.speed_variation,
+            declination: self.declination,
+            declination_variation: self.declination_variation,
+            planar_angle: self.planar_angle,
+            planar_angle_variation: self.planar_angle_variation,
+            radius: self.radius,
+            radius_variation: self.radius_variation,
+            life: self.life,
+            life_variation: self.life_variation,
+        };
+        for (param, keys) in &self.keyed {
+            let Some(x) = keys.at(t) else { continue };
+            *match param {
+                EmitterParam::Speed => &mut v.speed,
+                EmitterParam::Radius => &mut v.radius,
+                EmitterParam::Declination => &mut v.declination,
+                EmitterParam::DeclinationVariation => &mut v.declination_variation,
+                EmitterParam::PlanarAngle => &mut v.planar_angle,
+                EmitterParam::PlanarAngleVariation => &mut v.planar_angle_variation,
+                EmitterParam::LifeSpan => &mut v.life,
+            } = x;
+        }
+        v
+    }
+}
+
+/// `NiPSysBombModifier`: a push away from the bomb object (particles.md §6.3).
+#[derive(Debug, Clone)]
+pub struct Bomb {
+    /// The bomb object's place in the file and its axis there (unit).
+    pub origin: Vec3,
+    pub axis: Vec3,
+    pub delta_v: f32,
+    pub decay: f32,
+    /// 0 none, 1 linear, 2 exponential [documented: nif.xml DecayType].
+    pub decay_type: i64,
+    /// 0 spherical, 1 cylindrical, 2 planar [documented: nif.xml SymmetryType].
+    pub symmetry: i64,
+    pub active: ModifierActive,
+}
+
+impl Bomb {
+    /// The acceleration (units/s²) at `pos`, the bomb placed by `frame` (the file's place in
+    /// the world) [hypothesis: `delta_v` per second away from the object, the line along
+    /// its axis or the plane across it, scaled down with the distance by the decay type].
+    pub fn push(&self, frame: &Affine3A, pos: Vec3) -> Vec3 {
+        let axis = frame.transform_vector3(self.axis).normalize_or(Vec3::Z);
+        let off = pos - frame.transform_point3(self.origin);
+        let away = match self.symmetry {
+            1 => off - axis * off.dot(axis),
+            2 => axis * off.dot(axis),
+            _ => off,
+        };
+        let d = away.length();
+        let k = match self.decay_type {
+            1 if self.decay > 0.0 => (1.0 - d / self.decay).max(0.0),
+            2 if self.decay > 0.0 => (-d / self.decay).exp(),
+            _ => 1.0,
+        };
+        away.normalize_or_zero() * self.delta_v * k
+    }
+}
+
+/// `NiPSysPlanarCollider` under a `NiPSysColliderManager` (particles.md §6.4), in the file's
+/// frame.
+#[derive(Debug, Clone)]
+pub struct Collider {
+    pub origin: Vec3,
+    /// The plane's axes (unit) and the rectangle's half width and half height along them.
+    pub x_axis: Vec3,
+    pub y_axis: Vec3,
+    pub half_width: f32,
+    pub half_height: f32,
+    pub bounce: f32,
+    pub die: bool,
+}
+
+impl Collider {
+    /// What becomes of a particle that moved from `from` to `to` with velocity `vel`, the
+    /// collider placed by `frame` (the file's place in the world): `None` when it did not
+    /// cross the rectangle, else `Some(None)` when it dies and `Some(Some((place,
+    /// velocity)))` when it bounces.
+    #[allow(clippy::type_complexity)]
+    pub fn hit(&self, frame: &Affine3A, from: Vec3, to: Vec3, vel: Vec3) -> Option<Option<(Vec3, Vec3)>> {
+        let (x, y) = (frame.transform_vector3(self.x_axis), frame.transform_vector3(self.y_axis));
+        let (hw, hh) = (self.half_width * x.length(), self.half_height * y.length());
+        let (x, y) = (x.normalize_or_zero(), y.normalize_or_zero());
+        let origin = frame.transform_point3(self.origin);
+        let n = x.cross(y).normalize_or_zero();
+        let (a, b) = ((from - origin).dot(n), (to - origin).dot(n));
+        if n == Vec3::ZERO || (a > 0.0) == (b > 0.0) || a == b {
+            return None;
+        }
+        let at = from + (to - from) * (a / (a - b));
+        let off = at - origin;
+        if off.dot(x).abs() > hw || off.dot(y).abs() > hh {
+            return None;
+        }
+        if self.die {
+            return Some(None);
+        }
+        let across = n * vel.dot(n);
+        Some(Some((at, vel - across - across * self.bounce)))
+    }
+}
+
+/// `BSStripParticleSystem`: each particle trails a strip of at most `max_points` points,
+/// one recorded every `step` seconds (particles.md §6.2).
+#[derive(Debug, Clone, Copy)]
+pub struct Strip {
+    pub max_points: usize,
+    pub step: f32,
 }
 
 /// `BSPSysSimpleColorModifier`: three colours over a particle's life, and its fades.
@@ -99,9 +437,18 @@ pub struct Gravity {
     pub direction: Vec3,
     pub origin: Vec3,
     pub strength: f32,
+    /// The strength keyed over the emitter's time (`NiPSysGravityStrengthCtlr`).
+    pub strength_keys: Option<FloatKeys>,
     pub spherical: bool,
     /// When it acts ([`ModifierActive`]).
     pub active: ModifierActive,
+}
+
+impl Gravity {
+    /// Its strength at the emitter's time `t`.
+    pub fn strength_at(&self, t: f32) -> f32 {
+        self.strength_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.strength)
+    }
 }
 
 /// `NiPSysDragModifier`: the share of the velocity along `axis` lost per step.
@@ -145,6 +492,8 @@ pub struct ParticleSystemDef {
     /// Particles born per second while the emitter is on (the emitter controller's
     /// float interpolator).
     pub rate: f32,
+    /// The rate keyed over the emitter's time, in place of `rate` (particles.md §6.6).
+    pub rate_keys: Option<FloatKeys>,
     /// The emitter controller's on/off keys (time, on) and its stop time, after which
     /// they repeat when the controller cycles.
     pub active: Vec<(f32, bool)>,
@@ -156,14 +505,60 @@ pub struct ParticleSystemDef {
     pub fade_time: f32,
     pub base_scale: f32,
     pub color: Option<SimpleColor>,
+    /// `NiPSysColorModifier`: colour keys over the share of its life a particle has lived.
+    pub color_keys: Option<Keys<4>>,
     pub rotation: Option<Rotation>,
     pub gravity: Vec<Gravity>,
     pub drag: Vec<Drag>,
+    pub bombs: Vec<Bomb>,
+    pub colliders: Vec<Collider>,
+    /// A strip system's strips.
+    pub strip: Option<Strip>,
     /// Parts of the texture a particle can show: (u, width, v, height).
     pub subtextures: Vec<[f32; 4]>,
 }
 
 impl ParticleSystemDef {
+    /// Its birth rate `t` seconds after the emitter appeared.
+    pub fn rate_at(&self, t: f32) -> f32 {
+        self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate).max(0.0)
+    }
+
+    /// A particle's colour (before the emitter's) at `t`, the share of its life lived.
+    pub fn tint(&self, t: f32) -> [f32; 4] {
+        match (&self.color, &self.color_keys) {
+            (Some(c), _) => c.at(t),
+            (None, Some(k)) => k.sample(t).unwrap_or([1.0; 4]),
+            (None, None) => [1.0; 4],
+        }
+    }
+
+    /// What the log says of it: rate, size and what it has beyond the common modifiers.
+    pub fn describe(&self) -> String {
+        let rate = if self.rate_keys.is_some() { "keyed rate".to_string() } else { format!("{}/s", self.rate) };
+        let mut s = format!("{} {rate}, at most {}", self.name, self.max);
+        if let Some(m) = &self.emitter.mesh {
+            s += &format!(", mesh emitter ({} mesh(es), {:?}, {:?})", m.meshes.len(), m.from, m.velocity);
+        }
+        if let Some(st) = &self.strip {
+            s += &format!(", strips of {} points every {:.3} s", st.max_points, st.step);
+        }
+        if !self.bombs.is_empty() {
+            s += &format!(", {} bomb(s)", self.bombs.len());
+        }
+        if !self.colliders.is_empty() {
+            s += &format!(", {} collider(s)", self.colliders.len());
+        }
+        if self.color_keys.is_some() {
+            s += ", colour keys";
+        }
+        let keyed: Vec<String> = self.emitter.keyed.iter().map(|(p, _)| format!("{p:?}")).chain(self.gravity.iter().filter(|g| g.strength_keys.is_some()).map(|_| "GravityStrength".to_string())).collect();
+        if !keyed.is_empty() {
+            s += &format!(", keyed {}", keyed.join("/"));
+        }
+        s
+    }
+
     /// Whether the emitter is on `age` seconds after it appeared.
     pub fn emitting(&self, age: f32) -> bool {
         let t = if self.loops && self.period > 0.0 { age % self.period } else { age };
@@ -229,6 +624,7 @@ pub struct PreparedParticles {
 /// An emitter's birth rate and on/off keys as a sequence of the file drives them.
 struct SequenceEmitter {
     rate: f32,
+    rate_keys: Option<FloatKeys>,
     active: Vec<(f32, bool)>,
     period: f32,
     loops: bool,
@@ -247,7 +643,7 @@ fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<Seque
             continue;
         }
         let Ok(seq) = &dec.blocks[i] else { continue };
-        let mut found = SequenceEmitter { rate: -1.0, active: Vec::new(), period: seq.float("stop_time").unwrap_or(0.0) - seq.float("start_time").unwrap_or(0.0), loops: seq.int("cycle_type").unwrap_or(0) == 0 };
+        let mut found = SequenceEmitter { rate: -1.0, rate_keys: None, active: Vec::new(), period: seq.float("stop_time").unwrap_or(0.0) - seq.float("start_time").unwrap_or(0.0), loops: seq.int("cycle_type").unwrap_or(0) == 0 };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
             let fnv_nif::value::Value::Struct(cb) = cb else { continue };
             if text(cb, "node_name").as_deref() != Some(system) || text(cb, "controller_type").as_deref() != Some("NiPSysEmitterCtlr") {
@@ -256,9 +652,18 @@ fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<Seque
             let interp = cb.block_ref("interpolator").unwrap_or(-1);
             match text(cb, "interpolator_id").as_deref() {
                 Some("BirthRate") => {
-                    let v = dec.get(interp).and_then(|s| s.float("value")).unwrap_or(0.0);
-                    if v.is_finite() && v > -1e30 {
-                        found.rate = v.max(0.0);
+                    // Keys over the sequence's time, or the interpolator's lone value.
+                    match float_keys(file, dec, interp, sequence_cycle(seq)) {
+                        Some(k) if matches!(k.channel, Channel::Keys(_)) => {
+                            found.rate = 0.0;
+                            found.rate_keys = Some(k);
+                        }
+                        _ => {
+                            let v = dec.get(interp).and_then(|s| s.float("value")).unwrap_or(0.0);
+                            if v.is_finite() && v > -1e30 {
+                                found.rate = v.max(0.0);
+                            }
+                        }
                     }
                 }
                 Some("EmitterActive") => {
@@ -269,6 +674,55 @@ fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<Seque
         }
         if found.rate >= 0.0 {
             return Some(found);
+        }
+    }
+    None
+}
+
+/// A sequence's own timing as a controller's: from 0 to its length, its cycle type.
+fn sequence_cycle(seq: &Struct) -> OwnCycle {
+    let (start, stop) = (seq.float("start_time").unwrap_or(0.0), seq.float("stop_time").unwrap_or(0.0));
+    OwnCycle { start: 0.0, stop: stop - start, frequency: 1.0, phase: 0.0, cycle_type: seq.int("cycle_type").unwrap_or(0) }
+}
+
+/// A controller's own timing (NiTimeController fields [documented: nif.xml]).
+fn controller_cycle(ctl: &Struct) -> OwnCycle {
+    OwnCycle {
+        start: ctl.float("start_time").unwrap_or(0.0),
+        stop: ctl.float("stop_time").unwrap_or(0.0),
+        frequency: ctl.float("frequency").unwrap_or(1.0),
+        phase: ctl.float("phase").unwrap_or(0.0),
+        cycle_type: (ctl.int("flags").unwrap_or(0) >> 1) & 3,
+    }
+}
+
+/// The float interpolator at `interp` as keys on `cycle` (`None`: not a float interpolator).
+fn float_keys(file: &NifFile, dec: &Decoded, interp: i32, cycle: OwnCycle) -> Option<FloatKeys> {
+    let ty = usize::try_from(interp).ok().and_then(|i| file.blocks.get(i)).map(|b| b.type_name.as_str())?;
+    match fnv_nif::anim::value_track(dec, interp, ty)? {
+        ValueTrack::Float(channel) => Some(FloatKeys { channel, cycle }),
+        ValueTrack::Point3(_) => None,
+    }
+}
+
+/// The float keys a sequence of the file gives the controller of type `controller` that
+/// drives the modifier named `modifier` of the particle system named `system` (controlled
+/// blocks whose controller ID is the modifier's name [observed: `explosiongenericl01.nif`'s
+/// gravity strength]).
+fn sequence_float(file: &NifFile, dec: &Decoded, system: &str, controller: &str, modifier: &str) -> Option<FloatKeys> {
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    for (i, b) in file.blocks.iter().enumerate() {
+        if b.type_name != "NiControllerSequence" {
+            continue;
+        }
+        let Ok(seq) = &dec.blocks[i] else { continue };
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() == Some(system) && text(cb, "controller_type").as_deref() == Some(controller) && text(cb, "controller_id").as_deref() == Some(modifier) {
+                if let Some(k) = float_keys(file, dec, cb.block_ref("interpolator").unwrap_or(-1), sequence_cycle(seq)) {
+                    return Some(k);
+                }
+            }
         }
     }
     None
@@ -363,7 +817,9 @@ impl ModelCtx<'_> {
         let type_of = |r: i32| usize::try_from(r).ok().and_then(|i| file.blocks.get(i)).map(|b| b.type_name.as_str());
         let mut out = PreparedParticles::default();
         for (i, b) in file.blocks.iter().enumerate() {
-            if b.type_name != "NiParticleSystem" {
+            // A strip system is a particle system by its fields (particles.md §6.2).
+            let strips = b.type_name == "BSStripParticleSystem";
+            if b.type_name != "NiParticleSystem" && !strips {
                 continue;
             }
             let Ok(ps) = &dec.blocks[i] else { continue };
@@ -379,23 +835,9 @@ impl ModelCtx<'_> {
                 name: ps.text("name").unwrap_or_default().to_string(),
                 max: data.and_then(|d| d.int("bs_max_vertices")).unwrap_or(0).max(0) as usize,
                 material,
-                emitter: Emitter {
-                    frame: Affine3A::IDENTITY,
-                    size: Vec3::ZERO,
-                    round: false,
-                    speed: 0.0,
-                    speed_variation: 0.0,
-                    declination: 0.0,
-                    declination_variation: 0.0,
-                    planar_angle: 0.0,
-                    planar_angle_variation: 0.0,
-                    color: [1.0; 4],
-                    radius: 1.0,
-                    radius_variation: 0.0,
-                    life: 1.0,
-                    life_variation: 0.0,
-                },
+                emitter: Emitter::blank(),
                 rate: 0.0,
+                rate_keys: None,
                 active: Vec::new(),
                 period: 0.0,
                 loops: true,
@@ -404,9 +846,13 @@ impl ModelCtx<'_> {
                 fade_time: 0.0,
                 base_scale: 1.0,
                 color: None,
+                color_keys: None,
                 rotation: None,
                 gravity: Vec::new(),
                 drag: Vec::new(),
+                bombs: Vec::new(),
+                colliders: Vec::new(),
+                strip: strips.then(|| Strip { max_points: data.and_then(|d| d.int("max_point_count")).unwrap_or(2).max(2) as usize, step: 1.0 / 30.0 }),
                 subtextures: data
                     .and_then(|d| d.floats("subtexture_offsets"))
                     .map(|f| f.as_chunks::<4>().0.to_vec())
@@ -417,6 +863,9 @@ impl ModelCtx<'_> {
             // the model's sequence.
             let system_name = def.name.clone();
             let mut switched: HashMap<String, Vec<(f32, bool)>> = HashMap::new();
+            // Float controllers by (controller type, modifier name): their own keys, or a
+            // blend interpolator's from the model's sequence (particles.md §6.6).
+            let mut floats: HashMap<(String, String), FloatKeys> = HashMap::new();
             {
                 let mut c = ps.block_ref("controller").unwrap_or(-1);
                 let mut steps = 0;
@@ -426,6 +875,13 @@ impl ModelCtx<'_> {
                             let own = ctl.block_ref("interpolator").and_then(|r| fnv_nif::anim::bool_track(&dec, r)).map(|t| t.keys).unwrap_or_default();
                             let keys = if own.is_empty() { sequence_modifier_active(&file, &dec, &system_name, &name).unwrap_or_default() } else { own };
                             switched.insert(name, keys);
+                        }
+                    } else if ty == "NiPSysGravityStrengthCtlr" || EmitterParam::of_controller(ty).is_some() {
+                        if let Some(name) = ctl.text("modifier_name").map(str::to_string) {
+                            let own = float_keys(&file, &dec, ctl.block_ref("interpolator").unwrap_or(-1), controller_cycle(ctl));
+                            if let Some(k) = own.or_else(|| sequence_float(&file, &dec, &system_name, ty, &name)) {
+                                floats.insert((ty.to_string(), name), k);
+                            }
                         }
                     }
                     c = ctl.block_ref("next_controller").unwrap_or(-1);
@@ -437,6 +893,7 @@ impl ModelCtx<'_> {
             }
             let modifier_keys = |m: &Struct| m.text("name").and_then(|n| switched.get(n)).cloned().unwrap_or_default();
             let mut has_emitter = false;
+            let mut emitter_name = String::new();
             for &r in ps.refs("modifiers").unwrap_or_default() {
                 let (Some(ty), Some(m)) = (type_of(r), dec.get(r)) else { continue };
                 let f = |key: &str| m.float(key).unwrap_or(0.0);
@@ -446,6 +903,7 @@ impl ModelCtx<'_> {
                 match ty {
                     "NiPSysBoxEmitter" | "NiPSysSphereEmitter" | "NiPSysCylinderEmitter" => {
                         has_emitter = true;
+                        emitter_name = m.text("name").unwrap_or_default().to_string();
                         let round = ty != "NiPSysBoxEmitter";
                         def.emitter = Emitter {
                             frame: place(m.block_ref("emitter_object").unwrap_or(-1)),
@@ -462,7 +920,103 @@ impl ModelCtx<'_> {
                             radius_variation: f("radius_variation"),
                             life: f("life_span"),
                             life_variation: f("life_span_variation"),
+                            mesh: None,
+                            keyed: Vec::new(),
                         };
+                    }
+                    "NiPSysMeshEmitter" => {
+                        has_emitter = true;
+                        emitter_name = m.text("name").unwrap_or_default().to_string();
+                        let meshes: Vec<EmitterMesh> = m
+                            .refs("emitter_meshes")
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|&g| {
+                                let md = mesh_data(dec.get(g)?.block_ref("data").and_then(|d| dec.get(d))?);
+                                let v3 = |a: &[[f32; 3]]| a.iter().map(|p| Vec3::from_array(*p)).collect::<Vec<_>>();
+                                Some(EmitterMesh::new(place(g), v3(&md.positions), v3(&md.normals), md.triangles))
+                            })
+                            .collect();
+                        let from = match m.int("emission_type").unwrap_or(3) {
+                            0 => EmitFrom::Vertices,
+                            1 => EmitFrom::FaceCenter,
+                            2 => EmitFrom::EdgeCenter,
+                            4 => EmitFrom::EdgeSurface,
+                            _ => EmitFrom::FaceSurface,
+                        };
+                        let velocity = match m.int("initial_velocity_type").unwrap_or(0) {
+                            1 => InitialVelocity::Random,
+                            2 => InitialVelocity::Direction(m.floats("emission_axis").filter(|a| a.len() >= 3).map_or(Vec3::X, |a| Vec3::new(a[0], a[1], a[2]))),
+                            _ => InitialVelocity::Normals,
+                        };
+                        def.emitter = Emitter {
+                            // No meshes: from the system's parent node, named `<system>-Emitter`
+                            // as the box emitters' objects are [design, particles.md §6.1].
+                            frame: place(parent.map_or(-1, |p| p as i32)),
+                            speed: f("speed"),
+                            speed_variation: f("speed_variation"),
+                            declination: f("declination"),
+                            declination_variation: f("declination_variation"),
+                            planar_angle: f("planar_angle"),
+                            planar_angle_variation: f("planar_angle_variation"),
+                            color: rgba(m, "initial_color"),
+                            radius: f("initial_radius"),
+                            radius_variation: f("radius_variation"),
+                            life: f("life_span"),
+                            life_variation: f("life_span_variation"),
+                            mesh: (!meshes.is_empty()).then_some(MeshEmission { meshes, from, velocity }),
+                            ..Emitter::blank()
+                        };
+                    }
+                    "NiPSysBombModifier" => {
+                        let frame = place(m.block_ref("bomb_object").unwrap_or(-1));
+                        let axis = m.floats("bomb_axis").filter(|a| a.len() >= 3).map_or(Vec3::Z, |a| Vec3::new(a[0], a[1], a[2]));
+                        def.bombs.push(Bomb {
+                            origin: frame.translation.into(),
+                            axis: frame.transform_vector3(axis).normalize_or(Vec3::Z),
+                            delta_v: f("delta_v"),
+                            decay: f("decay"),
+                            decay_type: m.int("decay_type").unwrap_or(0),
+                            symmetry: m.int("symmetry_type").unwrap_or(0),
+                            active: ModifierActive { keys: modifier_keys(m) },
+                        });
+                    }
+                    "NiPSysColliderManager" => {
+                        // The manager's chain of colliders; planar ones are read.
+                        let mut c = m.block_ref("collider").unwrap_or(-1);
+                        let mut steps = 0;
+                        while let (Some(cty), Some(col)) = (type_of(c), dec.get(c)) {
+                            if cty == "NiPSysPlanarCollider" {
+                                let frame = place(col.block_ref("collider_object").unwrap_or(-1));
+                                let axis = |k: &str, d: Vec3| col.floats(k).filter(|a| a.len() >= 3).map_or(d, |a| Vec3::new(a[0], a[1], a[2]));
+                                let (x, y) = (frame.transform_vector3(axis("x_axis", Vec3::X)), frame.transform_vector3(axis("y_axis", Vec3::Y)));
+                                let cf = |k: &str| col.float(k).unwrap_or(0.0);
+                                def.colliders.push(Collider {
+                                    origin: frame.translation.into(),
+                                    x_axis: x.normalize_or(Vec3::X),
+                                    y_axis: y.normalize_or(Vec3::Y),
+                                    half_width: cf("width") * 0.5 * x.length(),
+                                    half_height: cf("height") * 0.5 * y.length(),
+                                    bounce: cf("bounce"),
+                                    die: matches!(col.get("die_on_collide"), Some(fnv_nif::value::Value::Bool(true))),
+                                });
+                            } else if !out.unread.iter().any(|u| u == cty) {
+                                out.unread.push(cty.to_string());
+                            }
+                            c = col.block_ref("next_collider").unwrap_or(-1);
+                            steps += 1;
+                            if steps > 16 {
+                                break;
+                            }
+                        }
+                    }
+                    "NiPSysColorModifier" => {
+                        def.color_keys = m.block_ref("data").and_then(|d| dec.get(d)).and_then(|d| d.strukt("data")).and_then(Keys::<4>::from_group).filter(|k| !k.is_empty());
+                    }
+                    "BSPSysStripUpdateModifier" => {
+                        if let Some(st) = def.strip.as_mut() {
+                            st.step = f("update_delta_time").max(1e-3);
+                        }
                     }
                     "NiPSysGrowFadeModifier" => {
                         def.grow_time = f("grow_time");
@@ -500,6 +1054,7 @@ impl ModelCtx<'_> {
                             direction: frame.transform_vector3(axis).normalize_or_zero(),
                             origin: frame.translation.into(),
                             strength: f("strength"),
+                            strength_keys: m.text("name").and_then(|n| floats.get(&("NiPSysGravityStrengthCtlr".to_string(), n.to_string()))).cloned(),
                             spherical: m.int("force_type").unwrap_or(0) == 1,
                             active: ModifierActive { keys: modifier_keys(m) },
                         });
@@ -519,15 +1074,23 @@ impl ModelCtx<'_> {
                     }
                 }
             }
+            def.emitter.keyed = floats
+                .iter()
+                .filter(|((_, name), _)| *name == emitter_name)
+                .filter_map(|((ty, _), k)| Some((EmitterParam::of_controller(ty)?, k.clone())))
+                .collect();
             // The controllers: the emitter's birth rate and when it is on.
             let mut c = ps.block_ref("controller").unwrap_or(-1);
             let mut steps = 0;
             while let (Some(ty), Some(ctl)) = (type_of(c), dec.get(c)) {
                 match ty {
                     "BSPSysMultiTargetEmitterCtlr" | "NiPSysEmitterCtlr" => {
-                        let rate = ctl.block_ref("interpolator").and_then(|r| dec.get(r)).and_then(|s| s.float("value")).unwrap_or(0.0);
+                        let interp = ctl.block_ref("interpolator").unwrap_or(-1);
+                        let rate = dec.get(interp).and_then(|s| s.float("value")).unwrap_or(0.0);
                         // A value at the bottom of the float range stands for "none".
                         def.rate = if rate.is_finite() && rate > -1e30 { rate.max(0.0) } else { 0.0 };
+                        // Keys over the controller's time (the gore sprays, particles.md §6.6).
+                        def.rate_keys = float_keys(&file, &dec, interp, controller_cycle(ctl)).filter(|k| matches!(k.channel, Channel::Keys(_)));
                         def.active = ctl.block_ref("visibility_interpolator").and_then(|r| fnv_nif::anim::bool_track(&dec, r)).map(|t| t.keys).unwrap_or_default();
                         def.period = ctl.float("stop_time").unwrap_or(0.0);
                         // TimeController flags bits 1–2: the cycle type, 0 loops.
@@ -535,7 +1098,8 @@ impl ModelCtx<'_> {
                         def.max_emitters = ctl.int("max_emitters").unwrap_or(0).max(0) as usize;
                     }
                     // Read with the modifiers above.
-                    "NiPSysUpdateCtlr" | "NiPSysModifierActiveCtlr" => {}
+                    "NiPSysUpdateCtlr" | "NiPSysModifierActiveCtlr" | "NiPSysGravityStrengthCtlr" => {}
+                    other if EmitterParam::of_controller(other).is_some() => {}
                     other => {
                         if !out.unread.iter().any(|u| u == other) {
                             out.unread.push(other.to_string());
@@ -550,10 +1114,11 @@ impl ModelCtx<'_> {
             }
             // An emitter controller of a model's own sequence leaves its rate and on/off
             // keys to the sequence (its interpolators are blend interpolators).
-            if def.rate <= 0.0 || def.active.is_empty() {
+            if (def.rate <= 0.0 && def.rate_keys.is_none()) || def.active.is_empty() {
                 if let Some(se) = sequence_emitter(&file, &dec, &def.name) {
-                    if def.rate <= 0.0 {
+                    if def.rate <= 0.0 && def.rate_keys.is_none() {
                         def.rate = se.rate;
+                        def.rate_keys = se.rate_keys;
                     }
                     if def.active.is_empty() {
                         def.active = se.active;
@@ -579,23 +1144,9 @@ mod tests {
             name: String::new(),
             max: 8,
             material: Handle::default(),
-            emitter: Emitter {
-                frame: Affine3A::IDENTITY,
-                size: Vec3::ZERO,
-                round: false,
-                speed: 0.0,
-                speed_variation: 0.0,
-                declination: 0.0,
-                declination_variation: 0.0,
-                planar_angle: 0.0,
-                planar_angle_variation: 0.0,
-                color: [1.0; 4],
-                radius: 1.0,
-                radius_variation: 0.0,
-                life: 1.0,
-                life_variation: 0.0,
-            },
+            emitter: Emitter::blank(),
             rate: 10.0,
+            rate_keys: None,
             active: vec![(0.0, true), (0.5, false)],
             period: 1.0,
             loops: true,
@@ -604,9 +1155,13 @@ mod tests {
             fade_time: 0.25,
             base_scale: 0.2,
             color: None,
+            color_keys: None,
             rotation: None,
             gravity: Vec::new(),
             drag: Vec::new(),
+            bombs: Vec::new(),
+            colliders: Vec::new(),
+            strip: None,
             subtextures: Vec::new(),
         }
     }
@@ -667,5 +1222,85 @@ mod tests {
         let dust = SimpleColor { fade_in: 0.0, fade_out: 1.0, color1_end: 0.0, color2_start: 0.0, color2_end: 0.0, color3_start: 0.0, ..c };
         assert_eq!(dust.at(0.0), [0.0, 1.0, 0.0, 1.0]);
         assert_eq!(dust.at(0.7), [0.0, 1.0, 0.0, 1.0]);
+    }
+
+    /// A unit square in the xy plane, two triangles, normals up.
+    fn square() -> EmitterMesh {
+        let p = vec![Vec3::ZERO, Vec3::X, Vec3::new(1.0, 1.0, 0.0), Vec3::Y];
+        EmitterMesh::new(Affine3A::IDENTITY, p, vec![Vec3::Z; 4], vec![[0, 1, 2], [0, 2, 3]])
+    }
+
+    #[test]
+    fn a_mesh_emitter_starts_particles_on_its_mesh() {
+        let m = square();
+        assert_eq!(m.edges.len(), 5);
+        let mut seed = 0x1234_5678u32;
+        let mut rand = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1u32 << 24) as f32
+        };
+        for from in [EmitFrom::Vertices, EmitFrom::FaceCenter, EmitFrom::EdgeCenter, EmitFrom::FaceSurface, EmitFrom::EdgeSurface] {
+            for _ in 0..50 {
+                let (p, n) = m.pick(from, &mut rand).unwrap();
+                assert!(p.z.abs() < 1e-6 && (-1e-6..=1.0 + 1e-6).contains(&p.x) && (-1e-6..=1.0 + 1e-6).contains(&p.y), "{from:?} {p}");
+                assert!((n - Vec3::Z).length() < 1e-5, "{from:?} {n}");
+            }
+        }
+        // A face centre is a third of the way between its corners.
+        let (c, _) = m.pick(EmitFrom::FaceCenter, &mut || 0.0).unwrap();
+        assert!((c - Vec3::new(2.0, 1.0, 0.0) / 3.0).length() < 1e-6);
+    }
+
+    const I: Affine3A = Affine3A::IDENTITY;
+
+    #[test]
+    fn the_bomb_pushes_away_less_with_distance() {
+        let b = Bomb { origin: Vec3::ZERO, axis: Vec3::Z, delta_v: 1000.0, decay: 100.0, decay_type: 1, symmetry: 0, active: ModifierActive::default() };
+        assert!((b.push(&I, Vec3::new(25.0, 0.0, 0.0)) - Vec3::new(750.0, 0.0, 0.0)).length() < 1e-3);
+        assert_eq!(b.push(&I, Vec3::new(0.0, 200.0, 0.0)), Vec3::ZERO);
+        // Cylindrical: away from the axis, not along it.
+        let c = Bomb { symmetry: 1, ..b.clone() };
+        let p = c.push(&I, Vec3::new(0.0, 50.0, 40.0));
+        assert!(p.z.abs() < 1e-4 && (p.y - 500.0).abs() < 1e-3, "{p}");
+        // Planar: across the plane only.
+        let pl = Bomb { symmetry: 2, ..b };
+        let p = pl.push(&I, Vec3::new(30.0, 0.0, -50.0));
+        assert!(p.x.abs() < 1e-4 && (p.z + 500.0).abs() < 1e-3, "{p}");
+    }
+
+    #[test]
+    fn a_planar_collider_bounces_or_kills_within_its_rectangle() {
+        let c = Collider { origin: Vec3::new(0.0, 0.0, -50.0), x_axis: Vec3::X, y_axis: Vec3::Y, half_width: 100.0, half_height: 100.0, bounce: 0.5, die: false };
+        let (at, v) = c.hit(&I, Vec3::new(0.0, 0.0, -40.0), Vec3::new(0.0, 0.0, -60.0), Vec3::new(10.0, 0.0, -200.0)).unwrap().unwrap();
+        assert!((at.z + 50.0).abs() < 1e-4 && (v - Vec3::new(10.0, 0.0, 100.0)).length() < 1e-3, "{at} {v}");
+        // Outside the rectangle, or not crossing: nothing.
+        assert!(c.hit(&I, Vec3::new(300.0, 0.0, -40.0), Vec3::new(300.0, 0.0, -60.0), Vec3::NEG_Z).is_none());
+        assert!(c.hit(&I, Vec3::new(0.0, 0.0, -40.0), Vec3::new(0.0, 0.0, -45.0), Vec3::NEG_Z).is_none());
+        let kill = Collider { die: true, ..c.clone() };
+        assert_eq!(kill.hit(&I, Vec3::new(0.0, 0.0, -40.0), Vec3::new(0.0, 0.0, -60.0), Vec3::NEG_Z), Some(None));
+        // Placed upside down by its model's place: the plane is then at z = +50.
+        let flipped = Affine3A::from_rotation_x(std::f32::consts::PI);
+        assert!(c.hit(&flipped, Vec3::new(0.0, 0.0, 60.0), Vec3::new(0.0, 0.0, 40.0), Vec3::NEG_Z).is_some());
+    }
+
+    #[test]
+    fn keyed_values_replace_the_fields() {
+        let keys = |pts: &[(f32, f32)], stop: f32| FloatKeys {
+            channel: Channel::Keys(Keys {
+                kind: fnv_nif::anim::KeyKind::Linear,
+                keys: pts.iter().map(|&(time, v)| fnv_nif::anim::Key { time, value: [v], forward: [0.0], backward: [0.0], tbc: [0.0; 3] }).collect(),
+            }),
+            cycle: OwnCycle { start: 0.0, stop, frequency: 1.0, phase: 0.0, cycle_type: 2 },
+        };
+        // The limb blood spray's rate: 150 a second, up to 210, then none by 3 s.
+        let d = ParticleSystemDef { rate_keys: Some(keys(&[(0.0, 150.0), (1.567, 150.0), (1.833, 210.0), (3.0, 0.0)], 4.367)), ..def() };
+        assert_eq!(d.rate_at(1.0), 150.0);
+        assert!((d.rate_at(1.833) - 210.0).abs() < 1e-3);
+        assert_eq!(d.rate_at(9.0), 0.0);
+        let mut e = Emitter::blank();
+        e.speed = 5.0;
+        e.keyed.push((EmitterParam::Speed, keys(&[(0.0, 190.0), (4.0, 6.0)], 4.0)));
+        assert!((e.values(2.0).speed - 98.0).abs() < 1e-3);
+        assert_eq!(e.values(2.0).radius, 1.0);
     }
 }

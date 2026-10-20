@@ -129,7 +129,21 @@ pub struct Animator {
     held: Vec<usize>,
     /// Nodes with a rest pose of their own in place of the bind pose ([`Self::set_rest`]).
     rest: Vec<(usize, Transform)>,
+    /// The clip whose end gives the extra nodes their rest poses ([`Self::set_extra_rest`]).
+    extra_rest: Option<Arc<Clip>>,
     scratch: Vec<Contribution>,
+}
+
+/// Where `clip` leaves the node named `name` at its end (`bind` fills what the track
+/// leaves out); `None` when the clip has no transform track for it.
+pub fn track_end(clip: &Clip, name: &str, bind: Transform) -> Option<Transform> {
+    let (_, t) = clip.tracks.iter().find(|(n, _)| n == name)?;
+    let time = clip.stop;
+    Some(Transform {
+        translation: t.translation.sample(time).map_or(bind.translation, Vec3::from_array),
+        rotation: t.rotation_at(time).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize()),
+        scale: Vec3::splat(t.scale.sample(time).map_or(bind.scale.x, |[s]| s)),
+    })
 }
 
 impl Animator {
@@ -138,17 +152,21 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), scratch: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), extra_rest: None, scratch: Vec::new() }
     }
 
     /// Replace the nodes outside the skeleton that clips drive by name (none: an empty
-    /// list). A name the skeleton has stays the skeleton's, and the first of equal names
-    /// counts. The clips playing are bound again, so a weapon that arrives half way
-    /// through a clip moves with it.
+    /// list). A name the skeleton has stays the skeleton's; a track drives every extra
+    /// node of its name (the 9mm pistol's model has two nodes `##nmClip`, the first
+    /// empty and the second holding the magazine; animation.md §9.8). The clips playing
+    /// are bound again, so a weapon that arrives half way through a clip moves with it.
     pub fn set_extra(&mut self, extra: Vec<ExtraNode>) {
         self.extra = extra;
-        // The last pose's extra nodes were the old list's.
-        self.locals.truncate(self.skel.locals.len());
+        // The last pose's extra nodes, and their rest poses, were the old list's.
+        let n = self.skel.locals.len();
+        self.locals.truncate(n);
+        self.rest.retain(|(i, _)| *i < n);
+        self.extra_rest = None;
         for i in 0..self.layers.len() {
             let bound = self.bind(&self.layers[i].clip);
             self.layers[i].bound = bound;
@@ -177,13 +195,14 @@ impl Animator {
         }
     }
 
-    /// The node a track named `name` drives: a skeleton node (not the root), else an
-    /// extra node, numbered after the skeleton's.
-    fn target(&self, name: &str) -> Option<usize> {
+    /// The nodes a track named `name` drives: its skeleton node (not the root), else
+    /// every extra node of that name.
+    fn targets(&self, name: &str) -> Vec<usize> {
         if self.skel.by_name.contains_key(name) {
-            return clip_target(&self.skel, name);
+            return clip_target(&self.skel, name).into_iter().collect();
         }
-        self.extra.iter().position(|x| x.name == name).map(|k| self.skel.locals.len() + k)
+        let n = self.skel.locals.len();
+        self.extra.iter().enumerate().filter(|(_, x)| x.name == name).map(|(k, _)| n + k).collect()
     }
 
     /// `clip`'s tracks bound to nodes: (node, track index, priority).
@@ -192,19 +211,19 @@ impl Animator {
             .iter()
             .zip(&clip.priorities)
             .enumerate()
-            .filter_map(|(ti, ((name, _), &p))| {
-                let b = self.target(name)?;
-                (!self.held.contains(&b)).then_some((b as u16, ti as u16, p))
-            })
+            .flat_map(|(ti, ((name, _), &p))| self.targets(name).into_iter().filter(|b| !self.held.contains(b)).map(move |b| (b as u16, ti as u16, p)))
             .collect()
     }
 
-    /// The names of the extra nodes `clip` has a transform track for (for reports).
+    /// The names of the extra nodes `clip` has a transform track for, a name once for
+    /// each node of it (for reports).
     pub fn extra_driven<'a>(&'a self, clip: &Clip) -> Vec<&'a str> {
         let n = self.skel.locals.len();
-        let mut out: Vec<&str> = clip.tracks.iter().filter_map(|(name, _)| self.target(name)?.checked_sub(n)).map(|k| self.extra[k].name.as_str()).collect();
+        let mut nodes: Vec<usize> = clip.tracks.iter().flat_map(|(name, _)| self.targets(name)).filter_map(|i| i.checked_sub(n)).collect();
+        nodes.sort_unstable();
+        nodes.dedup();
+        let mut out: Vec<&str> = nodes.into_iter().map(|k| self.extra[k].name.as_str()).collect();
         out.sort_unstable();
-        out.dedup();
         out
     }
 
@@ -216,6 +235,40 @@ impl Animator {
         if let Some(p) = pose {
             self.rest.push((node, p));
         }
+    }
+
+    /// Give the extra nodes (the weapon's parts) that `clip` drives the pose it leaves
+    /// them in at its end as their rest pose, the others their place in their model
+    /// (`None`: every extra node its place). For the draw clip while the weapon is in the
+    /// hand: the 9mm pistol's draw clip cocks the hammer, which its aim clip does not
+    /// key, and its attack and reload clips leave it cocked [observed: animation.md
+    /// §9.8; hypothesis: the game leaves a part where the last clip put it, as §9.7
+    /// reads the `Weapon` node]. Cheap to call every frame with the same clip.
+    pub fn set_extra_rest(&mut self, clip: Option<&Arc<Clip>>) {
+        if match (&self.extra_rest, clip) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        } {
+            return;
+        }
+        let n = self.skel.locals.len();
+        self.rest.retain(|(i, _)| *i < n);
+        if let Some(c) = clip {
+            for (k, x) in self.extra.iter().enumerate() {
+                if let Some(p) = track_end(c, &x.name, x.bind) {
+                    self.rest.push((n + k, p));
+                }
+            }
+        }
+        self.extra_rest = clip.cloned();
+    }
+
+    /// The rest pose of the extra node at `k` ([`Self::set_extra_rest`]): where it is
+    /// when no clip drives it.
+    pub fn extra_rest(&self, k: usize) -> Option<Transform> {
+        let i = self.skel.locals.len() + k;
+        self.rest.iter().find(|(n, _)| *n == i).map(|(_, p)| *p).or_else(|| self.extra.get(k).map(|x| x.bind))
     }
 
     /// Start of a frame's requests: every layer not asked for again by [`Self::end`] fades
@@ -715,6 +768,47 @@ mod tests {
         a.pose();
         assert_eq!(a.locals.len(), 4);
         assert_eq!(a.locals[2].translation, Vec3::new(1.0, 0.0, 0.0));
+    }
+
+    /// The 9mm pistol: its draw clip cocks the hammer, the aim clip does not key it, and
+    /// two nodes share the magazine's name.
+    #[test]
+    fn parts_rest_where_the_draw_clip_leaves_them() {
+        let mut a = animator();
+        let bind = Transform::from_xyz(5.0, 0.0, 0.0);
+        let part = |name: &str| ExtraNode { name: name.to_string(), entity: Entity::from_raw_u32(9).unwrap(), bind };
+        a.set_extra(vec![part("##Hammer"), part("##Clip"), part("##Clip"), part("##Bar")]);
+        let draw = clip(&[("##Hammer", [8.0, 0.0, 0.0], 0)], 1.0);
+        let reload = clip(&[("##Clip", [3.0, 0.0, 0.0], 0)], 1.0);
+        // In the hand: the hammer rests where the draw clip leaves it, the others at their
+        // place in the model.
+        a.set_extra_rest(Some(&draw));
+        a.pose();
+        assert_eq!(a.locals[4].translation.x, 8.0);
+        assert_eq!(a.extra_rest(0).map(|t| t.translation.x), Some(8.0));
+        assert_eq!(a.locals[7], bind);
+        // A clip driving it fades out back to that rest pose, not to the model's.
+        let fire = clip(&[("##Hammer", [0.0, 0.0, 0.0], 0)], 1.0);
+        a.want(&fire, 0, 1.0, Mode::Once, 0.0);
+        a.layers[0].ease = 0.5;
+        a.pose();
+        assert!((a.locals[4].translation.x - 4.0).abs() < 1e-5);
+        a.cut(0);
+        // Every node of the magazine's name moves with its track.
+        a.want(&reload, 1, 1.0, Mode::Once, 0.0);
+        a.pose();
+        assert_eq!((a.locals[5].translation.x, a.locals[6].translation.x), (3.0, 3.0));
+        assert_eq!(a.extra_driven(&reload), ["##Clip", "##Clip"]);
+        // Holstered: back to the model's place.
+        a.cut(1);
+        a.set_extra_rest(None);
+        a.pose();
+        assert_eq!(a.locals[4], bind);
+        // A new weapon drops the old one's rest poses.
+        a.set_extra_rest(Some(&draw));
+        a.set_extra(vec![part("##Hammer")]);
+        a.pose();
+        assert_eq!(a.locals[4], bind);
     }
 
     #[test]

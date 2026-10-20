@@ -333,6 +333,15 @@ pub trait Mover {
     fn walk(&mut self, _actor: FormId, _walker: &mut Walker, _nav: &NavGraph, _dt: f32) -> Option<WalkEvent> {
         None
     }
+
+    /// `actor`'s AI is off (SetActorsAI 0) while it walks: carry it on along
+    /// `walker.heading` at the walker's speed for `dt` seconds by the caller's character
+    /// movement, which collides and follows the ground, and update the walker's place.
+    /// `false`: it cannot be carried on here (no character movement where it is), and it
+    /// stands (docs/spec-notes/set-actors-ai.md).
+    fn coast(&mut self, _actor: FormId, _walker: &mut Walker, _dt: f32) -> bool {
+        false
+    }
 }
 
 /// [`Ai::pass_time`]'s mover: the walker's own steps, every door open.
@@ -822,11 +831,16 @@ impl Ai {
     }
 
     fn step_actor_inner(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
-        // SetActorsAI 0: no packages, no walking, until it is switched on again. A
-        // restrained actor stays in place though it still thinks and talks [documented:
+        // SetActorsAI 0: no package choice, no steering and no turning until it is
+        // switched on again, but a walk in progress goes on straight ahead ([`Ai::coast`]).
+        // A restrained actor stays in place though it still thinks and talks [documented:
         // catalogue summary of SetRestrained]; an unconscious one does nothing [hypothesis].
         let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.restrained || e.out_cold());
-        if !game.present(actor) || held || game.ai_off(actor) || self.agents[&actor].rooted {
+        if !game.present(actor) || held || self.agents[&actor].rooted {
+            return;
+        }
+        if game.ai_off(actor) {
+            self.coast(game, actor, dt, open);
             return;
         }
         let current = game.current_package(actor);
@@ -1574,6 +1588,28 @@ impl Ai {
         a.walker.follower = None;
         // The actor chooses again; `update` sees the new package at its next call.
         game.block_package(actor, package, self.cfg.retry_hours);
+    }
+
+    /// An actor whose AI is off (SetActorsAI 0, ToggleActorsAI): one that was walking
+    /// keeps walking straight on along its heading at its speed, its package, path and
+    /// heading left as they were [observed: owner-decision-captures.md §7, od_05], moved by
+    /// the caller's character movement ([`Mover::coast`]); where there is none it stands
+    /// [hypothesis]. When the AI comes back on, its walk steers from where it got to back
+    /// to its path's next point (`fnv_nav::Follower::steer`) [observed: the settler turned
+    /// and walked back].
+    fn coast(&mut self, game: &mut Game, actor: FormId, dt: f32, mover: &mut dyn Mover) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        if a.activity != Activity::Travelling || !a.walker.moving {
+            return;
+        }
+        if !mover.coast(actor, &mut a.walker, dt) {
+            a.walker.moving = false;
+            return;
+        }
+        let feet = Place { space: a.walker.space, pos: a.walker.feet };
+        let heading = a.walker.heading;
+        let cell = goal::cell_of_place(game.world.placed, &feet);
+        let _ = game.set_actor_place(actor, cell, feet.pos, heading);
     }
 
     fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, mover: &mut dyn Mover) {
