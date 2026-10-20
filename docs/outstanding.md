@@ -79,8 +79,9 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   enemy gunmen firing at it first, nearest first, then from its own target
   (docs/design/combat-ai.md §12.6.1); smoke combat-cover passes again without its three
   known_failing marks.
-- **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
-  package types and flags are carried out since #400).
+- ~~**AI packages**~~: done (the package types and flags are carried out since #400;
+  Find's Allow Buying and an escort joining its charge's fights since 2026-10-20,
+  packages.md §3.1, mostly hypotheses: no shipped Find package has the flag).
   - Find's Allow Killing: settled 2026-10-19 [observed, AI observer `gecko_find`]: an
     Unaggressive gecko on FindFood started fights with bloatflies, radroaches and a
     protectron that carries no food at all, so a creature on Find with Allow Killing now
@@ -194,8 +195,9 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
     through a door; one with `Waiting` 1 did not. Ours now brings every teammate not on a
     Guard (Wait) package. That `Waiting` is the reason, and where they arrive through
     other doors (left 160 through the room's door out, on the spot coming in), are open.
-  - **SetActorsAI 0.** In the original the actor keeps walking on its last heading; ours
-    stops. Carrying the movement on needs the engine's character movement (follow-up).
+  - ~~**SetActorsAI 0.** In the original the actor keeps walking on its last heading; ours
+    stops.~~ Built 2026-10-20 (set-actors-ai.md): it walks on through the character
+    controller. Open: what happens at walls and whether the walk clip plays (guessed).
   - **Scripted items in NPC inventories.** The Legion aura token's script did nothing even
     in the player's inventory, so it cannot answer; another item is needed.
   - **Topic lists: a generic Goodbye beside a scripted one; Info Connection's shared

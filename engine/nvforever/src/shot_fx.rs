@@ -11,7 +11,11 @@
 //!   node's name, its place and its y axis lying along the barrel as the flash models'
 //!   length does; animation.md §9.9]. It stays for the PROJ's duration and no longer
 //!   (0.04 s for the bullet PROJs), but always for the frame it is made in, so a flash
-//!   shorter than a frame is still seen once; the light with it.
+//!   shorter than a frame is still seen once; the light with it. Another actor's flash
+//!   goes under its drawn weapon's muzzle marker (`weapons::Muzzle`, the same node of
+//!   its weapon model, at rest) the same way; without one (a weapon model with no
+//!   `ProjectileNode`) it stands where the shot left, its +y turned along the shot
+//!   [design]. Creatures fire no guns yet (`npc_combat`: their attacks are blows).
 //! - **Projectiles.** The PROJ's model is drawn at each [`ShotVisuals`] entry with its
 //!   +y along the flight [observed: the models are built along +y; hypothesis: that it
 //!   is their forward axis]. A beam's model is stretched along y from the muzzle to its
@@ -52,8 +56,11 @@
 //!   unless the model fades itself with an alpha controller (the green laser's, the
 //!   pulse gun's) [hypothesis, combat-rules.md §15]. A beam model with no controllers
 //!   at all (`DLC03ScatterBeam`'s) has no rig and is not faded.
-//! - Not built: impact decals, the models' refraction (heat haze) controllers, NPCs'
-//!   muzzles.
+//! - **Heat haze.** The refracting shapes of these models (the shells of the fireballs:
+//!   the Incinerator's, the missile's, the big fire explosions') bend what lies behind
+//!   them instead of being drawn (`nvf_assets::nif_material`, "Refraction"); their
+//!   `BSRefractionStrengthController` keys play with the effect clip.
+//! - Not built: impact decals.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
@@ -70,6 +77,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::player_body::PlayerBody;
+use crate::weapons::{HeldWeapon, Muzzle};
 use crate::world::{WorldData, WorldRoot};
 
 /// A `NiBillboardNode`: its billboard mode and its rotation in the file.
@@ -156,6 +164,12 @@ struct ShotFx {
     reported: HashSet<String>,
     flashes: u32,
     lights: u32,
+    /// Other actors' flashes: under their weapon's muzzle marker, and where the shot
+    /// left (no marker).
+    actor_flashes_muzzle: u32,
+    actor_flashes_at_shot: u32,
+    /// Weapons drawn on other actors whose flash and projectile models were loaded.
+    actor_weapons_loaded: HashSet<fnv_sim::FormId>,
     projectiles: u32,
     no_model: u32,
     casings: u32,
@@ -301,10 +315,11 @@ fn load(models: &mut ModelCtx, fx: &mut ShotFx, what: &str, model: &str) -> Opti
     if fx.reported.insert(path.clone()) {
         match &pm {
             Some(pm) => info!(
-                "shot fx: {what} {path}: {} shapes, {} nodes, {} billboards{}",
+                "shot fx: {what} {path}: {} shapes, {} nodes, {} billboards, {} refracting{}",
                 pm.shapes.len(),
                 pm.nodes.len(),
                 pm.nodes.iter().filter(|n| n.billboard.is_some()).count(),
+                pm.shapes.iter().filter(|s| models.materials.get(&s.material).is_some_and(|m| m.extension.refract)).count(),
                 match pm.rig.as_ref().and_then(|r| r.effect.as_ref()) {
                     Some(c) => format!(
                         "; plays {} ({:.2} s: {} node track(s), {} visibility, {} material)",
@@ -325,19 +340,33 @@ fn load(models: &mut ModelCtx, fx: &mut ShotFx, what: &str, model: &str) -> Opti
 
 /// Load the flash and projectile models of the weapon in use before its first shot: a
 /// model first asked for in the frame it is drawn in can miss that frame, which is the
-/// whole of a 0.04 s flash.
-fn preload(combat: Res<Combat>, mut models: ModelCtx, mut fx: ResMut<ShotFx>, mut last: Local<Option<fnv_sim::FormId>>) {
+/// whole of a 0.04 s flash. The same for each weapon drawn on another actor, once per
+/// weapon: its default ammo's.
+fn preload(combat: Res<Combat>, mut models: ModelCtx, mut fx: ResMut<ShotFx>, mut last: Local<Option<fnv_sim::FormId>>, drawn: Query<&HeldWeapon, Added<HeldWeapon>>) {
+    let fx = &mut *fx;
+    let mut models_of = |fx: &mut ShotFx, id: fnv_sim::FormId| {
+        let Some(p) = combat.forms.projectiles.get(&id) else { return };
+        if let Some(m) = p.muzzle_flash_model.as_deref().filter(|_| p.has("Muzzle Flash")) {
+            load(&mut models, fx, "muzzle flash", m);
+        }
+        if let Some(m) = p.model.as_deref() {
+            load(&mut models, fx, "projectile", m);
+        }
+    };
+    for h in &drawn {
+        if fx.actor_weapons_loaded.insert(h.weapon) {
+            if let Some(p) = combat.forms.chain(h.weapon, None).and_then(|c| c.projectile) {
+                models_of(fx, p);
+            }
+        }
+    }
     let now = combat.projectile();
     if *last == now {
         return;
     }
     *last = now;
-    let Some(p) = now.and_then(|id| combat.forms.projectiles.get(&id)) else { return };
-    if let Some(m) = p.muzzle_flash_model.as_deref().filter(|_| p.has("Muzzle Flash")) {
-        load(&mut models, &mut fx, "muzzle flash", m);
-    }
-    if let Some(m) = p.model.as_deref() {
-        load(&mut models, &mut fx, "projectile", m);
+    if let Some(p) = now {
+        models_of(fx, p);
     }
 }
 
@@ -354,6 +383,8 @@ fn flash(
     mut fx: ResMut<ShotFx>,
     mut flashes: Query<(Entity, &mut Flash)>,
     root: Query<Entity, With<WorldRoot>>,
+    muzzles: Query<(Entity, &Muzzle, &GlobalTransform)>,
+    mut told: Local<HashSet<fnv_sim::FormId>>,
 ) {
     let dt = time.delta_secs();
     for (e, mut f) in &mut flashes {
@@ -365,21 +396,39 @@ fn flash(
     for shot in fired.read() {
         let Some(p) = combat.forms.projectiles.get(&shot.projectile) else { continue };
         let (true, Some(model)) = (p.has("Muzzle Flash"), p.muzzle_flash_model.as_deref()) else { continue };
-        // The player's at the held weapon's muzzle; another actor's where its shot left
-        // (game space, under the world root) [design: actors' weapons' muzzles are not
-        // found yet]. No muzzle to put it at (no body, no `ProjectileNode`): no flash.
-        let place = if shot.shooter == fnv_sim::FormId::PLAYER_REF {
+        // The player's at the held weapon's muzzle (no body, no `ProjectileNode`: no
+        // flash); another actor's at its weapon's muzzle marker, else where its shot left
+        // (game space, under the world root), +y along the shot (module notes).
+        let player = shot.shooter == fnv_sim::FormId::PLAYER_REF;
+        let marker = (!player).then(|| muzzles.iter().find(|(_, m, _)| m.reference == shot.shooter.0)).flatten();
+        let place = if player {
             body.as_deref().and_then(PlayerBody::muzzle_entity).map(|m| (m, Transform::IDENTITY))
+        } else if let Some((m, _, _)) = marker {
+            Some((m, Transform::IDENTITY))
         } else {
-            shot.at.zip(root.single().ok()).map(|(at, r)| (r, Transform::from_translation(Vec3::from_array(at))))
+            let along = |d: [f32; 3]| Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(d).normalize_or(Vec3::Y));
+            shot.at.zip(root.single().ok()).map(|(at, r)| (r, Transform::from_translation(Vec3::from_array(at)).with_rotation(shot.dir.map_or(Quat::IDENTITY, along))))
         };
         let Some((parent, place)) = place else { continue };
         let Some(pm) = load(&mut models, &mut fx, "muzzle flash", model) else { continue };
         let (holder, _) = spawn_effect(&mut commands, &mut fx, parent, &pm, place, model, false);
         // Made after this frame's flashes were aged: it is drawn this frame whatever
         // its duration, and goes in the first frame its time is up.
-        commands.entity(holder).insert(Flash { left: p.muzzle_flash_duration });
+        commands.entity(holder).insert((Flash { left: p.muzzle_flash_duration }, crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model))));
         fx.flashes += 1;
+        match (player, marker) {
+            (true, _) => {}
+            (false, Some(_)) => fx.actor_flashes_muzzle += 1,
+            (false, None) => fx.actor_flashes_at_shot += 1,
+        }
+        // Once an actor: how near the flash is to where the shot left and how far its
+        // length (the marker's +y, game space as the world root's turn alone) is turned
+        // from the shot (the marker as last frame left it).
+        if let (Some((_, _, g)), Some(at), Some(dir), true) = (marker, shot.at, shot.dir, told.insert(shot.shooter)) {
+            let off = crate::world::bevy_to_game(g.translation()).distance(Vec3::from_array(at));
+            let angle = crate::world::bevy_to_game(g.affine().matrix3.y_axis.into()).normalize_or_zero().angle_between(Vec3::from_array(dir).normalize_or(Vec3::Y)).to_degrees();
+            info!("shot fx: {} muzzle flash at its weapon's muzzle, {off:.1} units from where the shot left, its length {angle:.0} degrees off the shot", shot.shooter);
+        }
         // The flash's light: the LIGH's colour, brightness and radius.
         let light = p.muzzle_flash_light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
@@ -450,7 +499,9 @@ fn draw_flying(
                     );
                     let tail = pm.bounds.map_or(0.0, |(lo, _)| (-lo.y).max(0.0));
                     let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, place(end), model.unwrap_or_default(), v.beam.is_some());
-                    commands.entity(e).insert(out(tail));
+                    // Its own particle systems too (the flamer's flame strips, the laser's
+                    // sparks; particles.md §6.2).
+                    commands.entity(e).insert((out(tail), crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model.unwrap_or_default()))));
                     (e, end, tail)
                 });
                 match spawned {
@@ -683,6 +734,9 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
             fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
         info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
+        if fx.actor_flashes_muzzle + fx.actor_flashes_at_shot > 0 {
+            info!("shot fx: other actors' muzzle flashes: {} at their weapon's muzzle, {} where the shot left (no muzzle node)", fx.actor_flashes_muzzle, fx.actor_flashes_at_shot);
+        }
         if fx.beams_animated > 0 {
             info!("shot fx: {} beams played their own animation, {} faded out over their fade duration", fx.beams_animated, fx.beams_faded);
         }

@@ -120,8 +120,11 @@ systems of models placed in cells (fires, steam, dust devils). Code:
   the file, under the model's entity; the shot effects put one on each explosion model
   (`shot_fx`, the EXPL's `MODL`) and each impact model (an explosion's dirt impact,
   `ImpactExplosionDirt.nif`, throws debris particles of its own).
-- Log: `particles: add-on node <n> <model>: <systems>` on first use; at exit
-  `particles: <born> born in <n> add-on systems, at most <n> alive at once`.
+- Log: `particles: add-on node <n> <model>: <systems>` (or `particles: model <path>:`)
+  on first use, each system with its rate, size and what it has beyond the common
+  modifiers (mesh emitter, strips, bombs, colliders, colour keys, keyed fields); at exit
+  `particles: <born> born in <n> add-on systems, at most <n> alive at once`, then
+  `particles: born in <file>: <system> <count>, …` for each file whose systems emitted.
 
 ## 4. Checked [observed 2026-10-11, `--play` at Goodsprings, exit 0, "run finished"; screenshots kept privately]
 
@@ -139,8 +142,10 @@ systems of models placed in cells (fires, steam, dust devils). Code:
 
 - Built 2026-10-19: `NiPSysModifierActiveCtlr` for gravity and drag modifiers
   (explosion-effects.md §3).
-- Not built: turbulence, spawn on death, the bomb modifier, strip and mesh particle systems, other emitter shapes than
-  box, sphere and cylinder, colour-key modifiers, the ADDN's sound and particle cap,
+- Built 2026-10-20 (§6): mesh emitters, strip systems, the bomb modifier, planar
+  colliders, the colour-key modifier, the emitter and gravity float controllers and
+  keyed birth rates.
+- Not built: turbulence, spawn on death, spherical colliders, the ADDN's sound and particle cap,
   particle systems of models placed in cells (the dust devils `fxdustwhirlwind01.nif`
   emit from a mesh emitter that moves along a path). Placed smoke that is built so (not drawn at
   all): `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
@@ -155,3 +160,129 @@ systems of models placed in cells (fires, steam, dust devils). Code:
   projectile's node is not known.
 - Open: everything tagged hypothesis in §2 is a reading of field names checked only
   against how the effects look; none of it is compared with the game frame by frame.
+
+## 6. The rest of the weapon effect models [2026-10-20]
+
+A census of the 257 models the PROJ (`MODL`, `NAM1`), EXPL, IPCT and ADDN records of
+FalloutNV.esm and the add-on plugins name [observed: the records' model strings,
+decoded with `fnvtool nif decode --schema schemas/nif`; two PROJ models name files that
+are in no archive, `sonicredprojectile01.nif` and `sonicredmuzzleflash01.nif`] found
+these particle blocks unread before this date. Field names and enum values are
+documented (nif.xml, `schemas/nif/particles.json`); what they do is a reading of the
+names [hypothesis] unless tagged otherwise.
+
+### 6.1 Mesh emitters (`NiPSysMeshEmitter`, 21 models)
+
+- Fields [documented]: the common emitter fields (speed, declination, planar angle,
+  colour, radius, life, each with its variation), `emitter_meshes` (geometry blocks of
+  the same file), `initial_velocity_type` (0 use normals, 1 random, 2 use direction),
+  `emission_type` (0 vertices, 1 face centre, 2 edge centre, 3 face surface, 4 edge
+  surface) and `emission_axis`.
+- In the census [observed]: every one has velocity type 0 and emission axis (1, 0, 0);
+  44 have emission type 3, 1 has type 4 and 5 list no mesh at all. The meshes are
+  `NiTriStrips` with normals, most of them hidden (flags bit 0), placed under nodes
+  named for what they emit from (`EmitterCenterAll`, `pCloudGroundEmit02`,
+  `EmitterShockWave`); 10 to 107 vertices.
+- Reading: a particle starts on a mesh picked at random (each mesh as likely), at a
+  point the emission type gives: a vertex; a face's or an edge's centre; a point
+  anywhere on the faces, a face picked by its area; a point anywhere on the edges, an
+  edge picked by its length. Velocity type 0 throws it along the mesh's normal there
+  (on a face, the vertex normals blended at the point), turned off it by the
+  declination and planar angle as a box emitter's +z is; 1 any way at random; 2 along
+  `emission_axis` in the mesh's frame. All in the mesh's place in the file times the
+  model's place in the world.
+- No meshes [design]: `explosionfiresmall01.nif` (the ADDN FireSmall01) and two DLC
+  proton explosions list none. These emit from the system's parent node, which in
+  these files and the box emitters' is named `<system>-Emitter` (`Flame-Emitter`)
+  [observed], about its +z. In the game such an add-on may emit from the mesh it is
+  attached to (a burning body); not known.
+
+### 6.2 Strip systems (`BSStripParticleSystem`, 2 models)
+
+- `projectiles\flamerflame01.nif` (every flamer projectile, FlameProjectileANT,
+  Dragon's Breath) and `nvdlc05\effects\nvdlc05cleansinglame01.nif` (Cleansing Flame):
+  one system `FireStrips01` each, a `NiParticleSystem` by its fields with a
+  `BSStripPSysData` (`bs_max_vertices` 12, `max_point_count` 4, start and end cap size
+  0, eight sub-texture rectangles of 0.25 × 0.5) and a `BSPSysStripUpdateModifier`
+  (`update_delta_time` 1/30 s) [observed]. Box emitter 3,300 ± 495 units/s along the
+  barrel, radius 128 ± 32, life 0.37 s, 30 a second.
+- Reading: each particle drags a strip of at most `max_point_count` points behind it:
+  where it was, recorded every `update_delta_time`, and where it is. The strip is drawn
+  as a ribbon through its points, facing the camera, as wide as the particle's square
+  would be (radius × grow/fade scale, twice over), the texture rectangle's width across
+  it and its height along it, the oldest point at the rectangle's bottom; colour and
+  alpha as the particle's. A particle with fewer than two points is not drawn. At
+  3,300 units/s three segments of 1/30 s make a flame about 330 units long, which fits
+  a flamer's 640-unit reach.
+- The flame model is a projectile model: its own systems are emitted while the
+  projectile is drawn (`ModelEmitter` on projectiles, §3), as its add-on node 36 is.
+
+### 6.3 Bomb modifier (`NiPSysBombModifier`, 8 models)
+
+- Fields [documented]: `bomb_object` (a node), `bomb_axis`, `decay`, `delta_v`,
+  `decay_type` (0 none, 1 linear, 2 exponential), `symmetry_type` (0 spherical, 1
+  cylindrical, 2 planar).
+- In the census [observed]: decay type 1 in all; spherical in the explosions and the
+  dirt impact (delta-v 4,050 to 11,790, decay 198 to 1,000), cylindrical with axis z in
+  the laser, pulse and laser-sting projectiles (13,500; 9,000; 81,000). The dirt
+  impact's bomb object is its debris emitter's own node and a modifier-active
+  controller has it on for the first 0.2 s.
+- Reading: a push of `delta_v` units/s² away from the bomb object (spherical: from its
+  point; cylindrical: from the line through it along its axis; planar: from the plane
+  through it across its axis), scaled by the distance d: 1 with no decay,
+  max(0, 1 − d / decay) linear, e^(−d / decay) exponential. Switched on and off as the
+  other modifiers are (§2, explosion-effects.md §3).
+
+### 6.4 Planar colliders (`NiPSysColliderManager` + `NiPSysPlanarCollider`, 4 models)
+
+- Fields [documented]: the manager names its first collider; a collider has `bounce`,
+  `spawn_on_collide`, `die_on_collide`, `collider_object`, `next_collider`, and a
+  planar one `width`, `height`, `x_axis`, `y_axis`.
+- In the census [observed]: one collider each, axes x and y of a node named
+  `Deflector01` below the emitter (the dirt impacts: 1,200 × 1,200, bounce 1, die on
+  collide; the flash-bang: 1,024 square, bounce 1; the shovel dirt: 385 × 362, bounce
+  0.1).
+- Reading: the plane through the collider object spanned by its x and y axes, a
+  rectangle `width` by `height` about the object. A particle that crosses it within
+  the rectangle dies when `die_on_collide`, else it is put back on the plane and the
+  part of its velocity across the plane turned round and multiplied by `bounce`.
+  Spawning on collision is not built (spawn on death is not either).
+
+### 6.5 Colour keys (`NiPSysColorModifier`, 1 model)
+
+- `fxhelios_charging.nif`: an `NiColorData` with keys at 0, 0.5 and 1 [observed].
+  Reading: the keys are over the share of its life a particle has lived; the colour
+  replaces the emitter's colour as the simple colour modifier's does.
+
+### 6.6 Float controllers and keyed birth rates
+
+- `NiPSysEmitterSpeedCtlr` (11 models), `NiPSysGravityStrengthCtlr` (8),
+  `NiPSysEmitterInitialRadiusCtlr` (4), `NiPSysEmitterDeclinationVarCtlr` and
+  `NiPSysEmitterPlanarAngleVarCtlr` (1 each) [documented: nif.xml names;
+  observed counts]: each names its modifier (`modifier_name`) and carries a float
+  interpolator, keyed (`NiFloatData`) in the gore sprays and the zap impacts, a blend
+  interpolator in the explosions, whose sequence gives the keys in a controlled block
+  with that controller type and the modifier's name as controller ID [observed:
+  `explosiongenericl01.nif` gravity 270 to 45 over 0.17–0.67 s; `bloodspraylimb01.nif`
+  speed 190 to 6 over 4 s].
+- Emitter birth rates keyed over time [observed: 17 controllers, e.g. the big fiery
+  explosion's ground cloud 60, 150, 360 a second over its first 0.3 s, the limb blood
+  spray 150 to 210 then 0 by 3 s]: before this date a keyed rate was read as the
+  interpolator's lone value (none, so 0 or the sequence's) and those systems emitted
+  nothing.
+- Reading: the value replaces the field it names, sampled at the emitter's time
+  (an emitter's when a particle is born; for gravity strength the time of the emitter
+  the particle came from, as modifier-active keys are), brought into the controller's
+  start and stop by its cycle type (`nvf_assets::anim_play::OwnCycle`); a sequence's
+  keys on the sequence's time and cycle. Births in a frame are the rate at the middle
+  of the frame times the time the emitter was on.
+- After this [observed 2026-10-20]: every particle block type in the 257 models is
+  read (the census's types: the emitters, modifiers, colliders and controllers above
+  and those of §1–§3); smoke scenarios `fatman-explosion-particles`,
+  `flamer-strip-particles` and `missile-impact-particles` check the log lines and that
+  no `not read` is logged for them.
+- Code: `nvf_assets::particles` (`EmitterMesh`, `Strip`, `Bomb`, `Collider`,
+  `FloatKeys`); `nvforever::particles` (emission from meshes, bomb push, collisions,
+  trails, ribbons).
+- Not built: an emitter object moved by the model's sequence still emits from its place
+  in the file; spawning on collision; the strip's cap sizes (0 in both files).

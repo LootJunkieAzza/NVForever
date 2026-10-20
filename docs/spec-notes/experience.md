@@ -141,11 +141,17 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
   stand on y 49, "+54" on 118, "XP" on 103; the right ends at 70, 315 and 350 and the
   next level's start at 315 match the file. The pointer's tip is at y 55 (the picture at
   y 16).
+- **Full-screen screenshot** (owner, 2026-10-20, 1920 × 1080, 1.125 pixels to the unit of
+  a 960-unit-high view): the bracket's line at y 805 and its upright at x 1862, so the
+  upright 52 units from the right edge and the bracket's bottom 182 units over the view's
+  bottom, 25 over the action points' piece.
 
 ## 6. How NVForever draws it
 
-- [owner] The line at the middle of the view's height, on the right; the upright 40
-  units from the right edge, as the corner pieces [design].
+- Just above the action points: the upright 52 units from the right edge, the bracket's
+  bottom 182 over the view's bottom [observed: the full-screen screenshot, §5].
+- The pointer's tip on the ticks' tops (row 46, the ticks from 47), not among them
+  [owner, 2026-10-20].
 - Shown when the experience rises, whatever gave it; the pointer moves from where the
   player was to where they are in 0.6 s (eased); gains while it is up add to the amount
   and keep it up; it fades in and out in a quarter of a second [documented: the HUD's
@@ -188,12 +194,12 @@ rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis
   Vegas skill checks is [hypothesis: no, as their scripts carry RewardXP].
 - The mine's Explosives check and the chance to set it off are not built (disarming always
   succeeds), and the projectile's Can be Disabled flag is not read.
-- **The meter's place and timing** are not measured; nothing in the data gives them
-  (§9).
+- **The meter's timing** is not measured; nothing in the data gives it (§9).
 
 ## 9. What would settle the meter's numbers (request to the owner)
 
-`engine/nvf-play/src/xp_meter.rs` uses five numbers that no file gives [hypothesis]:
+The place is settled by the full-screen screenshot (§5). The rest of this section was
+written before it. `engine/nvf-play/src/xp_meter.rs` used five numbers that no file gives [hypothesis]:
 `HOLD` 3 s (how long the meter stays after the last gain), `SLIDE` 0.6 s (the pointer's
 move), `FADE` 0.25 s (in and out; the HUD's fade, documented for other HUD parts), the
 bar's line at the middle of the screen's height, and the upright 40 units from the right

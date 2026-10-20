@@ -206,6 +206,26 @@ struct PhysMover<'a> {
     stats: &'a mut [usize; 6],
     /// Actors on furniture, or getting off it: they do not walk yet.
     held: &'a HashSet<u32>,
+    /// Actors walking on with their AI off ([`Mover::coast`]).
+    coasting: &'a mut HashMap<u32, Coasting>,
+}
+
+/// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
+/// off, and whether it was carried on in this update (for the log).
+struct Coasting {
+    from: [f32; 3],
+    heading: f32,
+    speed: f32,
+    now: bool,
+}
+
+/// Whether `walker` is in the space whose collision `phys` has loaded.
+fn in_loaded_space(walker: &Walker, phys: &PhysState) -> bool {
+    match (walker.space, phys.space) {
+        (Space::Interior(c), nvf_play::phys::cells::Space::Interior(i)) => c == i,
+        (Space::World(w), nvf_play::phys::cells::Space::Exterior) => w == phys.worldspace,
+        _ => false,
+    }
 }
 
 /// A door known here (drawn, with its animation) is opened and waited for.
@@ -228,11 +248,7 @@ impl Mover for PhysMover<'_> {
             return Some(WalkEvent::Moved);
         }
         let phys = self.phys.as_deref_mut()?;
-        let here = match (walker.space, phys.space) {
-            (Space::Interior(c), nvf_play::phys::cells::Space::Interior(i)) => c == i,
-            (Space::World(w), nvf_play::phys::cells::Space::Exterior) => w == phys.worldspace,
-            _ => false,
-        };
+        let here = in_loaded_space(walker, phys);
         let skipped = self.skip_until.get(&id).is_some_and(|t| self.now < *t);
         if !here || skipped || walker.follower.is_none() || !phys.ready_at(walker.feet) {
             phys.remove_npc(id);
@@ -366,6 +382,53 @@ impl Mover for PhysMover<'_> {
         }
         self.stats[0] += 1;
         Some(event)
+    }
+
+    /// SetActorsAI 0 while walking: the character controller carries the actor on along
+    /// its heading at its walking speed, so it collides with walls, actors and the player
+    /// and follows the ground as any walk near the player does (docs/spec-notes/
+    /// set-actors-ai.md). It neither steers round nor jumps what it walks into: against
+    /// a wall it keeps walking into it and goes nowhere [hypothesis].
+    fn coast(&mut self, actor: FormId, walker: &mut Walker, _dt: f32) -> bool {
+        let id = actor.0;
+        if self.held.contains(&id) {
+            return false;
+        }
+        let Some(phys) = self.phys.as_deref_mut() else { return false };
+        if !in_loaded_space(walker, phys) || !phys.ready_at(walker.feet) {
+            phys.remove_npc(id);
+            return false;
+        }
+        if !phys.npcs.contains_key(&id) && !phys.add_npc(id, walker.feet) {
+            return false;
+        }
+        let feet = phys.npcs[&id].ch.feet;
+        // Fallen out of the world.
+        if (feet[2] - walker.feet[2]).abs() > 400.0 {
+            phys.remove_npc(id);
+            return false;
+        }
+        let speed = walker.moving_speed();
+        let d = fnv_nav::follow::dir_of(walker.heading);
+        if let Some(b) = phys.npcs.get_mut(&id) {
+            b.velocity = [d[0] * speed, d[1] * speed];
+        }
+        walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
+        walker.feet = feet;
+        walker.tri = fnv_nav::graph::NONE;
+        walker.turning = false;
+        let c = self.coasting.entry(id).or_insert_with(|| {
+            info!(
+                "actor {id:08X} AI off: walks on at heading {:.0} deg, {speed:.0} units/s, from ({:.0}, {:.0}, {:.0})",
+                walker.heading.to_degrees().rem_euclid(360.0),
+                feet[0],
+                feet[1],
+                feet[2]
+            );
+            Coasting { from: feet, heading: walker.heading, speed, now: false }
+        });
+        c.now = true;
+        true
     }
 }
 
@@ -536,6 +599,7 @@ struct Core {
     unstuck: HashMap<u32, Unstuck>,
     skip_until: HashMap<u32, f32>,
     hopped: HashMap<u32, (usize, usize)>,
+    coasting: HashMap<u32, Coasting>,
     /// Updates in which an actor was moved by physics; times physics gave up; the most
     /// actors moved by physics in one frame; stuck actors moved on along their paths.
     physics: [usize; 4],
@@ -665,7 +729,7 @@ impl Residents {
         let mut all = false;
         let mut core = Core {
             // Test aid: conversations between NPCs anywhere in the loaded area.
-            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
+            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), find_buying: std::env::var("NVF_PLAY_TEST_FIND_BUYING").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
@@ -676,6 +740,7 @@ impl Residents {
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
             hopped: HashMap::new(),
+            coasting: HashMap::new(),
             physics: [0; 4],
             jumps: [0; 3],
             seats: [0; 2],
@@ -1083,8 +1148,32 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held };
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
+        // Walks with the AI off that ended in this update (the AI back on, or nothing
+        // left to carry the actor on), for the log.
+        let ended: Vec<u32> = self.coasting.iter().filter(|(_, c)| !c.now).map(|(id, _)| *id).collect();
+        for id in ended {
+            let c = self.coasting.remove(&id).expect("listed");
+            let Some(a) = self.ai.agents.get(&FormId(id)) else { continue };
+            let to = a.walker.feet;
+            let why = if game.ai_off(FormId(id)) { "stopped" } else { "AI back on" };
+            info!(
+                "actor {id:08X} AI off walk ended ({why}): {:.0} units straight from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0}), heading {:.0} deg kept, {:.0} units/s",
+                (to[0] - c.from[0]).hypot(to[1] - c.from[1]),
+                c.from[0],
+                c.from[1],
+                c.from[2],
+                to[0],
+                to[1],
+                to[2],
+                c.heading.to_degrees().rem_euclid(360.0),
+                c.speed
+            );
+        }
+        for c in self.coasting.values_mut() {
+            c.now = false;
+        }
         self.physics[0] += moved[0];
         self.physics[1] += moved[1];
         self.physics[2] = self.physics[2].max(moved[0]);
@@ -1233,6 +1322,7 @@ impl Core {
                 | AiEvent::EscortOn { .. }
                 | AiEvent::FindGoes { .. }
                 | AiEvent::Found { .. }
+                | AiEvent::Bought { .. }
                 | AiEvent::NothingFound { .. }
                 | AiEvent::UsesAt { .. }
                 | AiEvent::UsesItem { .. }
@@ -1454,6 +1544,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::EscortOn { target, .. } => format!("escorts {}: goes on", n(target)),
         AiEvent::FindGoes { package, object, length } => format!("finds {}: goes to it, {length:.0} units ({})", n(object), n(package)),
         AiEvent::Found { package, object, act } => format!("found {}: {} ({})", n(object), serde_json::to_value(act).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(), n(package)),
+        AiEvent::Bought { package, vendor, item, price } => format!("buys {} from {} for {price} caps ({})", n(item), n(vendor), n(package)),
         AiEvent::NothingFound { package, found } => format!("finds nothing more ({found} found, {})", n(package)),
         AiEvent::UsesAt { package, thing: Some(t) } => format!("uses {} ({})", n(t), n(package)),
         AiEvent::UsesAt { package, thing: None } => format!("has nothing to use: stays ({})", n(package)),

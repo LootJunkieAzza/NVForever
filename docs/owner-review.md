@@ -6704,3 +6704,61 @@ this none of those abilities applied. My choices, to check in game:
   RemoveSpell of it is undone the next frame (Dispel still suspends it as any ability).
 - **Not done**: reading skill books (so Comprehension does nothing yet), Hacking Science
   Bonus, companions' perks.
+
+## An escort joining its charge's fights (2026-10-20, session "q11", branch claude/q11-escort-fights)
+
+docs/spec-notes/packages.md §3.1. The wiki says only that an Escort (like Follow and
+Accompany) "will join into the combat" when its target is attacked, even with Defensive
+Combat. Now an actor running an Escort package takes up the fight against whoever attacks
+the one it escorts, as an assisting ally would, whatever its Assistance. My choices, to
+check in game:
+- **It must at least notice its charge** (noticed or detected, as it walks ahead with its
+  back to it), no other range. *Check:* does an escort
+  far ahead of the player still turn back when the player is attacked?
+- **Fights the charge starts**: the escort joins only once the other side fights back. A
+  charge that provoked the attacker (the player shooting a neutral who answers) is still
+  helped. *Check:* the player shoots a neutral passer-by while escorted.
+- **Its own allies and friends** are never fought, and a Cowardly escort stays out.
+- **For the whole package**, also once at the destination; a companion (teammate) escort
+  keeps the teammate rule.
+- **Not done**: Follow and Accompany packages, which the wiki gives the same exception.
+- No placed actor runs an Escort package without a quest step (Raquel at Nellis, Gomez's
+  two), so the smoke test gives a Goodsprings settler GomezEscortToAtrium and sets Victor
+  on the player.
+## Find's Allow Buying (2026-10-20, session "q10", branch claude/q10-find-allow-buying)
+
+docs/spec-notes/packages.md §3.1. An actor on a Find package with Allow Buying now buys
+what it looks for from a vendor. The wiki gives only the checkbox's name and no Find
+package of the game has the flag (Eat packages have it), so every rule is my choice:
+- **Who is a vendor**: a living actor of the search area whose reference names a merchant
+  container (the stock the barter menu sells from). Its own inventory is not sold from.
+- **Which vendor**: the nearest object it looks for, vendor or loose item alike.
+- **What it buys**: one at a time, the cheapest wanted item it can pay for; each purchase
+  counts one of the package's count, and it buys again from the same vendor while the
+  count is not reached.
+- **Price**: what the player would pay at the actor's own Barter skill (value x
+  (1.55 - 0.45 x Barter / 100), never under the value, condition ignored), whole caps.
+  The caps go into the vendor's merchant container.
+- **How it gets there**: it walks up to the vendor as to any actor it looks for; no
+  dialogue, no barter menu, no idle.
+- **Killing and buying both allowed**: a living vendor is bought from, not attacked.
+*Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
+smoke test turns the flag on for FFER24FindFood with a test aid.
+
+## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
+
+docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
+when his AI went off (owner-decision-captures.md §7). Ours now does the same, moved by the
+character controller so it collides and follows the ground. The capture did not show the
+rest, so these are my choices:
+- **At a wall or another actor** it keeps walking into it and goes nowhere. It does not
+  steer round, jump or turn.
+- **Its clip**: drawn walking while it moves, standing while it is blocked.
+- **Away from the player** (no collision loaded there), headless, or in hours passed in the
+  Wait menu, it stops and stays stopped until the AI is back on.
+- **Doors** are walls to it.
+- **AI back on**: it steers back to its path's next corner, so one that went past turns
+  round. The original's short run-time FOLLOW package after SetActorsAI 1 is not
+  reproduced.
+*Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
+him into a wall and see whether the original's actor also stops dead there.

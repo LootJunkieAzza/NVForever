@@ -56,6 +56,11 @@ pub const GETUP_IDLES: [&str; 2] = ["GetUpFaceUp", "GetUpFaceDown"];
 #[derive(Resource, Default)]
 pub struct PlayerKnockdown {
     down: Option<Down>,
+    /// The view was from outside (third person, circling) in the last frame the player
+    /// was not knocked down. The fall reads this, not the view at the fall: the controls
+    /// held while the player is down (`ScriptState::locks`) put the view in first person,
+    /// and they may be applied before this notices the knockdown.
+    outside_before: bool,
     /// Knockdowns shown and get-up clips played, for the exit report.
     shown: u32,
     clips: u32,
@@ -76,6 +81,9 @@ impl PlayerKnockdown {
 struct Down {
     /// The view was first person when the player fell.
     was_first: bool,
+    /// The view was from outside when the player fell: the third-person view comes back
+    /// once the player is up (the controls held while down put it in first person).
+    outside: bool,
     /// The third-person rig's root and the rig, when its ragdoll took it.
     body: Option<(Entity, ActorRig)>,
     phase: Phase,
@@ -85,6 +93,17 @@ struct Down {
     held: Option<Transform>,
     /// The side the body was seen lying on.
     face_up: Option<bool>,
+}
+
+impl Down {
+    /// Give the player the view they had before the fall.
+    fn view_back(&self, control: &mut PlayerControl) {
+        if self.was_first {
+            control.pov = Pov::First;
+        } else if self.outside {
+            control.pov = Pov::Third;
+        }
+    }
 }
 
 enum Phase {
@@ -167,6 +186,7 @@ fn watch(
     if kd.down.is_some() && (rt.game.is_dead(me) || death.down() || knocked.is_none()) {
         let d = kd.down.take().expect("checked");
         if !rt.game.is_dead(me) {
+            d.view_back(&mut control);
             if let Some((root, _)) = d.body.filter(|_| matches!(d.phase, Phase::Lying)) {
                 commands.entity(root).remove::<(PlayerRig, Corpse)>();
                 if let Some(p) = phys.as_deref_mut() {
@@ -174,14 +194,14 @@ fn watch(
                 }
                 ragdolls.rest.remove(&me.0);
             }
-            if d.was_first {
-                control.pov = Pov::First;
-            }
         }
         info!("player knockdown: over without getting up ({})", if rt.game.is_dead(me) { "the player died" } else { "the knockdown ended" });
         return;
     }
-    let Some(k) = knocked else { return };
+    let Some(k) = knocked else {
+        kd.outside_before = control.third_person_view();
+        return;
+    };
     if rt.game.is_dead(me) || death.down() {
         return;
     }
@@ -191,7 +211,7 @@ fn watch(
             rt.game.finish_getting_up(me);
             return;
         }
-        let was_first = control.pov == Pov::First && !control.third_person_view();
+        let was_first = !kd.outside_before;
         ragdolls.rest.remove(&me.0);
         let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), body.worn());
         let mut corpse = body.third_rig().and_then(|(root, rig)| Some((root, data.as_deref().and_then(|d| ragdolls.corpse(d, &rig, &templates))?, rig)));
@@ -220,7 +240,7 @@ fn watch(
         kd.shown += 1;
         // The camera as the player fell (the eye in first person): it stays there.
         let held = cams.single().ok().copied();
-        kd.down = Some(Down { was_first: was_first && body.is_some(), body, phase: Phase::Lying, real: 0.0, held, face_up: None });
+        kd.down = Some(Down { was_first: was_first && body.is_some(), outside: !was_first, body, phase: Phase::Lying, real: 0.0, held, face_up: None });
         return;
     }
     let d = kd.down.as_mut().expect("checked");
@@ -272,11 +292,8 @@ fn watch(
             );
             if !asked {
                 rt.game.finish_getting_up(me);
-                let was_first = d.was_first;
+                d.view_back(&mut control);
                 kd.down = None;
-                if was_first {
-                    control.pov = Pov::First;
-                }
                 info!("player knockdown: the player is up (no clip)");
                 return;
             }
@@ -312,10 +329,8 @@ fn watch(
                 rt.game.finish_getting_up(me);
                 let was_first = d.was_first;
                 info!("player knockdown: the player is up {:.1} s after the fall; the controls{} are theirs again", d.real, if was_first { " and the first-person view" } else { "" });
+                d.view_back(&mut control);
                 kd.down = None;
-                if was_first {
-                    control.pov = Pov::First;
-                }
             }
         }
     }

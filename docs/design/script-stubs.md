@@ -106,7 +106,7 @@ each function; call sites are from `fnvtool script decompile` over the ten maste
 | IsPlayerMovingIntoNewSpace | 0x1166 | 6 | 8 | `Game::loading` (the travel's loading screen) | `nvf_play::script` sets it already |
 | SetGlobalTimeMultiplier | 0x1186 | 7 | 0 | `UiRequests::time_multiplier`; ≤ 0 refused | `nvf_play::script::time_multiplier`: `Time<Virtual>` relative speed; sound speed unchanged |
 | Rotate | 0x1004 | 4 | 0 | one call turns the reference for one frame (speed × frame time), the frame's last call counts [hypothesis, from the wiki's note and the GameMode callers] | `moved.rs`, `script_draw.rs` redraw `Game::turned` |
-| SetActorsAI | 0x118B | 3 | 0 | `RefExtra::ai_off`: no periodic package choice | `fnv_ai` does not step the actor; `detection.rs` skips it as a detector; animation and collision not stopped |
+| SetActorsAI | 0x118B | 3 | 0 | `RefExtra::ai_off`: no periodic package choice | `fnv_ai` does not steer or turn the actor; one that was walking walks on straight ahead through the character controller (`Ai::coast`, set-actors-ai.md) [observed: owner-decision-captures.md §7]; `detection.rs` skips it as a detector; animation and collision not stopped |
 | ShowAllMapMarkers | 0x11F8 | 2 | 0 | `PlayerState::all_markers` (show, travel kept, skip hidden); `Game::map_marker_shown` | the Pip-Boy world map (FNAM bit 4 "Show All" Hidden) |
 | IsTurning | 0x101A | 0 | 1 | `Motion::turning` | `detection.rs`: heading change over 0.5 rad/s (left 1, right 2) [hypothesis: threshold] |
 | AddItemToLeveledList | 0x1236 | 20 | 0 | `fnv_sim::World::add_to_leveled_list`: entries added after the authored ones, in snapshots; health not kept | containers and AddItem through `leveled::resolve_with`; actors' drawn equipment (`fnv-actor`) does not see them |

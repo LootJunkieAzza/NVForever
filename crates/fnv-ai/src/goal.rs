@@ -166,10 +166,12 @@ pub struct Find {
     /// For a specific reference: how near it to go (the target's distance; 0: up to it).
     pub distance: f32,
     /// Allow Killing: actors carrying what it looks for (and actors it looks for) are
-    /// attacked; Allow Stealing: items owned by others are taken too. Allow Buying is
-    /// not carried out (no trading between actors).
+    /// attacked; Allow Stealing: items owned by others are taken too; Allow Buying: a
+    /// vendor whose merchant container holds what it looks for is gone to and it buys
+    /// one (`crate::errand`, packages.md §3.1).
     pub kill: bool,
     pub steal: bool,
+    pub buy: bool,
 }
 
 /// What a Use Item At package has its actor do [documented: Category:Packages "Use
@@ -619,7 +621,7 @@ fn find(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         _ => (n.max(1) as u32, 0.0),
     };
     use fnv_game::package::type_flags as t;
-    Goal::Find(Find { search: Box::new(search), area, wanted, count, distance, kill: def.search_flag(t::ALLOW_KILLING), steal: def.search_flag(t::ALLOW_STEALING) })
+    Goal::Find(Find { search: Box::new(search), area, wanted, count, distance, kill: def.search_flag(t::ALLOW_KILLING), steal: def.search_flag(t::ALLOW_STEALING), buy: def.search_flag(t::ALLOW_BUYING) })
 }
 
 /// The goal of a Use Item At package ([`UseAt`]).
