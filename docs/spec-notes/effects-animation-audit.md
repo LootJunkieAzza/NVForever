@@ -39,7 +39,7 @@ belong to the "Animate laser beams" session and are listed only.
 | Free `NiTransformController` on nodes | 361 `.nif` moving (1,246) | `effects\ambient\fxvultures01.nif` (circling vultures), `megatonfanltrays01.nif`, `dlc05holo*.nif` holograms, `ultraluxsignglow.nif`, `vlightflickerr02.nif` | **Now** for placed objects (`free_transform_tracks`); items lying in the world keep their stored pose (§3) |
 | Free `NiTransformController` on billboard nodes | 20 (44) | `effects\actorfirefx\*`, muzzle flashes | Now where the model is placed; muzzle flashes are shot effects |
 | Free `NiVisController` | 130 + 13 + 12 (458) | weapons' `##` parts, `aobardishrag.nif`, `dlcanch\effects` | No: almost all are weapon parts shown and hidden by the holder's clips (already played from the clips, animation.md §9.7) |
-| `NiGeomMorpherController` (vertex morphs) | free 20, seq 18 `.nif`; 287 `.kf` | flags (`clutter\flags\nv_ncr_flag.nif`, `nv_legionflag.nif`), `utilitypolewsingle01nv.nif` (swinging wires), the `##dgRubberBand:0` of 1st-person clips | **No** (biggest remaining gap: flags and wires stand still) |
+| `NiGeomMorpherController` (vertex morphs) | free 20, seq 18 `.nif`; 287 `.kf` | flags (`clutter\flags\nv_ncr_flag.nif`, `nv_legionflag.nif`), `utilitypolewsingle01nv.nif` (swinging wires), the `##dgRubberBand:0` of 1st-person clips | **Now** for self-running and idle-sequence morphs (flags, holograms; [vertex-morphs](vertex-morphs.md)); the placed wire poles have no morphs |
 | `NiLightColorController`, `NiLightDimmerController` | 9 + 1 `.nif`, seq | `clutter\questitems\monumentlight01.nif` | No (lights inside models are read for their colour only, world.md §8) |
 | `BSRefractionStrengthController`, `BSRefractionFirePeriodController`; refraction and fire-refraction shader flags | 51 + 13 `.nif` seq, 2 free; flags on ~70 shapes | windows of Novac (`bungalow_windowext.nif`), Mr. Handy's jet `fxmrhandyjetaddon.nif` | Yes since 2026-10-20/21: refracting shapes, strength controllers, fire refraction's moving bend ([refraction](refraction.md)); the Novac windows carry the controllers but not the flag, so they do not refract |
 | Particle controllers other than the emitter's rate and on/off keys | `NiPSysModifierActiveCtlr` 96 files; emitter speed/life/radius/declination/planar `Ctlr`s 1-37 files each; `NiPSysGravityStrengthCtlr` 26 | `nv_hooverdam_aagun.nif`, `ul_fountainnewfx.nif` | No (particles.md §5) |
@@ -164,7 +164,8 @@ pulse".
 
 ## 5. Left open
 
-- Vertex morphs (`NiGeomMorpherController`): flags, wires, the 1st-person rubber band.
+- Vertex morphs a script or a non-idle sequence starts, and the 1st-person rubber band
+  (flags and holograms are built: vertex-morphs.md).
 - ~~Refraction (heat shimmer of the jets, the Novac windows) and its controllers.~~ Built ([refraction](refraction.md)); the fire period controller is not played.
 - Lights inside models (`NiLightColorController`, `NiLightDimmerController`).
 - Particle controllers beyond the emitter's rate and on/off keys; keyed birth rates.

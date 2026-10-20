@@ -367,6 +367,12 @@ pub struct Track {
     /// The values of a `NiFloatInterpolator` or `NiPoint3Interpolator` track (`data` is
     /// then `Other`): a colour, a texture offset, a multiplier.
     pub values: Option<ValueTrack>,
+    /// The controlled block's interpolator ID: which of the controller's interpolators
+    /// the track feeds; under a `NiGeomMorpherController`, the morph's frame name
+    /// [observed: `utilitypolewsmall01nv.nif`'s Idle names `Base`,
+    /// `UtilityPoleWSmall01WireM01` and `…M02`, its morphs' frame names;
+    /// docs/spec-notes/vertex-morphs.md §1].
+    pub interpolator_id: Option<String>,
 }
 
 /// A `NiFloatInterpolator` or `NiPoint3Interpolator` evaluated: its keys (`NiFloatData`,
@@ -678,6 +684,7 @@ pub fn sequences(file: &crate::NifFile, dec: &Decoded) -> Vec<Sequence> {
                 bools,
                 controller_id: cb_string(dec, cb, "controller_id"),
                 values,
+                interpolator_id: cb_string(dec, cb, "interpolator_id"),
             });
         }
         out.push(Sequence {
@@ -698,6 +705,61 @@ pub fn sequences(file: &crate::NifFile, dec: &Decoded) -> Vec<Sequence> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn morph(name: &str, vectors: Vec<[f32; 3]>) -> MorphTarget {
+        MorphTarget { name: Some(name.into()), vectors, weight: None, stored_weight: 0.0, interpolator_type: None }
+    }
+
+    #[test]
+    fn morphs_add_weighted_offsets_to_the_base_and_take_an_idle_sequence() {
+        // A wire of two vertices whose second sags by morph `M01` (relative targets).
+        let mut g = GeomMorpher {
+            controller: 7,
+            target: 26,
+            flags: 108,
+            start_time: 0.0,
+            stop_time: 10.0,
+            frequency: 1.0,
+            phase: 0.0,
+            update_normals: false,
+            relative: true,
+            num_vertices: 2,
+            morphs: vec![morph("Base", vec![[0.0; 3], [100.0, 0.0, 0.0]]), morph("M01", vec![[0.0; 3], [0.0, 0.0, -8.0]])],
+        };
+        assert!(!g.is_free() && !g.moves());
+        let mut out = Vec::new();
+        g.positions_at(5.0, &mut out);
+        assert_eq!(out, vec![[0.0; 3], [100.0, 0.0, 0.0]]);
+        let ramp = Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [0.0]), key(4.0, [1.0])] };
+        let cb = |id: &str, values: Option<ValueTrack>| Track {
+            node_name: Some("Wire:0".into()),
+            controller_type: Some("NiGeomMorpherController".into()),
+            priority: Some(0),
+            data: TrackData::Other("NiFloatInterpolator".into()),
+            bools: None,
+            controller_id: None,
+            values,
+            interpolator_id: Some(id.into()),
+        };
+        let seq = Sequence {
+            block: 5,
+            name: Some("Idle".into()),
+            start_time: 0.0,
+            stop_time: 4.0,
+            frequency: 1.0,
+            cycle_type: 0,
+            accum_root_name: None,
+            text_keys: Vec::new(),
+            tracks: vec![cb("Base", Some(ValueTrack::Float(Channel::Static(Some([1.0]))))), cb("M01", Some(ValueTrack::Float(Channel::Keys(ramp))))],
+        };
+        assert_eq!(g.take_sequence(&seq, "Other:0"), 0);
+        assert_eq!(g.take_sequence(&seq, "Wire:0"), 2);
+        // The sequence's loop replaces the controller's clamp.
+        assert_eq!(((g.flags >> 1) & 3, g.stop_time), (0, 4.0));
+        assert!(g.moves());
+        g.positions_at(2.0, &mut out);
+        assert_eq!(out, vec![[0.0; 3], [100.0, 0.0, -4.0]]);
+    }
 
     fn key<const N: usize>(time: f32, value: [f32; N]) -> Key<N> {
         Key { time, value, forward: [0.0; N], backward: [0.0; N], tbc: [0.0; 3] }
@@ -809,4 +871,175 @@ mod tests {
         let q = euler_xyz_to_quat([0.0, 0.0, std::f32::consts::PI]);
         assert!((q[3] - 1.0).abs() < 1e-6);
     }
+}
+
+/// One morph target of a [`GeomMorpher`]: a vector per vertex of the shape
+/// (docs/spec-notes/vertex-morphs.md §1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MorphTarget {
+    /// The morph's frame name (`Morph.frame_name` [documented: nif.xml]).
+    pub name: Option<String>,
+    /// One vector per vertex (`Morph.vectors`).
+    pub vectors: Vec<[f32; 3]>,
+    /// Its weight over time: the interpolator of the controller's matching
+    /// `MorphWeight` entry, evaluated (`None`: no interpolator or not a float one).
+    pub weight: Option<ValueTrack>,
+    /// The `MorphWeight.weight` stored beside that interpolator [documented: nif.xml].
+    pub stored_weight: f32,
+    /// The interpolator's type name, for surveys (`None`: null reference).
+    pub interpolator_type: Option<String>,
+}
+
+/// A `NiGeomMorpherController` with its `NiMorphData` (docs/spec-notes/vertex-morphs.md):
+/// what it drives, how it runs and its morph targets, morph `i` weighted by the
+/// controller's `i`-th `MorphWeight` [documented: nif.xml NiGeomMorpherController,
+/// NiMorphData, Morph, MorphWeight].
+#[derive(Debug, Clone, PartialEq)]
+pub struct GeomMorpher {
+    /// Block index of the controller.
+    pub controller: usize,
+    /// Block index of the shape it drives (`target`), -1 for none.
+    pub target: i32,
+    /// NiTimeController flags (bit 3 Active, bit 5 manager controlled, bits 1-2 cycle
+    /// type [documented: nif.xml TimeControllerFlags]).
+    pub flags: i64,
+    pub start_time: f32,
+    pub stop_time: f32,
+    pub frequency: f32,
+    pub phase: f32,
+    /// `morpher_flags` is UPDATE_NORMALS_ENABLED (1) [documented: nif.xml GeomMorpherFlags].
+    pub update_normals: bool,
+    /// `NiMorphData.relative_targets` is not 0 ("always 1 in all official files"
+    /// [documented: nif.xml]).
+    pub relative: bool,
+    /// The vertex count `NiMorphData` states.
+    pub num_vertices: usize,
+    pub morphs: Vec<MorphTarget>,
+}
+
+impl GeomMorpher {
+    /// Whether no sequence drives it and it runs by itself: Active and not manager
+    /// controlled [documented: nif.xml TimeControllerFlags].
+    pub fn is_free(&self) -> bool {
+        self.flags & 0x8 != 0 && self.flags & 0x20 == 0
+    }
+
+    /// The weight of morph `i` at controller time `t`: its interpolator's value, else
+    /// the stored weight.
+    pub fn weight_at(&self, i: usize, t: f32) -> f32 {
+        let m = &self.morphs[i];
+        m.weight.as_ref().and_then(|w| w.at(t)).map_or(m.stored_weight, |v| v[0])
+    }
+
+    /// The vertex positions at controller time `t` into `out` (resized to
+    /// `num_vertices`): with relative targets, morph 0 plus every later morph times its
+    /// weight; without, the weighted sum of all morphs [hypothesis: nif.xml names the
+    /// fields only; morph 0 equals the shape's stored vertices in every base-game file
+    /// with free morphs and the later morphs are offsets of a few units,
+    /// docs/spec-notes/vertex-morphs.md §2].
+    pub fn positions_at(&self, t: f32, out: &mut Vec<[f32; 3]>) {
+        out.clear();
+        out.resize(self.num_vertices, [0.0; 3]);
+        for (i, m) in self.morphs.iter().enumerate() {
+            let w = if self.relative && i == 0 { 1.0 } else { self.weight_at(i, t) };
+            if w == 0.0 {
+                continue;
+            }
+            for (p, v) in out.iter_mut().zip(&m.vectors) {
+                p[0] += w * v[0];
+                p[1] += w * v[1];
+                p[2] += w * v[2];
+            }
+        }
+    }
+
+    /// Feed the morphs from the tracks of `seq` that drive a `NiGeomMorpherController`
+    /// on the shape named `shape`, matched by interpolator ID to the morph's frame name
+    /// (docs/spec-notes/vertex-morphs.md §1), and take the sequence's timing (start,
+    /// stop, frequency, cycle type) as the controller's. The number of morphs fed.
+    pub fn take_sequence(&mut self, seq: &Sequence, shape: &str) -> usize {
+        let mut fed = 0;
+        for t in &seq.tracks {
+            if t.controller_type.as_deref() != Some("NiGeomMorpherController") || t.node_name.as_deref() != Some(shape) {
+                continue;
+            }
+            let (Some(id), Some(values)) = (&t.interpolator_id, &t.values) else { continue };
+            if let Some(m) = self.morphs.iter_mut().find(|m| m.name.as_deref() == Some(id.as_str())) {
+                m.weight = Some(values.clone());
+                fed += 1;
+            }
+        }
+        if fed > 0 {
+            self.start_time = seq.start_time;
+            self.stop_time = seq.stop_time;
+            self.frequency = seq.frequency;
+            self.phase = 0.0;
+            self.flags = (self.flags & !0x6) | ((seq.cycle_type & 3) << 1);
+        }
+        fed
+    }
+
+    /// Whether any morph after the base has a weight that changes, or a constant
+    /// non-zero weight on a non-zero morph: the shape moves or differs from morph 0.
+    pub fn moves(&self) -> bool {
+        let start = if self.relative { 1 } else { 0 };
+        self.morphs.iter().enumerate().skip(start).any(|(i, m)| {
+            if m.vectors.iter().all(|v| v.iter().all(|x| *x == 0.0)) {
+                return false;
+            }
+            let span = (self.stop_time - self.start_time).max(0.0);
+            let first = self.weight_at(i, self.start_time);
+            (1..=32).any(|k| (self.weight_at(i, self.start_time + span * k as f32 / 32.0) - first).abs() > 1e-4)
+        })
+    }
+}
+
+/// Every `NiGeomMorpherController` of a file with a readable `NiMorphData`.
+pub fn geom_morphers(file: &crate::NifFile, dec: &Decoded) -> Vec<GeomMorpher> {
+    let mut out = Vec::new();
+    for (i, b) in file.blocks.iter().enumerate() {
+        if b.type_name != "NiGeomMorpherController" {
+            continue;
+        }
+        let Some(c) = dec.get(i as i32) else { continue };
+        let Some(data) = c.block_ref("data").and_then(|r| dec.get(r)) else { continue };
+        let num_vertices = data.int("num_vertices").unwrap_or(0).max(0) as usize;
+        let weights: Vec<(i32, f32)> = c
+            .list("interpolator_weights")
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|w| match w {
+                Value::Struct(w) => Some((w.block_ref("interpolator").unwrap_or(-1), w.float("weight").unwrap_or(0.0))),
+                _ => None,
+            })
+            .collect();
+        let morphs = data
+            .list("morphs")
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .filter_map(|(k, m)| {
+                let Value::Struct(m) = m else { return None };
+                let vectors = m.floats("vectors").map(|f| f.as_chunks::<3>().0.to_vec()).unwrap_or_default();
+                let (interp, stored_weight) = weights.get(k).copied().unwrap_or((-1, 0.0));
+                let interpolator_type = usize::try_from(interp).ok().and_then(|x| file.blocks.get(x)).map(|b| b.type_name.clone());
+                let weight = interpolator_type.as_deref().and_then(|ty| value_track(dec, interp, ty));
+                Some(MorphTarget { name: m.text("frame_name").map(str::to_string), vectors, weight, stored_weight, interpolator_type })
+            })
+            .collect();
+        out.push(GeomMorpher {
+            controller: i,
+            target: c.block_ref("target").unwrap_or(-1),
+            flags: c.int("flags").unwrap_or(0),
+            start_time: c.float("start_time").unwrap_or(0.0),
+            stop_time: c.float("stop_time").unwrap_or(0.0),
+            frequency: c.float("frequency").unwrap_or(1.0),
+            phase: c.float("phase").unwrap_or(0.0),
+            update_normals: c.int("morpher_flags") == Some(1),
+            relative: data.int("relative_targets").unwrap_or(1) != 0,
+            num_vertices,
+            morphs,
+        });
+    }
+    out
 }
