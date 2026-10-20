@@ -106,6 +106,8 @@ pub(crate) struct Props {
     external_emittance: bool,
     /// A decal shader flag is set ([`is_decal`]).
     decal: bool,
+    /// The Refraction shader flag is set ([`refracts`]): the stored refraction strength.
+    refraction: Option<f32>,
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
@@ -135,6 +137,11 @@ impl Props {
     /// The stored emissive colour (black when none) and multiplier (1 when none).
     pub(crate) fn emissive_parts(&self) -> ([f32; 3], f32) {
         (self.emissive.unwrap_or([0.0; 3]), self.emissive_mult.unwrap_or(1.0).max(0.0))
+    }
+
+    /// The stored refraction strength (0 when the shape does not refract).
+    pub(crate) fn refraction_part(&self) -> f32 {
+        self.refraction.unwrap_or(0.0)
     }
 
     /// The stored material alpha (1 when none).
@@ -184,6 +191,17 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
 /// the camera (`nif_material::decal_bias`) [hypothesis].
 pub(crate) fn is_decal(shader_flags: i64) -> bool {
     shader_flags & (1 << 26 | 1 << 27) != 0
+}
+
+/// The shape bends what lies behind it instead of being drawn: BSShaderFlags bit 15
+/// "Refraction" [documented: nif.xml BSShaderFlags; docs/spec-notes/explosion-effects.md
+/// §7]. 31 of the 257 models the weapon effect records name set it, all on a
+/// BSShaderPPLightingProperty (the heat-haze shells of explosions), as do Mister Handy's
+/// jet clouds, whose diffuse texture is plain white (`FXWHITE.dds`) [observed]; drawn as
+/// ordinary shapes they show as solid grey or white domes [observed: the Incinerator's
+/// `dlc03flamerexplosion.nif`, owner 2026-10-20].
+pub(crate) fn refracts(shader_flags: i64) -> bool {
+    shader_flags & (1 << 15) != 0
 }
 
 /// BSShaderFlags bit 6 switches the view-angle falloff of a BSShaderNoLightingProperty on
@@ -242,6 +260,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
         p.decal = is_decal(flags);
+        p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
     }
@@ -550,10 +569,23 @@ pub(crate) fn shape_material(
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
+    if let Some(strength) = props.refraction {
+        refraction_material(&mut material, strength);
+    }
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
     material.extension.hard_edges = props.lod_building;
     (material, missing)
+}
+
+/// Make `material` a refracting one (`nif_material`, module notes "Refraction"): drawn
+/// after the opaque pass from Bevy's copy of it (a specular transmission above 0 puts
+/// the material there and keeps it out of the prepass), opaque, without depth writes.
+fn refraction_material(material: &mut NifMaterial, strength: f32) {
+    material.base.specular_transmission = 1.0;
+    material.base.alpha_mode = AlphaMode::Opaque;
+    material.extension.refraction = strength;
+    material.extension.refract = true;
 }
 
 pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {

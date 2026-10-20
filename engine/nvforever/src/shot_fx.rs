@@ -52,8 +52,11 @@
 //!   unless the model fades itself with an alpha controller (the green laser's, the
 //!   pulse gun's) [hypothesis, combat-rules.md §15]. A beam model with no controllers
 //!   at all (`DLC03ScatterBeam`'s) has no rig and is not faded.
-//! - Not built: impact decals, the models' refraction (heat haze) controllers, NPCs'
-//!   muzzles.
+//! - **Heat haze.** The refracting shapes of these models (the shells of the fireballs:
+//!   the Incinerator's, the missile's, the big fire explosions') bend what lies behind
+//!   them instead of being drawn (`nvf_assets::nif_material`, "Refraction"); their
+//!   `BSRefractionStrengthController` keys play with the effect clip.
+//! - Not built: impact decals, NPCs' muzzles.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
@@ -301,10 +304,11 @@ fn load(models: &mut ModelCtx, fx: &mut ShotFx, what: &str, model: &str) -> Opti
     if fx.reported.insert(path.clone()) {
         match &pm {
             Some(pm) => info!(
-                "shot fx: {what} {path}: {} shapes, {} nodes, {} billboards{}",
+                "shot fx: {what} {path}: {} shapes, {} nodes, {} billboards, {} refracting{}",
                 pm.shapes.len(),
                 pm.nodes.len(),
                 pm.nodes.iter().filter(|n| n.billboard.is_some()).count(),
+                pm.shapes.iter().filter(|s| models.materials.get(&s.material).is_some_and(|m| m.extension.refract)).count(),
                 match pm.rig.as_ref().and_then(|r| r.effect.as_ref()) {
                     Some(c) => format!(
                         "; plays {} ({:.2} s: {} node track(s), {} visibility, {} material)",

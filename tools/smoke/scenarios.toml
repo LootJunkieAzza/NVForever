@@ -3704,6 +3704,21 @@ expect = [
   { re = 'shot fx: (?P<n>\d+) effect models played their own animation, 1 explosion screen effects', range = [2, 1000] },
 ]
 
+[[scenario]]
+name = "incinerator-heat-haze"
+source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
+note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; frames at 0.1-0.3 s after the shots for the eye (the shell shows only for its first 0.3 s)"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "000906DA", NVF_PLAY_TEST_GIVE = "00029371:60", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.2:fire", NVF_PLAY_TEST_SHOTS = "6.5:incinerator_0.png,6.7:incinerator_1.png,6.9:incinerator_2.png,7.3:incinerator_3.png,8:incinerator_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 14
+expect = [
+  { re = 'combat: explosion \S*IncineratorFireBurst at', label = "the Incinerator's fire burst goes off" },
+  { re = 'shot fx: explosion meshes.dlc03.effects.dlc03flamerexplosion.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect \(.*, [1-9]\d* material\)', label = "its model: one refracting shell, material tracks played" },
+  { re = 'particles: add-on node 0 meshes.mps.mpsfiremed01.nif: [1-9]\d* system', label = "the fire add-on (MPSFireMed01) has systems to emit" },
+]
+
 # ------------------------------------------------------------------ playtest list 5: HUD (workstream D1)
 
 [[scenario]]
