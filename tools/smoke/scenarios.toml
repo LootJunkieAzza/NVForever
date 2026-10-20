@@ -6211,3 +6211,16 @@ expect = [
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
+
+[[scenario]]
+name = "vertex-morphs"
+source = "docs/spec-notes/vertex-morphs.md §3-§4: the Nevada flag in Goodsprings (ref 0010A18D, meshes/clutter/flags/nv_nevadaflag.nif, a skinned shape with 7 morphs on its own NiGeomMorpherController) waves: the model is read with its morphs and the mesh is rewritten as the weights change; two frames 0.6 s apart in target/smoke (vertex_morphs_N.png)"
+areas = ["models", "effects"]
+paths = ["engine/nvf-assets/src/morph.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-nif/src/anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "5:-72668:357:9100", NVF_PLAY_TEST_LOOK = "5.5:0:12", NVF_PLAY_TEST_SHOTS = "8:vertex_morphs_0.png,8.6:vertex_morphs_1.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-72668,357,9100", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'nv_nevadaflag\.nif .*: vertex morphs, 7 morph\(s\) over a \S+ s cycle \(own controller\)', label = "the Nevada flag is read with its 7 morphs" },
+  { re = 'vertex morphs: \S*nv_nevadaflag\.nif .* running', label = "its mesh is rewritten as the weights change" },
+]
