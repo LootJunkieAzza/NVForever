@@ -1481,8 +1481,28 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   [observed].
 - An actor's weapon (`fnv_actor::weapon::choose_weapon`): among its carried items (the
   same leveled-list results as its worn armour, §2.3), the drawable weapon with the
-  highest base damage, the first carried on ties [engine choice standing in for Layer 6's
-  equip logic].
+  highest damage, the first carried on ties [engine choice standing in for Layer 6's
+  equip logic]. The simulation equips NPCs by the same rule (`fnv_sim::World::equipment`).
+  - **The damage counts a gun's explosion** (2026-10-20,
+    `fnv_sim::forms::weapon_choice_damage`): DATA base damage, plus the damage of the
+    explosion its projectile sets off (PROJ DATA flag "Explosion", its "Explosion" →
+    EXPL DATA "Damage") [documented: xEdit PROJ, EXPL; `schemas/fnv`] for a weapon whose
+    animation type is not Grenade Throw, Thrown, Land Mine or Mine Drop.
+    [hypothesis: fitted to one actor. The original's Cook-Cook (1ECookCook 0x000F5700)
+    carries an Incinerator (base 1, its glob's NVIncineratorFireBurst 20) and a Flamer
+    (base 16) and held the Incinerator in all three recorded fights
+    (npc-behaviour-compare.md §9.1); by base damage alone ours drew the Flamer. Other
+    rules fit it too (the first weapon in the record's list, the longest Max Range); this
+    one was taken because it keeps every other choice as it was unless the weapon fires
+    an explosive projectile.] Thrown weapons and mines keep their base damage: grenade
+    use is not built, and a grenade as the weapon drawn would not be thrown.
+  - What it changes (`fnvtool actor weapons`, FalloutNV.esm, 2026-10-20 [observed]):
+    42 of 2,703 placed NPCs draw another weapon they carry, each a gun with an explosive
+    projectile: Cook-Cook and a Bison Steve Powder Ganger the Incinerator (instead of the
+    Flamer, a tire iron); 40 the Grenade Rifle (25), Grenade Launcher (14) or Grenade
+    Machinegun (1) instead of a melee weapon or a lesser gun (most of them Boomers; Fiends
+    with a rolled grenade rifle, Nellis's Jack and Raquel, Mags, Oscar Velasco, a Novac
+    doctor's mercenary). Whether the original's Boomers fire these is not checked.
 - Type → prefix (`AnimType::prefix`). The ESM gives only the type (DNAM); no field names
   the clips, so the link is read from two kinds of evidence in the data [observed,
   2026-10-09]:

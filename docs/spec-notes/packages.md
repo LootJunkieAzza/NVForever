@@ -371,7 +371,27 @@ not work" on Escort]:
   player followed led the player to its location; our choice: the 64]. At the destination its goal is met. A target that is gone or dead
   is not waited for [our choice]. Without PKE2, 200 [our choice: the most common value].
   The target's own count / distance (256, 800) is not used [hypothesis: unknown meaning].
-- Not built: joining the target's fights (Defensive Combat's exception).
+- **Joining the target's fights** (since 2026-10-20, `Game::escorts_assist` in
+  `fnv_game::provocation`, called with `Game::call_allies`) [documented: Defensive Combat,
+  "if the target is attacked, the actor will join into the combat"]: while its current
+  package is Escort, the actor takes up its charge's fight against each actor attacking
+  the charge (in a combat state with the charge on its target list, or having hurt it):
+  it holds a grudge against the attacker and is alarmed at its position, as an assisting
+  ally (combat-ai.md §10.3), whatever its Assistance and whether or not the package is
+  Defensive Combat. Never against its own allies or friends [documented: they "cannot
+  attack each other under any circumstances"]; a Cowardly escort stays out (combat-ai.md
+  §10.3, owner's list 4 item 14). Choices [hypothesis]: the escort must at least notice
+  its charge (band Noticed or Detected: it walks ahead with its back to the charge, which
+  it then only hears [observed: smoke run, the settler noticed the player at 270 units,
+  out of view]), with no other range; a fight the charge starts is joined only
+  once the other side fights back (then it attacks the charge); a charge that provoked
+  the attacker is helped all the same; it holds from the package's start to its end, also
+  once the destination is reached; an escort that is the player's teammate is left to
+  the teammate rule (followers.md §3). Follow and Accompany share the documented
+  exception and are not built. No placed actor runs an Escort package without a quest
+  stage (NellisRaquelIntroEscortAIPackage, GomezEscortTo*), so the smoke scenario
+  `package-escort-fights` gives one by script. Log: `provocation: <escort> helps <charge>
+  against <attacker>`.
 
 **Find** [documented: Category:Packages "Standard Search Data" (a search location with a
 radius; Allow Buying, Allow Killing, Allow Stealing; "Replace after use?" greyed out on
@@ -396,7 +416,28 @@ normal package behavior"]:
   - **Allow Stealing**: items owned by another (the reference's owner, not the actor or
     one of its factions) are taken only with it [documented name; hypothesis: the
     owner test];
-  - **Allow Buying** is not carried out: there is no trading between actors.
+  - **Allow Buying** [documented: the checkbox's name only, Category:Packages "Standard
+    Search Data"; no page says what it does, and no Find package of the masters has it
+    (Allow Buying 0 above; Eat has it 49 times), so nothing could be watched in the
+    original; every point below is a hypothesis]: a living vendor of the area counts as
+    an object it looks for when its merchant container (the XMRC of its reference, the
+    stock the barter menu sells from, barter-menu.md §4) holds an item the target names
+    (a base form or form list, or an object type) that the actor can pay for. An actor
+    without a merchant container is not a vendor. Nearest first, as every other object.
+    It walks up to the vendor as to any actor it looks for (the vendor may move; it is
+    reached within three times the arrival distance), then buys one: the cheapest such
+    item it can pay for (lowest form ID on a tie). The price is what the player would
+    pay at the actor's own Barter skill: the item's value (SetItemValue's, else the
+    record's; condition not counted) times `fBarterBuyBase + Barter × fBarterBuyMult /
+    100`, never under the value, rounded to the nearest cap, halves up. Its caps go into
+    the merchant container, where the vendor's caps are, and the item comes out of it.
+    Each purchase counts one found; the vendor stays a candidate while it has more to
+    sell, so a count of 3 buys up to three from one vendor. A living vendor is bought
+    from, not attacked, when the package also allows killing. Not done: buying from a
+    vendor's own inventory, barter between actors in the barter menu, a specific
+    reference as the target (a reference in a container is not a reference). Test aid
+    `NVF_PLAY_TEST_FIND_BUYING=1` (engine) / `AiConfig::find_buying`: every Find package
+    allows buying, since no shipped one does; smoke `package-find-buying`.
 - With nothing (more) to find its goal is met and it stays; it looks again every 10
   seconds [our choice: else a Must Complete Find with nothing in reach would hold its
   actor for ever]. Object type "None" finds nothing: it goes to the location and stays.

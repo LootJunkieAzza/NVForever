@@ -6603,6 +6603,24 @@ combat-rules.md §17–18; queue item 8.
   firing, hits and other; a rerun of campaign fight_stats_round settles it.
 - Not changed: a scripted FireWeapon wears nothing [design]; hits on the holder do not
   wear his weapon (only hits on the weapon's own volume do, your rule).
+
+## Weapon sway and bob in first person (2026-10-20, branch claude/viewmodel-sway)
+
+Design: docs/design/player-body.md §1.4a. The arms and weapon now lag behind a turn and
+bob as you walk and run; "Weapon sway" on the settings page (or `--no-weapon-sway`)
+turns it off. The game's own files have no bob for the arms, so it is all ours and
+every number is a guess to tune by eye:
+- **Turn lag** 0.11 s to catch up, at most 5° sideways and 3.5° up/down. *Check:* does a
+  quick flick in the original leave the gun further behind, or for longer?
+- **Bob** 0.9 units down at each footfall and 0.6 across a stride at a run, less walking,
+  60 % sneaking, 20 % down the sights. *Check:* walking and running with a rifle, side by
+  side with the original.
+- **Strafe lean** 1.5° and **start/stop lag** at most 1.2 units. *Check:* too much?
+- The game's settings `fFirstPersonHandFollowMult` and `fFirstPersonHandChaseSeconds`
+  are named in the executable but their values are not in any file. A capture reading
+  `GetNumericGameSetting fFirstPersonHandChaseSeconds` (and the other two) in the
+  original would give the turn lag's time.
+
 ## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
 
 docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
@@ -6624,6 +6642,28 @@ check in the original:
   actor, only when the target is within reach; they do not walk up.
 - No power attacks in a use (people's power attacks are PR #503).
 
+## The last trooper's time: Cook-Cook's weapon (2026-10-20, session "q9-trooper-time")
+
+npc-behaviour-compare.md §9.1, actors.md §9.3. Queue item 9: our NCR troopers died far
+sooner than the original's in the Cook-Cook fight. What I found and chose:
+- **Cook-Cook drew the wrong weapon.** He carries an Incinerator and a Flamer; the
+  original's held the Incinerator in all three recorded fights and lobbed globs from
+  1,100–2,000 units, ours drew the Flamer (higher base damage) and charged. **My rule**: the
+  weapon choice ranks a weapon by its base damage plus the damage of the explosion its
+  projectile sets off (Incinerator 1 + 20 against the Flamer's 16); thrown weapons and
+  mines keep their base damage. Fitted to that one actor; "first weapon in the record" or
+  "longest range" would fit him too. *Check:* in game, which weapon do Boomers, Fiends
+  with a grenade rifle, Nellis's Jack and Raquel, Mags and Oscar Velasco hold? 40 NPCs
+  now draw a Grenade Rifle, Grenade Launcher or Grenade Machinegun they carry instead of
+  a melee weapon or a lesser gun (they used to swing a sledgehammer or a lead pipe).
+- **Three smoke scenarios built on Cook-Cook's Flamer** (`cook-cook-flamer`,
+  `combat-flamer-reach`, `npc-flamer-holstered`) now give him the Flamer with EquipItem at
+  2 s; their checks are unchanged (`npc-flamer-holstered` gained `--play` and god mode,
+  which the test aid needs).
+- **Left, not built: the burn.** The Incinerator's burn drains 4 Health a second in ours
+  (the record's magnitude); the original's drained NPCs 1 or 2 a second for 16–30 s. No
+  documented rule explains it, so I did not guess one; the troopers still die 16–31 s in
+  against the original's 30–132 s. *Needs:* one burn captured frame by frame.
 ## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
 
 docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style
@@ -6664,3 +6704,43 @@ this none of those abilities applied. My choices, to check in game:
   RemoveSpell of it is undone the next frame (Dispel still suspends it as any ability).
 - **Not done**: reading skill books (so Comprehension does nothing yet), Hacking Science
   Bonus, companions' perks.
+
+## An escort joining its charge's fights (2026-10-20, session "q11", branch claude/q11-escort-fights)
+
+docs/spec-notes/packages.md §3.1. The wiki says only that an Escort (like Follow and
+Accompany) "will join into the combat" when its target is attacked, even with Defensive
+Combat. Now an actor running an Escort package takes up the fight against whoever attacks
+the one it escorts, as an assisting ally would, whatever its Assistance. My choices, to
+check in game:
+- **It must at least notice its charge** (noticed or detected, as it walks ahead with its
+  back to it), no other range. *Check:* does an escort
+  far ahead of the player still turn back when the player is attacked?
+- **Fights the charge starts**: the escort joins only once the other side fights back. A
+  charge that provoked the attacker (the player shooting a neutral who answers) is still
+  helped. *Check:* the player shoots a neutral passer-by while escorted.
+- **Its own allies and friends** are never fought, and a Cowardly escort stays out.
+- **For the whole package**, also once at the destination; a companion (teammate) escort
+  keeps the teammate rule.
+- **Not done**: Follow and Accompany packages, which the wiki gives the same exception.
+- No placed actor runs an Escort package without a quest step (Raquel at Nellis, Gomez's
+  two), so the smoke test gives a Goodsprings settler GomezEscortToAtrium and sets Victor
+  on the player.
+## Find's Allow Buying (2026-10-20, session "q10", branch claude/q10-find-allow-buying)
+
+docs/spec-notes/packages.md §3.1. An actor on a Find package with Allow Buying now buys
+what it looks for from a vendor. The wiki gives only the checkbox's name and no Find
+package of the game has the flag (Eat packages have it), so every rule is my choice:
+- **Who is a vendor**: a living actor of the search area whose reference names a merchant
+  container (the stock the barter menu sells from). Its own inventory is not sold from.
+- **Which vendor**: the nearest object it looks for, vendor or loose item alike.
+- **What it buys**: one at a time, the cheapest wanted item it can pay for; each purchase
+  counts one of the package's count, and it buys again from the same vendor while the
+  count is not reached.
+- **Price**: what the player would pay at the actor's own Barter skill (value x
+  (1.55 - 0.45 x Barter / 100), never under the value, condition ignored), whole caps.
+  The caps go into the vendor's merchant container.
+- **How it gets there**: it walks up to the vendor as to any actor it looks for; no
+  dialogue, no barter menu, no idle.
+- **Killing and buying both allowed**: a living vendor is bought from, not attacked.
+*Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
+smoke test turns the flag on for FFER24FindFood with a test aid.

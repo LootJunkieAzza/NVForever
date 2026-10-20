@@ -100,15 +100,23 @@ pub fn drawable(w: &Weapon) -> bool {
     w.model.is_some() && !w.embedded && w.anim_type.as_deref().and_then(AnimType::from_name).is_some()
 }
 
+/// The damage a weapon is chosen by (actors.md §9.3): its base damage, plus the damage of
+/// the explosion its projectile sets off for a weapon that is not thrown or laid
+/// (`fnv_sim::forms::weapon_choice_damage`, the rule the simulation equips NPCs by).
+pub fn choice_damage(w: &Weapon) -> f32 {
+    fnv_sim::forms::weapon_choice_damage(w.damage as f32, w.explosion_damage, w.anim_type.as_deref())
+}
+
 /// The weapon an actor draws among its carried items: the drawable weapon with the highest
-/// base damage, the first carried on ties [engine choice standing in for Layer 6's
+/// [`choice_damage`], the first carried on ties [engine choice standing in for Layer 6's
 /// equip logic, actors.md §9.3].
 pub fn choose_weapon(carried: &[FormId], weapons: &HashMap<FormId, Weapon>) -> Option<FormId> {
-    let mut best: Option<(i32, FormId)> = None;
+    let mut best: Option<(f32, FormId)> = None;
     for &id in carried {
         let Some(w) = weapons.get(&id).filter(|w| drawable(w)) else { continue };
-        if best.is_none_or(|(d, _)| w.damage > d) {
-            best = Some((w.damage, id));
+        let damage = choice_damage(w);
+        if best.is_none_or(|(d, _)| damage > d) {
+            best = Some((damage, id));
         }
     }
     best.map(|b| b.1)
@@ -373,7 +381,7 @@ mod tests {
     use super::*;
 
     fn weapon(model: Option<&str>, anim: &str, damage: i32, embedded: bool) -> Weapon {
-        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, embedded, non_playable: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() }
+        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, projectile: None, explosion_damage: 0.0, embedded, non_playable: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() }
     }
 
     #[test]
@@ -402,6 +410,25 @@ mod tests {
         assert_eq!(choose_weapon(&[c, b], &ws), Some(c));
         assert_eq!(choose_weapon(&[d, FormId(9)], &ws), None);
         assert!(!drawable(&weapon(None, "Melee (1 Hand)", 1, false)));
+    }
+
+    #[test]
+    fn weapon_choice_counts_a_guns_explosion() {
+        // Cook-Cook's pair: Incinerator (1, its glob's explosion 20) over Flamer (16).
+        let (inc, flamer, grenade, bat) = (FormId(1), FormId(2), FormId(3), FormId(4));
+        let mut incinerator = weapon(Some("w\\i.nif"), "Handle (2 Hand)", 1, false);
+        incinerator.explosion_damage = 20.0;
+        let mut frag = weapon(Some("w\\g.nif"), "Grenade Throw (1 Hand)", 1, false);
+        frag.explosion_damage = 100.0;
+        let ws = HashMap::from([
+            (inc, incinerator),
+            (flamer, weapon(Some("w\\f.nif"), "Handle (2 Hand)", 16, false)),
+            (grenade, frag),
+            (bat, weapon(Some("w\\b.nif"), "Melee (2 Hand)", 22, false)),
+        ]);
+        assert_eq!(choose_weapon(&[flamer, inc], &ws), Some(inc));
+        // A thrown weapon's explosion does not count: it is not held as the weapon.
+        assert_eq!(choose_weapon(&[grenade, bat], &ws), Some(bat));
     }
 
     #[test]
