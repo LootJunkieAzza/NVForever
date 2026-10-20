@@ -17,6 +17,7 @@
 
 mod activators;
 mod actor_feet;
+mod actor_jumps;
 mod actor_materials;
 mod anim_objects;
 mod anim_state;
@@ -429,9 +430,14 @@ struct Args {
     auto_walk: f32,
     /// An NPC walks to a target over the navmesh: "ACTOR=TARGET", each a placed
     /// reference (Editor ID or FormID) or the target as "x,y,z" (repeatable;
-    /// docs/design/navmesh.md §5).
+    /// docs/design/navmesh.md §5); "ACTOR@x,y,z=TARGET" sets the actor off from x,y,z
+    /// in its own space.
     #[arg(long)]
     npc_travel: Vec<String>,
+    /// The --npc-travel paths may go over the navmesh's ledge links: the NPC drops off
+    /// or jumps up the ledge (docs/spec-notes/actor-jumps.md).
+    #[arg(long, requires = "npc_travel")]
+    npc_ledges: bool,
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
@@ -1004,7 +1010,7 @@ fn main() -> AppExit {
     let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
     } else {
-        match nav::NavState::build(&world, &trips, args.npc_speed, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
+        match nav::NavState::build(&world, &trips, args.npc_speed, args.npc_ledges, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
@@ -1251,6 +1257,8 @@ fn main() -> AppExit {
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors swimming in water (swimming.rs).
             app.add_plugins(swimming::SwimmingPlugin);
+            // Actors jumping and falling: their jump and landing clips (actor_jumps.rs).
+            app.add_plugins(actor_jumps::ActorJumpsPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
             // Actors drawn at a script's scale (actor_scale.rs).

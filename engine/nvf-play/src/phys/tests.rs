@@ -338,3 +338,30 @@ fn statics_never_move_whatever_their_model_says() {
     assert_eq!(mstt[0].motion, Motion::Dynamic);
     assert_eq!(tallies.len(), 1);
 }
+
+/// A clutter skeleton's collision lies in the pose its `XRGD` stores, as its drawing does
+/// (playtest list 5 item 71): a torso standing 69 up with a skull 45 above it, laid on its
+/// back 10 above the floor, puts the skull 45 along the floor, not over the torso.
+#[test]
+fn stored_pose_lays_the_collision_down() {
+    use fnv_collide::nif::{NodeTree, Similarity};
+    use fnv_world::xrgd::Bone;
+    let at = |t: [f32; 3]| Similarity { iso: Iso { translation: t, rotation: Iso::IDENTITY.rotation }, scale: 1.0 };
+    // Root 0 → torso 1 → neck 2 (no body) → skull 3.
+    let tree = NodeTree::from_nodes([(0, None, Similarity::IDENTITY), (1, Some(0), at([0.0, 0.0, 69.0])), (2, Some(1), at([0.0, 0.0, 40.0])), (3, Some(2), at([0.0, 0.0, 5.0]))]);
+    let body = |block: usize, z: f32| CollisionObject { node: Some(format!("n{block}")), node_block: block, node_transform: Iso { translation: [0.0, 0.0, z], rotation: Iso::IDENTITY.rotation }, ..object(4.0, Motion::Dynamic) };
+    let standing = vec![body(1, 69.0), body(3, 114.0)];
+    // The torso turned a quarter about y (z onto x), the skull unturned under the neck.
+    let bones = [Bone { position: [0.0, 0.0, 10.0], angles: [0.0, -std::f32::consts::FRAC_PI_2, 0.0] }, Bone { position: [0.0, 0.0, 5.0], angles: [0.0; 3] }];
+    let mut objects = standing.clone();
+    assert!(prepare::pose_stored(&tree, &bones, &mut objects));
+    let p = |o: &CollisionObject| o.node_transform.translation;
+    let near = |a: [f32; 3], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-3);
+    assert!(near(p(&objects[0]), [0.0, 0.0, 10.0]), "{:?}", p(&objects[0]));
+    assert!(near(p(&objects[1]), [45.0, 0.0, 10.0]), "{:?}", p(&objects[1]));
+    assert!(near(objects[1].node_transform.apply([0.0, 0.0, 1.0]), [46.0, 0.0, 10.0]), "the skull lies turned with the torso");
+    // Entries that do not fit leave the file's pose.
+    let mut objects = standing.clone();
+    assert!(!prepare::pose_stored(&tree, &bones[..1], &mut objects));
+    assert_eq!(objects, standing);
+}

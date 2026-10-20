@@ -20,6 +20,9 @@
 //!   IsMoving]), the group the walking or running group of that way, and whether it aims
 //!   down a gun's sights (IsPlayerActionActive 9).
 //!
+//! An NPC or creature landing after a jump or fall reads 12 as the player does
+//! (`fnv_actor::jump::JumpState::landing`, actor-jumps.md) [hypothesis].
+//!
 //! At exit `anim state summary` counts how often each action began on an actor (the
 //! smoke test `anim-state` reads it).
 //!
@@ -171,7 +174,10 @@ fn tell(
                 _ => None,
             })
             .or_else(|| flinch.filter(|f| clock < f.at + f.clip.clip.length()).map(|_| AnimAction::ForceScriptAnim))
-            .or_else(|| idle.and_then(|i| i.0.playing()).filter(|p| p.group.is_some() || special(p.source)).map(|_| AnimAction::ForceScriptAnim));
+            .or_else(|| idle.and_then(|i| i.0.playing()).filter(|p| p.group.is_some() || special(p.source)).map(|_| AnimAction::ForceScriptAnim))
+            // Landing after a jump or fall reads 12, as the player's [hypothesis: no NPC
+            // was seen landing; actor-jumps.md §5].
+            .or_else(|| lo.filter(|l| l.jump.landing()).map(|_| AnimAction::WaitForSpecialIdle));
         // Not walking, it plays Idle, a turn in place included: the locomotion's clip
         // is TurnLeft or TurnRight while a standing actor turns (to face the player, a
         // spot turn), and Chet standing at his counter read `IsAnimPlaying Idle` 0 so

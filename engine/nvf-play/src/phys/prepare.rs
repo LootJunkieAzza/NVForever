@@ -13,7 +13,8 @@ use super::drawn::DrawnFloors;
 use super::LoadTimes;
 use crate::PlayData;
 use fnv_collide::anim::ModelAnim;
-use fnv_collide::CollisionObject;
+use fnv_collide::nif::NodeTree;
+use fnv_collide::{CollisionObject, Iso};
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::{ref_collision_with, ModelCollision, PhysParams, PreparedRef, PreparedTerrain, RefCollisionOptions, RefPose};
@@ -34,8 +35,9 @@ type Objects = Arc<Vec<CollisionObject>>;
 /// What a model contributes: its solid collision objects, its water volumes (phantoms
 /// on the Water layer, physics.md §6.6), for a door model with "Open" and "Close"
 /// sequences its animation (`crate::doors`), and for a model with collision the floors
-/// of its drawn geometry ([`DrawnFloors`]); or why it could not be read.
-type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>), String>;
+/// of its drawn geometry ([`DrawnFloors`]) and its node tree (to pose the objects,
+/// [`pose_stored`]); or why it could not be read.
+type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>, Option<Arc<NodeTree>>), String>;
 
 /// Collision per model path (lower case), shared by the loader thread and the main
 /// thread. A model is read once: a second caller waits for the first.
@@ -71,7 +73,7 @@ impl ModelCache {
     /// [`ModelCache::objects`]) and has collision and floors.
     pub fn drawn(&self, path: &str) -> Option<Arc<DrawnFloors>> {
         match self.slot(path).get() {
-            Some(Ok((_, _, _, drawn))) => drawn.clone(),
+            Some(Ok((_, _, _, drawn, _))) => drawn.clone(),
             _ => None,
         }
     }
@@ -79,7 +81,12 @@ impl ModelCache {
     /// A door model's animation (read through the cache), when it has "Open" and
     /// "Close" sequences that move its nodes.
     pub fn door_anim(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<ModelAnim>> {
-        self.read(data, path, times).ok().and_then(|(_, _, anim, _)| anim)
+        self.read(data, path, times).ok().and_then(|(_, _, anim, ..)| anim)
+    }
+
+    /// The node tree of a model with collision (read through the cache).
+    pub fn tree(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<NodeTree>> {
+        self.read(data, path, times).ok().and_then(|(.., tree)| tree)
     }
 }
 
@@ -126,8 +133,9 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
     let anim = anim.filter(|a| a.door().is_some()).map(Arc::new);
     // Only what can be stood on needs its drawn floors.
     let drawn = if solid.is_empty() { None } else { DrawnFloors::from_nif(&file, &dec).map(Arc::new) };
+    let tree = (!solid.is_empty()).then(|| Arc::new(NodeTree::new(&file, &dec)));
     times.convert += ms_since(t);
-    Ok((Arc::new(solid), Arc::new(water), anim, drawn))
+    Ok((Arc::new(solid), Arc::new(water), anim, drawn, tree))
 }
 
 /// What preparing needs: the plugins, the archives and the world's parameters. Cheap to
@@ -285,6 +293,15 @@ fn hold_jointed(objects: &mut [fnv_collide::CollisionObject], tallies: &mut Vec<
     tallies.push("jointed_held");
 }
 
+/// A jointed clutter object its designer left posed (`XRGD`, a fallen skeleton: dead-on-spawn.md
+/// §5.1): its collision objects put where the drawing puts their nodes
+/// (`nvforever::clutter_pose`), entry k on object k's node under its parent, the other nodes
+/// as in the file. `false` (objects untouched) when the entries do not fit.
+pub(super) fn pose_stored(tree: &NodeTree, bones: &[fnv_world::xrgd::Bone], objects: &mut [CollisionObject]) -> bool {
+    let locals: Vec<Iso> = bones.iter().map(|b| Iso { translation: b.position, rotation: b.rotation() }).collect();
+    tree.pose_objects(objects, &locals)
+}
+
 /// A placed static (base STAT, or a static collection SCOL) never moves, whatever its
 /// model's Havok data says: its dynamic bodies are made fixed (physics.md §4.3.2;
 /// playtest list 5 item 59). Tallied as `static_base_fixed`.
@@ -308,7 +325,8 @@ pub(super) fn fix_static_base(base_sig: Option<[u8; 4]>, objects: &mut [fnv_coll
 
 /// Prepare one placed reference's collision (`fnv_phys::ref_collision`, the rule
 /// `fnvtool phys cell` uses), its dynamic bodies asleep, a static's fixed
-/// ([`fix_static_base`]) and a jointed object's held ([`hold_jointed`]).
+/// ([`fix_static_base`]), a posed one's put in its stored pose ([`pose_stored`]) and a
+/// jointed object's held ([`hold_jointed`]).
 pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShapes {
     let t0 = Instant::now();
     let before = *times;
@@ -332,7 +350,18 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
     let in_models = (times.read - before.read) + (times.parse - before.parse) + (times.convert - before.convert);
     times.records += ms_since(t0) - in_models;
     let mut rc = rc;
+    let model_path = pl.base.and_then(|b| base_object(src.d.lo, src.d.schema, b)).and_then(|b| b.world_model_path());
     fix_static_base(rc.base_sig, &mut rc.objects, &mut tallies);
+    let posed = match (&src.data, rc.base_sig, &model_path) {
+        (Some(data), Some(sig), Some(path)) if fnv_world::xrgd::posable(&sig) && !rc.objects.is_empty() => fnv_world::xrgd::stored(src.d.lo, pl.form_id)
+            .zip(src.models.tree(data, path, times))
+            .is_some_and(|(bones, tree)| pose_stored(&tree, &bones, &mut rc.objects)),
+        _ => false,
+    };
+    if posed {
+        tallies.push("xrgd_posed");
+        bevy::log::info!("phys: 0x{:08X} {}: collision posed from XRGD ({} bodies)", pl.form_id, model_path.as_deref().unwrap_or(""), rc.objects.len());
+    }
     hold_jointed(&mut rc.objects, &mut tallies);
     // Clutter starts asleep (physics.md §4.3.1).
     let prepared = (!rc.objects.is_empty()).then(|| {
@@ -355,8 +384,9 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
             .map(|(i, o)| (i as u16, o.node_block, o.body_transform))
             .collect(),
     });
-    let fixed = prepared.is_some() && dynamic_local.is_none() && door.is_none();
-    let drawn = match (&src.data, pl.base.and_then(|b| base_object(src.d.lo, src.d.schema, b)).and_then(|b| b.world_model_path())) {
+    // A posed object's drawn floors would be the file's unposed geometry.
+    let fixed = prepared.is_some() && dynamic_local.is_none() && door.is_none() && !posed;
+    let drawn = match (&src.data, model_path) {
         (Some(_), Some(path)) if fixed => src.models.drawn(&path),
         _ => None,
     };

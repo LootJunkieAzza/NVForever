@@ -90,6 +90,77 @@ fn unstuck(speed: f32) -> Unstuck {
     u
 }
 
+/// Horizontal speed over a ledge at the most, game units per second [design: the arc's
+/// own speed lands it on the landing point (`fnv_nav::jump::Flight`); a short wide drop
+/// asks for more than any run].
+const HOP_SPEED_MAX: f32 = 400.0;
+
+/// An actor walking at least this share slower than it asks for, standing on the ground,
+/// is walking into something (an obstacle it may jump) [design].
+const BLOCKED_SHARE: f32 = 0.3;
+
+/// The probes ahead of an actor walking into something: how far ahead they reach beyond
+/// its radius, and the heights of the low one (above the step the controller climbs) and
+/// the high one (just above a jump's apex), game units [design, actor-jumps.md §4].
+const OBSTACLE_REACH: f32 = 24.0;
+const OBSTACLE_LOW: f32 = 28.0;
+const OBSTACLE_HIGH: f32 = fnv_nav::jump::JUMP_HEIGHT + 8.0;
+
+/// What an actor walking with physics does at a ledge link or an obstacle: its velocity
+/// over the ledge, and whether it jumps now.
+fn hop_or_obstacle(phys: &mut PhysState, id: u32, f: &fnv_nav::Follower, walker: &Walker, want: [f32; 2], stats: &mut [usize; 6], hopped: &mut HashMap<u32, (usize, usize)>) -> ([f32; 2], bool) {
+    let Some(b) = phys.npcs.get(&id) else { return (want, false) };
+    let (feet, grounded, radius) = (b.ch.feet, b.ch.grounded && !b.ch.swimming, b.ch.params.radius);
+    if let Some((hop, landing)) = f.hop() {
+        // Over a ledge: the arc's speed to the landing, jumping up a climb and stepping
+        // off a drop (the controller carries the body through the air).
+        let flight = fnv_nav::jump::Flight::over_ledge(feet, landing, hop.up);
+        let d = [landing[0] - feet[0], landing[1] - feet[1]];
+        let len = d[0].hypot(d[1]);
+        let speed = flight.speed().max(walker.moving_speed()).min(HOP_SPEED_MAX);
+        let v = if len > 1e-3 { [d[0] / len * speed, d[1] / len * speed] } else { want };
+        // Up: jumps while still below the ledge (landed on top short of the landing
+        // point, it walks on).
+        let jump = hop.up && grounded && feet[2] < landing[2] - fnv_phys::CharacterParams::default().step_height;
+        if grounded && hopped.insert(id, (f.leg, hop.point)) != Some((f.leg, hop.point)) {
+            stats[if hop.up { 3 } else { 4 }] += 1;
+            info!(
+                "actor jumps: {id:08X} {} a ledge at ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0})",
+                if hop.up { "jumps up" } else { "drops off" },
+                feet[0],
+                feet[1],
+                feet[2],
+                landing[0],
+                landing[1],
+                landing[2]
+            );
+        }
+        return (v, jump);
+    }
+    // Walking into something low with nothing above it: jump it.
+    let asked = want[0].hypot(want[1]);
+    if !grounded || asked < 1.0 {
+        return (want, false);
+    }
+    let step = phys.world.params.dt;
+    let got = (feet[0] - b.prev_feet[0]).hypot(feet[1] - b.prev_feet[1]);
+    if got >= BLOCKED_SHARE * asked * step {
+        return (want, false);
+    }
+    let dir = [want[0] / asked, want[1] / asked, 0.0];
+    let reach = radius + OBSTACLE_REACH;
+    let mut filter = fnv_phys::Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+    filter.exclude.extend(phys.npcs.values().map(|n| n.ch.key()));
+    let probe = |phys: &mut PhysState, h: f32| phys.ray([feet[0], feet[1], feet[2] + h], dir, reach * 2.0, filter.clone()).map(|hit| hit.distance);
+    let (low, high) = (probe(phys, OBSTACLE_LOW), probe(phys, OBSTACLE_HIGH));
+    if fnv_nav::jump::obstacle_jumpable(low, high, reach) {
+        stats[5] += 1;
+        info!("actor jumps: {id:08X} jumps an obstacle {:.0} ahead at ({:.0}, {:.0}, {:.0})", low.unwrap_or(0.0), feet[0], feet[1], feet[2]);
+        return (want, true);
+    }
+    (want, false)
+}
+
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
 
@@ -125,10 +196,14 @@ struct PhysMover<'a> {
     unstuck: &'a mut HashMap<u32, Unstuck>,
     /// Actors left to the walker until this time (elapsed seconds).
     skip_until: &'a mut HashMap<u32, f32>,
+    /// The ledge each actor last went over (its path's leg and the hop's take-off point):
+    /// counted and logged once.
+    hopped: &'a mut HashMap<u32, (usize, usize)>,
     now: f32,
     /// Actors moved by physics in this update; times physics gave up; stuck actors moved
-    /// on along their paths.
-    stats: &'a mut [usize; 3],
+    /// on along their paths; jumps up a ledge, drops off one and jumps over an obstacle
+    /// (docs/spec-notes/actor-jumps.md).
+    stats: &'a mut [usize; 6],
     /// Actors on furniture, or getting off it: they do not walk yet.
     held: &'a HashSet<u32>,
 }
@@ -244,7 +319,13 @@ impl Mover for PhysMover<'_> {
                     walker.heading = turn_towards(walker.heading, heading_of(h), walker.turn_rate * dt);
                     let (along, slow) = arc_step(walker.heading, h);
                     let speed = walker.moving_speed().min(remaining / dt.max(1e-3)) * slow;
-                    (WalkEvent::Moved, [along[0] * speed, along[1] * speed])
+                    let want = [along[0] * speed, along[1] * speed];
+                    // Over a ledge link, or jumping what it walks into.
+                    let (v, jump) = hop_or_obstacle(phys, id, &f, walker, want, self.stats, self.hopped);
+                    if let Some(b) = phys.npcs.get_mut(&id) {
+                        b.jump |= jump;
+                    }
+                    (WalkEvent::Moved, v)
                 }
                 // Stuck where detours did not help: moved on along the path, past what
                 // blocks it, to be put down there by physics again.
@@ -454,9 +535,13 @@ struct Core {
     /// walker until when.
     unstuck: HashMap<u32, Unstuck>,
     skip_until: HashMap<u32, f32>,
+    hopped: HashMap<u32, (usize, usize)>,
     /// Updates in which an actor was moved by physics; times physics gave up; the most
     /// actors moved by physics in one frame; stuck actors moved on along their paths.
     physics: [usize; 4],
+    /// Actors walked by physics that jumped up a ledge, dropped off one and jumped an
+    /// obstacle (docs/spec-notes/actor-jumps.md).
+    jumps: [usize; 3],
     /// Times an actor was told to sit, and to get up.
     seats: [usize; 2],
     /// Sandbox behaviours begun, by kind (standing, wandering, sitting, idle marker,
@@ -590,7 +675,9 @@ impl Residents {
             counts: [0; 4],
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
+            hopped: HashMap::new(),
             physics: [0; 4],
+            jumps: [0; 3],
             seats: [0; 2],
             sandbox: [0; 6],
             talks: 0,
@@ -995,13 +1082,16 @@ impl Core {
                 if p.no_room > 0 { format!("; no room in {} updates", p.no_room) } else { String::new() }
             );
         }
-        let mut moved = [0usize; 3];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, now, stats: &mut moved, held: &held };
+        let mut moved = [0usize; 6];
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
         self.physics[0] += moved[0];
         self.physics[1] += moved[1];
         self.physics[2] = self.physics[2].max(moved[0]);
         self.physics[3] += moved[2];
+        for k in 0..3 {
+            self.jumps[k] += moved[3 + k];
+        }
         // Nobody stands inside anybody else (fnv_ai::apart): those the character
         // controller walks, and those on furniture, are kept clear of but not moved.
         let mut fixed = held.clone();
@@ -1670,7 +1760,7 @@ pub fn drive(
             core.fight_moves[usize::from(off > FRAC_PI_4) + usize::from(off > 3.0 * FRAC_PI_4)] += dt;
         }
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe }, stage, (feet, heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
@@ -1723,6 +1813,12 @@ pub fn report(
     info!(
         "fight move summary: drawn fighters facing their target moved {:.1} s forward, {:.1} s sideways (strafing), {:.1} s back",
         core.fight_moves[0], core.fight_moves[1], core.fight_moves[2]
+    );
+    // Flights over ledges of actors on the navmesh surface (no physics), and landings.
+    let (flights, landings) = core.ai.agents.values().fold((0, 0), |(f, l), a| (f + a.walker.flights, l + a.walker.landings));
+    info!(
+        "actor jumps summary (residents): walked by physics, {} jumps up a ledge, {} drops off one, {} jumps over an obstacle; on the navmesh surface, {flights} flights over a ledge, {landings} landings",
+        core.jumps[0], core.jumps[1], core.jumps[2]
     );
     info!(
         "walk summary: {} frames of drawn residents on their way (the game not held); their character had not moved in {} of them (no physics step that frame), drawn standing in {} ({:.1}%: {} with a physics character, {} turning on the spot, {} other walkers); {} stops of 1-3 frames, {} longer; {} walks set off after standing first (turning on the spot, or waiting for their character's first physics step)",

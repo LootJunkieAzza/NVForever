@@ -6,7 +6,8 @@
 //! (docs/design/navmesh.md §4), not observed game values.
 
 use crate::graph::{DoorEdge, NavGraph, Space, NONE};
-use crate::path::{Path, PathError, PathParams, Place};
+use crate::jump::Flight;
+use crate::path::{LedgeHop, Path, PathError, PathParams, Place};
 use serde::Serialize;
 
 /// What to do next.
@@ -49,6 +50,10 @@ pub struct Follower {
     pub holding: bool,
 }
 
+/// A ledge's take-off counts as reached within this horizontal distance: the actor goes
+/// to the edge before it jumps [design].
+pub const TAKE_OFF_RADIUS: f32 = 2.0;
+
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
@@ -82,6 +87,8 @@ impl Follower {
             let goal = last && leg.door.is_none() && self.leg + 1 == self.path.legs.len();
             let radius = if stop.is_some() {
                 self.arrive_radius
+            } else if leg.hops.iter().any(|h| h.point == self.next) {
+                TAKE_OFF_RADIUS
             } else if goal {
                 self.goal_radius
             } else if last && leg.door.is_some() {
@@ -171,6 +178,14 @@ impl Follower {
     /// [`NavGraph::usable`]).
     pub fn blocked(&self, nav: &NavGraph) -> bool {
         self.path.legs.iter().skip(self.leg).flat_map(|l| &l.corridor).any(|&t| (t as usize) < nav.tris.len() && !nav.usable(t))
+    }
+
+    /// The ledge link being crossed: the corner walked to is the landing of one of the
+    /// leg's [`LedgeHop`]s (its take-off reached). With the landing point.
+    pub fn hop(&self) -> Option<(LedgeHop, [f32; 3])> {
+        let leg = self.path.legs.get(self.leg)?;
+        let h = *leg.hops.iter().find(|h| h.point + 1 == self.next)?;
+        Some((h, *leg.points.get(self.next)?))
     }
 
     /// The path's destination.
@@ -382,6 +397,18 @@ pub struct Walker {
     pub follower: Option<Follower>,
     /// Horizontal distance moved so far.
     pub travelled: f32,
+    /// In the air over a ledge link ([`crate::jump`]): the arc and the time since take-off.
+    pub air: Option<Air>,
+    /// Ledges jumped (taken off over) and landings, so far.
+    pub flights: u32,
+    pub landings: u32,
+}
+
+/// A [`Walker`]'s flight over a ledge link.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Air {
+    pub flight: Flight,
+    pub t: f32,
 }
 
 /// Fastest turn of a walking actor, radians per second (180 degrees per second)
@@ -467,6 +494,9 @@ impl Walker {
             moving: false,
             follower: None,
             travelled: 0.0,
+            air: None,
+            flights: 0,
+            landings: 0,
         }
     }
 
@@ -518,7 +548,28 @@ impl Walker {
         ev
     }
 
+    /// Fly on over a ledge for `dt` seconds; on landing the feet are on the landing
+    /// point (where the path goes on from).
+    fn fly(&mut self, nav: &NavGraph, dt: f32) -> WalkEvent {
+        let Some(mut a) = self.air else { return WalkEvent::Idle };
+        let before = self.feet;
+        a.t += dt.max(0.0);
+        self.feet = a.flight.at(a.t);
+        self.travelled += hdist(before, self.feet);
+        if a.t >= a.flight.duration {
+            self.air = None;
+            self.landings += 1;
+            self.tri = self.tri_near(nav, self.feet).unwrap_or(NONE);
+        } else {
+            self.air = Some(a);
+        }
+        WalkEvent::Moved
+    }
+
     fn advance(&mut self, nav: &NavGraph, f: &mut Follower, dt: f32, open: &mut dyn FnMut(u32) -> bool) -> WalkEvent {
+        if self.air.is_some() {
+            return self.fly(nav, dt);
+        }
         let mut budget = self.moving_speed() * dt;
         let mut moved = false;
         // A step may pass several close corners.
@@ -543,6 +594,17 @@ impl Walker {
                 Steer::Walk { target, dir, to_target, .. } => {
                     if budget <= 1e-4 {
                         break;
+                    }
+                    // At the take-off of a ledge link: over it in an arc to the landing.
+                    if let Some((hop, landing)) = f.hop() {
+                        if dir != [0.0, 0.0] {
+                            self.heading = heading_of(dir);
+                        }
+                        self.turning = false;
+                        self.air = Some(Air { flight: Flight::over_ledge(self.feet, landing, hop.up), t: 0.0 });
+                        self.flights += 1;
+                        let left = budget / self.moving_speed().max(1e-4);
+                        return self.fly(nav, left);
                     }
                     // Standing and facing away from the way to go: turn on the spot
                     // first (the turn clips play, actors.md §8.9), then set off.
@@ -611,7 +673,7 @@ mod tests {
     use crate::path::Leg;
 
     fn path(points: Vec<[f32; 3]>) -> Path {
-        Path { legs: vec![Leg { space: Space::Interior(1), points, corridor: vec![], door: None, door_stops: vec![] }], length: 0.0, expanded: 0, start_snap: 0.0, goal_snap: 0.0 }
+        Path { legs: vec![Leg { space: Space::Interior(1), points, corridor: vec![], door: None, door_stops: vec![], hops: vec![] }], length: 0.0, expanded: 0, start_snap: 0.0, goal_snap: 0.0 }
     }
 
     #[test]
@@ -879,5 +941,54 @@ mod tests {
         }
         assert!((t - 1.4).abs() < 0.11, "{t}");
         assert!(heading_delta(w.heading, PI).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_walker_flies_over_a_ledge_and_lands_on_the_path() {
+        // A drop of 300 between (100, 0) and (200, 0): the path's hop.
+        let mut p = path(vec![[0.0, 0.0, 300.0], [100.0, 0.0, 300.0], [200.0, 0.0, 0.0], [400.0, 0.0, 0.0]]);
+        p.legs[0].hops = vec![LedgeHop { point: 1, up: false }];
+        let mut w = Walker::new(Space::Interior(1), [0.0, 0.0, 300.0], std::f32::consts::FRAC_PI_2, 100.0);
+        w.follower = Some(Follower::new(p));
+        let g = NavGraph::default();
+        let dt = 1.0 / 60.0;
+        let (mut in_air, mut lowest_step) = (0, 0.0f32);
+        for _ in 0..600 {
+            let z = w.feet[2];
+            if w.update(&g, dt) == WalkEvent::Arrived {
+                break;
+            }
+            if w.air.is_some() {
+                in_air += 1;
+                // Falling faster and faster: never a ramp.
+                lowest_step = lowest_step.min(w.feet[2] - z);
+                assert!(w.feet[0] > 99.0 && w.feet[0] < 201.0, "{:?}", w.feet);
+            }
+        }
+        assert_eq!((w.flights, w.landings), (1, 1));
+        // 300 down from a standing start: 0.935 s, 56 steps at 60 a second.
+        assert!((54..=57).contains(&in_air), "{in_air}");
+        assert!(lowest_step < -9.0, "{lowest_step}");
+        assert!(w.follower.is_none() && (w.feet[0] - 400.0).abs() < 2.0 && w.feet[2] == 0.0, "{:?}", w.feet);
+    }
+
+    #[test]
+    fn a_walker_jumps_up_a_low_ledge() {
+        let mut p = path(vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [130.0, 0.0, 50.0], [300.0, 0.0, 50.0]]);
+        p.legs[0].hops = vec![LedgeHop { point: 1, up: true }];
+        let mut w = Walker::new(Space::Interior(1), [0.0, 0.0, 0.0], std::f32::consts::FRAC_PI_2, 100.0);
+        w.follower = Some(Follower::new(p));
+        let g = NavGraph::default();
+        let mut top = 0.0f32;
+        for _ in 0..600 {
+            if w.update(&g, 1.0 / 60.0) == WalkEvent::Arrived {
+                break;
+            }
+            top = top.max(w.feet[2]);
+        }
+        // Above the ledge (50) by at least the jump's apex (61.6) or the clearance.
+        assert!(top > 58.0 && top < 62.0, "{top}");
+        assert_eq!((w.flights, w.landings), (1, 1));
+        assert_eq!(w.feet, [300.0, 0.0, 50.0]);
     }
 }
