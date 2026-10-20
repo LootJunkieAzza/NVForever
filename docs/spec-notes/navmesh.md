@@ -101,9 +101,11 @@ NVForever builds its graph from NAVM alone (§4); NAVI is read and checked only.
 A ledge link joins an edge on top of a drop to a triangle below it (ledge down), and back
 up (ledge up). From the edge's middle to the target triangle's centre: ledge down drops
 304 units (median; 5th–95th percentile 92–755), ledge up rises the same, horizontally
-168 units (median). Portals by comparison: 0 drop (median) and 103 units across. That
-walking humans do not take them, and that creatures able to jump do, is [hypothesis];
-paths use them only when asked (`PathParams::ledges`).
+168 units (median). Portals by comparison: 0 drop (median) and 103 units across. The GECK
+wiki calls them drop downs, edges "safe places for NPCs/Creatures to jump down"
+[documented: GECK wiki, Navmesh Creation Workflow]. Paths use them only when asked
+(`PathParams::ledges`, a package's Allow Falls), and a ledge up only within a jump's reach;
+the actor jumps or drops over them (actor-jumps.md §3).
 
 ## 4. The nav graph (fnv-nav) [engine design on the facts above]
 

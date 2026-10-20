@@ -5,7 +5,8 @@ NVForever is an open-source, clean-room reimplementation of the Fallout: New Veg
 
 The owner's playtest lists (all merged) and what is left after them are in
 `docs/handoff/playtest-2026-10-12.md` (lists 1-3), `playtest-list-4.md` and `playtest-list-5.md`
-(each with an Outcome section); the state of every system is in `docs/status.md`.
+(each with an Outcome section); the state of every system is in `docs/status.md`. The queue of
+work that needs nothing from the owner, done one item at a time: `docs/handoff/queue-2026-10-20.md`.
 
 ## Charter (non-negotiable)
 

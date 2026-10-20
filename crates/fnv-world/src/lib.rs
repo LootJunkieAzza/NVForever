@@ -32,6 +32,7 @@ pub mod placed;
 pub mod radio;
 pub mod sky;
 pub mod transform;
+pub mod xrgd;
 
 pub use index::{Cell, RefEntry, WorldIndex, Worldspace};
 pub use land::Land;
