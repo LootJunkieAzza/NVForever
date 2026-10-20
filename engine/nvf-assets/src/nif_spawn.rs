@@ -110,6 +110,9 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// BSShaderFlags bit 19 "Dynamic_Alpha" [documented: nif.xml] on a
+    /// BSShaderNoLightingProperty ([`shape_alpha_mode`]).
+    dynamic_alpha: bool,
     /// BSShaderFlags bit 18 "Hair" [documented: nif.xml].
     pub(crate) hair: bool,
     /// The shader property's type is [`SHADER_SKIN`]: the shape is an actor's skin.
@@ -121,6 +124,8 @@ pub(crate) struct Props {
     external_emittance: bool,
     /// A decal shader flag is set ([`is_decal`]).
     decal: bool,
+    /// The Refraction shader flag is set ([`refracts`]): the stored refraction strength.
+    refraction: Option<f32>,
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
@@ -129,6 +134,8 @@ pub(crate) struct Props {
     /// black, as the radios' dials store black and light up by their "Open" sequence
     /// (docs/spec-notes/activators.md §2).
     pub(crate) animated_emissive: bool,
+    /// A clip of the model drives the shape's material alpha ([`shape_alpha_mode`]).
+    pub(crate) animated_alpha: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -150,6 +157,11 @@ impl Props {
     /// The stored emissive colour (black when none) and multiplier (1 when none).
     pub(crate) fn emissive_parts(&self) -> ([f32; 3], f32) {
         (self.emissive.unwrap_or([0.0; 3]), self.emissive_mult.unwrap_or(1.0).max(0.0))
+    }
+
+    /// The stored refraction strength (0 when the shape does not refract).
+    pub(crate) fn refraction_part(&self) -> f32 {
+        self.refraction.unwrap_or(0.0)
     }
 
     /// The stored material alpha (1 when none).
@@ -199,6 +211,17 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
 /// the camera (`nif_material::decal_bias`) [hypothesis].
 pub(crate) fn is_decal(shader_flags: i64) -> bool {
     shader_flags & (1 << 26 | 1 << 27) != 0
+}
+
+/// The shape bends what lies behind it instead of being drawn: BSShaderFlags bit 15
+/// "Refraction" [documented: nif.xml BSShaderFlags; docs/spec-notes/explosion-effects.md
+/// §7]. 31 of the 257 models the weapon effect records name set it, all on a
+/// BSShaderPPLightingProperty (the heat-haze shells of explosions), as do Mister Handy's
+/// jet clouds, whose diffuse texture is plain white (`FXWHITE.dds`) [observed]; drawn as
+/// ordinary shapes they show as solid grey or white domes [observed: the Incinerator's
+/// `dlc03flamerexplosion.nif`, owner 2026-10-20].
+pub(crate) fn refracts(shader_flags: i64) -> bool {
+    shader_flags & (1 << 15) != 0
 }
 
 /// BSShaderFlags bit 6 switches the view-angle falloff of a BSShaderNoLightingProperty on
@@ -253,10 +276,12 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = uses_vertex_alpha(ty, flags);
+        p.dynamic_alpha = ty == "BSShaderNoLightingProperty" && flags & (1 << 19) != 0;
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
         p.decal = is_decal(flags);
+        p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
     }
@@ -354,12 +379,23 @@ pub(crate) const LOD_BUILDING_CUT: f32 = 128.5 / 255.0;
 /// in `Fallout - Meshes.bsa` set the flag (no other shape does) and none has a
 /// NiAlphaProperty, yet their atlases carry cut-outs in alpha (trees, pylons, the water
 /// tower's legs: 14% of `WastelandNV.Buildings.dds` is alpha 0, near black in colour);
-/// drawn opaque those were black boxes on the hills around Goodsprings]. Everything else
-/// without the property is opaque.
+/// drawn opaque those were black boxes on the hills around Goodsprings]. An unlit shape
+/// whose shader sets "Dynamic_Alpha" (bit 19) and whose alpha a clip of its model drives
+/// is blended by its alpha [hypothesis,
+/// docs/spec-notes/explosion-effects.md §9: of the 257 weapon effect models only two
+/// shapes have no NiAlphaProperty and an unlit shader with the flag, the Fat Man
+/// explosion's mushroom-cloud card `SmokeGeo:0` (`explosionlarge01.nif`) and `WhiteBG:0`
+/// of `explosionincendiarygrenade.nif`, and both are faded in and out by alpha tracks
+/// from a stored alpha of 0; drawn opaque the mushroom stood whole for 5 s (owner,
+/// 2026-10-20). In the base mesh archives 29 more shapes have such a shader and no
+/// NiAlphaProperty (Lucky 38's light glows, terminal screens, Mr. House's screens), whose
+/// alpha no clip fades; they stay as they were checked, opaque]. Everything else without
+/// the property is opaque.
 pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
     match props.alpha {
         Some((flags, threshold)) => alpha_mode(flags, threshold),
         None if props.lod_building => AlphaMode::Mask(LOD_BUILDING_CUT),
+        None if props.unlit && props.dynamic_alpha && props.animated_alpha => AlphaMode::Blend,
         None => AlphaMode::Opaque,
     }
 }
@@ -565,10 +601,23 @@ pub(crate) fn shape_material(
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
+    if let Some(strength) = props.refraction {
+        refraction_material(&mut material, strength);
+    }
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
     material.extension.hard_edges = props.lod_building;
     (material, missing)
+}
+
+/// Make `material` a refracting one (`nif_material`, module notes "Refraction"): drawn
+/// after the opaque pass from Bevy's copy of it (a specular transmission above 0 puts
+/// the material there and keeps it out of the prepass), opaque, without depth writes.
+fn refraction_material(material: &mut NifMaterial, strength: f32) {
+    material.base.specular_transmission = 1.0;
+    material.base.alpha_mode = AlphaMode::Opaque;
+    material.extension.refraction = strength;
+    material.extension.refract = true;
 }
 
 pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
@@ -870,6 +919,13 @@ mod tests {
         assert!(matches!(shape_alpha_mode(&Props { alpha: Some((0x12ED, 0)), ..block.clone() }), AlphaMode::Blend));
         assert!(matches!(shape_alpha_mode(&Props { lod_building: false, ..block }), AlphaMode::Opaque));
         assert!(matches!(shape_alpha_mode(&Props { alpha: Some((4844, 64)), ..Default::default() }), AlphaMode::Mask(_)));
+        // An unlit shape with "Dynamic_Alpha", faded by a clip and without a NiAlphaProperty
+        // blends (the Fat Man's mushroom card); otherwise it stays opaque.
+        let card = Props { shader: true, has_properties: true, unlit: true, dynamic_alpha: true, animated_alpha: true, ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&card), AlphaMode::Blend));
+        assert!(matches!(shape_alpha_mode(&Props { animated_alpha: false, ..card.clone() }), AlphaMode::Opaque));
+        assert!(matches!(shape_alpha_mode(&Props { dynamic_alpha: false, ..card.clone() }), AlphaMode::Opaque));
+        assert!(matches!(shape_alpha_mode(&Props { unlit: false, ..card }), AlphaMode::Opaque));
     }
 
     #[test]
