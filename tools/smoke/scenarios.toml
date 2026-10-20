@@ -3768,6 +3768,52 @@ expect = [
 ]
 
 [[scenario]]
+name = "fatman-explosion-particles"
+source = "the owner (2026-10-20): every particle system of the weapon effect models drawn (docs/spec-notes/particles.md §6): a Fat Man fired at the ground by the Prospector Saloon; its explosion model's mesh emitters and bomb modifier and the dirt impact's bomb and planar collider are read and emit"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 17
+expect = [
+  { re = 'combat: explosion FatManNukeExplosion at' },
+  { re = 'particles: model meshes.effects.explosionlarge01.nif: \d+ system\(s\) \[.*pCloudGround keyed rate, at most \d+, mesh emitter \(1 mesh\(es\), FaceSurface, Normals\).*1 bomb\(s\)' },
+  { re = 'particles: model .*not read', count = 0, label = "every particle block of the models read" },
+  { re = 'particles: (?P<n>\d+) born in', range = [100, 1000000] },
+  { re = 'particles: born in meshes.effects.explosionlarge01.nif: .*pCloudGround [1-9].*pTinySparkBurstCloud [1-9].*pCloudSky01 [1-9]', label = "the mesh emitters and the bombed sparks emit" },
+]
+
+[[scenario]]
+name = "missile-impact-particles"
+source = "the owner (2026-10-20): every particle system of the weapon effect models drawn (docs/spec-notes/particles.md §6.3, §6.4, §6.6): a missile fired at the ground by the Prospector Saloon; its explosion's smoke has its gravity strength keyed by the model's sequence, and the dirt impact's debris is pushed by its bomb modifier and stopped by its planar collider"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "00004340", NVF_PLAY_TEST_GIVE = "00029383:4", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire", NVF_PLAY_TEST_SHOTS = "7:missile_particles.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'particles: model meshes.effects.explosiongenericl01.nif: .*keyed GravityStrength' },
+  { re = 'particles: model meshes.effects.impactexplosiondirt.nif: .*pSmallDebrisFlying .*1 bomb\(s\), 1 collider\(s\)' },
+  { re = 'particles: born in meshes.effects.impactexplosiondirt.nif: .*pSmallDebrisFlying [1-9]', label = "the bombed debris is born" },
+  { re = 'particles: model .*not read', count = 0, label = "every particle block of the models read" },
+]
+
+[[scenario]]
+name = "flamer-strip-particles"
+source = "the owner (2026-10-20): every particle system of the weapon effect models drawn (docs/spec-notes/particles.md §6.2): the flamer's projectile model emits its strip system (flame ribbons) besides its add-on node's flame"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:200", NVF_PLAY_TEST_LOOK = "2:46:-4", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.3:fire,6.6:fire,6.9:fire,7.2:fire", NVF_PLAY_TEST_SHOTS = "6.4:flamer_strips_1.png,7:flamer_strips_2.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'particles: model meshes.projectiles.flamerflame01.nif: 1 system\(s\) \[FireStrips01 30/s, at most 12, strips of 4 points every 0\.033 s\]' },
+  { re = 'particles: add-on node 36 ' },
+  { re = 'particles: born in meshes.projectiles.flamerflame01.nif: FireStrips01 [1-9]', label = "the flame strips are born" },
+  { re = 'particles: model .*not read', count = 0, label = "every particle block of the models read" },
+]
+
+[[scenario]]
 name = "incinerator-heat-haze"
 source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
 note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; steps from 9 s so a slow start does not run the draw and the shots in one frame; frames at 0.3-2 s after the shots for the eye (the shell shows only for its first 0.3 s)"
