@@ -4801,6 +4801,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "package-find-buying"
+source = "Find's Allow Buying (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): no shipped Find package has the flag, so the test aid NVF_PLAY_TEST_FIND_BUYING turns it on for every Find package"
+note = "in the general store at noon, GoodspringsSettler03Ref is moved 300 units from the player, given 100 caps, two Mole Rat Meat are put in Chet's merchant container (VendorContainerChet ref 00104C7A) and the settler is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): no meat lies about, so he walks up to Chet and buys one"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_FIND_BUYING = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,3.5:call:0x00104C7A:AddItem:MoleRatMeat:2,4:call:GoodspringsSettler03Ref:AddItem:Caps001:100,5:call:GoodspringsSettler03Ref:AddScriptPackage:FFER24FindFood" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler03Ref: package FFER24FindFood",
+  { re = 'GoodspringsSettler03Ref: finds (GSChetRef|0x00104C79): goes to it', label = "he sets off to Chet" },
+  { re = 'GoodspringsSettler03Ref: buys (MoleRatMeat|0x0003404C) from (GSChetRef|0x00104C79) for \d+ caps', label = "he buys the meat" },
+  { re = 'GoodspringsSettler03Ref: found (GSChetRef|0x00104C79): buys \(FFER24FindFood\)', label = "the find counts the purchase" },
+]
+
+[[scenario]]
 name = "package-use-item-at"
 source = "Use Item At packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): DefaultUseNearbyFurniturePackage given to a Goodsprings settler"
 note = "GoodspringsSettler04Ref, in the saloon at noon, is given DefaultUseNearbyFurniturePackage (furniture within 100 of his editor location): the stool 00106192, 46 units from it (TrudyRef and GoodspringsSettler02Ref are disabled at this point of the game)"
