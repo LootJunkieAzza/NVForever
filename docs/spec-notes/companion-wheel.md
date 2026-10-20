@@ -105,8 +105,8 @@ scripts do the work [observed, FalloutNV.esm]:
     [documented: GECK wiki Combat Style, "If Melee Only is selected, the combatant will
     always use melee/hand-to-hand as their primary weapon", and Ranged Only likewise]:
     while it fights, an NPC (a companion or any other) holding a weapon its style rules
-    out takes up the carried weapon its style allows with the highest base damage, the
-    first carried on ties [hypothesis: which one is not documented; the outfitting's own
+    out takes up the carried weapon its style allows with the highest damage (a gun's
+    explosion counted, actors.md §9.3), the first carried on ties [hypothesis: which one is not documented; the outfitting's own
     rule]; with none allowed it keeps what it holds (a Melee Only actor with only guns
     fights with its fists). Melee is Hand to Hand, Melee (1 Hand) and Melee (2 Hand);
     ranged the pistols, rifles, Handle and Launcher; grenades, mines and thrown weapons are

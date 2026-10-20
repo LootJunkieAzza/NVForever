@@ -10,7 +10,7 @@
 //! 3. Race parts are hidden where worn armour covers their slot; headgear covering
 //!    Hat selects the hair model's `Hat` shape (§2.4).
 //! 4. The weapon an actor holds: among the same carried items, the drawable weapon with
-//!    the highest base damage (§9; `crate::weapon::choose_weapon`).
+//!    the highest damage, a gun's explosion counted (§9; `crate::weapon::choose_weapon`).
 
 use std::collections::{BTreeMap, HashMap};
 
