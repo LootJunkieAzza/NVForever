@@ -36,7 +36,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::math::Affine3A;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::mesh::PrimitiveTopology;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
 use fnv_nif::{NifFile, Value};
@@ -73,8 +73,12 @@ pub struct PartShape {
     /// Shape transform below the part's root node (the root's own transform excluded,
     /// see [`PreparedPart::root`]), NIF space; used for rigid shapes.
     pub transform: Affine3A,
-    /// A dismemberment cap (not drawn on an intact actor).
+    /// A dismemberment cap: drawn with no triangles on an intact actor (its `mesh` has
+    /// none; `cpu` has them all).
     pub cap: bool,
+    /// Its dismemberment partitions (body part and triangles), for drawing it without a
+    /// gone part or with only some caps (docs/spec-notes/dismemberment.md §5).
+    pub partitions: Arc<Vec<Partition>>,
     /// The shape's ancestors in the part file, from its parent up to (not including) the
     /// root: node name and local transform (NIF space). `transform` is their product
     /// (outermost first) times the shape's own transform, `own`.
@@ -213,6 +217,63 @@ fn hierarchy(objects: &[SceneObject]) -> Vec<usize> {
         i += 1;
     }
     order
+}
+
+/// A skin partition's body part (nif.xml `BSDismemberBodyPartType`, documentation only):
+/// 0–13 body parts (BP_TORSO, BP_HEAD, …), 101–113 section caps, 201–213 torso caps, and
+/// 1000 × part for torso sections (docs/spec-notes/dismemberment.md §2.5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Partition {
+    pub body_part: u16,
+    /// Its triangles, as indices into the shape's mesh vertices (3 per triangle).
+    pub indices: Vec<u32>,
+}
+
+/// The dismemberment partitions of a skinned shape: the body part each partition of its
+/// `BSDismemberSkinInstance` names, with that partition's triangles from its
+/// `NiSkinPartition` (the two lists match by index), mapped to the shape's vertices by
+/// the partition's vertex map. Empty for other shapes, or when the lists disagree.
+fn shape_partitions(dec: &Decoded, shape: &fnv_nif::Struct, vertices: usize) -> Vec<Partition> {
+    let Some(si) = shape.block_ref("skin_instance").and_then(|r| dec.get(r)) else { return Vec::new() };
+    let Some(parts) = si.list("partitions") else { return Vec::new() };
+    let Some(sp) = si.block_ref("skin_partition").and_then(|r| dec.get(r)).and_then(|p| p.list("partitions")) else { return Vec::new() };
+    if parts.len() != sp.len() {
+        return Vec::new();
+    }
+    let ints = |v: Option<&Value>| -> Vec<i64> {
+        match v {
+            Some(Value::IntList(l)) => l.clone(),
+            Some(Value::List(l)) => l.iter().filter_map(Value::as_int).collect(),
+            _ => Vec::new(),
+        }
+    };
+    let mut out = Vec::new();
+    for (p, s) in parts.iter().zip(sp) {
+        let (Value::Struct(p), Value::Struct(s)) = (p, s) else { return Vec::new() };
+        let body_part = p.int("body_part").unwrap_or(0) as u16;
+        let map = ints(s.get("vertex_map"));
+        let local = |i: i64| -> Option<u32> {
+            let v = if map.is_empty() { i } else { *map.get(usize::try_from(i).ok()?)? };
+            usize::try_from(v).ok().filter(|&v| v < vertices).map(|v| v as u32)
+        };
+        let mut tris: Vec<[i64; 3]> = ints(s.get("triangles")).as_chunks::<3>().0.to_vec();
+        // Strips: a triangle per window of three, every other one turned; degenerate
+        // ones dropped.
+        if let Some(Value::List(strips)) = s.get("strips") {
+            for strip in strips {
+                let st = ints(Some(strip));
+                for (k, w) in st.windows(3).enumerate() {
+                    if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
+                        continue;
+                    }
+                    tris.push(if k % 2 == 0 { [w[0], w[1], w[2]] } else { [w[0], w[2], w[1]] });
+                }
+            }
+        }
+        let indices = tris.iter().filter_map(|t| Some([local(t[0])?, local(t[1])?, local(t[2])?])).flatten().collect();
+        out.push(Partition { body_part, indices });
+    }
+    out
 }
 
 /// Whether a skinned shape is a dismemberment cap: its skin instance has partitions and
@@ -448,6 +509,7 @@ impl ActorCtx<'_, '_> {
                 self.cache.failures.push(format!("{path}: texture {t} not loaded"));
             }
             let cap = is_cap(&dec, shape);
+            let partitions = Arc::new(shape_partitions(&dec, shape, mesh.count_vertices()));
             let skin = shape_skin(&dec, shape, mesh.count_vertices()).and_then(|skin| {
                 let names: Option<Vec<String>> = skin.bones.iter().map(|b| by_block.get(b).and_then(|o| o.name.clone())).collect();
                 let names = names?;
@@ -461,6 +523,8 @@ impl ActorCtx<'_, '_> {
                 mesh
             };
             let cpu = Arc::new(mesh.clone());
+            // A cap draws nothing until its part is gone (`dismember_mesh`).
+            let mesh = if cap { dismember_mesh(&cpu, &partitions, |_| false) } else { mesh };
             out.shapes.push(PartShape {
                 name: o.name.clone(),
                 mesh: m.meshes.add(mesh),
@@ -470,6 +534,7 @@ impl ActorCtx<'_, '_> {
                 skin,
                 transform: t,
                 cap,
+                partitions,
                 ancestors,
                 own,
             });
@@ -587,14 +652,51 @@ pub struct ShapeName(pub String);
 /// Spawn every part's shapes on the skeleton nodes of `out` (an actor spawned already:
 /// [`spawn_actor`], or parts put on later, as armour taken off shows the body), adding
 /// them to its `drawn`, `part_of` (indices into `parts`) and `shape_of`.
+/// `cpu` drawn with only the partitions `keep` keeps (by body part). A shape without
+/// partitions keeps all its triangles when `keep` keeps BP_TORSO (0), else none.
+pub fn dismember_mesh(cpu: &Mesh, partitions: &[Partition], keep: impl Fn(u16) -> bool) -> Mesh {
+    let mut m = cpu.clone();
+    let idx: Vec<u32> = if partitions.is_empty() {
+        if keep(0) {
+            return m;
+        }
+        Vec::new()
+    } else {
+        partitions.iter().filter(|p| keep(p.body_part)).flat_map(|p| p.indices.iter().copied()).collect()
+    };
+    m.insert_indices(Indices::U32(idx));
+    m
+}
+
+/// A drawn actor shape, for dismemberment (docs/spec-notes/dismemberment.md §5): what it
+/// is drawn from and which bones carry it.
+#[derive(Component, Clone)]
+pub struct LimbShape {
+    pub cap: bool,
+    pub partitions: Arc<Vec<Partition>>,
+    pub cpu: Arc<Mesh>,
+    /// The bones it is skinned to, or the one it hangs from.
+    pub bones: Vec<String>,
+}
+
 pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
     let nodes = &out.nodes;
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         for (i, s) in u.part.shapes.iter().enumerate() {
-            if s.cap || s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
+            if s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
                 continue;
             }
+            // Caps are spawned with no triangles (`PartShape::cap`); a cap that cannot
+            // bind to the skeleton is left out.
+            if s.cap && s.skin.as_ref().is_none_or(|(_, names)| names.iter().any(|n| !skel.by_name.contains_key(n))) {
+                continue;
+            }
+            let bones = match &s.skin {
+                Some((_, names)) => names.clone(),
+                None => vec![u.part.attach_bone().to_string()],
+            };
+            let limb = LimbShape { cap: s.cap, partitions: s.partitions.clone(), cpu: s.cpu.clone(), bones };
             let mesh = u.meshes.get(i).cloned().flatten().unwrap_or_else(|| s.mesh.clone());
             let material = u.materials.get(i).cloned().unwrap_or_else(|| s.material.clone());
             let joints: Option<Vec<Entity>> =
@@ -637,6 +739,7 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
             if let Some(n) = &s.name {
                 commands.entity(e).insert((ShapeName(n.to_ascii_lowercase()), s.stored_look()));
             }
+            commands.entity(e).insert(limb);
             out.drawn.push(e);
             out.part_of.push(pi);
             out.shape_of.push(i);
@@ -717,6 +820,7 @@ mod tests {
             skin: None,
             transform: ancestors.iter().rev().fold(Affine3A::IDENTITY, |acc, a| acc * a.1) * own,
             cap: false,
+            partitions: Arc::default(),
             ancestors,
             own,
         };
@@ -767,6 +871,7 @@ mod tests {
             skin: None,
             transform: Affine3A::IDENTITY,
             cap: false,
+            partitions: Arc::default(),
             ancestors: Vec::new(),
             own: Affine3A::IDENTITY,
         };

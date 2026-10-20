@@ -32,6 +32,7 @@ pub mod crime;
 pub mod dialogue;
 pub mod dialogue_look;
 pub mod dialogue_menu;
+pub mod dismember;
 pub mod doors;
 pub mod dropped;
 pub mod fade;

@@ -282,6 +282,10 @@ pub struct RefExtra {
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
+    /// Its dismembered body parts by location (GetHitLocation's numbering), true when the
+    /// part exploded, false when it was severed (docs/spec-notes/dismemberment.md §5).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub limbs_gone: BTreeMap<i32, bool>,
     /// The actor it last hit (GetOwnerLastTarget, `crate::unconscious`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_target: Option<FormId>,
