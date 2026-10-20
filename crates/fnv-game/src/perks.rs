@@ -33,6 +33,17 @@ pub const ADJUST_LIMB_DAMAGE: u8 = 6;
 /// gains any experience", the example Swift Learner; observed: Swift Learner's and
 /// Skilled's entries have code 9] (`crate::experience::award`).
 pub const ADJUST_EXPERIENCE_POINTS: u8 = 9;
+/// "Adjust Gained Skill Points" [documented: GECK wiki Entry Point, "Run when the player
+/// gains a level; Modifies the skill rate of the player", the example Educated; observed:
+/// the two entries of the masters with code 10 are Educated's Add 2, "two more skill
+/// points every time you advance in level", and Logan's Loophole's Set 0 under GetLevel >
+/// 30, "after 30 you can kiss … skill points goodbye"] (`crate::levelup::points_for`).
+pub const ADJUST_GAINED_SKILL_POINTS: u8 = 10;
+/// "Adjust Book Skill Points" [documented: GECK wiki Entry Point, "Run when the actor
+/// reads a book; Modifies the skill points gained", the example Comprehension; observed:
+/// Comprehension's one entry has code 11, Add 1]. Not asked for yet: reading skill
+/// books is not built (docs/spec-notes/levelup.md §9).
+pub const ADJUST_BOOK_SKILL_POINTS: u8 = 11;
 /// "Modify Addiction Chance" [observed: Chem Resistant; documented: GECK wiki Entry
 /// Point, "Run when the actor takes a drug"].
 pub const MODIFY_ADDICTION_CHANCE: u8 = 23;
@@ -95,7 +106,76 @@ pub fn gain_rank(g: &mut Game, perk: FormId) -> u8 {
     rank
 }
 
+/// The abilities a perk gives at `rank`: the Ability effects of the highest rank owned
+/// that has any [documented: GECK wiki GetNthPerkEntryType, entry type "Ability";
+/// observed: Action Boy's rank 1 names PerkActionBoy1, Action Points +15, and its rank 2
+/// PerkActionBoy2, +30, the whole bonus, so the ranks do not add up; hypothesis: as the
+/// entry points' ranks above].
+pub fn rank_abilities(def: &crate::data::PerkDef, rank: u8) -> Vec<FormId> {
+    let at = |e: &&PerkEntry| matches!(e.effect, PerkEffect::Ability(s) if s != FormId(0)) && e.rank < rank;
+    let Some(top) = def.entries.iter().filter(at).map(|e| e.rank).max() else { return Vec::new() };
+    def.entries
+        .iter()
+        .filter(at)
+        .filter(|e| e.rank == top)
+        .filter_map(|e| match e.effect {
+            PerkEffect::Ability(s) => Some(s),
+            _ => None,
+        })
+        .collect()
+}
+
 impl Game<'_> {
+    /// The abilities the player's perks give now (traits included), with their perks.
+    pub fn perk_abilities(&self) -> Vec<(FormId, FormId)> {
+        let data = self.data;
+        let mut out = Vec::new();
+        for (&perk, &rank) in &self.player.perks {
+            let Some(def) = data.perks.get(&perk) else { continue };
+            out.extend(rank_abilities(def, rank.max(1)).into_iter().map(|s| (perk, s)));
+        }
+        out
+    }
+
+    /// The player's perks' abilities follow the perks: an ability of a perk the player
+    /// has joins the player's spell list (so `crate::abilities` keeps its effects on, as
+    /// an authored ability's), and one of a perk the player no longer has, or a rank it
+    /// has passed, leaves it and its effects end [documented: GECK wiki GetNthPerkEntryType
+    /// "Ability"; observed: Good Natured's PerkGoodNatured, +5 to five non-combat skills
+    /// and −5 to five combat ones, the trait's description; hypothesis: on while the perk
+    /// is held, whichever way it was gained: AddPerk, the level-up menu, a trait].
+    /// Logged `perks: <perk>'s ability <spell> on|off`.
+    pub fn sync_perk_abilities(&mut self) {
+        let wanted = self.perk_abilities();
+        let data = self.data;
+        let have: Vec<FormId> = self.extra.get(&FormId::PLAYER_REF).map(|x| x.spells.clone()).unwrap_or_default();
+        let stale: Vec<FormId> = have
+            .iter()
+            .copied()
+            .filter(|s| !wanted.iter().any(|w| w.1 == *s))
+            .filter(|s| data.perks.values().any(|p| p.entries.iter().any(|e| matches!(e.effect, PerkEffect::Ability(a) if a == *s))))
+            .collect();
+        let new: Vec<(FormId, FormId)> = wanted.into_iter().filter(|w| !have.contains(&w.1)).collect();
+        if stale.is_empty() && new.is_empty() {
+            return;
+        }
+        let x = self.extra.entry(FormId::PLAYER_REF).or_default();
+        x.spells.retain(|s| !stale.contains(s));
+        x.dispelled.retain(|s| !stale.contains(s));
+        for &(_, spell) in &new {
+            if !x.spells.contains(&spell) {
+                x.spells.push(spell);
+            }
+        }
+        for spell in stale {
+            tracing::info!("perks: ability {} off", data.name(spell));
+            self.dispel(FormId::PLAYER_REF, None, |e| e.source == spell && e.worn.is_none());
+        }
+        for (perk, spell) in new {
+            tracing::info!("perks: {}'s ability {} on", data.name(perk), data.name(spell));
+        }
+    }
+
     /// The entries of `point` that apply to `actor` now, in the order they apply.
     fn entry_point_entries(&mut self, actor: FormId, point: u8) -> Vec<(FormId, PerkEntry)> {
         // Perks are the player's only (`AddPerk` on another actor is refused).
