@@ -2574,6 +2574,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-npc-weapon-wear"
+launch = "ncr-fiends-four"
+source = "docs/spec-notes/combat-rules.md §17: an NPC's own shots wear its weapon as the player's, fDamageToWeaponValue (0.2) a shot or the record's Damage to Weapon Mult in its place (GECK wiki SetWeaponDegradationMult); outstanding.md §4"
+note = "the troopers' Service Rifles lose 0.2 a shot, Cook-Cook's Flamer (ours draws it, 2026-10-20) or Incinerator its override 0.005 a shot; the original's 2.19 a burst is not explained by it (combat-rules.md §17)"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/condition.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 130
+expect = [
+  { re = 'npc weapon wear summary: \S+.s 000E9C3B lost .*\((?P<n>[\d.]+) an attack\)', range = [0.199, 0.201], all = true, label = "a trooper's Service Rifle loses 0.2 a shot" },
+  { re = 'npc weapon wear summary: 000F5704.s (0000432D|000906DA) lost .*\((?P<n>[\d.]+) an attack\)', range = [0.004, 0.006], label = "Cook-Cook's Flamer or Incinerator loses its override, 0.005 a shot" },
+]
+
+[[scenario]]
 name = "combat-cover"
 launch = "ncr-fiends"
 source = "owner's list 2: NPCs take cover (GECK wiki Combat Style, Cover; docs/design/combat-ai.md §12.6, §12.6.1 cover from the gunman firing at the fighter)"
@@ -2931,7 +2946,7 @@ name = "companion-wheel-boone"
 source = "outstanding.md §2: the companion wheel, passive/aggressive and sneaking with the player (docs/spec-notes/companion-wheel.md)"
 note = "Written 2026-10-19 by the companion-wheel session without running the game (another session held it): not run yet, for the merge session. VFreeformNovac.nSnipersRevengeStage is set to 30 at 2.5 s, as his hire chain's INFO 0x0015F30C does (his trade line, INFO 0x000B16BF, asks for it); Boone is hired by his recruit line at 3 s (as follower-boone), hurt by 60 at 10 s, the player given 3 Stimpaks; the wheel is opened on him at 19 s (Wait), closed at 25 s, opened at 35 s (Follow, Far, Aggressive, Melee, Use Stimpak, Back Up), closed at 52 s; the player sneaks at 55 s; the wheel opens at 61 s and Open Inventory closes it into his inventory. The wheel steps were 5 s earlier until 2026-10-19: on a busy run (scripts ready in 12 s, F:/nvf-wt/batch-p487) the script steps come 8 s late but the wheel steps only 4 s (pause.rs WorldAidClock, script_events::delay_late_aids), so the first wheel opened 7 s after his hire, while he was still caught for about 8.7 s on something past his room door at (2842, 1208) (main runs: moved on along his path 8.7 s after the hire, 70 ms before the wheel opened); the Wait then held him 501 units off, and Back Up did nothing there (Ai::back_up returns without a log line; hypothesis: no navmesh within 192 units of the spot behind him, his back to the door). Boone's labels follow his hire state: following, passive, near, ranged"
 areas = ["followers", "menus"]
-paths = ["crates/fnv-game/src/companion_wheel.rs", "engine/nvf-play/src/companion_wheel.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/sneaking.rs"]
+paths = ["crates/fnv-game/src/companion_wheel.rs", "engine/nvf-play/src/companion_wheel.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/sneaking.rs", "engine/nvf-play/src/menu/model.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00015169:3", NVF_PLAY_TEST_SCRIPT = "2.5:var:VFreeformNovac:nSnipersRevengeStage:30,3:info:0x0015F30D:CraigBooneREF,10:damage:CraigBooneREF:health:60", NVF_PLAY_TEST_WHEEL = "19:open:CraigBooneREF,20:stay_follow,25:close,35:open,36:stay_follow,41:near_far,43:aggressive_passive,45:ranged_melee,47:stimpak,50:back_up,52:close,61:open,62:inventory", NVF_PLAY_TEST_CONTROL = "55:sneak" }
 args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 70
@@ -2948,11 +2963,30 @@ expect = [
   { re = 'CraigBooneREF: backs up from the player', label = "Back Up walks him away" },
   { re = 'sneaking: CraigBooneREF .*crouches and sneaks', label = "he sneaks with the player" },
   { re = 'menu: a script opens .*inventory \(OpenTeammateContainer\)', label = "Open Inventory opens his inventory" },
+  { re = 'menu: open Container.*\(\d+ non-playable stacks hidden\)', label = "his rifle and Magical Companion Ammo (Non-Playable) are not listed (owner, 2026-10-20)" },
   { re = 'companion wheel summary: opened 3 times', label = "the summary" },
 ]
 forbid = [
   { re = 'companion wheel: \S+ \(.*\): failed', label = "a command failed" },
   { re = 'companion wheel: .*has no line of', label = "a command had no line to say" },
+  { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
+]
+
+[[scenario]]
+name = "companion-melee-weapon"
+source = "status.md Followers row (queue item 6): a companion set to melee takes up its carried melee weapon instead of fighting with its fists (docs/spec-notes/companion-wheel.md §4, crates/fnv-game/src/style_weapon.rs)"
+note = "Written 2026-10-20 by the q6 session. Boone (0x00096BCE) is hired by his recruit line at 3 s (as follower-boone); at 8 s the console gives him a Machete (WeapNVMachete 0x000CE569) and sets his combat style to FollowersCombatStyleMelee (0x00033DE3, Melee Only), as the wheel's Melee command does; a feral ghoul (0x000CE9E7, as follower-boone) is put 400 units from the player at 14 s, so Boone fights it"
+areas = ["followers", "combat"]
+paths = ["crates/fnv-game/src/style_weapon.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF,14:moveto:0x000CE9E7:player:0:400:0", NVF_PLAY_TEST_CONSOLE = "8:00096BCE.additem 000CE569 1; 00096BCE.setcombatstyle 00033DE3; close" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'style weapon: CraigBooneREF 0x00096BCE takes up \S+ 0x000CE569 in place of .*\(its combat style is Melee Only\)', label = "the melee-only companion takes up his machete in the fight" },
+  { re = 'outfit: actor 00096BCE: weapon 0x000CE569 now held', label = "the engine puts the machete on him" },
+  { re = 'npc combat: CraigBooneREF \S+ fights .* with WeapNVMachete \(melee\)', label = "he fights with the machete, not his fists" },
+]
+forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
 ]
 

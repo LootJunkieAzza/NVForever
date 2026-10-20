@@ -1787,6 +1787,8 @@ impl<'a> Game<'a> {
             }
         }
         self.combat_blocks();
+        // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
+        self.arm_by_style();
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;

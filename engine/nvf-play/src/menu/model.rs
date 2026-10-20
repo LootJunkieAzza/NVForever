@@ -16,10 +16,13 @@
 //! [observed: "ITEMS" and "MISC" titles on the owner's screenshots; the other names and
 //! their order are hypotheses, after the Pip-Boy's item pages].
 //!
-//! Non-playable items (`Item::non_playable`, e.g. the Pip-Boy Glove) are not listed, so
-//! they cannot be moved, equipped or dropped from a menu [observed by the owner: the game
-//! never shows the glove in the inventory]; Take All leaves them in the container
-//! [hypothesis: hidden items stay where they are].
+//! Non-playable items (`Item::non_playable`) are not listed in inventories other than
+//! the player's, and non-playable armour (the Pip-Boy Glove) not in the player's either,
+//! so they cannot be moved, equipped or dropped from a menu; the player's own
+//! non-playable weapons and ammo are listed [documented: GECK wiki "Unplayable Items";
+//! observed by the owner: the game never shows the glove in the inventory, and Boone's
+//! rifle and "Magical Companion Ammo" do not show in his]. Take All leaves them in the
+//! container [hypothesis: hidden items stay where they are].
 //!
 //! Quest items (`World::is_quest_item`: the record's "Quest Item" header flag, or a
 //! script's SetQuestObject) are listed and marked; dropping one is refused by the
@@ -116,6 +119,8 @@ pub struct Listing {
     pub weight: f64,
     /// Value of the listed stacks.
     pub value: i64,
+    /// Stacks not listed because they are non-playable (`Item::listed`).
+    pub hidden: usize,
 }
 
 /// What a row says of a worn weapon or piece of armour after its name: the condition
@@ -198,9 +203,11 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     let inv = s.inventory.as_ref().ok_or(SimError::NoInventory(holder))?;
     let totals = inv.totals(forms, hardcore);
     let mut rows: Vec<Row> = Vec::new();
+    let mut hidden = 0;
     for (item, extra, count) in inv.groups() {
         let it = forms.item(item);
-        if it.is_some_and(|i| i.non_playable) {
+        if it.is_some_and(|i| !i.listed(holder == PLAYER)) {
+            hidden += 1;
             continue;
         }
         let kind = it.map(|i| i.kind);
@@ -233,7 +240,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     }
     sort_rows(&mut rows);
     let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
-    Ok(Listing { rows, weight: totals.weight, value })
+    Ok(Listing { rows, weight: totals.weight, value, hidden })
 }
 
 /// A column of the menu.
@@ -669,7 +676,7 @@ impl MenuModel {
             rows.retain(|r| self.category[i].holds(r.kind));
             sort_rows(&mut rows);
             let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
-            self.lists[i] = Listing { rows, weight: weights[i], value };
+            self.lists[i] = Listing { rows, weight: weights[i], value, hidden: 0 };
         }
         Ok(())
     }

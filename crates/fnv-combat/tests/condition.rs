@@ -54,8 +54,14 @@ fn the_10mm_pistol_breaks_after_about_395_rounds() {
     let n = shots_to_break(&pistol(), &[]);
     assert_eq!(n, 400);
     assert_eq!(n / pistol().clip_size, 33);
-    // A record's Damage to Weapon Mult and the ammunition's condition effect scale it.
-    assert_eq!(shots_to_break(&WeaponStats { damage_to_weapon_mult: Some(2.0), ..pistol() }, &[]), 200);
+    // A record's Damage to Weapon Mult takes the setting's place as the health a shot
+    // takes (GECK wiki SetWeaponDegradationMult); the ammunition's condition effect
+    // scales it.
+    assert_eq!(shots_to_break(&WeaponStats { damage_to_weapon_mult: Some(0.4), ..pistol() }, &[]), 200);
+    // The Incinerator's override (0.005, health 200): 40,000 globs, give or take the
+    // rounding of a condition kept as a fraction.
+    let globs = shots_to_break(&WeaponStats { health: 200, damage_to_weapon_mult: Some(0.005), ..pistol() }, &[]);
+    assert!((39_900..=40_100).contains(&globs), "{globs}");
     let hot = AmmoEffect { kind: Some("Weapon Condition Mod".into()), operation: Some("Multiply".into()), value: 1.25, ..AmmoEffect::default() };
     assert_eq!(shots_to_break(&pistol(), &[&hot]), 320);
 }

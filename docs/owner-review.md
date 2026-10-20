@@ -6580,6 +6580,29 @@ check against the game:
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
 
+## NPC weapons wearing from firing (2026-10-20, branch claude/q8-npc-weapon-wear)
+
+combat-rules.md §17–18; queue item 8.
+- **One rule for every actor.** An NPC's shots and landed blows now wear its weapon as the
+  player's do: `fDamageToWeaponValue` (0.2) a shot, or the weapon record's Damage to
+  Weapon Mult *in its place* when the record overrides it [documented: GECK wiki
+  SetWeaponDegradationMult]. That NPCs follow the player's rule is my guess
+  [hypothesis]; the documentation names no actor. A broken NPC weapon falls, as one shot
+  to nothing already did.
+- **The override replaces, it no longer multiplies.** Ours took 0.2 × 0.005 a shot for
+  the Flamer and Incinerator; now 0.005, as the ppNVSE page says. The player's Flamer,
+  Incinerators, chainsaw, Rippers, grenade machineguns and Thermic Lance wear five times
+  faster than before (still very slowly: 40,000 shots for a new Flamer).
+  *Check:* does a Flamer or Incinerator in the original wear visibly in one long fight?
+  If yes, the override is a multiplier of something larger, and I have it wrong.
+- **The original's 2.19 a burst is not explained.** A "shot" in that figure is a whole
+  burst (about four globs), so some 0.55 a glob: 110 times the override. 2.19 is, to two
+  places, the troopers' rifle hit on Cook-Cook (2.1875), so the falls may come from the
+  hits he took rather than from his firing [hypothesis]. The capture's raw output is not
+  on the desktop. `tools/capture/fight_stats.py` now splits weapon-health falls into
+  firing, hits and other; a rerun of campaign fight_stats_round settles it.
+- Not changed: a scripted FireWeapon wears nothing [design]; hits on the holder do not
+  wear his weapon (only hits on the weapon's own volume do, your rule).
 ## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
 
 docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
@@ -6623,3 +6646,27 @@ sooner than the original's in the Cook-Cook fight. What I found and chose:
   (the record's magnitude); the original's drained NPCs 1 or 2 a second for 16–30 s. No
   documented rule explains it, so I did not guess one; the troopers still die 16–31 s in
   against the original's 30–132 s. *Needs:* one burn captured frame by frame.
+## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
+
+docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style
+page says a Melee Only combatant "will always use melee/hand-to-hand as their primary weapon"
+and a Ranged Only one ranged weapons. Before this, a companion switched to Melee on the wheel
+kept its gun and fought with its fists. Now any NPC in a fight that holds a weapon its style
+rules out takes up the carried weapon its style allows. My choices, to check in game:
+- **Which weapon**: the allowed one with the highest base damage, the first carried on ties
+  (the same rule as the outfitting's own choice). *Check:* give Boone a knife and a machete,
+  set him to Melee: does he take the machete?
+- **When**: only while fighting, every frame of the fight, so a wheel switch mid-fight swaps
+  at once; out of combat he keeps what he holds. *Check:* in the original, does a companion
+  switched to Melee out of combat draw the melee weapon before the next fight?
+- **Ranged Only** works the same way: a companion switched back to Ranged takes its gun up
+  again when it next fights. With no weapon its style allows, it keeps what it holds (a
+  Melee Only one with only guns still fights with its fists).
+- **Melee and ranged by animation type**: Hand to Hand, Melee 1H/2H are melee; pistols,
+  rifles, Handle, Launcher are ranged; grenades, mines and thrown weapons are never taken up
+  as the main weapon.
+- **Empty hands**: an NPC that fights with no weapon equipped takes up its best allowed
+  weapon (from the wiki's note that companions re-equip the best equipment even after
+  UnequipItem's NoEquip flag), for every NPC, not only companions. A weapon a script locked
+  off with UnequipItem's NoEquip flag is still respected here, and broken ones are not taken.
+  *Check:* take Boone's rifle in his inventory and give him a knife: does he fight with it?

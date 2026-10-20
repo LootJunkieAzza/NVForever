@@ -270,14 +270,34 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   xEdit wbBMDT, `schemas/fnv/objects.json`]. `PipBoy` (Pip-Boy 3000, 0x00015038) and
   `PipBoyGlove` (Pip-Boy Glove, 0x00025B83) carry it [observed: `fnvtool esm decode`].
   The game never shows the glove in the inventory, so it cannot be dropped, and it is
-  always equipped [observed by the owner, 2026-10-08]. The engine's menus hide every
-  non-playable item (`fnv_sim::forms::Item::non_playable`). Both are equipped in played
+  always equipped [observed by the owner, 2026-10-08]. The engine's menus hide
+  non-playable armour everywhere (`fnv_sim::forms::Item::non_playable`; weapons and ammo
+  below). Both are equipped in played
   saves (§2) and **`player.RemoveAllItems` leaves both, still equipped**, and takes
   everything else (27 stacks → 2, weight 93 → 0; `EquipItem` of the glove afterwards
   changes nothing) [observed 2026-10-09, `cl_a_pipboy_nvftest`]. The simulation starts the
   player wearing them and `World::remove_all_items` / `transfer_all` (the same script
   function with a target) keep non-playable items [observed for the player and these two
   items; hypothesis for other holders and items]. Both weigh 0 (ARMO DATA) [observed].
+- **Non-playable weapons and ammo; Can't Drop.** WEAP DNAM flags 1 bit 7 and AMMO DATA
+  flags bit 1 are "Non-Playable", WEAP DNAM flags 1 bit 3 is "Can't Drop" [documented:
+  xEdit `wbDefinitionsFNV.pas`, `schemas/fnv/objects.json`]. Boone's rifle
+  `WeapBooneSniperRifle` 0x000CE549 and machete `WeapNVMacheteBoone` 0x00176E59 carry both
+  weapon flags, and `AmmoCompanion` ("Magical Companion Ammo", 0x00176E54) is
+  non-playable [observed: `fnvtool esm decode`]. The owner saw both in Boone's inventory
+  in NVForever and says neither should be shown or taken [observed by the owner,
+  2026-10-20]. The GECK wiki's "Unplayable Items" text: non-playable items do not show in
+  inventories that are not the player's; non-playable armour is not shown in the
+  player's Pip-Boy either, while the player's own non-playable weapons and ammo are, and
+  can be equipped; lying in the world, neither weapons nor ammo can be picked up, and a
+  weapon shows no activation prompt (ammo does) [documented]. RemoveAllItems and
+  RemoveAllTypedItems keep "Unplayable Biped items" only [documented: GECK wiki], so
+  non-playable weapons and ammo move with the rest. A Can't Drop weapon stays in the
+  actor's hands at death and cannot be shot out of them, but can still break [documented:
+  GECK wiki Weapon]. The engine: `Item::listed`, `Item::non_playable_biped`,
+  `Item::cant_drop`; a broken Can't Drop weapon is unequipped and kept rather than
+  dropped [hypothesis]; scripted `Activate` still gives a non-playable item [hypothesis:
+  the wiki covers picking up by hand].
 - **Armour models: which one lies on the ground.** ARMO holds up to four model paths:
   MODL "Male biped model", MOD2 "Male world model", MOD3 "Female biped model", MOD4
   "Female world model" [documented: xEdit `wbDefinitionsFNV.pas` ARMO]. In the ten
