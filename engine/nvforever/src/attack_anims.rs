@@ -24,6 +24,12 @@
 //!   is `h2hattackpower.kf` and `h2hattackforwardpower.kf` [observed: the base meshes
 //!   archive, 2026-10-16]. Which power attacks a creature has clips for, and when each
 //!   lands, are told to `npc_combat` ([`AttackTimes::powers`]).
+//! - **People's power attacks** (docs/spec-notes/combat-rules.md §10.1): for a person
+//!   fighting with fists or a melee weapon, its rig's `{prefix}attackpower.kf`,
+//!   `…forwardpower`, `…backpower`, `…leftpower` and `…rightpower` clips (`h2h`, `1hm`,
+//!   `2hm`) are looked for once per weapon, with their `Hit` key and length
+//!   ([`AttackTimes::people_powers`], logged "has N power attacks"); one asked for plays
+//!   its own clip, crouched first (`sneak1hmattackpower.kf`).
 //! - **Melee combos** (`fnv_combat::melee`, as the player's swings): a blow carries a
 //!   [`SwingPick`], the attack group the last swing's `a:` text key named (`a:L` on
 //!   `AttackRight` clips, `a:R` on `AttackLeft` ones [observed, `fnv_combat::melee`]) or
@@ -90,7 +96,7 @@ use fnv_actor::idle_play::DEFAULT_FADE;
 use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, reload_clips, reload_open_clips, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
 use fnv_game::anim_state::{shot_action, swing_action, AnimAction};
-use fnv_combat::melee::{swing_stem, NextAttack};
+use fnv_combat::melee::{swing_stem, NextAttack, PowerDir};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -134,31 +140,53 @@ pub struct PlayAttack {
     pub swing: Option<SwingPick>,
 }
 
-/// A creature's power attack: its clip in the skeleton's folder and the attack group an
-/// unarmed attack effect may name (EAMT "AttackPower", "AttackForwardPower") [observed:
-/// the radscorpion's clips; documented: the groups, schema gameplay.json 92 and 93].
+/// A power attack: a creature's clip in the skeleton's folder (`h2h…`), a person's by its
+/// weapon's stance prefix, and the attack group an unarmed attack effect may name (EAMT
+/// "AttackPower", "AttackForwardPower") [observed: the radscorpion's clips, the `_male`
+/// power clips; documented: the groups, schema gameplay.json 92 and 93]. People have all
+/// five (docs/spec-notes/combat-rules.md §10.1); creatures' are looked for in the first two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Power {
     Normal,
     Forward,
+    Back,
+    Left,
+    Right,
 }
 
 impl Power {
-    pub const ALL: [Power; 2] = [Power::Normal, Power::Forward];
+    /// The ones a creature's clips are looked for.
+    pub const CREATURE: [Power; 2] = [Power::Normal, Power::Forward];
+    /// All, in the order of a combat style's shares (normal, forward, back, left, right).
+    pub const ALL: [Power; 5] = [Power::Normal, Power::Forward, Power::Back, Power::Left, Power::Right];
 
-    pub fn clip(self) -> &'static str {
-        match self {
-            Power::Normal => "h2hattackpower.kf",
-            Power::Forward => "h2hattackforwardpower.kf",
-        }
+    /// Its place in a combat style's shares (`CombatStyleDef::power_attack_dirs`).
+    pub fn index(self) -> usize {
+        Power::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
+
+    /// The player's direction of the same power attack (its clip stem, damage bonus).
+    pub fn dir(self) -> PowerDir {
+        PowerDir::ALL[self.index()]
+    }
+
+    /// A creature's clip.
+    pub fn clip(self) -> String {
+        format!("h2h{}.kf", self.dir().stem())
     }
 
     pub fn group(self) -> &'static str {
-        match self {
-            Power::Normal => "AttackPower",
-            Power::Forward => "AttackForwardPower",
-        }
+        self.dir().group()
     }
+}
+
+/// A person's power attack clip found in its rig for the weapon drawn: when it lands
+/// (its `Hit` key) and how long it plays, seconds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PowerClip {
+    pub power: Power,
+    pub hit: f32,
+    pub len: f32,
 }
 
 /// Which swing a melee blow plays (module notes).
@@ -211,6 +239,9 @@ pub struct AttackTimes {
     /// The power attacks each fighting creature has clips for, with when each lands
     /// (its clip's `Hit` key), seconds.
     pub powers: HashMap<u32, Vec<(Power, f32)>>,
+    /// The power attacks each fighting person has clips for with the melee weapon (or
+    /// fists, `None`) drawn on it (docs/spec-notes/combat-rules.md §10.1).
+    pub people_powers: HashMap<u32, (Option<FormId>, Vec<PowerClip>)>,
     /// The clip each actor's last melee blow with a [`SwingPick`] started, until
     /// `npc_combat` takes it.
     pub swings: HashMap<u32, SwingClip>,
@@ -626,11 +657,40 @@ fn start(
         // A creature's power attacks, once (module notes).
         let creature_rig = hold.is_none() && rig.skeleton.to_ascii_lowercase().contains("creatures");
         if creature_rig && !times.powers.contains_key(&id) {
-            let found: Vec<(Power, f32)> = Power::ALL
+            let found: Vec<(Power, f32)> = Power::CREATURE
                 .into_iter()
                 .filter_map(|p| clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{}", p.clip())).map(|c| (p, hit_time(&c).unwrap_or(DEFAULT_HIT).min(c.clip.length().max(0.05)))))
                 .collect();
             times.powers.insert(id, found);
+        }
+        // A person's power attacks with the melee weapon (or fists) drawn on it, once per
+        // weapon (docs/spec-notes/combat-rules.md §10.1).
+        let person_rig = !rig.skeleton.to_ascii_lowercase().contains("creatures");
+        if person_rig && new_pose.fighting {
+            let w = fighters.weapon(id);
+            if times.people_powers.get(&id).is_none_or(|(had, _)| *had != w) {
+                let prefix = weapon_prefix(w);
+                let found: Vec<PowerClip> = if matches!(prefix, "h2h" | "1hm" | "2hm") {
+                    Power::ALL
+                        .into_iter()
+                        .filter_map(|p| {
+                            let c = clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{prefix}{}.kf", p.dir().stem()))?;
+                            let len = c.clip.length().max(0.05);
+                            Some(PowerClip { power: p, hit: hit_time(&c).unwrap_or(DEFAULT_HIT).min(len), len })
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                if !found.is_empty() {
+                    info!(
+                        "attack anims: {id:08X} has {} power attacks for {prefix}: {}",
+                        found.len(),
+                        found.iter().map(|p| format!("{} (hit {:.2} s of {:.2})", p.power.group(), p.hit, p.len)).collect::<Vec<_>>().join(", ")
+                    );
+                }
+                times.people_powers.insert(id, (w, found));
+            }
         }
         for a in mine {
             let creature = hold.is_none() && a.weapon.is_none() && rig.skeleton.to_ascii_lowercase().contains("creatures");
@@ -653,7 +713,7 @@ fn start(
                 // A power attack plays its own clip; the others go in turn.
                 let k = clips.turn.entry(id).or_insert(0);
                 let n = list.len();
-                let mut names: Vec<String> = a.power.map(|p| p.clip().to_string()).into_iter().collect();
+                let mut names: Vec<String> = a.power.map(Power::clip).into_iter().collect();
                 names.extend((0..n).map(|i| list[(*k + i) % n.max(1)].clone()));
                 if a.power.is_none() {
                     *k = (*k + 1) % n.max(1);
@@ -669,10 +729,12 @@ fn start(
                     Move::Attack => {
                         let attack = a.weapon.and_then(|w| combat.as_deref().and_then(|c| c.forms.weapons.get(&w))).and_then(|w| w.attack_anim.clone());
                         let stem = attack_stem(attack.as_deref());
-                        match a.swing {
+                        match (a.power, a.swing) {
+                            // A person's power attack: its own clip, crouched first.
+                            (Some(p), _) => attack_clips(stance, prefix, p.dir().stem(), false),
                             // A swing: the group named (or the weapon's own), its `_a` or `_b` form.
-                            Some(p) => attack_clips(stance, prefix, &swing_stem(&p.next.map_or(stem, |n| n.stem(p.rolls[1])), p.rolls[0]), false),
-                            None => attack_clips(stance, prefix, &stem, a.sights),
+                            (None, Some(p)) => attack_clips(stance, prefix, &swing_stem(&p.next.map_or(stem, |n| n.stem(p.rolls[1])), p.rolls[0]), false),
+                            (None, None) => attack_clips(stance, prefix, &stem, a.sights),
                         }
                     }
                     Move::BlockHit => reaction_clips(stance, prefix, "blockhit"),

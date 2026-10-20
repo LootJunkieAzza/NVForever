@@ -518,6 +518,78 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - **Fists:** three taps, one pressed during a swing, gave three hits of 0.2 (Unarmed
     damage 1.25 against DT 2, the 20 % floor).
 
+### 10.1 People's power attacks (NPCs)
+
+NPCs fighting with a melee weapon or their fists (`nvforever::npc_combat`, `Arm::Melee`).
+Creatures' power attacks are older and unchanged (the radscorpion's sting; npc_combat
+module notes).
+
+- **Whether.** "If an actor decides to do an attack, the Melee Decision will also decide
+  whether to do a Power Attack or a normal left or right attack" [documented: GECK wiki
+  Combat Style, Melee Decision]. The chance, 0–100: the style's Power Attack % Chance,
+  plus Recoil/Stagger Bonus to Power Attack while the opponent recoils or staggers, plus
+  Unconscious Bonus to Power Attack while it is unconscious [documented: same page]
+  (`fnv_game::combat_style::power_attack_chance`). The same page's Unconscious Bonus to
+  Attack is added to the attack chance now too [documented]. The fields are CSTD's
+  `power_attack_chance` (u8), `recoil_stagger_bonus_to_power`,
+  `unconscious_bonus_to_power_attack` (f32) [documented: schemas/fnv/ai.json, xEdit
+  layout]. Recoiling is the existing test (its blow was blocked); staggering is not told
+  to the decision yet. Every actor gets a style (its own, else `DefaultCombatstyle`); with
+  no style record at all the chance is the creatures' fallback 25 % [design: owner
+  2026-10-16, random power attacks where the rule is not found].
+- **Which.** With the flag "Choose Attack using % Chance" (CSTD flags bit 0) a roll of
+  1–100 against the running sums of the Normal, Forward, Backward and Left shares picks
+  the first it falls within, else Right [documented: GECK wiki Combat Style, the five
+  steps; "if the sums total up to greater than 100, some of the later power attack types
+  … may not ever be chosen"] (`combat_style::power_dir_by_chance`). Without the flag the
+  movement decides: forward, back, left or right by the way the actor moves at the
+  decision, standing ("normal") when still [documented: "Choose Attack Using Movement";
+  hypothesis: that the flag cleared is that check box, as CSTD has one bit for the
+  pair]. "Moves" is a horizontal speed above 20 units/s; the direction is its larger axis
+  against the actor's facing, forward and back winning a tie, as the player's keys
+  (`fnv_combat::melee::PowerDir::of`) [design].
+- **Clips.** `{prefix}attackpower.kf`, `…forwardpower`, `…backpower`, `…leftpower`,
+  `…rightpower` for `h2h`, `1hm` and `2hm` in `characters\_male`; crouched only the
+  standing one (`sneak1hmattackpower.kf`, `sneak2hmattackpower.kf`,
+  `sneakh2hattackpower.kf`), the others play standing [observed: Fallout - Meshes.bsa,
+  2026-10-20]. Lengths (s): h2h 1.43 / 1.60 / 1.13 / 1.47 / 1.43 (standing, forward,
+  back, left, right); 1hm 1.20 / 1.60 / 1.27 / 1.37 / 1.23; 2hm 1.67 / 1.60 / 1.50 /
+  1.57 / 1.50 [observed: `fnvtool nif anim`]. The `attackcustomNpower` clips are not
+  used (no style field names them). A direction the actor's rig has no clip for gives an
+  ordinary blow [documented for the movement case: "left and right power attacks will
+  not be performed"; design for the % case]. Both legs crippled: the standing one, as
+  the player's (crippled-limbs.md §4) [design: the player's rule applied to people].
+- **Damage.** Base × `fDamagePowerAttackStandBonus` (3.0), `…Forward…`, `…Back…` or
+  `…SideBonus` (2.0) by direction, as the player's (above) [observed values;
+  hypothesis: that they multiply, as above]. `ActorStrike::anim` carries the attack
+  group; `nvf_play::combat` turns it into the multiplier for a person's blow, not a
+  creature's.
+- **Timing.** The blow lands at the power clip's own `Hit` key (fallback 40 %); the next
+  melee decision comes no sooner than the clip's end: a power attack is not cut by a
+  combo and starts a new run [design, as the player's].
+- **Blocks and staggers.** A power attack breaks a block and the blocker staggers (§12,
+  "Power attacks break blocks"), as the player's and creatures' do. The page's "staggers
+  when the opponent hits them for a certain amount of damage, based also on the actor's
+  Agility" has no formula sourced: not built; the hit-reaction rules (§12) stand.
+- **Fatigue and AP: none spent** [design]. `fActionPointsPowerAttackMult` is 1.5 in
+  FalloutNV.esm [observed]; the `fActionPointsAttack…` costs are VATS costs
+  (docs/design/vats-mode.md), and NPCs do not use VATS. CSAD's Power Attack Fatigue Mod
+  Base and Mult (5 and −10 in all 84 styles of FalloutNV.esm [observed]) have no
+  documented meaning, and New Vegas's Fatigue is the knock-out meter
+  (unconscious.md): nothing documents a power attack spending it.
+- **Line.** The actor tries its PowerAttack combat line instead of Attack
+  (combat-dialogue.md §1).
+- **GetAnimAction**: 2 until the strike, 4 after, as any swing; the New Vegas table has
+  no code of its own for a power attack [documented: GECK wiki GetAnimAction].
+- **Log**: `npc combat: <name> power attack AttackLeftPower at <target> (30 %, by
+  chance)` (or `by movement`, `fallback`), and `npc power attacks summary:` by group.
+- **The styles in FalloutNV.esm** [observed, 2026-10-20]: 63 of 84 choose by chance.
+  People's: DefaultCombatstyle, DefaultCombatMeleestyle, CSRaider(Melee), CSNCRTrooper,
+  CSLegionary 25 % (20 each way, by chance); FollowersCombatStyleMelee 50 % (20 each);
+  CSSupermutantMelee 50 % (10/30/0/30/30); CSFeralGhoul 10 % (20/40/0/20/20); Legate
+  Lanius 45 % by movement (bonuses 15 and 25); FollowersCombatStyleRanged,
+  MysteriousStrangerCombat, CSSupermutantGun 70 % by movement.
+
 ## 11. Explosives and destructible objects (step C7)
 
 - **Thrown weapons and mines.** They are their own ammo (`self_ammo`): a shot spends one
