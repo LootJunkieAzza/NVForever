@@ -587,5 +587,18 @@ their findings are in the notes of the systems they settle (unconscious.md §5.5
 script-stubs.md §3, anim-state.md §4, crime-karma.md, npc-behaviour-compare.md §9 and §10,
 talking-activators.md, owner-decision-captures.md §6).
 
-Campaigns written 2026-10-19, not yet run: `fight_spacing`, `melee_holdoff`,
-`creature_spacing`, `package_durations`, `followers` (npc-behaviour-compare.md §12).
+Campaigns of the same day's third round: `fight_spacing`, `melee_holdoff`,
+`creature_spacing`, `package_durations`, `followers` (npc-behaviour-compare.md §12–§13);
+of the fourth: `melee_holdoff_npc`, `followers_follow`, `radroach_spacing`,
+`blast_knockdown` (§14).
+
+**Spawned actors set on a target (`place` with `attack` and `offset`).** With StartCombat
+in the same scan as the offset's MoveTo, NCR troopers set on the player and radroaches set
+on a trooper stood still out of combat (procedures FOLLOW and TRAVEL, 11 and 0) in every 2026-10-19
+session that tried it, in two saves and two spots [observed: melee_holdoff,
+melee_holdoff_npc's first run, radroach_spacing]. Creatures hostile to their target
+attacked anyway, which is why creature sessions worked. `attack_late: true` gives the
+StartCombat a scan of its own 30 game loops later, and then every trooper and radroach
+engaged; so did a trooper spawned with no offset [observed: npc-behaviour-compare.md
+§14]. That the queued MoveTo drops the StartCombat is a [hypothesis]. Use `attack_late`
+whenever `offset` and `attack` go together.

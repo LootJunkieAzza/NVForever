@@ -1,0 +1,220 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "radroach_spacing",
+ "title": "npc-behaviour-compare.md sections 8.2 and 13 (plugin version 9, save nvftest; run each session alone with --only, the troopers die or lose their items): the radroaches of creature_spacing never closed in from 1,200 units beyond the troopers. South of Cook-Cook's camp, killall, the four persistent NCR troopers moved 600 units in front of the hidden player, then three radroaches spawned 200 units beyond them and set on one trooper. In 'unarmed' the troopers' items are taken first (RemoveAllItems) so they fight with fists and the radroaches live long enough to swing. Every game loop, the fight field set and the fight events; swing distances from the OnHit events (2D, centre to centre).",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "settle_frames": 120,
+  "events": "fight",
+  "hours": 0.25
+ },
+ "sessions": [
+  {
+   "name": "near",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier1RadroachMed",
+     "count": 3,
+     "distance": 800,
+     "offset": [
+      0,
+      800,
+      0
+     ],
+     "attack": "0x000F36F6"
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ]
+  },
+  {
+   "name": "unarmed",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ],
+    [
+     "{0}.RemoveAllItems",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.RemoveAllItems",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.RemoveAllItems",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.RemoveAllItems",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier1RadroachMed",
+     "count": 3,
+     "distance": 800,
+     "offset": [
+      0,
+      800,
+      0
+     ],
+     "attack": "0x000F36F6"
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ]
+  },
+  {
+   "name": "near_late",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ],
+   "do_first": [
+    "killall",
+    [
+     "{0}.MoveTo player -300 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -100 600 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 100 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 300 600 0",
+     "0x0015CE08"
+    ]
+   ],
+   "place": [
+    {
+     "base": "VCrTier1RadroachMed",
+     "count": 1,
+     "distance": 800,
+     "offset": [
+      -150,
+      800,
+      0
+     ],
+     "attack": "0x000F36F6",
+     "attack_late": true
+    },
+    {
+     "base": "VCrTier1RadroachMed",
+     "count": 1,
+     "distance": 800,
+     "offset": [
+      0,
+      800,
+      0
+     ],
+     "attack": "0x000F36F6",
+     "attack_late": true
+    },
+    {
+     "base": "VCrTier1RadroachMed",
+     "count": 1,
+     "distance": 800,
+     "offset": [
+      150,
+      800,
+      0
+     ],
+     "attack": "0x000F36F6",
+     "attack_late": true
+    }
+   ],
+   "track": [
+    "0x000F36F5",
+    "0x000F36F6",
+    "0x0015CE0A",
+    "0x0015CE08"
+   ],
+   "note": "the first run's three radroaches were moved to one spot and stood out of combat (procedure 0): here one place item each, 150 units apart, set on the trooper 30 game loops after the move (attack_late)"
+  }
+ ]
+}

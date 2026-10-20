@@ -510,13 +510,20 @@ def place_steps(items, ctx):
     player (MoveTo; PlaceAtMe's distance put troopers asked for at 1,600 and 2,400 units
     300–460 units away [observed 2026-10-18, gun_reach]), `attack` sets it on the reference with
     StartCombat (spawned creatures did not always attack the player by themselves
-    [observed 2026-10-17, melee_spacing]). Spawned actors are found by the nearby scan
-    only (FormIDs 0xFF...)."""
+    [observed 2026-10-17, melee_spacing]). `attack_late`: true sets them on the reference
+    in a second scan, `DO_FRAMES` game loops after the first (after the queued MoveTo of
+    `offset` has run): with both in one scan, NCR troopers set on the player and
+    radroaches set on a trooper stood still out of combat (procedures FOLLOW and TRAVEL) in the
+    2026-10-19 runs [observed: melee_holdoff, melee_holdoff_npc, radroach_spacing; the
+    MoveTo dropping the StartCombat is a hypothesis]. Spawned actors are found by the
+    nearby scan only (FormIDs 0xFF...)."""
     out = []
     for p in items or []:
-        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm", "ammo", "give", "offset"}
+        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm", "ammo", "give", "offset", "attack_late"}
         if unknown or "base" not in p or ("ammo" in p and p.get("arm") in (None, "none")):
-            raise InputError(f"a place item takes base, count, distance, direction, arm, ammo (with an arm), give, offset, attack; got {sorted(p)}")
+            raise InputError(f"a place item takes base, count, distance, direction, arm, ammo (with an arm), give, offset, attack, attack_late (with an attack); got {sorted(p)}")
+        if p.get("attack_late") and not p.get("attack"):
+            raise InputError(f"attack_late needs an attack; got {sorted(p)}")
         give = p.get("give") or []
         if not all(isinstance(g, list) and len(g) == 2 for g in give):
             raise InputError(f"give is a list of [form, count], got {give!r}")
@@ -541,14 +548,18 @@ def place_steps(items, ctx):
                 act.append(f"    rA.AddItem {n.operand(form)} {int(count)}")
             if off is not None:
                 act.append("    rA.MoveTo player " + " ".join(cs.number(v) for v in off))
+            late = []
             if p.get("attack"):
-                act.append(f"    rA.StartCombat {n.operand(p['attack'])}")
-            body = [f"let rA := GetFirstRef {ACTOR_TYPE} 1", "while rA != 0",
-                    f"  if rA.GetSourceModIndex == {cs.CREATED_MOD_INDEX}",
-                    "    let fD := rA.GetDead + rA.IsInCombat", "  else", "    let fD := 1", "  endif",
-                    "  if fD == 0"] + act + ["  endif", "  let rA := GetNextRef", "loop"]
-            out += [{"script": cs.function(n.decls + ["ref rA", "float fD"], n.setup + body, returns_value=False)},
-                    {"frames": DO_FRAMES}]
+                (late if p.get("attack_late") else act).append(f"    rA.StartCombat {n.operand(p['attack'])}")
+            for lines in (act, late):
+                if not lines:
+                    continue
+                body = [f"let rA := GetFirstRef {ACTOR_TYPE} 1", "while rA != 0",
+                        f"  if rA.GetSourceModIndex == {cs.CREATED_MOD_INDEX}",
+                        "    let fD := rA.GetDead + rA.IsInCombat", "  else", "    let fD := 1", "  endif",
+                        "  if fD == 0"] + lines + ["  endif", "  let rA := GetNextRef", "loop"]
+                out += [{"script": cs.function(n.decls + ["ref rA", "float fD"], n.setup + body, returns_value=False)},
+                        {"frames": DO_FRAMES}]
     return out
 
 
