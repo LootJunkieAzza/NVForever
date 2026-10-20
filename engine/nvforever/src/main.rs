@@ -91,6 +91,7 @@ mod particles;
 mod shot_fx;
 mod ragdoll;
 mod reflection;
+mod refraction;
 mod residents;
 mod resurrect;
 mod appearance;
@@ -1209,6 +1210,8 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        // How many refracting meshes are in view, for the log (refraction.rs).
+        app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
         // The table, wheel and chips of the roulette menu (roulette_view.rs).
