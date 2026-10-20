@@ -65,3 +65,7 @@ never attack [documented: catalogue notes on SetRestrained].
 - Whether a use from a script holds against the actor's combat state, or the combat AI
   takes over (the shipped scripts call both together).
 - Whether the actor "grabs" a weapon it does not carry, and from where.
+- How a melee weapon is used: whether the actor walks up to its target from where it is
+  to stand, whether a blow counts as one of `numberOfShots`, and what Always Hit and Do No
+  Damage do to a blow (ours: docs/design/use-weapon.md §3.1, all [hypothesis]). Which
+  shipped calls name a melee weapon was not surveyed.

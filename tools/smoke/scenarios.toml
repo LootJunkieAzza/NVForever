@@ -2973,6 +2973,24 @@ forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
 ]
 
+[[scenario]]
+name = "companion-melee-weapon"
+source = "status.md Followers row (queue item 6): a companion set to melee takes up its carried melee weapon instead of fighting with its fists (docs/spec-notes/companion-wheel.md §4, crates/fnv-game/src/style_weapon.rs)"
+note = "Written 2026-10-20 by the q6 session. Boone (0x00096BCE) is hired by his recruit line at 3 s (as follower-boone); at 8 s the console gives him a Machete (WeapNVMachete 0x000CE569) and sets his combat style to FollowersCombatStyleMelee (0x00033DE3, Melee Only), as the wheel's Melee command does; a feral ghoul (0x000CE9E7, as follower-boone) is put 400 units from the player at 14 s, so Boone fights it"
+areas = ["followers", "combat"]
+paths = ["crates/fnv-game/src/style_weapon.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF,14:moveto:0x000CE9E7:player:0:400:0", NVF_PLAY_TEST_CONSOLE = "8:00096BCE.additem 000CE569 1; 00096BCE.setcombatstyle 00033DE3; close" }
+args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'style weapon: CraigBooneREF 0x00096BCE takes up \S+ 0x000CE569 in place of .*\(its combat style is Melee Only\)', label = "the melee-only companion takes up his machete in the fight" },
+  { re = 'outfit: actor 00096BCE: weapon 0x000CE569 now held', label = "the engine puts the machete on him" },
+  { re = 'npc combat: CraigBooneREF \S+ fights .* with WeapNVMachete \(melee\)', label = "he fights with the machete, not his fists" },
+]
+forbid = [
+  { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
+]
+
 # ------------------------------------------------------------------ playtest list 4: dialogue and message boxes
 
 [[scenario]]
@@ -4101,6 +4119,26 @@ expect = [
   "use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at the player",
   "has used its weapon: back to its package",
   { re = 'use weapon summary: 1 actors used a weapon .*?3 shots \(3 always hit, 3 harmless; (?P<n>\d+) harmless hits\)', range = [1, 3], label = "3 shots, always hit and harmless, at least one lands" },
+]
+forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
+
+[[scenario]]
+name = "use-weapon-melee"
+source = "UseWeapon with a melee weapon (docs/design/use-weapon.md §3.1): the actor closes in on its target and swings the number of blows, doing no damage"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is told at 5 s to use a knife (WeapKnife 0x00004334, Melee (1 Hand)) three times on the player, about 400 units east of her, from her own place, no damage; nobody perceives the player (NVF_PLAY_TEST_UNSEEN), so no fight starts. She holds her rifle's model (models are not swapped live), so the knife's clips play with it"
+areas = ["combat", "use-weapon"]
+paths = ["crates/fnv-game/src/use_weapon.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapKnife:FiendVioletRef:player:3:1:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-46500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapKnife \(melee, reach \d+\) on the player \(a script\): 3 blows; no damage', label = "Violet uses the knife on the player: 3 blows, no damage" },
+  { re = 'runs at the player, \d+ units away', label = "she closes in on the player" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B swings at the player from \d+ units \(blow 3', label = "her third blow" },
+  "use weapon: FiendVioletRef 0x000F570B has dealt its 3 blows at the player",
+  "has used its weapon: back to its package",
+  { re = 'use weapon summary: 1 actors used a weapon .*?; 3 blows \((?P<n>\d+) landed, \d+ harmless', range = [1, 3], label = "3 blows, at least one lands, harmless" },
 ]
 forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
 

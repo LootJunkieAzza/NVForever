@@ -6580,6 +6580,52 @@ check against the game:
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
 
+## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
+
+docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
+attack now has the actor swing at its target instead of ending at once. My choices, to
+check in the original:
+- **It walks up to its target.** After going to where it is to stand, a script's melee use
+  runs at the target and stops within its weapon's reach (the combat AI's spacing), then
+  swings; if the target backs off it follows. *Check:* does the original's actor walk up,
+  or stand at its spot and swing at the air?
+- **Each "shot" is one blow**, combos included (a blow begun at the last clip's `a:` key
+  goes on with the group it names). No block or attack-chance roll.
+- **A use naming a knife swings the knife** even when the actor holds a gun; its drawn
+  model is still the one it was spawned with (models are not swapped live), so the knife's
+  clips play with the rifle in hand.
+- **Always Hit**: the blow lands even if the target stepped out of reach by the time the
+  clip's hit key comes. **Do No Damage**: the swing plays but nothing is struck, so no
+  hit sound or impact either.
+- **Use Weapon packages** with a melee weapon swing from where the package stands the
+  actor, only when the target is within reach; they do not walk up.
+- No power attacks in a use (people's power attacks are PR #503).
+
+## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
+
+docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style
+page says a Melee Only combatant "will always use melee/hand-to-hand as their primary weapon"
+and a Ranged Only one ranged weapons. Before this, a companion switched to Melee on the wheel
+kept its gun and fought with its fists. Now any NPC in a fight that holds a weapon its style
+rules out takes up the carried weapon its style allows. My choices, to check in game:
+- **Which weapon**: the allowed one with the highest base damage, the first carried on ties
+  (the same rule as the outfitting's own choice). *Check:* give Boone a knife and a machete,
+  set him to Melee: does he take the machete?
+- **When**: only while fighting, every frame of the fight, so a wheel switch mid-fight swaps
+  at once; out of combat he keeps what he holds. *Check:* in the original, does a companion
+  switched to Melee out of combat draw the melee weapon before the next fight?
+- **Ranged Only** works the same way: a companion switched back to Ranged takes its gun up
+  again when it next fights. With no weapon its style allows, it keeps what it holds (a
+  Melee Only one with only guns still fights with its fists).
+- **Melee and ranged by animation type**: Hand to Hand, Melee 1H/2H are melee; pistols,
+  rifles, Handle, Launcher are ranged; grenades, mines and thrown weapons are never taken up
+  as the main weapon.
+- **Empty hands**: an NPC that fights with no weapon equipped takes up its best allowed
+  weapon (from the wiki's note that companions re-equip the best equipment even after
+  UnequipItem's NoEquip flag), for every NPC, not only companions. A weapon a script locked
+  off with UnequipItem's NoEquip flag is still respected here, and broken ones are not taken.
+  *Check:* take Boone's rifle in his inventory and give him a knife: does he fight with it?
+
 ## Perks that change skill points (2026-10-20, session "q7", branch claude/q7-skill-point-perks)
 
 docs/spec-notes/levelup.md §9. Educated now adds 2 to the level-up menu's points, Logan's
