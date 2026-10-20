@@ -745,6 +745,14 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
   origin (the node's x, y, z along the model's z, x, y in 179). The five others:
   `1handpistol\camera.nif`, `2handhandle\25mmgrndlnchr.nif` (turned by no right angle),
   `hand2hand\ballisticfistrigid.nif` and the two plasma casters (not turned).
+- Creatures (the same survey with `--under=meshes\creatures`, 246 models, 2026-10-20):
+  5 have a `ProjectileNode`, all skeletons: `centaur\skeleton.nif` and
+  `skeletonevolved.nif` (under `Bip01 Head`, 57.9 along y and 67.8 up), the
+  `sentryturret` (under `Bip01 Pitch`, its axes the model's) and `minisentryturret`
+  (under `Bip01 Pitch`) and `nvsporeplant` (under `Bip01 Orifice`). None in the
+  `mistergutsy`, `nvsecuritron`, `securitron`, `robobrain`, `protectron`, `sentrybot`,
+  `eyebot` or `libertyprime` folders; the Securitron's skeleton has a `ShellCasingNode`
+  (under `Dummy01_MachineGun`). Where those robots' shots leave is not known.
 - `ShellCasingNode`: 123 of the 362, 112 directly under the root. Ours throws the
   shell casing from it along its own +z [hypothesis; the reasons and the build are in
   docs/spec-notes/combat-rules.md §16].
