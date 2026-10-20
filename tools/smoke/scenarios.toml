@@ -432,6 +432,28 @@ expect = [
 manual = "2026-10-19: 97-100 % of 1,219 samples on the same package for these actors (VStripNCRMPBREF 83 %: the SS2 escort a scene script gives); explain a change against npc-behaviour-compare.md §10"
 
 [[scenario]]
+name = "strip-crowd-evening"
+source = "docs/spec-notes/npc-behaviour-compare.md §10.1: the Strip's crowd in the engine with its scripts, from where the original's observer capture (campaign strip, session strip_evening) had the player, at its hour (20:08), for about 2 game hours"
+areas = ["ai"]
+paths = ["engine/nvforever/src/residents.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GIVE = "00119875:1", NVF_PLAY_TEST_SCRIPT = "1:activate:FreesideGateToStripREF", NVF_PLAY_TEST_GOTO = "30:847:8561:1019", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--world", "FreesideWorld", "--pos=-6850,-10120,1040", "--heading", "220", "--hour", "20.1", "--no-voice", "--npc-packages", "all,MrHoldoutREF,VStreetTravelerAREF,VStreetTravelerBREF,VStreetGamblerAREF,VStreetGamblerBREF,VStreetGamblerCREF,VStreetHooker01REF,VStreetHooker02REF,VStreetHooker03REF,VStripNCRMPAREF,VStripNCRMPBREF,VStripNCRTrooperAREF,VStripNCRTrooperBREF,VStripNCRTrooperCREF,VStripNCRTrooperDREF,VMQTopsSecMessengerREF,VStreetBot02REF"]
+run_seconds = 270
+expect = [
+  # The arrival through the gate runs VFSVegasDoorSCRIPT: the crowd's quest variables and the SS2 scene.
+  "VStripNCRMPBREF: package VStripSS2StartMPBEscort",
+  "VStripNCRTrooperDREF: package VStripSS2TravelEndD",
+  # A 3 h Must Complete script package stays after the trooper reached the wall (the original held it 0.7 h).
+  "VStripNCRTrooperCREF: package VStripSS2WallDrunk3",
+  { re = 'ai \[20:[2-5]\d\] VStripNCRTrooperCREF: package VStripFluff1HookerCheerC', count = 0, label = "trooper C keeps VStripSS2WallDrunk3 at the wall (no return to its list before 21:00)" },
+  # The travellers' end scripts fade them to another port (the original: 6 in 2 game hours).
+  { re = 'VStreetTravelerAREF: put at .* by a script \(MoveTo\)', min = 4, label = "traveller A sent on by its package's end script" },
+  # Victor's messenger, enabled when the player walks into its trigger by the gate.
+  "VMQTopsSecMessengerREF: package VMQTopsSecuritronMsgDialog38",
+  "ai summary",
+]
+
+[[scenario]]
 name = "residents"
 source = "CLAUDE.md: after changes to fnv-ai or the engine's residents, the residents smoke test"
 areas = ["ai", "residents"]
