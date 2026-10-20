@@ -16,6 +16,7 @@
 //! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
 //! - [`locomotion`]: idle, walk, run and turn clips, their root motion, and choosing
 //!   and blending between them
+//! - [`jump`]: an NPC's body in the air: when its jump loop and landing play, which clip
 //! - [`weapon`]: the weapon an actor draws, its stance clips and the draw cycle
 //! - [`player_clips`]: which clips the player's body plays under direct control (moving,
 //!   sneaking, drawing, aiming and holstering a weapon), and the draw/holster sequence
@@ -37,6 +38,7 @@ pub mod furniture;
 pub mod head_look;
 pub mod idle;
 pub mod idle_play;
+pub mod jump;
 pub mod locomotion;
 pub mod mesh;
 pub mod player_clips;
