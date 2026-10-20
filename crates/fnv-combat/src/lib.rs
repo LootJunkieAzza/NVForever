@@ -16,6 +16,8 @@
 //!   by the direction moved (docs/spec-notes/combat-rules.md §10).
 //! - [`mine`]: mines' trigger radius, fuse and ticking (docs/spec-notes/combat-rules.md
 //!   §11a).
+//! - [`dismember`]: whether a hit severs or explodes the part it lands on
+//!   (docs/spec-notes/dismemberment.md).
 //! - [`condition`]: how weapons and armour wear and what a worn item is worth
 //!   (docs/spec-notes/combat-rules.md §17).
 
@@ -23,6 +25,7 @@ pub mod attack;
 pub mod condition;
 pub mod damage;
 pub mod data;
+pub mod dismember;
 pub mod fx;
 pub mod melee;
 pub mod mine;

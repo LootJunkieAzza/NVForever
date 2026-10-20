@@ -368,8 +368,10 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// `actor.KillActor [killer] [limb] [cause]`: the actor dies; its OnDeath blocks run
 /// [hypothesis: at once], and the kill counts for GetDeadCount of its base (`Game::kill`,
 /// shared with combat deaths). The cause is what GetCauseofDeath then reads [documented:
-/// GECK wiki KillActor, "See GetCauseofDeath for death values"]. The limb to dismember is
-/// not acted on (no dismemberment yet).
+/// GECK wiki KillActor, "See GetCauseofDeath for death values"]. A limb given (≥ 0) is
+/// dismembered, on a dead actor too ("KillActor can be called on dead actors to dismember
+/// limbs" [documented: GECK wiki KillActor notes]); the engine, which knows the actor's
+/// body parts, does it (docs/spec-notes/dismemberment.md §5).
 pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     // An essential actor is knocked out "for a few seconds" instead [documented: GECK
@@ -381,6 +383,11 @@ pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if g.kill(r, a.opt_form(0)) {
         if let Ok(cause) = a.int(2) {
             g.extra.entry(r).or_default().death_cause = Some(cause);
+        }
+    }
+    if let Ok(location) = a.int(1) {
+        if location >= 0 && g.is_dead(r) && r != FormId::PLAYER_REF {
+            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0) });
         }
     }
     none()

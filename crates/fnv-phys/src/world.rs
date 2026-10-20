@@ -294,6 +294,8 @@ pub struct PhysWorld {
     /// bodies is (`crate::ragdoll`).
     pub(crate) ragdolls: BTreeMap<u32, crate::ragdoll::RagdollBodies>,
     pub(crate) ragdoll_of: HashMap<RigidBodyHandle, (u32, u16)>,
+    /// Gore pieces by their id (`crate::gore`).
+    pub(crate) gore: BTreeMap<u32, RigidBodyHandle>,
     /// Per-triangle material codes of triangle-mesh colliders; one code for a convex
     /// collider.
     materials: HashMap<ColliderHandle, Vec<u32>>,
@@ -307,7 +309,7 @@ pub struct PhysWorld {
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
     /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
     /// [`PhysWorld::update_queries`]).
-    struck: Vec<RigidBodyHandle>,
+    pub(crate) struck: Vec<RigidBodyHandle>,
     /// Dynamic bodies added asleep ([`PreparedRef::asleep`]) whose contacts have not been
     /// found yet (see [`PhysWorld::update_queries`]).
     pending_sleep: Vec<RigidBodyHandle>,
@@ -339,6 +341,7 @@ impl PhysWorld {
             actors: BTreeMap::new(),
             ragdolls: BTreeMap::new(),
             ragdoll_of: HashMap::new(),
+            gore: BTreeMap::new(),
             materials: HashMap::new(),
             shells: HashMap::new(),
             dirty: false,
@@ -806,6 +809,7 @@ impl PhysWorld {
             actors: self.actors.clone(),
             ragdolls: self.ragdolls.clone(),
             ragdoll_of: self.ragdoll_of.clone(),
+            gore: self.gore.clone(),
             materials: self.materials.clone(),
             shells: self.shells.clone(),
             dirty: self.dirty,

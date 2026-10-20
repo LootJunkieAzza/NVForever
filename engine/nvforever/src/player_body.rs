@@ -410,6 +410,9 @@ struct Rig {
     weapon_model: Option<Entity>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
+    /// The weapon is in the hand with no draw, attack or reload clip playing, and the
+    /// parts' pose then was logged ([`pose_rig`]).
+    idle_logged: bool,
     /// The way from the `Weapon` node down to the weapon model's `ProjectileNode`, when
     /// it has one: each node's place in the animator's extra nodes (a named node; the
     /// clips may move it) and its transform in the model [hypothesis: the node marks
@@ -1108,6 +1111,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         attached: weapon_parent,
         weapon_model: None,
         weapon_parts: Vec::new(),
+        idle_logged: false,
         muzzle: None,
         muzzle_entity: None,
         casing: None,
@@ -1215,6 +1219,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         let rest = draw.as_ref().filter(|_| f.hands.in_hand).and_then(|c| c.weapon_end(skel.locals[n]));
         rig.animator.set_rest(n, rest);
     }
+    // So do the weapon's parts the draw clip moves: the 9mm pistol's hammer stays cocked
+    // while held, as its draw clip leaves it; the aim clip does not key it [observed:
+    // animation.md §9.8, the game's 9mm cocked at idle in the owner's screenshot].
+    rig.animator.set_extra_rest(draw.as_ref().filter(|_| f.hands.in_hand).map(|c| &c.clip));
     if !f.hands.in_hand {
         // The holster clip's `prn:` names the holster bone [observed: `Bip01 Pelvis` for
         // pistols, `Bip01 Spine2` for rifles, `Bip01 Translate` in first person]; the
@@ -1329,7 +1337,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             // the opening's end and the round's `Hit` close to its start pose].
             let fade = if f.reload_round_now { 0.0 } else { c.fade() };
             rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
-            debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
+            info!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
         }
     }
     // A jam: the weapon's jam clip (`1hpjama.kf`), played once on the reload layer as a
@@ -1401,6 +1409,15 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     a.pose();
+    // Each time the weapon comes to rest in the hand, the parts it holds away from their
+    // place in the model (the 9mm pistol's cocked hammer; smoke `weapon-parts-rest`).
+    let busy = |t: u32| t == TAG_EQUIP || t == TAG_RELOAD || (TAG_ATTACK..TAG_ATTACK + 3).contains(&t);
+    let idle = f.hands.in_hand && rig.weapon_model.is_some() && !a.layers.iter().any(|l| busy(l.tag) && l.ease > 0.0);
+    if idle && !rig.idle_logged {
+        let parts: Vec<String> = a.extra_moved().filter(|p| p.1 > 0.01 || p.2 > 0.1).map(|(n, d, turn)| format!("{n} {d:.1} units {turn:.0}°")).collect();
+        info!("player {:?} rig: weapon at rest in the hand, parts away from their place: {}", rig.view, if parts.is_empty() { "none".to_string() } else { parts.join(", ") });
+    }
+    rig.idle_logged = idle;
     if let Some(l) = rig.looking {
         // The arms rig turns about `Bip01 Looking` with the view's pitch (about the
         // actor's right axis, x) [hypothesis: the node's role, from its name and place].
