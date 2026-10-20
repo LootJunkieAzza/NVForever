@@ -216,6 +216,18 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
   The pieces start at the gore bone with speeds outward and along the shot, spin, bounce
   and settle (§6).
+- **Where the pieces start.** The explosion and the blood go at the gore bone plus its offset,
+  in the bone's axes (the GECK's "blood spurt" positioning). The replacement model's origin
+  goes at the gore bone itself. The model is drawn in the actor's axes as they stand in the
+  bind pose, then turned as far as the bone has turned from its bind pose [design]. The models
+  are built that way [observed]: GoreLegGore01's pieces hang 15, 41 and 59 units below their
+  origin, and HeadBits01's lie within 12 units above it. So an upright actor's leg bits hang
+  from the hip, and a lying corpse's lie along its leg.
+  Checked in the `dismember-chet` smoke run (2026-10-20): the head bits started within 12 units
+  of `Bip01 Neck1` as Chet died standing. The leg bits of his lying corpse started within 59
+  units of `Bip01 L Thigh`, the lowest at z 549, just above the floor. An earlier version
+  placed the model in the bone's axes plus the blood offset, and its leg bits started under
+  the floor.
 - **Severed blood**: a spurt of the severable impact data set at the cut.
 
 ## 6. Gore pieces [design]

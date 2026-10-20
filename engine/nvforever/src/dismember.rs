@@ -50,11 +50,20 @@ pub const PIECE_MASS: f32 = 0.5;
 /// Blood impacts shown for one part, most [design: the BPTD's decal counts are 4 and 6].
 pub const MAX_BLOOD: u32 = 6;
 
+/// A gore piece's box: half extents and centre in its frame.
+type PieceBox = ([f32; 3], [f32; 3]);
+
+/// A piece of a gore model: its top node, its transform in the model, its shapes with their
+/// transforms relative to it.
+type Piece = (Option<usize>, Affine3A, Vec<(Affine3A, usize)>);
+
 /// A flying piece of gore.
 #[derive(Component)]
 struct GorePiece {
     id: u32,
     actor: u32,
+    /// It has come to rest (and been measured, [`move_pieces`]).
+    settled: bool,
 }
 
 #[derive(Resource)]
@@ -68,15 +77,18 @@ struct Gore {
     /// Explosions waiting for their models (first asked for this frame).
     waiting: Vec<(Dismembered, u8)>,
     /// Box half extents and centre of each piece of a model, by path and node.
-    boxes: HashMap<(String, Option<usize>), ([f32; 3], [f32; 3])>,
+    boxes: HashMap<(String, Option<usize>), PieceBox>,
     shapes_redrawn: u32,
     joints_cut: u32,
     thrown: u32,
+    /// Per actor, the pieces thrown and the distances from its corpse those at rest lie
+    /// at, for the log line that tells where the gore ended up.
+    landed: HashMap<u32, (u32, Vec<f32>)>,
 }
 
 impl Default for Gore {
     fn default() -> Gore {
-        Gore { applied: HashMap::new(), next: 1, pieces: Vec::new(), rng: SplitMix(0x60AE), waiting: Vec::new(), boxes: HashMap::new(), shapes_redrawn: 0, joints_cut: 0, thrown: 0 }
+        Gore { applied: HashMap::new(), next: 1, pieces: Vec::new(), rng: SplitMix(0x60AE), waiting: Vec::new(), boxes: HashMap::new(), shapes_redrawn: 0, joints_cut: 0, thrown: 0, landed: HashMap::new() }
     }
 }
 
@@ -167,7 +179,7 @@ fn apply_skins(
 ) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let respawned: HashSet<u32> = added.iter().map(|r| r.0).collect();
-    let mut todo: Vec<(&ActorRig, Option<&LimbRig>, Vec<(i32, bool)>)> = Vec::new();
+    let mut todo = Vec::new();
     for (rig, limb) in &rigs {
         let gone = game.limbs_gone(FormId(rig.reference));
         let changed = gore.applied.get(&rig.reference).map_or(!gone.is_empty(), |a| *a != gone);
@@ -282,14 +294,28 @@ fn throw_gore(
         let Some(data) = combat.forms.body_parts.get(&e.data) else { continue };
         let Some(part) = data.parts.get(e.part) else { continue };
         let rig = rigs.iter().find(|r| r.reference == e.form_id);
-        // The gore bone and offset, else the hit's point.
-        let bone = rig.and_then(|r| node(r, part.gore_target_bone.as_deref().or(part.node.as_deref())?).and_then(|n| globals.get(r.nodes[n]).ok()));
-        let (at, rot) = match bone {
-            Some(g) => {
+        // The gore bone (`NAM4`, else the part's node), else the hit's point. The blood
+        // spout and the explosion go at the bone's gore offset, in the bone's axes
+        // [documented: GECK wiki Body Part, "translation of the blood spurt relative to the
+        // Target Bone"]. The replacement model goes at the bone itself, in the actor's own
+        // axes as they stand in the bind pose: its pieces are modelled that way, the leg's
+        // hanging 15, 41 and 59 units below its origin, the head's just above it
+        // [observed: `fnvtool nif decode` of GoreLegGore01.NIF and HeadBits01.NIF]. Turned
+        // as the bone has turned from its bind pose, so a lying corpse's leg bits lie along
+        // its leg, not down into the floor [design].
+        let bone = rig.and_then(|r| {
+            let n = node(r, part.gore_target_bone.as_deref().or(part.node.as_deref())?)?;
+            Some((globals.get(r.nodes[n]).ok()?, Mat3::from(r.skel.bind_world.get(n)?.matrix3)))
+        });
+        let upright = rig.and_then(|r| globals.get(r.nodes[0]).ok()).map_or(Mat3::IDENTITY, |g| game_pose(g).1);
+        let (origin, at, frame) = match bone {
+            Some((g, bind)) => {
                 let (p, m) = game_pose(g);
-                (p + m * Vec3::from(part.gore_translate), m)
+                let bind = Mat3::from_cols(bind.x_axis.normalize_or_zero(), bind.y_axis.normalize_or_zero(), bind.z_axis.normalize_or_zero());
+                let frame = if bind.determinant().abs() > 0.5 { m * bind.inverse() } else { upright };
+                (p, p + m * Vec3::from(part.gore_translate), frame)
             }
-            None => (Vec3::from(e.point), Mat3::IDENTITY),
+            None => (Vec3::from(e.point), Vec3::from(e.point), upright),
         };
         let at_a = at.to_array();
         let (explosion, debris, count, scale, set, decals) = if e.exploded {
@@ -346,10 +372,12 @@ fn throw_gore(
         }
         // The pieces.
         let mut thrown = 0;
+        let mut farthest = 0.0f32;
+        let mut lowest = f32::MAX;
         let actor_scale = sim.ref_scale(e.form_id);
         for ((path, s), pm) in wanted.iter().zip(&loaded) {
             let Some(pm) = pm else { continue };
-            let place = Affine3A::from_mat3_translation(rot * actor_scale * *s, at);
+            let place = Affine3A::from_mat3_translation(frame * actor_scale * *s, origin);
             for (piece, local, shapes) in pieces(pm) {
                 let key = (path.to_ascii_lowercase(), piece);
                 let (half, center) = *gore.boxes.entry(key).or_insert_with(|| piece_box(&models.meshes, pm, &shapes));
@@ -372,7 +400,9 @@ fn throw_gore(
                     angvel: spin.to_array(),
                     mass: PIECE_MASS,
                 });
-                let holder = commands.spawn((Transform::from_translation(t).with_rotation(q).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(world_root), GorePiece { id, actor: e.form_id })).id();
+                let holder = commands.spawn((Transform::from_translation(t).with_rotation(q).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(world_root), GorePiece { id, actor: e.form_id, settled: false })).id();
+                farthest = farthest.max(t.distance(origin));
+                lowest = lowest.min(t.z);
                 for (rel, si) in shapes {
                     let sh = &pm.shapes[si];
                     commands.spawn((Mesh3d(sh.mesh.clone()), MeshMaterial3d(sh.material.clone()), Transform::from_matrix(Mat4::from(rel)), Visibility::Inherited, NotShadowCaster, ChildOf(holder)));
@@ -382,6 +412,7 @@ fn throw_gore(
             }
         }
         gore.thrown += thrown;
+        gore.landed.entry(e.form_id).or_default().0 += thrown;
         while gore.pieces.len() > MAX_PIECES {
             let (id, ent) = gore.pieces.remove(0);
             phys.world.remove_gore(id);
@@ -389,14 +420,19 @@ fn throw_gore(
         }
         let what = if e.exploded { "exploded" } else { "severed" };
         info!(
-            "dismember: gore for {:08X} {} {what}: {thrown} pieces{}{} at ({:.0}, {:.0}, {:.0})",
+            "dismember: gore for {:08X} {} {what}: {thrown} pieces{}{} at ({:.0}, {:.0}, {:.0}); the pieces start within {farthest:.0} units of {} at ({:.0}, {:.0}, {:.0}){}",
             e.form_id,
             part.name.as_deref().unwrap_or("part"),
             replacement.map_or(String::new(), |m| format!(" ({m} and {} debris)", wanted.len() - 1)),
             if explosion.is_some() { ", explosion" } else { "" },
             at.x,
             at.y,
-            at.z
+            at.z,
+            part.gore_target_bone.as_deref().or(part.node.as_deref()).unwrap_or("the hit"),
+            origin.x,
+            origin.y,
+            origin.z,
+            if thrown > 0 { format!(", the lowest at z {lowest:.0}") } else { String::new() }
         );
     }
 }
@@ -405,7 +441,7 @@ fn throw_gore(
 /// (`HeadBits01.NIF`'s Eyeball, JawBoneBloody01, …), else the whole model as one. Each
 /// piece: its node, its transform in the model (root included), and its shapes with
 /// their transforms relative to it.
-fn pieces(pm: &PreparedModel) -> Vec<(Option<usize>, Affine3A, Vec<(Affine3A, usize)>)> {
+fn pieces(pm: &PreparedModel) -> Vec<Piece> {
     let n = pm.nodes.len();
     let mut model: Vec<Affine3A> = Vec::with_capacity(n);
     for nd in &pm.nodes {
@@ -418,7 +454,7 @@ fn pieces(pm: &PreparedModel) -> Vec<(Option<usize>, Affine3A, Vec<(Affine3A, us
         }
         i
     };
-    let mut out: Vec<(Option<usize>, Affine3A, Vec<(Affine3A, usize)>)> = Vec::new();
+    let mut out: Vec<Piece> = Vec::new();
     let mut loose: Vec<(Affine3A, usize)> = Vec::new();
     for (si, s) in pm.shapes.iter().enumerate() {
         match s.node {
@@ -441,7 +477,7 @@ fn pieces(pm: &PreparedModel) -> Vec<(Option<usize>, Affine3A, Vec<(Affine3A, us
 
 /// A piece's box: the bounds of its shapes' vertices in the piece's frame (half extents
 /// and centre), at least half a unit; 2 units when no vertex is at hand.
-fn piece_box(meshes: &Assets<Mesh>, pm: &PreparedModel, shapes: &[(Affine3A, usize)]) -> ([f32; 3], [f32; 3]) {
+fn piece_box(meshes: &Assets<Mesh>, pm: &PreparedModel, shapes: &[(Affine3A, usize)]) -> PieceBox {
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
     for (rel, si) in shapes {
@@ -460,20 +496,45 @@ fn piece_box(meshes: &Assets<Mesh>, pm: &PreparedModel, shapes: &[(Affine3A, usi
 }
 
 /// Pieces follow their bodies; a piece whose actor is no longer loaded goes.
-fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &GorePiece, &mut Transform)>, rigs: Query<&ActorRig>, mut phys: ResMut<PhysState>, mut gore: ResMut<Gore>) {
+/// When all of an actor's pieces have come to rest, one log line tells how far from its
+/// corpse (the mass centre of its ragdoll's trunk) they lie.
+fn move_pieces(mut commands: Commands, mut pieces: Query<(Entity, &mut GorePiece, &mut Transform)>, rigs: Query<&ActorRig>, mut phys: ResMut<PhysState>, mut gore: ResMut<Gore>) {
     if gore.pieces.is_empty() {
         return;
     }
     let loaded: HashSet<u32> = rigs.iter().map(|r| r.reference).collect();
     let mut gone = Vec::new();
-    for (e, p, mut t) in &mut pieces {
+    for (e, mut p, mut t) in &mut pieces {
         if !loaded.contains(&p.actor) {
             gone.push((p.id, e));
             continue;
         }
-        if let Some(s) = phys.world.gore_state(p.id) {
-            t.translation = Vec3::from(s.translation);
-            t.rotation = Quat::from_mat3(&Mat3::from_cols_array(&s.rotation).transpose());
+        let Some(s) = phys.world.gore_state(p.id) else { continue };
+        t.translation = Vec3::from(s.translation);
+        t.rotation = Quat::from_mat3(&Mat3::from_cols_array(&s.rotation).transpose());
+        let still = s.sleeping || Vec3::from(s.linvel).length() < 1.0;
+        if p.settled || !still {
+            continue;
+        }
+        p.settled = true;
+        let Some(corpse) = phys.world.ragdoll_center(p.actor) else { continue };
+        let entry = gore.landed.entry(p.actor).or_default();
+        entry.1.push(t.translation.distance(Vec3::from(corpse)));
+        if entry.1.len() as u32 >= entry.0 {
+            let mut d = std::mem::take(&mut entry.1);
+            d.sort_by(f32::total_cmp);
+            info!(
+                "dismember: gore of {:08X} at rest: {} pieces lie {:.0} to {:.0} units from the corpse's trunk (median {:.0}) at ({:.0}, {:.0}, {:.0})",
+                p.actor,
+                d.len(),
+                d[0],
+                d[d.len() - 1],
+                d[d.len() / 2],
+                corpse[0],
+                corpse[1],
+                corpse[2]
+            );
+            gore.landed.remove(&p.actor);
         }
     }
     for (id, e) in gone {

@@ -5792,7 +5792,7 @@ source = "dismemberment (docs/spec-notes/dismemberment.md): overkill explodes a 
 note = "the hit aid kills Chet with a sniper rifle on the head (500 damage, so the overkill passes the head's share: the explode chance is 100 %), then knifes his corpse's left arm four times (50 % each, seeded rolls), then the console has KillActor explode his left leg; screenshots before and after for a look"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/gore.rs", "engine/nvf-assets/src/actor.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition,11:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,11.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition", NVF_PLAY_TEST_CONSOLE = "15:GSChetRef.KillActor player 7;15.5:close;16:GSChetRef.IsLimbGone 1;16.5:close", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:dismember_before.png,10:dismember_head.png,18:dismember_after.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition,11:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,11.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition", NVF_PLAY_TEST_CONSOLE = "15:GSChetRef.KillActor player 7;15.5:close;16:GSChetRef.IsLimbGone 1;16.5:close", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:dismember_before.png,8.15:dismember_burst.png,10:dismember_head.png,15.15:dismember_leg_burst.png,18:dismember_after.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 22
 expect = [
@@ -5802,5 +5802,6 @@ expect = [
   { re = 'dismember: 00104C79 part at location 3 cut from its ragdoll', label = "the arm leaves the ragdoll" },
   { re = 'dismember: .* 0x00104C79: Left Leg exploded \(KillActor\)', label = "KillActor's limb explodes the left leg" },
   { re = 'console: IsLimbGone on GSChetRef >> 1', label = "IsLimbGone reads the head gone" },
+  { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"

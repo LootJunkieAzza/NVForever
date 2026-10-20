@@ -87,6 +87,9 @@ pub fn parse_hits(v: &str) -> Result<Vec<TestHit>, String> {
     Ok(out)
 }
 
+/// What the hit aid needs to dismember (`crate::dismember`).
+type DismemberAid<'w> = (Option<Res<'w, crate::combat::Combat>>, Option<Res<'w, crate::hitvol::ActorParts>>, Option<ResMut<'w, crate::dismember::Dismemberment>>);
+
 #[allow(clippy::too_many_arguments)]
 fn test_hits(
     time: crate::pause::AidTime,
@@ -97,7 +100,7 @@ fn test_hits(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
-    (combat, parts, mut dm): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hitvol::ActorParts>>, Option<ResMut<crate::dismember::Dismemberment>>),
+    (combat, parts, mut dm): DismemberAid,
 ) {
     let Some(now) = time.world_secs() else { return };
     while hits.0.first().is_some_and(|h| h.at <= now) {
@@ -135,7 +138,12 @@ fn test_hits(
             });
             let w = weapon.and_then(|w| c.forms.weapons.get(&w)).cloned().unwrap_or_default();
             let at = sim.world.peek(target).map_or([0.0; 3], |s| [s.pos[0], s.pos[1], s.pos[2] + 40.0]);
-            if let Some(check) = part.and_then(|p| crate::combat::dismember_check(target, Some(p as u8), &w, r, Some(FormId::PLAYER_REF), at, [0.0, 1.0, 0.0])) {
+            // The blow goes from the player to the target, level.
+            let from = sim.world.peek(FormId::PLAYER_REF).map_or(at, |s| s.pos);
+            let (dx, dy) = (at[0] - from[0], at[1] - from[1]);
+            let len = dx.hypot(dy);
+            let dir = if len > 1.0 { [dx / len, dy / len, 0.0] } else { [0.0, 1.0, 0.0] };
+            if let Some(check) = part.and_then(|p| crate::combat::dismember_check(target, Some(p as u8), &w, r, Some(FormId::PLAYER_REF), at, dir)) {
                 dm.checks.push(check);
             }
         }
