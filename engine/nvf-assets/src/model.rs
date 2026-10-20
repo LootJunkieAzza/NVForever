@@ -79,6 +79,9 @@ pub struct PreparedModel {
     /// The nodes below the root, parents before children: for callers that pose the
     /// model's nodes themselves (a weapon's moving parts, animation.md §9.8).
     pub nodes: Vec<ModelNode>,
+    /// The file holds particle systems (`NiParticleSystem`, `BSStripParticleSystem`),
+    /// read by `ModelCtx::particles` (a placed fire's flames).
+    pub particles: bool,
 }
 
 /// A node of a model below its root.
@@ -712,6 +715,7 @@ impl ModelCtx<'_> {
             }
         }
         out.nodes = nodes;
+        out.particles = file.blocks.iter().any(|b| matches!(b.type_name.as_str(), "NiParticleSystem" | "BSStripParticleSystem"));
         let root = objects.iter().find(|o| o.parent.is_none()).map(|r| r.block);
         if let Some(r) = root.and_then(|r| by_block.get(&r)) {
             out.root = affine(&r.transform);
