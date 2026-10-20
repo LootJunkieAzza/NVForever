@@ -751,7 +751,7 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
     if exit.read().next().is_some() {
         let m = &body.motion;
         info!("player body summary: {} falls (the jump loop), {} landings", m.falls, m.landings);
-        info!("player body summary: weapon sway {}, most turn lag {:.2} degrees, deepest bob {:.2} units", if body.weapon_sway { "on" } else { "off" }, m.sway.peak_lag.to_degrees(), m.sway.peak_dip);
+        info!("player body summary: weapon sway {}, most turn lag {:.2} degrees sideways and {:.2} up or down, deepest bob {:.2} units", if body.weapon_sway { "on" } else { "off" }, m.sway.peak_lag.x.to_degrees(), m.sway.peak_lag.y.to_degrees(), m.sway.peak_dip);
     }
 }
 

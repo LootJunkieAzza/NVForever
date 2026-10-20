@@ -106,8 +106,9 @@ pub struct ViewSway {
     bob: f32,
     /// How much of everything shows.
     gain: f32,
-    /// The most turn lag and bob dip shown since the start (for the exit summary).
-    pub peak_lag: f32,
+    /// The most turn lag (sideways, up or down) and bob dip shown since the start (for
+    /// the exit summary).
+    pub peak_lag: Vec2,
     pub peak_dip: f32,
 }
 
@@ -161,7 +162,7 @@ impl ViewSway {
         let behind = behind * MOVE_LAG_PER_SPEED;
         let behind = if behind.length() > MAX_MOVE_LAG { behind.normalize() * MAX_MOVE_LAG } else { behind };
         let offset = Vec3::new(BOB_SWAY * swing * bob_share - behind.x * sway_share, -behind.y * sway_share, dip);
-        self.peak_lag = self.peak_lag.max(lag.length());
+        self.peak_lag = self.peak_lag.max(lag.abs());
         self.peak_dip = self.peak_dip.max(-dip);
         SwayPose { rotation: turn * Quat::from_rotation_y(roll), offset }
     }
