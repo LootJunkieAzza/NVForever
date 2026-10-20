@@ -1,6 +1,6 @@
 //! The HUD's XP meter (`XPMeter` of `menus\main\hud_main_menu.xml`;
-//! docs/spec-notes/experience.md §4): when the player earns experience, a bar at the
-//! middle of the right side with the level the player has at its left end, the next
+//! docs/spec-notes/experience.md §4): when the player earns experience, a bar on the
+//! right just above the action points with the level the player has at its left end, the next
 //! level at its right end, a pointer over it at how far the player has come between the
 //! two, and "+n XP" under its right end; "LEVEL UP" when the next level is reached. It is
 //! not shown at the level cap.
@@ -65,20 +65,25 @@ const LEVEL_UP_WORD: &str = "LEVEL UP";
 /// 86.5 … 302.5, the upright at 364–367 from row 7 to 129 [observed: the texture].
 const PIECE: Vec2 = Vec2::new(368.0, 130.0);
 const LINE_MIDDLE: f32 = 68.0;
-/// The pointer's tip stands 55 units down, between the ticks' tops and the line; the
-/// picture's triangle has its tip at row 39 [observed: the owner's screenshot fitted to
-/// the bracket's ticks, 1.7 pixels to the unit; the texture].
-const POINTER_Y: f32 = 55.0 - 39.0;
+/// The pointer's tip stands on the ticks' tops (row 47), not among them; the picture's
+/// triangle has its tip at row 39 [owner, 2026-10-20: "at the top of each notch"; observed:
+/// the texture].
+const POINTER_Y: f32 = 46.0 - 39.0;
 /// The lines the texts stand on [observed: the owner's screenshot, as above]: the levels
 /// 49, "+54" 118, "XP" 103; "LEVEL UP" where the amount stands.
 const LEVEL_BASE: f32 = 49.0;
 const AMOUNT_BASE: f32 = 118.0;
 const LABEL_BASE: f32 = 103.0;
 
-// ---- set here [hypothesis: nothing documents the meter's place or timing] --------------
+/// The meter's place: from the view's right edge to the upright, and from the view's
+/// bottom edge to the bracket's bottom (25 units over the action points' piece, the line
+/// at 244) [observed: the owner's full-screen screenshot at 1920 x 1080, 1.125 pixels to
+/// the unit: the upright at x 1862, the line at y 805].
+const MARGIN_X: f32 = 52.0;
+const BOTTOM: f32 = 182.0;
 
-/// From the view's right edge to the upright, as the corner pieces' margin (`hud.rs`).
-const MARGIN_X: f32 = 40.0;
+// ---- set here [hypothesis: nothing documents the meter's timing] -----------------------
+
 /// Fading in and out: the HUD menu's quarter of a second [documented: hud_main_menu.xml].
 const FADE: f32 = 0.25;
 /// How long the meter stays after the last gain, and how long the pointer takes to move.
@@ -425,14 +430,13 @@ fn draw(
 }
 
 /// The meter: the bracket, the pointer and a holder for the texts, its upright
-/// [`MARGIN_X`] from the right edge and its line at the middle of the view.
+/// [`MARGIN_X`] from the right edge and its bottom [`BOTTOM`] over the view's bottom.
 fn spawn(commands: &mut Commands, kit: &Kit) {
     let colour = amber(255.0).with_alpha(0.0);
     let piece = Node {
         position_type: PositionType::Absolute,
         right: u(MARGIN_X),
-        top: Val::Percent(50.0),
-        margin: UiRect::top(u(-LINE_MIDDLE)),
+        bottom: u(BOTTOM),
         width: u(PIECE.x),
         height: u(PIECE.y),
         ..default()

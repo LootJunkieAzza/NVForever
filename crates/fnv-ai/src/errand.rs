@@ -9,7 +9,9 @@
 //! - **Find**: it goes to the search location, then looks in the area for what the
 //!   package names, nearest first, goes to it and acts on it ([`Act`]), until it has
 //!   found the package's count; with nothing (more) to find its goal is met and it looks
-//!   again every [`LOOK_SECONDS`].
+//!   again every [`LOOK_SECONDS`]. With Allow Buying a vendor of the area whose merchant
+//!   container holds what it looks for counts too: it goes up to the vendor and buys one
+//!   ([`Ai::offer`], [`buying_price`]).
 //! - **Use Item At**: it chooses what to use (the package's reference, the nearest free
 //!   object of the package's kind in the area, or an item it carries), goes there and
 //!   uses it.
@@ -26,6 +28,7 @@
 use crate::carry::{Activity, Ai, AiEvent};
 use crate::goal::{self, Ambush, Area, Escort, Find, Flee, Goal, UseAt, Wanted};
 use fnv_game::game::{ActMode, Game};
+use fnv_game::repair::CAPS;
 use fnv_game::package::furniture;
 use fnv_nav::{NavGraph, Place};
 use fnv_sim::FormId;
@@ -64,6 +67,8 @@ pub enum Act {
     Uses,
     /// Attacks an actor (Allow Killing): combat takes over.
     Attacks,
+    /// Buys one of the items it looks for from a vendor (Allow Buying).
+    Buys,
     /// Goes up to it and stands: an actor, a container, anything else.
     Reaches,
 }
@@ -90,6 +95,34 @@ const MAX_CELLS: i32 = 2;
 /// The object types that are weapons: any, ranged, melee [documented: xEdit
 /// wbObjectTypeEnum; our choice: ranged and melee are not told apart].
 const WEAPON_TYPES: [u32; 3] = [12, 21, 22];
+/// fBarterBuyBase and fBarterBuyMult when the load order does not set them [documented:
+/// GECK wiki "Barter System Formula"; FalloutNV.esm sets the same, barter-menu.md §4].
+const BUY_BASE: f32 = 1.55;
+const BUY_MULT: f32 = -0.45;
+
+/// What `buyer` pays a vendor for one `item`, whole caps: the item's value (SetItemValue's,
+/// else the record's) times `fBarterBuyBase + Barter × fBarterBuyMult / 100` at the
+/// buyer's Barter skill, never under the value, rounded to the nearest cap, halves up
+/// [documented: the player's buying price, GECK wiki "Barter System Formula",
+/// barter-menu.md §4; hypothesis: an actor buying on its package pays as the player
+/// would, at its own skill, and condition is not counted].
+pub fn buying_price(game: &mut Game, buyer: FormId, item: FormId) -> u32 {
+    let value = game.forms.item_values.get(&item).copied().or_else(|| game.world.forms.item(item).and_then(|i| i.value)).unwrap_or(0).max(0);
+    let skill = fnv_game::functions::actor_value(game, buyer, fnv_game::actor_values::BARTER).unwrap_or(0.0) as f32;
+    let base = game.world.setting_f32("fBarterBuyBase").unwrap_or(BUY_BASE);
+    let mult = game.world.setting_f32("fBarterBuyMult").unwrap_or(BUY_MULT);
+    let price = value as f32 * (base + skill * mult / 100.0).max(1.0);
+    (price + 0.5).floor() as u32
+}
+
+/// Whether `item` (a base form carried by `holder`) is what `wanted` names.
+fn item_wanted(game: &Game, holder: FormId, item: FormId, wanted: Wanted) -> bool {
+    game.data.sig(item).is_some_and(|s| match wanted {
+        Wanted::Base(b) => b == item || fnv_game::functions::list_members(game, b).contains(&item),
+        Wanted::Type(c) => of_type(game, holder, item, &s, c),
+        _ => false,
+    })
+}
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
@@ -309,9 +342,11 @@ impl Ai {
     /// The objects of the area that `wanted` names, with how far each is from `from`,
     /// nearest first. An item owned by another is left alone without Allow Stealing; a
     /// dead actor counts when it carries it; with Allow Killing a living one counts when it
-    /// carries it, or for a creature finder whenever it is not kin, ally or friend.
+    /// carries it, or for a creature finder whenever it is not kin, ally or friend; with
+    /// Allow Buying a living vendor counts when it has one to sell that the actor can pay
+    /// for ([`Ai::offer`]).
     #[allow(clippy::too_many_arguments)]
-    fn objects(&self, game: &mut Game, actor: FormId, wanted: Wanted, area: &Area, centre: Place, kill: bool, steal: bool, from: Place) -> Vec<(f32, FormId)> {
+    fn objects(&self, game: &mut Game, actor: FormId, wanted: Wanted, area: &Area, centre: Place, kill: bool, steal: bool, buy: bool, from: Place) -> Vec<(f32, FormId)> {
         let refs = game.world.placed;
         let data = game.data;
         let mut found: Vec<(f32, FormId)> = Vec::new();
@@ -350,6 +385,12 @@ impl Ai {
                         return;
                     }
                 }
+                out.push((goal::dist(p.pos, from.pos), r));
+                return;
+            }
+            // A vendor with one of what it looks for in stock, alive: it buys one (Allow
+            // Buying) [hypothesis: the flag's name is all that is documented].
+            if is_actor && !dead && buy && !matches!(wanted, Wanted::Reference(_)) && Self::offer(game, actor, r, wanted).is_some() {
                 out.push((goal::dist(p.pos, from.pos), r));
                 return;
             }
@@ -401,7 +442,7 @@ impl Ai {
         if found >= f.count {
             return;
         }
-        let objects: Vec<(f32, FormId)> = self.objects(game, actor, f.wanted, &f.area, centre, f.kill, f.steal, feet).into_iter().filter(|(_, r)| !given_up.contains(r)).collect();
+        let objects: Vec<(f32, FormId)> = self.objects(game, actor, f.wanted, &f.area, centre, f.kill, f.steal, f.buy || self.cfg.find_buying, feet).into_iter().filter(|(_, r)| !given_up.contains(r)).collect();
         let mut given_up = given_up;
         for (_, object) in objects.into_iter().take(TRIES) {
             let Some(to) = goal::place_of_ref(game, object) else { continue };
@@ -450,6 +491,8 @@ impl Ai {
         let sig = game.data.sig(base).unwrap_or(*b"    ");
         let is_actor = object == FormId::PLAYER_REF || refs.get(object).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
         let dead = game.extra.get(&object).is_some_and(|e| e.dead);
+        let buy = (f.buy || self.cfg.find_buying) && is_actor && !dead && !matches!(f.wanted, Wanted::Reference(_));
+        let offer = if buy { Self::offer(game, actor, object, f.wanted) } else { None };
         let act = if is_actor && dead && !matches!(f.wanted, Wanted::Reference(_)) {
             // Take one of what it looks for from the body.
             let data = game.data;
@@ -466,6 +509,16 @@ impl Ai {
                 game.extra.entry(actor).or_default().used_item = Some(item);
             }
             Act::Loots
+        } else if let Some((stock, item, price)) = offer {
+            // It pays the vendor's merchant container, where the vendor's caps are, and
+            // the item comes out of it [hypothesis: as the player's trade, barter-menu.md
+            // §4].
+            let paid = price == 0 || game.world.transfer(actor, stock, CAPS, price as i32).is_ok_and(|n| n == price as i32);
+            if paid && game.world.transfer(stock, actor, item, 1).is_ok_and(|n| n == 1) {
+                game.extra.entry(actor).or_default().used_item = Some(item);
+                self.log(game, actor, AiEvent::Bought { package, vendor: object, item, price });
+            }
+            Act::Buys
         } else if is_actor && !dead && f.kill {
             game.start_combat(actor, object);
             Act::Attacks
@@ -487,8 +540,11 @@ impl Ai {
         };
         self.log(game, actor, AiEvent::Found { package, object, act });
         let Some(Errand::Find { centre, found, mut given_up, .. }) = self.agents[&actor].errand.clone() else { return };
-        // A body, a container or an attacked actor is not looked at again this time.
-        given_up.push(object);
+        // A body, a container or an attacked actor is not looked at again this time; a
+        // vendor is, while it has more to sell.
+        if act != Act::Buys {
+            given_up.push(object);
+        }
         let found = if act == Act::Attacks { found } else { found + 1 };
         let a = self.agents.get_mut(&actor).expect("listed");
         a.errand = Some(Errand::Find { centre, looking: true, at: None, found, given_up, next_look: game.time + LOOK_SECONDS });
@@ -498,6 +554,29 @@ impl Ai {
         } else if act != Act::Attacks && act != Act::Uses {
             self.find_look(game, nav, actor, package, f);
         }
+    }
+
+    /// What `buyer` would buy from `vendor`: the vendor's merchant container, the cheapest
+    /// item in it that `wanted` names and the buyer can pay for, and its price
+    /// ([`buying_price`]). `None` when the vendor has no merchant container (an actor
+    /// without one is not a vendor), nothing that is wanted, or nothing affordable
+    /// [hypothesis: the merchant container is the vendor's stock as in the barter menu;
+    /// the cheapest is our choice].
+    pub fn offer(game: &mut Game, buyer: FormId, vendor: FormId, wanted: Wanted) -> Option<(FormId, FormId, u32)> {
+        if !Self::alive(game, vendor) {
+            return None;
+        }
+        let stock = game.world.placed.get(vendor).and_then(|p| p.merchant_container)?;
+        let caps = game.world.item_count(buyer, CAPS).unwrap_or(0).max(0) as u32;
+        let items: Vec<FormId> = carried(game, stock).into_iter().filter(|i| *i != CAPS && item_wanted(game, stock, *i, wanted)).collect();
+        let mut best: Option<(u32, FormId)> = None;
+        for item in items {
+            let price = buying_price(game, buyer, item);
+            if price <= caps && best.is_none_or(|(p, i)| (price, item) < (p, i)) {
+                best = Some((price, item));
+            }
+        }
+        best.map(|(price, item)| (stock, item, price))
     }
 
     // ---- Use Item At ---------------------------------------------------------------
@@ -529,7 +608,7 @@ impl Ai {
             Wanted::Nothing => None,
             w => {
                 let area = Area { centre: Some(centre), radius: u.area.radius };
-                self.objects(game, actor, w, &area, centre, false, true, feet).into_iter().map(|x| x.1).filter(free).find(|r| !u.sit_down || sit(game, *r))
+                self.objects(game, actor, w, &area, centre, false, true, false, feet).into_iter().map(|x| x.1).filter(free).find(|r| !u.sit_down || sit(game, *r))
             }
         };
         *self.errand_mut(actor) = Some(Errand::UseAt { thing });
