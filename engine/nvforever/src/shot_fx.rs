@@ -378,7 +378,7 @@ fn flash(
         let (holder, _) = spawn_effect(&mut commands, &mut fx, parent, &pm, place, model, false);
         // Made after this frame's flashes were aged: it is drawn this frame whatever
         // its duration, and goes in the first frame its time is up.
-        commands.entity(holder).insert(Flash { left: p.muzzle_flash_duration });
+        commands.entity(holder).insert((Flash { left: p.muzzle_flash_duration }, crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model))));
         fx.flashes += 1;
         // The flash's light: the LIGH's colour, brightness and radius.
         let light = p.muzzle_flash_light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
@@ -450,7 +450,9 @@ fn draw_flying(
                     );
                     let tail = pm.bounds.map_or(0.0, |(lo, _)| (-lo.y).max(0.0));
                     let (e, _) = spawn_effect(&mut commands, fx, world_root, &pm, place(end), model.unwrap_or_default(), v.beam.is_some());
-                    commands.entity(e).insert(out(tail));
+                    // Its own particle systems too (the flamer's flame strips, the laser's
+                    // sparks; particles.md §6.2).
+                    commands.entity(e).insert((out(tail), crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model.unwrap_or_default()))));
                     (e, end, tail)
                 });
                 match spawned {
