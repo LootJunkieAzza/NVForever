@@ -228,7 +228,7 @@ pub struct ActorStrike {
     pub point: V3,
     pub dir: V3,
     /// A power attack's attack group ("AttackForwardPower"), for an unarmed attack effect
-    /// that names it; `None`: an ordinary blow.
+    /// that names it and, a person's, its damage multiplier; `None`: an ordinary blow.
     pub anim: Option<&'static str>,
 }
 
@@ -2308,7 +2308,13 @@ fn actor_attacks(
         }
         stats.actor_strikes += 1;
         let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
-        let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power: 1.0 };
+        // A person's power attack: × its direction's fDamagePowerAttack…Bonus, as the
+        // player's (combat-rules.md §10.1); a creature's deals its usual damage.
+        let power = b.anim.filter(|_| b.creature_damage.is_none()).and_then(fnv_combat::melee::PowerDir::of_group).map_or(1.0, |d| d.damage(&c.rules));
+        let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power };
+        if power != 1.0 {
+            info!("combat: {}'s power attack {} on {}: damage x{power:.1}", b.attacker, b.anim.unwrap_or("?"), b.target);
+        }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
         let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);

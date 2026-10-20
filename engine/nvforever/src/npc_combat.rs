@@ -79,6 +79,17 @@
 //!   the creature's usual damage [design: no power damage rule is sourced] and carries
 //!   its attack group to the hit, for an unarmed attack effect that names it
 //!   (`nvf_play::combat::hit_effects::applies`). Rolled on their own sequence.
+//! - **People's power attacks** (docs/spec-notes/combat-rules.md §10.1): a person's
+//!   blow with a melee weapon or its fists is a power attack by its style's Power Attack
+//!   % Chance plus the recoil/stagger and unconscious bonuses [documented: GECK wiki
+//!   Combat Style]; which one by the style's five shares ("Choose Attack using % Chance")
+//!   or by how it moves against its facing ([`local_motion`], [`POWER_MOVE_SPEED`]),
+//!   standing with both legs crippled, among the clips its rig has for its weapon
+//!   (`AttackTimes::people_powers`): a direction without one is an ordinary blow
+//!   ([`pick_people_power`]). It lands at its clip's `Hit` key, its next decision waits
+//!   for the clip's end, the blow carries its attack group (the direction's damage bonus
+//!   in `nvf_play::combat`, breaking blocks) and the actor tries its PowerAttack line.
+//!   Rolled on their own sequence.
 //! - **Melee combos** (docs/design/combat-ai.md §15): a blow's clip with an `a:` text
 //!   key (`a:L` on the `AttackRight` clips, `a:R` on the `AttackLeft` ones; `fnv_combat::
 //!   melee`) brings the next melee decision forward to that key; a blow decided between
@@ -133,10 +144,9 @@
 //!   when there is none, or stays by a gunman of its group until the target comes near.
 //!
 //! Whom it fights is the detection states' (its combat target). Not built: grenades,
-//! ammunition use (module notes: reloading), weapon choice among several, dodging and
-//! power attacks of people.
+//! ammunition use (module notes: reloading), weapon choice among several, dodging.
 
-use crate::attack_anims::{AttackTimes, Move, PlayAttack, Power, SwingPick, DEFAULT_HIT};
+use crate::attack_anims::{AttackTimes, Move, PlayAttack, Power, PowerClip, SwingPick, DEFAULT_HIT};
 use crate::combat_stance::{self as stance, Temperament};
 use crate::combat_tactics::{self as tactics, Battle, Phase, Tactic};
 use crate::nav::NavState;
@@ -353,6 +363,10 @@ struct Fighter {
     hide_moves: u8,
     /// Its last melee blow's swing, for a combo (module notes).
     swing: Option<NpcSwing>,
+    /// Its feet last frame and its horizontal velocity (units/s, game space), for a power
+    /// attack chosen by movement (docs/spec-notes/combat-rules.md §10.1).
+    walk_feet: Option<V3>,
+    velocity: [f32; 2],
     /// Why its gun held fire by its reach last frame (§16), for the log.
     range_held: Option<RangeHold>,
     /// It has fired at its target in this fight (the first shot's distance is logged).
@@ -433,6 +447,8 @@ pub struct Fighters {
     stance_rng: u64,
     /// The creatures' power attack rolls' own sequence (module notes).
     power_rng: u64,
+    /// People's power attack rolls' own sequence, so fights without them roll as before.
+    people_power_rng: u64,
     /// The combo swings' variant rolls' own sequence, as `stance_rng`.
     swing_rng: u64,
     /// The player's swings seen so far (`CombatStats::swings`), and when the last began.
@@ -523,8 +539,11 @@ struct Stats {
     bounds: usize,
     charges: usize,
     guards: usize,
-    /// Creatures' power attacks by attack group.
+    /// Power attacks by attack group, creatures' and people's.
     powers: BTreeMap<&'static str, usize>,
+    /// People's power attacks rolled for but without a clip for the direction chosen
+    /// (an ordinary blow instead).
+    powers_unplayable: usize,
     /// Guns' reach (§16): times a fighter held fire at a target beyond its reach and
     /// within its blast; times it left cover to close in; the farthest shot as a share
     /// of the gun's reach, and shots beyond it.
@@ -547,7 +566,7 @@ fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f3
     if have.is_empty() || u * 100.0 >= own.unwrap_or(FALLBACK_POWER_CHANCE) {
         return (None, own.is_none());
     }
-    let share = |p: Power| style.map_or(0.0, |s| s.power_attack_dirs[if p == Power::Forward { 1 } else { 0 }].max(0.0));
+    let share = |p: Power| style.map_or(0.0, |s| s.power_attack_dirs[p.index()].max(0.0));
     let total: f32 = have.iter().map(|h| share(h.0)).sum();
     if total <= 0.0 {
         return (Some(have[((v * have.len() as f32) as usize).min(have.len() - 1)]), own.is_none());
@@ -560,6 +579,70 @@ fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f3
         }
     }
     (have.last().copied(), own.is_none())
+}
+
+/// The speed (units/s) above which a person moves for a power attack chosen by movement;
+/// slower, it stands (docs/spec-notes/combat-rules.md §10.1) [design].
+pub const POWER_MOVE_SPEED: f32 = 20.0;
+
+/// A horizontal velocity against the way an actor faces (`ahead`, horizontal): (forward,
+/// right) of its direction, unit length, or zeros when slower than [`POWER_MOVE_SPEED`].
+fn local_motion(velocity: [f32; 2], ahead: [f32; 2]) -> (f32, f32) {
+    let speed = velocity[0].hypot(velocity[1]);
+    let len = ahead[0].hypot(ahead[1]);
+    if speed < POWER_MOVE_SPEED || len < 1e-6 {
+        return (0.0, 0.0);
+    }
+    let (v, a) = ([velocity[0] / speed, velocity[1] / speed], [ahead[0] / len, ahead[1] / len]);
+    // Right of ahead in game space (x east, y north, z up): (a.y, −a.x).
+    (v[0] * a[0] + v[1] * a[1], v[0] * a[1] - v[1] * a[0])
+}
+
+/// What a person's melee decision made of a power attack (docs/spec-notes/combat-rules.md
+/// §10.1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PeoplePick {
+    /// The power attack it plays, if any.
+    played: Option<PowerClip>,
+    /// One it chose but has no clip for (an ordinary blow instead).
+    unplayable: Option<Power>,
+    /// The chance it rolled against, and how the direction was chosen, for the log.
+    chance: f32,
+    how: &'static str,
+}
+
+/// Whether a person's blow is a power attack, and which (docs/spec-notes/combat-rules.md
+/// §10.1): by its style's chance and bonuses (`opp`), the direction by the style's shares
+/// ("Choose Attack using % Chance") or by `moving` ((forward, right), [`local_motion`]),
+/// standing with both legs crippled; among `have`, its rig's clips. `rolls` in [0, 1):
+/// whether, and which by chance. Without a style, the creatures' fallback chance with even
+/// shares.
+fn pick_people_power(style: Option<&fnv_game::data::CombatStyleDef>, opp: Opponent, have: &[PowerClip], moving: (f32, f32), both_lame: bool, rolls: [f32; 2]) -> PeoplePick {
+    let (chance, by_chance, shares) = match style {
+        Some(s) => (fnv_game::combat_style::power_attack_chance(s, opp), s.power_by_chance, s.power_attack_dirs),
+        None => (FALLBACK_POWER_CHANCE, true, [20.0; 5]),
+    };
+    let how = match (style.is_some(), by_chance) {
+        (false, _) => "fallback: no combat style",
+        (true, true) => "by chance",
+        (true, false) => "by movement",
+    };
+    let none = PeoplePick { played: None, unplayable: None, chance, how };
+    if have.is_empty() || rolls[0] * 100.0 >= chance {
+        return none;
+    }
+    let want = if both_lame {
+        Power::Normal
+    } else if by_chance {
+        Power::ALL[fnv_game::combat_style::power_dir_by_chance(shares, rolls[1])]
+    } else {
+        let dir = fnv_combat::melee::PowerDir::of(moving.0, moving.1);
+        Power::ALL.into_iter().find(|p| p.dir() == dir).unwrap_or(Power::Normal)
+    };
+    match have.iter().find(|p| p.power == want) {
+        Some(p) => PeoplePick { played: Some(*p), ..none },
+        None => PeoplePick { unplayable: Some(want), ..none },
+    }
 }
 
 /// The power attacks a creature can make: with a crippled leg, none forward, the leap
@@ -820,6 +903,9 @@ pub(crate) fn fight(
     if f.power_rng == 0 {
         f.power_rng = 0xD1B5_4A32_D192_ED03;
     }
+    if f.people_power_rng == 0 {
+        f.people_power_rng = 0x2545_F491_4F6C_DD1D;
+    }
     if f.swing_rng == 0 {
         f.swing_rng = 0x9E37_79B9_7F4A_7C15;
     }
@@ -997,6 +1083,8 @@ pub(crate) fn fight(
                         recoil_until: 0.0,
                         approach,
                         swing: None,
+                        walk_feet: None,
+                        velocity: [0.0, 0.0],
                         hiding: false,
                         hide_seen: 0.0,
                         hide_moves: 0,
@@ -1768,6 +1856,11 @@ pub(crate) fn fight(
                     }
                 }
                 Arm::Melee(_) | Arm::Creature(..) => {
+                    // How it moves, for a power attack by movement (combat-rules.md §10.1).
+                    if let (Some(l), true) = (fighter.walk_feet, dt > 0.0) {
+                        fighter.velocity = [(feet[0] - l[0]) / dt, (feet[1] - l[1]) / dt];
+                    }
+                    fighter.walk_feet = Some(feet);
                     f.stats.melee_closest = Some(f.stats.melee_closest.map_or(away, |c| c.min(away)));
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
                     let near = match (&arm, gap) {
@@ -1823,7 +1916,7 @@ pub(crate) fn fight(
                             guarding.insert(me, heading(global));
                         }
                     }
-                    let opponent = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking };
+                    let opponent = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking, unconscious: g.is_out_cold(target) };
                     let attack = decide
                         && !blocks
                         && style.is_none_or(|s| {
@@ -1871,6 +1964,30 @@ pub(crate) fn fight(
                             }
                             _ => None,
                         };
+                        // A person's power attack (docs/spec-notes/combat-rules.md §10.1).
+                        let people = match (&arm, times.people_powers.get(&id)) {
+                            (Arm::Melee(w), Some((had, have))) if had == w => {
+                                let rolls = [next_unit(&mut f.people_power_rng), next_unit(&mut f.people_power_rng)];
+                                let moving = local_motion(fighter.velocity, heading(global));
+                                let both_lame = g.is_crippled(me, fnv_game::combat::LEFT_MOBILITY) && g.is_crippled(me, fnv_game::combat::RIGHT_MOBILITY);
+                                let pick = pick_people_power(style, opponent, have, moving, both_lame, rolls);
+                                if let Some(p) = pick.played {
+                                    *f.stats.powers.entry(p.power.group()).or_default() += 1;
+                                    info!("npc combat: {me_name} power attack {} at {target_name} ({:.0} %, {})", p.power.group(), pick.chance, pick.how);
+                                } else if let Some(want) = pick.unplayable {
+                                    f.stats.powers_unplayable += 1;
+                                    info!("npc combat: {me_name} would power attack {} at {target_name} ({}), but its rig has no clip for it: an ordinary blow", want.group(), pick.how);
+                                }
+                                pick.played
+                            }
+                            _ => None,
+                        };
+                        // A power attack's clip plays out before the next decision (it
+                        // is not cut by a combo) [design, as the player's].
+                        if let Some(p) = people {
+                            fighter.strike_in = fighter.strike_in.max(p.len);
+                        }
+                        let power = power.or(people.map(|p| (p.power, p.hit)));
                         // The blow lands at its clip's `Hit` key (the last clip's, as the
                         // next is chosen after this; a power attack's own) [design].
                         // Until its clip's own `Hit` key is known (above).
@@ -1895,7 +2012,7 @@ pub(crate) fn fight(
                         info!("npc combat: {me_name} swings at {target_name} from {away:.0} units (feet to feet, {})",
                               gap.map_or_else(|| format!("reach {reach:.0}"), |x| format!("bodies' gap {x:.0}")));
                         fighter.blows_begun += 1;
-                        g.attack_line(me, Some(target), false, false);
+                        g.attack_line(me, Some(target), people.is_some(), false);
                     }
                 }
             }
@@ -2015,8 +2132,12 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.farthest_share * 100.0,
         s.shots_beyond,
     );
-    if !s.powers.is_empty() {
-        info!("npc power attacks summary: {}", s.powers.iter().map(|(g, n)| format!("{g} {n}")).collect::<Vec<_>>().join(", "));
+    if !s.powers.is_empty() || s.powers_unplayable > 0 {
+        info!(
+            "npc power attacks summary: {}; {} chosen without a clip (ordinary blows)",
+            s.powers.iter().map(|(g, n)| format!("{g} {n}")).collect::<Vec<_>>().join(", "),
+            s.powers_unplayable
+        );
     }
 }
 
@@ -2059,6 +2180,64 @@ mod tests {
         assert_eq!(pick_power(Some(&s), &both, 0.45, 0.1), (Some((Power::Forward, 0.6)), false));
         assert_eq!(pick_power(Some(&s), &both, 0.55, 0.1).0, None);
         assert_eq!(pick_power(Some(&s), &both[..1], 0.1, 0.9).0, Some((Power::Normal, 0.4)));
+    }
+
+    /// The `_male` 1hm power clips' lengths [observed: combat-rules.md §10.1]; hit times
+    /// made up for the test.
+    fn one_hand_powers() -> Vec<PowerClip> {
+        [(Power::Normal, 1.20), (Power::Forward, 1.60), (Power::Back, 1.27), (Power::Left, 1.37), (Power::Right, 1.23)].into_iter().map(|(power, len)| PowerClip { power, hit: 0.5, len }).collect()
+    }
+
+    #[test]
+    fn a_persons_power_attack_by_its_styles_chance() {
+        // DefaultCombatstyle: 25 %, +5 recoiling, 20 each way, by chance [observed].
+        let s = fnv_game::data::CombatStyleDef { power_attack_chance: 25.0, recoil_stagger_power_bonus: 5.0, power_attack_dirs: [20.0; 5], power_by_chance: true, ..Default::default() };
+        let have = one_hand_powers();
+        let calm = Opponent::default();
+        let pick = |opp, rolls| pick_people_power(Some(&s), opp, &have, (0.0, 0.0), false, rolls);
+        assert_eq!(pick(calm, [0.24, 0.1]).played.map(|p| p.power), Some(Power::Normal));
+        assert_eq!(pick(calm, [0.24, 0.5]).played.map(|p| p.power), Some(Power::Back));
+        assert_eq!(pick(calm, [0.24, 0.95]).played.map(|p| p.power), Some(Power::Right));
+        assert_eq!(pick(calm, [0.24, 0.1]).how, "by chance");
+        // 27 is past 25 but within 25 + 5 while the opponent recoils.
+        assert_eq!(pick(calm, [0.27, 0.1]).played, None);
+        assert_eq!(pick(Opponent { recoiling: true, ..calm }, [0.27, 0.1]).played.map(|p| p.power), Some(Power::Normal));
+        // A direction without a clip: an ordinary blow, said so.
+        let some: Vec<PowerClip> = have.iter().copied().filter(|p| p.power != Power::Back).collect();
+        let p = pick_people_power(Some(&s), calm, &some, (0.0, 0.0), false, [0.1, 0.5]);
+        assert_eq!((p.played, p.unplayable), (None, Some(Power::Back)));
+        // No clips at all (a gun's stance): nothing.
+        assert_eq!(pick_people_power(Some(&s), calm, &[], (0.0, 0.0), false, [0.0, 0.0]), PeoplePick { played: None, unplayable: None, chance: 25.0, how: "by chance" });
+        // Both legs crippled: the standing one whatever the shares say.
+        assert_eq!(pick_people_power(Some(&s), calm, &have, (0.0, 0.0), true, [0.1, 0.95]).played.map(|p| p.power), Some(Power::Normal));
+        // Its clip's timing goes with it.
+        assert_eq!(pick(calm, [0.0, 0.3]).played, Some(PowerClip { power: Power::Forward, hit: 0.5, len: 1.60 }));
+        // A style of 0 %: never.
+        let never = fnv_game::data::CombatStyleDef { power_attack_chance: 0.0, ..s.clone() };
+        assert_eq!(pick_people_power(Some(&never), calm, &have, (0.0, 0.0), false, [0.0, 0.0]).played, None);
+        // No style: the fallback chance, even shares.
+        assert_eq!(pick_people_power(None, calm, &have, (0.0, 0.0), false, [0.2, 0.5]).played.map(|p| p.power), Some(Power::Back));
+        assert_eq!(pick_people_power(None, calm, &have, (0.0, 0.0), false, [FALLBACK_POWER_CHANCE / 100.0, 0.5]).played, None);
+    }
+
+    #[test]
+    fn a_persons_power_attack_by_how_it_moves() {
+        // Legate Lanius's style: 45 %, by movement [observed].
+        let s = fnv_game::data::CombatStyleDef { power_attack_chance: 45.0, power_attack_dirs: [10.0, 60.0, 10.0, 10.0, 10.0], power_by_chance: false, ..Default::default() };
+        let have = one_hand_powers();
+        let facing_north = [0.0, 1.0];
+        let by = |velocity| pick_people_power(Some(&s), Opponent::default(), &have, local_motion(velocity, facing_north), false, [0.1, 0.0]).played.map(|p| p.power);
+        assert_eq!(by([0.0, 0.0]), Some(Power::Normal));
+        assert_eq!(by([0.0, 10.0]), Some(Power::Normal), "slower than the threshold stands");
+        assert_eq!(by([0.0, 200.0]), Some(Power::Forward));
+        assert_eq!(by([0.0, -150.0]), Some(Power::Back));
+        assert_eq!(by([150.0, 20.0]), Some(Power::Right), "east of a north-facing actor is its right");
+        assert_eq!(by([-150.0, 0.0]), Some(Power::Left));
+        // Forward wins a tie.
+        assert_eq!(by([100.0, 100.0]), Some(Power::Forward));
+        assert_eq!(pick_people_power(Some(&s), Opponent::default(), &have, (0.0, 0.0), false, [0.1, 0.0]).how, "by movement");
+        // Facing east, moving north is moving left.
+        assert_eq!(local_motion([0.0, 100.0], [1.0, 0.0]), (0.0, -1.0));
     }
 
     #[test]

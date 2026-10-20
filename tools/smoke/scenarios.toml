@@ -2639,6 +2639,23 @@ expect = [
 forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
 
 [[scenario]]
+name = "combat-people-power-attacks"
+source = "docs/outstanding.md §2 Gameplay (queue item 4, 2026-10-20): people's power attacks by their combat style (docs/spec-notes/combat-rules.md §10.1)"
+note = "the combat-block fist fight (the NCR troopers and Fiends of battle-ncr-fiends, --actor-weapons none): CSNCRTrooper and the default style power-attack 25 % of their blows, the direction by the style's shares; each fighter finds its five h2h power clips, its power attacks play them and deal the direction's damage bonus"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat_style.rs", "crates/fnv-combat/src/melee.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 90
+expect = [
+  { re = 'attack anims: \S+ has 5 power attacks for h2h: AttackPower \(hit ', label = "a fist fighter finds its five power clips" },
+  { re = 'npc combat: .* power attack Attack\w*Power at .* \(\d+ %, by chance\)', label = "a person power-attacks by its style's chance" },
+  { re = "combat: \\S+'s power attack Attack\\w*Power on \\S+: damage x[23]\\.0", label = "the power attack deals its direction's damage bonus" },
+  { re = 'attack anims summary: .*h2hattack\w*power\.kf', label = "a power attack clip played" },
+  { re = 'npc power attacks summary: .*Attack\w*Power (?P<n>\d+)', range = [1, 100000], label = "power attacks in the summary" },
+]
+
+[[scenario]]
 name = "combat-fists-drawn"
 source = "owner's playtest 2026-10-17: unarmed NPCs in combat stood in their no-weapon idle; they draw their fists (h2hequip, then h2haim held) as any melee weapon is drawn (engine/nvforever/src/actors.rs arm)"
 note = "an NCR trooper with no weapon drawn (--actor-weapons none, so it fights with its fists) set on the player at 4 s in quiet Goodsprings and put 90 units north of it every 3 s"
