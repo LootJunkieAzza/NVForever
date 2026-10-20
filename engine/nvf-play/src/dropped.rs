@@ -138,10 +138,26 @@ pub fn ref_pose_from_body(body: &BodyState, local: &Iso, scale: f32) -> ([f32; 3
 
 /// The model a created reference draws and collides with: its base form's world model
 /// (armour's MOD2 ground object, a weapon's MOD4, else MODL:
-/// `BaseObject::world_model_path`), except SpeedTree models, which items never use.
-pub fn model_path(d: &crate::PlayData, base: FormId) -> Option<String> {
+/// `BaseObject::world_model_path`), except SpeedTree models, which items never use. A
+/// weapon with mods on (`mods`, the reference's `Extra::mods`) draws the third-person
+/// model of its mods instead ([`modded_model`]; weapon-mods.md §3 "In the world").
+pub fn model_path(d: &crate::PlayData, base: FormId, mods: u8) -> Option<String> {
+    if mods != 0 {
+        let w = fnv_actor::records::ActorForms::weapon_record(d.lo, d.schema, base);
+        if let Some(path) = modded_model(w.as_ref(), mods) {
+            return Some(path);
+        }
+    }
     let b = fnv_world::placed::base_object(d.lo, d.schema, base.0)?;
     b.world_model_path().filter(|m| !m.ends_with(".spt"))
+}
+
+/// The archive path of the third-person model of weapon `w` with the mod flags `mods` on
+/// (`Weapon::model_for`: the combination's `MWD` model, else the plain MODL); `None` with
+/// no mods or no weapon, for the plain world model.
+pub fn modded_model(w: Option<&fnv_actor::records::Weapon>, mods: u8) -> Option<String> {
+    (mods & 7 != 0).then_some(())?;
+    w?.model_for(false, mods).map(fnv_actor::resolve::mesh_path)
 }
 
 /// Marks the root entity of a drawn created reference (child of its cell's entity).
@@ -218,8 +234,8 @@ fn sync_drawn(
     for id in p.spawn {
         let w = wanted[&id];
         let (cell_e, origin) = loaded[&w.cell];
-        let Some(base) = sim.world.peek(FormId(id)).map(|s| s.base) else { continue };
-        let Some(path) = model_path(&d, base) else {
+        let Some((base, mods)) = sim.world.peek(FormId(id)).map(|s| (s.base, s.extra.mods)) else { continue };
+        let Some(path) = model_path(&d, base, mods) else {
             warn_once!("dropped reference 0x{id:08X}: base {base} has no model to draw");
             continue;
         };

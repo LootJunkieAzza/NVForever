@@ -264,3 +264,28 @@ fn drops_in_another_worldspace_are_not_drawn_or_colliding() {
     assert_eq!(phys_cell(&ix, 0x99, Space::Exterior, &s), None);
     assert_eq!(phys_cell(&ix, WORLD, Space::Exterior, &s), Some(PhysCell::Exterior(0, 0)));
 }
+
+/// A dropped modded weapon draws the third-person model of its mods; no mods (or no
+/// weapon record) leaves the plain world model (weapon-mods.md §3 "In the world").
+#[test]
+fn a_dropped_modded_weapon_draws_its_mods_model() {
+    let mut w = fnv_actor::records::Weapon {
+        edid: None,
+        model: Some(r"Weapons\2HandRifle\VarmintRifle.NIF".into()),
+        anim_type: None,
+        damage: 0,
+        embedded: false,
+        non_playable: false,
+        first_person: None,
+        first_person_model: Some("1st.nif".into()),
+        mod_models: Default::default(),
+        mod_first_person: [None; 7],
+        mod_first_person_models: Default::default(),
+    };
+    w.mod_models[1] = Some(r"Weapons\2HandRifle\VarmintRifleScp.NIF".into());
+    assert_eq!(modded_model(Some(&w), 2).as_deref(), Some(r"meshes\weapons\2handrifle\varmintriflescp.nif"));
+    // A combination without its own model: the plain MODL; never the first-person one.
+    assert_eq!(modded_model(Some(&w), 4).as_deref(), Some(r"meshes\weapons\2handrifle\varmintrifle.nif"));
+    assert_eq!(modded_model(Some(&w), 0), None);
+    assert_eq!(modded_model(None, 2), None);
+}

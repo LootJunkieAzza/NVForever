@@ -10,10 +10,10 @@
 //! Removal order [hypothesis]: items without extra data first, then unequipped items
 //! with extra data in the order they arrived, equipped items last.
 //!
-//! The `_at` methods pick only the units at one condition (a fraction, units without one
-//! counting as whole): the menus list a stack as one row per condition, and moving or
-//! equipping a row takes its own units [owner, 2026-10-16: six Varmint Rifles, one at
-//! 95 %, show as a row of five and a row of one].
+//! The `_at` methods pick only the units a [`Pick`] names (a condition, mod flags): the
+//! menus list a stack as one row per condition and mods, and moving or equipping a row
+//! takes its own units [owner, 2026-10-16: six Varmint Rifles, one at 95 %, show as a row
+//! of five and a row of one; weapon-mods.md §3 for the mods].
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -65,6 +65,35 @@ impl Extra {
     pub fn is_at(&self, at: Option<f32>) -> bool {
         at.is_none_or(|c| self.condition_or_whole() == c)
     }
+
+    /// Whether this unit is one of those `pick` names.
+    pub fn picked(&self, pick: Pick) -> bool {
+        self.is_at(pick.condition) && pick.mods.is_none_or(|m| self.mods == m)
+    }
+}
+
+/// Which units of an item an action takes: those at one condition (a fraction, units
+/// without one counting as whole) and with one set of mod flags, `None` for any. A menu
+/// row's action picks the row's units ([`Pick::row`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Pick {
+    pub condition: Option<f32>,
+    pub mods: Option<u8>,
+}
+
+impl Pick {
+    /// Any unit.
+    pub const ANY: Pick = Pick { condition: None, mods: None };
+
+    /// The units at `condition` (any when `None`), whatever their mods.
+    pub fn at(condition: Option<f32>) -> Pick {
+        Pick { condition, mods: None }
+    }
+
+    /// A menu row's units: its condition (any when `None`) and exactly its mod flags.
+    pub fn row(condition: Option<f32>, mods: u8) -> Pick {
+        Pick { condition, mods: Some(mods) }
+    }
 }
 
 /// One base item's groups, each (extra data, count > 0), in arrival order with the
@@ -87,9 +116,9 @@ impl Stack {
         }
     }
 
-    /// Take up to `n` of the units `at` picks, in removal order; returns what was taken.
-    fn take(&mut self, mut n: i32, at: Option<f32>) -> Vec<(Extra, i32)> {
-        let mut order: Vec<usize> = (0..self.groups.len()).filter(|&i| self.groups[i].0.is_at(at)).collect();
+    /// Take up to `n` of the units `pick` names, in removal order; returns what was taken.
+    fn take(&mut self, mut n: i32, pick: Pick) -> Vec<(Extra, i32)> {
+        let mut order: Vec<usize> = (0..self.groups.len()).filter(|&i| self.groups[i].0.picked(pick)).collect();
         order.sort_by_key(|&i| (self.groups[i].0.equipped, !self.groups[i].0.is_plain()));
         let mut out = Vec::new();
         for i in order {
@@ -193,14 +222,14 @@ impl Inventory {
 
     /// Remove up to `n` of `item`; returns the groups removed.
     pub fn take(&mut self, item: FormId, n: i32) -> Vec<(Extra, i32)> {
-        self.take_at(item, n, None)
+        self.take_at(item, n, Pick::ANY)
     }
 
-    /// Remove up to `n` of the units of `item` that `at` picks ([`Extra::is_at`]);
+    /// Remove up to `n` of the units of `item` that `pick` names ([`Extra::picked`]);
     /// returns the groups removed.
-    pub fn take_at(&mut self, item: FormId, n: i32, at: Option<f32>) -> Vec<(Extra, i32)> {
+    pub fn take_at(&mut self, item: FormId, n: i32, pick: Pick) -> Vec<(Extra, i32)> {
         let Some(s) = self.items.get_mut(&item) else { return Vec::new() };
-        let out = s.take(n.max(0), at);
+        let out = s.take(n.max(0), pick);
         if s.groups.is_empty() {
             self.items.remove(&item);
         }
@@ -242,22 +271,22 @@ impl Inventory {
         self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| g.0.equipped))
     }
 
-    /// The unequipped unit [`Inventory::set_equipped_at`] takes among those `at` picks:
+    /// The unequipped unit [`Inventory::set_equipped_at`] takes among those `pick` names:
     /// plain units first, broken ones last.
-    fn next_to_equip(s: &Stack, at: Option<f32>) -> Option<usize> {
+    fn next_to_equip(s: &Stack, pick: Pick) -> Option<usize> {
         (0..s.groups.len())
-            .filter(|&i| !s.groups[i].0.equipped && s.groups[i].0.is_at(at))
+            .filter(|&i| !s.groups[i].0.equipped && s.groups[i].0.picked(pick))
             .min_by_key(|&i| (s.groups[i].0.broken(), !s.groups[i].0.is_plain()))
     }
 
     /// Whether an unequipped unit of `item` that is not broken is carried.
     pub fn has_sound(&self, item: FormId) -> bool {
-        self.has_sound_at(item, None)
+        self.has_sound_at(item, Pick::ANY)
     }
 
-    /// The same among the units `at` picks.
-    pub fn has_sound_at(&self, item: FormId, at: Option<f32>) -> bool {
-        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| !g.0.equipped && !g.0.broken() && g.0.is_at(at)))
+    /// The same among the units `pick` names.
+    pub fn has_sound_at(&self, item: FormId, pick: Pick) -> bool {
+        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| !g.0.equipped && !g.0.broken() && g.0.picked(pick)))
     }
 
     /// The condition (a fraction, 1 when undamaged) of the unit of `item` in use: the
@@ -265,20 +294,27 @@ impl Inventory {
     /// none is carried.
     pub fn condition_in_use(&self, item: FormId) -> Option<f32> {
         let s = self.items.get(&item)?;
-        let i = s.groups.iter().position(|g| g.0.equipped).or_else(|| Self::next_to_equip(s, None))?;
+        let i = s.groups.iter().position(|g| g.0.equipped).or_else(|| Self::next_to_equip(s, Pick::ANY))?;
         Some(s.groups[i].0.condition.unwrap_or(1.0))
+    }
+
+    /// The mod flags of the unit of `item` in use, chosen as [`Inventory::condition_in_use`]
+    /// chooses; 0 when none is carried.
+    pub fn mods_in_use(&self, item: FormId) -> u8 {
+        let Some(s) = self.items.get(&item) else { return 0 };
+        s.groups.iter().position(|g| g.0.equipped).or_else(|| Self::next_to_equip(s, Pick::ANY)).map_or(0, |i| s.groups[i].0.mods)
     }
 
     /// Mark one unequipped unit of `item` as equipped (plain units first, broken ones
     /// last). Returns false when there is none.
     pub fn set_equipped(&mut self, item: FormId) -> bool {
-        self.set_equipped_at(item, None)
+        self.set_equipped_at(item, Pick::ANY)
     }
 
-    /// The same among the units `at` picks.
-    pub fn set_equipped_at(&mut self, item: FormId, at: Option<f32>) -> bool {
+    /// The same among the units `pick` names.
+    pub fn set_equipped_at(&mut self, item: FormId, pick: Pick) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
-        let Some(i) = Self::next_to_equip(s, at) else {
+        let Some(i) = Self::next_to_equip(s, pick) else {
             return false;
         };
         let e = s.groups[i].0;
@@ -361,9 +397,12 @@ impl Inventory {
     /// Weight and value. Ammunition weighs nothing outside Hardcore mode [observed in
     /// game: 100 9mm rounds left the carried weight unchanged, non-Hardcore —
     /// `L4.sim.trace.goodsprings_weight_and_time`; the Hardcore side is still hypothesis].
+    /// A modded weapon weighs what its Decrease Weight mods leave (`Item::weight_with_mods`,
+    /// weapon-mods.md §3).
     pub fn totals(&self, forms: &FormStore, hardcore: bool) -> Totals {
         let mut t = Totals::default();
-        for (id, n) in self.iter() {
+        for (id, s) in &self.items {
+            let (id, n) = (*id, s.total());
             match forms.item(id) {
                 Some(i) => {
                     match i.weight {
@@ -374,7 +413,11 @@ impl Inventory {
                             i.kind,
                             ItemKind::Note | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard
                         ) => {}
-                        Some(w) => t.weight += w as f64 * n as f64,
+                        Some(_) => {
+                            for &(e, c) in &s.groups {
+                                t.weight += i.weight_with_mods(e.mods).unwrap_or(0.0) as f64 * c as f64;
+                            }
+                        }
                         None => t.unknown_weight.push(id),
                     }
                     match i.value {
@@ -459,6 +502,60 @@ mod tests {
     }
 
     #[test]
+    fn a_row_picks_units_by_mods_too() {
+        let id = FormId(0x10);
+        let scoped = Extra { mods: 2, ..Extra::default() };
+        let mut inv = Inventory::new();
+        inv.add(id, 1);
+        inv.add_extra(id, 1, scoped);
+        // Both whole: the condition alone would equip the plain unit first.
+        assert!(inv.set_equipped_at(id, Pick::row(Some(1.0), 2)));
+        assert_eq!(inv.equipped_mods(id), 2);
+        assert_eq!(inv.mods_in_use(id), 2);
+        assert!(!inv.has_sound_at(id, Pick::row(Some(1.0), 2)));
+        assert!(inv.has_sound_at(id, Pick::row(Some(1.0), 0)));
+        assert_eq!(inv.take_at(id, 1, Pick::row(None, 4)), vec![]);
+        assert_eq!(inv.take_at(id, 5, Pick::row(None, 2)), vec![(Extra { equipped: true, ..scoped }, 1)]);
+        assert_eq!(inv.mods_in_use(id), 0);
+        assert_eq!(inv.take_at(id, 5, Pick::at(Some(1.0))), vec![(Extra::default(), 1)]);
+        assert_eq!(inv.mods_in_use(id), 0);
+    }
+
+    #[test]
+    fn decrease_weight_mods_lighten_the_carried_weight() {
+        use crate::forms::{BaseData, BaseForm, Item};
+        let id = FormId(0x10);
+        let it = Item {
+            kind: ItemKind::Weapon,
+            value: Some(10),
+            weight: Some(6.0),
+            slots: None,
+            projectile: None,
+            health: None,
+            non_playable: false,
+            armor_class: Default::default(),
+            power_armor: false,
+            armor_dr: None,
+            armor_dt: None,
+            weapon_damage: None,
+            weight_mods: [0.0, 2.5, 9.0],
+            drawable: false,
+            quest_item: false,
+            icon: None,
+            placed_count: None,
+        };
+        assert_eq!([0, 1, 2, 4, 6].map(|m| it.weight_with_mods(m)), [Some(6.0), Some(6.0), Some(3.5), Some(0.0), Some(0.0)]);
+        let mut forms = FormStore::default();
+        forms.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: None, script: None, data: BaseData::Item(it) });
+        let mut inv = Inventory::new();
+        inv.add(id, 2);
+        inv.add_extra(id, 1, Extra { mods: 2, ..Extra::default() });
+        inv.add_extra(id, 1, Extra { mods: 4, condition: Some(0.5), ..Extra::default() });
+        let t = inv.totals(&forms, false);
+        assert_eq!((t.weight, t.value), (2.0 * 6.0 + 3.5, 40));
+    }
+
+    #[test]
     fn units_at_one_condition() {
         let id = FormId(0x10);
         let worn = Extra { condition: Some(0.95), ..Extra::default() };
@@ -467,13 +564,13 @@ mod tests {
         inv.add_extra(id, 1, worn);
         inv.add_extra(id, 1, Extra { condition: Some(1.0), ..Extra::default() });
         // Units without a condition count as whole.
-        assert_eq!(inv.take_at(id, 9, Some(1.0)).iter().map(|g| g.1).sum::<i32>(), 6);
+        assert_eq!(inv.take_at(id, 9, Pick::at(Some(1.0))).iter().map(|g| g.1).sum::<i32>(), 6);
         inv.add(id, 2);
-        assert!(inv.set_equipped_at(id, Some(0.95)));
+        assert!(inv.set_equipped_at(id, Pick::at(Some(0.95))));
         assert_eq!(inv.condition_in_use(id), Some(0.95));
-        assert!(!inv.has_sound_at(id, Some(0.95)));
-        assert_eq!(inv.take_at(id, 1, Some(0.5)), vec![]);
-        assert_eq!(inv.take_at(id, 3, Some(0.95)), vec![(Extra { equipped: true, ..worn }, 1)]);
+        assert!(!inv.has_sound_at(id, Pick::at(Some(0.95))));
+        assert_eq!(inv.take_at(id, 1, Pick::at(Some(0.5))), vec![]);
+        assert_eq!(inv.take_at(id, 3, Pick::at(Some(0.95))), vec![(Extra { equipped: true, ..worn }, 1)]);
         assert_eq!(inv.count(id), 2);
     }
 
