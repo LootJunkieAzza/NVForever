@@ -532,9 +532,11 @@ fn casings(
     mut phys: ResMut<PhysState>,
     mut models: ModelCtx,
     mut fx: ResMut<ShotFx>,
-    root: Query<Entity, With<WorldRoot>>,
+    root: Query<(Entity, &GlobalTransform), With<WorldRoot>>,
     mut live: Query<(Entity, &mut Casing, &mut Transform)>,
     mut knocks: MessageWriter<PlaySound>,
+    body: Option<Res<PlayerBody>>,
+    nodes: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
     let gravity = phys.world.params.gravity;
@@ -570,17 +572,24 @@ fn casings(
             t.rotation = Quat::from_scaled_axis(c.spin * dt) * t.rotation;
         }
     }
-    let (Some(sfx), Ok(world_root)) = (sfx, root.single()) else {
+    let (Some(sfx), Ok((world_root, root_at))) = (sfx, root.single()) else {
         thrown.clear();
         return;
     };
+    // The held weapon's `ShellCasingNode` as drawn (last frame's place), under the world
+    // root: in first person the arms are drawn through a narrower view than the world's
+    // (`player_body::place_lens`), so the node as posed is not where the weapon is seen.
+    let seen = body.as_deref().and_then(PlayerBody::casing_entity).and_then(|e| nodes.get(e).ok()).map(|g| root_at.affine().inverse() * g.affine());
     for c in thrown.read() {
         let Some(model) = sfx.forms.weapons.get(&c.weapon).and_then(|w| w.shell_casing_model.as_deref()) else { continue };
         let Some(pm) = load(&mut models, &mut fx, "shell casing", model) else { continue };
-        let velocity = Vec3::from_array(c.velocity);
+        let (point, velocity) = match seen {
+            Some(m) => (m.translation.into(), m.transform_vector3(Vec3::Z).normalize_or_zero() * Vec3::from_array(c.velocity).length()),
+            None => (Vec3::from_array(c.point), Vec3::from_array(c.velocity)),
+        };
         // It tumbles about an axis across its flight [design].
         let spin = velocity.cross(Vec3::Z).normalize_or(Vec3::X) * 12.0;
-        let holder = spawn_model(&mut commands, world_root, &pm, Transform::from_translation(Vec3::from_array(c.point)));
+        let holder = spawn_model(&mut commands, world_root, &pm, Transform::from_translation(point));
         let sound = sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref() == Some(casing_sound(model))).map(|(&id, _)| id);
         commands.entity(holder).insert(Casing { velocity, spin, left: c.life.max(0.5), resting: false, sound, knocks: 0 });
         fx.casings += 1;

@@ -181,6 +181,12 @@ pub struct WeaponAnim {
     /// Set by the body each frame: where the weapon's `ShellCasingNode` is in the rig
     /// in view and the way a casing leaves it (unit), game space.
     pub casing: Option<([f32; 3], [f32; 3])>,
+    /// Set by the body: the weapon's attack clip has an `Eject` key, so its casings
+    /// leave when the clip reaches it (the action worked), not at the shot.
+    pub ejects_on_key: bool,
+    /// Counted up by the body when the attack clip of the rig in view passes its
+    /// `Eject` key; combat throws a casing from [`Self::casing`] then.
+    pub ejects: u32,
 }
 
 /// The player fired a shot this frame: the PROJ it fires. The renderer shows the
@@ -767,6 +773,9 @@ pub struct Combat {
     /// The weapon's looping shoot sound while it plays, and the seconds it has left
     /// unless another shot comes.
     looping: Option<(FormId, f32)>,
+    /// The last [`WeaponAnim::ejects`] seen, and when (`time`) the last shot was fired.
+    ejects_seen: u32,
+    last_shot: f32,
     /// The next [`ShotVisual::id`].
     next_visual: u64,
     pending: Vec<Pending>,
@@ -1245,6 +1254,8 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         settled: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
+        ejects_seen: 0,
+        last_shot: 0.0,
         next_visual: 0,
         pending: Vec::new(),
         script_shots: Vec::new(),
@@ -1560,6 +1571,10 @@ pub(crate) fn fire(
     let dt = time.delta_secs();
     let c = &mut *c;
     c.time += dt;
+    // The attack clip passed its `Eject` key since the last frame (the casing is thrown
+    // below, with the weapon's effects at hand).
+    let eject_now = anim.ejects != c.ejects_seen;
+    c.ejects_seen = anim.ejects;
     // VATS mode's marked shot due now: the point it goes straight at (vats-mode.md §9.1).
     let vats_shot = vats.as_deref_mut().and_then(|v| v.take_shot());
     // The looping shoot sound stops a moment after the last shot.
@@ -1630,6 +1645,10 @@ pub(crate) fn fire(
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
     }
     let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
+    if eject_now && anim.ejects_on_key {
+        throw_casing(&mut casings, &anim, weapon_fx, id, &c.rules);
+        info!("combat: {} ejects its casing at the clip's Eject key, {:.2} s after the shot", w.edid.as_deref().unwrap_or("?"), c.time - c.last_shot);
+    }
     for e in events {
         match e {
             Event::SpinUp => {
@@ -1638,6 +1657,7 @@ pub(crate) fn fire(
             }
             Event::Fired { rounds } => {
                 anim.attacks += 1;
+                c.last_shot = c.time;
                 stats.shots += 1;
                 if rounds > 0 && !god {
                     if let Some(a) = c.ammo {
@@ -1661,10 +1681,12 @@ pub(crate) fn fire(
                 };
                 fired.write(ShotFired { projectile: proj, weapon: id, shooter: FormId::PLAYER_REF, at: None, dir: None });
                 // A casing for each shot of a weapon with a casing model, from its
-                // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`)
-                // [hypothesis: one a shot, at the shot; the game's timing is not known].
-                if let (Some((point, dir)), true) = (anim.casing, weapon_fx.is_some_and(|f| f.shell_casing_model.is_some())) {
-                    casings.write(CasingFx { weapon: id, point, velocity: vec::scale(dir, c.rules.shell_eject_speed), life: c.rules.shell_lifetime });
+                // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`):
+                // at the shot, unless the attack clip has an `Eject` key (a bolt, lever
+                // or pump action), where it leaves when the clip reaches the key, below
+                // [hypothesis: at the shot for the clips without the key].
+                if !anim.ejects_on_key {
+                    throw_casing(&mut casings, &anim, weapon_fx, id, &c.rules);
                 }
                 // A weapon with a looping shoot sound (the minigun has no other) plays
                 // it for as long as shots keep coming [hypothesis: when the game does].
@@ -3139,6 +3161,15 @@ pub fn cooldown_action(timing: &fnv_combat::attack::Timing, left: f32, thrown: b
 /// length of the reload's opening clip, as the player body reads them; `next_attack`: the
 /// attack clip's `a:` key, its time and text (`fnv_actor::player_clips::ClipKeys`);
 /// `attach`: the attack clip's `Attach` key (a thrown weapon's).
+/// A casing of weapon `id` from its `ShellCasingNode` (the place and way the body
+/// gives) at the game's eject speed (`fGunShellEjectSpeed`), for a weapon with a casing
+/// model.
+fn throw_casing(casings: &mut MessageWriter<CasingFx>, anim: &WeaponAnim, fx: Option<&fnv_combat::fx::WeaponFx>, id: FormId, rules: &Rules) {
+    if let (Some((point, dir)), true) = (anim.casing, fx.is_some_and(|f| f.shell_casing_model.is_some())) {
+        casings.write(CasingFx { weapon: id, point, velocity: vec::scale(dir, rules.shell_eject_speed), life: rules.shell_lifetime });
+    }
+}
+
 pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>, next_attack: Option<(f32, &str)>, attach: Option<f32>) -> ClipTiming {
     ClipTiming {
         attach_time: attach,
