@@ -105,6 +105,12 @@ pub struct Item {
     /// `fnv.sim.items/1`.
     #[serde(skip)]
     pub weapon_damage: Option<i32>,
+    /// WEAP DNAM: what each mod slot (1, 2, 3) takes off the weight when its mod is on,
+    /// the value A of a "Decrease Weight" effect, 0 for the other effects and other items
+    /// (docs/spec-notes/weapon-mods.md §2, §3; [`Item::weight_with_mods`]). Not part of
+    /// `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub weight_mods: [f32; 3],
     /// A weapon an actor can draw: it has a model (MODL), is not part of a creature's body
     /// (DNAM flag "Embedded Weapon") and names an animation type [the engine's rule,
     /// `fnv_actor::weapon::drawable`]. Not part of `fnv.sim.items/1`.
@@ -132,6 +138,21 @@ pub struct Item {
     /// of `fnv.sim.items/1`.
     #[serde(skip)]
     pub placed_count: Option<i32>,
+}
+
+impl Item {
+    /// The weight of one unit with the mod flags `mods` on (1 slot 1, 2 slot 2, 4 slot 3):
+    /// each Decrease Weight mod on takes its value off, never below 0, as
+    /// `fnv_combat::WeaponStats::modded` does for the figures (weapon-mods.md §3).
+    pub fn weight_with_mods(&self, mods: u8) -> Option<f32> {
+        let mut w = self.weight?;
+        for (slot, a) in self.weight_mods.iter().enumerate() {
+            if mods & (1 << slot) != 0 && *a != 0.0 {
+                w = (w - a).max(0.0);
+            }
+        }
+        Some(w)
+    }
 }
 
 /// The weight class of a piece of armour.
@@ -438,6 +459,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         armor_dr: None,
                         armor_dt: None,
                         weapon_damage: None,
+                        weight_mods: [0.0; 3],
                         drawable: false,
                         quest_item: quest_flag(schema, r),
                         icon: None,
@@ -600,6 +622,17 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         weapon_damage: match kind {
             ItemKind::Weapon => Some(data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32),
             _ => None,
+        },
+        weight_mods: match (kind, first(d, b"DNAM")) {
+            (ItemKind::Weapon, Some(dn)) => [1, 2, 3].map(|slot| {
+                let decrease = dn.get(format!("effect_mod{slot}")).and_then(Value::as_str) == Some("Decrease Weight");
+                if decrease {
+                    num(dn, &format!("value_a_mod{slot}")).unwrap_or(0.0) as f32
+                } else {
+                    0.0
+                }
+            }),
+            _ => [0.0; 3],
         },
         drawable: kind == ItemKind::Weapon && {
             let dnam = first(d, b"DNAM");

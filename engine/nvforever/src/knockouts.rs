@@ -77,6 +77,7 @@ type Shown = (
     Option<&'static mut KnockedOut>,
     Has<Dying>,
     Has<Corpse>,
+    Option<&'static crate::outfits::Dressed>,
 );
 
 /// A bone's world position, by name.
@@ -115,10 +116,11 @@ fn show_knockouts(
     parents: Query<&ChildOf>,
     mut residents: Option<ResMut<crate::residents::Residents>>,
     mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let now = time.elapsed_secs();
-    for (e, r, rig, lo, mut t, gt, ko, dying, corpse) in &mut actors {
+    for (e, r, rig, lo, mut t, gt, ko, dying, corpse, dressed) in &mut actors {
         let id = fnv_sim::FormId(r.0);
         // Lying knocked out; a knockout already getting up waits for its clip here.
         let down = rt.game.knockout(id).is_some_and(|k| k.lying());
@@ -127,7 +129,8 @@ fn show_knockouts(
             if !down || dying || rt.game.is_dead(id) {
                 continue;
             }
-            let mut body = data.as_deref().and_then(|d| ragdolls.corpse(d, rig));
+            let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), dressed.map_or(&[][..], |d| &d.worn));
+            let mut body = data.as_deref().and_then(|d| ragdolls.corpse(d, rig, &templates));
             if let Some(v) = rt.game.take_shove(id) {
                 if let Some(b) = body.as_mut() {
                     b.velocity = v;

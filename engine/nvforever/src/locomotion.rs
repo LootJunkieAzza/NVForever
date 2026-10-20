@@ -763,7 +763,13 @@ pub fn drive(
         let drawn = crate::attack_anims::drawn(weapon.as_deref());
         if let Some(mut w) = weapon {
             if !w.hold {
+                // Sneaking: the stance's crouched equip, aim and unequip clips
+                // (`weapons::WeaponHold::set_crouched`); in water the body is upright.
+                w.set_crouched(lo.sneaking && !lo.swimming);
                 w.step(dt);
+                if let Some((clip, path)) = w.crouched_clip_news() {
+                    info!("crouched weapon: {} {} {clip:?} plays {path}", name.map_or("actor", |n| n.as_str()), w.stance.prefix);
+                }
             }
             w.layers(&mut player);
         }

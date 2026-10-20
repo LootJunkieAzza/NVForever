@@ -279,7 +279,8 @@ outstanding.md §1 rows 6, 7, 9 and 18; the menu codes in `fnv_game::game::menus
 
 - **MenuMode**: `MenuMode 1` (call and `Begin MenuMode 1` block) answers for any of the
   Pip-Boy's menus, and the Pip-Boy reports its page's code (STATS 1003, ITEMS 1002, DATA
-  1023, the repair list 1035) [documented: GECK wiki MenuMode, GetSelectedItemRef]. A
+  1023, the repair list 1035, the weapon mod menu 1061) [documented: GECK wiki MenuMode,
+  GetSelectedItemRef, GetMenuTargetRef]. A
   loading screen is 1007: `MenuMode 1007` holds and only the `Begin MenuMode 1007` blocks
   run under it, also in the two frames after a save is loaded [hypothesis, the DLC
   scripts' "from load" flags]. NVForever's VATS marking is 1056 beside GameMode

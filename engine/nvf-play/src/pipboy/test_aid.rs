@@ -15,6 +15,8 @@
 //!   held on it and moved would;
 //! - `repair=<open|down|up|use|cancel>`: R on the ITEMS page's selected item, and the
 //!   repair list's keys (`super::repair`);
+//! - `mod=<open|down|up|use|cancel>`: X on the ITEMS page's selected weapon, and the mod
+//!   menu's keys (`super::item_mod`);
 //! - `travel=<marker FormID>`: what a click on that map marker of the World Map does (the
 //!   fast-travel question, docs/spec-notes/fast-travel.md); `key=use` takes the chosen
 //!   answer (Yes at first), `key=down` moves to No.
@@ -39,6 +41,7 @@ enum Step {
     Drag(Vec2),
     Travel(u32),
     Repair(super::repair::RepairInput),
+    Mod(super::item_mod::ModInput),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -76,6 +79,14 @@ fn step(s: &str) -> Option<Step> {
                 "up" => super::repair::RepairInput::Up,
                 "use" => super::repair::RepairInput::Use,
                 "cancel" => super::repair::RepairInput::Cancel,
+                _ => return None,
+            }),
+            ("mod", r) => Step::Mod(match r.trim() {
+                "open" => super::item_mod::ModInput::Open,
+                "down" => super::item_mod::ModInput::Down,
+                "up" => super::item_mod::ModInput::Up,
+                "use" => super::item_mod::ModInput::Use,
+                "cancel" => super::item_mod::ModInput::Cancel,
                 _ => return None,
             }),
             ("tab", t) => Step::Tab(t.trim().parse().ok().filter(|t| *t < 5)?),
@@ -119,7 +130,7 @@ fn run(
     mut menu: MessageWriter<MenuInput>,
     mut pip: MessageWriter<PipBoyInput>,
     mut aid: ResMut<PipBoyAid>,
-    (mut ask, mut repair): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>),
+    (mut ask, mut repair, mut modding): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>, MessageWriter<super::item_mod::ModInput>),
 ) {
     let Some(now) = time.world_secs() else { return };
     while let Some(&(t, s)) = script.0.first() {
@@ -165,6 +176,9 @@ fn run(
             Step::Repair(r) => {
                 repair.write(r);
             }
+            Step::Mod(m) => {
+                modding.write(m);
+            }
         }
     }
 }
@@ -175,7 +189,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.97:repair=use");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.97:repair=use, 8.98:mod=open");
         assert_eq!(
             s,
             vec![
@@ -190,6 +204,7 @@ mod tests {
                 (8.9, Step::Drag(Vec2::new(-40.0, 25.0))),
                 (8.95, Step::Travel(0x000C_DF51)),
                 (8.97, Step::Repair(super::super::repair::RepairInput::Use)),
+                (8.98, Step::Mod(super::super::item_mod::ModInput::Open)),
                 (9.0, Step::Close)
             ]
         );

@@ -33,7 +33,7 @@ are built (rows 2 and 12, 2026-10-18,
 | 6 | Barber, plastic surgeon and tutorial menus (done 2026-10-18) | 9 | Built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11; the tutorial menu from the game's menu file ([tutorial-menu](spec-notes/tutorial-menu.md)), over the Pip-Boy for CGTutorial's crippled-limb help. Its code 1059 is confirmed by capture (mh1_tutorial); its words are guesses (owner-review) | (none) |
 | 7 | Pip-Boy reset (done 2026-10-18) | 8 | Built (script-stubs.md §3.15): ResetPipboyManager puts the Pip-Boy's pages back to their defaults and its light off. The Pip-Boy can still be used without a reset (no "NPC Pip-Boy" state) | (none) |
 | 8 | Talking activators (done 2026-10-18, awaiting the game's comparison) | 6 | Built ([talking-activators](spec-notes/talking-activators.md)): activating a talking activator talks to it; its talking actor (SetTalkingActivatorActor) speaks through it with its own lines and voice, IsActorTalkingThroughActivator holds meanwhile, the view turns to the activator. Capture ac6 matched (IsTalkingActivatorActor 1 for a script-set actor, against the wiki); the original's intercom, 2026-10-19 [observed]: the dialogue camera turns to the intercom, but no line is said and the conversation ends by itself within 10 game loops (saves nvftest and nvfstrip), where NVForever says "[You hear nothing.]" (talking-activators.md §3; open for the owner) | (none) |
-| 9 | Menu codes (done 2026-10-18) | 6 | Built (script-stubs.md §3.15, `fnv_game::game::menus`): MenuMode 1 for the Pip-Boy, its pages' codes (1002, 1003, 1023, the repair list 1035), loading screens 1007 (with their `Begin MenuMode 1007` blocks), VATS marking 1056, the tutorial 1059. Left: the pause menu's 1013 (scripts do not run under it); the codes of the menus not built (slot machines, item mods); the companion wheel reports 1075 (a hypothesis) | (none) |
+| 9 | Menu codes (done 2026-10-18) | 6 | Built (script-stubs.md §3.15, `fnv_game::game::menus`): MenuMode 1 for the Pip-Boy, its pages' codes (1002, 1003, 1023, the repair list 1035), loading screens 1007 (with their `Begin MenuMode 1007` blocks), VATS marking 1056, the tutorial 1059. Left: the pause menu's 1013 (scripts do not run under it); the codes of the menus not built (slot machines; the item mod menu reports 1061 since 2026-10-20); the companion wheel reports 1075 (a hypothesis) | (none) |
 | 10 | Caravan (done 2026-10-19, awaiting the owner) | 5 | Built ([caravan](spec-notes/caravan.md)): ShowCaravanMenu opens the bet, the deck builder (30 cards at least), the game and the results against the speaker; the rules from the game's help messages and the owner's rulings (Kings double again, out of cards loses, caps paid out); AddCardToPlayer keeps the player's cards, saved. Guesses: the opponent (its skill from its deck's face cards, owner ruling), the raise step, the layout (drawn flat, the original's is 3D). Bets in NCR dollars and Legion coins built (2026-10-19, caravan.md §3.1). Left: the Caravan challenges | (none) |
 | 11 | Race and sex changes (done 2026-10-18) | 5 | Built ([appearance-changes](spec-notes/appearance-changes.md) §2): AgeRace along the RACE age links and SexChange on any actor, drawn anew; SexChange's reset gives the player the first starting face (a guess). Every shipped call is on the player (the opening's VCG00 and VCG01) | (none) |
 | 12 | Placing at the crosshair (done 2026-10-18) | 5 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md) §4): the new reference goes where the crosshair's ray first hits, within maxDistance | (none) |
@@ -51,19 +51,25 @@ six functions still waiting for an in-game capture to settle their answers.
 
 From [status.md](status.md); the playthrough blockers above are not repeated.
 
-- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); people's power attacks (creatures' are built); ~~melee
+- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); ~~melee
   weapon use through UseWeapon~~ (built 2026-10-20, use-weapon.md §3.1); a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
   [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
-- **Animation**: NPCs' sneaking weapon clips; armour ragdoll (actors' jumps built 2026-10-20, [actor jumps](spec-notes/actor-jumps.md); open there: how the original takes ledge-up links and obstacles)
-  templates.
+- **Animation**: open in [actor jumps](spec-notes/actor-jumps.md) (built 2026-10-20): how the original takes ledge-up links and obstacles.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
   motion blur, the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
   66 particle-system smokes not drawn (playtest list 4 item 16).
-- **Interface**: credits; the item mod menu (the ITEMS page's DPS, ammo badge and Mod
-  hint, the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are
-  built, 2026-10-19).
+- **Interface**: credits. The weapon mod menu is built (2026-10-20,
+  [weapon-mods](spec-notes/weapon-mods.md)): X on a weapon lists the carried mods that
+  fit a free slot, attaching one uses it up and sets the weapon's mod flags (kept in
+  saves), the player's figures and model in hand change; MenuMode 1061. Left of it
+  (weapon-mods.md §6): modded models for weapons in the world and NPCs' hands, the
+  carried weight of Decrease Weight, projectile speed, ammo regeneration, the mod shoot
+  sounds, telling a modded and a plain unit at one condition apart when equipping or
+  dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
+  the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
+  2026-10-19.)
 - **Audio and video**: reverb, spatial sinks; a film's `muteAudio 0` (world sounds under a film).
 - **Saves**: loading into another load order, AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1).
 - **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`

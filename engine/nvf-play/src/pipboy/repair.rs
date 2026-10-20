@@ -41,7 +41,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use bevy::prelude::*;
 use fnv_game::repair::{gain_percent, hint, merged_condition, repairs_with, Gear, MergeSettings};
 use fnv_sim::forms::{BaseData, FormStore, ItemKind};
-use fnv_sim::inventory::Extra;
+use fnv_sim::inventory::{Extra, Pick};
 use fnv_sim::FormId;
 
 /// The list and its rows [documented: `RM_RepairList`, the template].
@@ -185,11 +185,12 @@ fn gear_of(forms: &FormStore, item: FormId) -> Option<(Gear, Option<String>)> {
     }
 }
 
-/// What the row of `item` at `at` (its units' condition, as the ITEMS model has it)
-/// offers: the unit (the equipped one first when `equipped`) and the parts for it.
-pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[FormId], item: FormId, at: Option<f32>, equipped: bool) -> Option<Offer> {
+/// What the row of `item` whose units `pick` names (their condition and mods, as the ITEMS
+/// model has them) offers: the unit (the equipped one first when `equipped`) and the parts
+/// for it.
+pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[FormId], item: FormId, pick: Pick, equipped: bool) -> Option<Offer> {
     let (gear, icon) = gear_of(forms, item)?;
-    let mine = groups.iter().filter(|g| g.0 == item && g.1.is_at(at)).max_by_key(|g| g.1.equipped == equipped)?;
+    let mine = groups.iter().filter(|g| g.0 == item && g.1.picked(pick)).max_by_key(|g| g.1.equipped == equipped)?;
     let (target, condition) = (mine.1, mine.1.condition_or_whole());
     let mut parts: Vec<Part> = Vec::new();
     for &(i, extra, count) in groups {
@@ -199,7 +200,7 @@ pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[
         if spare <= 0 || extra.equipped || extra.condition_or_whole() >= 1.0 || gear_of(forms, i).is_none() || !repairs_with(item, i, repair_list) {
             continue;
         }
-        let name = crate::menu::model::display_name(forms, i);
+        let name = crate::menu::model::modded_name(crate::menu::model::display_name(forms, i), extra.mods);
         parts.push(Part { item: i, extra, name: if spare > 1 { format!("{name} ({spare})") } else { name }, condition: extra.condition_or_whole() });
     }
     parts.sort_by(|a, b| a.name.cmp(&b.name).then(b.condition.total_cmp(&a.condition)));
@@ -213,7 +214,7 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     let forms = sim.forms;
     let list = script.and_then(|s| s.rt.as_ref()).map(|rt| fnv_game::functions::repair_list(&rt.game, r.item)).unwrap_or_default();
     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
-    offer(&groups, forms, &list, r.item, r.at, r.equipped)
+    offer(&groups, forms, &list, r.item, r.pick(), r.equipped)
 }
 
 /// The keys of the repair list and R on the ITEMS page.
@@ -228,6 +229,7 @@ pub fn keys(
     script: Option<ResMut<ScriptState>>,
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
+    modding: Res<super::item_mod::PipItemMod>,
 ) {
     use KeyCode::*;
     let mut steps: Vec<RepairInput> = aid.read().copied().collect();
@@ -238,7 +240,8 @@ pub fn keys(
         }
         return;
     }
-    if prompt.held(&active) {
+    // The mod menu has the keys while it is shown (`super::item_mod`).
+    if prompt.held(&active) || modding.is_open() {
         return;
     }
     for (k, s) in [(&[KeyR, KeyR][..], RepairInput::Open), (&[ArrowUp, KeyW], RepairInput::Up), (&[ArrowDown, KeyS], RepairInput::Down), (&[Enter, NumpadEnter, Space], RepairInput::Use), (&[KeyE, Escape], RepairInput::Cancel)] {
@@ -287,7 +290,7 @@ pub fn keys(
                 let o = &s.offer;
                 let to = merged_condition(&s.settings, o.condition, part.condition, s.skill);
                 let done = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|inv| {
-                    let taken: i32 = inv.take_at(part.item, 1, Some(part.condition)).iter().map(|g| g.1).sum();
+                    let taken: i32 = inv.take_at(part.item, 1, Pick::row(Some(part.condition), part.extra.mods)).iter().map(|g| g.1).sum();
                     taken == 1 && inv.set_condition_one(o.item, o.extra, to)
                 });
                 if done {
@@ -407,7 +410,7 @@ mod tests {
     fn store(items: &[(u32, ItemKind)]) -> FormStore {
         let mut f = FormStore::default();
         for &(id, kind) in items {
-            let it = Item { kind, value: Some(10), weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, drawable: false, quest_item: false, icon: None, placed_count: None };
+            let it = Item { kind, value: Some(10), weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, weight_mods: [0.0; 3], drawable: false, quest_item: false, icon: None, placed_count: None };
             f.bases.insert(FormId(id), BaseForm { id: FormId(id), sig: *b"ARMO", edid: None, name: Some(format!("Item {id}")), script: None, data: BaseData::Item(it) });
         }
         f
@@ -425,23 +428,23 @@ mod tests {
         let groups = vec![(a, worn, 1), (a, at(0.3), 1), (b, at(0.4), 1), (b, Extra::default(), 1), (c, at(0.2), 1), (misc, Extra::default(), 3)];
         // Item 1 repaired by itself and item 2 (its list); item 3 is not on the list, and
         // item 2 at full condition is no part (owner's rule).
-        let o = offer(&groups, &forms, &[a, b], a, Some(0.5), true).unwrap();
+        let o = offer(&groups, &forms, &[a, b], a, Pick::at(Some(0.5)), true).unwrap();
         assert_eq!((o.extra, o.condition, o.gear), (worn, 0.5, Gear::Armor));
         let parts: Vec<(FormId, f32)> = o.parts.iter().map(|p| (p.item, p.condition)).collect();
         assert_eq!(parts, vec![(a, 0.3), (b, 0.4)]);
         assert!(o.usable());
         // Repairing the unworn one: the worn unit is no part.
-        let o = offer(&groups, &forms, &[a, b], a, Some(0.3), false).unwrap();
+        let o = offer(&groups, &forms, &[a, b], a, Pick::at(Some(0.3)), false).unwrap();
         assert_eq!(o.parts.iter().map(|p| p.item).collect::<Vec<_>>(), vec![b]);
         // Two units in one group: the other one is a part.
         let pair = vec![(c, at(0.2), 2)];
-        let o = offer(&pair, &forms, &[], c, Some(0.2), false).unwrap();
+        let o = offer(&pair, &forms, &[], c, Pick::at(Some(0.2)), false).unwrap();
         assert_eq!(o.parts.len(), 1);
         // At full condition: nothing to do.
         let full = vec![(b, Extra::default(), 1), (b, at(0.4), 1)];
-        assert!(!offer(&full, &forms, &[], b, Some(1.0), false).unwrap().usable());
+        assert!(!offer(&full, &forms, &[], b, Pick::at(Some(1.0)), false).unwrap().usable());
         // Not a weapon or armour.
-        assert_eq!(offer(&groups, &forms, &[], misc, None, false), None);
+        assert_eq!(offer(&groups, &forms, &[], misc, Pick::ANY, false), None);
     }
 
     #[test]

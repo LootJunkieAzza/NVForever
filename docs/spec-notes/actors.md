@@ -1442,7 +1442,8 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   skeleton lacks].
 - The unarmed locomotion clips are priority 30 (walk, run) and 10 (`mtidle.kf`), and none
   of them drives `Weapon` [observed: `kf_bind_check`].
-- `pa*` (power armour) and `sneak*` variants exist for several prefixes; not used.
+- `pa*` (power armour) variants exist for several prefixes; not used. The `sneak*`
+  (crouched) variants are §9.4's "Crouched with the weapon".
 
 ### 9.2 Where the weapon hangs
 
@@ -1565,6 +1566,64 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
     walk; the weapon's turn over the limping turn (the player's order).
   - Each clip file an armed NPC plays is logged once: `armed locomotion: <actor> <prefix>
     <move> plays <file>` (smoke `armed-npc-moves`).
+- **Crouched with the weapon** (2026-10-20, docs/outstanding.md §2 Animation: NPCs'
+  sneaking weapon clips). A sneaking NPC (`sneaking.rs`: SetForceSneak, Always Sneak,
+  crouched to fire or to hide, sneaking with the player) whose weapon is out.
+  - Clips [observed: `Fallout - Meshes.bsa` and `Update.bsa` file lists, 2026-10-20; all
+    directly in `characters\_male\`, none per body]: every stance has `sneak<prefix>aim`,
+    `…equip` and `…unequip.kf` (`1hp`, `1hm`, `2ha`, `2hh`, `2hl`, `2hm`, `2hr`, `h2h`,
+    `1gt`, `1lm`, `1md`); the aim's up and down forms (`sneak<prefix>aim{up,down}.kf`)
+    for `1hp`, `1hm`, `2ha`, `2hh`, `2hl`, `2hm`, `2hr`, and iron sights
+    (`sneak<prefix>aimis{,up,down}.kf`) for `1hp`, `2ha`, `2hr`; attacks, reloads and jams
+    with their up, down and sights forms for the guns (`sneak1hpattack3.kf`,
+    `sneak2hrreloadzstart.kf`, `sneak2hhattackspin.kf` …; `sneak1hpattack8*.kf` only in
+    `Update.bsa`); melee power and spin attacks and blocks (`sneak1hmattackpower.kf`,
+    `sneak2hmblockidle.kf`), but no crouched plain swings (`sneak1hmattackleft.kf` is not
+    there) and for fists only `sneakh2hattackpower.kf` and `sneakh2hattackcustom3power.kf`;
+    `sneak1gtattackthrow{,2,3,5,6,7,8}.kf`, `sneak1lmplacemine{,2}.kf`,
+    `sneak1mdplacemine.kf`; `sneak1hmidle.kf`. There is no `sneak<prefix>holster.kf`
+    (only the power-armour `pasneak2haholster.kf` and `pasneak2hrholster.kf`), no crouched
+    weapon turn and, apart from `sneak2hh*` (the eight walks and runs above), no crouched
+    weapon walk or run.
+  - Why it matters [observed: `kf_layer_survey` and `kf_pose_compare` on the base meshes
+    archive, 2026-10-20]: the standing aim clips drive the pelvis and legs at priority
+    25 (`1hpaim.kf`, `2hraim.kf`, `2haaim.kf`, `2hhaim.kf`, `2hlaim.kf`, `1hmaim.kf`,
+    `1gtaim.kf`, `1lmaim.kf`, `1mdaim.kf`; `2hmaim.kf` and `h2haim.kf` 15), above the
+    crouched idle's 20 (`sneakmtidle.kf`), with the legs of a standing pose
+    (`1hpaim.kf`, `2hraim.kf`: thighs 66–75° and calves 110–127° from the crouched
+    idle's). The crouched aims drive them at 25 too (`sneak2hmaim.kf`, `sneakh2haim.kf`
+    15; `sneak1gtaim.kf` 20) in the crouched idle's own pose (`sneak1hpaim.kf`,
+    `sneak2hraim.kf`, `sneak2hmaim.kf`, `sneakh2haim.kf`: 0.0–0.8° from it). The equip
+    and unequip clips alike (`1hpequip.kf` legs 27, standing; `sneak1hpequip.kf` 29,
+    crouched). The crouched walks and runs (30) are above either, so a moving crouched
+    actor kept its crouched legs. The holster clips drive no legs (priority 5 on the
+    holster bone).
+  - Timing [observed]: the crouched clips are as long as the standing ones and keep the
+    same `Attach`/`Detach` and `prn:` bones, with a few keys moved (`sneak2hrequip.kf`
+    `prn:` at 0.03 s where `2hrequip.kf` has it at 0.63 s); `sneak1hmequip.kf` (0.633 s)
+    and `…unequip.kf` (0.667 s) are shorter than `1hmequip.kf` (0.900 s) and
+    `1hmunequip.kf` (1.100 s), `sneak2hmaim.kf` (3.1 s) and `sneakh2haim.kf` (3.33 s) than
+    `2hmaim.kf` (3.5 s) and `h2haim.kf` (4.67 s).
+  - Engine (`weapons::WeaponHold::set_crouched`, set every frame from
+    `Locomotion::sneaking`, not in water): the draw cycle plays the stance's crouched
+    equip, aim and unequip clips where the folder has them, each else the standing clip,
+    and the standing holster clip [design, as the player's body:
+    `player_clips::equip_clips` and `aim_clips` take `sneak<prefix>…` first, then the
+    standing clip]; the stage and its time go on through a change of posture, the old
+    form fading out over the new clip's blend time (its `Blend:` key, else 0.2 s), as the
+    locomotion's sets do [design]. The holster and hand bones stay the standing clips'
+    (the crouched ones name the same) and the `Weapon` node's rest in the hand is where the
+    standing equip clip leaves it [design]. In a fight the aim's up and down forms, the
+    sights, the attacks, reloads and block reactions are the crouched ones while the actor
+    is crouched to fire or sneaks (`attack_anims::CombatPose`, docs/design/combat-ai.md
+    §14), else the standing ones; an attack without a crouched clip (a fist's jab, a
+    knife's swing) plays its standing clip over the crouched legs [design, as the
+    player's `attack_clips`]. `sneak1hmidle.kf` is not used, as `1hmidle.kf` is not.
+  - Each crouched clip file an NPC plays is logged once: `crouched weapon: <actor>
+    <prefix> <clip> plays <file>` (smoke `crouched-npc-weapon`).
+  - Open [hypothesis]: whether the game itself fades between an aim and its crouched
+    form, and over how long; an in-game capture of an NPC crouching with a drawn weapon
+    would settle it.
 - **Weapon model**: drawn as a rigid part under the actor's `Weapon` node, which is moved
   to the bone of §9.2 when it changes. The `##` part tracks are not played yet (the parts
   stay at their model pose).

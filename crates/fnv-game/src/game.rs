@@ -737,6 +737,9 @@ pub mod menus {
     /// The Pip-Boy's repair list (`crate::repair::REPAIR_MENU`) [documented: GECK wiki
     /// GetSelectedItemRef, "Pipboy Repair Menu (1035)"].
     pub const REPAIR: u16 = crate::repair::REPAIR_MENU;
+    /// The Pip-Boy's weapon mod menu [documented: GECK wiki GetMenuTargetRef, "1061 The
+    /// weapon being modded (Inventory Reference)"; docs/spec-notes/weapon-mods.md §5].
+    pub const ITEM_MOD: u16 = 1061;
     /// VATS target selection [documented: GECK wiki GetMenuTargetRef, "1056 The current
     /// target in VATS target-selection"]. NVForever's VATS is a slow-time mode, not a
     /// menu that pauses the game (`crate::vats`): `MenuMode 1056` holds and the
@@ -750,10 +753,11 @@ pub mod menus {
     pub const COMPANION_WHEEL: u16 = crate::companion_wheel::MENU_CODE;
 
     /// The codes of the Pip-Boy's menus, which `MenuMode 1` answers for: its three pages
-    /// and the repair list it opens [hypothesis: the repair list counts as the Pip-Boy's;
-    /// the wiki names it "Pipboy Repair Menu"].
+    /// and the repair list and mod menu it opens [hypothesis: they count as the Pip-Boy's;
+    /// the wiki names the first "Pipboy Repair Menu", the mod menu's file "Pipboy mod
+    /// menu"].
     pub fn is_pipboy(code: u16) -> bool {
-        matches!(code, INVENTORY | STATS | MAP | REPAIR)
+        matches!(code, INVENTORY | STATS | MAP | REPAIR | ITEM_MOD)
     }
 
     /// Whether `MenuMode want` holds with the menu `open` on top: its own code, or the

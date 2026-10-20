@@ -45,6 +45,8 @@ impl Plugin for OutfitsPlugin {
 pub struct Dressed {
     pub worn: Vec<FormId>,
     pub weapon: Option<FormId>,
+    /// The held weapon's mod flags (`Appearance::weapon_mods`).
+    pub weapon_mods: u8,
     /// Each drawn part's key ([`part_key`]) and its shape entities.
     pub parts: Vec<(String, Vec<Entity>)>,
 }
@@ -53,7 +55,7 @@ impl Dressed {
     /// The record of an actor just spawned from `a`: `drawn` and `part_of` as
     /// `spawn_actor` gave them, `part_index` the index in `a.parts` of each part spawned.
     pub fn new(world: &ActorWorld, a: &Appearance, part_index: &[usize], spawned: &SpawnedActor) -> Dressed {
-        Dressed { worn: a.worn.clone(), weapon: a.weapon, parts: grouped(a, part_index, spawned, pipboy_of(world, a)) }
+        Dressed { worn: a.worn.clone(), weapon: a.weapon, weapon_mods: a.weapon_mods, parts: grouped(a, part_index, spawned, pipboy_of(world, a)) }
     }
 }
 
@@ -113,9 +115,12 @@ fn follow_inventory(
     for (entity, rig, mut dressed, mut player, dead) in &mut actors {
         let Some(items) = sim.world.equipment(FormId(rig.reference)) else { continue };
         let (worn, weapon) = drawn_of(&world, &items);
+        // The mods of the unit held: a modded weapon draws its mods' model.
+        let mods = weapon.map_or(0, |w| sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w)));
         let dressed = &mut *dressed;
         let same_worn = worn.len() == dressed.worn.len() && worn.iter().all(|w| dressed.worn.contains(w));
-        if same_worn && weapon == dressed.weapon {
+        let same_weapon = weapon == dressed.weapon && mods == dressed.weapon_mods;
+        if same_worn && same_weapon {
             continue;
         }
         let who = format!("{:08X}", rig.reference);
@@ -123,14 +128,15 @@ fn follow_inventory(
             Ok(n) => n,
             Err(e) => {
                 warn!("outfit: actor {who}: cannot be dressed again ({e})");
-                (dressed.worn, dressed.weapon) = (worn, weapon);
+                (dressed.worn, dressed.weapon, dressed.weapon_mods) = (worn, weapon, mods);
                 continue;
             }
         };
         new.weapon = weapon;
+        new.weapon_mods = mods;
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
-        if weapon != dressed.weapon {
+        if !same_weapon {
             // The old hold goes, the weapon's or the fists' (`actors::arm`).
             for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
                 commands.entity(e).despawn();
@@ -155,13 +161,14 @@ fn follow_inventory(
                     match weapon {
                         Some(w) if st.fists == 0 => {
                             stats.weapons_on += 1;
-                            info!("outfit: actor {who}: weapon {w} now held: put in its holster");
+                            let modded = if mods != 0 { format!(" (mods {mods})") } else { String::new() };
+                            info!("outfit: actor {who}: weapon {w}{modded} now held: put in its holster");
                         }
                         _ => info!("outfit: actor {who}: no weapon held: its fists"),
                     }
                 }
             }
-            dressed.weapon = weapon;
+            (dressed.weapon, dressed.weapon_mods) = (weapon, mods);
         }
         if same_worn {
             continue;
