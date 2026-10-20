@@ -1,7 +1,8 @@
 //! The effect content of shots (docs/spec-notes/combat-rules.md §16): what a weapon, a
 //! projectile, an explosion and an impact sound and look like. Read with the record
-//! layouts in `schemas/fnv` (WEAP and SOUN in `objects.json`; PROJ and EXPL in
-//! `combat.json`; ADDN, IPCT and IPDS in `placed.json`), all [documented: xEdit]. This
+//! layouts in `schemas/fnv` (WEAP, SOUN and TXST in `objects.json`; PROJ and EXPL in
+//! `combat.json`; ADDN, IPCT and IPDS in `placed.json`; DODT in `common.json`), all
+//! [documented: xEdit]. This
 //! module keeps the records' own names; what the engine does with them is its business.
 //!
 //! Kept apart from [`crate::data::CombatForms`]: the rules do not need any of it.
@@ -9,7 +10,7 @@
 use std::collections::HashMap;
 
 use fnv_esm::{LoadOrder, Record, Schema};
-use fnv_sim::extract::{self, all, first, global, int, local_fid, num, text, Decoded};
+use fnv_sim::extract::{self, all, first, global, has_flag, int, local_fid, num, text, Decoded};
 use fnv_sim::FormId;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -106,6 +107,60 @@ pub struct Impact {
     pub texture_set: Option<FormId>,
     pub sound_1: Option<FormId>,
     pub sound_2: Option<FormId>,
+    /// `DATA` angle threshold (degrees) and placement radius (units): "how far around in
+    /// degrees a decal renders" and "the distance between decals" [documented: GECK wiki
+    /// ImpactData].
+    pub angle_threshold: f32,
+    pub placement_radius: f32,
+    /// `DODT`: the impact's own decal data, which "overrides the Texture Set decal
+    /// data" [documented: GECK wiki ImpactData]; `None` with the `DATA` flag "No Decal
+    /// Data", when the texture set's is used (docs/spec-notes/impact-decals.md §1).
+    pub decal: Option<DecalData>,
+}
+
+/// `DODT` Decal Data, of an IPCT or a TXST [documented: xEdit wbDODT; GECK wiki
+/// ImpactData]. Sizes and depth in game units.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct DecalData {
+    pub min_width: f32,
+    pub max_width: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    /// "How far from the point of impact the decal renders".
+    pub depth: f32,
+    /// "Sets the specular exponent".
+    pub shininess: f32,
+    pub parallax: bool,
+    pub parallax_scale: f32,
+    pub parallax_passes: u8,
+    pub alpha_blending: bool,
+    pub alpha_testing: bool,
+    /// "Multiplies the texture by the selected color".
+    pub color: [u8; 3],
+}
+
+impl DecalData {
+    /// The side of a decal for `r` in 0..1: between the smaller and the larger of the
+    /// width range (a record may store them the other way round: `FlamerScorchStoneImpact`
+    /// 120 and 80). The height range is not used: the decal is square
+    /// (docs/spec-notes/impact-decals.md §2) [design].
+    pub fn side(&self, r: f32) -> f32 {
+        let (lo, hi) = (self.min_width.min(self.max_width), self.min_width.max(self.max_width));
+        (lo + (hi - lo) * r.clamp(0.0, 1.0)).max(0.0)
+    }
+}
+
+/// TXST: the textures of a texture set (relative to `textures\`) and its decal data.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct TextureSet {
+    pub edid: Option<String>,
+    /// `TX00` Base Image / Transparency, `TX01` Normal Map / Specular, `TX04` Parallax Map.
+    pub diffuse: Option<String>,
+    pub normal: Option<String>,
+    pub parallax: Option<String>,
+    /// `DNAM` flag "No Specular Map".
+    pub no_specular: bool,
+    pub decal: Option<DecalData>,
 }
 
 /// The materials of an IPDS, in the record's order.
@@ -122,6 +177,8 @@ pub struct FxForms {
     /// By node index (`DATA`).
     pub addons: HashMap<i32, AddonNode>,
     pub impacts: HashMap<FormId, Impact>,
+    /// TXST.
+    pub texture_sets: HashMap<FormId, TextureSet>,
     /// IPDS: the IPCT of each of [`IMPACT_MATERIALS`].
     pub impact_sets: HashMap<FormId, [Option<FormId>; 12]>,
     /// NPC_ and CREA `NAM4` Impact Material Type, an index into [`IMPACT_MATERIALS`]
@@ -129,7 +186,7 @@ pub struct FxForms {
     pub actor_impact: HashMap<FormId, usize>,
 }
 
-const SIGS: &[&[u8; 4]] = &[b"SOUN", b"WEAP", b"PROJ", b"EXPL", b"ADDN", b"IPCT", b"IPDS"];
+const SIGS: &[&[u8; 4]] = &[b"SOUN", b"WEAP", b"PROJ", b"EXPL", b"ADDN", b"IPCT", b"IPDS", b"TXST"];
 
 enum Loaded {
     Sound(Sound),
@@ -139,6 +196,30 @@ enum Loaded {
     Addon(AddonNode),
     Impact(Impact),
     ImpactSet([Option<FormId>; 12]),
+    TextureSet(TextureSet),
+}
+
+/// A decoded `DODT`.
+fn decal_data(v: &Value) -> DecalData {
+    let n = |key: &str| num(v, key).unwrap_or(0.0) as f32;
+    let flags = v.get("flags");
+    let flag = |name: &str| flags.is_some_and(|f| has_flag(f, name));
+    let c = v.get("color");
+    let channel = |key: &str| c.and_then(|c| int(c, key)).unwrap_or(255).clamp(0, 255) as u8;
+    DecalData {
+        min_width: n("min_width"),
+        max_width: n("max_width"),
+        min_height: n("min_height"),
+        max_height: n("max_height"),
+        depth: n("depth"),
+        shininess: n("shininess"),
+        parallax: flag("Parallax"),
+        parallax_scale: n("parallax_scale"),
+        parallax_passes: int(v, "parallax_passes").unwrap_or(0).clamp(0, 255) as u8,
+        alpha_blending: flag("Alpha - Blending"),
+        alpha_testing: flag("Alpha - Testing"),
+        color: [channel("red"), channel("green"), channel("blue")],
+    }
 }
 
 fn path(v: Option<&Value>) -> Option<String> {
@@ -200,6 +281,9 @@ impl FxForms {
                 Loaded::ImpactSet(s) => {
                     out.impact_sets.insert(id, s);
                 }
+                Loaded::TextureSet(t) => {
+                    out.texture_sets.insert(id, t);
+                }
             }
         }
         out
@@ -213,6 +297,15 @@ impl FxForms {
     /// The impact material of an actor whose base is `base` (NPC_ or CREA `NAM4`).
     pub fn actor_material(&self, base: FormId) -> Option<&'static str> {
         self.actor_impact.get(&base).and_then(|&k| IMPACT_MATERIALS.get(k)).copied()
+    }
+
+    /// The decal an impact leaves: its texture set and the decal data that holds, the
+    /// impact's own, else the texture set's (docs/spec-notes/impact-decals.md §1). `None`
+    /// without a texture set with a base image, or without decal data.
+    pub fn decal(&self, impact: &Impact) -> Option<(&TextureSet, DecalData)> {
+        let t = self.texture_sets.get(&impact.texture_set?)?;
+        t.diffuse.as_ref()?;
+        Some((t, impact.decal.or(t.decal)?))
     }
 
     pub fn impact_id(&self, set: FormId, material: &str) -> Option<FormId> {
@@ -313,8 +406,19 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 texture_set: fid(first(d, b"DNAM")),
                 sound_1: fid(first(d, b"SNAM")),
                 sound_2: fid(first(d, b"NAM1")),
+                angle_threshold: v.and_then(|v| num(v, "angle_threshold")).unwrap_or(0.0) as f32,
+                placement_radius: v.and_then(|v| num(v, "placement_radius")).unwrap_or(0.0) as f32,
+                decal: if v.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "No Decal Data")) { None } else { first(d, b"DODT").map(decal_data) },
             })
         }
+        b"TXST" => Loaded::TextureSet(TextureSet {
+            edid,
+            diffuse: path(first(d, b"TX00")),
+            normal: path(first(d, b"TX01")),
+            parallax: path(first(d, b"TX04")),
+            no_specular: first(d, b"DNAM").is_some_and(|f| has_flag(f, "No Specular Map")),
+            decal: first(d, b"DODT").map(decal_data),
+        }),
         b"IPDS" => {
             let v = first(d, b"DATA");
             Loaded::ImpactSet(std::array::from_fn(|k| field(v, IMPACT_MATERIALS[k])))
@@ -364,5 +468,32 @@ mod tests {
         for code in 0..128 {
             assert!(IMPACT_MATERIALS.contains(&impact_material(Some(code))));
         }
+    }
+
+    #[test]
+    fn decal_side_spans_the_width_range_either_way_round() {
+        let d = DecalData { min_width: 120.0, max_width: 80.0, min_height: 8.0, max_height: 32.0, ..DecalData::default() };
+        assert_eq!(d.side(0.0), 80.0);
+        assert_eq!(d.side(1.0), 120.0);
+        assert_eq!(d.side(0.5), 100.0);
+        assert_eq!(d.side(2.0), 120.0);
+    }
+
+    #[test]
+    fn an_impact_without_decal_data_of_its_own_takes_the_texture_set_one() {
+        let own = DecalData { min_width: 10.0, max_width: 20.0, ..DecalData::default() };
+        let set = DecalData { min_width: 2.0, max_width: 2.0, ..DecalData::default() };
+        let mut f = FxForms::default();
+        f.texture_sets.insert(FormId(1), TextureSet { diffuse: Some("Decals\\A.dds".into()), decal: Some(set), ..TextureSet::default() });
+        f.texture_sets.insert(FormId(2), TextureSet { diffuse: None, decal: Some(set), ..TextureSet::default() });
+        let mut i = Impact { texture_set: Some(FormId(1)), decal: Some(own), ..Impact::default() };
+        assert_eq!(f.decal(&i).map(|d| d.1), Some(own));
+        i.decal = None;
+        assert_eq!(f.decal(&i).map(|d| d.1), Some(set));
+        // No base image, or no texture set: nothing to draw.
+        i.texture_set = Some(FormId(2));
+        assert!(f.decal(&i).is_none());
+        i.texture_set = None;
+        assert!(f.decal(&i).is_none());
     }
 }

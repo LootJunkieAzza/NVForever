@@ -146,14 +146,15 @@ pub fn run(cmd: CombatCmd) -> Result<Value> {
                 .iter()
                 .filter_map(|m| {
                     let i = fx.impact(set?, m)?;
-                    Some((m.to_string(), json!({"impact": i, "sound_1": sound(i.sound_1), "sound_2": sound(i.sound_2)})))
+                    let decal = fx.decal(i).map(|(t, d)| json!({"texture_set": t, "data": d}));
+                    Some((m.to_string(), json!({"impact": i, "sound_1": sound(i.sound_1), "sound_2": sound(i.sound_2), "decal": decal})))
                 })
                 .collect();
             let mut addons: Vec<&fnv_combat::fx::AddonNode> = fx.addons.values().collect();
             addons.sort_by_key(|a| a.index);
             Ok(json!({
                 "schema": "fnv.combat.fx/1",
-                "counts": {"sounds": fx.sounds.len(), "weapons": fx.weapons.len(), "projectiles": fx.projectiles.len(), "explosions": fx.explosions.len(), "addon_nodes": fx.addons.len(), "impacts": fx.impacts.len(), "impact_sets": fx.impact_sets.len()},
+                "counts": {"sounds": fx.sounds.len(), "weapons": fx.weapons.len(), "projectiles": fx.projectiles.len(), "explosions": fx.explosions.len(), "addon_nodes": fx.addons.len(), "impacts": fx.impacts.len(), "impact_sets": fx.impact_sets.len(), "texture_sets": fx.texture_sets.len()},
                 "weapon": w,
                 "shoot_3d": sound(w.and_then(|w| w.shoot_3d)),
                 "shoot_dist": sound(w.and_then(|w| w.shoot_dist)),

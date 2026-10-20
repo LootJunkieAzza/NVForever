@@ -37,6 +37,7 @@ mod creature_stance;
 mod creator_view;
 mod death_cam;
 mod deaths;
+mod decals;
 mod dismember;
 mod knockouts;
 mod player_knockdown;
@@ -96,6 +97,7 @@ mod appearance;
 mod script_look;
 mod ripples;
 mod settings;
+mod iron_sights;
 mod view_sway;
 mod setup;
 mod shadow_probe;
@@ -563,6 +565,10 @@ struct Args {
     /// bob (view_sway.rs); a switch of the settings page.
     #[arg(long, requires = "play")]
     no_weapon_sway: bool,
+    /// Aim down the sights as the original does: the gun is not lined up with the eye
+    /// (iron_sights.rs); a switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_true_iron_sights: bool,
     /// Do not turn actors' heads to the player and to NPCs near them (head_look.rs,
     /// docs/spec-notes/actors.md §12).
     #[arg(long)]
@@ -1231,7 +1237,8 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway, true_iron_sights: !args.no_true_iron_sights }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
@@ -1494,9 +1501,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).
         bevy::core_pipeline::prepass::DepthPrepass,
-        // The world, the water (which the reflection camera leaves out) and the
-        // player's first-person arms.
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER]),
+        // The world, the water (which the reflection camera leaves out), the player's
+        // first-person arms and the impact decals (which need this camera's prepass).
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, decals::DECAL_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);

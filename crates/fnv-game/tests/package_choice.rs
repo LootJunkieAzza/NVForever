@@ -112,6 +112,7 @@ const P_SUNDAY: u32 = 0x82A;
 const P_WEEKEND: u32 = 0x82B;
 const P_FIND_2H: u32 = 0x82C;
 const P_PATROL_3H: u32 = 0x82D;
+const P_SCRIPT_3H: u32 = 0x82E;
 // Actor bases and references.
 const NPC_A: u32 = 0x840;
 const NPC_B: u32 = 0x841;
@@ -170,6 +171,7 @@ fn plugin_bytes() -> Vec<u8> {
         p(P_WEEKEND, "Weekend", 0, TRAVEL, NEAR_EDITOR, -1, 0, 8, None),
         p(P_FIND_2H, "FindOnceADay2h", flags::ONCE_PER_DAY, 0, NEAR_EDITOR, -1, 2, -1, None),
         p(P_PATROL_3H, "SandboxOnceADay3h", flags::ONCE_PER_DAY, SANDBOX, NEAR_EDITOR, -1, 3, -1, None),
+        p(P_SCRIPT_3H, "MustTravel3h", flags::MUST_COMPLETE, TRAVEL, NEAR_EDITOR, -1, 3, -1, None),
     ]
     .concat();
     let npcs = [
@@ -538,6 +540,35 @@ fn a_script_package_whose_goal_was_met_is_removed_at_the_next_choice() {
     g.evaluate_package(a);
     assert!(g.extra[&a].script_package.is_none());
     assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
+}
+
+/// A script package with a schedule duration (no starting hour) stays after its goal is
+/// met until that duration has run out, then the actor goes back to its list (the
+/// Strip's SS2 scene: VStripSS2WallDrunk3, a 3 h Must Complete travel, stayed current
+/// after its trooper arrived; npc-behaviour-compare.md §10.1).
+#[test]
+fn a_timed_script_package_stays_after_its_goal_until_its_duration_is_up() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, Some(10.0));
+    let a = id(REF_A);
+    g.tick();
+    let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(P_SCRIPT_3H))]);
+    assert_eq!(g.extra[&a].current_package, Some(id(P_SCRIPT_3H)));
+    assert!(g.extra[&a].package_ends.is_some_and(|(p, t)| p == id(P_SCRIPT_3H) && (t - (5.0 + 3.0 / 24.0)).abs() < 1e-4));
+    // Arrived an hour on: it stays, through the periodic choice and EvaluatePackage.
+    set(&mut g, G_DAYS_PASSED, 5.04);
+    g.package_goal_met(a);
+    g.tick();
+    assert_eq!(g.evaluate_package(a), Some(id(P_SCRIPT_3H)));
+    assert_eq!(g.extra[&a].script_package, Some(id(P_SCRIPT_3H)));
+    // Past its 3 hours: removed, back to the list's noon sandbox.
+    set(&mut g, G_DAYS_PASSED, 5.13);
+    g.tick();
+    assert!(g.extra[&a].script_package.is_none());
+    assert_eq!(g.extra[&a].current_package, Some(id(P_DEFAULT)));
 }
 
 /// SetPackDuration ends the current package that many game minutes after the call (it

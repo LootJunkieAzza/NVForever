@@ -422,6 +422,9 @@ struct Rig {
     muzzle_entity: Option<Entity>,
     /// The way down to the weapon model's `ShellCasingNode`, as `muzzle`.
     casing: Option<Vec<(Option<usize>, Transform)>>,
+    /// The way down to the weapon model's `##SightingNode`, as `muzzle`
+    /// (`iron_sights.rs`).
+    sighting: Option<Vec<(Option<usize>, Transform)>>,
     /// Third person: the entities drawn for the body's parts.
     drawn: Vec<Drawn>,
     /// First person: whether the rig is shown (last applied).
@@ -481,6 +484,29 @@ impl Rig {
             m *= affine(extra.and_then(|k| a.extra_local(k)).unwrap_or(*bind));
         }
         Some(m)
+    }
+
+    /// True iron sights (`iron_sights.rs`): turn and move the arms' node `t` (`Bip01
+    /// Translate`) in the last pose so the weapon's `##SightingNode` lies a share `share`
+    /// of the way onto the camera node, the barrel's axis (the weapon model's +X
+    /// [observed: every `ProjectileNode` lies ahead along it]) along `view` (model
+    /// space). Nothing when the weapon has no such node or does not hang below `t`.
+    fn line_up_sights(&mut self, t: usize, share: f32, view: Vec3) {
+        let (Some(path), Some(camera), Some(hand)) = (self.sighting.as_deref(), self.camera, self.weapon_parent) else { return };
+        let a = &self.animator;
+        let mut up = Some(hand);
+        while let Some(n) = up.filter(|&n| n != t) {
+            up = a.skel.parents[n];
+        }
+        if up.is_none() {
+            return;
+        }
+        let (Some(sight), Some(model)) = (self.weapon_node_at(Transform::IDENTITY, path), self.weapon_node_at(Transform::IDENTITY, &path[..path.len() - 1])) else { return };
+        let eye: Vec3 = a.model_space(camera).translation.into();
+        let g = crate::iron_sights::correction(eye, view, sight.translation.into(), model.transform_vector3(Vec3::X), share);
+        let parent = a.skel.parents[t].map_or(Affine3A::IDENTITY, |p| a.model_space(p));
+        let moved = parent.inverse() * g * parent * affine(self.animator.locals[t]);
+        self.animator.locals[t] = Transform::from_matrix(Mat4::from(moved));
     }
 
     /// Where the weapon's `ShellCasingNode` is and the way a casing leaves it: the
@@ -593,6 +619,8 @@ struct Motion {
     velocity: Vec2,
     /// The first-person arms' sway (`view_sway.rs`).
     sway: ViewSway,
+    /// The true iron sights were last reported on the eye (a smoke check).
+    sights_told: bool,
 }
 
 impl Motion {
@@ -636,6 +664,7 @@ impl Default for Motion {
             names: HashMap::new(),
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
+            sights_told: false,
         }
     }
 }
@@ -647,6 +676,9 @@ pub struct PlayerBody {
     /// Sway and bob the first-person arms and weapon (`view_sway.rs`; off with
     /// `--no-weapon-sway`, the settings page).
     pub weapon_sway: bool,
+    /// Line the gun's sights up with the eye while aiming (`iron_sights.rs`; off with
+    /// `--no-true-iron-sights`, the settings page).
+    pub true_iron_sights: bool,
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
@@ -736,12 +768,14 @@ pub struct PlayerBodyPlugin {
     pub first_person_body: bool,
     /// Not `--no-weapon-sway`.
     pub weapon_sway: bool,
+    /// Not `--no-true-iron-sights`.
+    pub true_iron_sights: bool,
 }
 
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
-        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, ..default() })
+        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, true_iron_sights: self.true_iron_sights, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
             .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet))
@@ -890,6 +924,7 @@ fn ensure_body(
         rig.muzzle = None;
         rig.muzzle_entity = None;
         rig.casing = None;
+        rig.sighting = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -932,6 +967,7 @@ fn ensure_body(
                 rig.muzzle_entity = muzzle.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.muzzle = muzzle.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.casing = nvf_assets::model::node_path(&pm.nodes, &["ShellCasingNode", "##ShellCasingNode"]).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -1115,6 +1151,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         muzzle: None,
         muzzle_entity: None,
         casing: None,
+        sighting: None,
         drawn,
         shown: None,
         seen: None,
@@ -1173,6 +1210,9 @@ struct Posed<'a> {
     pipboy: Option<f32>,
     /// The sway of the arms (first person, `view_sway.rs`).
     sway: SwayPose,
+    /// True iron sights (first person, `iron_sights.rs`): how far in (0–1), and the
+    /// view's direction in the rig's model space.
+    sights: Option<(f32, Vec3)>,
 }
 
 /// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
@@ -1185,7 +1225,7 @@ struct Posed<'a> {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy, sway } = posed;
+    let Posed { root, look_pitch, special, pipboy, sway, sights } = posed;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
@@ -1424,6 +1464,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         let bind = a.skel.locals[l];
         a.locals[l].rotation = Quat::from_rotation_x(look_pitch) * bind.rotation;
     }
+    if let (Some((share, view)), Some(t)) = (sights.filter(|(s, _)| *s > 0.0), rig.translate) {
+        rig.line_up_sights(t, share, view);
+    }
+    let a = &mut rig.animator;
     if let Some(t) = rig.translate.filter(|_| sway != SwayPose::NONE) {
         // The sway turns the arms about the eye (`Bip01 Looking`'s origin, which
         // `Bip01 Translate` hangs from) and moves them in the view's frame; the camera
@@ -1678,7 +1722,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -1687,11 +1731,16 @@ fn drive_body(
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
+        (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
     let state = &mut *state;
     player.body_view = None;
+    // Set again below when the sights come up; not on the frames that leave early.
+    if let Some(t) = true_sights.as_deref_mut() {
+        t.0 = false;
+    }
     anim.drawing = false;
     anim.holstering = false;
     state.head_eye = None;
@@ -1962,7 +2011,7 @@ fn drive_body(
     // its eye counts from the feet as before.
     let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE, sights: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
@@ -1984,7 +2033,24 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway };
+    // True iron sights: eased in with the zoom, for the guns whose model has a sighting
+    // node, while the
+    // player looks through the arms rig by themself.
+    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()))
+        .then(|| zoom.as_deref().map_or(0.0, |z| z.blend))
+        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()));
+    // The view's direction in the arms rig's own frame (turned by the heading only).
+    let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
+    // The crosshair goes while the gun is on its way to the eye.
+    let lined = sights.is_some();
+    if let Some(t) = true_sights.as_deref_mut() {
+        t.0 = lined;
+    }
+    if sights_in.is_some_and(|s| s >= 1.0) != m.sights_told {
+        m.sights_told = !m.sights_told;
+        info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });
+    }
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway, sights };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than

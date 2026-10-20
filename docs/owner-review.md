@@ -6745,6 +6745,47 @@ package of the game has the flag (Eat packages have it), so every rule is my cho
 *Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
 smoke test turns the flag on for FFER24FindFood with a test aid.
 
+## The Strip's crowd against the original (2026-10-20, session "q13", branch claude/q13-strip-crowd)
+
+npc-behaviour-compare.md §10.1. The original's `strip_evening` capture (from `nvfstrip`)
+against our engine with its scripts, over the first two game hours. Choices made:
+- **How the scene is set up**: the player comes through the Freeside gate door (with the
+  gate key), as the save evidently did, because that door's script is what starts the
+  Strip's crowd and the troopers' scene; then the player is put on the save's spot, which
+  walks into Victor's messenger trigger. Placing the player on the Strip directly leaves
+  the whole crowd without packages.
+- **Timed script packages** (the one engine change): a package given by AddScriptPackage
+  that has a schedule duration and no starting hour now stays after the actor reaches its
+  place until that duration has run out, counted from when it was given. In the original
+  the drunk trooper stayed at the wall 0.7 h on such a package; ours went back to his own
+  list at once. That the duration is the reason is my reading.
+- **Left as it is**: in the original MP A gave up her escort walk half-way, at the same
+  moment three troopers left theirs; nothing in the scripts explains it, so ours still
+  walks the whole route (about 0.5 h longer).
+*Check:* walk in through the Strip's north gate for the first time at night: the four
+troopers walk in, two lean on the wall and stay there until they go on towards the
+embassy; Victor's securitron comes up to talk.
+
+## True iron sights (2026-10-20, branch claude/true-iron-sights)
+
+docs/spec-notes/camera.md §4.1. Aiming a gun now lines up its sights with the eye: each
+weapon model's `##SightingNode` (behind the gun, at sight height) is put on the camera,
+with the barrel along the view, eased in with the zoom. My choices:
+- **Which weapons**: as you said, the model decides: a weapon whose model has a sighting
+  node (`##SightingNode`, or `SightingNode` on 18 guns) gets them. The laser rifle,
+  laser pistol and minigun have none; the plasma rifle has one, so it does get them.
+  *Check:* the plasma rifle down its sights.
+- **Crosshair**: hidden from the moment the sights start coming up until they are down
+  again; the prompt under it ("E) Take") goes with it.
+- **Switch**: on by default, "True iron sights" on the settings page's Gameplay tab
+  (`--no-true-iron-sights`) gives the original aim and crosshair.
+- **What moves**: the arms and gun together (`Bip01 Translate`), turned and moved; the
+  camera stays where the clip puts it. Sway is laid on top.
+- **Eye on the node exactly**: the gun's rear end ends up as close to the eye as the node
+  says (12.5 units behind the varmint rifle's origin, 25.8 behind the 10mm's).
+  *Check:* compare against your three screenshots of each weapon.
+- **Scoped weapons** get the same treatment; their scope overlay is still not built.
+
 ## SetActorsAI 0 keeps a walking actor going (2026-10-20, session "q12", branch claude/q12-setactorsai-walk)
 
 docs/spec-notes/set-actors-ai.md. The original's settler walked on in a straight line
