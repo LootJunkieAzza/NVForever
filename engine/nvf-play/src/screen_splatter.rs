@@ -35,10 +35,23 @@
 //! Fallout - Textures2.bsa; hypothesis: the atlas pair, not the single-splat
 //! `screenbloodalpha01`–`03` / `screenbloodcolor01`, is the one New Vegas draws]: dark
 //! soft blobs with a red core, as the original's [observed]. The splats lie over the
-//! world and under every menu and the HUD. Not built: the flare the settings
-//! `fBloodSplatterFlareSize`, `…FlareMult` and `…FlareOffsetScale` describe (the small
-//! bright glints in the original's splats may be it); blood the engine puts on the
-//! screen by itself (DamageActorValue on the player put none there [observed]).
+//! world and under every menu and the HUD.
+//!
+//! **Blood when the player is hurt** (screen-splatter.md §4) [hypothesis throughout: the
+//! wiki says only that the original puts blood on the screen "after taking damage"]:
+//! each hit that takes Health from the player (`crate::combat::HitFeedback::player_hurt`;
+//! not DamageActorValue, which put none there [observed], not god mode) adds
+//! `ceil(lost / maximum × iBloodSplatterMaxCount)` splats, at least one, at the call
+//! factors 1 and the setting's duration, while the screen holds fewer than
+//! `iBloodSplatterMaxCount` (25) splats: the setting's use here.
+//!
+//! **The flare** (§4): each splat carries a small glint, `textures\gore\screenblooddot02.dds`
+//! (a red glow on black [observed]) drawn as a lightening over the splat,
+//! `fBloodSplatterFlareSize` (0.065) of the screen's width times the call's size factor
+//! across, off the splat's centre by up to `fBloodSplatterFlareOffsetScale` (0.45) of its
+//! half-side, as strong as the splat's opacity now beyond `fBloodSplatterFlareMult`
+//! (0.95) [hypothesis, fitted: the original showed glints at the cores only with the
+//! opacity factor 2, §5].
 //!
 //! The splats age with the game's frames while nothing holds the game (the pause menu,
 //! a loading screen). `[ScreenSplatter] bScreenSplatterEnabled=1` is the original's INI
@@ -46,8 +59,9 @@
 //!
 //! Log: `screen splatter: <n> splats on the screen (TriggerScreenSplatter <count>
 //! <duration> <size> <opacity>)`, `screen splatter: cleared`, `screen splatter: the last
-//! splat has faded`, `screen splatter: <texture>: <why>` when the textures cannot be
-//! read (then nothing is drawn).
+//! splat has faded`, `screen splatter: <n> splats on the screen (hurt: <lost> of <max>
+//! health)`, `screen splatter: <texture>: <why>` when the textures cannot be read (then
+//! nothing is drawn; without the flare texture only the flares are not).
 
 use crate::sim::SimState;
 use crate::PlaySet;
@@ -64,6 +78,9 @@ use rand_core::{RngCore, SeedableRng};
 /// The splat shapes (alpha) and colours [observed: Fallout - Textures2.bsa].
 pub const ALPHA_ATLAS: &str = "textures\\gore\\screenbloodalpha01opt.dds";
 pub const COLOR_ATLAS: &str = "textures\\gore\\screenbloodcolor01opt.dds";
+/// The flare: a red glow on black, the opaque one of the two dots (the other a dark
+/// red with soft alpha) [observed: Fallout - Textures2.bsa; hypothesis: the flare's].
+pub const FLARE_DOT: &str = "textures\\gore\\screenblooddot02.dds";
 /// The most splats on the screen; beyond it a new splat takes the oldest's place
 /// [engineering choice: one picture per splat].
 pub const MAX_SPLATS: usize = 1000;
@@ -84,11 +101,18 @@ pub struct SplatterSettings {
     pub max_opacity2: f32,
     pub opacity_chance: f32,
     pub duration: f32,
+    /// `iBloodSplatterMaxCount`: the most splats a hurt adds up to (hurt splats).
+    pub max_count: f32,
+    /// The flare: side (share of the width), strength threshold, offset (share of the
+    /// splat's half-side).
+    pub flare_size: f32,
+    pub flare_mult: f32,
+    pub flare_offset_scale: f32,
 }
 
 impl Default for SplatterSettings {
     fn default() -> Self {
-        SplatterSettings { min_size: 0.12, max_size: 0.18, min_opacity: 0.5, max_opacity: 1.0, min_opacity2: 0.3, max_opacity2: 0.6, opacity_chance: 0.3, duration: 20.0 }
+        SplatterSettings { min_size: 0.12, max_size: 0.18, min_opacity: 0.5, max_opacity: 1.0, min_opacity2: 0.3, max_opacity2: 0.6, opacity_chance: 0.3, duration: 20.0, max_count: 25.0, flare_size: 0.065, flare_mult: 0.95, flare_offset_scale: 0.45 }
     }
 }
 
@@ -106,6 +130,10 @@ impl SplatterSettings {
             max_opacity2: f("fBloodSplatterMaxOpacity2", d.max_opacity2),
             opacity_chance: f("fBloodSplatterOpacityChance", d.opacity_chance),
             duration: f("fBloodSplatterDuration", d.duration),
+            max_count: f("iBloodSplatterMaxCount", d.max_count),
+            flare_size: f("fBloodSplatterFlareSize", d.flare_size),
+            flare_mult: f("fBloodSplatterFlareMult", d.flare_mult),
+            flare_offset_scale: f("fBloodSplatterFlareOffsetScale", d.flare_offset_scale),
         }
     }
 }
@@ -123,6 +151,10 @@ pub struct Splat {
     pub age: f32,
     /// Its atlas cell (0..4).
     pub cell: usize,
+    /// Its flare's centre off the splat's, as shares of the splat's side.
+    pub flare_offset: Vec2,
+    /// Its flare's side, as a share of the screen's width.
+    pub flare_side: f32,
 }
 
 impl Splat {
@@ -138,6 +170,13 @@ impl Splat {
         }
         self.opacity * (1.0 - (self.age - start) / (self.duration - start).max(1e-6))
     }
+}
+
+/// A flare's strength for its splat's opacity now: what the opacity has beyond
+/// `fBloodSplatterFlareMult`, at most 1 [hypothesis, fitted: glints only at the
+/// opacity factor 2 in the original's pictures].
+pub fn flare_strength(alpha: f32, flare_mult: f32) -> f32 {
+    (alpha - flare_mult).clamp(0.0, 1.0)
 }
 
 /// How a splat of opacity `alpha` is drawn: the gain baked into its picture's alpha (in
@@ -167,9 +206,25 @@ pub fn splats_for(t: &SplatterTrigger, s: &SplatterSettings, rng: &mut ChaCha8Rn
             let second = unit(rng) < s.opacity_chance;
             let base = if second { lerp(s.min_opacity2, s.max_opacity2, unit(rng)) } else { lerp(s.min_opacity, s.max_opacity, unit(rng)) };
             let cell = (rng.next_u32() as usize) % (ATLAS_SIDE * ATLAS_SIDE);
-            Splat { center, size, opacity: (base * t.opacity).max(0.0), duration, age: 0.0, cell }
+            let (turn, reach) = (unit(rng) * std::f32::consts::TAU, unit(rng) * s.flare_offset_scale * 0.5);
+            let flare_offset = Vec2::new(turn.cos(), turn.sin()) * reach;
+            Splat { center, size, opacity: (base * t.opacity).max(0.0), duration, age: 0.0, cell, flare_offset, flare_side: s.flare_size * t.size }
         })
         .collect()
+}
+
+/// The splats a hit that took `lost` of the player's `max` Health adds, with `on` splats
+/// already on the screen: `ceil(lost / max × iBloodSplatterMaxCount)`, at least one,
+/// while the screen holds fewer than that setting; factors 1, the setting's duration
+/// [hypothesis].
+pub fn hurt_splats(lost: f32, max: f32, on: usize, s: &SplatterSettings, rng: &mut ChaCha8Rng) -> Vec<Splat> {
+    let cap = s.max_count.clamp(0.0, MAX_SPLATS as f32) as usize;
+    if lost.is_nan() || lost <= 0.0 || on >= cap {
+        return Vec::new();
+    }
+    let share = if max > 0.0 { (lost / max).min(1.0) } else { 1.0 };
+    let n = ((share * s.max_count).ceil() as usize).max(1).min(cap - on);
+    splats_for(&SplatterTrigger { count: n as u32, duration: None, size: 1.0, opacity: 1.0 }, s, rng)
 }
 
 /// Add new splats; beyond `max` the oldest go.
@@ -207,11 +262,27 @@ pub fn with_gain(px: &[u8], gain: u16) -> Vec<u8> {
     out
 }
 
-/// The splat pictures: the composed cells, and the images made of them per gain.
+/// The flare's picture from the dot's colours: its red-glow colour at full strength,
+/// with the glow (its brightest channel) as alpha, so that over the dark splat the
+/// blend adds about the glow (RGBA8).
+pub fn flare_picture(dot: &[u8]) -> Vec<u8> {
+    let peak = dot.chunks(4).map(|t| t[0].max(t[1]).max(t[2])).max().unwrap_or(0).max(1);
+    let mut out = Vec::with_capacity(dot.len());
+    for t in dot.chunks(4) {
+        let glow = t[0].max(t[1]).max(t[2]);
+        let scale = |c: u8| if glow == 0 { 0 } else { (u32::from(c) * 255 / u32::from(glow)) as u8 };
+        out.extend_from_slice(&[scale(t[0]), scale(t[1]), scale(t[2]), (u32::from(glow) * 255 / u32::from(peak)) as u8]);
+    }
+    out
+}
+
+/// The splat pictures: the composed cells, and the images made of them per gain; the
+/// flare's, if its texture could be read.
 struct Pictures {
     cells: Vec<Vec<u8>>,
     side: u32,
     images: HashMap<(usize, u16), Handle<Image>>,
+    flare: Option<Handle<Image>>,
 }
 
 impl Pictures {
@@ -263,17 +334,19 @@ pub fn fade_share(fade: Option<(f32, bool)>) -> Option<f32> {
 struct SplatRoot;
 #[derive(Component)]
 struct SplatPicture(usize);
+#[derive(Component)]
+struct FlarePicture(usize);
 
 pub struct ScreenSplatterPlugin;
 
 impl Plugin for ScreenSplatterPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ScreenSplatter>().add_systems(Update, (take_requests, age, draw).chain().in_set(PlaySet::Ui));
+        app.init_resource::<ScreenSplatter>().add_systems(Update, (take_requests, take_hurts, age, draw).chain().in_set(PlaySet::Ui));
     }
 }
 
 /// Read and compose the splat pictures.
-fn read_pictures(data: &GameData) -> Result<Pictures, String> {
+fn read_pictures(data: &GameData, images: &mut Assets<Image>) -> Result<Pictures, String> {
     let decode = |path: &str| -> Result<(usize, Vec<u8>), String> {
         let bytes = data.read(path).ok_or_else(|| format!("{path}: not in the game's files"))?;
         let dds = fnv_dds::Dds::parse(&bytes).map_err(|e| format!("{path}: {e}"))?;
@@ -289,7 +362,40 @@ fn read_pictures(data: &GameData) -> Result<Pictures, String> {
     if side != side2 {
         return Err(format!("{COLOR_ATLAS}: {side2} wide, the shapes {side}"));
     }
-    Ok(Pictures { cells: compose(&alpha, &color, side), side: (side / ATLAS_SIDE) as u32, images: HashMap::default() })
+    let flare = match decode(FLARE_DOT) {
+        Ok((dot_side, dot)) => {
+            let d = dot_side as u32;
+            Some(images.add(Image::new(Extent3d { width: d, height: d, depth_or_array_layers: 1 }, TextureDimension::D2, flare_picture(&dot), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD)))
+        }
+        Err(e) => {
+            warn!("screen splatter: {e}; no flares are drawn");
+            None
+        }
+    };
+    Ok(Pictures { cells: compose(&alpha, &color, side), side: (side / ATLAS_SIDE) as u32, images: HashMap::default(), flare })
+}
+
+/// The splats hits on the player add (`HitFeedback::player_hurt`).
+fn take_hurts(mut splatter: ResMut<ScreenSplatter>, feedback: Option<ResMut<crate::combat::HitFeedback>>, sim: Option<Res<SimState>>) {
+    let Some(mut feedback) = feedback else { return };
+    if feedback.player_hurt.is_empty() {
+        return;
+    }
+    let sp = &mut *splatter;
+    let settings = *sp.settings.get_or_insert_with(|| settings_of(sim.as_deref()));
+    for (lost, max) in std::mem::take(&mut feedback.player_hurt) {
+        let new = hurt_splats(lost, max, sp.splats.len(), &settings, &mut sp.rng);
+        if new.is_empty() {
+            continue;
+        }
+        add_splats(&mut sp.splats, new, MAX_SPLATS);
+        info!("screen splatter: {} splats on the screen (hurt: {lost:.1} of {max:.0} health)", sp.splats.len());
+    }
+}
+
+/// The splat settings from the load order's game settings.
+fn settings_of(sim: Option<&SimState>) -> SplatterSettings {
+    sim.map_or_else(SplatterSettings::default, |s| SplatterSettings::from_settings(|n| s.forms.setting_f32(n)))
 }
 
 /// The scripts' calls (`UiRequests::splatter`): clear, fade, new splats.
@@ -308,7 +414,7 @@ fn take_requests(mut splatter: ResMut<ScreenSplatter>, script: Option<ResMut<cra
     if asked.triggers.is_empty() {
         return;
     }
-    let settings = *sp.settings.get_or_insert_with(|| sim.as_deref().map_or_else(SplatterSettings::default, |s| SplatterSettings::from_settings(|n| s.forms.setting_f32(n))));
+    let settings = *sp.settings.get_or_insert_with(|| settings_of(sim.as_deref()));
     for t in std::mem::take(&mut asked.triggers) {
         let new = splats_for(&t, &settings, &mut sp.rng);
         add_splats(&mut sp.splats, new, MAX_SPLATS);
@@ -345,7 +451,8 @@ fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut pictures: Query<(&SplatPicture, &mut Node, &mut ImageNode)>,
+    mut pictures: Query<(&SplatPicture, &mut Node, &mut ImageNode), Without<FlarePicture>>,
+    mut flares: Query<(&FlarePicture, &mut Node, &mut ImageNode), Without<SplatPicture>>,
 ) {
     let sp = &mut *splatter;
     if sp.splats.is_empty() {
@@ -355,7 +462,7 @@ fn draw(
         return;
     }
     let Some(data) = data else { return };
-    let pics = match sp.pictures.get_or_insert_with(|| read_pictures(&data)) {
+    let pics = match sp.pictures.get_or_insert_with(|| read_pictures(&data, &mut images)) {
         Ok(p) => p,
         Err(e) => {
             warn!("screen splatter: {e}; nothing is drawn");
@@ -366,6 +473,7 @@ fn draw(
     let Ok(w) = windows.single() else { return };
     let (width, height) = (w.width(), w.height());
     let fade = fade_share(sp.fade);
+    let settings = sp.settings.unwrap_or_default();
     // The pictures follow the splats: rebuilt when their number changed.
     let count = pictures.iter().count();
     if sp.root.is_none() || count != sp.splats.len() {
@@ -373,11 +481,16 @@ fn draw(
             commands.entity(root).despawn();
         }
         let laid: Vec<(Node, ImageNode)> = sp.splats.iter().map(|s| layout(s, pics, &mut images, fade, width, height)).collect();
+        let flared: Vec<(Node, ImageNode)> = pics.flare.as_ref().map_or_else(Vec::new, |f| sp.splats.iter().map(|s| flare_layout(s, f, &settings, fade, width, height)).collect());
         let root = commands
             .spawn((SplatRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(-1), Pickable::IGNORE))
             .with_children(|r| {
                 for (i, (node, image)) in laid.into_iter().enumerate() {
                     r.spawn((SplatPicture(i), image, node, Pickable::IGNORE));
+                }
+                // The flares over every splat (later children draw on top).
+                for (i, (node, image)) in flared.into_iter().enumerate() {
+                    r.spawn((FlarePicture(i), image, node, Pickable::IGNORE));
                 }
             })
             .id();
@@ -387,6 +500,22 @@ fn draw(
         let Some(s) = sp.splats.get(pic.0) else { continue };
         (*node, *image) = layout(s, pics, &mut images, fade, width, height);
     }
+    if let Some(f) = pics.flare.as_ref() {
+        for (pic, mut node, mut image) in &mut flares {
+            let Some(s) = sp.splats.get(pic.0) else { continue };
+            (*node, *image) = flare_layout(s, f, &settings, fade, width, height);
+        }
+    }
+}
+
+/// A splat's flare: place, size and strength.
+fn flare_layout(s: &Splat, flare: &Handle<Image>, settings: &SplatterSettings, fade: Option<f32>, width: f32, height: f32) -> (Node, ImageNode) {
+    let side = s.flare_side * width;
+    let splat_side = s.size * width;
+    let (x, y) = (s.center.x * width + s.flare_offset.x * splat_side, s.center.y * height + s.flare_offset.y * splat_side);
+    let node = Node { position_type: PositionType::Absolute, width: Val::Px(side), height: Val::Px(side), left: Val::Px(x - side / 2.0), top: Val::Px(y - side / 2.0), ..default() };
+    let strength = flare_strength(s.alpha(fade), settings.flare_mult);
+    (node, ImageNode { image_mode: NodeImageMode::Stretch, color: Color::srgba(1.0, 1.0, 1.0, strength), ..ImageNode::new(flare.clone()) })
 }
 
 /// A splat's place, size and picture on a window of `width` × `height`.
@@ -440,8 +569,40 @@ mod tests {
     }
 
     #[test]
+    fn a_hurt_adds_splats_by_the_health_lost_up_to_the_max_count() {
+        let s = SplatterSettings::default();
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        // A tenth of the health: 2.5 of 25, so 3 splats at the call factors 1.
+        let new = hurt_splats(10.0, 100.0, 0, &s, &mut rng);
+        assert_eq!(new.len(), 3);
+        assert!(new.iter().all(|p| p.duration == s.duration && p.size <= s.max_size && p.opacity <= s.max_opacity));
+        assert_eq!(hurt_splats(0.1, 100.0, 0, &s, &mut rng).len(), 1, "any hurt leaves a splat");
+        assert_eq!(hurt_splats(80.0, 100.0, 0, &s, &mut rng).len(), 20);
+        assert_eq!(hurt_splats(80.0, 100.0, 20, &s, &mut rng).len(), 5, "up to iBloodSplatterMaxCount on the screen");
+        assert!(hurt_splats(80.0, 100.0, 25, &s, &mut rng).is_empty());
+        assert!(hurt_splats(0.0, 100.0, 0, &s, &mut rng).is_empty() && hurt_splats(f32::NAN, 100.0, 0, &s, &mut rng).is_empty());
+        assert_eq!(hurt_splats(500.0, 100.0, 0, &s, &mut rng).len(), 25, "more than the maximum counts as all of it");
+    }
+
+    #[test]
+    fn a_flare_shows_only_beyond_the_flare_mult() {
+        let s = SplatterSettings::default();
+        assert_eq!(flare_strength(0.9, s.flare_mult), 0.0);
+        assert!(flare_strength(1.0, s.flare_mult) < 0.06, "opacity factor 1: a glint too faint to see");
+        assert!((flare_strength(1.5, s.flare_mult) - 0.55).abs() < 1e-6);
+        assert_eq!(flare_strength(3.0, s.flare_mult), 1.0);
+        let mut rng = ChaCha8Rng::seed_from_u64(4);
+        for p in splats_for(&trigger(40, None, 2.0, 2.0), &s, &mut rng) {
+            assert!((p.flare_side - 0.13).abs() < 1e-6, "FlareSize x the size factor");
+            assert!(p.flare_offset.length() <= s.flare_offset_scale * 0.5 + 1e-6, "{p:?}");
+        }
+        // The dot's red glow on black: full red, its glow as alpha.
+        assert_eq!(flare_picture(&[0, 0, 0, 255, 0x7c, 0, 0, 255, 0xf8, 0, 0, 255]), vec![0, 0, 0, 0, 255, 0, 0, 127, 255, 0, 0, 255]);
+    }
+
+    #[test]
     fn splats_fade_from_their_start_unless_told_otherwise() {
-        let mut p = Splat { center: Vec2::splat(0.5), size: 0.2, opacity: 0.8, duration: 10.0, age: 0.0, cell: 0 };
+        let mut p = Splat { center: Vec2::splat(0.5), size: 0.2, opacity: 0.8, duration: 10.0, age: 0.0, cell: 0, flare_offset: Vec2::ZERO, flare_side: 0.065 };
         let default = fade_share(None);
         assert_eq!(p.alpha(default), 0.8);
         p.age = 5.0;

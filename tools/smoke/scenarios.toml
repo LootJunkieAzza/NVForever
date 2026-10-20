@@ -5692,6 +5692,28 @@ expect = [
 manual = "splatter_t0_5.png to splatter_t15_5.png against the original's fx_screen_splatter_look s100_20_2_2_t0.5 to _t15.5 (C:/fnv-private/capture/shots): the view nearly black under dark soft blobs with red cores, lighter at each step; splatter_small.png ten blobs like the original's before_fade; splatter_gone.png the clean view"
 
 [[scenario]]
+name = "screen-splatter-hurt"
+source = "Blood on the screen when the player is hurt (docs/spec-notes/screen-splatter.md §4, all a hypothesis): a hit that takes Health from the player adds ceil(lost / max x iBloodSplatterMaxCount) splats, at least one, up to 25 on the screen; DamageActorValue adds none (the original's capture). The hit aid hurts the player twice; the console's DamageAV must not add blood. Then ClearScreenSplatter takes the hurt blood away too, and TriggerScreenSplatter 10 20 2 2 brings flares (the flare texture is read)"
+areas = ["imagespace", "combat"]
+paths = ["engine/nvf-play/src/screen_splatter.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_HIT = "10:player:30,12:player:8", NVF_PLAY_TEST_CONSOLE = "14:player.DamageAV Health 5;14.2:clearscreensplatter;14.4:triggerscreensplatter 10 20 2 2;14.6:close", NVF_PLAY_TEST_SHOTS = "10.5:hurt_splatter.png,15:hurt_flares.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'combat: \S.* hits the player for 30\.0, health \d+/\d+', label = "the first hit hurts the player for 30" },
+  { re = 'screen splatter: ([4-9]|1\d|2[0-5]) splats on the screen \(hurt: 30\.0 of \d+ health\)$', label = "the 30-point hurt puts blood on the screen (ceil(30 / max x 25) splats)" },
+  { re = 'screen splatter: ([5-9]|1\d|2[0-5]) splats on the screen \(hurt: 8\.0 of \d+ health\)$', label = "the 8-point hurt adds more" },
+  "console: > player.DamageAV Health 5",
+  "screen splatter: cleared",
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 20 2 2)",
+]]
+expect = [
+  { re = 'screen splatter: \S+: ', count = 0, label = "the gore textures and the flare dot are read" },
+  { re = 'splats on the screen \(hurt: ', count = 2, label = "only the two hits add blood, not DamageAV" },
+]
+manual = "hurt_splatter.png: a few dark soft blobs with red cores over Doc Mitchell's house, no glints (opacity factor 1); hurt_flares.png: larger, darker blobs with small red glints near their cores (the flare)"
+
+[[scenario]]
 name = "cell-image-space"
 source = "SetCellImageSpace (GECK wiki: a loaded cell shows the new image space only once it loads again): Old World Blues' Think Tank turns to its red image space (NVDLC03ThinkTankImageSpaceRed, as quest stage 50 does) after coc back into it (the save keeps the change: fnv-game unit test)"
 areas = ["imagespace", "scripts"]
@@ -6211,6 +6233,37 @@ expect = [
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
+
+[[scenario]]
+name = "bike-smoke-intact"
+source = "docs/spec-notes/destruction-stages.md §3 (owner report 2026-10-20): the three Motorcycle01Static bikes in front of the Prospector Saloon (00106341, 00106342, 0010750C; STAT, no DEST) never smoke: motorcycle01.nif's smoke (AddOnNode2, ADDN MPSSmokeMed01) sits under DamageStage1-3 and waits for a damage stage they never reach; frame bike_smoke_intact.png in target/smoke shows them without smoke"
+areas = ["particles", "effects", "destruction"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:bike_smoke_intact.png" }
+args = ["--cell", "Goodsprings", "--pos=-67900,2650,8420", "--heading", "0", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'damage stage: 00106341 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the first bike's smoke waits for stages 1-3" },
+  { re = 'damage stage: 00106342 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the second bike's smoke waits" },
+  { re = 'damage stage: 0010750C add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the third bike's smoke waits" },
+  "Screenshot saved to bike_smoke_intact.png",
+]
+forbid = [{ re = 'damage stage: 0010(6341|6342|750C) add-on node \d+ on', label = "a saloon bike starts smoking" }]
+
+[[scenario]]
+name = "bike-smoke-damaged"
+source = "docs/spec-notes/destruction-stages.md §1-2: a destructible Motorcycle01 (MSTT 00077B40, 200 health; ref 00157C97) smokes only from damage stage 1 (89 %) to 3; 30 damage takes it to stage 1, its self-damage and stage explosions take it on to the destroying stage 4 (65 %) and 5, where the intact model's smoke stops (the hulk model is not swapped in yet); god mode against its stage explosions; frames bike_smoke_0..2.png in target/smoke from the west of the wreck pile (bike_smoke_1 mostly shows its stage-2 explosion; the log is the check)"
+areas = ["particles", "effects", "destruction", "combat"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:prid 00157C97;8.2:damageobject 30;8.4:close", NVF_PLAY_TEST_SHOTS = "7:bike_smoke_0.png,11:bike_smoke_1.png,24:bike_smoke_2.png" }
+args = ["--cell", "Goodsprings", "--pos=32550,16717,4700", "--heading", "90", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = 'damage stage: 00157C97 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the intact bike's smoke waits" },
+  { re = 'damage stage: 00157C97 add-on node 2 on at model stage 1', label = "30 damage (stage 1) starts the smoke" },
+  { re = 'damage stage: 00157C97 add-on node 2 off at model stage [45]', label = "the destroying stage stops the intact model's smoke (its stage explosions can take it from 2 through 4 to 5 in one frame)" },
+]]
+expect = ["Screenshot saved to bike_smoke_2.png"]
 
 [[scenario]]
 name = "vertex-morphs"

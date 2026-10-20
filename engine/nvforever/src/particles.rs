@@ -32,6 +32,12 @@
 //!   born (`Particle::frame`).
 //! - **Placed models** emit their own systems and their add-on nodes' from a holder at
 //!   the reference (`world::spawn_emitters`: Gomorrah's roof fires), not while hidden.
+//! - **Damage stages.** An add-on node below a `BSDamageStage` node emits only while its
+//!   reference is drawn at one of that node's model damage stages ([`StagedAddon`],
+//!   docs/spec-notes/destruction-stages.md): a motorcycle's `DamageStage1-3` smoke starts
+//!   when a hit takes it to stage 1, never on an intact or indestructible (STAT) bike.
+//!   Log: `damage stage: <ref> add-on node <n> waits for model stages <lo>-<hi> (at <s>)`
+//!   when one is placed, then `… on at model stage <s>` / `… off at model stage <s>`.
 //! - Not built: turbulence, spawn-on-death.
 
 use bevy::camera::visibility::NoFrustumCulling;
@@ -42,6 +48,7 @@ use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::particles::{particle_mesh, InitialVelocity, ParticleSystemDef, PreparedParticles};
+use nvf_play::script::ScriptState;
 use nvf_play::sfx::Sfx;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -63,6 +70,53 @@ pub struct AddonEmitter {
 impl AddonEmitter {
     pub fn new(index: i32) -> AddonEmitter {
         AddonEmitter { index, age: 0.0 }
+    }
+}
+
+/// An add-on node below a model's `BSDamageStage` node, on placed reference `r`: an
+/// [`AddonEmitter`] of ADDN `index` while the reference's model damage stage
+/// (`Game::model_damage_stage`) is within `stages` [hypothesis: the node's children are
+/// the model's look at those stages only, docs/spec-notes/destruction-stages.md].
+#[derive(Component)]
+pub struct StagedAddon {
+    pub r: u32,
+    pub index: i32,
+    pub stages: (i32, i32),
+    /// Last stage seen; `None` before the first look.
+    at: Option<i32>,
+}
+
+/// Make node `i` of `nodes` (entity `e`) the emitter of ADDN `index` for placed
+/// reference `r`: at once, or as a [`StagedAddon`] when it is below a `BSDamageStage`.
+pub fn place_addon(commands: &mut Commands, e: Entity, r: u32, nodes: &[nvf_assets::model::ModelNode], i: usize, index: i32) {
+    match nvf_assets::model::damage_stages_of(nodes, i) {
+        Some(stages) => commands.entity(e).insert(StagedAddon { r, index, stages, at: None }),
+        None => commands.entity(e).insert(AddonEmitter::new(index)),
+    };
+}
+
+/// Switch staged add-on nodes on and off as their references' damage stages change.
+fn staged_addons(mut commands: Commands, script: Option<Res<ScriptState>>, mut staged: Query<(Entity, &mut StagedAddon)>) {
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    for (e, mut s) in &mut staged {
+        let stage = game.map_or(0, |g| g.model_damage_stage(fnv_sim::FormId(s.r)) as i32);
+        if s.at == Some(stage) {
+            continue;
+        }
+        let (lo, hi) = s.stages;
+        let shown = (lo..=hi).contains(&stage);
+        let was = s.at.is_some_and(|a| (lo..=hi).contains(&a));
+        if s.at.is_none() && !shown {
+            info!("damage stage: {:08X} add-on node {} waits for model stages {lo}-{hi} (at {stage})", s.r, s.index);
+        }
+        if shown && !was {
+            commands.entity(e).insert(AddonEmitter::new(s.index));
+            info!("damage stage: {:08X} add-on node {} on at model stage {stage}", s.r, s.index);
+        } else if !shown && was {
+            commands.entity(e).remove::<AddonEmitter>();
+            info!("damage stage: {:08X} add-on node {} off at model stage {stage}", s.r, s.index);
+        }
+        s.at = Some(stage);
     }
 }
 
@@ -146,7 +200,7 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Update, (emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+        app.init_resource::<Particles>().add_systems(Update, (staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
     }
 }
 
