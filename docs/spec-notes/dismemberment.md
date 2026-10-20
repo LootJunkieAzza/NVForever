@@ -166,8 +166,14 @@ carry no part yet, §7). Then:
    Only the Explodable ones among them explode; the others are severed.
 7. The torso is never severed (not Severable in any people's BPTD), and only explodes.
 
-Rolls use their own generator (`Game::gore_rng`) so other rolls, and smoke timings, keep
-their sequences.
+Rolls use their own generator (`nvf_play::dismember::Dismemberment`) so other rolls, and
+smoke timings, keep their sequences.
+
+Where it runs [design]: combat queues a check for each hit that may dismember: a projectile on
+a part, the player's melee, the hit test aid with `limb=`, and KillActor's limb.
+`nvf_play::dismember::resolve` rolls the checks, records the result in the game, logs
+`dismember: <name> <id>: <part> exploded|severed (<why>)` and sends `Dismembered` to the
+renderer.
 
 A part that is already gone cannot be dismembered again. Hits on its stump do nothing more.
 
@@ -198,8 +204,9 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   A model with no cap for the part shows the open cut (owner: "some may not have meatcaps").
 - **Severing.** The ragdoll joints between the part's bones and the rest are cut. The limb
   falls away with its own skin. The cut survives the ragdoll's rest and rouse rebuilds.
-- **Exploding.** `fExplodeLimbRemovalDelay` after the hit, the part's skin goes. At the gore
-  bone (`NAM4` + the gore offset) appear:
+- **Exploding.** The part's skin goes. `fExplodeLimbRemovalDelay` (0.03 s) is not applied: the
+  skin goes in the frame the explosion appears. At the gore bone (`NAM4` + the gore offset)
+  appear:
   - the part's explosion (visual and sound; LimbExplosion's damage is 0);
   - `decal count` blood impacts of its impact data set, sprayed about the spot. Decals
     themselves are not drawn yet (shot_fx.rs);
@@ -213,15 +220,23 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
 ## 6. Gore pieces [design]
 
-- Each piece is a dynamic physics body (`fnv_phys`) with a box or sphere from its model's
-  bounds. It starts at 150–350 units/s in a random direction biased away from the hit and up,
-  with a random spin. Pieces collide with the world, not with actors or with each other.
+- Each piece is a dynamic physics body (`fnv_phys::gore`): a box from its model's bounds, 0.5 kg.
+  It starts at 150–350 units/s in a random direction biased along the hit and up, with a
+  random spin up to 12 rad/s. Pieces collide with the world and each other. They do not collide
+  with characters, living actors or corpses.
 - **Lootable**: a piece belongs to its actor. Its collider is owned by the actor
   (`Owner::Actor`, layer of the corpse), so the crosshair names the dead actor and
   activating a piece opens its inventory (Search) [observed: owner].
-- Pieces stay while the cell is loaded. At most `iDebrisMaxCount` (game setting, default 64
-  when absent [hypothesis]) gore pieces exist at once; the oldest go first [documented:
+- Pieces stay while their actor is loaded. At most 64 gore pieces exist at once
+  [hypothesis: `iDebrisMaxCount` is not in the masters]; the oldest go first [documented:
   GECK wiki Debris, for debris].
+- The pieces of a replacement model are the nodes right below its root, each with the shapes
+  under it. Each box is the bounds of its shapes. Debris models are picked in proportion to
+  their percentages [hypothesis].
+- Exploding the **torso** draws none of the body. The invisible ragdoll stays, so the corpse is
+  still searched where it lies.
+- An exploded part's ragdoll bodies stay jointed and undrawn. The body's skin partly weighted to
+  them keeps its shape.
 
 ## 7. Not built
 

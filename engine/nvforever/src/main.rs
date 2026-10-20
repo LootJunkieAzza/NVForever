@@ -37,6 +37,7 @@ mod creature_stance;
 mod creator_view;
 mod death_cam;
 mod deaths;
+mod dismember;
 mod knockouts;
 mod player_knockdown;
 mod detection;
@@ -1225,7 +1226,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
