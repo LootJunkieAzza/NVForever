@@ -187,6 +187,41 @@ order = [[
 ]]
 
 [[scenario]]
+name = "imagespace-dof"
+source = "queue item 14 (docs/spec-notes/image-modifiers.md §8): a script's modifier with a depth of field blurs the picture by depth; the log names its strength, distance and range"
+note = "looking down Goodsprings' street at noon; AntNectarISFX (the Ant Nectar script's: strength 0.25, clean to 64, fully blurred from 1024) applied at 4 s and removed at 8 s; FlashBangISfx (the flash-bang explosion's, animated 10 s: strength 2 down to 0) applied at 10 s and ending by itself. Frames: dof_before.png at 3 s, dof_antnectar.png at 6.5 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:AntNectarISFX,8:call:-:RemoveImageSpaceModifier:AntNectarISFX,10:call:-:ApplyImageSpaceModifier:FlashBangISfx", NVF_PLAY_TEST_SHOTS = "3:dof_before.png,6.5:dof_antnectar.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 24
+order = [[
+  { re = 'depth of field: strength 0\.[23], distance 64, range 1024 \(AntNectarISFX\)$', label = "Ant Nectar's depth of field: clean to 64, blurred from 1024" },
+  { re = 'depth of field: off$', label = "gone when the script removes it" },
+  { re = 'depth of field: strength 2\.0, distance 0, range 0 \(FlashBangISfx\)$', label = "the flash-bang's: strength 2 at its start" },
+  { re = 'depth of field: strength 1\.0, distance 0, range 0 \(FlashBangISfx\)$', label = "strength 1 about half way" },
+  { re = 'depth of field: off$', label = "off when the flash-bang's modifier has run its 10 s" },
+]]
+manual = "dof_antnectar.png against dof_before.png: the far street and hills softly blurred, the near ground sharp"
+
+[[scenario]]
+name = "imagespace-motion-blur"
+source = "queue item 15 (docs/spec-notes/image-modifiers.md §9): a modifier's motion blur smears the picture while the view moves; the log names its strength and source"
+note = "looking down Goodsprings' street at noon; VATScamNoDOF (the VATS camera shots' modifier, not animatable: motion blur 0.15) applied by script at 4 s, the view turned 125 degrees a second from 5 to 6 s, removed at 8 s; MS10DrinkSapISFX (animated 5 s: 0 up to 0.1 at 0.3 s, back to 0) applied at 9 s and ending by itself. Frames: motion_still.png at 4.4 s (on, view still), motion_turning.png at 5.5 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:VATScamNoDOF,8:call:-:RemoveImageSpaceModifier:VATScamNoDOF,9:call:-:ApplyImageSpaceModifier:MS10DrinkSapISFX", NVF_PLAY_TEST_LOOK = "4.5:0:-5,5.00:0.0:-5,5.02:2.5:-5,5.04:5.0:-5,5.06:7.5:-5,5.08:10.0:-5,5.10:12.5:-5,5.12:15.0:-5,5.14:17.5:-5,5.16:20.0:-5,5.18:22.5:-5,5.20:25.0:-5,5.22:27.5:-5,5.24:30.0:-5,5.26:32.5:-5,5.28:35.0:-5,5.30:37.5:-5,5.32:40.0:-5,5.34:42.5:-5,5.36:45.0:-5,5.38:47.5:-5,5.40:50.0:-5,5.42:52.5:-5,5.44:55.0:-5,5.46:57.5:-5,5.48:60.0:-5,5.50:62.5:-5,5.52:65.0:-5,5.54:67.5:-5,5.56:70.0:-5,5.58:72.5:-5,5.60:75.0:-5,5.62:77.5:-5,5.64:80.0:-5,5.66:82.5:-5,5.68:85.0:-5,5.70:87.5:-5,5.72:90.0:-5,5.74:92.5:-5,5.76:95.0:-5,5.78:97.5:-5,5.80:100.0:-5,5.82:102.5:-5,5.84:105.0:-5,5.86:107.5:-5,5.88:110.0:-5,5.90:112.5:-5,5.92:115.0:-5,5.94:117.5:-5,5.96:120.0:-5,5.98:122.5:-5,6.00:125.0:-5", NVF_PLAY_TEST_SHOTS = "4.4:motion_still.png,5.5:motion_turning.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'motion blur: strength 0\.15 \(VATScamNoDOF\)$', label = "the camera shots' modifier: motion blur 0.15" },
+  { re = 'motion blur: off$', label = "gone when the script removes it" },
+  { re = 'motion blur: strength 0\.10 \(MS10DrinkSapISFX\)$', label = "the sap's: up to 0.1 early in its 5 s" },
+  { re = 'motion blur: off$', label = "off when the sap's modifier has run" },
+]]
+manual = "motion_turning.png against motion_still.png: the street and hills smeared sideways along the turn, the player's own arms (if drawn) sharp"
+
+[[scenario]]
 name = "shadows-sun"
 source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 3 cascades and the arms' shade light draws only what is near the arms"
 areas = ["renderer", "graphics", "sky"]
@@ -1645,6 +1680,34 @@ run_seconds = 24
 expect = [
   { re = 'world sounds summary:.*impacts by material: glass 3 \(0 on collision without a material\)' },
   { re = 'world sounds summary:.*knock', label = "some knocks" },
+]
+
+[[scenario]]
+name = "varmint-first-person"
+source = "owner report 2026-10-20: in first person the varmint rifle was sometimes not drawn, only the hands; the rifle equipped from the start, drawn, then fired twice"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_GIVE = "00004240:20", NVF_PLAY_TEST_LOOK = "9:46:-4", NVF_PLAY_TEST_CONTROL = "9:weapon,13:fire,13.2:fire", NVF_PLAY_TEST_SHOTS = "12:varmint_held.png,14:varmint_fired.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+expect = [
+  { re = 'player weapon model \(First person\): \S+varmint\S*\.nif, [1-9]\d* nodes' },
+  { re = 'combat: [1-9]\d* shots' },
+]
+
+[[scenario]]
+name = "varmint-after-fists"
+source = "owner report 2026-10-20: the varmint rifle not drawn in first person at Sunny's bottles (shoot-bottles), when the test aid drew the fists before VCG02 gave the rifle"
+note = "The fists' draw clip hangs the Weapon node from Bip01 R ForeTwist; before 2026-10-20 a weapon equipped while the fists were out kept that bone, and the rifle hung from the forearm below the view (its shapes culled). Here the console equips the rifle after the fists are drawn, as the quest's EquipItem did"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0007EA24:1,00004240:20", NVF_PLAY_TEST_LOOK = "7:46:-4", NVF_PLAY_TEST_CONTROL = "8:weapon,13:fire", NVF_PLAY_TEST_CONSOLE = "10:player.equipitem 0007EA24;10.3:close", NVF_PLAY_TEST_SHOTS = "12:varmint_after_fists.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'player First rig weapon none: now on \S*Bip01 R ForeTwist', label = "the fists drawn first" },
+  { re = 'player First rig weapon 0x0007EA24: now on \S*Bip01 R Hand', label = "the rifle equipped after them hangs from the hand" },
+  { re = 'combat: [1-9]\d* shots' },
 ]
 
 [[scenario]]
@@ -5280,6 +5343,25 @@ expect = [
   { re = 'vats mode summary: entered 1 times, 1 marks, 0 shots, 0 AP spent', label = "nothing fired or spent" },
 ]
 forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
+
+[[scenario]]
+name = "vats-mode-dof"
+source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode the view's depth of field is focused on the mark, what is beyond it blurred (fVATSDOFStrengthCap 0.6, fVATSDOFRange 500), faded with the mode's look"
+note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
+areas = ["imagespace", "vats"]
+paths = ["engine/nvforever/src/imagespace*", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.5:mouse-right,10.55:mouse-right", NVF_PLAY_TEST_SHOTS = "9.5:vats_dof_before.png,10.45:vats_dof_marked.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: marked .* mark 1;', label = "a dog marked" },
+  { re = 'depth of field: strength 0\.6, distance 0, range 500, focus \d+, back \(VATS\)$', label = "focused on the mark, beyond it blurred at full strength" },
+  { re = 'vats mode: unmarked .*, 0 marks left', label = "the right click takes the mark back" },
+  { re = 'depth of field: off$', label = "with no mark there is nothing to focus on" },
+  { re = 'vats mode: off', label = "the mode ends" },
+]]
+manual = "vats_dof_marked.png: the marked dog sharp, the ground and hills beyond it blurred, the near ground sharp"
 
 [[scenario]]
 name = "vats-mode-ammo-limit"

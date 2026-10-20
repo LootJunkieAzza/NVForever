@@ -15,6 +15,16 @@
 //! the fade colour. The modifiers on the screen are the script runtime's
 //! (`fnv_game::Game::image_modifiers`) and those of `--imod`.
 //!
+//! Depth of field (image-modifiers.md §8): the modifiers' and the engine's own (VATS
+//! focused on the mark, aiming down the sights by the game settings), the strongest, mixed
+//! into the blur passes by each point's depth; logged as "depth of field: …" when it
+//! changes.
+//!
+//! Motion blur (image-modifiers.md §9): the modifiers' strongest, or the iron sights'
+//! setting, smears each point along its own motion on the screen over a short exposure,
+//! the motion found by reprojecting the point's depth with the last frame's camera
+//! ([`update_motion`], a pass before the blur); logged as "motion blur: …" when it changes.
+//!
 //! VATS mode's look (docs/design/vats-mode.md §5, `nvf_play::vats_mode::VatsMode::look`)
 //! comes after the grade and before the fade colour: the amber grade left of the swipe's
 //! edge, the creamy band on the edge and the wash over the whole screen [design].
@@ -40,7 +50,7 @@ use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::ShaderRef;
-use fnv_world::image_modifier::{combine, graded, image_modifier, ImageModifier, ScreenEffect};
+use fnv_world::image_modifier::{combine, graded, image_modifier, Dof, ImageModifier, ScreenEffect, DOF_BACK, DOF_FRONT, DOF_NO_SKY};
 
 /// Grade parameters on the main camera.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
@@ -68,6 +78,18 @@ pub struct ImageSpaceGrade {
     /// VATS mode: the swipe's edge (a share of the screen width, graded to its left), the
     /// band on the edge, the wash over the screen, the grade's strength (all 0: none).
     pub vats: Vec4,
+    /// Depth of field: strength, distance, range (game units), the target's distance
+    /// along the view (below 0: the point under the screen's centre).
+    pub dof: Vec4,
+    /// Depth of field: use target (0/1), the flags, the camera's near plane.
+    pub dof_mode: Vec4,
+    /// Motion blur: the strength (set by `update_grade`; `update_motion` turns it into
+    /// the exposure in frames, 0 for none), the depth nearer than which the player's own
+    /// body is left sharp (the depth prepass's value), the longest smear as a part of the
+    /// screen height.
+    pub motion: Vec4,
+    /// Clip space of this frame to clip space of the last one (`update_motion`).
+    pub reproject: Mat4,
 }
 
 impl Default for ImageSpaceGrade {
@@ -85,6 +107,10 @@ impl Default for ImageSpaceGrade {
             time: 0.0,
             sharp: 0.0,
             vats: Vec4::ZERO,
+            dof: Vec4::new(0.0, 0.0, 0.0, -1.0),
+            dof_mode: Vec4::ZERO,
+            motion: Vec4::ZERO,
+            reproject: Mat4::IDENTITY,
         }
     }
 }
@@ -121,6 +147,12 @@ pub struct ScreenModifiers {
     refused: Vec<u32>,
     /// The modifiers of the last frame, to log what comes and goes.
     shown: Vec<u32>,
+    /// The game settings of the engine's own depth of field, read once.
+    dof_settings: Option<DofSettings>,
+    /// The depth of field logged last.
+    dof_shown: String,
+    /// The motion blur logged last.
+    motion_shown: String,
 }
 
 impl ScreenModifiers {
@@ -155,7 +187,8 @@ impl Plugin for ImageSpacePlugin {
         bevy::asset::embedded_asset!(app, "imagespace_blur.wgsl");
         app.init_resource::<ScreenModifiers>()
             .add_plugins(FullscreenMaterialPlugin::<ImageSpaceGrade>::default())
-            .add_systems(Update, update_grade.after(crate::sky::update_sky));
+            .add_systems(Update, update_grade.after(crate::sky::update_sky))
+            .add_systems(PostUpdate, update_motion.after(bevy::transform::TransformSystems::Propagate).after(bevy::camera::CameraUpdateSystems));
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .add_systems(RenderStartup, init_blur)
@@ -165,8 +198,9 @@ impl Plugin for ImageSpacePlugin {
 }
 
 /// The modifiers on the screen now as one effect: the script runtime's, each at its own
-/// age, and the command line's.
-fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, now: f32) -> (ScreenEffect, Vec<u32>) {
+/// age, and the command line's; with the forms on the screen and the Editor IDs of the
+/// ones whose depth of field and motion blur are shown.
+fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, now: f32) -> (ScreenEffect, Vec<u32>, String, String) {
     let mut playing: Vec<(u32, f32)> = Vec::new();
     if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
         playing.extend(rt.game.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)));
@@ -208,7 +242,157 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         effects.push(m.at(seconds));
         forms.push(form);
     }
-    (combine(&effects), forms)
+    // The strongest depth of field and motion blur are the ones shown (`combine`).
+    let (mut dof_source, mut motion_source) = (String::new(), String::new());
+    let (mut top, mut top_motion) = (0.0, 0.0);
+    for (e, &form) in effects.iter().zip(&forms) {
+        if e.dof.strength > top {
+            top = e.dof.strength;
+            dof_source = mods.record(world, form).map_or_else(|| format!("{form:#010x}"), |m| m.edid.clone());
+        }
+        if e.motion_blur > top_motion {
+            top_motion = e.motion_blur;
+            motion_source = mods.record(world, form).map_or_else(|| format!("{form:#010x}"), |m| m.edid.clone());
+        }
+    }
+    (combine(&effects), forms, dof_source, motion_source)
+}
+
+/// The game settings of the engine's own depth of field (image-modifiers.md §8.2, §8.4)
+/// [observed values: FalloutNV.esm GMST; the fallbacks are those values].
+#[derive(Debug, Clone, Copy)]
+struct DofSettings {
+    vats_range: f32,
+    vats_strength: f32,
+    sights_distance: f32,
+    sights_range: f32,
+    sights_strength: f32,
+    /// Motion blur down the sights at full zoom (§9.3).
+    sights_motion_blur: f32,
+}
+
+impl DofSettings {
+    fn read(sim: Option<&nvf_play::sim::SimState>) -> DofSettings {
+        let get = |name: &str, or: f32| sim.and_then(|s| s.forms.setting_f32(name)).unwrap_or(or);
+        DofSettings {
+            vats_range: get("fVATSDOFRange", 500.0),
+            vats_strength: get("fVATSDOFStrengthCap", 0.6),
+            sights_distance: get("fIronSightsDOFDistance", 275.0),
+            sights_range: get("fIronSightsDOFRange", 650.0),
+            sights_strength: get("fIronSightsDOFStrengthCap", 0.0),
+            sights_motion_blur: get("fIronSightsMotionBlur", 0.0),
+        }
+    }
+}
+
+/// The engine's own depth of field (image-modifiers.md §8.4) [hypothesis]: VATS focused
+/// on the mark (`vats_focus`, its distance along the view), beyond it only, faded with
+/// the mode's look (`vats_grade`, 0 … 1); aiming down the sights by the zoom's
+/// `aim_blend`. The stronger, with the target's distance (below 0: none) and its name.
+fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_blend: f32) -> Option<(Dof, f32, &'static str)> {
+    let vats = vats_focus
+        .filter(|_| vats_grade > 0.0 && s.vats_strength > 0.0)
+        .map(|f| (Dof { strength: s.vats_strength * vats_grade, distance: 0.0, range: s.vats_range, use_target: true, flags: DOF_BACK }, f.max(0.0), "VATS"));
+    let sights = (aim_blend > 0.0 && s.sights_strength > 0.0).then(|| {
+        (Dof { strength: s.sights_strength * aim_blend, distance: s.sights_distance, range: s.sights_range, use_target: false, flags: 0 }, -1.0, "iron sights")
+    });
+    match (vats, sights) {
+        (Some(a), Some(b)) => Some(if b.0.strength > a.0.strength { b } else { a }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// The log line's text for a depth of field (rounded, so a fade logs a few lines).
+fn dof_text(d: &Dof, focus: f32, source: &str) -> String {
+    if d.strength == 0.0 {
+        return "off".to_string();
+    }
+    let mut t = format!("strength {:.1}, distance {:.0}, range {:.0}", d.strength, d.distance, d.range);
+    if d.use_target {
+        if focus >= 0.0 {
+            t += &format!(", focus {:.0}", (focus / 100.0).round() * 100.0);
+        } else {
+            t += ", focus on the screen's centre";
+        }
+        if d.flags & DOF_FRONT != 0 {
+            t += ", front";
+        }
+        if d.flags & DOF_BACK != 0 {
+            t += ", back";
+        }
+    }
+    if d.flags & DOF_NO_SKY != 0 {
+        t += ", no sky";
+    }
+    t + &format!(" ({source})")
+}
+
+/// The motion blur shown: the modifiers' `strength` from `source`, or the iron sights'
+/// setting by the zoom's `aim_blend` when stronger (image-modifiers.md §9.3); with the
+/// log line's text ("off" for none; strength in steps of 0.05, so a fade logs a few
+/// lines).
+fn motion_blur(s: Option<&DofSettings>, strength: f32, source: &str, aim_blend: f32) -> (f32, String) {
+    let sights = s.map_or(0.0, |s| s.sights_motion_blur * aim_blend);
+    let (v, name) = if sights > strength { (sights, "iron sights") } else { (strength, source) };
+    if v <= 0.0 {
+        return (0.0, "off".to_string());
+    }
+    let step = (v * 20.0).round() / 20.0;
+    let shown = if step > 0.0 { format!("{step:.2}") } else { "under 0.05".to_string() };
+    (v, format!("strength {shown} ({name})"))
+}
+
+/// The exposure of the motion blur per unit of strength, in seconds: each point is
+/// smeared along where it went on the screen over the last `strength ×` this [hypothesis:
+/// the wiki gives 0 as none and 10 as the most, "how much to blur the screen while
+/// moving"; 10 then smears a third of a second, and the records' 0.15 already shows a
+/// plain smear on a brisk turn: smoke imagespace-motion-blur's motion_turning.png].
+const MOTION_EXPOSURE: f32 = 1.0 / 30.0;
+
+/// The longest smear, as a part of the screen height [hypothesis]; strengths above about
+/// 1 reach it when the view turns briskly.
+const MOTION_MAX_REACH: f32 = 0.08;
+
+/// What is nearer to the eye than this (game units) moves with the view, the player's own
+/// arms and weapon, and is not smeared [hypothesis: the game's own setting for the gun,
+/// `fIronSightsGunMotionBlur`, is 0; the arms lie within it, as for the Pip-Boy].
+const MOTION_SHARP: f32 = 40.0;
+
+/// A camera that moved further than this (game units) or turned more than
+/// [`MOTION_CUT_TURN`] (radians) in one frame was cut to a new view, not moved: no smear
+/// that frame [design].
+const MOTION_CUT_DISTANCE: f32 = 300.0;
+const MOTION_CUT_TURN: f32 = std::f32::consts::FRAC_PI_4;
+
+/// The motion blur's exposure in frames for a frame of `dt` seconds in which the camera
+/// moved `moved` units and turned `turned` radians: what the last frame's motion on the
+/// screen is scaled by (0: none).
+fn motion_frames(strength: f32, dt: f32, moved: f32, turned: f32) -> f32 {
+    if strength <= 0.0 || dt <= 0.0 || moved > MOTION_CUT_DISTANCE || turned > MOTION_CUT_TURN {
+        return 0.0;
+    }
+    strength * MOTION_EXPOSURE / dt
+}
+
+/// The camera of the last frame, per graded camera: its clip-from-world, place and turn.
+#[derive(Default)]
+struct LastViews(HashMap<Entity, (Mat4, Vec3, Quat)>);
+
+/// After the camera has moved for this frame: the reprojection from this frame's clip
+/// space to the last frame's and the exposure in frames (`motion_frames`) on each graded
+/// camera.
+fn update_motion(time: Res<Time>, mut last: Local<LastViews>, mut cams: Query<(Entity, &Camera, &GlobalTransform, &mut ImageSpaceGrade)>) {
+    let dt = time.delta_secs();
+    for (entity, camera, transform, mut grade) in &mut cams {
+        let (_, rot, pos) = transform.to_scale_rotation_translation();
+        let clip_from_world = camera.clip_from_view() * transform.to_matrix().inverse();
+        let Some((prev, prev_pos, prev_rot)) = last.0.insert(entity, (clip_from_world, pos, rot)) else {
+            grade.motion.x = 0.0;
+            continue;
+        };
+        grade.motion.x = motion_frames(grade.motion.x, dt, pos.distance(prev_pos), prev_rot.angle_between(rot));
+        grade.reproject = prev * clip_from_world.inverse();
+    }
 }
 
 /// The blur behind the open wait menu, in the modifiers' blur radius units [engineering
@@ -249,17 +433,18 @@ fn update_grade(
     sleep: Option<Res<nvf_play::wait::SleepFade>>,
     (pip, projections, death, vats): (
         Option<Res<nvf_play::pipboy::PipBoy>>,
-        Query<&Projection, With<nvf_play::PlayerCamera>>,
+        Query<(&Projection, &GlobalTransform), With<nvf_play::PlayerCamera>>,
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
+    (sim, aim): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<&mut ImageSpaceGrade>,
 ) {
     let now = time.elapsed_secs();
-    let (mut effect, forms) = match &world {
+    let (mut effect, forms, dof_source, motion_source) = match &world {
         Some(w) => screen_effect(&mut mods, w, script.as_deref(), now),
-        None => (ScreenEffect::default(), Vec::new()),
+        None => (ScreenEffect::default(), Vec::new(), String::new(), String::new()),
     };
     // A new game shows nothing of the world before its opening runs: until the scripts
     // have started the screen is white, as the opening's first modifier then holds it
@@ -284,10 +469,34 @@ fn update_grade(
         mods.shown = forms;
     }
     // The world behind the Pip-Boy is blurred, the Pip-Boy is not.
-    let near = projections.single().ok().and_then(|p| match p {
+    let camera = projections.single().ok();
+    let near = camera.and_then(|(p, _)| match p {
         Projection::Perspective(p) => Some(p.near),
         _ => None,
     });
+    // Depth of field: the modifiers' or the engine's own, the stronger.
+    if mods.dof_settings.is_none() && sim.is_some() {
+        mods.dof_settings = Some(DofSettings::read(sim.as_deref()));
+    }
+    let vats_look = vats.as_deref().map_or([0.0; 4], |v| v.look());
+    let vats_focus = vats.as_deref().and_then(|v| v.focus()).zip(camera).map(|(p, (_, t))| (nvf_play::space::to_bevy(p) - t.translation()).dot(*t.forward()));
+    let aim_blend = aim.as_deref().map_or(0.0, |a| if a.sight.is_some() { a.blend } else { 0.0 });
+    let (mut dof, mut focus, mut source) = (effect.dof, -1.0f32, dof_source);
+    if let Some((d, f, name)) = mods.dof_settings.as_ref().and_then(|s| engine_dof(s, vats_look[3], vats_focus, aim_blend)) {
+        if d.strength > dof.strength {
+            (dof, focus, source) = (d, f, name.to_string());
+        }
+    }
+    let text = dof_text(&dof, focus, &source);
+    if text != mods.dof_shown {
+        info!("depth of field: {text}");
+        mods.dof_shown = text;
+    }
+    let (motion, text) = motion_blur(mods.dof_settings.as_ref(), effect.motion_blur, &motion_source, aim_blend);
+    if text != mods.motion_shown {
+        info!("motion blur: {text}");
+        mods.motion_shown = text;
+    }
     let pipboy = pip.filter(|p| p.shown()).map_or(0.0, |p| crate::player_body::pipboy_ease(p.clip_time));
     let (pip_blur, sharp) = match near {
         Some(n) if pipboy > 0.0 => (PIPBOY_BLUR * pipboy, n / PIPBOY_SHARP),
@@ -309,14 +518,18 @@ fn update_grade(
         blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur).max(death.map_or(0.0, |d| d.blur())),
         time: now,
         sharp,
-        vats: vats.map_or(Vec4::ZERO, |v| Vec4::from_array(v.look())),
+        vats: Vec4::from_array(vats_look),
+        dof: Vec4::new(dof.strength, dof.distance, dof.range, focus),
+        dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
+        motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
+        reproject: Mat4::IDENTITY,
     };
     for mut grade in &mut grades {
         *grade = g;
     }
 }
 
-/// The blur passes' pipelines: across and down, per target format and whether the
+/// The blur passes' pipelines: the motion blur, across and down, per target format and whether the
 /// view's depth is multisampled (the depth is read to keep what is near sharp).
 #[derive(Resource)]
 pub(crate) struct BlurPipelines {
@@ -324,12 +537,12 @@ pub(crate) struct BlurPipelines {
     layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
     base: RenderPipelineDescriptor,
-    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 2]>,
+    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 3]>,
 }
 
 /// The blur pipelines of a view, and whether its depth is multisampled.
 #[derive(Component)]
-pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 2], bool);
+pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool);
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
@@ -361,7 +574,7 @@ fn prepare_blur(
         let ids = match pipelines.by_format.get(&(format, multi)) {
             Some(ids) => *ids,
             None => {
-                let ids = ["blur_across", "blur_down"].map(|entry| {
+                let ids = ["motion_blur", "blur_across", "blur_down"].map(|entry| {
                     let mut d = pipelines.base.clone();
                     d.layout = vec![pipelines.layouts[multi as usize].clone()];
                     if let Some(f) = d.fragment.as_mut() {
@@ -381,8 +594,9 @@ fn prepare_blur(
     }
 }
 
-/// Blur the picture across and then down, while a modifier blurs (a view without a depth
-/// prepass is not blurred).
+/// Smear the picture by its motion while a motion blur is on, then blur it across and
+/// down while a modifier blurs or a depth of field is on (a view without a depth prepass
+/// is not blurred).
 pub(crate) fn blur_pass(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds, &ViewPrepassTextures)>,
     pipelines: Res<BlurPipelines>,
@@ -392,14 +606,16 @@ pub(crate) fn blur_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
-    if grade.blur <= 0.0 || crate::ssao::depth_multisampled(prepass) != Some(ids.1) {
+    let (smear, blur) = (grade.motion.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
+    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };
-    let (Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1])) else { return };
+    let (Some(motion), Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1]), cache.get_render_pipeline(ids.0[2])) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let layout = cache.get_bind_group_layout(&pipelines.layouts[ids.1 as usize]);
-    for pipeline in [across, down] {
+    let passes = [(motion, smear), (across, blur), (down, blur)];
+    for pipeline in passes.into_iter().filter(|p| p.1).map(|p| p.0) {
         let post = target.post_process_write();
         let bind_group = device.create_bind_group("imagespace_blur_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone(), depth)));
         let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
@@ -418,7 +634,50 @@ pub(crate) fn blur_pass(
 
 #[cfg(test)]
 mod tests {
-    use super::black_over;
+    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, DofSettings, MOTION_EXPOSURE};
+
+    #[test]
+    fn the_engine_focuses_vats_on_the_mark() {
+        let s = DofSettings { vats_range: 500.0, vats_strength: 0.6, sights_distance: 275.0, sights_range: 650.0, sights_strength: 0.0, sights_motion_blur: 0.0 };
+        // No mark, or the look gone: none.
+        assert!(engine_dof(&s, 1.0, None, 0.0).is_none());
+        assert!(engine_dof(&s, 0.0, Some(800.0), 0.0).is_none());
+        let (d, f, name) = engine_dof(&s, 1.0, Some(812.0), 0.0).unwrap();
+        assert_eq!((d.strength, d.range, f, name), (0.6, 500.0, 812.0, "VATS"));
+        assert_eq!(dof_text(&d, f, name), "strength 0.6, distance 0, range 500, focus 800, back (VATS)");
+        // The shipped iron sights cap is 0: no depth of field down the sights.
+        assert!(engine_dof(&s, 0.0, None, 1.0).is_none());
+        let raised = DofSettings { sights_strength: 0.5, ..s };
+        let (d, _, name) = engine_dof(&raised, 0.0, None, 1.0).unwrap();
+        assert_eq!((d.strength, d.distance, d.range, name), (0.5, 275.0, 650.0, "iron sights"));
+        assert_eq!(dof_text(&fnv_world::image_modifier::Dof::default(), -1.0, ""), "off");
+    }
+
+    #[test]
+    fn motion_blur_from_the_modifiers_or_the_sights() {
+        let s = DofSettings { vats_range: 500.0, vats_strength: 0.6, sights_distance: 275.0, sights_range: 650.0, sights_strength: 0.0, sights_motion_blur: 0.0 };
+        assert_eq!(motion_blur(Some(&s), 0.0, "", 1.0), (0.0, "off".to_string()));
+        assert_eq!(motion_blur(Some(&s), 0.15, "VATScamNoDOF", 1.0), (0.15, "strength 0.15 (VATScamNoDOF)".to_string()));
+        // The shipped fIronSightsMotionBlur is 0; a plugin raising it blurs down the sights.
+        let raised = DofSettings { sights_motion_blur: 0.4, ..s };
+        assert_eq!(motion_blur(Some(&raised), 0.15, "VATScamNoDOF", 0.5).1, "strength 0.20 (iron sights)");
+        assert_eq!(motion_blur(None, 0.07, "MS10DrinkSapISFX", 1.0).1, "strength 0.05 (MS10DrinkSapISFX)");
+        assert_eq!(motion_blur(None, 0.02, "MS10DrinkSapISFX", 1.0).1, "strength under 0.05 (MS10DrinkSapISFX)");
+    }
+
+    #[test]
+    fn motion_blur_exposure_in_frames() {
+        // Strength 1 at 60 frames a second: a thirtieth of a second, two frames.
+        assert!((motion_frames(1.0, 1.0 / 60.0, 10.0, 0.05) - 2.0).abs() < 1e-5);
+        // Strength 0.15 at 30 frames a second: 0.15 of a frame.
+        assert!((motion_frames(0.15, 1.0 / 30.0, 10.0, 0.05) - 0.15).abs() < 1e-5);
+        assert!((motion_frames(10.0, 0.1, 0.0, 0.0) - 10.0 * MOTION_EXPOSURE / 0.1).abs() < 1e-5);
+        // No strength, no time, or a cut: none.
+        assert_eq!(motion_frames(0.0, 0.016, 1.0, 0.0), 0.0);
+        assert_eq!(motion_frames(1.0, 0.0, 1.0, 0.0), 0.0);
+        assert_eq!(motion_frames(1.0, 0.016, 1000.0, 0.0), 0.0);
+        assert_eq!(motion_frames(1.0, 0.016, 0.0, 1.0), 0.0);
+    }
 
     #[test]
     fn black_lays_over_a_fade() {

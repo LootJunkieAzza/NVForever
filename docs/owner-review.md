@@ -6828,3 +6828,55 @@ Everything below is my choice, tagged [hypothesis] in screen-splatter.md §4:
 *Check:* take a few hits from a Goodsprings gecko or a shot in the original and compare
 the amount of blood, how long it stays, and whether small hits leave any; smoke
 `screen-splatter-hurt`'s hurt_splatter.png and hurt_flares.png show ours.
+## Depth of field (2026-10-20, session "q14", branch claude/q14-depth-of-field)
+
+docs/spec-notes/image-modifiers.md §8. The GECK wiki describes the three values in a few
+words and nothing says how the engine draws them, so these are my choices:
+- **The ramp**: the blur goes from none at Distance to full at Range (game units from the
+  eye), in a straight line. Distance above Range turns it round (blurred foreground, clear
+  background, as the wiki says). Distance equal to Range blurs everything beyond it.
+- **Use Target**: the same ramp measured from the target's distance. Mode - Front blurs
+  only what is nearer than the target, Mode - Back only what is beyond it, neither does
+  both sides. A modifier with Use Target and no engine target focuses on what is under
+  the screen's centre.
+- **Strength**: how far each point is mixed from sharp towards a blur of fixed radius 3
+  (the modifiers' blur units). It is not clamped, so FlashBangISfx's 2 goes past the blur
+  into a harsh, contrast-like look (the wiki says strengths above 1 do that).
+- **VATS**: focused on the mark (the last one marked, or the one being shot), strength
+  `fVATSDOFStrengthCap` 0.6, range `fVATSDOFRange` 500, only what is beyond the mark is
+  blurred (so the player's own gun stays sharp), faded with VATS's amber look. With no
+  mark nothing is blurred. The records VATScamDOFCloseBlur and VATScamDOF50 are not
+  referenced anywhere in the masters, so I did not use them.
+- **Down the sights**: by `fIronSightsDOFDistance` 275 / `fIronSightsDOFRange` 650, but the
+  game's `fIronSightsDOFStrengthCap` is 0, so there is none in the shipped game.
+- **Not used**: PipBackgroundFX and PauseBackgroundFX (nothing in the masters plays them; the
+  Pip-Boy keeps its own blur); kill-camera modifiers (CAMS) are not played at all yet.
+*Check:* in the game, enter VATS with a dog in front of the trailers (the smoke test's
+spot in Goodsprings): is the background blurred, by about as much as smoke
+`vats-mode-dof`'s vats_dof_marked.png, and is the near ground blurred too (then the mode
+is both sides, not Back)? Throw a flash-bang (or `player.placeatme FlashBangExplosion`) and
+compare the first seconds.
+
+## Motion blur (2026-10-20, session "q15", branch claude/q15-motion-blur)
+
+docs/spec-notes/image-modifiers.md §9. The GECK wiki says only "how much to blur the
+screen while moving", 0 none to 10 the most; these are my choices:
+- **What moves**: each point is smeared along its own motion on the screen, found from its
+  depth and the last frame's camera. Turning smears everything, walking smears the near
+  ground more than the hills, a still view stays sharp. Other actors' own motion is not
+  counted (the renderer has no motion vectors).
+- **How much**: the smear covers the last strength × 1/30 s of motion, at most 8 % of the
+  screen height, 12 samples along the line. With VATScamNoDOF's 0.15 a brisk turn
+  already smears plainly in our frame.
+- **The player's own body** (nearer than 40 units: arms, weapon) is never smeared.
+  `fIronSightsGunMotionBlur` is 0 in the game anyway.
+- **Sources**: the largest among the modifiers on the screen; down the sights
+  `fIronSightsMotionBlur` × the zoom's blend (0 in the game, so none).
+- **Cuts**: a camera that jumps over 300 units or turns over 45° in one frame is not smeared.
+- **Not played**: the VATS kill cameras (most of the game's motion-blur records are theirs);
+  NightScopeISFX (motion blur 0.2), which nothing in the data plays, so maybe the engine
+  plays it for night-vision scopes.
+*Check:* in the game, `imod VATScamNoDOF` from the console and turn the view quickly: is
+there a visible smear, by about as much as smoke `imagespace-motion-blur`'s
+motion_turning.png? Does walking forward smear the ground? Does the gun stay sharp?
+`rimod VATScamNoDOF` afterwards.

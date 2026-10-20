@@ -263,6 +263,16 @@ impl VatsMode {
         Some((self.queue.marks().get(i)?.target.0, self.spots.get(i)?.point, w.melee_reach + CLOSE_SLACK))
     }
 
+    /// Where the view's depth of field is focused (image-modifiers.md §8.4): the mark
+    /// being shot while firing, the last marked while marking; none without a mark.
+    pub fn focus(&self) -> Option<[f32; 3]> {
+        match self.phase {
+            Phase::Firing => self.shooting.and_then(|i| self.spots.get(i)).map(|s| s.point),
+            Phase::Marking => self.spots.last().map(|s| s.point),
+            _ => None,
+        }
+    }
+
     /// The AP the marks not yet started hold.
     pub fn reserved(&self) -> f32 {
         if !self.active() {

@@ -1244,10 +1244,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
                 }
             }
-            HandEvent::ToHand => {
-                rig.animator.cut(TAG_HOLSTER);
-                rig.weapon_parent = draw.as_ref().and_then(|c| c.keys.prn.as_ref()).and_then(|(_, b)| bone(b)).or_else(|| bone("Bip01 R Hand"));
-            }
+            HandEvent::ToHand => rig.animator.cut(TAG_HOLSTER),
             HandEvent::ToHolster | HandEvent::Drawn | HandEvent::Holstered => {}
         }
     }
@@ -1263,7 +1260,16 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     // while held, as its draw clip leaves it; the aim clip does not key it [observed:
     // animation.md §9.8, the game's 9mm cocked at idle in the owner's screenshot].
     rig.animator.set_extra_rest(draw.as_ref().filter(|_| f.hands.in_hand).map(|c| &c.clip));
-    if !f.hands.in_hand {
+    // In the hand, the weapon hangs from the bone the draw clip's `prn:` names (`Bip01 R
+    // ForeTwist` for fists, `Bip01 R Hand` for a rifle), taken from the draw clip of the
+    // weapon held now: a weapon equipped while another is out (a script's EquipItem after
+    // the fists were drawn) hangs from its own draw clip's bone, not the last one's
+    // (before 2026-10-20 the bone was taken only when a draw put the weapon in the hand,
+    // and a varmint rifle given after drawing the fists hung from the forearm, below the
+    // first-person view).
+    if f.hands.in_hand {
+        rig.weapon_parent = draw.as_ref().and_then(|c| c.keys.prn.as_ref()).and_then(|(_, b)| bone(b)).or_else(|| bone("Bip01 R Hand"));
+    } else {
         // The holster clip's `prn:` names the holster bone [observed: `Bip01 Pelvis` for
         // pistols, `Bip01 Spine2` for rifles, `Bip01 Translate` in first person]; the
         // unequip clip's says the same.
@@ -2135,7 +2141,14 @@ fn drive_body(
         if rig.attached != rig.weapon_parent {
             if let (Some(w), Some(p)) = (rig.weapon_node, rig.weapon_parent) {
                 commands.entity(rig.animator.nodes[w]).insert(ChildOf(rig.animator.nodes[p]));
-                debug!("player {:?} rig weapon: now on {:?}", rig.view, rig.animator.skel.names[p]);
+                // Smoke tests read it (`varmint-after-fists`): the weapon drawn hangs from
+                // its own draw clip's bone.
+                info!(
+                    "player {:?} rig weapon {}: now on {:?}",
+                    rig.view,
+                    m.weapon.filter(|_| rig.weapon_model.is_some()).map_or("none".to_string(), |w| w.to_string()),
+                    rig.animator.skel.names[p]
+                );
                 rig.attached = Some(p);
             }
         }
