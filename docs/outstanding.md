@@ -195,8 +195,9 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
     through a door; one with `Waiting` 1 did not. Ours now brings every teammate not on a
     Guard (Wait) package. That `Waiting` is the reason, and where they arrive through
     other doors (left 160 through the room's door out, on the spot coming in), are open.
-  - **SetActorsAI 0.** In the original the actor keeps walking on its last heading; ours
-    stops. Carrying the movement on needs the engine's character movement (follow-up).
+  - ~~**SetActorsAI 0.** In the original the actor keeps walking on its last heading; ours
+    stops.~~ Built 2026-10-20 (set-actors-ai.md): it walks on through the character
+    controller. Open: what happens at walls and whether the walk clip plays (guessed).
   - **Scripted items in NPC inventories.** The Legion aura token's script did nothing even
     in the player's inventory, so it cannot answer; another item is needed.
   - **Topic lists: a generic Goodbye beside a scripted one; Info Connection's shared
