@@ -55,7 +55,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   weapon use through UseWeapon; a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
   [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
-- **Animation**: NPCs' sneaking weapon clips; armour ragdoll (actors' jumps built 2026-10-20, [actor jumps](spec-notes/actor-jumps.md); open there: how the original takes ledge-up links and obstacles)
+- **Animation**: armour ragdoll (actors' jumps built 2026-10-20, [actor jumps](spec-notes/actor-jumps.md); open there: how the original takes ledge-up links and obstacles)
   templates.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
