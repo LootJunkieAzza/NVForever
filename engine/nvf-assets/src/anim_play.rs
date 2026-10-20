@@ -744,6 +744,7 @@ mod tests {
             bools: None,
             controller_id: None,
             values: None,
+            interpolator_id: None,
             data: TrackData::Transform(TransformTrack {
                 translation: Channel::Static(Some([0.0, -0.296, 66.33])),
                 rotation: Channel::Static(None),

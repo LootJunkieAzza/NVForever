@@ -6910,3 +6910,20 @@ smoke `effect-shader-holes-addons`'s effect_holes.png shows? Set an NPC on fire 
 flamer: how many fireballs ride on the body, and where (hands, head, chest)? Do they shrink
 and fade over about 2 s after the burning stops? A Legion explorer (GlowingOneFXShader): are
 glow meshes visible on the body?
+## Vertex morphs (2026-10-20, session "q17", branch claude/q17-vertex-morphs)
+
+docs/spec-notes/vertex-morphs.md. nif.xml gives the blocks' fields only; my choices:
+- **Formula**: the shape is morph 0 (always equal to the stored vertices) plus each later
+  morph times its weight. Normals stay as stored (no base-game file asks to update them).
+- **Clamped flags loop**: the NCR, Nevada and Followers flags' controllers are clamped
+  (-2 s to 22.8 / 34.7 s) but every weight ends where it started, so they are played
+  looping. Other clamped morphs (tripwire, dart gun band, the vault chamber shock) are not
+  played on world objects.
+- **In step**: every placed copy of a model shares its mesh, so all copies of a flag wave
+  together (The Fort's 27 Legion flags move as one).
+- **Wires**: the morphing wire poles (`utilitypole…nv.nif`) are not placed in the Mojave;
+  the placed poles' models have no morphs, so wires still do not swing.
+- **Sequence morphs**: only the model's Idle (else SpecialIdle) sequence feeds them.
+*Check:* in the game, stand in Goodsprings near the Nevada flag (smoke `vertex-morphs`'s
+spot) and at The Fort: do the flags ripple as in vertex_morphs_0/1.png, and do The Fort's
+flags move in step with each other?
