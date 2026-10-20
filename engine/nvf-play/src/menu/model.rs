@@ -51,7 +51,7 @@ use super::barter::{self, Prices};
 use fnv_sim::forms::{BaseData, FormStore, ItemKind};
 use fnv_sim::refs::PlacedRef;
 use fnv_sim::world::{Encumbrance, SimError};
-use fnv_sim::{FormId, RefTable, World};
+use fnv_sim::{FormId, Pick, RefTable, World};
 use std::collections::BTreeMap;
 
 /// Rows the inventory (the Pip-Boy's ITEMS list) shows at once; the list scrolls to keep
@@ -160,20 +160,30 @@ pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
     }
 }
 
-/// What tells a row's units apart: the item and the condition's bits (a condition is
-/// never negative, so the bits order as the numbers do).
-pub type Units = (FormId, Option<u32>);
+/// What tells a row's units apart: the item, the condition's bits (a condition is never
+/// negative, so the bits order as the numbers do) and the mod flags.
+pub type Units = (FormId, Option<u32>, u8);
 
 impl Row {
     pub fn units(&self) -> Units {
-        (self.item, self.at.map(f32::to_bits))
+        (self.item, self.at.map(f32::to_bits), self.mods)
     }
+
+    /// The units the row's actions take: its condition and its mods (weapon-mods.md §3).
+    pub fn pick(&self) -> Pick {
+        Pick::row(self.at, self.mods)
+    }
+}
+
+/// The units [`Row::units`] names, for the simulation.
+fn units_pick(&(_, at, mods): &Units) -> Pick {
+    Pick::row(at.map(f32::from_bits), mods)
 }
 
 /// The order rows are listed in: put-up rows first, then by name in byte order, then the
 /// best condition first.
 fn sort_rows(rows: &mut [Row]) {
-    let key = |r: &Row| (!r.bartered, r.name.as_bytes().to_vec(), r.item, std::cmp::Reverse(r.at.map(f32::to_bits)));
+    let key = |r: &Row| (!r.bartered, r.name.as_bytes().to_vec(), r.item, std::cmp::Reverse(r.at.map(f32::to_bits)), r.mods);
     rows.sort_by_cached_key(key);
 }
 
@@ -814,7 +824,7 @@ impl MenuModel {
                 // The listed stacks only: non-playable items stay hidden in the container.
                 let mut moved = Vec::new();
                 for r in &self.lists[Side::Container as usize].rows {
-                    let n = world.transfer_at(c, PLAYER, r.item, r.count, r.at)?;
+                    let n = world.transfer_at(c, PLAYER, r.item, r.count, r.pick())?;
                     if n > 0 {
                         moved.push((r.item, n));
                     }
@@ -833,7 +843,7 @@ impl MenuModel {
                     Side::Player => (PLAYER, c),
                 };
                 let want = self.want(cmd == Command::One, &r);
-                let n = world.transfer_at(from, to, r.item, want, r.at)?;
+                let n = world.transfer_at(from, to, r.item, want, r.pick())?;
                 out.changed = n > 0;
                 if self.focus == Side::Container && n > 0 {
                     out.taken.push((r.item, n));
@@ -876,7 +886,7 @@ impl MenuModel {
                     };
                     return Ok(format!("Unequipped {}", name(&r)));
                 }
-                let e = match world.equip_at(PLAYER, r.item, r.at) {
+                let e = match world.equip_at(PLAYER, r.item, r.pick()) {
                     Err(SimError::EquipLocked { item, .. }) if item == r.item => return Ok(format!("{} can't be equipped", name(&r))),
                     Err(SimError::EquipLocked { item, .. }) => return Ok(format!("{} can't be equipped while {} is worn", name(&r), display_name(forms, item))),
                     Err(SimError::NoPowerArmorTraining(_)) => {
@@ -898,7 +908,7 @@ impl MenuModel {
             (Mode::Inventory, Command::Drop | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let want = self.want(cmd == Command::Drop, &r);
-                let created = match world.player_drop_item_at(r.item, want, r.at) {
+                let created = match world.player_drop_item_at(r.item, want, r.pick()) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
                     other => other?,
                 };
@@ -923,11 +933,11 @@ impl MenuModel {
         if !t.affordable() {
             return Ok(if t.balance < 0 { "You don't have enough caps.".into() } else { format!("{} doesn't have enough caps.", self.title) });
         }
-        for (&(item, at), &n) in &t.offered[player] {
-            world.transfer_at(PLAYER, t.stock, item, n, at.map(f32::from_bits))?;
+        for (u, &n) in &t.offered[player] {
+            world.transfer_at(PLAYER, t.stock, u.0, n, units_pick(u))?;
         }
-        for (&(item, at), &n) in &t.offered[merchant] {
-            world.transfer_at(t.stock, PLAYER, item, n, at.map(f32::from_bits))?;
+        for (u, &n) in &t.offered[merchant] {
+            world.transfer_at(t.stock, PLAYER, u.0, n, units_pick(u))?;
         }
         let paid = t.balance;
         match paid {

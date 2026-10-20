@@ -4105,6 +4105,26 @@ expect = [
 forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
 
 [[scenario]]
+name = "use-weapon-melee"
+source = "UseWeapon with a melee weapon (docs/design/use-weapon.md §3.1): the actor closes in on its target and swings the number of blows, doing no damage"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is told at 5 s to use a knife (WeapKnife 0x00004334, Melee (1 Hand)) three times on the player, about 400 units east of her, from her own place, no damage; nobody perceives the player (NVF_PLAY_TEST_UNSEEN), so no fight starts. She holds her rifle's model (models are not swapped live), so the knife's clips play with it"
+areas = ["combat", "use-weapon"]
+paths = ["crates/fnv-game/src/use_weapon.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapKnife:FiendVioletRef:player:3:1:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-46500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapKnife \(melee, reach \d+\) on the player \(a script\): 3 blows; no damage', label = "Violet uses the knife on the player: 3 blows, no damage" },
+  { re = 'runs at the player, \d+ units away', label = "she closes in on the player" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B swings at the player from \d+ units \(blow 3', label = "her third blow" },
+  "use weapon: FiendVioletRef 0x000F570B has dealt its 3 blows at the player",
+  "has used its weapon: back to its package",
+  { re = 'use weapon summary: 1 actors used a weapon .*?; 3 blows \((?P<n>\d+) landed, \d+ harmless', range = [1, 3], label = "3 blows, at least one lands, harmless" },
+]
+forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
+
+[[scenario]]
 name = "settings-write"
 source = "owner 2026-10-16: every settings switch is kept in NVForever.ini, so a start or a save's load does not reset it; the first half of the round trip (settings-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
@@ -4583,6 +4603,21 @@ expect = [
   { re = 'resurrect: 0x00104C7D drawn standing again [\d.]+ s after, package \S', label = "drawn standing, running a package" },
 ]
 order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
+
+[[scenario]]
+name = "ragdoll-armour-template"
+source = "docs/spec-notes/ragdoll.md §6: an armour's BMCT names a Ragdoll Template laid over the wearer's ragdoll; the 17 armours that name one (the power armours among them) all name RagdollConstraint\\default.rdt, which no archive of the game holds, so Ringo killed in T-45d power armour falls on his skeleton's own bodies and joints, and the log says why"
+areas = ["combat", "ragdoll"]
+paths = ["crates/fnv-collide/src/ragdoll.rs", "crates/fnv-actor/src/records.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs", "schemas/nif/havok.json"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "10:00104C7D.additem 00014E13 1;10.3:00104C7D.equipitem 00014E13;10.6:00104C7D.getequipped 00014E13;11.5:00104C7D.killactor;14:00104C7D.getdead;14.5:close" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'console: GetEquipped on .*>> 1\.00', label = "Ringo wears the T-45d power armour" },
+  { re = 'console: GetDead on .*>> 1\.00', label = "Ringo is dead" },
+  { re = 'ragdoll template: meshes\\ragdollconstraint\\default\.rdt: not in the data; the skeleton.s own bodies and joints', label = "the armour's template is looked up and is not in the game's data" },
+]
+order = [[{ re = 'GetEquipped on .*>> 1\.00' }, { re = 'ragdoll template: meshes' }, { re = 'GetDead on .*>> 1\.00' }]]
 
 [[scenario]]
 name = "abilities-worn"

@@ -51,12 +51,11 @@ six functions still waiting for an in-game capture to settle their answers.
 
 From [status.md](status.md); the playthrough blockers above are not repeated.
 
-- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); melee
-  weapon use through UseWeapon (the companion wheel, aggressive/passive, sneaking with the
+- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); ~~melee
+  weapon use through UseWeapon~~ (built 2026-10-20, use-weapon.md §3.1) (the companion wheel, aggressive/passive, sneaking with the
   player and a melee-only companion drawing its melee weapon are built,
   [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
-- **Animation**: armour ragdoll (actors' jumps built 2026-10-20, [actor jumps](spec-notes/actor-jumps.md); open there: how the original takes ledge-up links and obstacles)
-  templates.
+- **Animation**: open in [actor jumps](spec-notes/actor-jumps.md) (built 2026-10-20): how the original takes ledge-up links and obstacles.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
   motion blur, the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
