@@ -284,6 +284,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "weapon-sway"
+source = "engine/nvforever/src/view_sway.rs (owner request 2026-10-20): the first-person arms lag behind a turn and bob while running; docs/design/player-body.md §1.4a"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/view_sway.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_LOOK = "3:0:0,3.2:10:0,3.3:20:0,3.4:30:0,3.5:40:0,3.6:50:0", NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 13
+expect = [
+  { re = 'player body summary: weapon sway on, most turn lag (?P<n>[\d.]+) degrees sideways', range = [1.5, 5.01], label = "a quick turn leaves the arms behind, within the 5 degree limit" },
+  { re = 'player body summary: weapon sway on, most turn lag [\d.]+ degrees sideways and (?P<n>[\d.]+) up or down', range = [0, 3.51], label = "up or down within the 3.5 degree limit" },
+  { re = 'player body summary: weapon sway on, .*deepest bob (?P<n>[\d.]+) units', range = [0.3, 0.91], label = "running bobs the arms, within the 0.9 unit dip" },
+]
+
+[[scenario]]
 name = "graphics-settings"
 source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
