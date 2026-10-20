@@ -29,7 +29,7 @@ pub enum Action {
     Talk,
     /// A dead actor: its inventory opens (combat C5).
     Search,
-    /// Activators and furniture: the base form's script would run (Layer 5).
+    /// Activators and furniture: the base form's script runs.
     Activate,
     /// A terminal: its screen opens (`crate::terminal`).
     Access,
@@ -173,9 +173,8 @@ pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, name
         // An actor with a greeting is talked to before this is reached (`script::by_hand`,
         // `crate::dialogue`); this is the actor that has none, or a game without scripts.
         Outcome::Talk { .. } => out.push(Effect::Message(format!("{name} has nothing to say"))),
-        Outcome::Activated if a.script.is_some() => {
-            out.push(Effect::Message(format!("{name}: its script would run (scripts are not implemented yet)")))
-        }
+        // Its script's OnActivate block does whatever it does (`crate::script`).
+        Outcome::Activated if a.script.is_some() => {}
         Outcome::Activated | Outcome::Disabled | Outcome::NoDefault { .. } => out.push(nothing()),
     }
     out
@@ -281,6 +280,12 @@ mod tests {
             assert!(matches!(e.as_slice(), [Effect::Message(_)]), "{o:?}: {e:?}");
         }
         assert_eq!(run(&act(Outcome::Locked { level: 255 })), vec![Effect::Message("Thing is locked (Requires Key)".into())]);
+    }
+
+    #[test]
+    fn a_scripted_activation_says_nothing() {
+        let a = Activation { script: Some(FormId(7)), ..act(Outcome::Activated) };
+        assert_eq!(run(&a), vec![]);
     }
 
     #[test]

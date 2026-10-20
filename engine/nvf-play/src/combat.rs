@@ -195,6 +195,9 @@ pub struct ShotFired {
     /// Where it left, for a shot of an actor other than the player (the player's
     /// flash is at the held weapon's muzzle).
     pub at: Option<V3>,
+    /// The way it left (unit, game space), with `at`: an actor's flash without a muzzle
+    /// marker is turned along it (nvforever `shot_fx`).
+    pub dir: Option<V3>,
 }
 
 /// An actor other than the player fires its weapon once (combat AI, nvforever
@@ -1632,7 +1635,7 @@ pub(crate) fn fire(
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
                 };
-                fired.write(ShotFired { projectile: proj, weapon: id, shooter: FormId::PLAYER_REF, at: None });
+                fired.write(ShotFired { projectile: proj, weapon: id, shooter: FormId::PLAYER_REF, at: None, dir: None });
                 // A casing for each shot of a weapon with a casing model, from its
                 // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`)
                 // [hypothesis: one a shot, at the shot; the game's timing is not known].
@@ -2436,7 +2439,7 @@ fn actor_attacks(
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
-        fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from) });
+        fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
         // Heard where it is fired: the weapon's 3D shoot sound.
         if let Some(sound) = sfx.as_deref().and_then(|x| x.forms.weapons.get(&s.weapon)).and_then(|f| f.shoot_3d.or(f.shoot_2d)) {
             sounds.write(PlaySound { sound, at: Some(seen_from) });

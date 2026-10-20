@@ -3,9 +3,11 @@
 //! `meshes\weapons\` in the archives named, counts the files with a node of that name
 //! (with or without `##` before it), what it hangs from, whether it is turned, where its
 //! axes point and how far it lies from the model's origin; the same counts for
-//! `ShellCasingNode`. With `--list`, one line per file.
+//! `ShellCasingNode`. With `--list`, one line per file; with `--under=<folder>`, the
+//! models under that folder instead (`--under=meshes\creatures` for the creatures'
+//! skeletons and bodies).
 //!
-//! cargo run --release -p fnv-nif --example muzzle_node_survey -- <schema dir> [--list] <archive.bsa>...
+//! cargo run --release -p fnv-nif --example muzzle_node_survey -- <schema dir> [--list] [--under=<folder>] <archive.bsa>...
 //!
 //! Takes archive paths rather than a Data directory so a survey names the archives it
 //! reads; a path in a later archive replaces the same path in an earlier one.
@@ -72,12 +74,13 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let schema = Schema::load_dir(std::path::Path::new(&a[1])).unwrap();
     let list = a.iter().any(|x| x == "--list");
+    let under = a.iter().find_map(|x| x.strip_prefix("--under=")).map_or("meshes\\weapons".to_string(), |u| u.to_ascii_lowercase());
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for path in a[2..].iter().filter(|x| !x.starts_with("--")) {
         let mut ar = fnv_bsa::Archive::open(std::path::Path::new(path)).unwrap();
         for folder in ar.folders.clone() {
             let dir = String::from_utf8_lossy(&folder.name).to_ascii_lowercase();
-            if !dir.starts_with("meshes\\weapons") {
+            if !dir.starts_with(&under) {
                 continue;
             }
             for r in &folder.files {
