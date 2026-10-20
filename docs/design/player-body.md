@@ -95,6 +95,33 @@ exist. The draw/holster timing follows the clips of the rig in view.
   matches the first-person view; in third person it still starts there [engineering
   choice; the game's third-person pick is not known].
 
+### 1.4a Sway and bob of the arms (owner request 2026-10-20)
+
+The original's first-person arms and weapon lag behind a turn and bob as the player
+walks, but none of it is in the files: the first-person movement clips move only the
+root (`mt`) or have keyless tracks (`1hp`), there are no `2hr`/`2ha`/`2hh` movement
+clips in `_1stperson\locomotion`, and `Camera1st` hangs from `Bip01 Looking` beside the
+arms, so a clip moving that chain would move the view too [observed: `fnvtool nif
+decode` of the clips and `_1stperson\skeleton.nif`]. The executable names
+`fFirstPersonHandFollowMult`, `fFirstPersonHandChaseSeconds` and
+`fFirstPersonHandChaseSecondsAttack` [observed: its strings], so the hands chase the
+view by code [hypothesis; the values are not known]. NVForever's sway
+(`engine/nvforever/src/view_sway.rs`) [design, constants tuned by eye]:
+
+- Turn lag: the arms keep their aim and catch the view up with a 0.11 s time constant,
+  at most 5° sideways and 3.5° up or down, the weapon tilting a little into the lag.
+- Bob: a dip at each footfall and one sideways swing a stride, at the phase of the
+  movement clips (the footstep keys), growing with the ground speed to a run's
+  (300 units/s): 0.9 units down, 0.6 across, 1.2° of tilt. Sneaking 60 %, down the sights
+  20 % (the turn lag 35 %), none in the air.
+- Starting, stopping and strafing leave the weapon a little behind (at most 1.2 units)
+  and lean it into a strafe (1.5° at a run).
+- It turns and moves `Bip01 Translate` about the eye in the view's frame, after the
+  clips are blended, so the camera does not move; it fades out (0.15 s) under the
+  Pip-Boy, while an idle drives the view and in third person.
+- A switch, on by default: `--no-weapon-sway`, "Weapon sway" on the settings page (key
+  `weapon-sway`). The exit summary gives the most turn lag and the deepest bob.
+
 ### 1.5 The body in first person (owner request 2026-10-10; not the original's)
 
 A switch, off by default as the original draws the arms rig alone: `--first-person-body`,

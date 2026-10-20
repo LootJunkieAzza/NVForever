@@ -180,17 +180,23 @@ impl ParticleShader {
     }
 
     /// The tint (0–1 sRGB values, alpha) at share `f` of a particle's life: the
-    /// texture's own colour (white, alpha 1) before the first key and after the last,
-    /// linear between [documented: GECK wiki, a first key after 0 begins "with the raw
-    /// color of the texture file", a last key before 1 returns to it "before dying";
-    /// hypothesis: linear blends].
+    /// texture's own colour (white) before the first key and after the last, linear
+    /// between [documented: GECK wiki, a first key after 0 begins "with the raw color of
+    /// the texture file", a last key before 1 returns to it "before dying"; hypothesis:
+    /// linear blends]. The alpha is the nearest key's outside the keys and does not
+    /// return to 1 [hypothesis: the wiki lists "Color" and "Color Alpha" apart and says
+    /// only the colour returns; `Smoke01`'s alphas 0, 0.5, 0 at 0, 0.07 and 0.9 fade its
+    /// puffs out, and an alpha back to 1 flashed each puff white at its full size before
+    /// it went (owner's playtest 2026-10-20)].
     pub fn tint(&self, f: f32) -> [f32; 4] {
-        let raw = ColorKey { color: [255; 3], alpha: 1.0, time: 0.0 };
-        let mut keys = vec![raw];
-        keys.extend(self.color_keys.iter().copied().filter(|k| (0.0..=1.0).contains(&k.time)));
-        keys.push(ColorKey { time: 1.0, ..raw });
+        let keys: Vec<ColorKey> = self.color_keys.iter().copied().filter(|k| (0.0..=1.0).contains(&k.time)).collect();
+        let (Some(first), Some(last)) = (keys.first().copied(), keys.last().copied()) else { return [1.0; 4] };
+        let raw = |time: f32, alpha: f32| ColorKey { color: [255; 3], alpha, time };
+        let mut all = vec![raw(0.0, first.alpha)];
+        all.extend(keys);
+        all.push(raw(1.0, last.alpha));
         let at = |k: &ColorKey| [k.color[0] as f32 / 255.0, k.color[1] as f32 / 255.0, k.color[2] as f32 / 255.0, k.alpha];
-        for w in keys.windows(2) {
+        for w in all.windows(2) {
             let (a, b) = (&w[0], &w[1]);
             if f <= b.time {
                 let k = if b.time > a.time { ((f - a.time) / (b.time - a.time)).clamp(0.0, 1.0) } else { 1.0 };
@@ -198,7 +204,7 @@ impl ParticleShader {
                 return [0, 1, 2, 3].map(|i| x[i] + (y[i] - x[i]) * k);
             }
         }
-        at(&raw)
+        at(&all[all.len() - 1])
     }
 }
 
@@ -470,6 +476,15 @@ mod tests {
         let t = p.tint(0.5);
         assert!((t[1] - 156.0 / 255.0).abs() < 1e-4 && t[3] == 1.0);
         assert_eq!(p.tint(1.0), [1.0, 1.0, 1.0, 1.0]);
+        // Smoke01's alphas 0, 0.5, 0: it fades in and out, never back to opaque.
+        let mut smoke = p.clone();
+        smoke.color_keys = [(84, 0.0, 0.0), (79, 0.5, 0.07), (64, 0.0, 0.9)].map(|(c, alpha, time)| ColorKey { color: [c; 3], alpha, time });
+        let t = smoke.tint(0.0);
+        assert!((t[0] - 84.0 / 255.0).abs() < 1e-6 && t[3] == 0.0);
+        assert!((smoke.tint(0.07)[3] - 0.5).abs() < 1e-6);
+        assert!((0.0..0.5).contains(&smoke.tint(0.5)[3]));
+        assert_eq!(smoke.tint(0.95)[3], 0.0);
+        assert_eq!(smoke.tint(1.0), [1.0, 1.0, 1.0, 0.0]);
         // No texture, the flag, or a short DATA: no particles, or no frame counts.
         assert!(from_data(1, String::new(), &flames(), None, None).unwrap().particles.is_none());
         let mut flagged = flames();
