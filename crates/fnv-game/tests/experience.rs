@@ -19,6 +19,7 @@ use serde_json::Value as Json;
 const CELL: u32 = 0x200;
 const SWIFT_LEARNER: u32 = 0x890;
 const SKILLED: u32 = 0x891;
+const EDUCATED: u32 = 0x892;
 const MINE: u32 = 0x8A0;
 const MINE_PROJ: u32 = 0x8A1;
 const TERMINAL: u32 = 0x8B0;
@@ -52,7 +53,22 @@ fn placed(sig: &[u8; 4], fid: u32, base: u32) -> Vec<u8> {
 }
 
 fn plugin_bytes() -> Vec<u8> {
-    let perks = [perk(SWIFT_LEARNER, "SwiftLearner", &[1.1, 1.2, 1.3]), perk(SKILLED, "TraitSkilled", &[0.9])].concat();
+    // Educated: Adjust Gained Skill Points (10), Add (2) 2, as in FalloutNV.esm.
+    let educated = record(
+        b"PERK",
+        0,
+        EDUCATED,
+        &[
+            sub(b"EDID", z("Educated")),
+            sub(b"DATA", vec![0, 1, 1, 1, 0]),
+            sub(b"PRKE", vec![2, 0, 0]),
+            sub(b"DATA", vec![10, 2, 1]),
+            sub(b"EPFT", vec![1]),
+            sub(b"EPFD", f32b(2.0)),
+            sub(b"PRKF", Vec::new()),
+        ],
+    );
+    let perks = [perk(SWIFT_LEARNER, "SwiftLearner", &[1.1, 1.2, 1.3]), perk(SKILLED, "TraitSkilled", &[0.9]), educated].concat();
     let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
     // A mine: the weapon (DNAM projectile at +36) and the projectile placed as PGRE.
     let mut dnam = vec![0u8; 120];
@@ -165,4 +181,17 @@ fn a_mine_the_player_disarms_gives_its_xp() {
     let v = g.activate(FormId::PLAYER_REF, FormId(MINE_REF), ActMode::Hand).unwrap();
     assert!(v.to_string().contains("disarmed"), "{v}");
     assert_eq!(g.player.xp, 5.0);
+}
+
+/// Educated's Adjust Gained Skill Points entry adds two points a level
+/// (docs/spec-notes/levelup.md §9).
+#[test]
+fn educated_adds_two_skill_points_a_level() {
+    let f = fixture();
+    let mut g = game(&f);
+    let base = fnv_game::levelup::points_for(&mut g, 3);
+    g.player.perks.insert(FormId(EDUCATED), 1);
+    assert_eq!(fnv_game::levelup::points_for(&mut g, 3), base + 2);
+    let sheet = fnv_game::levelup::SkillSheet::of_player(&mut g, 3);
+    assert_eq!(sheet.points, base + 2);
 }

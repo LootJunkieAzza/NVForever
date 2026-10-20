@@ -6,9 +6,9 @@
 //!   always use melee/hand-to-hand as their primary weapon. If Ranged Only is selected, the
 //!   combatant will always use ranged weapons as their primary weapon"]: while an NPC
 //!   fights, a weapon held that its style rules out is swapped for the carried weapon its
-//!   style allows, the one with the highest base damage (the first carried on ties, as
-//!   the outfitting's own choice, `fnv_sim::World::equip_default`) [hypothesis: which of
-//!   the allowed weapons the original takes is not documented]. With none allowed it keeps
+//!   style allows, the one with the highest damage as the outfitting's own choice counts
+//!   it (a gun's explosion counted, the first carried on ties; `fnv_sim::World::equip_default`)
+//!   [hypothesis: which of the allowed weapons the original takes is not documented]. With none allowed it keeps
 //!   what it holds (a Melee Only actor holding only a gun fights with its fists,
 //!   `npc_combat::arm_of`).
 //! - **Melee and ranged** by the weapon's animation type [hypothesis: the style's words
@@ -64,8 +64,8 @@ pub fn allowed(restriction: u32, r: Reach) -> bool {
 
 /// Of the `carried` weapons (id, base damage, reach), the one to take up: the allowed one
 /// with the highest damage, the first on ties.
-pub fn pick(carried: &[(FormId, i32, Reach)], restriction: u32) -> Option<FormId> {
-    let mut best: Option<(i32, FormId)> = None;
+pub fn pick(carried: &[(FormId, f32, Reach)], restriction: u32) -> Option<FormId> {
+    let mut best: Option<(f32, FormId)> = None;
     for &(id, damage, r) in carried {
         if allowed(restriction, r) && best.is_none_or(|(d, _)| damage > d) {
             best = Some((damage, id));
@@ -104,12 +104,12 @@ impl Game<'_> {
         if held.is_some() && restriction == 0 {
             return None;
         }
-        let carried: Vec<(FormId, i32, Reach)> = inv
+        let carried: Vec<(FormId, f32, Reach)> = inv
             .iter()
             .filter(|&(i, n)| n > 0 && Some(i) != held && inv.has_sound(i))
             .filter_map(|(i, _)| {
                 let it = forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable)?;
-                Some((i, it.weapon_damage.unwrap_or(0), reach(i)))
+                Some((i, it.weapon_damage.unwrap_or(0.0), reach(i)))
             })
             .collect();
         pick(&carried, restriction)
@@ -156,12 +156,12 @@ mod tests {
     #[test]
     fn picks_the_strongest_allowed() {
         let (gun, knife, machete, grenade) = (FormId(1), FormId(2), FormId(3), FormId(4));
-        let carried = [(gun, 30, Reach::Ranged), (knife, 10, Reach::Melee), (machete, 12, Reach::Melee), (grenade, 100, Reach::Other)];
+        let carried = [(gun, 30.0, Reach::Ranged), (knife, 10.0, Reach::Melee), (machete, 12.0, Reach::Melee), (grenade, 100.0, Reach::Other)];
         assert_eq!(pick(&carried, 1), Some(machete));
         assert_eq!(pick(&carried, 2), Some(gun));
         assert_eq!(pick(&carried, 0), Some(gun));
         assert_eq!(pick(&carried[..1], 1), None);
         // Ties: the first carried.
-        assert_eq!(pick(&[(knife, 10, Reach::Melee), (machete, 10, Reach::Melee)], 1), Some(knife));
+        assert_eq!(pick(&[(knife, 10.0, Reach::Melee), (machete, 10.0, Reach::Melee)], 1), Some(knife));
     }
 }

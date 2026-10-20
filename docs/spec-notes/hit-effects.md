@@ -120,6 +120,10 @@ at exit. Smoke: `flamer-burns-player`, `flamer-burns-npc`, `radscorpion-poison`,
 ## 6. To capture
 
 - How long the flamer's burn lasts after the last hit, and whether a corpse burns.
+- The Incinerator's burn (NVEnchIncineratorEffect, magnitude 4 for 8 s) drained NPCs 1
+  or 2 Health a second in the original's NCR-Fiend fights, for 16–30 s, on past death
+  (npc-behaviour-compare.md §9.1); ours drains 4. One burn from one glob at a known
+  distance, the target's Health every frame, would show the rule.
 - Several cazador stings: one poison refreshed, or several adding up?
 - Does a radscorpion poison with every attack or only its forward power attack (built:
   only the forward power attack)? How often does it sting?

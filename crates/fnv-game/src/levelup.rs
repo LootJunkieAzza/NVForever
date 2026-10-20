@@ -38,10 +38,22 @@ pub fn skill_points(intelligence: i32, level: i32) -> i32 {
     base + i32::from(level % 2 == 0 && intelligence % 2 == 0)
 }
 
-/// The skill points the player gets for reaching `level`.
+/// The skill points the player gets for reaching `level`: [`skill_points`], then the
+/// perks' Adjust Gained Skill Points entry point (Educated +2, Logan's Loophole 0 past
+/// level 30; `crate::perks::ADJUST_GAINED_SKILL_POINTS`), never under 0 [hypothesis: whole
+/// points, the fraction dropped]. The perk owner's conditions are read with the player at
+/// the new level (the level is raised before the menu opens). Logged `levelup: <n> skill
+/// points (<base> before <perk>, ...)` when a perk changed them.
 pub fn points_for(g: &mut Game, level: i32) -> i32 {
     let int = actor::actor_value_base(g, FormId::PLAYER_REF, INTELLIGENCE).round() as i32;
-    skill_points(int, level)
+    let base = skill_points(int, level);
+    let (v, by) = g.entry_point(FormId::PLAYER_REF, crate::perks::ADJUST_GAINED_SKILL_POINTS, f64::from(base));
+    let points = ((v * 1000.0).round() / 1000.0).trunc().max(0.0) as i32;
+    if !by.is_empty() {
+        let perks: Vec<String> = by.iter().map(|a| g.data.name(a.perk)).collect();
+        tracing::info!("levelup: {points} skill points ({base} before {})", perks.join(", "));
+    }
+    points
 }
 
 /// Whether reaching `level` brings a perk: every `iLevelsPerPerk` levels [documented:

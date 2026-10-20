@@ -6603,6 +6603,24 @@ combat-rules.md §17–18; queue item 8.
   firing, hits and other; a rerun of campaign fight_stats_round settles it.
 - Not changed: a scripted FireWeapon wears nothing [design]; hits on the holder do not
   wear his weapon (only hits on the weapon's own volume do, your rule).
+
+## Weapon sway and bob in first person (2026-10-20, branch claude/viewmodel-sway)
+
+Design: docs/design/player-body.md §1.4a. The arms and weapon now lag behind a turn and
+bob as you walk and run; "Weapon sway" on the settings page (or `--no-weapon-sway`)
+turns it off. The game's own files have no bob for the arms, so it is all ours and
+every number is a guess to tune by eye:
+- **Turn lag** 0.11 s to catch up, at most 5° sideways and 3.5° up/down. *Check:* does a
+  quick flick in the original leave the gun further behind, or for longer?
+- **Bob** 0.9 units down at each footfall and 0.6 across a stride at a run, less walking,
+  60 % sneaking, 20 % down the sights. *Check:* walking and running with a rifle, side by
+  side with the original.
+- **Strafe lean** 1.5° and **start/stop lag** at most 1.2 units. *Check:* too much?
+- The game's settings `fFirstPersonHandFollowMult` and `fFirstPersonHandChaseSeconds`
+  are named in the executable but their values are not in any file. A capture reading
+  `GetNumericGameSetting fFirstPersonHandChaseSeconds` (and the other two) in the
+  original would give the turn lag's time.
+
 ## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
 
 docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
@@ -6624,6 +6642,28 @@ check in the original:
   actor, only when the target is within reach; they do not walk up.
 - No power attacks in a use (people's power attacks are PR #503).
 
+## The last trooper's time: Cook-Cook's weapon (2026-10-20, session "q9-trooper-time")
+
+npc-behaviour-compare.md §9.1, actors.md §9.3. Queue item 9: our NCR troopers died far
+sooner than the original's in the Cook-Cook fight. What I found and chose:
+- **Cook-Cook drew the wrong weapon.** He carries an Incinerator and a Flamer; the
+  original's held the Incinerator in all three recorded fights and lobbed globs from
+  1,100–2,000 units, ours drew the Flamer (higher base damage) and charged. **My rule**: the
+  weapon choice ranks a weapon by its base damage plus the damage of the explosion its
+  projectile sets off (Incinerator 1 + 20 against the Flamer's 16); thrown weapons and
+  mines keep their base damage. Fitted to that one actor; "first weapon in the record" or
+  "longest range" would fit him too. *Check:* in game, which weapon do Boomers, Fiends
+  with a grenade rifle, Nellis's Jack and Raquel, Mags and Oscar Velasco hold? 40 NPCs
+  now draw a Grenade Rifle, Grenade Launcher or Grenade Machinegun they carry instead of
+  a melee weapon or a lesser gun (they used to swing a sledgehammer or a lead pipe).
+- **Three smoke scenarios built on Cook-Cook's Flamer** (`cook-cook-flamer`,
+  `combat-flamer-reach`, `npc-flamer-holstered`) now give him the Flamer with EquipItem at
+  2 s; their checks are unchanged (`npc-flamer-holstered` gained `--play` and god mode,
+  which the test aid needs).
+- **Left, not built: the burn.** The Incinerator's burn drains 4 Health a second in ours
+  (the record's magnitude); the original's drained NPCs 1 or 2 a second for 16–30 s. No
+  documented rule explains it, so I did not guess one; the troopers still die 16–31 s in
+  against the original's 30–132 s. *Needs:* one burn captured frame by frame.
 ## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
 
 docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style
@@ -6648,3 +6688,19 @@ rules out takes up the carried weapon its style allows. My choices, to check in 
   UnequipItem's NoEquip flag), for every NPC, not only companions. A weapon a script locked
   off with UnequipItem's NoEquip flag is still respected here, and broken ones are not taken.
   *Check:* take Boone's rifle in his inventory and give him a knife: does he fight with it?
+
+## Perks that change skill points (2026-10-20, session "q7", branch claude/q7-skill-point-perks)
+
+docs/spec-notes/levelup.md §9. Educated now adds 2 to the level-up menu's points, Logan's
+Loophole sets them to 0 past level 30, and every perk's and trait's ability (the record's
+Ability effect) is on you while you hold the perk: Good Natured's +5/−5 skills, the
+implants' S.P.E.C.I.A.L., Strong Back's carry weight, Action Boy's AP and the rest. Before
+this none of those abilities applied. My choices, to check in game:
+- **Abilities of a ranked perk**: only the highest rank's spell applies (Action Boy rank 2
+  is its 30 AP spell alone, not 15 + 30). *Check:* AP with Action Boy at rank 2.
+- **Educated's points are whole and never below 0**, and Logan's Loophole's condition is
+  read at the new level (no points from level 31 on).
+- **A perk's ability goes with the perk** (RemovePerk, a trait given back); while the perk is held a
+  RemoveSpell of it is undone the next frame (Dispel still suspends it as any ability).
+- **Not done**: reading skill books (so Comprehension does nothing yet), Hacking Science
+  Bonus, companions' perks.
