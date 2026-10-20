@@ -4087,6 +4087,26 @@ expect = [
 forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
 
 [[scenario]]
+name = "use-weapon-melee"
+source = "UseWeapon with a melee weapon (docs/design/use-weapon.md §3.1): the actor closes in on its target and swings the number of blows, doing no damage"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is told at 5 s to use a knife (WeapKnife 0x00004334, Melee (1 Hand)) three times on the player, about 400 units east of her, from her own place, no damage; nobody perceives the player (NVF_PLAY_TEST_UNSEEN), so no fight starts. She holds her rifle's model (models are not swapped live), so the knife's clips play with it"
+areas = ["combat", "use-weapon"]
+paths = ["crates/fnv-game/src/use_weapon.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapKnife:FiendVioletRef:player:3:1:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-46500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapKnife \(melee, reach \d+\) on the player \(a script\): 3 blows; no damage', label = "Violet uses the knife on the player: 3 blows, no damage" },
+  { re = 'runs at the player, \d+ units away', label = "she closes in on the player" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B swings at the player from \d+ units \(blow 3', label = "her third blow" },
+  "use weapon: FiendVioletRef 0x000F570B has dealt its 3 blows at the player",
+  "has used its weapon: back to its package",
+  { re = 'use weapon summary: 1 actors used a weapon .*?; 3 blows \((?P<n>\d+) landed, \d+ harmless', range = [1, 3], label = "3 blows, at least one lands, harmless" },
+]
+forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
+
+[[scenario]]
 name = "settings-write"
 source = "owner 2026-10-16: every settings switch is kept in NVForever.ini, so a start or a save's load does not reset it; the first half of the round trip (settings-read starts in the same home), run them together"
 areas = ["main-menu", "save"]

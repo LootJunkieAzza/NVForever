@@ -32,6 +32,11 @@
 //!   doings do [design].
 //! - **Weapon**: the function equips the named weapon when the actor carries it; the
 //!   page's "or grab one if one was nearby" is not built [design].
+//! - **Melee** (docs/design/use-weapon.md §3.1): with a melee weapon, fists or a
+//!   creature's own attack, each "shot" is a blow. Once in place, a script's use closes
+//!   in on its target within the reach the engine sets ([`WeaponUse::reach`]) and swings
+//!   there [hypothesis: the page says only "how many times to use the weapon"; a blow
+//!   from where the actor stands would never land].
 //! - Not part of the saved state: a use in progress is lost with a load [design].
 
 use crate::game::Game;
@@ -84,6 +89,11 @@ pub struct WeaponUse {
     pub crouched: bool,
     /// All its shots are fired.
     pub done: bool,
+    /// A use with a melee weapon, fists or a creature's own attack: the distances
+    /// (centre to centre, game units) within which it stops closing in on its target and
+    /// beyond which it sets off again, set by the engine from the weapon's reach; `None`
+    /// for a gun (module notes).
+    pub reach: Option<[f32; 2]>,
 }
 
 /// How near the "target should be here" reference the target has to be, game units
@@ -125,6 +135,7 @@ impl WeaponUse {
             left_in_volley: None,
             crouched: false,
             done: shots == 0,
+            reach: None,
         }
     }
 
@@ -204,6 +215,7 @@ impl Game<'_> {
             left_in_volley: None,
             crouched: false,
             done: false,
+            reach: None,
         })
     }
 
