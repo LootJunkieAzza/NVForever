@@ -78,7 +78,7 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
 | Increase Weapon Damage | A: flat bonus to damage | `base_damage + A` |
 | Increase Clip Capacity | A: flat bonus to clip size | `clip_size + A` |
 | Decrease Spread | A: flat reduction of min spread | `min_spread − A`, not below 0 |
-| Decrease Weight | A: flat reduction of weight | `weight − A`, not below 0 (the figures; the carried weight is not changed yet) |
+| Decrease Weight | A: flat reduction of weight | `weight − A`, not below 0; the carried weight counts it too (§3) |
 | Increase Max Condition | A: flat bonus to max condition | `health + A`; condition stays a fraction of it |
 | Increase Rate of Fire | A: extra multiplier, 0.2 = 20 % faster | `fire_rate`, `attack_shots_per_sec` and `attack_mult` × (1 + A) [hypothesis: which figures "rate of fire" means] |
 | Increase Zoom | A: flat value subtracted from the zoom field of view | `sight_fov − A`, not below 1 |
@@ -112,6 +112,26 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
 - A modded weapon's row in the inventory lists reads its name with " +" [hypothesis: the
   GECK wiki's SetItemModFlags calls the flag "the inventory '+'"]; units with other mods
   are their own rows.
+- A row's actions take that row's units: equipping, using, dropping, moving to a
+  container and putting up for barter pick a unit with the row's condition and the row's
+  mod flags (`fnv_sim::Pick`), so a modded rifle's row equips or drops the modded rifle
+  and the plain row a plain one [design: the owner's rule for rows at one condition,
+  2026-10-16, carried over to mods]. Units put up for barter are kept by item,
+  condition and mods.
+- The carried weight (the inventory's total, encumbrance, `GetAV InventoryWeight`)
+  counts a modded weapon at its weight after its Decrease Weight mods, as the figures do
+  (`weight − A` per mod on, not below 0) [hypothesis: the effect lowers the weapon's
+  weight, the one the inventory adds up; not captured]. The simulation reads the effect
+  and its value from WEAP `DNAM` itself (`Item::weight_mods`), as `fnv-combat` does,
+  since the inventory's crate sits below combat's.
+- **In the world.** A dropped (or script-placed) weapon reference keeps its unit's extra
+  data, mods included (simulation.md §5), and a modded one draws the third-person model
+  for its flags (`MWD1`…`MWD7`, `Weapon::model_for`), the plain world model when the
+  record has none for that combination [hypothesis: "Mods are implemented by swapping the
+  model" (GECK wiki Weapon Mods) holds for every view of the weapon; the `MWD` fields are
+  the third-person ones]. An NPC holding a modded weapon (the unit it has equipped, else
+  the one it would take) draws the same model in its hand [hypothesis, as above]. Its
+  shots use the plain figures (only the player's weapon is modded in combat yet).
 
 ## 4. The ITEMS page's Mod hint and key
 
@@ -180,12 +200,7 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
 
 ## 6. Not built
 
-- Modded models for weapons in the world (dropped, placed or held by NPCs): only the
-  player's weapon in hand uses `MWD`/`WNM`.
-- The carried weight of a Decrease Weight mod; a modded weapon's value.
+- A modded weapon's value; an NPC's modded figures in combat.
 - Projectile speed, ammo regeneration, equip time, VATS bonus, the mod shoot sounds.
-- Telling two units at the same condition apart by mods when equipping or dropping a row:
-  the row's action takes a unit at its condition as before (`World::equip_at`), which may
-  be the other one.
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not
   built; GetMenuTargetRef 1061 is not answered.

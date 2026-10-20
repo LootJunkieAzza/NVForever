@@ -1506,6 +1506,40 @@ fn use_weapon_sends_the_actor_to_its_place_and_back_to_its_package_after() {
     assert!(ev.iter().any(|e| matches!(e, AiEvent::WeaponUseOver)), "{ev:?}");
 }
 
+/// A melee use of UseWeapon (docs/design/use-weapon.md §3.1): standing on its own
+/// reference, the actor closes in on its target within the reach the engine set, stops
+/// there, and gives the closing in up when the use is over.
+#[test]
+fn a_melee_use_closes_in_on_its_target_within_its_reach() {
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut s = sim(&f, &[R_LONER]);
+    s.run(1.0);
+    let actor = FormId(R_LONER);
+    let opcode = s.game.data.table.by_name("UseWeapon").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    let r = |x: u32| ArgValue::Value(Value::Ref(x));
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    // Standing on its own reference: in place at once, 300 units from its target.
+    s.game.call_function(&ctx, &[r(STAT), r(R_LONER), r(R_HERE), n(2.0)]);
+    s.run(0.5);
+    assert!(s.game.weapon_use(actor).unwrap().in_place);
+    assert_eq!(s.feet(R_LONER), [350.0, 50.0, 0.0], "a gun's use stays where it is");
+    // The engine finds a melee weapon: a reach to close within.
+    s.game.weapon_uses.get_mut(&actor).unwrap().reach = Some([70.0, 100.0]);
+    s.run(10.0);
+    let away = dist(s.feet(R_LONER), START);
+    assert!(away <= 100.0 && away > 20.0, "{away}");
+    let ev = s.events(R_LONER);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Close { target, .. } if target.0 == R_HERE)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Hold { target, .. } if target.0 == R_HERE)), "{ev:?}");
+    // Over: the closing in ends with it.
+    s.game.end_weapon_use(actor);
+    s.run(1.0);
+    assert!(s.ai.agents[&actor].search.is_none());
+    assert!(s.events(R_LONER).iter().any(|e| matches!(e, AiEvent::WeaponUseOver)));
+}
+
 /// DisableNavmesh while an actor walks a way over that navmesh: it plans again, finds no
 /// way and sets the package aside; enabled again, the way is there (docs/design/
 /// script-stubs.md §3.5). The switches are applied once per change.

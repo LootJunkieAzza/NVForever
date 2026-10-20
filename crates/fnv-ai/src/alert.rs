@@ -307,7 +307,7 @@ impl Ai {
     /// 2026-10-11: a dog gets into range and bites, it does not push the player around].
     /// Without a way there the actor holds its ground.
     #[allow(clippy::too_many_arguments)]
-    fn close_in(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], away: f32, stop: f32) {
+    pub(crate) fn close_in(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], away: f32, stop: f32) {
         let params = self.path_params(game, actor);
         let aiming = game.awareness.aiming.contains(&actor);
         let own = self.alert_speeds(actor);

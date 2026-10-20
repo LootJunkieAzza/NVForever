@@ -29,6 +29,6 @@ pub mod world;
 
 pub use form::FormId;
 pub use forms::FormStore;
-pub use inventory::Inventory;
+pub use inventory::{Inventory, Pick};
 pub use refs::RefTable;
 pub use world::{SimConfig, Snapshot, World};

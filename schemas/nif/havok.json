@@ -474,7 +474,29 @@
         {"name": "remove_when_broken", "type": "bool"}
       ]
     },
-    "bhkShape": {"abstract": true, "inherit": "bhkSerializable", "note": "nif.xml <niobject name=\"bhkShape\">."},
+    "bhkRagdollTemplate": {
+      "inherit": "NiExtraData",
+      "note": "nif.xml <niobject name=\"bhkRagdollTemplate\">: the extra data (named RDT) of a Ragdoll Template file (.rdt), listing one bhkRagdollTemplateData per bone. No such file ships with FNV (docs/spec-notes/ragdoll.md §6); checked only against synthetic files.",
+      "fields": [
+        {"name": "num_bones", "type": "u32"},
+        {"name": "bones", "type": "ref", "length": "num_bones"}
+      ]
+    },
+    "bhkRagdollTemplateData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"bhkRagdollTemplateData\">: overrides for the body and constraints of the skeleton bone of the same name.",
+      "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "mass", "type": "f32"},
+        {"name": "restitution", "type": "f32"},
+        {"name": "friction", "type": "f32"},
+        {"name": "radius", "type": "f32"},
+        {"name": "material", "type": "HavokMaterial"},
+        {"name": "num_constraints", "type": "u32"},
+        {"name": "constraints", "type": "bhkWrappedConstraintData", "length": "num_constraints"}
+      ]
+    },
+    "bhkShape":{"abstract": true, "inherit": "bhkSerializable", "note": "nif.xml <niobject name=\"bhkShape\">."},
     "bhkTransformShape": {
       "inherit": "bhkShape",
       "note": "nif.xml <niobject name=\"bhkTransformShape\">.",

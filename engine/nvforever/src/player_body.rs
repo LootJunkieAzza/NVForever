@@ -697,6 +697,11 @@ impl PlayerBody {
         self.muzzle_entity
     }
 
+    /// The armour the drawn body wears (none before it is built).
+    pub fn worn(&self) -> &[FormId] {
+        self.body.as_ref().map_or(&[], |b| &b.worn)
+    }
+
     /// The third-person rig as an actor's rig of the player's reference, for its ragdoll
     /// (`death_cam.rs`): its root entity and the rig.
     pub fn third_rig(&self) -> Option<(Entity, crate::limbs::ActorRig)> {

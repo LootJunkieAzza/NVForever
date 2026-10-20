@@ -676,7 +676,8 @@ fn arm_weapon(
 ) -> Option<WeaponHold> {
     let w = a.weapon.and_then(|id| world.actors.weapons.get(&id))?;
     let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
-    let model = w.model.as_deref()?;
+    // A modded weapon's own model (weapon-mods.md §3 "In the world").
+    let model = w.model_for(false, a.weapon_mods)?;
     let stance = stance_for(world, ctx, &a.skeleton, skel, prefix);
     let (Some(stance), Some(part)) = (stance, ctx.part(&fnv_actor::resolve::mesh_path(model))) else {
         stats.weapon_missing += 1;

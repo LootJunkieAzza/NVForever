@@ -208,6 +208,7 @@ pub(crate) fn watch(
     mut phys: Option<ResMut<PhysState>>,
     mut cam: ResMut<DeathCam>,
     mut scale: Option<ResMut<ClockScale>>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
 ) {
     let player = FormId::PLAYER_REF.0;
     let dead = nvf_play::combat::is_dead(script.as_deref(), player);
@@ -217,7 +218,8 @@ pub(crate) fn watch(
             let third = control.third_person_view();
             // A pose kept from an earlier death would put the body back at rest there.
             ragdolls.rest.remove(&player);
-            let corpse = body.third_rig().and_then(|(root, rig)| Some((root, data.as_deref().and_then(|d| ragdolls.corpse(d, &rig))?, rig)));
+            let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), body.worn());
+            let corpse = body.third_rig().and_then(|(root, rig)| Some((root, data.as_deref().and_then(|d| ragdolls.corpse(d, &rig, &templates))?, rig)));
             let body = corpse.map(|(root, c, rig)| {
                 commands.entity(root).insert((PlayerRig(rig.clone()), c));
                 (root, rig)

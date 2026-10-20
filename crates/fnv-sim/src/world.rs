@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use crate::clock::{self, Calendar};
 use crate::form::FormId;
 use crate::forms::{BaseData, FormStore, ItemKind, LeveledEntry, SPECIAL};
-use crate::inventory::{unequipped, Extra, Inventory};
+use crate::inventory::{unequipped, Extra, Inventory, Pick};
 use crate::leveled::{self, LeveledError};
 use crate::refs::{PlacedRef, RefTable};
 
@@ -650,12 +650,12 @@ impl<'a> World<'a> {
     /// items move like any other: the pages that forbid dropping and selling them say
     /// nothing about containers, so storing one is allowed [hypothesis; not captured].
     pub fn transfer(&mut self, from: FormId, to: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
-        self.transfer_at(from, to, item, count, None)
+        self.transfer_at(from, to, item, count, Pick::ANY)
     }
 
-    /// As [`World::transfer`], moving only the units `at` picks (`Extra::is_at`: one
-    /// condition, or any): a menu row's units.
-    pub fn transfer_at(&mut self, from: FormId, to: FormId, item: FormId, count: i32, at: Option<f32>) -> Result<i32, SimError> {
+    /// As [`World::transfer`], moving only the units `at` names (`Extra::picked`: one
+    /// condition and mods, or any): a menu row's units.
+    pub fn transfer_at(&mut self, from: FormId, to: FormId, item: FormId, count: i32, at: Pick) -> Result<i32, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
@@ -698,7 +698,7 @@ impl<'a> World<'a> {
         let all: Vec<_> = self.inventory(from)?.iter().collect();
         let stacks: Vec<_> = all.into_iter().filter(|&(i, _)| !self.stays(from, i)).collect();
         for &(item, n) in &stacks {
-            let groups = unequipped(self.inventory(from)?.take_at(item, n, None));
+            let groups = unequipped(self.inventory(from)?.take_at(item, n, Pick::ANY));
             let dest = self.inventory(to)?;
             for (mut e, c) in groups {
                 if !keep_owner {
@@ -779,7 +779,7 @@ impl<'a> World<'a> {
     /// with SetQuestObject both left the player's inventory]. The player's own drop is
     /// [`World::player_drop_item`].
     pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
-        self.drop_item_at(from, item, count, None)
+        self.drop_item_at(from, item, count, Pick::ANY)
     }
 
     /// As [`World::drop_item`], the dropped references keeping only their owner: DropMe
@@ -789,13 +789,13 @@ impl<'a> World<'a> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
-        let groups = unequipped(self.inventory(from)?.take_at(item, count, None));
+        let groups = unequipped(self.inventory(from)?.take_at(item, count, Pick::ANY));
         let groups = groups.into_iter().map(|(e, n)| (Extra { owner: e.owner, ..Extra::default() }, n)).collect();
         self.drop_groups(from, item, groups)
     }
 
-    /// As [`World::drop_item`], dropping only the units `at` picks.
-    pub fn drop_item_at(&mut self, from: FormId, item: FormId, count: i32, at: Option<f32>) -> Result<Vec<FormId>, SimError> {
+    /// As [`World::drop_item`], dropping only the units `at` names.
+    pub fn drop_item_at(&mut self, from: FormId, item: FormId, count: i32, at: Pick) -> Result<Vec<FormId>, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
@@ -852,11 +852,11 @@ impl<'a> World<'a> {
     /// nothing moves [documented: GECK wiki Category:Items and SetQuestObject: the player
     /// cannot drop one]. The count is checked first.
     pub fn player_drop_item(&mut self, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
-        self.player_drop_item_at(item, count, None)
+        self.player_drop_item_at(item, count, Pick::ANY)
     }
 
-    /// As [`World::player_drop_item`], dropping only the units `at` picks.
-    pub fn player_drop_item_at(&mut self, item: FormId, count: i32, at: Option<f32>) -> Result<Vec<FormId>, SimError> {
+    /// As [`World::player_drop_item`], dropping only the units `at` names.
+    pub fn player_drop_item_at(&mut self, item: FormId, count: i32, at: Pick) -> Result<Vec<FormId>, SimError> {
         if count > 0 && self.is_quest_item(item) {
             return Err(SimError::QuestItem(item));
         }
@@ -870,12 +870,12 @@ impl<'a> World<'a> {
     /// broken and is refused with [`SimError::Broken`] until it is repaired [design: the
     /// owner's rule, 2026-10-11]; a unit that is not broken is taken before a broken one.
     pub fn equip(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
-        self.equip_at(actor, item, None)
+        self.equip_at(actor, item, Pick::ANY)
     }
 
-    /// As [`World::equip`], equipping (or using) one of the units `at` picks: a menu
+    /// As [`World::equip`], equipping (or using) one of the units `at` names: a menu
     /// row's.
-    pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Option<f32>) -> Result<Equip, SimError> {
+    pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Pick) -> Result<Equip, SimError> {
         let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
         let trained = self.power_armor_training;
