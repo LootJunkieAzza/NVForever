@@ -603,13 +603,13 @@ fn barter_and_drops_ask_how_many_too() {
     m.apply(&mut w, Command::One);
     m.apply(&mut w, Command::Amount(4));
     m.apply(&mut w, Command::AmountOk);
-    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(BULLETS), None)), Some(&4));
+    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(BULLETS), None, 0)), Some(&4));
     assert_eq!(m.status.as_deref(), Some("Selling Ammo x4"));
     select(&mut m, Side::Container, "Ammo");
     assert!(m.selected_row(Side::Container).unwrap().bartered);
     m.apply(&mut w, Command::One);
     assert_eq!(m.quantity, None);
-    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(BULLETS), None)), Some(&3));
+    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(BULLETS), None, 0)), Some(&3));
     // Inventory: drop 7 of the 10 rounds as one reference holding 7.
     let mut m = MenuModel::open_inventory(&mut w).unwrap();
     select(&mut m, Side::Player, "Ammo");
@@ -674,4 +674,54 @@ fn worn_units_list_apart_from_whole_ones() {
     assert!(m.status.as_deref().unwrap_or("").starts_with("Traded"), "{:?}", m.status);
     assert_eq!(rifles(&m, Side::Player), vec![(5, Some(1.0), false), (1, Some(0.95), false)]);
     assert_eq!(rifles(&m, Side::Container), vec![(1, Some(1.0), false)]);
+}
+
+/// A modded rifle beside whole plain ones at the same condition: its row (" +") equips,
+/// stores, sells back and drops that rifle, not a plain one (weapon-mods.md §3).
+#[test]
+fn a_modded_row_takes_the_modded_unit() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(RIFLE), 5).unwrap();
+    w.add_item_extra(PLAYER, FormId(RIFLE), 1, Extra { mods: 2, ..Extra::default() }).unwrap();
+    let rifles = |m: &MenuModel, side: Side| -> Vec<(i32, u8, bool)> {
+        m.list(side).rows.iter().filter(|r| r.item == FormId(RIFLE)).map(|r| (r.count, r.mods, r.bartered)).collect()
+    };
+    let modded = |m: &mut MenuModel, side: Side| {
+        let i = m.list(side).rows.iter().position(|r| r.item == FormId(RIFLE) && r.mods == 2).expect("a modded row");
+        m.focus = side;
+        m.selected[side as usize] = i;
+    };
+    let mods_held = |w: &World<'_>| w.peek(PLAYER).unwrap().inventory.as_ref().unwrap().equipped_mods(FormId(RIFLE));
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    assert_eq!(rifles(&inv, Side::Player), vec![(5, 0, false), (1, 2, false)]);
+    modded(&mut inv, Side::Player);
+    inv.apply(&mut w, Command::One);
+    assert_eq!(inv.status.as_deref(), Some("Equipped Varmint Rifle +"));
+    assert_eq!(mods_held(&w), 2);
+    // Stored: the modded one leaves, the plain ones stay.
+    let mut c = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    modded(&mut c, Side::Player);
+    c.apply(&mut w, Command::One);
+    assert_eq!(rifles(&c, Side::Player), vec![(5, 0, false)]);
+    assert_eq!(rifles(&c, Side::Container), vec![(1, 0, false), (1, 2, false)]);
+    // Bought back: that one comes, the box's plain one stays.
+    let mut m = barter(&mut w);
+    modded(&mut m, Side::Container);
+    m.apply(&mut w, Command::One);
+    assert_eq!(rifles(&m, Side::Player)[0], (1, 2, true));
+    w.add_item(PLAYER, FormId(CAPS), 400).unwrap();
+    m.refresh(&mut w).unwrap();
+    m.apply(&mut w, Command::Accept);
+    assert!(m.status.as_deref().unwrap_or("").starts_with("Traded"), "{:?}", m.status);
+    assert_eq!(rifles(&m, Side::Player), vec![(5, 0, false), (1, 2, false)]);
+    assert_eq!(rifles(&m, Side::Container), vec![(1, 0, false)]);
+    // Dropped: the reference keeps the mods.
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    modded(&mut inv, Side::Player);
+    inv.apply(&mut w, Command::Drop);
+    let dropped = inv.dropped.last().copied().expect("a dropped reference");
+    assert_eq!(w.peek(dropped).unwrap().extra.mods, 2);
+    assert_eq!(rifles(&inv, Side::Player), vec![(5, 0, false)]);
 }

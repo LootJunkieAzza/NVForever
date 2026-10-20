@@ -1029,10 +1029,10 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    - shove speeds (140 units per second for a shot, 220 for a melee blow) and joint
      damping are guesses to tune when you play; shots move a lying body only a little;
    - corpse poses are remembered for the run only (there are no saves yet).
-3. **Open questions (ragdoll.md §6):** the sign of two joint limits rests on anatomy,
+3. **Open questions (ragdoll.md §7):** the sign of two joint limits rests on anatomy,
    not on a capture; the unit of the constraints' friction value is unknown. A capture
    of how corpses lie in the original would settle the first.
-4. **Not built:** armour ragdoll templates (`.rdt`), knockdown of living actors
+4. **Not built:** knockdown of living actors
    (`PushActorAway`, explosion knockdown), weapons dropping from dead hands, severed
    limbs, dragging bodies.
 5. **I ran `nvforever` without the smoke locks** nine times (10:37–10:57, 14–39 s each,

@@ -55,8 +55,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   weapon use through UseWeapon; a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
   [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books, which Comprehension changes, is not built); slot machines; reputation disguises and resets.
-- **Animation**: armour ragdoll (actors' jumps built 2026-10-20, [actor jumps](spec-notes/actor-jumps.md); open there: how the original takes ledge-up links and obstacles)
-  templates.
+- **Animation**: open in [actor jumps](spec-notes/actor-jumps.md) (built 2026-10-20): how the original takes ledge-up links and obstacles.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
   motion blur, the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about

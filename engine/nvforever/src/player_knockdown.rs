@@ -157,6 +157,7 @@ fn watch(
     (globals, cams): (Query<&GlobalTransform>, Query<&Transform, With<PlayerCamera>>),
     mut kd: ResMut<PlayerKnockdown>,
     mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
 ) {
     let me = FormId::PLAYER_REF;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -192,7 +193,8 @@ fn watch(
         }
         let was_first = control.pov == Pov::First && !control.third_person_view();
         ragdolls.rest.remove(&me.0);
-        let mut corpse = body.third_rig().and_then(|(root, rig)| Some((root, data.as_deref().and_then(|d| ragdolls.corpse(d, &rig))?, rig)));
+        let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), body.worn());
+        let mut corpse = body.third_rig().and_then(|(root, rig)| Some((root, data.as_deref().and_then(|d| ragdolls.corpse(d, &rig, &templates))?, rig)));
         let shove = rt.game.take_shove(me);
         if let (Some((_, c, _)), Some(v)) = (corpse.as_mut(), shove) {
             c.velocity = v;

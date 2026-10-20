@@ -48,6 +48,7 @@ type Living = (
     Option<&'static Flinch>,
     &'static mut Transform,
     &'static GlobalTransform,
+    Option<&'static crate::outfits::Dressed>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -62,15 +63,17 @@ fn show_hits_and_deaths(
     mut ragdolls: ResMut<Ragdolls>,
     mut actors: Query<Living, Without<Dying>>,
     world: Option<Res<WorldData>>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
 ) {
     let fresh: Vec<ActorHit> = hits.read().copied().collect();
     let now = time.elapsed_secs();
     let tuning = combat.map(|c| c.tuning.clone()).unwrap_or_default();
-    for (e, r, rig, lo, flinch, mut t, gt) in &mut actors {
+    for (e, r, rig, lo, flinch, mut t, gt, dressed) in &mut actors {
         let hit = fresh.iter().rev().find(|h| h.form_id == r.0);
         let dead = is_dead(script.as_deref(), r.0);
         if dead {
-            let corpse = data.as_deref().and_then(|d| ragdolls.corpse(d, rig));
+            let templates = crate::ragdoll::worn_templates(actor_world.as_deref(), dressed.map_or(&[][..], |d| &d.worn));
+            let corpse = data.as_deref().and_then(|d| ragdolls.corpse(d, rig, &templates));
             if lo.is_none() && corpse.is_none() {
                 continue;
             }
