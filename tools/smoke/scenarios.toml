@@ -1782,6 +1782,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "weapon-parts-rest"
+source = "owner's audit 2026-10-20: the game's 9mm pistol is held with its hammer cocked and shows its magazine in the reload (docs/spec-notes/animation.md §9.8)"
+note = "the player draws the 9mm pistol (000E3778) at 8 s, fires at 11 s, reloads at 13 s and goes to third person at 17 s; every NPC's weapon is out (--actor-weapons drawn): two settlers near the player carry the short .357 revolver, whose aim clip holds ##357Hammer at 45°, and GSSettlerAM (00104F0A) the varmint rifle, whose clips leave every part at its place (2026-10-20). The draw clips turn ##nmHammer 45° and the aim clips do not key it; the attack and reload clips leave it there. The model has two nodes named ##nmClip (the first empty), and the reload clip moves both"
+areas = ["weapon-parts", "animation"]
+paths = ["engine/nvf-assets/src/anim_blend.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,13:reload,17:view,19:fire" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "drawn"]
+run_seconds = 24
+expect = [
+  { re = 'player First rig: weapon at rest in the hand, parts away from their place: .*##nmHammer 0\.0 units 45°', min = 3, label = "first person: hammer cocked after the draw, the shot and the reload" },
+  { re = 'player Third rig: weapon at rest in the hand, parts away from their place: .*##nmHammer 0\.0 units 45°', min = 3, label = "third person: the same" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s \[.*"##nmClip", "##nmClip"', label = "the first-person reload moves both ##nmClip nodes" },
+  { re = 'actor weapons: \w+ meshes\\weapons\\1handpistol\\357revolvershort\.nif: \d+ shape\(s\) under parts the aim or draw clip moves', label = "an NPC's .357 revolver held with its hammer cocked" },
+  { re = 'actor weapons: \w+ meshes\\weapons\\2handrifle\\varmintrifle\.nif: \d+ shape\(s\) under parts', count = 0, label = "the varmint rifle's parts stay at their place" },
+]
+
+[[scenario]]
 name = "bear-trap"
 source = "CLAUDE.md: after changes to groups' sound keys (activators.md §6–§8): the bear trap"
 areas = ["actor-groups", "object-anims"]
