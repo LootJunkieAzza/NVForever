@@ -3738,6 +3738,51 @@ expect = [
   { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif' },
   { re = 'particles: model meshes.effects.explosiongrenadefrag.nif: 4 system' },
   { re = 'shot fx:.*\b1 explosions' },
+  { re = 'decals: ExplosionDirtImpact leaves DecalDirtScorch .* on the world', label = "the blast leaves its scorch on the ground (impact-decals.md)" },
+]
+
+[[scenario]]
+name = "impact-decals-bullets"
+source = "owner 2026-10-20: audit of shot effects, impact decals not built (docs/spec-notes/impact-decals.md): 9mm pistol shots at a rock by the Prospector Saloon leave bullet holes"
+note = "the rock NVNRockCanyon12 (00106B0C) stands 143 units east of the start: two shots without spread at it, two at the ground to the north-east (dirt), more than the IPCT's placement radius (16) apart; frames of the ground at 10.2 s and of the rock at 11.2 s"
+areas = ["combat", "effects"]
+paths = ["engine/nvforever/src/decals.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_LOOK = "2:97:-4,6.8:93:-1,7.6:60:-30,8.4:75:-30,9.6:68:-26,10.6:96:-3", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.2:fire,7:fire,7.2:fire,7.8:fire,8:fire,8.6:fire,8.8:fire", NVF_PLAY_TEST_SHOTS = "10.2:decals_bullets_ground.png,11.2:decals_bullets_rock.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 13
+expect = [
+  { re = 'decals: Ballistic\w*Impact leaves Decal\w+Ballistic \(Decals\\ImpactDecal\w+\.dds\) on the world', label = "a bullet hole" },
+  { re = 'decals summary: (?P<n>\d+) placed', range = [2, 8], label = "the shots' holes" },
+]
+
+[[scenario]]
+name = "impact-decals-flamer"
+source = "owner 2026-10-20: audit of shot effects, impact decals not built (docs/spec-notes/impact-decals.md): the flamer's stream scorches the ground (FlamerScorchBigImpact, texture set DecalDirtScorch 00019073)"
+note = "the flamer held at the ground by the Prospector Saloon from 6 s to 8 s; the stream lands every frame, so most impacts fall within the placement radius (16) of a live scorch and leave none; the frame at 8.5 s shows the scorches"
+areas = ["combat", "effects"]
+paths = ["engine/nvforever/src/decals.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:300", NVF_PLAY_TEST_LOOK = "2:46:-30,7:60:-30", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,8:fire", NVF_PLAY_TEST_SHOTS = "8.5:decals_flamer.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'decals: FlamerScorchBigImpact leaves DecalDirtScorch \(Decals\\ImpactDecalScorch01\.dds\) on the world: side \d+ of 150-250, depth 96', label = "the flamer's scorch on the ground" },
+  { re = 'decals summary: (?P<n>\d+) placed', range = [1, 100], label = "scorches placed" },
+  { re = 'decals summary: .* (?P<n>\d+) within the placement radius of another', range = [1, 100000], label = "the stream does not pile a scorch on every impact" },
+]
+
+[[scenario]]
+name = "impact-decals-cap"
+source = "owner 2026-10-20: scorch marks and bullet holes must not be persistent (\"i dont want to jam up the engine remembering all these\"): a small fixed cap, a limited life, gone with their cell (docs/spec-notes/impact-decals.md §3)"
+note = "the minigun (20 shots a second) held for 10 s by the Prospector Saloon while the view sweeps round in 7-degree steps every 0.1 s, pitch -20 and -35 in turn, so the bullets keep landing more than the placement radius (16) from the live holes: more holes are placed than the cap (64) allows alive, and the oldest go"
+areas = ["combat", "effects"]
+paths = ["engine/nvforever/src/decals.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:600", NVF_PLAY_TEST_LOOK = "2:0:-20,6.0:0:-20,6.1:7:-35,6.2:14:-20,6.3:21:-35,6.4:28:-20,6.5:35:-35,6.6:42:-20,6.7:49:-35,6.8:56:-20,6.9:63:-35,7.0:70:-20,7.1:77:-35,7.2:84:-20,7.3:91:-35,7.4:98:-20,7.5:105:-35,7.6:112:-20,7.7:119:-35,7.8:126:-20,7.9:133:-35,8.0:140:-20,8.1:147:-35,8.2:154:-20,8.3:161:-35,8.4:168:-20,8.5:175:-35,8.6:182:-20,8.7:189:-35,8.8:196:-20,8.9:203:-35,9.0:210:-20,9.1:217:-35,9.2:224:-20,9.3:231:-35,9.4:238:-20,9.5:245:-35,9.6:252:-20,9.7:259:-35,9.8:266:-20,9.9:273:-35,10.0:280:-20,10.1:287:-35,10.2:294:-20,10.3:301:-35,10.4:308:-20,10.5:315:-35,10.6:322:-20,10.7:329:-35,10.8:336:-20,10.9:343:-35,11.0:350:-20,11.1:357:-35,11.2:4:-20,11.3:11:-35,11.4:18:-20,11.5:25:-35,11.6:32:-20,11.7:39:-35,11.8:46:-20,11.9:53:-35,12.0:60:-20,12.1:67:-35,12.2:74:-20,12.3:81:-35,12.4:88:-20,12.5:95:-35,12.6:102:-20,12.7:109:-35,12.8:116:-20,12.9:123:-35,13.0:130:-20,13.1:137:-35,13.2:144:-20,13.3:151:-35,13.4:158:-20,13.5:165:-35,13.6:172:-20,13.7:179:-35,13.8:186:-20,13.9:193:-35,14.0:200:-20,14.1:207:-35,14.2:214:-20,14.3:221:-35,14.4:228:-20,14.5:235:-35,14.6:242:-20,14.7:249:-35,14.8:256:-20,14.9:263:-35,15.0:270:-20,15.1:277:-35,15.2:284:-20,15.3:291:-35,15.4:298:-20,15.5:305:-35,15.6:312:-20,15.7:319:-35,15.8:326:-20,15.9:333:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,5.9:fire,16:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 19
+expect = [
+  { re = 'decals summary: (?P<n>\d+) placed', range = [65, 100000], label = "more holes placed than the cap" },
+  { re = 'decals summary: .* at most (?P<n>\d+) alive \(cap 64\)', range = [1, 64], label = "never more than 64 alive" },
+  { re = 'decals summary: .* (?P<n>\d+) removed at the cap', range = [1, 100000], label = "the oldest go at the cap" },
 ]
 
 [[scenario]]

@@ -60,7 +60,7 @@
 //!   the Incinerator's, the missile's, the big fire explosions') bend what lies behind
 //!   them instead of being drawn (`nvf_assets::nif_material`, "Refraction"); their
 //!   `BSRefractionStrengthController` keys play with the effect clip.
-//! - Not built: impact decals.
+//! - **Impact decals.** The decal an impact leaves is drawn by `crate::decals`.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;

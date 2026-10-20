@@ -327,6 +327,9 @@ pub struct ImpactFx {
     pub point: V3,
     pub normal: V3,
     pub dir: V3,
+    /// The reference of the actor it struck, if it struck one (its decal goes on the
+    /// actor's body, nvforever `decals`).
+    pub actor: Option<u32>,
 }
 
 /// An explosion went off: its EXPL and where.
@@ -2280,7 +2283,7 @@ fn melee(
                     Some(impact) => {
                         stats.melee_impacts += 1;
                         debug!("combat: melee impact {impact} ({material}) at ({:.0}, {:.0}, {:.0})", h.point[0], h.point[1], h.point[2]);
-                        show_impact(s, ImpactFx { impact, shooter: FormId::PLAYER_REF, point: h.point, normal: h.normal, dir }, &mut sounds, &mut impacts);
+                        show_impact(s, ImpactFx { impact, shooter: FormId::PLAYER_REF, point: h.point, normal: h.normal, dir, actor: actor.map(|a| a as u32) }, &mut sounds, &mut impacts);
                     }
                     None => debug!("combat: {} has no impact for {material}", w.edid.as_deref().unwrap_or("?")),
                 }
@@ -2544,7 +2547,7 @@ fn actor_attacks(
         if let Some(s) = sfx.as_deref() {
             if let (Some(impact), _) = impact_for(s, &sim, id, Some(b.target.0 as ActorId), None) {
                 stats.melee_impacts += 1;
-                show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
+                show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir, actor: Some(b.target.0) }, &mut sounds, &mut impacts);
             }
         }
         // A blow that lands wears the weapon once, as the player's (§17); the Fists and
@@ -2762,7 +2765,7 @@ fn fly(
             let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
             let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
             if let (Some(impact), Some(g)) = (impact, ground) {
-                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0] });
+                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None });
                 if let Some(i) = sfx.as_deref().and_then(|s| s.forms.impacts.get(&impact)) {
                     for sound in i.sound_1.into_iter().chain(i.sound_2) {
                         effects.0.write(PlaySound { sound, at: Some(g.point) });
@@ -2856,7 +2859,7 @@ fn fly(
         if let Some(s) = sfx.as_deref() {
             let (impact, material) = impact_for(s, &sim, id, p.actor, p.material);
             if let Some(impact) = impact {
-                show_impact(s, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir }, &mut effects.0, &mut effects.1);
+                show_impact(s, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir, actor: p.actor.map(|a| a as u32) }, &mut effects.0, &mut effects.1);
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));

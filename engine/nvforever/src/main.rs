@@ -37,6 +37,7 @@ mod creature_stance;
 mod creator_view;
 mod death_cam;
 mod deaths;
+mod decals;
 mod dismember;
 mod knockouts;
 mod player_knockdown;
@@ -1232,6 +1233,7 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin, dismember::DismemberPlugin));
+            app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
@@ -1494,9 +1496,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).
         bevy::core_pipeline::prepass::DepthPrepass,
-        // The world, the water (which the reflection camera leaves out) and the
-        // player's first-person arms.
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER]),
+        // The world, the water (which the reflection camera leaves out), the player's
+        // first-person arms and the impact decals (which need this camera's prepass).
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER, decals::DECAL_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
