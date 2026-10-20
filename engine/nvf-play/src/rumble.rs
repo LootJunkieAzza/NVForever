@@ -200,7 +200,7 @@ mod tests {
         app.init_resource::<Bindings>().add_plugins(RumblePlugin);
         let pad = app.world_mut().spawn(Gamepad::default()).id();
         let sent = |app: &mut App| {
-            app.world_mut().write_message(ShotFired { projectile: FormId(1), weapon: FormId(2), shooter: FormId::PLAYER_REF, at: None });
+            app.world_mut().write_message(ShotFired { projectile: FormId(1), weapon: FormId(2), shooter: FormId::PLAYER_REF, at: None, dir: None });
             app.update();
             let m = app.world().resource::<Messages<GamepadRumbleRequest>>();
             m.iter_current_update_messages().filter(|r| r.gamepad() == pad).count()

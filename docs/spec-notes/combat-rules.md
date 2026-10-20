@@ -1043,6 +1043,14 @@ animation.md §9.9.
       flash is not lost to loading;
   - a weapon without a `ProjectileNode` (or a run without a player body) shows no
     flash; its projectiles are still drawn.
+  - another actor's flash (since 2026-10-20) goes under the muzzle marker of the
+    weapon drawn on it (`weapons::Muzzle`: the same `ProjectileNode`, placed under the
+    actor's `Weapon` node where it is in the model at rest), so it moves with the gun
+    and its +y lies along the barrel as the player's does [same hypothesis]; an actor's
+    weapon without the node puts it where the shot left, its +y turned along the shot
+    [design]. The flash and projectile models of a weapon drawn on an actor are loaded
+    when it is first drawn. Creatures fire no guns yet (their attacks are blows,
+    docs/design/combat-ai.md), so turrets and robots show no flash.
 - **Checked** [observed 2026-10-10, `--play` at Goodsprings, `--hour 12`, third person
   from the side (`orbit=75:5` at the screenshot's time), exit 0 and "run finished";
   screenshots kept privately]:
