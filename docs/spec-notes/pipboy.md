@@ -161,11 +161,12 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
       ammo card names].
     - **"Mod X)"** [documented: `IM_ModButton`, 47 under the Repair hint, `sInventoryMod`,
       PC key X; hypothesis: shown for weapons with mod slots (WMI1–3), bright when the
-      player carries a mod that fits, dim otherwise]. The item mod menu is not built, and
-      X still drops an item in NVForever [design], so the hint only tells.
+      player carries a mod that fits a free slot, dim otherwise]. X on a bright hint opens
+      the mod menu (2026-10-20, weapon-mods.md §4–§5); elsewhere X still drops an item
+      [design].
     - The repair hint ("Repair R)" / "Maintain R)") is built (repair.md §5), and the
       repair list takes the pointer (repair.md §5).
-  - Not built: the mod menu.
+  - The mod menu (`item_mod.rs`): weapon-mods.md §5.
   - The flat image (no model's screen) shows only once the Pip-Boy is all the way up:
     before, it flashed for a frame or more on every Tab while the body took the screen
     (the owner's list 5, item 2).

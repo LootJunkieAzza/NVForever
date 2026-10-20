@@ -26,9 +26,11 @@
 //! - The ammunition's badge (`IM_ItemIconBadge`, 390, 260, 64 square): the picture of the
 //!   ammunition the ammo card names [documented: place; hypothesis: the ammo's own icon].
 //! - "Mod X)" under the Repair hint (`IM_ModButton`, 47 lower, `sInventoryMod`) for a
-//!   weapon with mod slots: bright when the player carries a mod that fits it, dim
-//!   otherwise [documented: place, key; hypothesis: when it shows]. The item mod menu is
-//!   not built and X still drops (design): the hint only tells.
+//!   weapon with mod slots: bright when the player carries a mod that fits a slot not
+//!   taken yet, dim otherwise [documented: place, key; hypothesis: when it shows]. X on a
+//!   bright hint opens the mod menu (`super::item_mod`, weapon-mods.md §5); elsewhere X
+//!   drops one (design).
+//! - A modded weapon's figures are its modded ones (`WeaponStats::modded`).
 
 use super::frame::{self, Align, Card, Ctx, Kit, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy};
@@ -106,7 +108,7 @@ pub struct Info {
     pub dps: Option<String>,
     /// The ammunition's picture for the badge.
     pub badge: Option<String>,
-    /// A weapon with mod slots: whether the player carries a mod that fits it.
+    /// A weapon with mod slots: whether the player carries a mod that fits a free one.
     pub mod_hint: Option<bool>,
 }
 
@@ -192,7 +194,8 @@ fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, 
     let cf = combat.map(|c| &c.forms);
     match r.kind {
         Some(ItemKind::Weapon) => {
-            if let Some(w) = cf.and_then(|f| f.weapons.get(&r.item)) {
+            if let Some(w) = cf.and_then(|f| f.weapons.get(&r.item)).map(|w| w.modded(r.mods)) {
+                let w = &w;
                 // Binoculars and the like are weapons without damage: no DAM or STR
                 // [hypothesis].
                 i.first = (w.base_damage > 0).then(|| ("DAM", w.base_damage.to_string()));
@@ -200,8 +203,9 @@ fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, 
                 if w.base_damage > 0 {
                     i.dps = Some(format!("{:.0}", weapon_dps(w, r.condition.unwrap_or(1.0))));
                 }
-                let fits: Vec<FormId> = w.mods.iter().filter_map(|m| m.item).collect();
-                if !fits.is_empty() {
+                let fits: Vec<FormId> = w.mods.iter().filter(|m| r.mods & fnv_combat::data::mod_flag(m.slot) == 0).filter_map(|m| m.item).collect();
+                let slots = w.mods.iter().any(|m| m.item.is_some());
+                if slots {
                     i.mod_hint = Some(fits.iter().any(|&m| sim.world.item_count(FormId::PLAYER_REF, m).unwrap_or(0) > 0));
                 }
                 let f = cf.expect("weapon stats came from it");
@@ -245,7 +249,7 @@ struct RowButton(usize);
 /// The ITEMS page's keys and wheel, while it is shown.
 pub fn keys(
     pip: Res<PipBoy>,
-    repair: Res<super::repair::PipRepair>,
+    (repair, modding): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>),
     active: Res<ActiveMenu>,
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel: MessageReader<MouseWheel>,
@@ -253,8 +257,9 @@ pub fn keys(
     mut out: MessageWriter<MenuInput>,
 ) {
     use KeyCode::*;
-    // The repair list has the keys while it is shown (`super::repair`).
-    let items = pip.open() && pip.page == Page::Items && !repair.is_open() && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
+    // The repair list and the mod menu have the keys while one is shown (`super::repair`,
+    // `super::item_mod`, which opens on X before this runs).
+    let items = pip.open() && pip.page == Page::Items && !repair.is_open() && !modding.is_open() && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     let mut send = |c| {
         out.write(MenuInput(c));
     };
@@ -320,10 +325,21 @@ pub fn draw(
     combat: Option<Res<crate::combat::Combat>>,
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
-    (repair, script): (Res<super::repair::PipRepair>, Option<Res<crate::script::ScriptState>>),
+    (repair, modding, script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<Res<crate::script::ScriptState>>),
 ) {
     let Some((body, _)) = bodies.iter().find(|(_, b)| b.page == Page::Items) else { return };
-    if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() {
+    if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() && !modding.is_changed() {
+        return;
+    }
+    if forms.is_none() {
+        *forms = play.as_ref().map(|p| super::stats::read::Forms::new(p.lo, p.schema));
+    }
+    // The mod menu in place of the page's body (`super::item_mod`).
+    if let Some(s) = modding.0.as_ref() {
+        let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i));
+        let desc = chosen.zip(forms.as_mut()).map(|(ch, f)| f.text(ch.item.0).description.clone());
+        let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+        commands.entity(body).despawn_children().with_children(|p| super::item_mod::draw_list(p, &mut c, s, combat.as_deref(), desc.as_deref()));
         return;
     }
     // The repair list in place of the page's body (`super::repair`).
@@ -335,9 +351,6 @@ pub fn draw(
     let Some(m) = active.0.as_ref().filter(|m| m.mode == Mode::Inventory) else { return };
     let sim = sim.bypass_change_detection();
     let caps = sim.world.item_count(FormId::PLAYER_REF, model::CAPS).unwrap_or(0);
-    if forms.is_none() {
-        *forms = play.as_ref().map(|p| super::stats::read::Forms::new(p.lo, p.schema));
-    }
     let selected = m.list(Side::Player).rows.get(m.selected[Side::Player as usize]);
     let info = selected.map(|r| (r.icon.clone(), info_of(r, combat.as_deref(), sim, forms.as_mut())));
     if let (Some(r), Some((_, i))) = (selected, &info) {
@@ -459,6 +472,7 @@ mod tests {
             icon: None,
             price: None,
             bartered: false,
+            mods: 0,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;

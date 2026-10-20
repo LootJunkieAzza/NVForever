@@ -254,6 +254,26 @@ pub fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, cards: &[
     }
 }
 
+/// The heading with a name (font 4) right-aligned `right_in` short of the menus' right
+/// edge in place of cards, the line running from the title up to 20 before it [documented:
+/// item_mod_menu.xml `IMM_ItemName`; hypothesis: the line stops at the name].
+pub fn heading_named(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, name: &str, right_in: f32) {
+    let (x0, y0) = (MAIN.min.x, MAIN.min.y);
+    let line = amber(LINE);
+    let bright = amber(TEXT);
+    c.fade(p, x0, y0, FADE, false, line);
+    c.line(p, x0, y0, LEAD_LINE, THICK, line);
+    let top = y0 - base(&c.kit.face(4).font) + THICK;
+    let w = c.text(p, 4, title, x0 + TITLE_X, top, Align::Left, bright);
+    let after = x0 + TITLE_X + w + TITLE_GAP;
+    let right = MAIN.max.x - right_in;
+    let name_w = c.text(p, 4, name, right, top, Align::Right, bright);
+    let stop = right - name_w - TITLE_GAP;
+    if stop > after {
+        c.line(p, after, y0, stop - after, THICK, line);
+    }
+}
+
 /// A card: a line along its top, one fading down its right side, the title at the left
 /// and the value right-aligned, both in font 2.
 pub fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, width: f32, title: &str, value: &str) {

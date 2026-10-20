@@ -351,7 +351,7 @@ mod tests {
     use super::*;
 
     fn weapon(model: Option<&str>, anim: &str, damage: i32, embedded: bool) -> Weapon {
-        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, embedded, non_playable: false, first_person: None, first_person_model: None }
+        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, embedded, non_playable: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() }
     }
 
     #[test]
