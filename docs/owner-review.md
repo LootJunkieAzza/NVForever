@@ -6579,3 +6579,28 @@ check against the game:
   heat haze, the particle systems that emit from meshes (7 files: the nukes', the
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
+
+## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
+
+docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style
+page says a Melee Only combatant "will always use melee/hand-to-hand as their primary weapon"
+and a Ranged Only one ranged weapons. Before this, a companion switched to Melee on the wheel
+kept its gun and fought with its fists. Now any NPC in a fight that holds a weapon its style
+rules out takes up the carried weapon its style allows. My choices, to check in game:
+- **Which weapon**: the allowed one with the highest base damage, the first carried on ties
+  (the same rule as the outfitting's own choice). *Check:* give Boone a knife and a machete,
+  set him to Melee: does he take the machete?
+- **When**: only while fighting, every frame of the fight, so a wheel switch mid-fight swaps
+  at once; out of combat he keeps what he holds. *Check:* in the original, does a companion
+  switched to Melee out of combat draw the melee weapon before the next fight?
+- **Ranged Only** works the same way: a companion switched back to Ranged takes its gun up
+  again when it next fights. With no weapon its style allows, it keeps what it holds (a
+  Melee Only one with only guns still fights with its fists).
+- **Melee and ranged by animation type**: Hand to Hand, Melee 1H/2H are melee; pistols,
+  rifles, Handle, Launcher are ranged; grenades, mines and thrown weapons are never taken up
+  as the main weapon.
+- **Empty hands**: an NPC that fights with no weapon equipped takes up its best allowed
+  weapon (from the wiki's note that companions re-equip the best equipment even after
+  UnequipItem's NoEquip flag), for every NPC, not only companions. A weapon a script locked
+  off with UnequipItem's NoEquip flag is still respected here, and broken ones are not taken.
+  *Check:* take Boone's rifle in his inventory and give him a knife: does he fight with it?

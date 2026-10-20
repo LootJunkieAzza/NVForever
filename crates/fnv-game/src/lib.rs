@@ -78,6 +78,7 @@ pub mod resurrect;
 pub mod rest;
 pub mod roulette;
 pub mod sound;
+pub mod style_weapon;
 pub mod talking_activators;
 pub mod runner;
 pub mod sight;
