@@ -6579,3 +6579,19 @@ check against the game:
   heat haze, the particle systems that emit from meshes (7 files: the nukes', the
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
+
+## Perks that change skill points (2026-10-20, session "q7", branch claude/q7-skill-point-perks)
+
+docs/spec-notes/levelup.md §9. Educated now adds 2 to the level-up menu's points, Logan's
+Loophole sets them to 0 past level 30, and every perk's and trait's ability (the record's
+Ability effect) is on you while you hold the perk: Good Natured's +5/−5 skills, the
+implants' S.P.E.C.I.A.L., Strong Back's carry weight, Action Boy's AP and the rest. Before
+this none of those abilities applied. My choices, to check in game:
+- **Abilities of a ranked perk**: only the highest rank's spell applies (Action Boy rank 2
+  is its 30 AP spell alone, not 15 + 30). *Check:* AP with Action Boy at rank 2.
+- **Educated's points are whole and never below 0**, and Logan's Loophole's condition is
+  read at the new level (no points from level 31 on).
+- **A perk's ability goes with the perk** (RemovePerk, a trait given back); while the perk is held a
+  RemoveSpell of it is undone the next frame (Dispel still suspends it as any ability).
+- **Not done**: reading skill books (so Comprehension does nothing yet), Hacking Science
+  Bonus, companions' perks.

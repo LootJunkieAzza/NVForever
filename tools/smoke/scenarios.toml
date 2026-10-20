@@ -1453,6 +1453,24 @@ expect = [
 manual = "the screenshots levelup_skills.png, levelup_perks.png, levelup_attributes.png, levelup_attributes_done.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
 
 [[scenario]]
+name = "perk-skill-points"
+source = "perks that change skills (docs/spec-notes/levelup.md §9): Good Natured's ability raises Speech and lowers Guns by 5 while the trait is held, RemovePerk takes it off, then Educated adds 2 to the level's skill points"
+areas = ["levelup", "perks"]
+paths = ["crates/fnv-game/src/perks.rs", "crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/levelup.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.setav speech 20;12.3:player.setav guns 20;12.6:player.addperk GoodNatured;14:player.getav speech;14.3:player.getav guns;14.6:player.removeperk GoodNatured;16:player.getav speech;16.3:player.addperk Educated;17:advlevel" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { text = "perks: GoodNatured's ability PerkGoodNatured on", label = "the trait's ability joins the player" },
+  { re = 'console: GetActorValue on player >> 25(\.0+)?$', label = "Speech 20 + 5" },
+  { re = 'console: GetActorValue on player >> 15(\.0+)?$', label = "Guns 20 - 5" },
+  { text = "perks: ability PerkGoodNatured off", label = "RemovePerk takes the ability off" },
+  { re = 'console: GetActorValue on player >> 20(\.0+)?$', label = "Speech back to 20" },
+  { re = 'levelup: \d+ skill points \(\d+ before Educated\)', label = "Educated's +2" },
+  { re = 'levelup: menu open, level 2, \d+ skill points', label = "the menu opens with them" },
+]]
+
+[[scenario]]
 name = "xp-meter"
 source = "the HUD's XP meter and levelling by experience (docs/spec-notes/experience.md §6): RewardXP at the console shows the meter, a second reward reaches level 2, LEVEL UP, then the level-up menu opens by itself"
 areas = ["levelup", "hud"]

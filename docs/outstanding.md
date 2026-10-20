@@ -54,7 +54,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); melee
   weapon use through UseWeapon; a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
-  [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
+  [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books, which Comprehension changes, is not built); slot machines; reputation disguises and resets.
 - **Animation**: armour ragdoll (actors' jumps built 2026-10-20, [actor jumps](spec-notes/actor-jumps.md); open there: how the original takes ledge-up links and obstacles)
   templates.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8

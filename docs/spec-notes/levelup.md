@@ -125,8 +125,9 @@ pieces with the character-creation menus (chargen.md).
   lightning square there, and none on Barter, Lockpick or Science. No skill's AVIF has a
   second icon [observed: AVIF ICON only, no MICO, on the fourteen skills]; what the
   program puts there is not known. Not drawn.
-- Perks and traits that change the points (Educated, Skilled) or the perk rate are not
-  applied; nor are several levels in a row (one menu per call).
+- Perks that change the points (Educated, Logan's Loophole) are applied (§9); the perk
+  rate is not changed by any perk of the masters [observed: no entry point for it], and
+  several levels in a row still open one menu per call.
 - The world behind is darkened, not blurred (as chargen.md §8).
 
 ## 7. Checks
@@ -142,6 +143,9 @@ pieces with the character-creation menus (chargen.md).
   back, given again, Done), then the console's `advlevel` opens level 3, which has no
   perks page; screenshots of the pages, the attributes page before and after, and level 3.
 - Open it by hand: the console (`` ` ``), `advlevel`.
+- Smoke test `perk-skill-points`: Good Natured's ability on and off by AddPerk and
+  RemovePerk (Speech 20 → 25, Guns 20 → 15, back to 20), then Educated's +2 when
+  `advlevel` opens the menu (§9).
 
 ## 8. The perks page and the attributes page (seen 2026-10-16)
 
@@ -200,3 +204,48 @@ pieces with the character-creation menus (chargen.md).
   Enter raise and lower, R Reset, A Done; a click on "+" or "−" raises or lowers its row.
   Sounds: the arrows `UIMenuPrevNext` [documented: CGM_Template_LeftArrow, RightArrow],
   the rest as the tag-skill menu's.
+
+## 9. Perks that change skill points and skills
+
+Rules: `crate::perks` (`ADJUST_GAINED_SKILL_POINTS`, `rank_abilities`,
+`Game::sync_perk_abilities`), `crate::levelup::points_for`, `crate::abilities`.
+
+- **The entry points about skills** [documented: GECK wiki Entry Point table]: "Adjust
+  Gained Skill Points", "Run when the player gains a level; Modifies the skill rate of
+  the player", example Educated; "Adjust Book Skill Points", "Run when the actor reads a
+  book", example Comprehension; "Hacking Science Bonus", the Science skill for one hack.
+- **The records** [observed: every PERK of the six masters, read with a byte survey and
+  `fnvtool esm decode`]: code 10 has two entries, Educated's Add 2 (DESC "two more skill
+  points every time you advance in level") and Logan's Loophole's Set 0 under the
+  owner condition GetLevel > 30 (DESC "after 30 you can kiss experience, perks, and
+  skill points goodbye"); code 11 has one, Comprehension's Add 1. So code 10 is Adjust
+  Gained Skill Points and 11 Adjust Book Skill Points.
+- **The level's points**: §4's formula, then the code 10 entries of the player's perks,
+  as every entry point (`Game::entry_point`: highest rank, owner conditions, priority)
+  [documented: the wiki's "Modifies the skill rate"; hypothesis: on the points the level
+  brings, the fraction dropped, never under 0]. The conditions are read with the player
+  at the new level, as the level is raised before the menu opens [hypothesis]; so
+  Logan's Loophole takes the points from level 31 on. Logged `levelup: <n> skill points
+  (<base> before <perk>)`.
+- **Skills changed directly**: no entry point raises a skill; the perks and traits that
+  do so carry an **Ability** effect (PRKE type 1, DATA the SPEL) [documented: GECK wiki
+  GetNthPerkEntryType lists the entry type "Ability"; observed: the trait Good Natured
+  names PerkGoodNatured, five Fortify-style effects of 5 on Medicine, Barter, Repair,
+  Science, Speech and five of 5 on Guns, Energy Weapons, Explosives, Melee Weapons,
+  Unarmed, which the trait's description has as +5 and −5; Old World Blues' Skilled
+  names its own ability]. 66 perk entries of the masters are abilities (implants, Strong
+  Back, Action Boy, traits of Old World Blues …) [observed]; before this none applied.
+- **How they apply** [hypothesis]: while the player holds the perk, its ability is in
+  the player's spell list, so `crate::abilities` keeps its effects on as an authored
+  ability's (conditions rechecked, saved with the spell list); when the perk goes
+  (RemovePerk, a trait given back in the trait menu) the ability leaves the list and its
+  effects end; a RemoveSpell of it while the perk is held is undone the next frame,
+  a Dispel suspends it as any ability's. Of a ranked perk only the abilities of the highest rank owned apply
+  [observed: Action Boy's rank 1 spell gives +15 Action Points and its rank 2 spell +30,
+  the whole bonus, as the wiki's "+15 per rank"]. The skill rows of the level-up menu,
+  the Pip-Boy and every script read the skills with the abilities' effects (they are
+  active effects), so nothing else reads them separately. Logged `perks: <perk>'s
+  ability <spell> on` and `perks: ability <spell> off`.
+- **Not built**: reading skill books (BOOK's skill and the "Books Read" statistic), so
+  Comprehension's code 11 is defined but not yet asked for; Hacking Science Bonus; the
+  teammates' perks (`AddPerk perk 1`).
