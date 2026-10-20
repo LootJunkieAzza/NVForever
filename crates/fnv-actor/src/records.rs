@@ -280,6 +280,21 @@ enum Loaded {
 }
 
 impl ActorForms {
+    /// The winning WEAP record of `id` alone, read as [`ActorForms::build`] reads it
+    /// (without the first-person models of `WNAM`/`WNM*`, which name other records);
+    /// `None` when `id` is no weapon or does not decode. For a weapon reference's model
+    /// where the actor forms are not at hand ([`Weapon::model_for`]).
+    pub fn weapon_record(lo: &LoadOrder, schema: &Schema, id: FormId) -> Option<Weapon> {
+        let d = lo.index.get(&id.0)?.last()?;
+        let pi = d.plugin as usize;
+        let r = lo.records[pi][d.ordinal as usize];
+        if &r.header.sig != b"WEAP" {
+            return None;
+        }
+        let decoded = extract::decode(r, schema).ok()?;
+        Some(weapon(lo, pi, id, &decoded, &mut Issues::default()))
+    }
+
     pub fn build(lo: &LoadOrder, schema: &Schema) -> ActorForms {
         let mut out = ActorForms::default();
         let mut wanted: Vec<(FormId, usize, &Record)> = Vec::new();

@@ -102,6 +102,12 @@ pub struct Appearance {
     /// The weapon the actor draws (part H, §9). Not part of `fnv.actor.appearance/1`.
     #[serde(skip)]
     pub weapon: Option<FormId>,
+    /// The mod flags of that weapon's unit (`Extra::mods`): its model is the one for them
+    /// (`Weapon::model_for`, docs/spec-notes/weapon-mods.md §3). 0 as resolved from the
+    /// data; the engine sets it from the simulation's inventory. Not part of
+    /// `fnv.actor.appearance/1`.
+    #[serde(skip)]
+    pub weapon_mods: u8,
     /// Whether a leveled choice that could have gone another way decided the actor base
     /// or its worn armour (§2.1): such actors depend on the random stream, the others are
     /// fully determined by the data.
@@ -493,6 +499,7 @@ impl<'a> Resolver<'a> {
             body_texture,
             hand_texture,
             weapon,
+            weapon_mods: 0,
             random: ch.random,
         })
     }
