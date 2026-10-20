@@ -1,9 +1,12 @@
 // Screen blur of image space modifiers (imagespace.rs): a Gaussian blur in two passes,
-// across and then down, before the grade (docs/spec-notes/image-modifiers.md §5).
+// across and then down, before the grade (docs/spec-notes/image-modifiers.md §5), and
+// the depth of field, each pass mixing a point towards a blur of fixed radius by its
+// depth's weight (§8).
 
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 
-// The grade pass's uniform (imagespace.wgsl); only the blur radius is read here.
+// The grade pass's uniform (imagespace.wgsl); the blur radius, the sharp depth and the
+// depth of field are read here.
 struct Grade {
     tint: vec4<f32>,
     fade: vec4<f32>,
@@ -17,6 +20,10 @@ struct Grade {
     time: f32,
     sharp: f32,
     vats: vec4<f32>,
+    // Depth of field: strength, distance, range, the target's distance (< 0: the screen
+    // centre's); use target, flags, the camera's near plane (imagespace.rs).
+    dof: vec4<f32>,
+    dof_mode: vec4<f32>,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;
@@ -44,12 +51,16 @@ fn near(uv: vec2<f32>) -> bool {
 const REACH_PER_RADIUS: f32 = 1.0 / 270.0;
 const MAX_PAIRS: i32 = 48;
 
-fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
+// The blurred picture of the depth of field has this blur radius [hypothesis, §8.5].
+const DOF_BLUR_RADIUS: f32 = 3.0;
+
+// A Gaussian blur of `radius` (blur radius units) along `dir`; `centre` is the point's
+// own value.
+fn gauss(uv: vec2<f32>, dir: vec2<f32>, radius: f32, centre: vec4<f32>) -> vec4<f32> {
     let dims = vec2<f32>(textureDimensions(screen));
-    let centre = textureSampleLevel(screen, screen_sampler, uv, 0.0);
     // The reach is two standard deviations of the Gaussian.
-    let sigma = 0.5 * grade.blur * dims.y * REACH_PER_RADIUS;
-    if sigma < 0.25 || near(uv) {
+    let sigma = 0.5 * radius * dims.y * REACH_PER_RADIUS;
+    if sigma < 0.25 {
         return centre;
     }
     let k = -0.5 / (sigma * sigma);
@@ -71,6 +82,68 @@ fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
         total += wp + wm;
     }
     return vec4(acc / total, centre.a);
+}
+
+// Distance from the eye along the view, in game units, at `uv` (infinite for the sky:
+// reverse depth, 0 where nothing was drawn).
+fn view_distance(uv: vec2<f32>) -> f32 {
+    let dims = vec2<i32>(textureDimensions(depth));
+    let p = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2(0), dims - 1);
+    let d = textureLoad(depth, p, 0);
+    if d <= 0.0 {
+        return 1.0e30;
+    }
+    return grade.dof_mode.z / d;
+}
+
+// fnv_world::image_modifier::dof_ramp, the same rule (§8.3).
+fn dof_ramp(z: f32) -> f32 {
+    let flags = u32(grade.dof_mode.y + 0.5);
+    let sky = z >= 1.0e29;
+    if sky && (flags & 4u) != 0u {
+        return 0.0;
+    }
+    let d = grade.dof.y;
+    let r = grade.dof.z;
+    var x = z;
+    if grade.dof_mode.x > 0.5 {
+        var f = grade.dof.w;
+        if f < 0.0 {
+            f = view_distance(vec2(0.5, 0.5));
+        }
+        let mode = flags & 3u;
+        let front = mode != 2u;
+        let back = mode != 1u;
+        if (z < f && !front) || (z >= f && !back) {
+            return 0.0;
+        }
+        x = abs(z - f);
+    }
+    if r > d {
+        return clamp((x - d) / (r - d), 0.0, 1.0);
+    }
+    if r < d {
+        return clamp((d - x) / (d - r), 0.0, 1.0);
+    }
+    return select(0.0, 1.0, x >= d);
+}
+
+fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
+    let centre = textureSampleLevel(screen, screen_sampler, uv, 0.0);
+    if near(uv) {
+        return centre;
+    }
+    let base = gauss(uv, dir, grade.blur, centre);
+    if grade.dof.x == 0.0 {
+        return base;
+    }
+    let w = grade.dof.x * dof_ramp(view_distance(uv));
+    if w == 0.0 {
+        return base;
+    }
+    // Not clamped: past 1 the mix goes beyond the blur (§8.5).
+    let blurred = gauss(uv, dir, max(DOF_BLUR_RADIUS, grade.blur), centre);
+    return vec4(max(mix(base.rgb, blurred.rgb, w), vec3(0.0)), centre.a);
 }
 
 @fragment

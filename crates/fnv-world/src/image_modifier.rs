@@ -141,6 +141,61 @@ pub struct Dof {
     pub strength: f32,
     pub distance: f32,
     pub range: f32,
+    /// "DoF - Use Target": the ramp is measured from the target's distance.
+    pub use_target: bool,
+    /// "DoF Flags": [`DOF_FRONT`], [`DOF_BACK`], [`DOF_NO_SKY`].
+    pub flags: u8,
+}
+
+/// "DoF Flags" bits [documented: xEdit IMAD DNAM "Mode - Front", "Mode - Back", "No Sky"].
+pub const DOF_FRONT: u8 = 1;
+pub const DOF_BACK: u8 = 2;
+pub const DOF_NO_SKY: u8 = 4;
+
+/// How much a point `z` game units from the eye along the view is blurred by `dof`, 0
+/// sharp … 1 fully, before the strength (image-modifiers.md §8.3) [hypothesis: our
+/// reading of the GECK wiki's words]. `z` is infinite for the sky; `focus` is the
+/// target's distance for a depth of field that uses a target.
+pub fn dof_ramp(dof: &Dof, z: f32, focus: Option<f32>) -> f32 {
+    if z.is_infinite() && dof.flags & DOF_NO_SKY != 0 {
+        return 0.0;
+    }
+    let ramp = |x: f32| {
+        let (d, r) = (dof.distance, dof.range);
+        if r > d {
+            ((x - d) / (r - d)).clamp(0.0, 1.0)
+        } else if r < d {
+            ((d - x) / (d - r)).clamp(0.0, 1.0)
+        } else if x >= d {
+            1.0
+        } else {
+            0.0
+        }
+    };
+    match (dof.use_target, focus) {
+        (true, Some(f)) => {
+            let (front, back) = match dof.flags & (DOF_FRONT | DOF_BACK) {
+                DOF_FRONT => (true, false),
+                DOF_BACK => (false, true),
+                _ => (true, true),
+            };
+            if (z < f && front) || (z >= f && back) {
+                ramp((z - f).abs())
+            } else {
+                0.0
+            }
+        }
+        _ => ramp(z),
+    }
+}
+
+/// The weight of the blurred picture at a point: strength × [`dof_ramp`] (not clamped:
+/// past 1 the mix goes beyond the blur, §8.5).
+pub fn dof_weight(dof: &Dof, z: f32, focus: Option<f32>) -> f32 {
+    if dof.strength == 0.0 {
+        return 0.0;
+    }
+    dof.strength * dof_ramp(dof, z, focus)
 }
 
 /// What modifiers do to the screen at one moment. The default changes nothing.
@@ -234,7 +289,13 @@ impl ImageModifier {
                 down_start: v(&self.radial.down_start),
                 center: self.radial.center,
             },
-            dof: Dof { strength: v(&self.dof.strength), distance: v(&self.dof.distance), range: v(&self.dof.range) },
+            dof: Dof {
+                strength: v(&self.dof.strength),
+                distance: v(&self.dof.distance),
+                range: v(&self.dof.range),
+                use_target: self.dof.use_target,
+                flags: self.dof.flags,
+            },
             motion_blur: v(&self.motion_blur),
         }
     }
@@ -399,6 +460,46 @@ mod tests {
 
     fn fade(keys: &[(f32, [f32; 4])], animatable: bool, duration: f32) -> ImageModifier {
         ImageModifier { animatable, duration, fade: ColorTrack(keys.to_vec()), ..Default::default() }
+    }
+
+    #[test]
+    fn depth_of_field_ramps_from_distance_to_range() {
+        // AntNectarISFX: clean to 64, fully blurred from 1024.
+        let d = Dof { strength: 0.25, distance: 64.0, range: 1024.0, ..Default::default() };
+        assert_eq!(dof_ramp(&d, 10.0, None), 0.0);
+        assert!((dof_ramp(&d, 544.0, None) - 0.5).abs() < 1e-6);
+        assert_eq!(dof_ramp(&d, 5000.0, None), 1.0);
+        assert_eq!(dof_ramp(&d, f32::INFINITY, None), 1.0);
+        assert!((dof_weight(&d, 5000.0, None) - 0.25).abs() < 1e-6);
+        // No Sky leaves the sky alone.
+        assert_eq!(dof_ramp(&Dof { flags: DOF_NO_SKY, ..d }, f32::INFINITY, None), 0.0);
+        // Distance above range: blurred foreground, clear background (the wiki's words).
+        let fg = Dof { strength: 1.0, distance: 500.0, range: 100.0, ..Default::default() };
+        assert_eq!(dof_ramp(&fg, 50.0, None), 1.0);
+        assert!((dof_ramp(&fg, 300.0, None) - 0.5).abs() < 1e-6);
+        assert_eq!(dof_ramp(&fg, 800.0, None), 0.0);
+        // Both 0 (PauseBackgroundFX): everything blurred.
+        let all = Dof { strength: 1.0, ..Default::default() };
+        assert_eq!(dof_ramp(&all, 1.0, None), 1.0);
+        // Nothing to blur without strength.
+        assert_eq!(dof_weight(&Dof { strength: 0.0, ..d }, 5000.0, None), 0.0);
+    }
+
+    #[test]
+    fn depth_of_field_with_a_target_ramps_from_it() {
+        // VATScamDOFCloseBlur: in front of the target only, full 512 nearer than it.
+        let front = Dof { strength: 0.75, distance: 0.0, range: 512.0, use_target: true, flags: DOF_FRONT };
+        assert_eq!(dof_ramp(&front, 2000.0, Some(1000.0)), 0.0);
+        assert!((dof_ramp(&front, 744.0, Some(1000.0)) - 0.5).abs() < 1e-6);
+        assert_eq!(dof_ramp(&front, 100.0, Some(1000.0)), 1.0);
+        let back = Dof { flags: DOF_BACK, ..front };
+        assert_eq!(dof_ramp(&back, 100.0, Some(1000.0)), 0.0);
+        assert_eq!(dof_ramp(&back, 2000.0, Some(1000.0)), 1.0);
+        let both = Dof { flags: 0, ..front };
+        assert_eq!(dof_ramp(&both, 100.0, Some(1000.0)), 1.0);
+        assert_eq!(dof_ramp(&both, 2000.0, Some(1000.0)), 1.0);
+        // Without a target's distance the ramp is from the eye.
+        assert!((dof_ramp(&both, 256.0, None) - 0.5).abs() < 1e-6);
     }
 
     #[test]

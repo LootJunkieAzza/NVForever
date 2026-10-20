@@ -187,6 +187,24 @@ order = [[
 ]]
 
 [[scenario]]
+name = "imagespace-dof"
+source = "queue item 14 (docs/spec-notes/image-modifiers.md §8): a script's modifier with a depth of field blurs the picture by depth; the log names its strength, distance and range"
+note = "looking down Goodsprings' street at noon; AntNectarISFX (the Ant Nectar script's: strength 0.25, clean to 64, fully blurred from 1024) applied at 4 s and removed at 8 s; FlashBangISfx (the flash-bang explosion's, animated 10 s: strength 2 down to 0) applied at 10 s and ending by itself. Frames: dof_before.png at 3 s, dof_antnectar.png at 6.5 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:AntNectarISFX,8:call:-:RemoveImageSpaceModifier:AntNectarISFX,10:call:-:ApplyImageSpaceModifier:FlashBangISfx", NVF_PLAY_TEST_SHOTS = "3:dof_before.png,6.5:dof_antnectar.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 24
+order = [[
+  { re = 'depth of field: strength 0\.[23], distance 64, range 1024 \(AntNectarISFX\)$', label = "Ant Nectar's depth of field: clean to 64, blurred from 1024" },
+  { re = 'depth of field: off$', label = "gone when the script removes it" },
+  { re = 'depth of field: strength 2\.0, distance 0, range 0 \(FlashBangISfx\)$', label = "the flash-bang's: strength 2 at its start" },
+  { re = 'depth of field: strength 1\.0, distance 0, range 0 \(FlashBangISfx\)$', label = "strength 1 about half way" },
+  { re = 'depth of field: off$', label = "off when the flash-bang's modifier has run its 10 s" },
+]]
+manual = "dof_antnectar.png against dof_before.png: the far street and hills softly blurred, the near ground sharp"
+
+[[scenario]]
 name = "shadows-sun"
 source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 3 cascades and the arms' shade light draws only what is near the arms"
 areas = ["renderer", "graphics", "sky"]
@@ -5142,6 +5160,25 @@ expect = [
   { re = 'vats mode summary: entered 1 times, 1 marks, 0 shots, 0 AP spent', label = "nothing fired or spent" },
 ]
 forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
+
+[[scenario]]
+name = "vats-mode-dof"
+source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode the view's depth of field is focused on the mark, what is beyond it blurred (fVATSDOFStrengthCap 0.6, fVATSDOFRange 500), faded with the mode's look"
+note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
+areas = ["imagespace", "vats"]
+paths = ["engine/nvforever/src/imagespace*", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.5:mouse-right,10.55:mouse-right", NVF_PLAY_TEST_SHOTS = "9.5:vats_dof_before.png,10.45:vats_dof_marked.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: marked .* mark 1;', label = "a dog marked" },
+  { re = 'depth of field: strength 0\.6, distance 0, range 500, focus \d+, back \(VATS\)$', label = "focused on the mark, beyond it blurred at full strength" },
+  { re = 'vats mode: unmarked .*, 0 marks left', label = "the right click takes the mark back" },
+  { re = 'depth of field: off$', label = "with no mark there is nothing to focus on" },
+  { re = 'vats mode: off', label = "the mode ends" },
+]]
+manual = "vats_dof_marked.png: the marked dog sharp, the ground and hills beyond it blurred, the near ground sharp"
 
 [[scenario]]
 name = "vats-mode-ammo-limit"
