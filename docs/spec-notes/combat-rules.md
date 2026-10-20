@@ -1367,7 +1367,8 @@ npc-behaviour-compare.md §9.
 - **Explosions** do the EXPL's damage with its falloff, then DT and DR (§11), with no
   skill or condition. They are their cause's hits (§11). The Incinerator does damage
   only this way: its WEAP damage is 1, its glob's NVIncineratorFireBurst does 20 in 212
-  units, and its enchantment burns.
+  units, and its enchantment burns. The original's burn from it drained NPCs 1–2
+  Health a second against the record's 4 (npc-behaviour-compare.md §9.1); ours drains 4.
 - **Checked offline** (`fnvtool combat damage`, the records' values; condition and skill
   from §9's capture) [observed 2026-10-19]:
 

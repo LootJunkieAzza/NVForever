@@ -153,7 +153,12 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
     player as the attacker, and was missing from `npc hits summary`. They are now
     their shooter's.
   - Left:
-    - the last trooper dies some 40 s sooner than in the original;
+    - the troopers die sooner than in the original (16–31 s after the first fighter
+      engaged against 30–132 s). Explained (npc-behaviour-compare.md §9.1): Cook-Cook
+      drew his Flamer instead of his Incinerator (fixed 2026-10-20, branch
+      claude/q9-trooper-time: the weapon choice counts a gun's explosion,
+      actors.md §9.3); left, the Incinerator's burn drains 4 Health a second in ours
+      against 1–2 in the original, cause unknown: needs a capture of one burn;
     - NPC weapons do not wear from firing (the original's Incinerator lost 2.19 a shot,
       not explained by `fDamageToWeaponValue`);
     - the original's hits split by attacker, to check the Hunting Rifle's 22 a hit on a

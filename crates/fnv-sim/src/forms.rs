@@ -101,10 +101,12 @@ pub struct Item {
     /// part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub armor_dt: Option<f32>,
-    /// WEAP DATA "Base Damage" [documented: xEdit]. `None` for other items. Not part of
+    /// The damage the weapon choice ranks a weapon by ([`weapon_choice_damage`]): WEAP
+    /// DATA "Base Damage" [documented: xEdit], plus the damage of the explosion its
+    /// projectile sets off unless it is thrown or laid. `None` for other items. Not part of
     /// `fnv.sim.items/1`.
     #[serde(skip)]
-    pub weapon_damage: Option<i32>,
+    pub weapon_damage: Option<f32>,
     /// WEAP DNAM: what each mod slot (1, 2, 3) takes off the weight when its mod is on,
     /// the value A of a "Decrease Weight" effect, 0 for the other effects and other items
     /// (docs/spec-notes/weapon-mods.md §2, §3; [`Item::weight_with_mods`]). Not part of
@@ -520,6 +522,11 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     }
                     None => None,
                 };
+                if kind == ItemKind::Weapon {
+                    let anim = first(&d, b"DNAM").and_then(|v| v.get("animation_type")).and_then(text);
+                    let explosion = i.projectile.map_or(0.0, |p| explosion_damage(lo, schema, p));
+                    i.weapon_damage = i.weapon_damage.map(|base| weapon_choice_damage(base, explosion, anim.as_deref()));
+                }
                 BaseData::Item(i)
             }
             None => return Loaded::Skip, // non-carriable light
@@ -619,8 +626,9 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             ItemKind::Armor => Some(first(d, b"DNAM").and_then(|v| num(v, "dt")).unwrap_or(0.0) as f32),
             _ => None,
         },
+        // The explosion is added by the caller, which can read the projectile.
         weapon_damage: match kind {
-            ItemKind::Weapon => Some(data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32),
+            ItemKind::Weapon => Some(data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as f32),
             _ => None,
         },
         weight_mods: match (kind, first(d, b"DNAM")) {
@@ -653,6 +661,42 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             _ => None,
         },
     })
+}
+
+/// Animation types of weapons that are thrown or laid rather than held and fired
+/// [documented: xEdit WEAP DNAM "Animation Type"; `schemas/fnv`].
+pub const THROWN_ANIM_TYPES: [&str; 4] = ["Grenade Throw (1 Hand)", "Thrown (1 Hand)", "Land Mine (1 Hand)", "Mine Drop (1 Hand)"];
+
+/// The damage an actor's weapon choice ranks a weapon by (docs/spec-notes/actors.md §9.3):
+/// its base damage, plus the damage of the explosion its projectile sets off for a weapon
+/// that is not thrown or laid [hypothesis: fitted to Cook-Cook drawing his Incinerator
+/// (base 1, its glob's explosion 20) and never his Flamer (16) in three runs of the
+/// original, npc-behaviour-compare.md §9.1; thrown weapons stay at their base damage, as
+/// grenade use is not built].
+pub fn weapon_choice_damage(base: f32, explosion: f32, anim_type: Option<&str>) -> f32 {
+    let thrown = anim_type.is_some_and(|a| THROWN_ANIM_TYPES.contains(&a));
+    base + if thrown { 0.0 } else { explosion }
+}
+
+/// The damage of the explosion projectile `proj` (a global FormID) sets off: PROJ DATA
+/// flag "Explosion" and "Explosion" → EXPL DATA "Damage" [documented: xEdit PROJ, EXPL;
+/// `schemas/fnv`]. 0 when it has none or a record does not decode.
+pub fn explosion_damage(lo: &LoadOrder, schema: &Schema, proj: FormId) -> f32 {
+    let data_of = |id: FormId, sig: &[u8; 4]| {
+        let d = lo.index.get(&id.0).and_then(|defs| defs.last())?;
+        let r = lo.records[d.plugin as usize][d.ordinal as usize];
+        if &r.header.sig != sig || r.header.flags & record_flags::DELETED != 0 {
+            return None;
+        }
+        let dec = extract::decode(r, schema).ok()?;
+        Some((d.plugin as usize, first(&dec, b"DATA").cloned()?))
+    };
+    let Some((pi, data)) = data_of(proj, b"PROJ") else { return 0.0 };
+    if !data.get("flags").is_some_and(|f| has_flag(f, "Explosion")) {
+        return 0.0;
+    }
+    let Some(Ok(Some(expl))) = data.get("explosion").and_then(local_fid).map(|l| global(lo, pi, l)) else { return 0.0 };
+    data_of(expl, b"EXPL").and_then(|(_, e)| num(&e, "damage")).unwrap_or(0.0).max(0.0) as f32
 }
 
 /// S.P.E.C.I.A.L. names in NPC_ DATA order.
