@@ -981,6 +981,21 @@ pub enum NifCmd {
         #[arg(long, default_value_t = 200)]
         max_rows: usize,
     },
+    /// Every distinct object name, extra-data name/value and block type in the archives,
+    /// counted by files, for finding nodes the engine never reads (fnv.nif.nodes/1).
+    Nodes {
+        /// BSA archives, loose .nif/.kf files or directories.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Example file paths kept per entry.
+        #[arg(long, default_value_t = 3)]
+        examples: usize,
+        /// Most common values kept per extra-data name.
+        #[arg(long, default_value_t = 20)]
+        values: usize,
+    },
     /// Decode one file's blocks with the schema.
     Decode {
         /// A loose file, or a BSA archive together with --path.

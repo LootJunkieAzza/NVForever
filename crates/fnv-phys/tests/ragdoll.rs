@@ -372,3 +372,75 @@ fn a_roused_corpse_moves_sanely() {
     // The shove is felt, through the joints and against the ground.
     assert!(fastest > 20.0, "fastest {fastest}");
 }
+
+/// Dismemberment (docs/spec-notes/dismemberment.md §5): cutting the joint between the left
+/// thigh and the pelvis frees the leg, which falls apart from the body; the cut survives
+/// the corpse being held at rest and roused again.
+#[test]
+fn a_cut_joint_lets_the_limb_fall_away() {
+    let mut w = ground();
+    let rag = figure();
+    let poses: Vec<Iso> = rag.bodies.iter().map(|b| at([100.0, 100.0, 6.0]).compose(&b.rest())).collect();
+    w.add_ragdoll(&start(0x10, &rag, &poses));
+    // The left leg is bodies 3 and 4: one joint joins them to the rest.
+    assert_eq!(w.cut_ragdoll(0x10, &[3, 4]), 1);
+    assert_eq!(w.cut_ragdoll(0x10, &[3, 4]), 0);
+    assert_eq!(w.ragdoll_cut(0x10), vec![2]);
+    // Throw the leg sideways: free of the pelvis it travels far from it.
+    w.push_ragdoll(0x10, nodes(&w, 0x10)[4].translation, [-400.0, 0.0, 200.0]);
+    for _ in 0..120 {
+        w.step();
+    }
+    let n = nodes(&w, 0x10);
+    // A joint that holds keeps its pivots within 1.5 units (a_figure_falls_…).
+    let hip = rag.joints[2].pivot_gap(&n[3], &n[0]);
+    assert!(hip > 10.0, "the thigh left the pelvis: {hip}");
+    // The knee still holds the calf to the thigh.
+    assert!(rag.joints[3].pivot_gap(&n[4], &n[3]) < 1.5);
+    assert!(w.set_ragdoll_at_rest(0x10));
+    w.push_ragdoll(0x10, n[0].translation, [10.0, 0.0, 0.0]);
+    assert_eq!(w.ragdoll_cut(0x10), vec![2]);
+}
+
+/// Gore pieces (docs/spec-notes/dismemberment.md §6) fly, land on the ground and settle;
+/// rays find the corpse they belong to; characters walk through them.
+#[test]
+fn gore_pieces_fly_land_and_belong_to_the_corpse() {
+    use fnv_phys::gore::{GoreStart, GORE_PART};
+    let mut w = ground();
+    for i in 0..4u32 {
+        w.add_gore(&GoreStart {
+            id: i,
+            actor: 0x10,
+            translation: [100.0 + i as f32 * 3.0, 100.0, 60.0],
+            rotation: ID,
+            half_extents: [2.0, 1.5, 1.0],
+            center: [0.0; 3],
+            linvel: [150.0, 50.0 * i as f32, 200.0],
+            angvel: [3.0, 1.0, 0.0],
+            mass: 0.3,
+        });
+    }
+    assert_eq!(w.gore_pieces().count(), 4);
+    for _ in 0..(8.0 * 60.0) as usize {
+        w.step();
+    }
+    for i in 0..4 {
+        let s = w.gore_state(i).unwrap();
+        assert!(s.translation[2] > -0.5 && s.translation[2] < 6.0, "piece {i} on the ground: {:?}", s.translation);
+        assert!(s.translation[0] > 130.0, "piece {i} flew: {:?}", s.translation);
+        let speed: f32 = s.linvel.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!(speed < 5.0, "piece {i} settled: {speed}");
+    }
+    let p = w.gore_state(0).unwrap().translation;
+    w.update_queries();
+    let hit = w.queries().ray([p[0], p[1], p[2] + 30.0], [0.0, 0.0, -1.0], 60.0, &Filter::default()).unwrap();
+    assert_eq!(hit.owner, Owner::Actor { form_id: 0x10, layer: layers::DEAD_BIP, part: GORE_PART });
+    let mut c = w.add_character(1, CharacterParams::default(), [p[0] - 100.0, p[1], 3.5]);
+    for _ in 0..120 {
+        w.move_character(&mut c, CharacterInput { velocity: [100.0, 0.0], ..Default::default() });
+        w.step();
+    }
+    assert!(c.feet[0] > p[0] + 50.0, "walked through: {:?}", c.feet);
+    assert!(w.remove_gore(0) && !w.remove_gore(0));
+}

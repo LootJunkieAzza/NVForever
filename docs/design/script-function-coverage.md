@@ -529,7 +529,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsInList | 0x1174 | 10 / 49 | match | - | - |  |
 | IsKiller | 0x1199 | 45 / 0 | match | - | same 1 |  |
 | IsLeftUp | 0x111D | 0 / 22 | match | - | same 1 | As IsFacingUp [observed: probes]. |
-| IsLimbGone | 0x118E | 12 / 0 | no-system | dismemberment and critical deaths | same 1 | 0 on Ringo matches [observed: probes]. |
+| IsLimbGone | 0x118E | 12 / 0 | implemented | dismemberment and critical deaths | same 1 | 0 on Ringo matches [observed: probes]. Gone parts kept per reference since 2026-10-20 (dismemberment.md §5). |
 | IsMoving | 0x1019 | 0 / 49 | match | animation state told to the rules | same 3 | The way told by the engine: the player's movement keys, an NPC's walk in its own axes, 1-4 [documented: GECK wiki IsMoving]; 0 at rest matches [observed: probes] (anim-state.md §2, 2026-10-18). |
 | IsOwner | 0x1116 | 0 / 18 | match | - | - |  |
 | IsPC1stPerson | 0x1188 | 2 / 9 | match | - | differs 1 |  |
