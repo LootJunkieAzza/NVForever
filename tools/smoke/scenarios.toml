@@ -1612,6 +1612,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "varmint-first-person"
+source = "owner report 2026-10-20: in first person the varmint rifle was sometimes not drawn, only the hands; the rifle equipped from the start, drawn, then fired twice"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/view_sway.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_GIVE = "00004240:20", NVF_PLAY_TEST_LOOK = "9:46:-4", NVF_PLAY_TEST_CONTROL = "9:weapon,13:fire,13.2:fire", NVF_PLAY_TEST_SHOTS = "12:varmint_held.png,14:varmint_fired.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+expect = [
+  { re = 'player weapon model \(First person\): \S+varmint\S*\.nif, [1-9]\d* nodes' },
+  { re = 'combat: [1-9]\d* shots' },
+]
+
+[[scenario]]
+name = "varmint-after-fists"
+source = "owner report 2026-10-20: the varmint rifle not drawn in first person at Sunny's bottles (shoot-bottles), when the test aid drew the fists before VCG02 gave the rifle"
+note = "The fists' draw clip hangs the Weapon node from Bip01 R ForeTwist; before 2026-10-20 a weapon equipped while the fists were out kept that bone, and the rifle hung from the forearm below the view (its shapes culled). Here the console equips the rifle after the fists are drawn, as the quest's EquipItem did"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0007EA24:1,00004240:20", NVF_PLAY_TEST_LOOK = "7:46:-4", NVF_PLAY_TEST_CONTROL = "8:weapon,13:fire", NVF_PLAY_TEST_CONSOLE = "10:player.equipitem 0007EA24;10.3:close", NVF_PLAY_TEST_SHOTS = "12:varmint_after_fists.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'player First rig weapon none: now on \S*Bip01 R ForeTwist', label = "the fists drawn first" },
+  { re = 'player First rig weapon 0x0007EA24: now on \S*Bip01 R Hand', label = "the rifle equipped after them hangs from the hand" },
+  { re = 'combat: [1-9]\d* shots' },
+]
+
+[[scenario]]
 name = "third-person-shots"
 source = "playtest list 4 item 12 (2026-10-12): in third person the player's shots land under the crosshair (the over-the-shoulder camera's line), not left of it: Sunny's bottles shot from third person"
 note = "The aim aid puts the point under the third-person crosshair (control::Crosshair::aim_at), so a shot along the eye's own view would pass the bottles about 40 units to their left"
