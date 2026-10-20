@@ -101,6 +101,11 @@ pub(crate) struct RagdollBodies {
     data: Arc<Ragdoll>,
     scale: f32,
     parts: Vec<u8>,
+    /// Per stored joint, its joint in the world (none at rest, or when cut).
+    joints: Vec<Option<ImpulseJointHandle>>,
+    /// Joints cut by dismemberment ([`PhysWorld::cut_ragdoll`]), by stored index: never
+    /// built again.
+    cut: Vec<usize>,
 }
 
 /// Contact filtering for ragdoll colliders (see the module notes).
@@ -113,6 +118,13 @@ impl PhysicsHooks for RagdollHooks<'_> {
     fn filter_contact_pair(&self, c: &PairFilterContext) -> Option<SolverFlags> {
         let rag = |b: Option<RigidBodyHandle>| b.and_then(|h| self.of_body.get(&h)).copied();
         let owner = |h: ColliderHandle| c.colliders.get(h).and_then(|co| Owner::decode(co.user_data));
+        // Gore pieces (`crate::gore`) meet the world and each other only.
+        let (o1, o2) = (owner(c.collider1), owner(c.collider2));
+        if PhysWorld::is_gore(o1) || PhysWorld::is_gore(o2) {
+            let other = if PhysWorld::is_gore(o1) { o2 } else { o1 };
+            let alive_or_corpse = matches!(other, Some(Owner::Character { .. } | Owner::Actor { .. })) && !PhysWorld::is_gore(other);
+            return (!alive_or_corpse).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES);
+        }
         match (rag(c.rigid_body1), rag(c.rigid_body2)) {
             (Some((fa, ia)), Some((fb, ib))) if fa == fb => {
                 let row = self.ragdolls.get(&fa).and_then(|r| r.collide.get(ia as usize)).copied().unwrap_or(0);
@@ -216,18 +228,20 @@ impl PhysWorld {
     /// at its bone's pose, joined by the ragdoll's constraints.
     pub fn add_ragdoll(&mut self, s: &RagdollStart) -> RagdollReport {
         let nodes: Vec<Option<Iso>> = (0..s.ragdoll.bodies.len()).map(|i| s.nodes.get(i).copied()).collect();
-        self.build_ragdoll(s.form_id, s.ragdoll.clone(), s.scale, s.parts.to_vec(), &nodes, s.velocity, s.asleep)
+        self.build_ragdoll(s.form_id, s.ragdoll.clone(), s.scale, s.parts.to_vec(), Vec::new(), &nodes, s.velocity, s.asleep)
     }
 
     /// Build a ragdoll: dynamic bodies and joints, or fixed bodies alone when `at_rest`.
+    /// The joints in `cut` are left out.
     #[allow(clippy::too_many_arguments)]
-    fn build_ragdoll(&mut self, form_id: u32, data: Arc<Ragdoll>, scale: f32, parts: Vec<u8>, nodes: &[Option<Iso>], velocity: [f32; 3], at_rest: bool) -> RagdollReport {
+    fn build_ragdoll(&mut self, form_id: u32, data: Arc<Ragdoll>, scale: f32, parts: Vec<u8>, cut: Vec<usize>, nodes: &[Option<Iso>], velocity: [f32; 3], at_rest: bool) -> RagdollReport {
         self.remove_ragdoll(form_id);
         let k = self.k;
         let f = scale.max(1e-3);
         let mut report = RagdollReport::default();
         let n = data.bodies.len();
-        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts };
+        let joints = vec![None; data.joints.len()];
+        let mut rag = RagdollBodies { bodies: vec![None; n], local: Vec::with_capacity(n), collide: vec![0; n], at_rest, data: data.clone(), scale, parts, joints, cut };
         // The bodies' shapes in the bind pose, for the self-collision pairs.
         let mut rest: Vec<Vec<(Pose, SharedShape)>> = Vec::with_capacity(n);
         for (i, b) in data.bodies.iter().enumerate() {
@@ -273,16 +287,16 @@ impl PhysWorld {
             report.bodies += 1;
         }
         let mut joined = vec![0u64; n];
-        for j in &data.joints {
+        for (ji, j) in data.joints.iter().enumerate() {
             if j.a < 64 && j.b < 64 {
                 joined[j.a] |= 1 << j.b;
                 joined[j.b] |= 1 << j.a;
             }
-            if at_rest {
+            if at_rest || rag.cut.contains(&ji) {
                 continue;
             }
             let (Some(Some(a)), Some(Some(b))) = (rag.bodies.get(j.a), rag.bodies.get(j.b)) else { continue };
-            self.w.insert_impulse_joint(*b, *a, joint(j, f * k));
+            rag.joints[ji] = Some(self.w.insert_impulse_joint(*b, *a, joint(j, f * k)));
             report.joints += 1;
         }
         let gap = SELF_COLLISION_GAP * f * k;
@@ -311,9 +325,41 @@ impl PhysWorld {
         let Some(nodes) = self.ragdoll_nodes(form_id) else { return false };
         let nodes: Vec<Option<Iso>> = nodes.iter().map(|b| b.as_ref().map(|b| Iso { translation: b.translation, rotation: b.rotation })).collect();
         let Some(r) = self.ragdolls.get(&form_id) else { return false };
-        let (data, scale, parts) = (r.data.clone(), r.scale, r.parts.clone());
-        self.build_ragdoll(form_id, data, scale, parts, &nodes, [0.0; 3], at_rest);
+        let (data, scale, parts, cut) = (r.data.clone(), r.scale, r.parts.clone(), r.cut.clone());
+        self.build_ragdoll(form_id, data, scale, parts, cut, &nodes, [0.0; 3], at_rest);
         true
+    }
+
+    /// Cut a ragdoll apart (dismemberment, docs/spec-notes/dismemberment.md §5): every
+    /// joint between a body in `bodies` and one outside them goes, now and in later
+    /// rebuilds. Returns the joints newly cut; none without a ragdoll.
+    pub fn cut_ragdoll(&mut self, form_id: u32, bodies: &[usize]) -> usize {
+        let Some(r) = self.ragdolls.get_mut(&form_id) else { return 0 };
+        let mut handles = Vec::new();
+        let mut woken = Vec::new();
+        let mut newly = 0;
+        for (ji, j) in r.data.joints.iter().enumerate() {
+            if bodies.contains(&j.a) != bodies.contains(&j.b) && !r.cut.contains(&ji) {
+                r.cut.push(ji);
+                newly += 1;
+                handles.extend(r.joints.get_mut(ji).and_then(Option::take));
+                woken.extend([j.a, j.b].iter().filter_map(|&i| r.bodies.get(i).copied().flatten()));
+            }
+        }
+        for h in handles {
+            self.w.impulse_joints.remove(h, true);
+        }
+        // Like a struck body, the parts must not sleep through the change.
+        self.struck.extend(woken);
+        if newly > 0 {
+            self.mark_dirty();
+        }
+        newly
+    }
+
+    /// The stored joints of the actor's ragdoll that dismemberment cut.
+    pub fn ragdoll_cut(&self, form_id: u32) -> Vec<usize> {
+        self.ragdolls.get(&form_id).map_or_else(Vec::new, |r| r.cut.clone())
     }
 
     /// Hold a ragdoll where it lies: fixed bodies take the place of its jointed ones, so
@@ -438,7 +484,7 @@ impl PhysWorld {
 
     /// Step with the ragdolls' contact filter.
     pub(crate) fn step_world(&mut self) {
-        if self.ragdolls.is_empty() {
+        if self.ragdolls.is_empty() && self.gore.is_empty() {
             self.w.step();
         } else {
             let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of };
@@ -448,7 +494,7 @@ impl PhysWorld {
 
     /// Update the collision pairs with the ragdolls' contact filter.
     pub(crate) fn detect(&mut self) {
-        if self.ragdolls.is_empty() {
+        if self.ragdolls.is_empty() && self.gore.is_empty() {
             self.w.detect_collisions(&(), &());
         } else {
             let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of };

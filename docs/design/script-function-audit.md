@@ -344,7 +344,7 @@ what writes it now).
 | IsInMyOwnedCell | 0x1092 | / | cell ownership | records/rules | matches |  |
 | IsKiller | 0x1199 | 45/ | `extra.killer` | `Game::kill` | matches | "Lost when disabled" [documented] not modelled; minor. |
 | IsLeftUp / IsFacingUp | 0x111D / 0x106A | 0/22, 0/41 | stub 0 | — | fixed round 2 (2026-10-17) | Were stubs (0); 1 on a standing actor [observed: Ringo]. Knockdowns not built. |
-| IsLimbGone | 0x118E | 12(51 decoded)/0 | stub 0 | — | stub | no dismemberment |
+| IsLimbGone | 0x118E | 12(51 decoded)/0 | stub 0 | — | implemented | dismemberment built 2026-10-20 (dismemberment.md §5) |
 | IsMoving | 0x1019 | /49 | `motion.moving` | engine detection.rs (drawn+near) | gap left | Only 0/1: backward/left/right (2/3/4) never [documented]; the player's `MoveIntent.forward/right` already holds the direction. |
 | IsOwner | 0x1116 | -/18 | `w.extra.owner` (placed XOWN at start, world.rs:337) | rules | matches |  |
 | IsPC1stPerson | 0x1188 | 2/9 | `senses.first_person` | engine `control.rs:370` every frame | matches |  |

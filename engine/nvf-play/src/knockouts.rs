@@ -87,6 +87,9 @@ pub fn parse_hits(v: &str) -> Result<Vec<TestHit>, String> {
     Ok(out)
 }
 
+/// What the hit aid needs to dismember (`crate::dismember`).
+type DismemberAid<'w> = (Option<Res<'w, crate::combat::Combat>>, Option<Res<'w, crate::hitvol::ActorParts>>, Option<ResMut<'w, crate::dismember::Dismemberment>>);
+
 #[allow(clippy::too_many_arguments)]
 fn test_hits(
     time: crate::pause::AidTime,
@@ -97,6 +100,7 @@ fn test_hits(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
+    (combat, parts, mut dm): DismemberAid,
 ) {
     let Some(now) = time.world_secs() else { return };
     while hits.0.first().is_some_and(|h| h.at <= now) {
@@ -126,6 +130,23 @@ fn test_hits(
         };
         let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: 0, critical: false, limb };
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, h.damage, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false);
+        // A hit on a limb that kills, or lands on the corpse, may dismember it as a shot
+        // there would (docs/spec-notes/dismemberment.md §4).
+        if let (Some(r), Some(l), Some(c), Some(parts), Some(dm)) = (r.as_ref(), limb, combat.as_deref(), parts.as_deref(), dm.as_deref_mut()) {
+            let part = parts.data_of(target.0).and_then(|d| c.forms.body_parts.get(&d)).and_then(|d| {
+                d.parts.iter().position(|p| p.actor_value.as_deref().and_then(fnv_game::combat::limb_condition) == Some(l.condition))
+            });
+            let w = weapon.and_then(|w| c.forms.weapons.get(&w)).cloned().unwrap_or_default();
+            let at = sim.world.peek(target).map_or([0.0; 3], |s| [s.pos[0], s.pos[1], s.pos[2] + 40.0]);
+            // The blow goes from the player to the target, level.
+            let from = sim.world.peek(FormId::PLAYER_REF).map_or(at, |s| s.pos);
+            let (dx, dy) = (at[0] - from[0], at[1] - from[1]);
+            let len = dx.hypot(dy);
+            let dir = if len > 1.0 { [dx / len, dy / len, 0.0] } else { [0.0, 1.0, 0.0] };
+            if let Some(check) = part.and_then(|p| crate::combat::dismember_check(target, Some(p as u8), &w, r, Some(FormId::PLAYER_REF), at, dir)) {
+                dm.checks.push(check);
+            }
+        }
         match r {
             Some(r) => info!("test aid: the player hits {target} for {:.0}{}: health {:.0}/{:.0}", r.dealt, weapon.map_or(String::new(), |w| format!(" with {w}")), r.health, r.max_health),
             None => warn!("test aid: hit {target}: no scripts"),

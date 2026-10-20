@@ -347,6 +347,18 @@ pub struct BodyPart {
     pub limb_replacement_model: Option<String>,
     pub limb_replacement_scale: f32,
     pub gore_target_bone: Option<String>,
+    /// Debris pieces and their scale when the part is severed, and when it explodes.
+    pub severable_debris_count: u32,
+    pub severable_debris_scale: f32,
+    pub explodable_debris_count: u32,
+    pub explodable_debris_scale: f32,
+    /// Blood decals when severed and when exploded.
+    pub severable_decal_count: u32,
+    pub explodable_decal_count: u32,
+    /// Gore effects positioning: translation and rotation (radians, x y z) from
+    /// [`BodyPart::gore_target_bone`] [documented: GECK wiki Body Part].
+    pub gore_translate: [f32; 3],
+    pub gore_rotate: [f32; 3],
 }
 
 impl BodyPart {
@@ -372,6 +384,16 @@ impl BodyPart {
         }
     }
 
+    /// The part can be severed (BPND flag) [documented: GECK wiki Body Part].
+    pub fn severable(&self) -> bool {
+        self.flags.iter().any(|f| f == "Severable")
+    }
+
+    /// The part can explode (BPND flag) [documented: GECK wiki Body Part].
+    pub fn explodable(&self) -> bool {
+        self.flags.iter().any(|f| f == "Explodable")
+    }
+
     /// The damage input for a hit on this part.
     pub fn hit_part(&self) -> crate::damage::HitPart {
         crate::damage::HitPart { damage_mult: if self.damage_mult > 0.0 { self.damage_mult } else { 1.0 }, head: self.limb() == Limb::Head }
@@ -386,6 +408,25 @@ pub enum Limb {
     Arm,
     Leg,
     Other,
+}
+
+/// One model of a DEBR: the chance it appears and its file [documented: GECK wiki Debris;
+/// observed layout: a percentage byte, the path ended by NUL, a collision byte].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DebrisModel {
+    pub percent: u8,
+    pub model: String,
+    pub collision: bool,
+}
+
+impl DebrisModel {
+    pub fn from_bytes(b: &[u8]) -> Option<DebrisModel> {
+        let (&percent, rest) = b.split_first()?;
+        let end = rest.iter().position(|&c| c == 0)?;
+        let model = String::from_utf8_lossy(&rest[..end]).trim().to_string();
+        let collision = rest.get(end + 1).is_some_and(|&c| c != 0);
+        (!model.is_empty()).then_some(DebrisModel { percent, model, collision })
+    }
 }
 
 /// BPTD.
@@ -486,6 +527,8 @@ pub struct CombatForms {
     /// Every FLST (weapons name their ammo through them).
     pub form_lists: HashMap<FormId, Vec<FormId>>,
     pub armor: HashMap<FormId, ArmorStats>,
+    /// DEBR: gore and other debris models (docs/spec-notes/dismemberment.md §2.3).
+    pub debris: HashMap<FormId, Vec<DebrisModel>>,
     /// CREA `PNAM`: a creature's body part data (step C8) [documented: xEdit CREA].
     pub creature_body_parts: HashMap<FormId, FormId>,
     /// Game settings by lower-case Editor ID.
@@ -497,7 +540,7 @@ pub struct CombatForms {
 }
 
 /// IPDS is only registered (its signature), so references to it can be checked.
-const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS", b"ARMO", b"CREA"];
+const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS", b"ARMO", b"CREA", b"DEBR"];
 
 enum Loaded {
     Weapon(Box<WeaponStats>),
@@ -511,6 +554,7 @@ enum Loaded {
     Setting(Setting),
     Armor(ArmorStats),
     CreatureParts(Option<FormId>),
+    Debris(Vec<DebrisModel>),
     Other,
 }
 
@@ -532,6 +576,14 @@ impl CombatForms {
             .par_iter()
             .map(|&(id, pi, r)| {
                 let mut cx = Ctx { lo, pi, id, issues: Issues::default() };
+                // DEBR `DATA` puts a string mid-field, which the schema cannot express: it is
+                // read from the raw bytes (combat-data.md §1.7).
+                if &r.header.sig == b"DEBR" {
+                    let subs = r.subrecords().unwrap_or_default();
+                    let edid = subs.iter().find(|s| &s.sig == b"EDID").map(|s| String::from_utf8_lossy(s.data.split(|&b| b == 0).next().unwrap_or(&[])).into_owned());
+                    let models = subs.iter().filter(|s| &s.sig == b"DATA").filter_map(|s| DebrisModel::from_bytes(&s.data)).collect();
+                    return (id, r.header.sig, (edid, Loaded::Debris(models)), cx.issues);
+                }
                 let res = match extract::decode(r, schema) {
                     Ok(d) => (first(&d, b"EDID").and_then(text), load_one(&mut cx, &r.header.sig, &d)),
                     Err(e) => {
@@ -580,6 +632,9 @@ impl CombatForms {
                     if let Some(p) = p {
                         out.creature_body_parts.insert(id, p);
                     }
+                }
+                Loaded::Debris(m) => {
+                    out.debris.insert(id, m);
                 }
                 Loaded::Setting(s) => {
                     if let Some(e) = edid {
@@ -958,6 +1013,19 @@ fn body_parts(cx: &mut Ctx, d: &[Decoded]) -> BodyPartData {
                         p.tracking_max_angle = f(v, "tracking_max_angle");
                         p.explodable_chance_percent = u(v, "explodable_explosion_chance_percent");
                         p.limb_replacement_scale = f(v, "limb_replacement_scale");
+                        p.severable_debris_count = v.and_then(|v| int(v, "severable_debris_count")).unwrap_or(0).max(0) as u32;
+                        p.severable_debris_scale = f(v, "severable_debris_scale");
+                        p.explodable_debris_count = u(v, "explodable_debris_count");
+                        p.explodable_debris_scale = f(v, "explodable_debris_scale");
+                        p.severable_decal_count = u(v, "severable_decal_count");
+                        p.explodable_decal_count = u(v, "explodable_decal_count");
+                        let gore = v.and_then(|v| v.get("gore_effects_positioning"));
+                        let xyz = |k: &str| {
+                            let o = gore.and_then(|g| g.get(k));
+                            [f(o, "x"), f(o, "y"), f(o, "z")]
+                        };
+                        p.gore_translate = xyz("position");
+                        p.gore_rotate = xyz("rotation_radians");
                     }
                 }
                 if &s.sig == b"BPND" {
@@ -1034,6 +1102,14 @@ fn effect_form(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> EffectForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debris_data_bytes() {
+        // GoreBits01's first DATA [observed: FalloutNV.esm 0x1B2BF].
+        let b = b"\x5aGore\\MeatBit02.NIF\x00\x01";
+        assert_eq!(DebrisModel::from_bytes(b), Some(DebrisModel { percent: 90, model: "Gore\\MeatBit02.NIF".into(), collision: true }));
+        assert_eq!(DebrisModel::from_bytes(b"\x10"), None);
+    }
 
     fn slot(slot: u8, item: u32, effect: &str, a: f32, b: f32) -> WeaponMod {
         WeaponMod { slot, item: Some(FormId(item)), effect: Some(effect.into()), value_a: a, value_b: b }

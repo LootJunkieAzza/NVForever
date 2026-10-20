@@ -1020,9 +1020,12 @@ fn combat_hits_damage_health_kill_and_reward() {
     // The killing hit takes what is left; level 4 is an average NPC: 20 XP.
     let r = g.hit(npc, 60.0, by_player);
     assert_eq!((r.dealt, r.health, r.died, r.xp), (25.0, 0.0, true, 20.0));
+    // The damage beyond the 25 left is overkill (docs/spec-notes/dismemberment.md §4).
+    assert_eq!(r.overkill, 35.0);
     assert!(g.is_dead(npc) && g.extra[&npc].killer == Some(FormId::PLAYER_REF));
     assert_eq!(g.player.xp, 20.0);
-    assert!(g.hit(npc, 10.0, by_player).immune);
+    let r = g.hit(npc, 10.0, by_player);
+    assert!(r.immune && r.corpse && r.overkill == 10.0);
     // An essential actor falls unconscious at 1 health instead.
     let mut g = game(&f);
     g.new_game();
@@ -1035,6 +1038,49 @@ fn combat_hits_damage_health_kill_and_reward() {
     g.hit(npc, 45.0, HitInfo { attacker: None, ..by_player });
     let r = g.hit(npc, 10.0, by_player);
     assert!(r.died && r.xp == 0.0);
+}
+
+/// Gone parts: IsLimbGone, GetKillingBlowLimb, KillActor's limb, the Dismembered Limbs
+/// statistic (docs/spec-notes/dismemberment.md §5).
+#[test]
+fn dismembered_parts_are_kept_and_read_by_scripts() {
+    use fnv_game::combat::{CombatRequest, HitInfo};
+    const IS_LIMB_GONE: u16 = 0x118E;
+    const KILLING_BLOW_LIMB: u16 = 0x11F0;
+    const KILL_ACTOR: u16 = 0x108B;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(npc), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args).num()
+    };
+    let nums = |v: &[f64]| v.iter().map(|&v| ArgValue::Value(Value::Num(v))).collect::<Vec<_>>();
+    assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), -1.0);
+    let head = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: false, limb: None };
+    assert!(g.hit(npc, 500.0, head).died);
+    assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), 1.0);
+    // A hit on the corpse is not the killing blow.
+    g.hit(npc, 5.0, HitInfo { location: 7, ..head });
+    assert_eq!(call(&mut g, KILLING_BLOW_LIMB, &[]), 1.0);
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[1.0])), 0.0);
+    // The head explodes and the brain (sharing its actor value) is severed: two parts.
+    assert_eq!(g.dismember(npc, &[(1, true), (13, false)], Some(FormId::PLAYER_REF)).len(), 2);
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::DISMEMBERED_LIMBS), 2.0);
+    // Gone once only.
+    assert!(g.dismember(npc, &[(1, true)], Some(FormId::PLAYER_REF)).is_empty());
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::DISMEMBERED_LIMBS), 2.0);
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[1.0])), 1.0);
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[3.0])), 0.0);
+    assert_eq!(call(&mut g, IS_LIMB_GONE, &nums(&[0.0, 10.0])), 1.0);
+    assert_eq!(g.limbs_gone(npc), vec![(1, true), (13, false)]);
+    // KillActor's limb on a dead actor asks the engine, which knows its body parts.
+    g.combat_requests.clear();
+    call(&mut g, KILL_ACTOR, &[]);
+    assert!(g.combat_requests.is_empty());
+    call(&mut g, KILL_ACTOR, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0)), ArgValue::Value(Value::Num(3.0))]);
+    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF) }]);
 }
 
 #[test]
