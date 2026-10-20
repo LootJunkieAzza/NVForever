@@ -66,7 +66,9 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   built, 2026-10-19).
 - **Audio and video**: reverb, spatial sinks; a film's `muteAudio 0` (world sounds under a film).
 - **Saves**: loading into another load order, AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1).
-- **World**: skeleton collision still upright (playtest list 5 item 71).
+- **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
+  pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in
+  game against the original.
 - **Combat cover from the shooter** (done 2026-10-19): a gunman takes cover from the
   enemy gunmen firing at it first, nearest first, then from its own target
   (docs/design/combat-ai.md §12.6.1); smoke combat-cover passes again without its three

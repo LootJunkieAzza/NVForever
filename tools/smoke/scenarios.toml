@@ -3668,9 +3668,9 @@ expect = [
 
 [[scenario]]
 name = "cave-skeletons"
-source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose"
-areas = ["world", "ragdoll"]
-paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs"]
+source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
+areas = ["world", "ragdoll", "physics"]
+paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-world/src/xrgd.rs", "crates/fnv-collide/src/nif.rs"]
 args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 14
 expect = [
@@ -3678,6 +3678,10 @@ expect = [
   { re = 'clutter pose: 0x00153171 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
   { re = 'clutter pose: 0x001531F5 \S*skeletonmale50scasual\.nif drawn in its stored pose' },
   { re = 'clutter pose: 0x0017B38F \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+  { re = 'phys: 0x00153170 \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)', label = "collision lies with the drawing" },
+  { re = 'phys: 0x00153171 \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)' },
+  { re = 'phys: 0x001531F5 \S*skeletonmale50scasual\.nif: collision posed from XRGD' },
+  { re = 'phys: 0x0017B38F \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)' },
 ]
 
 [[scenario]]
