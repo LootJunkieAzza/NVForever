@@ -151,6 +151,18 @@ pub fn clip_path(folder: &str, prefix: &str, clip: EquipClip) -> String {
     format!("{folder}\\{prefix}{}.kf", clip.stem())
 }
 
+/// The crouched form of a stance clip, played while the actor sneaks:
+/// `<folder>\sneak<prefix><stem>.kf` for the equip, aim and unequip clips, which every
+/// stance has (`sneak1hpaim.kf`, `sneak2hrequip.kf`, `sneakh2hunequip.kf` …), and none
+/// for the holster clip: there is no `sneak<prefix>holster.kf`, only the power-armour
+/// `pasneak2haholster.kf` and `pasneak2hrholster.kf` [observed: `Fallout - Meshes.bsa`
+/// and `Update.bsa` file lists, 2026-10-20; docs/spec-notes/actors.md §9.4]. The holster
+/// clips drive no legs (priority 5 on the holster bone), so the standing one serves
+/// crouched too [observed: kf_layer_survey].
+pub fn sneak_clip_path(folder: &str, prefix: &str, clip: EquipClip) -> Option<String> {
+    (clip != EquipClip::Holster).then(|| format!("{folder}\\sneak{prefix}{}.kf", clip.stem()))
+}
+
 /// The bone a `prn:` text key names (`prn: Bip01 R Hand`, `Prn: …`, `prn: Bip01 R Hand
 /// -at none`): the weapon's parent from that time on [hypothesis, actors.md §9.2].
 pub fn prn_bone(key: &str) -> Option<String> {
@@ -282,6 +294,16 @@ impl WeaponAnim {
         }
     }
 
+    /// Fade from the current clip, at its time, to another form of it (crouched or
+    /// standing, [`sneak_clip_path`]): the current clip becomes the one fading out over
+    /// `fade_time`, an older fade still running is dropped (as a change of locomotion set
+    /// cuts one short), and the stage and its time go on. `fade_time` 0 swaps at once.
+    pub fn fade_from_current(&mut self, fade_time: f32) {
+        self.prev = (fade_time > 0.0).then_some((self.stage.clip(), self.time));
+        self.fade = 0.0;
+        self.fade_time = fade_time;
+    }
+
     /// Advance by `dt` towards `drawn`. Equip and unequip play to their end before the
     /// next stage starts, so a change of mind waits for them.
     pub fn step(&mut self, drawn: bool, dt: f32, facts: &StanceFacts) {
@@ -351,7 +373,7 @@ mod tests {
     use super::*;
 
     fn weapon(model: Option<&str>, anim: &str, damage: i32, embedded: bool) -> Weapon {
-        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, embedded, non_playable: false, first_person: None, first_person_model: None }
+        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, embedded, non_playable: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() }
     }
 
     #[test]
@@ -497,5 +519,30 @@ mod tests {
         // The aim loops; the others hold at their end.
         assert!((WeaponAnim::phase(EquipClip::Aim, 3.0, &facts) - (3.0 / 2.4667 - 1.0)).abs() < 1e-4);
         assert_eq!(WeaponAnim::phase(EquipClip::Equip, 3.0, &facts), 1.0);
+    }
+
+    #[test]
+    fn crouched_forms_of_the_stance_clips() {
+        let f = r"meshes\characters\_male";
+        assert_eq!(sneak_clip_path(f, "1hp", EquipClip::Aim).as_deref(), Some(r"meshes\characters\_male\sneak1hpaim.kf"));
+        assert_eq!(sneak_clip_path(f, "h2h", EquipClip::Unequip).as_deref(), Some(r"meshes\characters\_male\sneakh2hunequip.kf"));
+        // No crouched holster clip: the standing one serves.
+        assert_eq!(sneak_clip_path(f, "2hr", EquipClip::Holster), None);
+        // Crouching while drawn: the aim fades over from its standing form at the same
+        // time, the stage unchanged; a second change while it runs drops the older fade.
+        let facts = pistol();
+        let mut w = WeaponAnim::new(true);
+        w.step(true, 1.0, &facts);
+        w.fade_from_current(0.2);
+        assert_eq!((w.stage, w.prev, w.weight()), (Stage::Drawn, Some((EquipClip::Aim, 1.0)), 0.0));
+        w.step(true, 0.1, &facts);
+        assert!(w.weight() > 0.0 && w.weight() < 1.0);
+        w.fade_from_current(0.2);
+        assert_eq!(w.prev.map(|p| p.1), Some(w.time));
+        w.step(true, 0.25, &facts);
+        assert_eq!((w.prev, w.weight()), (None, 1.0));
+        // Without a fade time the form swaps at once.
+        w.fade_from_current(0.0);
+        assert_eq!(w.prev, None);
     }
 }

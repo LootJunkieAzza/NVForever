@@ -850,6 +850,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "crouched-npc-weapon"
+source = "docs/outstanding.md §2 Animation (2026-10-20): a sneaking NPC with a weapon out uses the weapon type's crouched equip, aim and unequip clips (sneak1hpaim.kf …); the standing aim's upright legs (priority 25) outranked the crouched idle's (20) (docs/spec-notes/actors.md §9.4, engine/nvforever/src/weapons.rs WeaponHold::set_crouched)"
+note = "in Goodsprings at noon every NPC's weapon is out (--actor-weapons drawn); Ringo (GSRingo, 9mm pistol: 1hp) is brought 300 units north of the player at 3 s, forced to sneak at 5 s (SetForceSneak 1) and let up at 15 s (SetForceSneak 0). The 1hp stance has all three crouched clips [observed: the base meshes archive], so his aim is sneak1hpaim.kf while he sneaks"
+areas = ["actors"]
+paths = ["engine/nvforever/src/weapons.rs", "engine/nvforever/src/sneaking.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:300:0,5:call:RingoRef:SetForceSneak:1,15:call:RingoRef:SetForceSneak:0" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--actor-weapons", "drawn"]
+run_seconds = 22
+expect = [
+  { re = 'actor weapons: .* 1hp: clips \[[^]]*\], crouched \[Equip, Aim, Unequip\]', label = "the pistol stance's crouched clips are loaded with it" },
+  { re = 'sneaking: RingoRef \S+ crouches and sneaks', label = "Ringo crouches (SetForceSneak)" },
+  { re = 'crouched weapon: Actor 00104C7D .* 1hp Aim plays .*\\sneak1hpaim\.kf', label = "crouched, Ringo holds his pistol with the crouched aim" },
+  { re = 'sneaking: RingoRef \S+ stands up', label = "Ringo stands up again" },
+]
+
+[[scenario]]
 name = "provoked-yield"
 source = "playtest list 2026-10-11 item 30 (docs/design/combat-ai.md §10.1-§10.2): a neutral NPC the player shoots fights back; holstering is a yield it accepts once, and ignores when it forgave the player recently"
 note = "Chet (GSChetRef) is the nearest NPC in the general store; shot twice at 18-19 s (after the add-ons' start-up message boxes), the weapon put away at 22 s, shot again at 33-34 s and put away at 37 s; each shot aimed anew, as Chet moves"
@@ -2639,6 +2655,23 @@ expect = [
 forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
 
 [[scenario]]
+name = "combat-people-power-attacks"
+source = "docs/outstanding.md §2 Gameplay (queue item 4, 2026-10-20): people's power attacks by their combat style (docs/spec-notes/combat-rules.md §10.1)"
+note = "the combat-block fist fight (the NCR troopers and Fiends of battle-ncr-fiends, --actor-weapons none): CSNCRTrooper and the default style power-attack 25 % of their blows, the direction by the style's shares; each fighter finds its five h2h power clips, its power attacks play them and deal the direction's damage bonus"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat_style.rs", "crates/fnv-combat/src/melee.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 90
+expect = [
+  { re = 'attack anims: \S+ has 5 power attacks for h2h: AttackPower \(hit ', label = "a fist fighter finds its five power clips" },
+  { re = 'npc combat: .* power attack Attack\w*Power at .* \(\d+ %, by chance\)', label = "a person power-attacks by its style's chance" },
+  { re = "combat: \\S+'s power attack Attack\\w*Power on \\S+: damage x[23]\\.0", label = "the power attack deals its direction's damage bonus" },
+  { re = 'attack anims summary: .*h2hattack\w*power\.kf', label = "a power attack clip played" },
+  { re = 'npc power attacks summary: .*Attack\w*Power (?P<n>\d+)', range = [1, 100000], label = "power attacks in the summary" },
+]
+
+[[scenario]]
 name = "combat-fists-drawn"
 source = "owner's playtest 2026-10-17: unarmed NPCs in combat stood in their no-weapon idle; they draw their fists (h2hequip, then h2haim held) as any melee weapon is drawn (engine/nvforever/src/actors.rs arm)"
 note = "an NCR trooper with no weapon drawn (--actor-weapons none, so it fights with its fists) set on the player at 4 s in quiet Goodsprings and put 90 units north of it every 3 s"
@@ -3529,6 +3562,23 @@ expect = [
   { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
 ]
 order = [["test aid calls AddItemHealthPercent on", "pipboy repair: open", "pipboy repair: 10mm Pistol"]]
+
+[[scenario]]
+name = "pipboy-item-mod"
+source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
+areas = ["pipboy", "combat"]
+paths = ["engine/nvf-play/src/pipboy/item_mod.rs", "crates/fnv-combat/src/data.rs", "crates/fnv-actor/src/records.rs"]
+env = { NVFOREVER_HOME = "pipboy-item-mod-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,20:close", NVF_PLAY_TEST_SHOTS = "17:pipboy_item_mod.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 25
+expect = [
+  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "Mod X) bright: the player carries a mod that fits" },
+  { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "X lists the extended magazines for slot 1" },
+  { text = "pipboy: menu code 1061", label = "MenuMode 1061 while the mod menu is open" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "attaching sets the slot's flag" },
+  { re = 'combat: weapon Weap10mmPistol mods 1 on: damage \d+, clip 16', label = "the pistol in hand takes 16 rounds" },
+]
+order = [["pipboy mod: open", "pipboy mod: 10mm Pistol +", "combat: weapon Weap10mmPistol mods 1 on"]]
 
 [[scenario]]
 name = "item-stacks"

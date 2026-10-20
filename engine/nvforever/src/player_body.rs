@@ -543,6 +543,9 @@ struct Body {
 /// State kept across body rebuilds (an outfit change rebuilds the body).
 struct Motion {
     weapon: Option<FormId>,
+    /// The weapon's mod flags: its model is the one for them (`Weapon::model_for`,
+    /// docs/spec-notes/weapon-mods.md §2).
+    weapon_mods: u8,
     prefix: &'static str,
     hands: WeaponHands,
     events: Vec<HandEvent>,
@@ -596,6 +599,7 @@ impl Default for Motion {
     fn default() -> Self {
         Motion {
             weapon: None,
+            weapon_mods: 0,
             prefix: UNARMED,
             hands: WeaponHands::default(),
             events: Vec::new(),
@@ -735,13 +739,13 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
     }
 }
 
-/// The player's equipped armour and weapon in the simulation.
-fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>) {
-    let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return (Vec::new(), None) };
+/// The player's equipped armour and weapon in the simulation, and the weapon's mods.
+fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>, u8) {
+    let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return (Vec::new(), None, 0) };
     let eq = inv.equipped();
     let worn = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
     let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
-    (worn, weapon)
+    (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
 
 /// The centre of the eye parts in the head bone's space, from their meshes [observed:
@@ -793,7 +797,7 @@ fn ensure_body(
     if state.failed.is_some() || death.down() || knock.ragdolled() {
         return;
     }
-    let (worn, weapon) = equipped(&sim, &world);
+    let (worn, weapon, weapon_mods) = equipped(&sim, &world);
     // The look chosen in the character creator (docs/spec-notes/character-creator.md §5).
     let look = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.look.as_ref()).map(nvf_play::creator::actor_look);
     let state = &mut *state;
@@ -848,13 +852,17 @@ fn ensure_body(
     }
     let Some(body) = state.body.as_mut() else { return };
     let m = &mut state.motion;
-    if !rebuilt && m.weapon == weapon {
+    if !rebuilt && m.weapon == weapon && m.weapon_mods == weapon_mods {
         return;
     }
     m.weapon = weapon;
+    m.weapon_mods = weapon_mods;
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
+    if weapon_mods != 0 {
+        info!("player weapon: mods {weapon_mods} on, models {:?} and {:?} (first person)", w.and_then(|w| w.model_for(false, weapon_mods)), w.and_then(|w| w.model_for(true, weapon_mods)));
+    }
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
         if let Some(e) = rig.weapon_model.take() {
             commands.entity(e).despawn();
@@ -866,10 +874,7 @@ fn ensure_body(
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
-        let model = match rig.view {
-            View::Third => w.and_then(|w| w.model.as_deref()),
-            View::First => w.and_then(|w| w.first_person_model.as_deref().or(w.model.as_deref())),
-        };
+        let model = w.and_then(|w| w.model_for(rig.view == View::First, weapon_mods));
         let (Some(path), Some(node)) = (model.map(fnv_actor::resolve::mesh_path), rig.weapon_node) else { continue };
         match models.model(&path) {
             Some(pm) => {

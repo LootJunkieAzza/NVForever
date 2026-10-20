@@ -102,6 +102,9 @@ pub struct Row {
     pub price: Option<f32>,
     /// Barter: units the other side puts up, listed here until the trade is accepted.
     pub bartered: bool,
+    /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
+    /// with " +" (docs/spec-notes/weapon-mods.md §3).
+    pub mods: u8,
 }
 
 /// An inventory's rows (sorted) and totals.
@@ -122,6 +125,17 @@ pub fn condition_note(kind: Option<ItemKind>, condition: Option<f32>) -> String 
         (Some(ItemKind::Weapon | ItemKind::Armor), Some(c)) if c <= 0.0 => " (broken)".into(),
         (Some(ItemKind::Weapon | ItemKind::Armor), Some(c)) if c < 1.0 => format!(" (CND {}%)", fnv_combat::condition::percent(c)),
         _ => String::new(),
+    }
+}
+
+/// A row's name for units with the mod flags `mods`: " +" after it when any mod is on
+/// [hypothesis: the GECK wiki's SetItemModFlags calls the flag "the inventory '+'";
+/// weapon-mods.md §3].
+pub fn modded_name(name: String, mods: u8) -> String {
+    if mods != 0 {
+        format!("{name} +")
+    } else {
+        name
     }
 }
 
@@ -182,7 +196,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         let kind = it.map(|i| i.kind);
         let at = matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)).then(|| extra.condition_or_whole());
         // Groups of one item come together (`Inventory::groups`).
-        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at) {
+        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at && r.mods == extra.mods) {
             r.count += count;
             r.equipped |= extra.equipped;
             continue;
@@ -190,7 +204,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         rows.push(Row {
             item,
             at,
-            name: display_name(forms, item),
+            name: modded_name(display_name(forms, item), extra.mods),
             count,
             weight: it.and_then(|i| i.weight),
             value: it.and_then(|i| i.value),
@@ -201,6 +215,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             icon: it.and_then(|i| i.icon.clone()),
             price: None,
             bartered: false,
+            mods: extra.mods,
         });
     }
     for r in &mut rows {

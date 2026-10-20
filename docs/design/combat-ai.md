@@ -1039,7 +1039,7 @@ still get through, and a reaction slower than the blow comes too late.
   of it is stopped (`fnv_combat::damage::blocked`; combat.md §5.4: "Block reduces
   incoming melee damage and staggers an attacker who hits it") [design: the share]. Shots
   and explosions are never blocked.
-- A **power attack** (the player's, a creature's) breaks through the block instead
+- A **power attack** (the player's, a creature's, a person's) breaks through the block instead
   (owner request 2026-10-16; `damage::against_block`, combat-rules.md §12): all of it
   is dealt, its attacker does not recoil, and the blocker staggers (its torso hit
   reaction), which ends its block and holds its attacks while it plays. A player whose
@@ -1157,8 +1157,14 @@ animation combos". The player's swings already follow the attack clips' `a:` tex
   (`h2hattackleft.kf`, `h2hattackleft_mid.kf`) first where their clips carry an `a:` key;
   otherwise they keep taking their clips in turn (§9). The Goodsprings dogs' clips chain
   [observed in NVForever: smoke `combat-dogs` 2026-10-16, 6 of their blows went on combos].
-- Not built: NPC power attacks (the style's power attack chances).
-- Checks: unit tests in `npc_combat.rs` (the combo window) and `attack_anims.rs` (a
+- **People's power attacks** (built 2026-10-20; rules in
+  docs/spec-notes/combat-rules.md §10.1): a melee decision to attack is a power attack
+  by the style's Power Attack % Chance with its recoil/stagger and unconscious bonuses;
+  the direction by the style's five shares ("Choose Attack using % Chance") or by how
+  the actor moves against its facing; its own clip (`1hmattackleftpower.kf`), its
+  direction's damage bonus, no combo through it, the PowerAttack line, and it breaks
+  blocks (§14.3).
+- Checks: unit tests in `npc_combat.rs` (the combo window, people's power attacks) and `attack_anims.rs` (a
   creature's chained clip first); smoke scenario `combat-melee-combo` (the `combat-block`
   fist fight: blows go on combos, `attackleft` clips play).
 
