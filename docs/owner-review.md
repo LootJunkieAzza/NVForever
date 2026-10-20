@@ -6744,3 +6744,22 @@ package of the game has the flag (Eat packages have it), so every rule is my cho
 - **Killing and buying both allowed**: a living vendor is bought from, not attacked.
 *Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
 smoke test turns the flag on for FFER24FindFood with a test aid.
+
+## True iron sights (2026-10-20, branch claude/true-iron-sights)
+
+docs/spec-notes/camera.md §4.1. Aiming a gun now lines up its sights with the eye: each
+weapon model's `##SightingNode` (behind the gun, at sight height) is put on the camera,
+with the barrel along the view, eased in with the zoom. My choices:
+- **Which weapons**: your "miniguns and laser rifles" read as a rule: only weapons whose
+  skill is Guns, held as pistols, rifles or automatics. All energy weapons (laser
+  pistol, plasma, ...) and Big Guns aim as the original. *Check:* should any energy
+  pistol or a Big Guns weapon (grenade rifle?) have them?
+- **Switch**: on by default, a settings page switch "True iron sights"
+  (`--no-true-iron-sights`) gives the original aim.
+- **What moves**: the arms and gun together (`Bip01 Translate`), turned and moved; the
+  camera stays where the clip puts it. Sway is laid on top.
+- **Eye on the node exactly**: the gun's rear end ends up as close to the eye as the node
+  says (12.5 units behind the varmint rifle's origin, 25.8 behind the 10mm's).
+  *Check:* compare against your three screenshots of each weapon.
+- **Scoped weapons** get the same treatment; their scope overlay is still not built.
+

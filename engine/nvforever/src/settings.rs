@@ -156,6 +156,18 @@ pub fn register(app: &mut App) {
                 slider: None,
             },
         );
+        add_setting(
+            app,
+            Setting {
+                key: "true-iron-sights",
+                group: GROUP_PICTURE,
+                label: "True iron sights",
+                note: "On: aiming a gun lines its sights up with your eye. Off: the gun is held low as in the original. Energy weapons and Big Guns aim as the original either way. (--no-true-iron-sights)",
+                get: |w| w.resource::<PlayerBody>().true_iron_sights,
+                set: |w, on| w.resource_mut::<PlayerBody>().true_iron_sights = on,
+                slider: None,
+            },
+        );
     }
     add_setting(
         app,

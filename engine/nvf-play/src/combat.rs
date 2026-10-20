@@ -851,6 +851,15 @@ impl Combat {
         (fov > 0.0).then_some((w, fov))
     }
 
+    /// The gun in hand lines its sights up with the eye while aimed (true iron sights,
+    /// nvforever `iron_sights.rs`): a gun with sights whose skill is Guns. Energy weapons
+    /// and Big Guns keep the original's aim [design: the owner, 2026-10-20, "miniguns and
+    /// laser rifles should not have any true iron sights"; the skill as the line between
+    /// them is this session's reading].
+    pub fn true_sights(&self) -> bool {
+        self.sight_fov().and_then(|(w, _)| self.forms.weapons.get(&w)).and_then(|w| w.skill.as_deref()).is_some_and(|s| s.eq_ignore_ascii_case("guns"))
+    }
+
     /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
     pub fn projectile(&self) -> Option<FormId> {
         self.forms.chain(self.weapon?, self.ammo)?.projectile
