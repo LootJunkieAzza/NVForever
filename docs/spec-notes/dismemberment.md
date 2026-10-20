@@ -111,6 +111,47 @@ Meanings [hypothesis, from the names]:
 - A *torso section* (`BP_TORSOSECTION_X`, numbered X × 1000) is the strip of the body mesh that
   leaves with part X.
 
+### 2.6 Creatures [observed: the 49 BPTD records of FalloutNV.esm; creature meshes in `Fallout - Meshes.bsa`]
+
+A creature uses its own body part data (CREA `PNAM`) under the same rules. Of the 49 records, 43
+have parts that can go. Examples (S: severable, E: explodable, explode chance; * names a limb
+replacement model):
+
+| Creature | Parts that can go |
+|---|---|
+| NVGecko, NVGiantRat, MoleRat | head S E 50 (no model); legs (and the rat's tail) S only |
+| Dog, DogMeat (coyotes, mongrels) | head and legs S only: never explode |
+| Rex | head S E 100; legs S only |
+| NVNightStalker | head E 100 (no model); legs S only |
+| NVCazador | head, wings, legs S E, mostly 0–50 %; no models, no debris |
+| RadScorpion, ants, NVMantis, mirelurks | every leg, claw, stinger and head S E 30–100, insect limb models (`GoreInsectLimb.NIF`) |
+| Feral ghouls, super mutants, aliens | as people: head S E 95, limbs S E 40–50, torso E 10, human gore models |
+| NVBigHorner | head E 100*, legs S E 50 |
+| Protectron, Robobrain, Mr. Gutsy, Sentry Bot, Securitron | heads, arms, legs S E 30–100, robot limb models (`GoreRobotLimb.NIF`, `RoboBit0N.NIF`) |
+| Eyebot, ceiling turrets, NVTumbleweed, NVraven | torso E 100 (the whole thing) |
+| Bloatfly, Liberty Prime, floor turrets, spore plant, Void, Zax eye | nothing |
+
+- Debris is per kind:
+  - GoreBits01 (flesh: geckos, rats, ghouls, people);
+  - InsectGoreBits01 (0xB5B9E: scorpions, ants, mantises);
+  - RobotGoreBits01 (0xB8FF4: robots).
+- Explosions are per kind:
+  - LimbExplosion (flesh);
+  - LimbExplosionBug (0xB67B9, `Gore\FXGorePopHeadBug01.NIF`);
+  - LimbExplosionRobot (0xBB636, `Effects\ExplosionRobotLimb01.NIF`);
+  - LimbExplosionGlow (0xA18F5, glowing ones).
+
+  Several creatures' severable parts name an explosion too (0x31CF9), so a cut spurts.
+- The skins are split as people's are: every creature mesh looked at has
+  `BSDismemberSkinInstance` partitions by body part and meat-cap shapes (torso caps 2xx,
+  section caps 1xx). This holds for the gecko, dogs, the giant rat, radscorpions, ghouls, the
+  mantis, the cazador, the nightstalker, the mole rat, deathclaws, the bighorner, brahmin,
+  mirelurks, centaurs, super mutants, the Securitron, ants, the radroach, Mr. Gutsy, robobrains
+  and sentry bots. The bloatfly and the eyebot have partitions but no caps.
+
+So for a gecko, a giant rat or a mole rat an exploded head is GoreBits01 meat bits and a neck
+cap, with no limb model. Their legs, and every part of a dog, can only be cut off.
+
 ## 3. Game settings [observed: FalloutNV.esm GMST values]
 
 | Setting | Value |
