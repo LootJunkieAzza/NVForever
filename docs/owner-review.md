@@ -6603,6 +6603,24 @@ combat-rules.md §17–18; queue item 8.
   firing, hits and other; a rerun of campaign fight_stats_round settles it.
 - Not changed: a scripted FireWeapon wears nothing [design]; hits on the holder do not
   wear his weapon (only hits on the weapon's own volume do, your rule).
+
+## Weapon sway and bob in first person (2026-10-20, branch claude/viewmodel-sway)
+
+Design: docs/design/player-body.md §1.4a. The arms and weapon now lag behind a turn and
+bob as you walk and run; "Weapon sway" on the settings page (or `--no-weapon-sway`)
+turns it off. The game's own files have no bob for the arms, so it is all ours and
+every number is a guess to tune by eye:
+- **Turn lag** 0.11 s to catch up, at most 5° sideways and 3.5° up/down. *Check:* does a
+  quick flick in the original leave the gun further behind, or for longer?
+- **Bob** 0.9 units down at each footfall and 0.6 across a stride at a run, less walking,
+  60 % sneaking, 20 % down the sights. *Check:* walking and running with a rifle, side by
+  side with the original.
+- **Strafe lean** 1.5° and **start/stop lag** at most 1.2 units. *Check:* too much?
+- The game's settings `fFirstPersonHandFollowMult` and `fFirstPersonHandChaseSeconds`
+  are named in the executable but their values are not in any file. A capture reading
+  `GetNumericGameSetting fFirstPersonHandChaseSeconds` (and the other two) in the
+  original would give the turn lag's time.
+
 ## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
 
 docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
