@@ -92,6 +92,21 @@ impl Furniture {
     }
 }
 
+/// The members of form list `list` (its FLST's LNAM entries, as load-order FormIDs);
+/// empty when it is not a form list.
+fn list_members(lo: &LoadOrder, list: FormId) -> Vec<FormId> {
+    let Some(d) = lo.index.get(&list.0).and_then(|d| d.last()) else { return Vec::new() };
+    let r = lo.records[d.plugin as usize][d.ordinal as usize];
+    if &r.header.sig != b"FLST" {
+        return Vec::new();
+    }
+    let subs = r.subrecords().unwrap_or_default();
+    subs.iter()
+        .filter(|s| &s.sig == b"LNAM")
+        .filter_map(|s| extract::global(lo, d.plugin as usize, u32::from_le_bytes(s.data.get(..4)?.try_into().ok()?)).ok().flatten())
+        .collect()
+}
+
 /// Every winning, non-deleted FURN.
 pub fn furniture(lo: &LoadOrder, schema: &Schema, issues: &mut Issues) -> Vec<Furniture> {
     let mut out = Vec::new();
@@ -200,8 +215,10 @@ impl User {
             func::GET_SITTING => Some(if bed { 0.0 } else { self.state as f32 }),
             func::GET_SLEEPING => Some(if bed { self.state as f32 } else { 0.0 }),
             func::GET_FURNITURE_MARKER_ID => Some(self.marker_id as f32),
-            func::IS_CURRENT_FURNITURE_OBJ => yes(c.param1 == Some(self.furniture_base)),
-            func::IS_CURRENT_FURNITURE_REF => yes(c.param1 == Some(self.furniture_ref)),
+            // The parameter can be a form list of furniture: NVDance asks it of
+            // DanceMarkerObjects (furniture.md §3).
+            func::IS_CURRENT_FURNITURE_OBJ => yes(c.param1 == Some(self.furniture_base) || c.param1_list.contains(&self.furniture_base)),
+            func::IS_CURRENT_FURNITURE_REF => yes(c.param1 == Some(self.furniture_ref) || c.param1_list.contains(&self.furniture_ref)),
             func::GET_IS_ID => yes(c.param1 == Some(self.actor_base)),
             func::IS_PC_1ST_PERSON => yes(self.first_person),
             // The parameter is the sex asked about: 0 male, 1 female [documented: GECK
@@ -234,6 +251,8 @@ struct Cond {
     param1_raw: u32,
     /// The first parameter as a FormID of the load order, when it maps to one.
     param1: Option<FormId>,
+    /// The members of the first parameter when it is a form list (FLST).
+    param1_list: Vec<FormId>,
 }
 
 impl Cond {
@@ -331,13 +350,17 @@ impl UseIdles {
         let conds = idle
             .conditions
             .iter()
-            .map(|c| Cond {
-                function: c.function,
-                op: c.type_raw >> 5,
-                or: c.or(),
-                value: c.comparison_f32(),
-                param1_raw: c.param1_raw,
-                param1: extract::global(lo, idle.plugin, c.param1_raw).ok().flatten(),
+            .map(|c| {
+                let param1 = extract::global(lo, idle.plugin, c.param1_raw).ok().flatten();
+                Cond {
+                    function: c.function,
+                    op: c.type_raw >> 5,
+                    or: c.or(),
+                    value: c.comparison_f32(),
+                    param1_raw: c.param1_raw,
+                    param1,
+                    param1_list: param1.map(|l| list_members(lo, l)).unwrap_or_default(),
+                }
             })
             .collect();
         let clip = (idle.model_kind() == crate::idle::ModelKind::Kf).then(|| idle.model_path()).flatten();
@@ -635,7 +658,7 @@ mod tests {
     }
 
     fn cond(function: u16, op: u8, value: f32) -> Cond {
-        Cond { function, op, or: false, value: Some(value), param1_raw: 0, param1: None }
+        Cond { function, op, or: false, value: Some(value), param1_raw: 0, param1: None, param1_list: Vec::new() }
     }
 
     fn node(id: u32, clip: Option<&str>, conds: Vec<Cond>, children: Vec<usize>) -> Node {
@@ -752,6 +775,10 @@ mod tests {
         assert!(!c(func::IS_CURRENT_FURNITURE_OBJ, 0x101).holds(&u, NO_WORLD));
         assert!(c(func::IS_CURRENT_FURNITURE_REF, 0x200).holds(&u, NO_WORLD));
         assert!(c(func::GET_IS_ID, 0x300).holds(&u, NO_WORLD));
+        // A form list of furniture (NVDance's DanceMarkerObjects): any member matches.
+        let list = |members: Vec<u32>| Cond { param1_list: members.into_iter().map(FormId).collect(), ..c(func::IS_CURRENT_FURNITURE_OBJ, 0x500) };
+        assert!(list(vec![0x101, 0x100]).holds(&u, NO_WORLD));
+        assert!(!list(vec![0x101]).holds(&u, NO_WORLD));
         // GetIsSex Female on a male actor.
         assert!(!Cond { param1_raw: 1, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u, NO_WORLD));
         assert!(Cond { param1_raw: 0, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u, NO_WORLD));

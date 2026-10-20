@@ -1266,6 +1266,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "dance-fidgets-tree"
+kind = "tool"
+source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D) on her dance marker (0012299C, ID 20) gets NVDance's fidgets, which ask IsCurrentFurnitureObj of a form list (DanceMarkerObjects); 0 before lists were looked into. 2026-10-20: 127 of 1000 checks, DanceFemaleFidget01-06"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/functions/furniture.rs", "crates/fnv-game/src/idles.rs"]
+commands = [
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "0012299D", "--furniture", "0012299C:20"],
+]
+expect = [
+  { json = "actors.?actor=VStreetHooker01REF.fidgets", schema = "fnv.actor.fidgets/1", range = [60, 250], label = "a dancer on her dance marker: dance fidgets, not none" },
+  { json = "actors.?actor=VStreetHooker01REF.by_idle.DanceFemaleFidget01", schema = "fnv.actor.fidgets/1", range = [5, 60], label = "the first of the female dance fidgets" },
+]
+
+[[scenario]]
 name = "furniture-fidgets"
 source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
 note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair. 15:00, not 12:00: from 12 to 14 his package is EasyPeteEat12x2 (fnvtool ai day), whose procedure 10 EAT picks the IDLE tree's SitChairFood branch (GetCurrentAIProcedure == 10) and he eats on the chair (SitChairEatB, food in hand) instead, as the game does [observed 2026-10-20 once procedure codes were read]; from 14 EasyPeteChairPackage14x4"
@@ -2293,6 +2307,32 @@ expect = [
   "actor materials: reference 0013BB1F shape screenstatic:0 driven by its clips",
   { re = 'ultraluxsignglow\.nif: 0 material and 1 transform track', label = "the Ultra-Luxe sign glow's own transform controller" },
   { re = 'nv_thetops-casino04\.nif: [1-9]\d* material and', label = "The Tops sign's own material controllers" },
+]
+
+[[scenario]]
+name = "gomorrah-roof-fire"
+source = "docs/spec-notes/particles.md §5: Gomorrah's roof fires are placed STATs (refs 0013BA36, 00174ECC: effects/nv/nvfiregomorrah01/02.nif) whose own particle system and add-on node 14 (ADDN MPSFireSmall01) now emit; two frames 0.3 s apart at night in target/smoke (gomorrah_fire_N.png): flames behind the main sign and on the side sign"
+areas = ["particles", "effects"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "5:340:32", NVF_PLAY_TEST_SHOTS = "7:gomorrah_fire_0.png,7.3:gomorrah_fire_1.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-1100,5400,1030", "--hour", "21", "--no-voice", "--no-messages"]
+run_seconds = 9
+expect = [
+  { re = 'particles: model \S*nvfiregomorrah01\.nif: 1 system', label = "the first roof fire's own flames emit" },
+  { re = 'particles: model \S*nvfiregomorrah02\.nif: 1 system', label = "the second roof fire's own flames emit" },
+  { re = 'particles: add-on node 14 \S+: [1-9]', label = "their add-on fire (MPSFireSmall01) emits" },
+]
+
+[[scenario]]
+name = "gomorrah-dancers"
+source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
+areas = ["furniture", "idles"]
+paths = ["crates/fnv-actor/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "1:0012299D.enable;1.2:close", NVF_PLAY_TEST_GOTO = "8:-634:6980:1030", NVF_PLAY_TEST_LOOK = "8.5:0:-8", NVF_PLAY_TEST_SHOTS = "12:gomorrah_dancer.png,12.5:gomorrah_dancer_1.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-700,6900,1030", "--hour", "21", "--no-voice", "--no-messages", "--npc-sit", "0012299D=0012299C:45"]
+run_seconds = 14
+expect = [
+  { re = 'furniture: 0012299D goes to 0012299C by marker \d+ \(ID 20\).*clips \S*dance\S* / \S*dance', label = "the dance clips, not the child bar's counter lean" },
 ]
 
 [[scenario]]
