@@ -1268,11 +1268,11 @@ expect = [
 [[scenario]]
 name = "furniture-fidgets"
 source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
-note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair"
+note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair. 15:00, not 12:00: from 12 to 14 his package is EasyPeteEat12x2 (fnvtool ai day), whose procedure 10 EAT picks the IDLE tree's SitChairFood branch (GetCurrentAIProcedure == 10) and he eats on the chair (SitChairEatB, food in hand) instead, as the game does [observed 2026-10-20 once procedure codes were read]; from 14 EasyPeteChairPackage14x4"
 areas = ["idles", "furniture"]
 paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/furniture.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_ACTIVATE = "3", NVF_PLAY_TEST_CONTROL = "6:view" }
-args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "15", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
 run_seconds = 90
 expect = [
   "furniture summary: 1 of 1 actors sat down, 1 got up again",
@@ -3193,7 +3193,7 @@ paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs",
 args = ["--cell=-16,-5", "--pos=-61744,-17983,6483", "--heading", "80", "--pitch", "-14", "--hour", "16"]
 run_seconds = 12
 expect = [
-  "dlcpittfxgroundsmoke01.nif: 1 material track(s) of controllers of their own, played on their own cycles",
+  "dlcpittfxgroundsmoke01.nif: 1 material and 0 transform track(s) of controllers of their own, played on their own cycles",
 ]
 
 [[scenario]]
