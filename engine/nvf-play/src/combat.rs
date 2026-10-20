@@ -702,6 +702,9 @@ pub struct Combat {
     weapon: Option<FormId>,
     /// The equipped weapon as the simulation has it (None: unarmed).
     equipped: Option<Option<FormId>>,
+    /// The equipped unit's mod flags (`Extra::mods`): its figures are the modded ones
+    /// (docs/spec-notes/weapon-mods.md §2).
+    mods: u8,
     /// The Fists form (WEAP `Fists`), the unarmed weapon.
     fists: Option<FormId>,
     ammo: Option<FormId>,
@@ -795,6 +798,13 @@ impl Combat {
         self.weapon
     }
 
+    /// The figures of the player's weapon `id`: the equipped one's with its mods on
+    /// (`WeaponStats::modded`), any other's as the record has them.
+    pub fn player_stats(&self, id: FormId) -> Option<WeaponStats> {
+        let w = self.forms.weapons.get(&id)?;
+        Some(if self.equipped.flatten() == Some(id) && self.mods != 0 { w.modded(self.mods) } else { w.clone() })
+    }
+
     /// The Fists (WEAP `Fists`), the unarmed weapon.
     pub fn fists_id(&self) -> Option<FormId> {
         self.fists
@@ -821,7 +831,7 @@ impl Combat {
     /// FOV above 0; melee weapons block instead) (`crate::aim_zoom`).
     pub fn sight_fov(&self) -> Option<(FormId, f32)> {
         let w = self.weapon.filter(|_| !self.melee)?;
-        let fov = self.forms.weapons.get(&w)?.sight_fov;
+        let fov = self.player_stats(w)?.sight_fov;
         (fov > 0.0).then_some((w, fov))
     }
 
@@ -838,7 +848,7 @@ impl Combat {
         const NO_GUN: &str = "VATS mode needs a weapon to aim.";
         use fnv_combat::vats::{shot_ap_cost, throw_reach, AttackStyle};
         let id = self.weapon.ok_or(NO_GUN)?;
-        let w = self.forms.weapons.get(&id).ok_or(NO_GUN)?;
+        let w = &self.player_stats(id).ok_or(NO_GUN)?;
         let cost = shot_ap_cost(w, &self.rules.ap_attack);
         let edid = w.edid.clone().unwrap_or_else(|| id.to_string());
         if self.melee {
@@ -1173,6 +1183,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         tuning: CombatTuning::default(),
         weapon: None,
         equipped: None,
+        mods: 0,
         fists,
         ammo: None,
         self_ammo: false,
@@ -1241,10 +1252,14 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
         info!("combat: the player's {} ({id}) is broken: unequipped", item_name(&sim, id));
         equipped = None;
     }
-    if c.equipped == Some(equipped) {
+    let mods = equipped.and_then(|id| sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped_mods(id))).unwrap_or(0);
+    if c.equipped == Some(equipped) && c.mods == mods {
         return;
     }
+    // A mod put on the weapon in hand (`crate::pipboy::item_mod`): its rounds stay in.
+    let kept = (c.equipped == Some(equipped)).then(|| c.cycle.as_ref().map(|cy| cy.magazine)).flatten();
     c.equipped = Some(equipped);
+    c.mods = mods;
     let weapon = equipped.or(c.fists);
     c.weapon = weapon;
     c.cycle = None;
@@ -1257,9 +1272,9 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
         anim.reload = None;
         return;
     };
-    let w = &c.forms.weapons[&id];
+    let w = &c.player_stats(id).expect("weapon present");
     let ammo = c.forms.ammo_for(id, |a| player_count(&sim, Some(a)) > 0);
-    let chain = c.forms.chain(id, ammo).expect("weapon present");
+    let chain = c.forms.chain_with(id, w, ammo);
     let melee = AttackKind::of(w) != AttackKind::Gun;
     c.melee = melee && chain.projectile.is_none();
     c.self_ammo = !melee && chain.ammo_choices.is_empty() && chain.projectile.is_some();
@@ -1269,6 +1284,9 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     // Ranged weapons without a projectile (the detonator, binoculars) use no ammo.
     let no_ammo = melee || c.self_ammo || (chain.projectile.is_none() && chain.ammo_choices.is_empty());
     c.cycle = Some(Cycle::new(w, timing, no_ammo, carried));
+    if let (Some(n), Some(cy)) = (kept, c.cycle.as_mut()) {
+        cy.magazine = n.min(cy.clip_size).min(carried);
+    }
     // A save's magazine for this weapon (`crate::save`), no more than is carried.
     if let (Some((sw, n)), Some(cy)) = (c.load_magazine, c.cycle.as_mut()) {
         if sw == id.0 {
@@ -1287,6 +1305,9 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
         w.clip_size,
         chain.projectiles_per_shot
     );
+    if c.mods != 0 {
+        info!("combat: weapon {} mods {} on: damage {}, clip {}, min spread {:.2}, sight FOV {:.0}", w.edid.as_deref().unwrap_or("?"), c.mods, w.base_damage, w.clip_size, w.min_spread, w.sight_fov);
+    }
 }
 
 /// The impact a weapon's impact data set names for what a hit struck, and the material
@@ -1509,6 +1530,7 @@ pub(crate) fn fire(
     if c.melee {
         return;
     }
+    let Some(w) = c.weapon.and_then(|id| c.player_stats(id)) else { return };
     let (Some(id), Some(cycle)) = (c.weapon, c.cycle.as_mut()) else { return };
     if !anim.ready {
         if vats_shot.is_some() {
@@ -1516,7 +1538,6 @@ pub(crate) fn fire(
         }
         return;
     }
-    let w = c.forms.weapons[&id].clone();
     cycle.timing = Timing::of(&w, &anim.timing, &c.tuning);
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
@@ -1550,7 +1571,7 @@ pub(crate) fn fire(
     let total = if c.self_ammo { player_count(&sim, Some(id)) } else { player_count(&sim, c.ammo) };
     let carried = total.saturating_sub(cycle.magazine);
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt, carried });
-    let Some(chain) = c.forms.chain(id, c.ammo) else { return };
+    let chain = c.forms.chain_with(id, &w, c.ammo);
     // The cone a shot would leave in now, for the crosshair (bloom included).
     {
         let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
@@ -2073,7 +2094,7 @@ fn melee(
         anim.swing = None;
         return;
     }
-    let w = c.forms.weapons[&id].clone();
+    let w = c.player_stats(id).expect("weapon present");
     // The clip the body timed for the swing playing; a new swing runs on the weapon's
     // own timing until the body has read its clip (the next frame).
     let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01);
@@ -2706,7 +2727,9 @@ fn fly(
     };
     for p in due {
         let id = p.by.weapon;
-        let Some(w) = c.forms.weapons.get(&id).cloned() else { continue };
+        // The player's weapon hits with its mods' figures (weapon-mods.md §2).
+        let w = if p.by.actor == FormId::PLAYER_REF { c.player_stats(id) } else { c.forms.weapons.get(&id).cloned() };
+        let Some(w) = w else { continue };
         let chain = c.forms.chain(id, p.by.ammo);
         let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
         let shooter = p.by.actor;

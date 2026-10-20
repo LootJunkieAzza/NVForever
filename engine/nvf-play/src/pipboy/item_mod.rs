@@ -1,0 +1,492 @@
+//! The Pip-Boy's weapon mod menu (docs/spec-notes/weapon-mods.md §4–§5; the figures are
+//! `fnv_combat::data::WeaponStats::modded`): on the ITEMS page, X on a weapon with a
+//! free mod slot whose mod the player carries lists those mods; choosing one uses the
+//! item up and puts the slot's flag on the weapon (`Extra::mods`, kept in saves).
+//!
+//! - MenuMode 1061 while it is open [documented: GECK wiki GetMenuTargetRef]
+//!   (`super::menu_code`).
+//! - The list [documented: `menus\item_mod_menu.xml`, in the menus' rectangle]: the
+//!   heading "ITEMS" with the weapon's name in font 4 right-aligned 100 short of the
+//!   right edge; the list 15 left and 75 down, 430 wide, its rows 32 in and 393 wide, the
+//!   name in font 2 at 40, 20 down, wrapped at 270, the equipped square 25 at 15; the
+//!   chosen row's picture 200 square at (450, 20) and the mod's description at
+//!   (450, 220) wrapped at 350; the figures from (415, 400), 427 x 180: two cards of half
+//!   that width at the top and, on a mod, an arrow 80 square in the middle, the gain in
+//!   font 4 at three quarters, 30 under the arrow's top, and the cards after the mod at
+//!   the bottom; "Exit E)" right-aligned at 855, 75 down. The first row is the weapon,
+//!   boxed; the others the mods [hypothesis: as the repair list].
+//! - Keys: Up/Down (W/S) choose, Enter or Space attaches the chosen mod, E or Esc goes back
+//!   [documented: `_PCButton_E` IMM_CancelButton; design: the rest]. The pointer as the
+//!   repair list's: a row under it is chosen, a click on the chosen mod attaches it, a
+//!   click on "Exit E)" goes back. Log: `pipboy mod: clicked row <n>`.
+//! - Rows are silent [documented: the template's `&nosound;`]; attaching plays
+//!   `UIRepairWeapon` [hypothesis].
+//! - Test aid: the Pip-Boy aid's `mod=open|down|up|use|cancel` (`test_aid.rs`).
+
+use super::frame::{self, Align, Ctx, LINE, MAIN, TEXT};
+use super::{Page, PipBoy};
+use crate::interface::{amber, at};
+use crate::menu::model::{Mode, Side};
+use crate::menu::ActiveMenu;
+use crate::sim::SimState;
+use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+use bevy::prelude::*;
+use fnv_combat::data::{mod_flag, WeaponStats};
+use fnv_sim::forms::FormStore;
+use fnv_sim::inventory::Extra;
+use fnv_sim::FormId;
+
+/// The list and its rows [documented: `IMM_ItemModList`, the template].
+const LIST: Rect = Rect { min: Vec2::new(-15.0, 75.0), max: Vec2::new(415.0, 543.0) };
+const ROW_X: f32 = 32.0;
+const ROW_W: f32 = 393.0;
+const NAME_X: f32 = 40.0;
+const NAME_Y: f32 = 20.0;
+const WRAP: f32 = 270.0;
+const MARK: Rect = Rect { min: Vec2::new(15.0, 17.5), max: Vec2::new(40.0, 42.5) };
+/// Rows as the ITEMS list's [hypothesis: the barter menu's measure, barter-menu.md §3].
+const ROW_H: f32 = super::items::ROW_H;
+const LINE_PITCH: f32 = 35.0;
+/// The picture, the description and the figures [documented: `IMM_ItemIcon`,
+/// `IMM_ModDesc`, `IMM_CompareRect`].
+const ICON: Rect = Rect { min: Vec2::new(450.0, 20.0), max: Vec2::new(650.0, 220.0) };
+const DESC: Vec2 = Vec2::new(450.0, 220.0);
+const DESC_WRAP: f32 = 350.0;
+const DESC_LINES: usize = 3;
+const COMPARE: Rect = Rect { min: Vec2::new(415.0, 400.0), max: Vec2::new(842.0, 580.0) };
+const CARD_H: f32 = 60.0;
+const ARROW: f32 = 80.0;
+/// The condition meter in its card: 60 x 16, 15 from its right end [documented:
+/// `IMM_ItemHealthMeter`].
+const METER: Vec2 = Vec2::new(60.0, 16.0);
+/// The name in the heading ends 100 short of the right edge [documented: `IMM_ItemName`].
+const NAME_RIGHT_IN: f32 = 100.0;
+/// The buttons [documented: `IMM_ButtonRect`].
+const BUTTONS: Vec2 = Vec2::new(855.0, 75.0);
+/// The exit button's words [hypothesis: `sExit` reads "Exit", as the companion wheel's].
+const EXIT: &str = "Exit E)";
+/// The meter's empty part [documented: the repair template's alpha 64, the same meter].
+const BAR_BACK: f32 = 64.0 / 255.0;
+
+/// A step from the keys or the test aid.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModInput {
+    Open,
+    Up,
+    Down,
+    Use,
+    Cancel,
+    /// The pointer came onto the row at this place (0 the weapon, then its mods).
+    Hover(usize),
+    /// A click on the row at this place: chooses it, or attaches the mod already chosen.
+    Click(usize),
+}
+
+#[derive(Component, Clone, Copy)]
+struct ModRow(usize);
+
+#[derive(Component, Clone, Copy)]
+struct ModExit;
+
+/// Only a row not chosen yet (as the repair list's rows, `super::repair`).
+fn on_row_over(over: On<Pointer<Over>>, rows: Query<&ModRow>, menu: Res<PipItemMod>, mut out: MessageWriter<ModInput>) {
+    let (Ok(r), Some(s)) = (rows.get(over.entity), menu.0.as_ref()) else { return };
+    if s.selected != r.0 {
+        out.write(ModInput::Hover(r.0));
+    }
+}
+
+fn on_row_click(click: On<Pointer<Click>>, rows: Query<&ModRow>, mut out: MessageWriter<ModInput>) {
+    if let Ok(r) = rows.get(click.entity) {
+        out.write(ModInput::Click(r.0));
+    }
+}
+
+fn on_exit_click(click: On<Pointer<Click>>, exit: Query<&ModExit>, mut out: MessageWriter<ModInput>) {
+    if exit.get(click.entity).is_ok() {
+        out.write(ModInput::Cancel);
+    }
+}
+
+/// What a step does with the list as it is: a click on the chosen mod attaches it, any
+/// other click chooses its row.
+pub fn resolve(selected: Option<usize>, step: ModInput) -> ModInput {
+    match (selected, step) {
+        (Some(s), ModInput::Click(i)) if i == s && i > 0 => ModInput::Use,
+        (_, ModInput::Click(i)) => ModInput::Hover(i),
+        (_, x) => x,
+    }
+}
+
+/// The mod menu while it is shown.
+#[derive(Resource, Default)]
+pub struct PipItemMod(pub Option<Session>);
+
+impl PipItemMod {
+    pub fn is_open(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Session {
+    pub offer: Offer,
+    /// 0: the weapon itself; else the mod at this place, less one.
+    pub selected: usize,
+}
+
+/// A mod the player carries that fits a free slot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Choice {
+    /// The IMOD.
+    pub item: FormId,
+    pub slot: u8,
+    pub name: String,
+    pub count: i32,
+    pub icon: Option<String>,
+}
+
+/// What the ITEMS page's selected weapon offers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    pub item: FormId,
+    /// The unit to mod (the equipped one first).
+    pub extra: Extra,
+    pub name: String,
+    pub icon: Option<String>,
+    pub choices: Vec<Choice>,
+}
+
+impl Offer {
+    /// Whether X opens the menu: a mod to attach.
+    pub fn usable(&self) -> bool {
+        !self.choices.is_empty()
+    }
+}
+
+/// The offer of the row of `item` whose units are at `at` with the mods `mods` (the
+/// equipped unit first when `equipped`): the carried mods that fit a slot not taken
+/// yet, by name. `None` for an item that is not a weapon with mod slots.
+pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, w: &WeaponStats, item: FormId, at: Option<f32>, mods: u8, equipped: bool) -> Option<Offer> {
+    if !w.mods.iter().any(|m| m.item.is_some() && mod_flag(m.slot) != 0) {
+        return None;
+    }
+    let mine = groups.iter().filter(|g| g.0 == item && g.1.is_at(at) && g.1.mods == mods).max_by_key(|g| g.1.equipped == equipped)?;
+    let carried = |id: FormId| groups.iter().filter(|g| g.0 == id).map(|g| g.2).sum::<i32>();
+    let mut choices: Vec<Choice> = w
+        .mods
+        .iter()
+        .filter(|m| mod_flag(m.slot) != 0 && mine.1.mods & mod_flag(m.slot) == 0)
+        .filter_map(|m| {
+            let id = m.item?;
+            let count = carried(id);
+            (count > 0).then(|| Choice { item: id, slot: m.slot, name: crate::menu::model::display_name(forms, id), count, icon: forms.item(id).and_then(|i| i.icon.clone()) })
+        })
+        .collect();
+    choices.sort_by(|a, b| a.name.cmp(&b.name).then(a.slot.cmp(&b.slot)));
+    Some(Offer {
+        item,
+        extra: mine.1,
+        name: crate::menu::model::modded_name(crate::menu::model::display_name(forms, item), mine.1.mods),
+        icon: forms.item(item).and_then(|i| i.icon.clone()),
+        choices,
+    })
+}
+
+/// The ITEMS page's selected row's offer, now.
+pub fn current(active: &ActiveMenu, sim: &SimState, combat: Option<&crate::combat::Combat>) -> Option<Offer> {
+    let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
+    let r = m.list(Side::Player).rows.get(m.selected[Side::Player as usize])?;
+    let w = combat?.forms.weapons.get(&r.item)?;
+    let groups: Vec<(FormId, Extra, i32)> = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.groups().collect()).unwrap_or_default();
+    offer(&groups, sim.forms, w, r.item, r.at, r.mods, r.equipped)
+}
+
+/// The keys of the mod menu and X on the ITEMS page (Shift+X drops the stack there,
+/// `super::items`; X on a weapon without a mod to attach drops one).
+#[allow(clippy::too_many_arguments)]
+pub fn keys(
+    pip: Res<PipBoy>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut aid: MessageReader<ModInput>,
+    mut menu: ResMut<PipItemMod>,
+    repair: Res<super::repair::PipRepair>,
+    mut active: ResMut<ActiveMenu>,
+    mut sim: ResMut<SimState>,
+    combat: Option<Res<crate::combat::Combat>>,
+    mut sounds: MessageWriter<UiSound>,
+    prompt: Res<crate::menu::PromptKeys>,
+) {
+    use KeyCode::*;
+    let mut steps: Vec<ModInput> = aid.read().copied().collect();
+    let items = pip.open() && pip.page == Page::Items && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
+    if !items {
+        if menu.0.take().is_some() {
+            info!("pipboy mod: closed with the Pip-Boy");
+        }
+        return;
+    }
+    if prompt.held(&active) || repair.is_open() {
+        return;
+    }
+    let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
+    if keys.just_pressed(KeyX) && !shift && !menu.is_open() {
+        steps.push(ModInput::Open);
+    }
+    if menu.is_open() {
+        for (k, s) in [(&[ArrowUp, KeyW][..], ModInput::Up), (&[ArrowDown, KeyS], ModInput::Down), (&[Enter, NumpadEnter, Space], ModInput::Use), (&[KeyE, Escape], ModInput::Cancel)] {
+            if keys.any_just_pressed(k.iter().copied()) {
+                steps.push(s);
+            }
+        }
+    }
+    for step in steps {
+        if let ModInput::Click(i) = step {
+            info!("pipboy mod: clicked row {i}");
+        }
+        let step = resolve(menu.0.as_ref().map(|s| s.selected), step);
+        match (menu.0.as_mut(), step) {
+            (None, ModInput::Open) => {
+                // Not usable: X drops instead (`super::items::keys`), quietly here.
+                let Some(o) = current(&active, &sim, combat.as_deref()).filter(Offer::usable) else { continue };
+                info!("pipboy mod: open {} (flags {}): {}", o.name, o.extra.mods, o.choices.iter().map(|c| format!("{} (slot {})", c.name, c.slot)).collect::<Vec<_>>().join(", "));
+                menu.0 = Some(Session { offer: o, selected: 0 });
+            }
+            (None, _) => {}
+            (Some(s), ModInput::Up) => s.selected = s.selected.saturating_sub(1),
+            (Some(s), ModInput::Down) => s.selected = (s.selected + 1).min(s.offer.choices.len()),
+            (Some(s), ModInput::Hover(i)) => s.selected = i.min(s.offer.choices.len()),
+            (Some(_), ModInput::Click(_) | ModInput::Open) => {}
+            (Some(_), ModInput::Cancel) => {
+                info!("pipboy mod: cancel");
+                sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Back });
+                menu.0 = None;
+            }
+            (Some(s), ModInput::Use) => {
+                let Some(ch) = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i)).cloned() else { continue };
+                let o = &s.offer;
+                let flags = o.extra.mods | mod_flag(ch.slot);
+                let done = sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|inv| attach(inv, o.item, o.extra, ch.item, flags));
+                if done {
+                    info!("pipboy mod: {} + {} (slot {}, flags {flags})", o.name, ch.name, ch.slot);
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
+                } else {
+                    info!("pipboy mod: {} + {}: the items are gone", o.name, ch.name);
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                }
+                menu.0 = None;
+                if let Some(m) = active.0.as_mut() {
+                    if let Err(e) = m.refresh(&mut sim.world) {
+                        warn!("pipboy mod: the list: {e:?}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Attach: one unit of the mod leaves the inventory (no script of it runs [documented:
+/// GECK wiki Weapon Mods]) and the weapon's unit `unit` gets the flags. Nothing changes
+/// unless both are there.
+pub fn attach(inv: &mut fnv_sim::inventory::Inventory, weapon: FormId, unit: Extra, item_mod: FormId, flags: u8) -> bool {
+    if inv.count(item_mod) < 1 || !inv.set_mods_one(weapon, unit, flags) {
+        return false;
+    }
+    inv.remove(item_mod, 1) == 1
+}
+
+/// The figure a mod's effect changes, as a card's title and value, and as a number for
+/// the gain (`None` for one without: Silence).
+pub fn figure(effect: Option<&str>, w: &WeaponStats, condition: f32) -> Option<(&'static str, String, Option<f32>)> {
+    let n = |title, v: f32, decimals: bool| Some((title, if decimals { format!("{v:.2}") } else { format!("{v:.0}") }, Some(v)));
+    match effect? {
+        "Increase Weapon Damage" => n("DAM", w.base_damage as f32, false),
+        "Increase Clip Capacity" => n("Clip", w.clip_size as f32, false),
+        "Decrease Spread" => n("Spread", w.min_spread, true),
+        "Decrease Weight" => n("WG", w.weight, true),
+        "Increase Max. Condition" => n("Max CND", w.health as f32, false),
+        "Increase Rate of Fire" => n("DPS", super::items::weapon_dps(w, condition), false),
+        "Increase Zoom" => n("Zoom", w.sight_fov, false),
+        "Split Beam" => n("Beams", w.projectile_count.max(1) as f32, false),
+        "Silence" | "Suppressor" => Some(("Noise", w.sound_level.clone().unwrap_or_default(), None)),
+        _ => None,
+    }
+}
+
+/// The gain's words: "+3", "-0.40".
+pub fn gain_text(before: f32, after: f32) -> String {
+    let d = after - before;
+    let s = if d.fract().abs() > 1e-4 { format!("{d:.2}") } else { format!("{d:.0}") };
+    if d >= 0.0 {
+        format!("+{s}")
+    } else {
+        s
+    }
+}
+
+fn bar(p: &mut ChildSpawnerCommands, r: Rect, fill: f32, color: Color) {
+    p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), BackgroundColor(color.with_alpha(BAR_BACK))));
+    p.spawn((at(r.min.x, r.min.y, r.width() * fill.clamp(0.0, 1.0), r.height()), BackgroundColor(color)));
+}
+
+/// The mod menu in place of the ITEMS page's body. `desc` is the chosen mod's
+/// description (IMOD DESC).
+pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat: Option<&crate::combat::Combat>, desc: Option<&str>) {
+    let bright = amber(TEXT);
+    let line = amber(LINE);
+    let o = &s.offer;
+    frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);
+    c.text(p, 2, EXIT, MAIN.min.x + BUTTONS.x - 10.0, MAIN.min.y + BUTTONS.y, Align::Right, bright);
+    let ew = c.width(2, EXIT);
+    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, MAIN.min.y + BUTTONS.y - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
+    // The rows: the weapon, then the mods.
+    let rows: Vec<(String, bool)> = std::iter::once((o.name.clone(), o.extra.equipped)).chain(o.choices.iter().map(|ch| (if ch.count > 1 { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, false))).collect();
+    let x0 = MAIN.min.x + LIST.min.x + ROW_X;
+    let mut y = MAIN.min.y + LIST.min.y;
+    let first = s.selected.saturating_sub(7);
+    for (i, (name, worn)) in rows.iter().enumerate().skip(first) {
+        let lines = c.lines(2, name, Some(WRAP));
+        let h = ROW_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;
+        if y + h > MAIN.min.y + LIST.max.y {
+            break;
+        }
+        if i == 0 || i == s.selected {
+            c.boxed(p, Rect::new(x0, y, x0 + ROW_W, y + h), line, None);
+        }
+        if *worn {
+            let mk = Rect::new(x0 + MARK.min.x, y + MARK.min.y, x0 + MARK.max.x, y + MARK.max.y);
+            if c.image(p, "square_filled.dds", at(mk.min.x, mk.min.y, mk.width(), mk.height()), bright).is_none() {
+                p.spawn((at(mk.min.x, mk.min.y, mk.width(), mk.height()), BackgroundColor(bright)));
+            }
+        }
+        for (k, l) in lines.iter().enumerate() {
+            c.set(p, 2, l, x0 + NAME_X, y + NAME_Y - frame::THICK + LINE_PITCH * k as f32, Align::Left, bright);
+        }
+        p.spawn((at(x0, y, ROW_W, h), ModRow(i), Pickable::default())).observe(on_row_over).observe(on_row_click);
+        y += h;
+    }
+    let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
+    // The picture and the description.
+    if let Some(icon) = chosen.map_or(o.icon.as_deref(), |ch| ch.icon.as_deref()) {
+        let r = Rect::from_corners(MAIN.min + ICON.min, MAIN.min + ICON.max);
+        c.image(p, icon, at(r.min.x, r.min.y, r.width(), r.height()), bright);
+    }
+    if let Some(d) = desc.filter(|d| chosen.is_some() && !d.is_empty()) {
+        let pitch = c.line_height(2);
+        let lines = c.lines(2, d, Some(DESC_WRAP));
+        for (k, l) in lines.iter().take(DESC_LINES).enumerate() {
+            c.set(p, 2, l, MAIN.min.x + DESC.x, MAIN.min.y + DESC.y + pitch * k as f32, Align::Left, bright);
+        }
+    }
+    // The figures: the weapon as it is, and on a mod after it.
+    let Some(w) = combat.and_then(|cb| cb.forms.weapons.get(&o.item)) else { return };
+    let now = w.modded(o.extra.mods);
+    let condition = o.extra.condition_or_whole();
+    let effect = chosen.and_then(|ch| w.mods.iter().find(|m| m.slot == ch.slot)).and_then(|m| m.effect.clone());
+    let cr = Rect::from_corners(MAIN.min + COMPARE.min, MAIN.min + COMPARE.max);
+    let half = cr.width() / 2.0;
+    let cards = |p: &mut ChildSpawnerCommands, c: &mut Ctx, y: f32, ws: &WeaponStats| {
+        frame::card(p, c, cr.min.x, y, half - 5.0, "CND", "");
+        let m = Rect::new(cr.min.x + half - 5.0 - METER.x - 15.0, y + 17.0, cr.min.x + half - 5.0 - 15.0, y + 17.0 + METER.y);
+        bar(p, m, condition, bright);
+        let shown = if effect.is_some() { figure(effect.as_deref(), ws, condition) } else { (ws.base_damage > 0).then(|| ("DAM", ws.base_damage.to_string(), None)) };
+        let (t, v) = shown.map_or(("", String::new()), |(t, v, _)| (t, v));
+        frame::card(p, c, cr.min.x + half + 5.0, y, half - 5.0, t, &v);
+    };
+    cards(p, c, cr.min.y, &now);
+    if let Some(ch) = chosen {
+        let after = w.modded(o.extra.mods | mod_flag(ch.slot));
+        let ay = cr.min.y + (cr.height() - ARROW) / 2.0 - 5.0;
+        c.image(p, "interface\\shared\\arrow\\repair_arrow_down.dds", at(cr.min.x + (cr.width() - ARROW) / 2.0, ay, ARROW, ARROW), bright);
+        if let (Some((_, _, Some(a))), Some((_, _, Some(b)))) = (figure(effect.as_deref(), &now, condition), figure(effect.as_deref(), &after, condition)) {
+            c.text(p, 4, &gain_text(a, b), cr.min.x + cr.width() * 0.75, ay + 30.0, Align::Centre, bright);
+        }
+        cards(p, c, cr.max.y - CARD_H, &after);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_combat::data::WeaponMod;
+    use fnv_sim::forms::{BaseData, BaseForm, Item, ItemKind};
+    use fnv_sim::inventory::Inventory;
+
+    const GUN: FormId = FormId(0x100);
+    const MAGS: FormId = FormId(0x201);
+    const SIGHT: FormId = FormId(0x202);
+    const SILENCER: FormId = FormId(0x203);
+
+    fn store() -> FormStore {
+        let mut f = FormStore::default();
+        for (id, kind, name) in [(GUN, ItemKind::Weapon, "10mm Pistol"), (MAGS, ItemKind::ItemMod, "10mm Pistol Extended Mags"), (SIGHT, ItemKind::ItemMod, "10mm Pistol Laser Sight"), (SILENCER, ItemKind::ItemMod, "10mm Pistol Silencer")] {
+            let it = Item { kind, value: Some(10), weight: Some(1.0), slots: None, projectile: None, health: None, non_playable: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, drawable: false, quest_item: false, icon: Some(format!("{name}.dds")), placed_count: None };
+            f.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: Some(name.into()), script: None, data: BaseData::Item(it) });
+        }
+        f
+    }
+
+    fn pistol() -> WeaponStats {
+        let m = |slot, item, effect: &str, a| WeaponMod { slot, item: Some(item), effect: Some(effect.into()), value_a: a, value_b: 0.0 };
+        WeaponStats { base_damage: 22, clip_size: 12, min_spread: 0.8, mods: vec![m(1, MAGS, "Increase Clip Capacity", 4.0), m(2, SIGHT, "Decrease Spread", 0.4), m(3, SILENCER, "Silence", 0.0)], ..Default::default() }
+    }
+
+    #[test]
+    fn the_menu_lists_carried_mods_for_free_slots() {
+        let forms = store();
+        let on = Extra { equipped: true, ..Extra::default() };
+        let groups = vec![(GUN, on, 1), (GUN, Extra { mods: 1, ..Extra::default() }, 1), (MAGS, Extra::default(), 2), (SILENCER, Extra::default(), 1)];
+        // The plain, equipped pistol: the magazines and the silencer (no laser sight carried).
+        let o = offer(&groups, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap();
+        assert_eq!(o.extra, on);
+        let listed: Vec<(FormId, u8, i32)> = o.choices.iter().map(|c| (c.item, c.slot, c.count)).collect();
+        assert_eq!(listed, vec![(MAGS, 1, 2), (SILENCER, 3, 1)]);
+        assert!(o.usable());
+        // The modded one: its magazines are on already; its name says so.
+        let o = offer(&groups, &forms, &pistol(), GUN, Some(1.0), 1, false).unwrap();
+        assert_eq!(o.choices.iter().map(|c| c.item).collect::<Vec<_>>(), vec![SILENCER]);
+        assert_eq!(o.name, "10mm Pistol +");
+        // Nothing carried: not usable. A weapon without slots: no offer.
+        let bare = vec![(GUN, on, 1)];
+        assert!(!offer(&bare, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap().usable());
+        assert_eq!(offer(&bare, &forms, &WeaponStats::default(), GUN, Some(1.0), 0, true), None);
+    }
+
+    #[test]
+    fn attaching_uses_the_mod_up_and_marks_the_weapon() {
+        let mut inv = Inventory::new();
+        inv.add(GUN, 1);
+        assert!(inv.set_equipped(GUN));
+        inv.add(MAGS, 2);
+        let on = Extra { equipped: true, ..Extra::default() };
+        assert!(attach(&mut inv, GUN, on, MAGS, 1));
+        assert_eq!((inv.count(MAGS), inv.equipped_mods(GUN), inv.count(GUN)), (1, 1, 1));
+        // A second time with the old unit: it is gone, nothing changes.
+        assert!(!attach(&mut inv, GUN, on, MAGS, 1));
+        assert_eq!(inv.count(MAGS), 1);
+        // No mod carried: nothing changes.
+        let now = Extra { mods: 1, ..on };
+        assert!(!attach(&mut inv, GUN, now, SIGHT, 3));
+        assert_eq!(inv.equipped_mods(GUN), 1);
+    }
+
+    #[test]
+    fn the_figures_show_what_the_mod_changes() {
+        let w = pistol();
+        let (t, v, n) = figure(Some("Increase Clip Capacity"), &w.modded(0), 1.0).unwrap();
+        assert_eq!((t, v.as_str(), n), ("Clip", "12", Some(12.0)));
+        let after = figure(Some("Increase Clip Capacity"), &w.modded(1), 1.0).unwrap();
+        assert_eq!(gain_text(12.0, after.2.unwrap()), "+4");
+        assert_eq!(gain_text(0.8, 0.4), "-0.40");
+        assert_eq!(figure(Some("Silence"), &w.modded(4), 1.0).map(|f| f.1), Some("Silent".into()));
+        assert_eq!(figure(None, &w, 1.0), None);
+    }
+
+    #[test]
+    fn a_click_chooses_a_row_and_a_second_click_attaches_the_mod() {
+        assert_eq!(resolve(Some(0), ModInput::Click(1)), ModInput::Hover(1));
+        assert_eq!(resolve(Some(1), ModInput::Click(1)), ModInput::Use);
+        assert_eq!(resolve(Some(0), ModInput::Click(0)), ModInput::Hover(0));
+        assert_eq!(resolve(None, ModInput::Down), ModInput::Down);
+    }
+}

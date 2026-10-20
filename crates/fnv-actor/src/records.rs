@@ -189,6 +189,29 @@ pub struct Weapon {
     /// That form's MODL, relative to `meshes\`.
     #[serde(skip)]
     pub first_person_model: Option<String>,
+    /// `MWD1`…`MWD7`: the third-person model with the mods whose flags add up to 1…7
+    /// on [documented: xEdit WEAP; observed: the order, docs/spec-notes/weapon-mods.md §2].
+    #[serde(skip)]
+    pub mod_models: [Option<String>; 7],
+    /// `WNM1`…`WNM7`: the first-person forms for the same combinations, and their MODL.
+    #[serde(skip)]
+    pub mod_first_person: [Option<FormId>; 7],
+    #[serde(skip)]
+    pub mod_first_person_models: [Option<String>; 7],
+}
+
+impl Weapon {
+    /// The model for the view (`first_person`) with the mods `flags` on: the combination's
+    /// own model when the record has one, else the plain one (weapon-mods.md §2).
+    pub fn model_for(&self, first_person: bool, flags: u8) -> Option<&str> {
+        let i = (flags & 7) as usize;
+        let plain = if first_person { self.first_person_model.as_deref().or(self.model.as_deref()) } else { self.model.as_deref() };
+        if i == 0 {
+            return plain;
+        }
+        let modded = if first_person { &self.mod_first_person_models[i - 1] } else { &self.mod_models[i - 1] };
+        modded.as_deref().or(plain)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -249,7 +272,7 @@ enum Loaded {
     Eyes(Eyes),
     HeadPart(HeadPart),
     Armor(Armor),
-    Weapon(Weapon),
+    Weapon(Box<Weapon>),
     Leveled(LeveledNpc),
     Creature(Box<Creature>),
     LeveledCreature(LeveledNpc),
@@ -312,7 +335,7 @@ impl ActorForms {
                     out.armors.insert(id, a);
                 }
                 Loaded::Weapon(w) => {
-                    out.weapons.insert(id, w);
+                    out.weapons.insert(id, *w);
                 }
                 Loaded::Leveled(l) => {
                     out.leveled.insert(id, l);
@@ -328,16 +351,17 @@ impl ActorForms {
         }
         // The forms weapons name as their first-person model (WNAM), read for their MODL
         // only: they are statics, too many to load as a type.
-        for w in out.weapons.values_mut() {
-            let Some(fp) = w.first_person else { continue };
-            let Some(d) = lo.index.get(&fp.0).and_then(|defs| defs.last()) else { continue };
+        let model_of = |fp: FormId| {
+            let d = lo.index.get(&fp.0).and_then(|defs| defs.last())?;
             let r = lo.records[d.plugin as usize][d.ordinal as usize];
             if r.header.flags & 0x20 != 0 {
-                continue;
+                return None;
             }
-            if let Ok(dec) = extract::decode(r, schema) {
-                w.first_person_model = path(first(&dec, b"MODL"));
-            }
+            extract::decode(r, schema).ok().and_then(|dec| path(first(&dec, b"MODL")))
+        };
+        for w in out.weapons.values_mut() {
+            w.first_person_model = w.first_person.and_then(model_of);
+            w.mod_first_person_models = w.mod_first_person.map(|f| f.and_then(model_of));
         }
         out
     }
@@ -387,7 +411,7 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
             playable: first(d, b"DATA").and_then(Value::as_str) == Some("True"),
         }),
         b"ARMO" => Loaded::Armor(armor(d)),
-        b"WEAP" => Loaded::Weapon(weapon(lo, pi, id, d, issues)),
+        b"WEAP" => Loaded::Weapon(Box::new(weapon(lo, pi, id, d, issues))),
         b"LVLN" => Loaded::Leveled(leveled_npc(lo, pi, id, d, issues)),
         b"CREA" => Loaded::Creature(Box::new(creature(lo, pi, id, d, issues))),
         b"LVLC" => Loaded::LeveledCreature(leveled_npc(lo, pi, id, d, issues)),
@@ -574,6 +598,9 @@ fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Iss
         non_playable: flags.is_some_and(|f| has_flag(f, "Non-Playable")),
         first_person: fid(lo, pi, id, "WNAM", first(d, b"WNAM"), issues),
         first_person_model: None,
+        mod_models: [b"MWD1", b"MWD2", b"MWD3", b"MWD4", b"MWD5", b"MWD6", b"MWD7"].map(|sig| path(first(d, sig))),
+        mod_first_person: [b"WNM1", b"WNM2", b"WNM3", b"WNM4", b"WNM5", b"WNM6", b"WNM7"].map(|sig| fid(lo, pi, id, "WNM", first(d, sig), issues)),
+        mod_first_person_models: Default::default(),
     }
 }
 
@@ -585,5 +612,28 @@ fn leveled_npc(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mu
         entries: all(d, b"LVLO")
             .filter_map(|v| Some((int(v, "level")? as u16, fid(lo, pi, id, "LVLO", v.get("reference"), issues)?)))
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_modded_weapon_draws_the_model_of_its_mods() {
+        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, embedded: false, non_playable: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() };
+        w.mod_models[0] = Some("ext.nif".into());
+        w.mod_models[2] = Some("ext_scope.nif".into());
+        w.mod_first_person_models[2] = Some("1st_ext_scope.nif".into());
+        assert_eq!(w.model_for(false, 0), Some("plain.nif"));
+        assert_eq!(w.model_for(true, 0), Some("1st.nif"));
+        assert_eq!(w.model_for(false, 1), Some("ext.nif"));
+        // Mods 1 and 2: field 3.
+        assert_eq!(w.model_for(false, 3), Some("ext_scope.nif"));
+        assert_eq!(w.model_for(true, 3), Some("1st_ext_scope.nif"));
+        // No first-person model for mod 1 alone: the plain first-person one.
+        assert_eq!(w.model_for(true, 1), Some("1st.nif"));
+        // A combination without its own model: the plain one.
+        assert_eq!(w.model_for(false, 4), Some("plain.nif"));
     }
 }

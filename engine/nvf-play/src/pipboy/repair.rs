@@ -228,6 +228,7 @@ pub fn keys(
     script: Option<ResMut<ScriptState>>,
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
+    modding: Res<super::item_mod::PipItemMod>,
 ) {
     use KeyCode::*;
     let mut steps: Vec<RepairInput> = aid.read().copied().collect();
@@ -238,7 +239,8 @@ pub fn keys(
         }
         return;
     }
-    if prompt.held(&active) {
+    // The mod menu has the keys while it is shown (`super::item_mod`).
+    if prompt.held(&active) || modding.is_open() {
         return;
     }
     for (k, s) in [(&[KeyR, KeyR][..], RepairInput::Open), (&[ArrowUp, KeyW], RepairInput::Up), (&[ArrowDown, KeyS], RepairInput::Down), (&[Enter, NumpadEnter, Space], RepairInput::Use), (&[KeyE, Escape], RepairInput::Cancel)] {

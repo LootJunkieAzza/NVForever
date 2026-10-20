@@ -1,5 +1,5 @@
 //! Inventories: item stacks keyed by base form, each split into groups of identical
-//! extra data (condition, owner, equipped).
+//! extra data (condition, owner, equipped, weapon mods).
 //!
 //! The data has per-item extra data in two places [observed, docs/spec-notes/
 //! simulation.md §3]: COED after a carried-item entry (owner, condition as a fraction)
@@ -30,6 +30,14 @@ pub struct Extra {
     pub owner: Option<FormId>,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub equipped: bool,
+    /// A weapon's attached mods: 1 slot 1 (WEAP `WMI1`), 2 slot 2, 4 slot 3 [documented:
+    /// GECK wiki GetEquippedWeaponModFlags; docs/spec-notes/weapon-mods.md §3].
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub mods: u8,
+}
+
+fn is_zero(m: &u8) -> bool {
+    *m == 0
 }
 
 impl Extra {
@@ -307,6 +315,23 @@ impl Inventory {
         true
     }
 
+    /// Give one unit of the group `from` of `item` the mod flags `mods` (weapon-mods.md
+    /// §3), keeping the rest of its extra data. Returns false when no unit of `item` has
+    /// that extra data.
+    pub fn set_mods_one(&mut self, item: FormId, from: Extra, mods: u8) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(g) = s.groups.iter_mut().find(|g| g.0 == from && g.1 > 0) else { return false };
+        g.1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        s.add(Extra { mods, ..from }, 1);
+        true
+    }
+
+    /// The mod flags of the equipped unit of `item` (0 when none is equipped).
+    pub fn equipped_mods(&self, item: FormId) -> u8 {
+        self.items.get(&item).and_then(|s| s.groups.iter().find(|g| g.0.equipped)).map_or(0, |g| g.0.mods)
+    }
+
     /// Unequip every equipped unit of `item`. Returns false when none was equipped.
     pub fn clear_equipped(&mut self, item: FormId) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
@@ -410,6 +435,27 @@ mod tests {
         assert!(!inv.set_condition_one(id, on, 1.0));
         assert!(!inv.set_condition_one(FormId(0x11), worn, 1.0));
         assert_eq!(inv.count(id), 3);
+    }
+
+    #[test]
+    fn a_mod_marks_one_unit_and_is_saved() {
+        let mut inv = Inventory::new();
+        let id = FormId(0x10);
+        inv.add(id, 2);
+        assert!(inv.set_equipped(id));
+        let on = Extra { equipped: true, ..Extra::default() };
+        assert!(inv.set_mods_one(id, on, 0b101));
+        assert_eq!(inv.equipped_mods(id), 0b101);
+        // The other unit is untouched: two groups.
+        let groups: Vec<(Extra, i32)> = inv.groups().map(|g| (g.1, g.2)).collect();
+        assert_eq!(groups, vec![(Extra::default(), 1), (Extra { mods: 0b101, ..on }, 1)]);
+        assert!(!inv.set_mods_one(FormId(0x11), on, 1));
+        // Kept through the serde form, and absent when 0.
+        let json = serde_json::to_string(&inv).unwrap();
+        assert!(json.contains("\"mods\":5"), "{json}");
+        let back: Inventory = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, inv);
+        assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("mods"));
     }
 
     #[test]

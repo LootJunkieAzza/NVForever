@@ -42,6 +42,7 @@
 pub mod data;
 pub mod frame;
 pub mod items;
+pub mod item_mod;
 pub mod repair;
 pub mod sounds;
 pub mod stats;
@@ -286,6 +287,8 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<frame::Kit>()
             .init_resource::<repair::PipRepair>()
             .add_message::<repair::RepairInput>()
+            .init_resource::<item_mod::PipItemMod>()
+            .add_message::<item_mod::ModInput>()
             .add_message::<PipBoyInput>()
             .add_message::<sounds::TabHovered>()
             .add_message::<data::travel::FastTravelAsk>()
@@ -299,6 +302,7 @@ impl Plugin for PipBoyPlugin {
                     reset_manager,
                     (keys, apply_input).chain().run_if(pipboy_open).run_if(takes_keys),
                     repair::keys.run_if(takes_keys),
+                    item_mod::keys.run_if(takes_keys),
                     items::keys.run_if(takes_keys),
                     report_menu,
                     advance,
@@ -328,12 +332,14 @@ fn takes_keys(script: Option<Res<crate::script::ScriptState>>) -> bool {
     !script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.menu == Some(menus::TUTORIAL))
 }
 
-/// The menu code the Pip-Boy shows (`MenuMode`): its page's, or the repair list's while
-/// that is open [documented: GECK wiki GetSelectedItemRef, "Inventory Menu (1002)",
-/// "Pipboy STATS Menu (1003)", "Pipboy DATA Menu (1023)", "Pipboy Repair Menu (1035)"].
-pub fn menu_code(page: Page, repairing: bool) -> u16 {
+/// The menu code the Pip-Boy shows (`MenuMode`): its page's, or the repair list's or the
+/// mod menu's while one is open [documented: GECK wiki GetSelectedItemRef, "Inventory Menu
+/// (1002)", "Pipboy STATS Menu (1003)", "Pipboy DATA Menu (1023)", "Pipboy Repair Menu
+/// (1035)"; GetMenuTargetRef, "1061 The weapon being modded"].
+pub fn menu_code(page: Page, repairing: bool, modding: bool) -> u16 {
     match page {
         _ if repairing => menus::REPAIR,
+        _ if modding => menus::ITEM_MOD,
         Page::Stats => menus::STATS,
         Page::Items => menus::INVENTORY,
         Page::Data => menus::MAP,
@@ -343,12 +349,12 @@ pub fn menu_code(page: Page, repairing: bool) -> u16 {
 /// While the Pip-Boy is up, the scripts' open menu is its page's code ([`menu_code`];
 /// it opens as the inventory, 1002, `crate::script::engine_menu_opened`). Logged:
 /// `pipboy: menu code <code>`.
-fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, script: Option<ResMut<crate::script::ScriptState>>) {
+fn report_menu(pip: Res<PipBoy>, repair: Res<repair::PipRepair>, modding: Res<item_mod::PipItemMod>, script: Option<ResMut<crate::script::ScriptState>>) {
     if !pip.open() {
         return;
     }
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    let code = menu_code(pip.page, repair.is_open());
+    let code = menu_code(pip.page, repair.is_open(), modding.is_open());
     if rt.game.menu != Some(code) && rt.game.set_pipboy_menu(code) {
         info!("pipboy: menu code {code}");
     }
@@ -445,6 +451,7 @@ fn keys(
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
     repair: Res<repair::PipRepair>,
+    modding: Res<item_mod::PipItemMod>,
     mut out: MessageWriter<PipBoyInput>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
@@ -453,8 +460,9 @@ fn keys(
     if prompt.held(&active) {
         return;
     }
-    // Esc goes back from the repair list (`repair`), Tab still puts the Pip-Boy away.
-    if keys.just_pressed(Tab) || (keys.just_pressed(Escape) && !repair.is_open()) {
+    // Esc goes back from the repair list (`repair`) and the mod menu (`item_mod`), Tab
+    // still puts the Pip-Boy away.
+    if keys.just_pressed(Tab) || (keys.just_pressed(Escape) && !repair.is_open() && !modding.is_open()) {
         menu.write(crate::menu::MenuInput(crate::menu::model::Command::Close));
         return;
     }
@@ -613,9 +621,11 @@ mod tests {
 
     #[test]
     fn each_page_has_its_menu_code() {
-        assert_eq!(Page::ALL.map(|p| menu_code(p, false)), [1003, 1002, 1023]);
-        assert!(Page::ALL.iter().all(|&p| menu_code(p, true) == 1035));
-        assert!(Page::ALL.iter().all(|&p| menus::answers(menus::PIPBOY, menu_code(p, false))));
+        assert_eq!(Page::ALL.map(|p| menu_code(p, false, false)), [1003, 1002, 1023]);
+        assert!(Page::ALL.iter().all(|&p| menu_code(p, true, false) == 1035));
+        assert!(Page::ALL.iter().all(|&p| menu_code(p, false, true) == 1061));
+        assert!(Page::ALL.iter().all(|&p| menus::answers(menus::PIPBOY, menu_code(p, false, false))));
+        assert!(menus::answers(menus::PIPBOY, menus::ITEM_MOD));
     }
 
     #[test]
