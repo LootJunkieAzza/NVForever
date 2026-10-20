@@ -65,6 +65,7 @@ use crate::actors::{part_uses, ActorWorld};
 use crate::idles::{IdleSlot, PlayerIdles};
 use crate::sky::{Sun, ARMS_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
+use crate::view_sway::{SwayInput, SwayPose, ViewSway};
 use bevy::camera::visibility::RenderLayers;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::math::Affine3A;
@@ -398,6 +399,9 @@ struct Rig {
     /// First person: the node that turns with the pitch, and the camera node.
     looking: Option<usize>,
     camera: Option<usize>,
+    /// First person: the node above the arms that the sway turns and moves
+    /// (`view_sway.rs`).
+    translate: Option<usize>,
     weapon_node: Option<usize>,
     /// The skeleton node the weapon node should hang from, and the one it was last
     /// attached to.
@@ -582,6 +586,10 @@ struct Motion {
     spin_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
+    /// Ground velocity in the view's frame (x right, y ahead), smoothed.
+    velocity: Vec2,
+    /// The first-person arms' sway (`view_sway.rs`).
+    sway: ViewSway,
 }
 
 impl Motion {
@@ -623,6 +631,8 @@ impl Default for Motion {
             jams_seen: 0,
             spin_ups_seen: 0,
             names: HashMap::new(),
+            velocity: Vec2::ZERO,
+            sway: ViewSway::default(),
         }
     }
 }
@@ -631,6 +641,9 @@ impl Default for Motion {
 pub struct PlayerBody {
     /// Draw the body in first person too (`--first-person-body`, the settings page).
     pub first_person_body: bool,
+    /// Sway and bob the first-person arms and weapon (`view_sway.rs`; off with
+    /// `--no-weapon-sway`, the settings page).
+    pub weapon_sway: bool,
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
@@ -713,12 +726,14 @@ impl PlayerBody {
 pub struct PlayerBodyPlugin {
     /// `--first-person-body`.
     pub first_person_body: bool,
+    /// Not `--no-weapon-sway`.
+    pub weapon_sway: bool,
 }
 
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
-        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, ..default() })
+        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, weapon_sway: self.weapon_sway, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
             .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet))
@@ -731,6 +746,7 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
     if exit.read().next().is_some() {
         let m = &body.motion;
         info!("player body summary: {} falls (the jump loop), {} landings", m.falls, m.landings);
+        info!("player body summary: weapon sway {}, most turn lag {:.2} degrees, deepest bob {:.2} units", if body.weapon_sway { "on" } else { "off" }, m.sway.peak_lag.to_degrees(), m.sway.peak_dip);
     }
 }
 
@@ -1057,9 +1073,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let node = |n: &str| skel.by_name.get(n).copied();
     let weapon_node = node("Weapon");
     let weapon_parent = weapon_node.and_then(|w| skel.parents[w]);
-    let (looking, camera) = match view {
-        View::First => (node("Bip01 Looking"), node("Camera1st")),
-        View::Third => (None, None),
+    let (looking, camera, translate) = match view {
+        View::First => (node("Bip01 Looking"), node("Camera1st"), node("Bip01 Translate")),
+        View::Third => (None, None, None),
     };
     if view == View::First && camera.is_none() {
         return Err(format!("{} has no Camera1st node", a.skeleton));
@@ -1078,6 +1094,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         eye_local,
         looking,
         camera,
+        translate,
         weapon_node,
         weapon_parent,
         attached: weapon_parent,
@@ -1142,6 +1159,8 @@ struct Posed<'a> {
     special: &'a IdleSlot<Arc<Clip>>,
     /// The Pip-Boy shows: seconds into its clip (first person).
     pipboy: Option<f32>,
+    /// The sway of the arms (first person, `view_sway.rs`).
+    sway: SwayPose,
 }
 
 /// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
@@ -1154,7 +1173,7 @@ struct Posed<'a> {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special, pipboy } = posed;
+    let Posed { root, look_pitch, special, pipboy, sway } = posed;
     let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
@@ -1379,6 +1398,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         // actor's right axis, x) [hypothesis: the node's role, from its name and place].
         let bind = a.skel.locals[l];
         a.locals[l].rotation = Quat::from_rotation_x(look_pitch) * bind.rotation;
+    }
+    if let Some(t) = rig.translate.filter(|_| sway != SwayPose::NONE) {
+        // The sway turns the arms about the eye (`Bip01 Looking`'s origin, which
+        // `Bip01 Translate` hangs from) and moves them in the view's frame; the camera
+        // node beside them stays put.
+        let posed = a.locals[t];
+        a.locals[t].rotation = sway.rotation * posed.rotation;
+        a.locals[t].translation = sway.rotation * posed.translation + sway.offset;
     }
     a.apply(transforms);
     if let Ok(mut t) = transforms.get_mut(rig.root) {
@@ -1682,8 +1709,13 @@ fn drive_body(
     let (forward, right, fast) = if d.auto_walk > 0.0 { (1.0, 0.0, true) } else { (intent.forward, intent.right, !intent.walk) };
     let feet = player.feet;
     if dt > 0.0 {
-        let moved = m.last_feet.map_or(0.0, |l| (feet[0] - l[0]).hypot(feet[1] - l[1]) / dt);
+        let step = m.last_feet.map_or(Vec2::ZERO, |l| Vec2::new(feet[0] - l[0], feet[1] - l[1]) / dt);
+        let moved = step.length();
         m.speed += (moved - m.speed) * (dt / 0.15).min(1.0);
+        // In the view's frame: the heading is clockwise from +y.
+        let (sin, cos) = player.heading.sin_cos();
+        let local = Vec2::new(step.x * cos - step.y * sin, step.x * sin + step.y * cos);
+        m.velocity += (local - m.velocity) * (dt / 0.1).min(1.0);
         if let Some(h) = m.last_heading {
             let dh = (player.heading - h + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
             m.turn_rate += (dh / dt - m.turn_rate) * (dt / 0.1).min(1.0);
@@ -1905,7 +1937,7 @@ fn drive_body(
     // its eye counts from the feet as before.
     let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None, sway: SwayPose::NONE };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
@@ -1913,7 +1945,21 @@ fn drive_body(
         seat.hold = Some(h.feet);
     }
     let pipboy = pip.shown().then_some(pip.clip_time);
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy };
+    // The arms sway in first person by themselves: not under the Pip-Boy or an idle.
+    let sway = body.first.as_ref().map_or(SwayPose::NONE, |f| {
+        m.sway.update(SwayInput {
+            dt,
+            heading: player.heading,
+            pitch: player.pitch,
+            velocity: m.velocity,
+            phase: f.animator.phase,
+            sights: control.aiming,
+            sneaking: stance == Stance::Sneak,
+            airborne: m.falling,
+            on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
+        })
+    });
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy, sway };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
     // The arms and the weapon are drawn as through the first-person view, narrower than

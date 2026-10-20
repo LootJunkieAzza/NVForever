@@ -6579,3 +6579,20 @@ check against the game:
   heat haze, the particle systems that emit from meshes (7 files: the nukes', the
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
+
+## Weapon sway and bob in first person (2026-10-20, branch claude/viewmodel-sway)
+
+Design: docs/design/player-body.md §1.4a. The arms and weapon now lag behind a turn and
+bob as you walk and run; "Weapon sway" on the settings page (or `--no-weapon-sway`)
+turns it off. The game's own files have no bob for the arms, so it is all ours and
+every number is a guess to tune by eye:
+- **Turn lag** 0.11 s to catch up, at most 5° sideways and 3.5° up/down. *Check:* does a
+  quick flick in the original leave the gun further behind, or for longer?
+- **Bob** 0.9 units down at each footfall and 0.6 across a stride at a run, less walking,
+  60 % sneaking, 20 % down the sights. *Check:* walking and running with a rifle, side by
+  side with the original.
+- **Strafe lean** 1.5° and **start/stop lag** at most 1.2 units. *Check:* too much?
+- The game's settings `fFirstPersonHandFollowMult` and `fFirstPersonHandChaseSeconds`
+  are named in the executable but their values are not in any file. A capture reading
+  `GetNumericGameSetting fFirstPersonHandChaseSeconds` (and the other two) in the
+  original would give the turn lag's time.
