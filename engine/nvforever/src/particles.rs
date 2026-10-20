@@ -30,8 +30,9 @@
 //!   birth rates over the emitter's time (particles.md §6). Bombs, colliders and
 //!   spherical gravity sit where the emitter's node placed them when the particle was
 //!   born (`Particle::frame`).
-//! - Not built: turbulence, spawn-on-death, particle systems of models placed in cells
-//!   (fires, steam).
+//! - **Placed models** emit their own systems and their add-on nodes' from a holder at
+//!   the reference (`world::spawn_emitters`: Gomorrah's roof fires), not while hidden.
+//! - Not built: turbulence, spawn-on-death.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
@@ -228,8 +229,8 @@ fn emit(
     sfx: Option<Res<Sfx>>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
-    mut emitters: Query<(Entity, &mut AddonEmitter)>,
-    mut model_emitters: Query<(Entity, &mut ModelEmitter)>,
+    mut emitters: Query<(Entity, &mut AddonEmitter, Option<&InheritedVisibility>)>,
+    mut model_emitters: Query<(Entity, &mut ModelEmitter, Option<&InheritedVisibility>)>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
 ) {
@@ -240,12 +241,20 @@ fn emit(
         live.served = 0;
     }
     let mut sources = Vec::new();
-    for (e, mut em) in &mut emitters {
-        sources.push((e, Source::Addon(em.index), em.age));
+    // A hidden emitter (a disabled placed fire, `world::spawn_emitters`) keeps its time
+    // but makes nothing. Not in its first frame, before its visibility was worked out:
+    // a muzzle flash lives one frame [design].
+    let hidden = |age: f32, v: Option<&InheritedVisibility>| age > 0.0 && v.is_some_and(|v| !v.get());
+    for (e, mut em, v) in &mut emitters {
+        if !hidden(em.age, v) {
+            sources.push((e, Source::Addon(em.index), em.age));
+        }
         em.age += dt;
     }
-    for (e, mut em) in &mut model_emitters {
-        sources.push((e, Source::Model(em.path.clone()), em.age));
+    for (e, mut em, v) in &mut model_emitters {
+        if !hidden(em.age, v) {
+            sources.push((e, Source::Model(em.path.clone()), em.age));
+        }
         em.age += dt;
     }
     for (e, source, age) in sources {

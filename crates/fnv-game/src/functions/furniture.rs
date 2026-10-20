@@ -51,12 +51,16 @@ pub fn get_furniture_marker_id(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Val
 
 pub fn is_current_furniture_ref(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let Some(r) = a.opt_form(0) else { return none() };
-    yes(using(g, ctx)?.is_some_and(|u| u.reference == r))
+    let list = super::refs::list_members(g, r);
+    yes(using(g, ctx)?.is_some_and(|u| u.reference == r || list.contains(&u.reference)))
 }
 
 pub fn is_current_furniture_obj(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let Some(b) = a.opt_form(0) else { return none() };
-    yes(using(g, ctx)?.is_some_and(|u| base_of(g, u.reference) == Some(b)))
+    // Furniture given directly or as a form list: NVDance asks it of DanceMarkerObjects
+    // (furniture.md §3).
+    let list = super::refs::list_members(g, b);
+    yes(using(g, ctx)?.and_then(|u| base_of(g, u.reference)).is_some_and(|base| base == b || list.contains(&base)))
 }
 
 /// What `actor` uses now: the base of the furniture it is on, else the item its package
