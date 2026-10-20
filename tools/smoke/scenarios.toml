@@ -2802,6 +2802,40 @@ order = [[
 ]]
 
 [[scenario]]
+name = "npc-muzzle-flash-flamer"
+source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight"
+areas = ["combat", "shot-fx"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player", NVF_PLAY_TEST_FACE = "8:000F5704", NVF_PLAY_TEST_CONTROL = "9:view,9.2:zoom=400,9.4:orbit=90:10", NVF_PLAY_TEST_SHOTS = "10:npc_flash_flamer_00.png,10.25:npc_flash_flamer_01.png,10.5:npc_flash_flamer_02.png,10.75:npc_flash_flamer_03.png,11:npc_flash_flamer_04.png,11.25:npc_flash_flamer_05.png,11.5:npc_flash_flamer_06.png,11.75:npc_flash_flamer_07.png,12:npc_flash_flamer_08.png,12.25:npc_flash_flamer_09.png,12.5:npc_flash_flamer_10.png,12.75:npc_flash_flamer_11.png,13:npc_flash_flamer_12.png" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
+run_seconds = 20
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
+  { re = 'shot fx: 0x000F5704 muzzle flash at its weapon.s muzzle, (?P<n>[\d.]+) units from where the shot left', range = [0, 20], label = "his flash is at his flamer's muzzle (the marker as the attack clip has moved it since the shot's place was taken; the eyes, where shots without one leave, are about 75 units off)" },
+  { re = 'shot fx: 0x000F5704 muzzle flash .*its length (?P<n>\d+) degrees off the shot', range = [0, 30], label = "his flash points along his shot" },
+  { re = 'shot fx: other actors. muzzle flashes: (?P<n>\d+) at their weapon.s muzzle', range = [1, 100000], label = "the summary counts flashes at a muzzle" },
+  "Screenshot saved to npc_flash_flamer_12.png",
+]
+
+[[scenario]]
+name = "npc-muzzle-flash-rifle"
+source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
+note = "Violet (FiendVioletRef 0x000F570B) is given and made to equip a service rifle (WeapNVServiceRifle) and set on the player at 4 s (scripts' clock), god mode; at 12 s the player is put 100 units in front of her. Her flashes go under the rifle's muzzle marker. Frames npc_flash_rifle_00..39.png in target/smoke (14 to 16 s, every 0.05 s, the flash lasting 0.04 s) catch some of her flashes at the rifle's muzzle"
+areas = ["combat", "shot-fx"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapNVServiceRifle:1,3.5:call:FiendVioletRef:EquipItem:WeapNVServiceRifle,4:combat:FiendVioletRef:player", NVF_PLAY_TEST_FACE = "12:000F570B", NVF_PLAY_TEST_SHOTS = "14.00:npc_flash_rifle_00.png,14.05:npc_flash_rifle_01.png,14.10:npc_flash_rifle_02.png,14.15:npc_flash_rifle_03.png,14.20:npc_flash_rifle_04.png,14.25:npc_flash_rifle_05.png,14.30:npc_flash_rifle_06.png,14.35:npc_flash_rifle_07.png,14.40:npc_flash_rifle_08.png,14.45:npc_flash_rifle_09.png,14.50:npc_flash_rifle_10.png,14.55:npc_flash_rifle_11.png,14.60:npc_flash_rifle_12.png,14.65:npc_flash_rifle_13.png,14.70:npc_flash_rifle_14.png,14.75:npc_flash_rifle_15.png,14.80:npc_flash_rifle_16.png,14.85:npc_flash_rifle_17.png,14.90:npc_flash_rifle_18.png,14.95:npc_flash_rifle_19.png,15.00:npc_flash_rifle_20.png,15.05:npc_flash_rifle_21.png,15.10:npc_flash_rifle_22.png,15.15:npc_flash_rifle_23.png,15.20:npc_flash_rifle_24.png,15.25:npc_flash_rifle_25.png,15.30:npc_flash_rifle_26.png,15.35:npc_flash_rifle_27.png,15.40:npc_flash_rifle_28.png,15.45:npc_flash_rifle_29.png,15.50:npc_flash_rifle_30.png,15.55:npc_flash_rifle_31.png,15.60:npc_flash_rifle_32.png,15.65:npc_flash_rifle_33.png,15.70:npc_flash_rifle_34.png,15.75:npc_flash_rifle_35.png,15.80:npc_flash_rifle_36.png,15.85:npc_flash_rifle_37.png,15.90:npc_flash_rifle_38.png,15.95:npc_flash_rifle_39.png" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 22
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVServiceRifle \(gun\)', label = "Violet fights with the service rifle" },
+  { re = 'shot fx: 0x000F570B muzzle flash at its weapon.s muzzle, (?P<n>[\d.]+) units from where the shot left', range = [0, 20], label = "her flash is at her rifle's muzzle (the marker as the attack clip has moved it since the shot's place was taken; the eyes, where shots without one leave, are about 75 units off)" },
+  { re = 'shot fx: 0x000F570B muzzle flash .*its length (?P<n>\d+) degrees off the shot', range = [0, 30], label = "her flash points along her shot" },
+  { re = 'shot fx: other actors. muzzle flashes: (?P<n>\d+) at their weapon.s muzzle', range = [1, 100000], label = "the summary counts flashes at a muzzle" },
+  "Screenshot saved to npc_flash_rifle_39.png",
+]
+
+[[scenario]]
 name = "combat-shotgun-reach"
 source = "owner request 2026-10-18: a shotgun wants to be closer than a sniper rifle (docs/design/combat-ai.md §16)"
 note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is given and made to equip a hunting shotgun (WeapNVHuntingShotgun: max range 600) and set on the player about 3,000 units away at 4 s, god mode: she holds fire beyond 600 units, closes in and fires within it. Pair: combat-sniper-reach"
