@@ -6704,3 +6704,23 @@ this none of those abilities applied. My choices, to check in game:
   RemoveSpell of it is undone the next frame (Dispel still suspends it as any ability).
 - **Not done**: reading skill books (so Comprehension does nothing yet), Hacking Science
   Bonus, companions' perks.
+
+## Find's Allow Buying (2026-10-20, session "q10", branch claude/q10-find-allow-buying)
+
+docs/spec-notes/packages.md §3.1. An actor on a Find package with Allow Buying now buys
+what it looks for from a vendor. The wiki gives only the checkbox's name and no Find
+package of the game has the flag (Eat packages have it), so every rule is my choice:
+- **Who is a vendor**: a living actor of the search area whose reference names a merchant
+  container (the stock the barter menu sells from). Its own inventory is not sold from.
+- **Which vendor**: the nearest object it looks for, vendor or loose item alike.
+- **What it buys**: one at a time, the cheapest wanted item it can pay for; each purchase
+  counts one of the package's count, and it buys again from the same vendor while the
+  count is not reached.
+- **Price**: what the player would pay at the actor's own Barter skill (value x
+  (1.55 - 0.45 x Barter / 100), never under the value, condition ignored), whole caps.
+  The caps go into the vendor's merchant container.
+- **How it gets there**: it walks up to the vendor as to any actor it looks for; no
+  dialogue, no barter menu, no idle.
+- **Killing and buying both allowed**: a living vendor is bought from, not attacked.
+*Check:* nothing in the shipped game uses it, so only a mod would show a difference; the
+smoke test turns the flag on for FFER24FindFood with a test aid.
