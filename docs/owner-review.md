@@ -6642,6 +6642,28 @@ check in the original:
   actor, only when the target is within reach; they do not walk up.
 - No power attacks in a use (people's power attacks are PR #503).
 
+## The last trooper's time: Cook-Cook's weapon (2026-10-20, session "q9-trooper-time")
+
+npc-behaviour-compare.md §9.1, actors.md §9.3. Queue item 9: our NCR troopers died far
+sooner than the original's in the Cook-Cook fight. What I found and chose:
+- **Cook-Cook drew the wrong weapon.** He carries an Incinerator and a Flamer; the
+  original's held the Incinerator in all three recorded fights and lobbed globs from
+  1,100–2,000 units, ours drew the Flamer (higher base damage) and charged. **My rule**: the
+  weapon choice ranks a weapon by its base damage plus the damage of the explosion its
+  projectile sets off (Incinerator 1 + 20 against the Flamer's 16); thrown weapons and
+  mines keep their base damage. Fitted to that one actor; "first weapon in the record" or
+  "longest range" would fit him too. *Check:* in game, which weapon do Boomers, Fiends
+  with a grenade rifle, Nellis's Jack and Raquel, Mags and Oscar Velasco hold? 40 NPCs
+  now draw a Grenade Rifle, Grenade Launcher or Grenade Machinegun they carry instead of
+  a melee weapon or a lesser gun (they used to swing a sledgehammer or a lead pipe).
+- **Three smoke scenarios built on Cook-Cook's Flamer** (`cook-cook-flamer`,
+  `combat-flamer-reach`, `npc-flamer-holstered`) now give him the Flamer with EquipItem at
+  2 s; their checks are unchanged (`npc-flamer-holstered` gained `--play` and god mode,
+  which the test aid needs).
+- **Left, not built: the burn.** The Incinerator's burn drains 4 Health a second in ours
+  (the record's magnitude); the original's drained NPCs 1 or 2 a second for 16–30 s. No
+  documented rule explains it, so I did not guess one; the troopers still die 16–31 s in
+  against the original's 30–132 s. *Needs:* one burn captured frame by frame.
 ## A melee companion takes up its melee weapon (2026-10-20, session "q6", branch claude/q6-companion-melee)
 
 docs/spec-notes/companion-wheel.md §4, `fnv_game::style_weapon`. The GECK wiki's Combat Style

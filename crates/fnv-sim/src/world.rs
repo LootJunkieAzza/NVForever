@@ -450,8 +450,9 @@ impl<'a> World<'a> {
     /// An actor other than the player starts with the armour it wears and the weapon it
     /// draws equipped, chosen from its carried items: armour by DT, then DR, then carried
     /// order, each piece worn unless one already chosen shares a body slot (pieces with no
-    /// slot are not worn); the drawable weapon with the highest base damage, the first on
-    /// ties. These are the rules the engine dresses and arms NPCs by (`fnv_actor::resolve`,
+    /// slot are not worn); the drawable weapon with the highest damage as the weapon
+    /// choice counts it (`forms::weapon_choice_damage`: a gun's explosion counts), the
+    /// first on ties. These are the rules the engine dresses and arms NPCs by (`fnv_actor::resolve`,
     /// docs/spec-notes/actors.md §2.3 and §9.3) [observed rule for armour: the owner's
     /// statement of 2026-10-08; the weapon rule is the engine's choice standing in for the
     /// original's]. `inventory_source` is the form whose carried items were rolled;
@@ -491,10 +492,10 @@ impl<'a> World<'a> {
                 wear.push(id);
             }
         }
-        let mut weapon: Option<(i32, FormId)> = None;
+        let mut weapon: Option<(f32, FormId)> = None;
         for &i in &carried {
             let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable) else { continue };
-            let d = it.weapon_damage.unwrap_or(0);
+            let d = it.weapon_damage.unwrap_or(0.0);
             if weapon.is_none_or(|(best, _)| d > best) {
                 weapon = Some((d, i));
             }
