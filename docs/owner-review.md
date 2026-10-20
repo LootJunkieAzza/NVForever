@@ -6596,6 +6596,7 @@ every number is a guess to tune by eye:
   are named in the executable but their values are not in any file. A capture reading
   `GetNumericGameSetting fFirstPersonHandChaseSeconds` (and the other two) in the
   original would give the turn lag's time.
+
 ## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
 
 docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
