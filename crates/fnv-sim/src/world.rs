@@ -389,6 +389,7 @@ impl<'a> World<'a> {
                 condition: placed.and_then(|p| p.health),
                 owner: placed.and_then(|p| p.owner),
                 equipped: false,
+                mods: 0,
             },
             actor_values: BTreeMap::new(),
             last_restock: None,

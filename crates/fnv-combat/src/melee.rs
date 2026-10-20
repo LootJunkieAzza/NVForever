@@ -67,6 +67,28 @@ impl PowerDir {
         }
     }
 
+    /// Every direction, in the order of a combat style's shares (normal, forward, back,
+    /// left, right) [documented: GECK wiki Combat Style].
+    pub const ALL: [PowerDir; 5] = [PowerDir::Stand, PowerDir::Forward, PowerDir::Back, PowerDir::Left, PowerDir::Right];
+
+    /// The attack group (the clip's sequence name, `AttackLeftPower`) [observed: the
+    /// `_male` power clips' sequence names, Fallout - Meshes.bsa; documented: the groups
+    /// an EAMT unarmed attack effect names].
+    pub fn group(self) -> &'static str {
+        match self {
+            PowerDir::Stand => "AttackPower",
+            PowerDir::Forward => "AttackForwardPower",
+            PowerDir::Back => "AttackBackPower",
+            PowerDir::Left => "AttackLeftPower",
+            PowerDir::Right => "AttackRightPower",
+        }
+    }
+
+    /// The direction of attack group `group` ([`PowerDir::group`]), any case.
+    pub fn of_group(group: &str) -> Option<PowerDir> {
+        PowerDir::ALL.into_iter().find(|d| d.group().eq_ignore_ascii_case(group))
+    }
+
     /// The damage multiplier of a power attack this way.
     pub fn damage(self, r: &Rules) -> f32 {
         match self {
@@ -395,6 +417,17 @@ mod tests {
         let s = started(&run(&mut m, 4.0, 0.0, |t| t < 0.05 || (2.0..2.05).contains(&t)));
         assert_eq!(s.len(), 2);
         assert!(s.iter().all(|(stem, chained)| stem.starts_with("attackright") && !chained), "{s:?}");
+    }
+
+    #[test]
+    fn power_attack_groups_go_both_ways() {
+        for d in PowerDir::ALL {
+            assert_eq!(PowerDir::of_group(d.group()), Some(d));
+            // The clip's stem is the group in lower case.
+            assert_eq!(d.stem(), d.group().to_ascii_lowercase());
+        }
+        assert_eq!(PowerDir::of_group("attackleftpower"), Some(PowerDir::Left));
+        assert_eq!(PowerDir::of_group("AttackRight"), None);
     }
 
     #[test]

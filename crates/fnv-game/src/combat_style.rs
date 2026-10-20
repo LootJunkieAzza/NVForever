@@ -9,8 +9,13 @@
 //!   base Attack % Chance, plus the Hand-To-Hand bonus when the actor fights hand to hand,
 //!   plus the attack skill modifier (`base + mult × skill / 100`), times the multiplier
 //!   for being under attack or not; compared with a roll of 1–100. Otherwise the actor
-//!   holds for a random time within the Hold Timer. The recoil, stagger and unconscious
-//!   bonuses, blocking and power attacks are not used yet.
+//!   holds for a random time within the Hold Timer. The recoil and unconscious bonuses
+//!   add while the opponent recoils or lies unconscious.
+//! - **Power attacks** [documented: Combat Style, Power Attacks]: having decided to
+//!   attack, an actor power-attacks by Power Attack % Chance plus the recoil/stagger and
+//!   unconscious bonuses to it ([`power_attack_chance`]); which one by the five shares
+//!   ([`power_dir_by_chance`]) when the style says "Choose Attack using % Chance", else
+//!   by how it moves (the engine's; docs/spec-notes/combat-rules.md §10.1).
 //! - **Confidence** [documented: GECK wiki Confidence]: the rating (0 Cowardly …
 //!   4 Foolhardy) gives a threshold (fConfidenceCowardly 1000, Cautious 0.375, Average
 //!   0.1875, Brave 0.0375, Foolhardy 0); the threat ratio is my combat strength (health
@@ -109,6 +114,8 @@ pub struct Opponent {
     pub recoiling: bool,
     /// Blocking now.
     pub blocking: bool,
+    /// Lying unconscious (`Game::is_out_cold`).
+    pub unconscious: bool,
 }
 
 /// The melee decision's chance to attack, 0–100 (module notes): `skill` the actor's
@@ -120,9 +127,34 @@ pub fn melee_attack_chance(cs: &CombatStyleDef, skill: f32, hand_to_hand: bool, 
     let base = cs.attack_chance
         + if hand_to_hand { cs.hand_to_hand_bonus } else { 0.0 }
         + if opp.recoiling { cs.recoil_stagger_bonus } else { 0.0 }
+        + if opp.unconscious { cs.unconscious_bonus } else { 0.0 }
         + cs.attack_skill_mod.0
         + cs.attack_skill_mod.1 * skill.clamp(0.0, 100.0) / 100.0;
     base * if opp.attacking { cs.attack_under_attack_mult } else { cs.attack_not_under_attack_mult } * if opp.blocking { cs.attack_during_block_mult } else { 1.0 }
+}
+
+/// The chance, 0–100, that an attack decided by the melee decision is a power attack
+/// (module notes): Power Attack % Chance, plus Recoil/Stagger Bonus to Power Attack while
+/// the opponent recoils, plus Unconscious Bonus to Power Attack while it is unconscious
+/// [documented: GECK wiki Combat Style].
+pub fn power_attack_chance(cs: &CombatStyleDef, opp: Opponent) -> f32 {
+    (cs.power_attack_chance + if opp.recoiling { cs.recoil_stagger_power_bonus } else { 0.0 } + if opp.unconscious { cs.unconscious_power_bonus } else { 0.0 }).clamp(0.0, 100.0)
+}
+
+/// Which power attack "Choose Attack using % Chance" picks, as an index into the shares
+/// (0 normal, 1 forward, 2 back, 3 left, 4 right): a number of 1–100 from `roll` (0..1)
+/// against the running sums of the first four shares, the first it is within, else
+/// right [documented: GECK wiki Combat Style, the five steps in that order].
+pub fn power_dir_by_chance(shares: [f32; 5], roll: f32) -> usize {
+    let n = ((roll * 100.0).floor() + 1.0).clamp(1.0, 100.0);
+    let mut sum = 0.0;
+    for (i, share) in shares.iter().take(4).enumerate() {
+        sum += share.max(0.0);
+        if n <= sum {
+            return i;
+        }
+    }
+    4
 }
 
 /// The melee decision's chance to block, 0–100: (Block % + the block skill modifier,
@@ -195,5 +227,44 @@ mod tests {
         // Recoiling: + the bonus; blocking: × Attack During Block Mult.
         assert!((melee_attack_chance(&cs, 50.0, false, Opponent { recoiling: true, ..calm }) - 55.0).abs() < 1e-4);
         assert!((melee_attack_chance(&cs, 50.0, false, Opponent { blocking: true, ..calm }) - 25.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_power_attack_chance_and_its_bonuses() {
+        // FalloutNV.esm's CSNVLegateLanius: 45 %, +15 recoiling, +25 unconscious
+        // [observed: fnvtool esm decode, 2026-10-20].
+        let cs = CombatStyleDef { power_attack_chance: 45.0, recoil_stagger_power_bonus: 15.0, unconscious_power_bonus: 25.0, unconscious_bonus: 5.0, attack_not_under_attack_mult: 1.0, ..Default::default() };
+        let calm = Opponent::default();
+        assert_eq!(power_attack_chance(&cs, calm), 45.0);
+        assert_eq!(power_attack_chance(&cs, Opponent { recoiling: true, ..calm }), 60.0);
+        assert_eq!(power_attack_chance(&cs, Opponent { unconscious: true, ..calm }), 70.0);
+        assert_eq!(power_attack_chance(&cs, Opponent { recoiling: true, unconscious: true, ..calm }), 85.0);
+        // Never past 100.
+        let all = CombatStyleDef { power_attack_chance: 100.0, ..cs.clone() };
+        assert_eq!(power_attack_chance(&all, Opponent { recoiling: true, ..calm }), 100.0);
+        // The attack chance's own unconscious bonus.
+        assert_eq!(melee_attack_chance(&cs, 0.0, false, Opponent { unconscious: true, ..calm }), 5.0);
+    }
+
+    #[test]
+    fn the_power_attack_picked_by_chance() {
+        // 20 each way: 1–20 normal … 81–100 right.
+        let even = [20.0; 5];
+        assert_eq!(power_dir_by_chance(even, 0.0), 0);
+        assert_eq!(power_dir_by_chance(even, 0.199), 0);
+        assert_eq!(power_dir_by_chance(even, 0.2), 1);
+        assert_eq!(power_dir_by_chance(even, 0.5), 2);
+        assert_eq!(power_dir_by_chance(even, 0.79), 3);
+        assert_eq!(power_dir_by_chance(even, 0.8), 4);
+        assert_eq!(power_dir_by_chance(even, 0.9999), 4);
+        // CSSupermutantMelee: 10/30/0/30/30; a 0 share is never picked.
+        let mutant = [10.0, 30.0, 0.0, 30.0, 30.0];
+        assert_eq!(power_dir_by_chance(mutant, 0.05), 0);
+        assert_eq!(power_dir_by_chance(mutant, 0.395), 1);
+        assert_eq!(power_dir_by_chance(mutant, 0.405), 3);
+        assert_eq!(power_dir_by_chance(mutant, 0.71), 4);
+        assert!((0..100).all(|i| power_dir_by_chance(mutant, i as f32 / 100.0) != 2));
+        // Sums past 100: the later ones never come.
+        assert!((0..100).all(|i| power_dir_by_chance([60.0, 60.0, 10.0, 10.0, 10.0], i as f32 / 100.0) <= 1));
     }
 }

@@ -1023,6 +1023,14 @@ pub struct CombatStyleDef {
     /// Power Attacks: the shares (0–100) of the normal, forward, back, left and right
     /// power attacks [documented: GECK wiki Combat Style; layout xEdit CSTD].
     pub power_attack_dirs: [f32; 5],
+    /// Power Attacks: the bonuses to the power attack chance while the opponent recoils
+    /// or staggers and while it is unconscious; the bonus to the attack chance while it
+    /// is unconscious; flag "Choose Attack using % Chance" (else by movement)
+    /// [documented: GECK wiki Combat Style; layout xEdit CSTD].
+    pub recoil_stagger_power_bonus: f32,
+    pub unconscious_power_bonus: f32,
+    pub unconscious_bonus: f32,
+    pub power_by_chance: bool,
     /// Melee decision: how long an actor that neither attacks nor blocks holds, seconds.
     pub hold_timer: (f32, f32),
     /// Advanced: the attack skill modifier (`base + mult × skill / 100`) and the attack
@@ -2169,6 +2177,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 hand_to_hand_bonus: n(std, "hand_to_hand_bonus_to_attack", 0.0),
                 power_attack_chance: n(std, "power_attack_chance", 0.0),
                 power_attack_dirs: ["normal", "forward", "back", "left", "right"].map(|d| n(std, &format!("power_attack_{d}"), 0.0)),
+                recoil_stagger_power_bonus: n(std, "recoil_stagger_bonus_to_power", 0.0),
+                unconscious_power_bonus: n(std, "unconscious_bonus_to_power_attack", 0.0),
+                unconscious_bonus: n(std, "unconscious_bonus_to_attack", 0.0),
+                power_by_chance: has_flag(std.and_then(|v| v.get("flags")), "Choose Attack using % Chance"),
                 hold_timer: (n(std, "hold_timer_min", 0.0), n(std, "hold_timer_max", 0.0)),
                 attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
                 attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),

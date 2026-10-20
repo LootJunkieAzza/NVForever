@@ -137,6 +137,10 @@ pub struct WeaponStats {
     pub impulse_dist: f32,
     pub reload_anim: Option<String>,
     pub attack_anim: Option<String>,
+    /// DNAM "Reload Animation (Mod)": the reload once a clip mod is on (weapon-mods.md
+    /// §2). Not part of any report.
+    #[serde(skip)]
+    pub reload_anim_mod: Option<String>,
     pub mods: Vec<WeaponMod>,
     /// DNAM ended before `resist_type`: the short form xEdit allows (fields from the 37th
     /// on absent); the later fields then read as zero.
@@ -218,7 +222,63 @@ pub struct ProjectileStats {
     pub sound_level: Option<String>,
 }
 
+/// The flag of a mod slot (1, 2, 3) in a unit's mod flags [documented: GECK wiki
+/// GetEquippedWeaponModFlags: 1 Weapon Mod 1, 2 Weapon Mod 2, 4 Weapon Mod 3].
+pub fn mod_flag(slot: u8) -> u8 {
+    match slot {
+        1..=3 => 1 << (slot - 1),
+        _ => 0,
+    }
+}
+
 impl WeaponStats {
+    /// The slot whose mod item is `item`, if one is.
+    pub fn mod_slot(&self, item: FormId) -> Option<&WeaponMod> {
+        self.mods.iter().find(|m| m.item == Some(item) && mod_flag(m.slot) != 0)
+    }
+
+    /// The weapon with the mods `flags` names on: each slot's effect applied by its
+    /// values as the GECK wiki's "Weapon Mod Effects" describes them
+    /// (docs/spec-notes/weapon-mods.md §2). Effects NVForever does not apply (projectile
+    /// speed, ammo regeneration, equip time, VATS bonus) leave the figures as they are.
+    pub fn modded(&self, flags: u8) -> WeaponStats {
+        let mut w = self.clone();
+        for m in self.mods.iter().filter(|m| flags & mod_flag(m.slot) != 0) {
+            let (a, b) = (m.value_a, m.value_b);
+            match m.effect.as_deref() {
+                Some("Increase Weapon Damage") => w.base_damage += a.round() as i32,
+                Some("Increase Clip Capacity") => {
+                    w.clip_size = (w.clip_size as i64 + a.round() as i64).max(0) as u32;
+                    // [hypothesis: the "(Mod)" reload is for the bigger magazine]
+                    if w.reload_anim_mod.is_some() {
+                        w.reload_anim = w.reload_anim_mod.clone();
+                    }
+                }
+                Some("Decrease Spread") => w.min_spread = (w.min_spread - a).max(0.0),
+                Some("Decrease Weight") => w.weight = (w.weight - a).max(0.0),
+                Some("Increase Max. Condition") => w.health += a.round() as i32,
+                // [hypothesis: "rate of fire" speeds both an automatic's fire rate and
+                // the attack]
+                Some("Increase Rate of Fire") => {
+                    w.fire_rate *= 1.0 + a;
+                    w.attack_shots_per_sec *= 1.0 + a;
+                    w.attack_mult *= 1.0 + a;
+                }
+                Some("Increase Zoom") => w.sight_fov = (w.sight_fov - a).max(1.0),
+                Some("Split Beam") => {
+                    w.projectile_count = (w.projectile_count.max(1) as i64 + a.round() as i64).max(1) as u32;
+                    if b != 0.0 {
+                        w.min_spread *= b;
+                    }
+                }
+                // [hypothesis: the weapon's own noise]
+                Some("Silence" | "Suppressor") => w.sound_level = Some("Silent".into()),
+                _ => {}
+            }
+        }
+        w
+    }
+
     /// Held in two hands: its DNAM animation type is one of the "(2 Hand)" types
     /// (rifles, automatic rifles, launchers, handles, two-handed melee) [observed: the
     /// schema's names].
@@ -630,7 +690,12 @@ impl CombatForms {
     /// [documented: GECK wiki Ammo]. A projectile sets off its explosion only with its
     /// "Explosion" flag [documented: GECK wiki Projectile].
     pub fn chain(&self, weapon: FormId, ammo: Option<FormId>) -> Option<ShotChain> {
-        let w = self.weapons.get(&weapon)?;
+        Some(self.chain_with(weapon, self.weapons.get(&weapon)?, ammo))
+    }
+
+    /// The same for `weapon` with the figures `w` (a modded weapon's,
+    /// [`WeaponStats::modded`]).
+    pub fn chain_with(&self, weapon: FormId, w: &WeaponStats, ammo: Option<FormId>) -> ShotChain {
         let ammo_choices = self.ammo_choices(w);
         let ammo = ammo.filter(|a| ammo_choices.contains(a)).or_else(|| ammo_choices.first().copied());
         let a = ammo.and_then(|a| self.ammo.get(&a));
@@ -643,7 +708,7 @@ impl CombatForms {
             _ => w.projectile_count,
         };
         let explosion = projectile.and_then(|p| self.projectiles.get(&p)).and_then(ProjectileStats::explodes);
-        Some(ShotChain {
+        ShotChain {
             weapon,
             ammo_choices,
             ammo,
@@ -653,7 +718,7 @@ impl CombatForms {
             damage_per_projectile: w.base_damage as f32 / projectiles_per_shot.max(1) as f32,
             explosion,
             ammo_effects: a.map(|a| a.effects.clone()).unwrap_or_default(),
-        })
+        }
     }
 }
 
@@ -766,6 +831,7 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         impulse_dist: f(dn, "impulse_dist"),
         reload_anim: label(dn.and_then(|v| v.get("reload_animation"))),
         attack_anim: label(dn.and_then(|v| v.get("attack_animation"))),
+        reload_anim_mod: label(dn.and_then(|v| v.get("reload_animation_mod"))),
         mods,
         short_dnam: dn.is_some_and(|v| v.get("resist_type").is_none()),
         crit_damage: u(crdt, "critical_damage"),
@@ -962,5 +1028,72 @@ fn effect_form(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> EffectForm {
         kind: label(head.and_then(|v| v.get("type"))),
         flags: flag_names(head.and_then(|v| v.get("flags"))),
         effects,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn slot(slot: u8, item: u32, effect: &str, a: f32, b: f32) -> WeaponMod {
+        WeaponMod { slot, item: Some(FormId(item)), effect: Some(effect.into()), value_a: a, value_b: b }
+    }
+
+    /// The 10mm Pistol's slots as FalloutNV.esm has them [observed: weapon-mods.md §2].
+    fn pistol() -> WeaponStats {
+        WeaponStats {
+            base_damage: 22,
+            clip_size: 12,
+            min_spread: 0.8,
+            reload_anim: Some("ReloadA".into()),
+            reload_anim_mod: Some("ReloadB".into()),
+            sound_level: Some("Normal".into()),
+            mods: vec![slot(1, 0x10C858, "Increase Clip Capacity", 4.0, 0.0), slot(2, 0x10C859, "Decrease Spread", 0.4, 0.0), slot(3, 0x129878, "Silence", 0.0, 0.0)],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_flags_name_the_slots() {
+        assert_eq!([mod_flag(1), mod_flag(2), mod_flag(3), mod_flag(0), mod_flag(4)], [1, 2, 4, 0, 0]);
+        let w = pistol();
+        assert_eq!(w.mod_slot(FormId(0x10C859)).map(|m| m.slot), Some(2));
+        assert!(w.mod_slot(FormId(0x1)).is_none());
+    }
+
+    #[test]
+    fn mods_change_the_figures_they_name() {
+        let w = pistol();
+        assert_eq!(w.modded(0).clip_size, 12);
+        let clip = w.modded(1);
+        assert_eq!((clip.clip_size, clip.reload_anim.as_deref()), (16, Some("ReloadB")));
+        assert!((clip.min_spread - 0.8).abs() < 1e-6);
+        let all = w.modded(7);
+        assert_eq!(all.clip_size, 16);
+        assert!((all.min_spread - 0.4).abs() < 1e-6);
+        assert_eq!(all.sound_level.as_deref(), Some("Silent"));
+        // Only the slots named: the silencer alone.
+        let quiet = w.modded(4);
+        assert_eq!((quiet.clip_size, quiet.sound_level.as_deref()), (12, Some("Silent")));
+    }
+
+    #[test]
+    fn each_effect_by_the_wiki() {
+        let base = WeaponStats { base_damage: 10, weight: 5.0, health: 100, fire_rate: 10.0, attack_mult: 1.0, sight_fov: 55.0, projectile_count: 1, min_spread: 2.0, ..Default::default() };
+        let with = |e: &str, a: f32, b: f32| WeaponStats { mods: vec![slot(1, 1, e, a, b)], ..base.clone() }.modded(1);
+        assert_eq!(with("Increase Weapon Damage", 5.0, 0.0).base_damage, 15);
+        assert!((with("Decrease Weight", 2.0, 0.0).weight - 3.0).abs() < 1e-6);
+        assert!((with("Decrease Weight", 9.0, 0.0).weight).abs() < 1e-6);
+        assert_eq!(with("Increase Max. Condition", 50.0, 0.0).health, 150);
+        assert!((with("Increase Rate of Fire", 0.2, 0.0).fire_rate - 12.0).abs() < 1e-4);
+        assert!((with("Increase Zoom", 15.0, 0.0).sight_fov - 40.0).abs() < 1e-6);
+        let split = with("Split Beam", 2.0, 1.5);
+        assert_eq!(split.projectile_count, 3);
+        assert!((split.min_spread - 3.0).abs() < 1e-6);
+        // Value B 0 keeps the spread; fewer beams never go below one.
+        assert!((with("Split Beam", -4.0, 0.0).min_spread - 2.0).abs() < 1e-6);
+        assert_eq!(with("Split Beam", -4.0, 0.0).projectile_count, 1);
+        // Not applied: the figures stay.
+        assert_eq!(with("Increase Projectile Speed", 2.0, 0.0).base_damage, 10);
     }
 }
