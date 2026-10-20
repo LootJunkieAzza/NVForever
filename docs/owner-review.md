@@ -6803,3 +6803,28 @@ rest, so these are my choices:
   reproduced.
 *Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
 him into a wall and see whether the original's actor also stops dead there.
+
+## Blood on the screen when the player is hurt, and the splatter's flare (2026-10-20, queue item 16, branch claude/q16-hurt-splatter)
+
+Nothing documents when or how much blood the original puts on the screen after a hit (the
+wiki has only ClearScreenBlood's one line), and no capture has an NPC shoot the player.
+Everything below is my choice, tagged [hypothesis] in screen-splatter.md §4:
+
+- **When**: every hit that takes Health from the player (weapons, blows, explosions). Not
+  DamageActorValue (the capture showed none), not falls, nothing in god mode.
+- **How much**: `ceil(lost / max Health x iBloodSplatterMaxCount)` splats, at least one:
+  a tenth of the health is 3 splats, a near-kill most of 25. Plain splats (size and
+  opacity factors 1), 20 s (`fBloodSplatterDuration`), fading from the start as the
+  scripts' splats do.
+- **Cap**: hurt blood stops adding once 25 splats (`iBloodSplatterMaxCount`) are on the
+  screen; script calls stay uncapped (the capture showed 100 > 25).
+- **The flare**: a small red glow (`screenblooddot02.dds`) near each splat's core,
+  0.065 of the screen width x the size factor, offset up to 0.45 of the half-side, as
+  strong as the splat's opacity beyond 0.95. So hurt blood (factor 1) shows no glints and
+  the scripts' factor-2 calls do, as in the original's pictures; the glints are red, not
+  the original's red-white.
+- ClearScreenBlood / TriggerScreenBlood are not added: no opcode is known.
+
+*Check:* take a few hits from a Goodsprings gecko or a shot in the original and compare
+the amount of blood, how long it stays, and whether small hits leave any; smoke
+`screen-splatter-hurt`'s hurt_splatter.png and hurt_flares.png show ours.

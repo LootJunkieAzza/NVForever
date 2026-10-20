@@ -513,6 +513,9 @@ pub struct HitFeedback {
     pub player_hits: Vec<PlayerHit>,
     /// Actors whose arm a hit crippled since [`disarm`] last looked.
     pub disarms: Vec<FormId>,
+    /// Health the player lost to hits since the screen's blood last looked, each with
+    /// the player's maximum (`crate::screen_splatter`'s hurt splats).
+    pub player_hurt: Vec<(f32, f32)>,
 }
 
 /// A hit the player took, for the flinch rule (`damage::staggers`).
@@ -2138,6 +2141,9 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
     let r = with_world(rt, sim, |rt| rt.game.hit(FormId::PLAYER_REF, dealt as f64, info));
     stats.player_damage += r.dealt as f32;
     info!("combat: {by} hits the player for {:.1}, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
+    if !r.immune && r.dealt > 0.0 {
+        feedback.player_hurt.push((r.dealt as f32, r.max_health as f32));
+    }
     if !r.died {
         let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(FormId::PLAYER_REF, fnv_game::combat::TORSO));
         feedback.player_hits.push(PlayerHit { crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled });
