@@ -70,7 +70,8 @@
 //!   the attack) over the aim, by track priority (attack clips 55, aim 50,
 //!   animation.md §9.6); the aim's up or down form takes layer 3 when the weapon's draw
 //!   cycle is not fading there [design].
-//! - **Crouched, blocking** (docs/design/combat-ai.md §14): a crouched NPC's aim, its up
+//! - **Crouched, blocking** (docs/design/combat-ai.md §14): a crouched NPC's (crouched to
+//!   fire, or sneaking: `sneaking.rs`, docs/spec-notes/actors.md §9.4) aim, its up
 //!   and down forms, its sights and its attack clips are the crouched ones
 //!   (`sneak2hraim.kf`, `sneak2hraimis.kf`, `sneak2hrattack3.kf` …), the standing ones
 //!   where a stance has none; a blocking NPC holds `{prefix}blockidle.kf` (fists:
@@ -522,7 +523,7 @@ fn hit_time(c: &BoundClip) -> Option<f32> {
     c.clip.text_keys.iter().find(|(_, k)| k.trim().eq_ignore_ascii_case("hit")).map(|(t, _)| (t - c.clip.start).max(0.0))
 }
 
-type Rigs<'w> = (Entity, &'w ActorRig, Option<&'w WeaponHold>, Option<&'w mut CombatPose>, Has<Dying>);
+type Rigs<'w> = (Entity, &'w ActorRig, Option<&'w WeaponHold>, Option<&'w mut CombatPose>, Has<Dying>, Option<&'w crate::locomotion::Locomotion>);
 
 /// Start the attacks asked for, and keep each fighting actor's pose (module notes).
 #[allow(clippy::too_many_arguments)]
@@ -549,7 +550,7 @@ fn start(
     let asked: Vec<PlayAttack> = asked.read().copied().collect();
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     let clips = &mut *clips;
-    for (e, rig, hold, pose, dying) in &mut rigs {
+    for (e, rig, hold, pose, dying, lo) in &mut rigs {
         let id = rig.reference;
         let pitch = fighters.pitch(id);
         if dying {
@@ -574,7 +575,9 @@ fn start(
         new_pose.pitch = pitch;
         new_pose.fighting = fighters.pitch(id).is_some();
         new_pose.sights = fighters.sights(id);
-        new_pose.crouched = fighters.crouched(id);
+        // Crouched to fire, or sneaking with its weapon out (`sneaking.rs`): the body is
+        // crouched either way, so the aim and attacks are the crouched ones.
+        new_pose.crouched = fighters.crouched(id) || lo.is_some_and(|l| l.sneaking && !l.swimming);
         new_pose.blocking = fighters.blocking(id);
         // The aim's up and down forms, once, for an actor with a weapon drawn on it.
         if hold.is_some() && new_pose.aim_up.is_none() && new_pose.aim_down.is_none() {

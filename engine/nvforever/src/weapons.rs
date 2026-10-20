@@ -5,7 +5,7 @@
 //! draw yet (Layer 6); `--actor-weapons drawn` and the test aid `--actor-weapon-test` do.
 
 use bevy::prelude::*;
-use fnv_actor::weapon::{clip_path, mount_bones, EquipClip, StanceFacts, WeaponAnim};
+use fnv_actor::weapon::{clip_path, mount_bones, sneak_clip_path, EquipClip, StanceFacts, WeaponAnim};
 use nvf_assets::actor::{bind_clip, ActorCtx, PreparedPart, PreparedSkeleton, SpawnedActor};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
 use nvf_play::combat::WeaponBroken;
@@ -51,6 +51,16 @@ pub struct Stance {
     /// The stance's walks, runs and turns, played while the weapon is drawn
     /// (`locomotion::Locomotion::set_armed`).
     pub moves: Arc<crate::locomotion::WeaponMoves>,
+    /// The skeleton's folder (archive path), for the clips' file names in the log.
+    pub folder: String,
+    /// The crouched forms of the clips (`sneak1hpequip.kf`, `sneak1hpaim.kf`,
+    /// `sneak1hpunequip.kf`, [`sneak_clip_path`]) where the folder has them, played while
+    /// the actor sneaks ([`WeaponHold::set_crouched`]), and their `Weapon` tracks alone.
+    pub sneak: BTreeMap<EquipClip, Arc<BoundClip>>,
+    pub sneak_weapon_only: BTreeMap<EquipClip, Arc<BoundClip>>,
+    /// The facts of the crouched draw cycle: each clip's crouched form where there is one,
+    /// else the standing clip's.
+    pub sneak_facts: StanceFacts,
 }
 
 impl Stance {
@@ -72,6 +82,15 @@ impl Stance {
         if !clips.contains_key(&EquipClip::Holster) && !clips.contains_key(&EquipClip::Aim) {
             return Err(format!("no {prefix} holster or aim clip in {folder}"));
         }
+        let mut sneak = BTreeMap::new();
+        let mut sneak_facts = facts.clone();
+        for c in EquipClip::ALL {
+            let Some(path) = sneak_clip_path(&folder, prefix, c) else { continue };
+            if let Some(clip) = ctx.clip(&path) {
+                sneak_facts.insert(c, fnv_actor::weapon::ClipFacts::from_parts(clip.start, clip.stop, &clip.text_keys));
+                sneak.insert(c, Arc::new(bind_clip(skel, clip)));
+            }
+        }
         let parent = skel.parents[weapon_node].and_then(|p| skel.names[p].clone()).unwrap_or_default();
         let (holster, drawn) = mount_bones(&facts, &parent);
         let mut bones = HashMap::new();
@@ -83,14 +102,40 @@ impl Stance {
         }
         let (moves, moves_line) = crate::locomotion::WeaponMoves::load(ctx, skeleton, skel, prefix);
         let line = format!(
-            "{folder} {prefix}: clips {:?}, holstered at {holster}, drawn at {drawn}, bones found {}; {moves_line}",
+            "{folder} {prefix}: clips {:?}, crouched {:?}, holstered at {holster}, drawn at {drawn}, bones found {}; {moves_line}",
             clips.keys().collect::<Vec<_>>(),
+            sneak.keys().collect::<Vec<_>>(),
             bones.len()
         );
         let weapon_only = clips.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
+        let sneak_weapon_only = sneak.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
         let weapon_rest = clips.get(&EquipClip::Equip).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node]));
         let holstered_off = clips.get(&EquipClip::Holster).map_or_else(Vec::new, |c| holstered_off(&c.clip));
-        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest, holstered_off, moves: Arc::new(moves) }, line))
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest, holstered_off, moves: Arc::new(moves), folder, sneak, sneak_weapon_only, sneak_facts }, line))
+    }
+
+    /// The facts of the draw cycle standing or crouched.
+    pub fn facts_for(&self, crouched: bool) -> &StanceFacts {
+        if crouched {
+            &self.sneak_facts
+        } else {
+            &self.facts
+        }
+    }
+
+    /// Clip `c` standing or crouched (its crouched form where there is one, else the
+    /// standing clip), whole or only its `Weapon` track.
+    pub fn clip_for(&self, c: EquipClip, crouched: bool, weapon_only: bool) -> Option<&Arc<BoundClip>> {
+        let (sneak, stand) = if weapon_only { (&self.sneak_weapon_only, &self.weapon_only) } else { (&self.sneak, &self.clips) };
+        crouched.then(|| sneak.get(&c)).flatten().or_else(|| stand.get(&c))
+    }
+
+    /// The file clip `c` plays from, standing or crouched.
+    pub fn path_for(&self, c: EquipClip, crouched: bool) -> String {
+        match sneak_clip_path(&self.folder, &self.prefix, c).filter(|_| crouched && self.sneak.contains_key(&c)) {
+            Some(p) => p,
+            None => clip_path(&self.folder, &self.prefix, c),
+        }
     }
 }
 
@@ -136,11 +181,78 @@ pub struct WeaponHold {
     /// The model's shapes on a bone of their own (the flamer's tank and the minigun's
     /// backpack on `Bip01 Spine2`): on the body whether the weapon is drawn or not.
     pub back: Vec<Entity>,
+    /// Crouched (the actor sneaks, [`WeaponHold::set_crouched`]), and whether the clip
+    /// fading out (`anim.prev`) is a crouched one.
+    pub crouched: bool,
+    prev_crouched: bool,
+    /// The crouched clip files logged for this actor ([`WeaponHold::crouched_clip_news`]).
+    logged: Vec<String>,
 }
 
 impl WeaponHold {
     pub fn new(stance: Arc<Stance>, drawn: bool, skel_parent: usize) -> WeaponHold {
-        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new() }
+        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new(), crouched: false, prev_crouched: false, logged: Vec::new() }
+    }
+
+    /// Crouch with the weapon or stand up with it (the actor's locomotion sneaking,
+    /// docs/spec-notes/actors.md §9.4): the draw cycle goes on, at the same stage and time,
+    /// in the stance's crouched clips where it has them (`sneak1hpaim.kf` …), else in the
+    /// standing ones; the old form fades out over the new clip's blend time, as the
+    /// locomotion's sets do. The standing aim clips hold the legs upright at priority 25
+    /// over the crouched idle's 20 (`1hpaim.kf` against `sneakmtidle.kf`), so a crouched
+    /// actor standing still with its weapon drawn stood up from the hips down; the
+    /// crouched aim's legs are the crouched idle's pose [observed: kf_layer_survey and
+    /// kf_pose_compare, 2026-10-20]. Returns whether it changed.
+    pub fn set_crouched(&mut self, on: bool) -> bool {
+        if self.crouched == on {
+            return false;
+        }
+        let c = self.anim.stage.clip();
+        self.prev_crouched = self.crouched;
+        self.crouched = on;
+        if self.stance.sneak.contains_key(&c) {
+            let fade = self.stance.facts_for(on).get(&c).map_or(fnv_actor::locomotion::DEFAULT_BLEND, |f| f.blend_time);
+            self.anim.fade_from_current(fade);
+        }
+        true
+    }
+
+    /// While crouched, the clip and file the draw cycle plays now, the first time that
+    /// crouched file plays for this actor (for the log).
+    pub fn crouched_clip_news(&mut self) -> Option<(EquipClip, String)> {
+        let c = self.anim.stage.clip();
+        if !self.crouched || !self.stance.sneak.contains_key(&c) {
+            return None;
+        }
+        let path = self.stance.path_for(c, true);
+        if self.logged.contains(&path) {
+            return None;
+        }
+        self.logged.push(path.clone());
+        Some((c, path))
+    }
+
+    /// The draw cycle's clips to sample: (clip, crouched form, phase, weight), the
+    /// current one first; each phase by its own form's length.
+    fn specs(&self) -> [Option<(EquipClip, bool, f32, f32)>; 2] {
+        let st = &self.stance;
+        let w = self.anim.weight();
+        let c = self.anim.stage.clip();
+        [
+            Some((c, self.crouched, WeaponAnim::phase(c, self.anim.time, st.facts_for(self.crouched)), w)),
+            self.anim.prev.map(|(p, t)| (p, self.prev_crouched, WeaponAnim::phase(p, t, st.facts_for(self.prev_crouched)), 1.0 - w)),
+        ]
+    }
+
+    /// The draw cycle's clips (whole, or only their `Weapon` tracks) as player layers 2
+    /// and 3.
+    fn set_layers(&self, player: &mut BlendPlayer, weapon_only: bool) {
+        let st = &self.stance;
+        let [a, b] = self.specs();
+        let layer = |l: Option<(EquipClip, bool, f32, f32)>| l.and_then(|(c, crouched, phase, weight)| Some(Layer { clip: st.clip_for(c, crouched, weapon_only)?.clone(), phase, weight }));
+        player.layers[2] = layer(a);
+        player.layers[3] = layer(b);
+        self.rest(player);
     }
 
     /// Advance the test aid and the draw cycle by `dt`.
@@ -150,7 +262,12 @@ impl WeaponHold {
             // Holstered for the first period, drawn for the second, and so on.
             self.drawn = (*t / period.max(0.1)).floor() as i64 % 2 == 1;
         }
-        self.anim.step(self.drawn, dt, &self.stance.facts);
+        let stage = self.anim.stage;
+        self.anim.step(self.drawn, dt, self.stance.facts_for(self.crouched));
+        // A new stage: the clip fading out is of the posture the actor has now.
+        if self.anim.stage != stage {
+            self.prev_crouched = self.crouched;
+        }
     }
 
     /// Run `secs` ahead in fixed 1/60 s steps (`--actor-pose-time`: a repeatable pose).
@@ -166,12 +283,7 @@ impl WeaponHold {
 
     /// The weapon clips as player layers 2 and 3 (0 and 1 are locomotion's).
     pub fn layers(&self, player: &mut BlendPlayer) {
-        let st = &self.stance;
-        let [a, b] = self.anim.layers(&st.facts);
-        let layer = |l: Option<(EquipClip, f32, f32)>| l.and_then(|(c, phase, weight)| Some(Layer { clip: st.clips.get(&c)?.clone(), phase, weight }));
-        player.layers[2] = layer(a);
-        player.layers[3] = layer(b);
-        self.rest(player);
+        self.set_layers(player, false);
     }
 
     /// In the hand, the `Weapon` node rests where the equip clip leaves it: the aim and
@@ -183,7 +295,7 @@ impl WeaponHold {
     /// Cook-Cook's flamer]. Holstered, the node keeps its bind transform.
     fn rest(&self, player: &mut BlendPlayer) {
         let st = &self.stance;
-        let in_hand = self.anim.parent(&st.holster, &st.drawn, &st.facts) == st.drawn;
+        let in_hand = self.anim.parent(&st.holster, &st.drawn, st.facts_for(self.crouched)) == st.drawn;
         player.set_rest(st.weapon_node, st.weapon_rest.filter(|_| in_hand));
     }
 
@@ -195,18 +307,13 @@ impl WeaponHold {
     /// at a wrong angle [observed in NVForever, owner's playtest 2026-10-11; the seat
     /// clips have no `Weapon` track: `dynamicidle_chairsit.kf`, `chair_forwardenter.kf`].
     pub fn weapon_layers(&self, player: &mut BlendPlayer) {
-        let st = &self.stance;
-        let [a, b] = self.anim.layers(&st.facts);
-        let layer = |l: Option<(EquipClip, f32, f32)>| l.and_then(|(c, phase, weight)| Some(Layer { clip: st.weapon_only.get(&c)?.clone(), phase, weight }));
-        player.layers[2] = layer(a);
-        player.layers[3] = layer(b);
-        self.rest(player);
+        self.set_layers(player, true);
     }
 
     /// The node the weapon should hang from now, if the skeleton has that bone.
     pub fn parent_node(&self) -> Option<usize> {
         let st = &self.stance;
-        st.bones.get(self.anim.parent(&st.holster, &st.drawn, &st.facts)).copied()
+        st.bones.get(self.anim.parent(&st.holster, &st.drawn, st.facts_for(self.crouched))).copied()
     }
 }
 
@@ -323,10 +430,11 @@ pub fn spawn_model(
 /// [hypothesis: animation.md §9.7].
 pub fn gun_shown(hold: &WeaponHold, name: &str, last: Option<bool>) -> bool {
     let c = hold.anim.stage.clip();
-    let track = hold.stance.clips.get(&c).and_then(|b| {
+    let facts = hold.stance.facts_for(hold.crouched);
+    let track = hold.stance.clip_for(c, hold.crouched, false).and_then(|b| {
         let (_, _, t) = b.clip.visibility.iter().find(|(n, ..)| n.eq_ignore_ascii_case(name))?;
-        let len = hold.stance.facts.get(&c).map_or(0.0, |f| f.duration);
-        t.at(b.clip.start + WeaponAnim::phase(c, hold.anim.time, &hold.stance.facts) * len)
+        let len = facts.get(&c).map_or(0.0, |f| f.duration);
+        t.at(b.clip.start + WeaponAnim::phase(c, hold.anim.time, facts) * len)
     });
     track.or(last).unwrap_or(true)
 }
@@ -365,7 +473,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None, holstered_off: Vec::new(), moves: Arc::default() })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), sneak_facts: facts.clone(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None, holstered_off: Vec::new(), moves: Arc::default(), folder: r"meshes\characters\_male".into(), sneak: BTreeMap::new(), sneak_weapon_only: BTreeMap::new() })
     }
 
     #[test]
@@ -397,6 +505,73 @@ mod tests {
         a.simulate(0.2);
         assert_eq!(a.anim.stage, Stage::Equipping);
         assert_eq!(a.parent_node(), Some(7));
+    }
+
+    #[test]
+    fn crouching_takes_the_crouched_clips_where_the_stance_has_them() {
+        let clip = |stop: f32| {
+            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new());
+            c.stop = stop;
+            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None })
+        };
+        // As `1hp*.kf` and `sneak1hp*.kf`: crouched forms of the equip, aim and unequip
+        // clips, none of the holster clip (actors.md §9.4).
+        let mut st = Arc::try_unwrap(stance()).ok().expect("one owner");
+        for c in EquipClip::ALL {
+            st.clips.insert(c, clip(st.facts[&c].duration));
+        }
+        for c in [EquipClip::Equip, EquipClip::Aim, EquipClip::Unequip] {
+            st.sneak.insert(c, clip(st.facts[&c].duration));
+        }
+        let mut w = WeaponHold::new(Arc::new(st), true, 7);
+        let mut player = BlendPlayer::new(vec![Entity::PLACEHOLDER; 10], Arc::new(vec![Transform::IDENTITY; 10]));
+        let shown = |w: &WeaponHold, player: &mut BlendPlayer| {
+            w.layers(player);
+            let is = |l: &Option<Layer>, c: &Arc<BoundClip>| l.as_ref().is_some_and(|l| Arc::ptr_eq(&l.clip, c));
+            let st = &w.stance;
+            let name = |l: &Option<Layer>| {
+                EquipClip::ALL.into_iter().find_map(|c| {
+                    if st.sneak.get(&c).is_some_and(|b| is(l, b)) {
+                        Some(format!("sneak {c:?}"))
+                    } else {
+                        st.clips.get(&c).filter(|b| is(l, b)).map(|_| format!("{c:?}"))
+                    }
+                })
+            };
+            (name(&player.layers[2]), name(&player.layers[3]))
+        };
+        w.step(1.0);
+        assert_eq!(shown(&w, &mut player), (Some("Aim".into()), None));
+        assert_eq!(w.crouched_clip_news(), None);
+        // Crouching with it drawn: the crouched aim fades in over the standing one.
+        assert!(w.set_crouched(true));
+        assert!(!w.set_crouched(true));
+        w.step(0.1);
+        assert_eq!(shown(&w, &mut player), (Some("sneak Aim".into()), Some("Aim".into())));
+        assert_eq!(w.crouched_clip_news(), Some((EquipClip::Aim, r"meshes\characters\_male\sneak1hpaim.kf".to_string())));
+        assert_eq!(w.crouched_clip_news(), None, "each file once");
+        w.step(0.2);
+        assert_eq!(shown(&w, &mut player), (Some("sneak Aim".into()), None));
+        // Putting it away crouched: the crouched unequip over the crouched aim, then the
+        // standing holster clip (no crouched one), the weapon at the hip.
+        w.drawn = false;
+        w.step(0.01);
+        assert_eq!(shown(&w, &mut player), (Some("sneak Unequip".into()), Some("sneak Aim".into())));
+        w.step(1.0);
+        w.step(0.3);
+        assert_eq!(w.anim.stage, Stage::Holstered);
+        assert_eq!(shown(&w, &mut player), (Some("Holster".into()), None));
+        assert_eq!(w.parent_node(), Some(3));
+        // Standing up holstered changes no clip: nothing fades.
+        assert!(w.set_crouched(false));
+        assert_eq!(w.anim.prev, None);
+        // Drawing standing, crouching half way: the draw goes on in the crouched equip.
+        w.drawn = true;
+        w.step(0.01);
+        w.step(0.1);
+        assert!(w.set_crouched(true));
+        assert_eq!(w.anim.stage, Stage::Equipping);
+        assert_eq!(shown(&w, &mut player), (Some("sneak Equip".into()), Some("Equip".into())));
     }
 
     #[test]
