@@ -787,7 +787,7 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
 - **Stairs on the landscape** do not exist in the data: the 89 landscape textures' Havok
   materials are 0 (10), 2 (47), 4 (12), 10 (3), 18 (7) and 19 (10), none a stairs code
   (64–127) [observed].
-- Not built: actors' jumps and landings (actors do not jump).
+- Not built: actors' jump and landing sounds (actors jump since 2026-10-20, actor-jumps.md; their footstep families are not played for it).
 
 ### 14.3 Objects' own sounds
 

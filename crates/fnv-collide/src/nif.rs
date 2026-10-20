@@ -491,6 +491,80 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
     out
 }
 
+/// The scene graph's nodes by block: each one's parent and local transform, the mesh
+/// root's taken as the identity (as in [`extract`]: a reference's transform stands in for
+/// it). Kept to put collision objects where a pose moves their nodes
+/// ([`NodeTree::pose_objects`]; the `XRGD` pose of placed clutter, dead-on-spawn.md §5.1).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NodeTree {
+    nodes: HashMap<usize, (Option<usize>, Similarity)>,
+}
+
+impl NodeTree {
+    pub fn new(file: &NifFile, dec: &Decoded) -> NodeTree {
+        let root = file.footer.roots.first().copied();
+        let nodes = scene_objects(file, dec)
+            .iter()
+            .filter(|o| o.is_node)
+            .map(|o| {
+                let local = if Some(o.block as i32) == root { Similarity::IDENTITY } else { Similarity::from_local(&o.transform) };
+                (o.block, (o.parent, local))
+            })
+            .collect();
+        NodeTree { nodes }
+    }
+
+    /// A tree from (block, parent, local transform) triples (tests, tools).
+    pub fn from_nodes(nodes: impl IntoIterator<Item = (usize, Option<usize>, Similarity)>) -> NodeTree {
+        NodeTree { nodes: nodes.into_iter().map(|(b, p, l)| (b, (p, l))).collect() }
+    }
+
+    /// Node `block`'s transform to the mesh root, the nodes in `locals` taking that rigid
+    /// transform under their parent instead of the file's (their scale kept). `None` for a
+    /// node not in the tree.
+    pub fn to_root(&self, block: usize, locals: &HashMap<usize, Iso>) -> Option<Similarity> {
+        let mut chain = vec![block];
+        let mut cur = self.nodes.get(&block)?.0;
+        while let Some(p) = cur {
+            if chain.len() > 256 || chain.contains(&p) {
+                break;
+            }
+            chain.push(p);
+            cur = self.nodes.get(&p).and_then(|n| n.0);
+        }
+        let mut acc = Similarity::IDENTITY;
+        for b in chain.iter().rev() {
+            let Some(&(_, mut local)) = self.nodes.get(b) else { continue };
+            if let Some(iso) = locals.get(b) {
+                local.iso = *iso;
+            }
+            acc = acc.compose(&local);
+        }
+        Some(acc)
+    }
+
+    /// Put `objects` (a model's solid collision objects, in [`extract`]'s order) in a pose:
+    /// object k's node takes `locals[k]` under its parent node, every other node keeps the
+    /// file's, and each object's node transform is worked out again along the chain (its
+    /// body offset and shapes unchanged; node scales are not touched, so the shapes' baked
+    /// scale still holds). Nothing changes and `false` is returned when the counts differ,
+    /// there are none, or an object's node is unnamed or not in the tree (the drawing's
+    /// rule: `clutter_pose.rs`).
+    pub fn pose_objects(&self, objects: &mut [crate::shape::CollisionObject], locals: &[Iso]) -> bool {
+        if objects.is_empty() || objects.len() != locals.len() || objects.iter().any(|o| o.node.is_none()) {
+            return false;
+        }
+        let by_node: HashMap<usize, Iso> = objects.iter().zip(locals).map(|(o, l)| (o.node_block, *l)).collect();
+        let Some(posed) = objects.iter().map(|o| self.to_root(o.node_block, &by_node)).collect::<Option<Vec<_>>>() else {
+            return false;
+        };
+        for (o, p) in objects.iter_mut().zip(posed) {
+            o.node_transform = p.iso;
+        }
+        true
+    }
+}
+
 /// Game units per stored Havok unit. [hypothesis for the engine's constant; observed:
 /// render extent / collision extent has a median of 6.99904 for every shape family over
 /// the 8,324 meshes with collision in `Fallout - Meshes.bsa` (collision.md §2), 0.014 %
@@ -576,6 +650,62 @@ impl crate::shape::CollisionObject {
 mod tests {
     use super::*;
     use crate::shape::Motion;
+
+    fn sim(t: [f32; 3]) -> Similarity {
+        Similarity { iso: Iso { translation: t, rotation: Iso::IDENTITY.rotation }, scale: 1.0 }
+    }
+
+    fn object(node_block: usize, at: [f32; 3]) -> crate::shape::CollisionObject {
+        crate::shape::CollisionObject {
+            node: Some(format!("n{node_block}")),
+            node_block,
+            node_transform: Iso { translation: at, rotation: Iso::IDENTITY.rotation },
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Dynamic,
+            layer: 0,
+            mass: 1.0,
+            friction: 0.0,
+            restitution: 0.0,
+            shape: crate::shape::Shape::Sphere { radius: 1.0 },
+            shell: 0.0,
+            material: None,
+        }
+    }
+
+    #[test]
+    fn posed_objects_follow_their_nodes_and_children_follow_parents() {
+        // Root 0 → torso 1 (body, standing 69 up) → neck 2 (no body, 40 along x) → head 3
+        // (body, 5 along x).
+        let tree = NodeTree::from_nodes([(0, None, Similarity::IDENTITY), (1, Some(0), sim([0.0, 0.0, 69.0])), (2, Some(1), sim([40.0, 0.0, 0.0])), (3, Some(2), sim([5.0, 0.0, 0.0]))]);
+        let mut objs = vec![object(1, [0.0, 0.0, 69.0]), object(3, [45.0, 0.0, 69.0])];
+        assert_eq!(tree.to_root(3, &HashMap::new()).unwrap().iso.translation, [45.0, 0.0, 69.0]);
+        // The torso lies at the reference's place turned 90° about z; the head keeps its
+        // place under the neck.
+        let quarter = Iso { translation: [0.0; 3], rotation: [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] };
+        let head = Iso { translation: [5.0, 0.0, 0.0], rotation: Iso::IDENTITY.rotation };
+        assert!(tree.pose_objects(&mut objs, &[quarter, head]));
+        assert_eq!(objs[0].node_transform, quarter);
+        let h = objs[1].node_transform.translation;
+        assert!((h[0]).abs() < 1e-5 && (h[1] - 45.0).abs() < 1e-5 && h[2].abs() < 1e-5, "{h:?}");
+        assert_eq!(objs[1].node_transform.rotation, quarter.rotation);
+        // One entry per object, every node known: otherwise nothing changes.
+        let before = objs.clone();
+        assert!(!tree.pose_objects(&mut objs, &[quarter]));
+        let mut stray = vec![object(9, [0.0; 3])];
+        assert!(!tree.pose_objects(&mut stray, &[quarter]));
+        assert_eq!(objs, before);
+    }
+
+    #[test]
+    fn a_scaled_parent_scales_the_posed_offset() {
+        let mut half = sim([0.0; 3]);
+        half.scale = 0.5;
+        let tree = NodeTree::from_nodes([(1, None, half), (2, Some(1), sim([10.0, 0.0, 0.0]))]);
+        let mut objs = vec![object(2, [5.0, 0.0, 0.0])];
+        let moved = Iso { translation: [0.0, 20.0, 0.0], rotation: Iso::IDENTITY.rotation };
+        assert!(tree.pose_objects(&mut objs, &[moved]));
+        assert_eq!(objs[0].node_transform.translation, [0.0, 10.0, 0.0]);
+    }
 
     #[test]
     fn quaternion_rotation() {

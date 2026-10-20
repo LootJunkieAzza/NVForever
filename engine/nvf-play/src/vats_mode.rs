@@ -24,17 +24,24 @@
 //!   reservations, [`VatsMode::reserved`]), spent per shot; outside the mode spent AP comes
 //!   back at `fActionPointsRestoreRate` × the maximum a second [hypothesis].
 //! - **Scripts** (§12): `fnv_game::Game::set_vats` each frame (GetVATSMode, GetVATSValue).
+//! - **Beyond single shots** (§16): an automatic weapon fires a burst a mark
+//!   (`fnv_combat::vats::Volley::bursts`); a melee or unarmed weapon marks within 5 m and,
+//!   firing, puts the player beside each mark and swings once (`fnv_combat::vats::MeleeRun`,
+//!   [`stand_beside`]; the swing is combat's own, [`VatsMode::take_swing`], landing on the mark,
+//!   [`VatsMode::melee_mark`]); a grenade or thrown weapon is thrown on the low arc that
+//!   lands on each mark (`crate::combat::fire`, `fnv_combat::vats::lob_dir`).
 //! - Any menu, death, a script disabling the fighting controls or the weapon leaving the
 //!   hand ends the mode (§9.3, §11.6). Nothing of it is saved (§11.7).
 //!
 //! Log lines (smoke tests read them): `vats mode: on (…)`, `vats mode: refused: …`,
 //! `vats mode: marked …`, `vats mode: mark refused: …`, `vats mode: unmarked …`,
-//! `vats mode: firing …`, `vats mode: shot k of n …`, `vats mode: off (…)`, and at exit
+//! `vats mode: firing …`, `vats mode: shot k of n …` (`burst`, `throw`, `swing` for the
+//! other kinds, and `closing on …` before a swing), `vats mode: off (…)`, and at exit
 //! `vats mode summary: …`.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use fnv_combat::vats::{restored_damage, MarkQueue, Refusal, Volley, VolleyEvent};
+use fnv_combat::vats::{restored_damage, AttackStyle, MarkQueue, MeleeAction, MeleeLimits, MeleeRun, Volley, VolleyEvent};
 use fnv_game::actor_values::ACTION_POINTS;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::FormId;
@@ -78,6 +85,38 @@ pub const AFTER_LAST: f32 = 0.3;
 /// How far the crosshair's ray looks for a target when the projectile has no range of
 /// its own, units [design].
 pub const REACH: f32 = 8192.0;
+/// How far from the eye a melee weapon's marks may be, units (§16.2) [design: owner
+/// 2026-10-20, "within 5 meters or so"; 5 m at 70 units a metre].
+pub const MELEE_MARK_REACH: f32 = 350.0;
+/// A melee mark is close enough to swing at within the weapon's reach plus this across
+/// the ground, units: the two bodies' radii (§16.2) [design].
+pub const CLOSE_SLACK: f32 = 64.0;
+/// The melee sequence's limits, game seconds (§16.2) [design]: the longest run at a mark,
+/// the longest a swing is waited for.
+pub const APPROACH_LIMIT: f32 = 2.5;
+pub const SWING_LIMIT: f32 = 2.0;
+/// Where a teleport looks for the ground: from this far above the spot to this far
+/// below, units [design].
+const TELEPORT_UP: f32 = 150.0;
+const TELEPORT_DOWN: f32 = 600.0;
+
+/// How far from a melee mark's point the player is put, across the ground: half the
+/// weapon's reach plus half [`CLOSE_SLACK`] (§16.2) [design].
+pub fn stand_off(reach: f32) -> f32 {
+    reach * 0.5 + CLOSE_SLACK * 0.5
+}
+
+/// The feet `off` units from `mark` across the ground, on the side of `feet` (on the
+/// player's line to it), at the mark's height (the ground is looked for from there).
+pub fn stand_beside(feet: [f32; 3], mark: [f32; 3], off: f32) -> [f32; 3] {
+    let (dx, dy) = (feet[0] - mark[0], feet[1] - mark[1]);
+    let len = (dx * dx + dy * dy).sqrt();
+    let (ux, uy) = if len > 1e-3 { (dx / len, dy / len) } else { (1.0, 0.0) };
+    [mark[0] + ux * off, mark[1] + uy * off, mark[2]]
+}
+
+/// Between two throws, game seconds (§16.3) [design].
+pub const THROW_INTERVAL: f32 = 0.35;
 /// A mark's "x": its size as a share of the screen width, and its colour [design, after
 /// the references: a small dark-red x].
 pub const MARK_SIZE: f32 = 0.019;
@@ -123,6 +162,27 @@ struct Spot {
 struct InHand {
     id: FormId,
     reach: f32,
+    style: AttackStyle,
+    /// A melee weapon's own reach, units.
+    melee_reach: f32,
+}
+
+/// How the marks are being spent (§9, §16).
+#[derive(Debug, Clone)]
+enum Run {
+    /// Shots, bursts or throws at fixed intervals.
+    Volley(Volley),
+    /// Close in and swing at each mark.
+    Melee(MeleeRun),
+}
+
+impl Run {
+    fn all_fired(&self) -> bool {
+        match self {
+            Run::Volley(v) => v.all_fired(),
+            Run::Melee(m) => m.all_fired(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -139,8 +199,15 @@ pub struct VatsMode {
     pub phase: Phase,
     queue: MarkQueue,
     spots: Vec<Spot>,
-    volley: Option<Volley>,
+    run: Option<Run>,
     weapon: Option<InHand>,
+    /// Marks whose attack has started (their AP spent).
+    started: usize,
+    /// A melee sequence: the swing due this frame (`crate::combat::melee` taps Use), the
+    /// mark being swung at, and the mark last teleported to.
+    swing_now: bool,
+    striking: Option<usize>,
+    closing: Option<usize>,
     /// Real seconds (`Time<Real>`) when marking began, and when the look began to go.
     entered_at: Option<f64>,
     left_at: Option<f64>,
@@ -179,12 +246,29 @@ impl VatsMode {
         self.shot.take()
     }
 
-    /// The AP the marks not yet fired hold.
+    /// A melee mark's swing is due now: `crate::combat::melee` taps Use once (§16.2).
+    pub fn take_swing(&mut self) -> bool {
+        std::mem::take(&mut self.swing_now)
+    }
+
+    /// The melee mark being swung at: its actor, its point now, and how close across the
+    /// ground it must be for the blow to land on it (the weapon's reach plus
+    /// [`CLOSE_SLACK`]) (§16.2).
+    pub fn melee_mark(&self) -> Option<(u32, [f32; 3], f32)> {
+        if self.phase != Phase::Firing {
+            return None;
+        }
+        let w = self.weapon.as_ref().filter(|w| w.style == AttackStyle::Melee)?;
+        let i = self.striking?;
+        Some((self.queue.marks().get(i)?.target.0, self.spots.get(i)?.point, w.melee_reach + CLOSE_SLACK))
+    }
+
+    /// The AP the marks not yet started hold.
     pub fn reserved(&self) -> f32 {
         if !self.active() {
             return 0.0;
         }
-        self.queue.cost * self.queue.len().saturating_sub(self.fired as usize) as f32
+        self.queue.cost * self.queue.len().saturating_sub(self.started) as f32
     }
 
     /// The clock's speed the mode asks for (`script::time_multiplier` multiplies it in).
@@ -206,7 +290,7 @@ impl VatsMode {
 
     /// The marks not yet fired, on the screen to draw.
     fn unfired(&self) -> impl Iterator<Item = &Spot> {
-        let skip = if self.phase == Phase::Firing { self.fired as usize } else { 0 };
+        let skip = if self.phase == Phase::Firing { self.started } else { 0 };
         self.spots.iter().skip(skip).take(if self.active() { usize::MAX } else { 0 })
     }
 
@@ -337,7 +421,11 @@ fn update(
         Some("the player died")
     } else if locks.fighting {
         Some("a script disabled fighting")
-    } else if v.active() && v.weapon.as_ref().map(|w| w.id) != combat.player_weapon().filter(|_| control.weapon_out) {
+    } else if v.active()
+        && !v.run.as_ref().is_some_and(Run::all_fired)
+        && v.weapon.as_ref().map(|w| w.id) != combat.player_weapon().filter(|_| control.weapon_out)
+    {
+        // (The last throw spends the last one carried: then the weapon goes, §16.3.)
         Some("the weapon left the hand")
     } else {
         None
@@ -346,7 +434,7 @@ fn update(
         (Phase::Off, _) => {
             regenerate(script.as_deref_mut(), &mut sim, combat.rules.ap_restore_rate, time.delta_secs());
             if keys.toggle {
-                try_enter(v, &combat, script.as_deref_mut(), &mut sim, playing && !dead && !locks.fighting, &mut hud, &mut sounds);
+                try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, playing && !dead && !locks.fighting, &mut hud, &mut sounds);
             }
         }
         (_, Some(why)) => end(v, why, &mut sounds),
@@ -356,7 +444,7 @@ fn update(
                 info!("vats mode: entering cancelled");
             } else if anim.ready && control.weapon_out {
                 v.phase = Phase::Off;
-                try_enter(v, &combat, script.as_deref_mut(), &mut sim, true, &mut hud, &mut sounds);
+                try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, true, &mut hud, &mut sounds);
             }
         }
         (Phase::Marking, None) => {
@@ -377,10 +465,18 @@ fn update(
                     info!("vats mode: nothing marked to fire");
                 } else {
                     v.phase = Phase::Firing;
-                    v.volley = Some(Volley::new(v.queue.len(), SHOT_INTERVAL, AFTER_LAST));
+                    let n = v.queue.len();
+                    let style = v.weapon.as_ref().map_or(AttackStyle::Single, |w| w.style);
+                    let (run, what) = match style {
+                        AttackStyle::Single => (Run::Volley(Volley::new(n, SHOT_INTERVAL, AFTER_LAST)), "shots"),
+                        AttackStyle::Burst { shots, interval } => (Run::Volley(Volley::bursts(n, shots, SHOT_INTERVAL, interval, AFTER_LAST)), "bursts"),
+                        AttackStyle::Thrown => (Run::Volley(Volley::new(n, THROW_INTERVAL, AFTER_LAST)), "throws"),
+                        AttackStyle::Melee => (Run::Melee(MeleeRun::new(n, MeleeLimits { approach: APPROACH_LIMIT, swing: SWING_LIMIT, after: AFTER_LAST })), "swings"),
+                    };
+                    v.run = Some(run);
                     sounds.looping(v, false);
                     sounds.play(v, "UIVATSReady");
-                    info!("vats mode: firing {} marked shots", v.queue.len());
+                    info!("vats mode: firing {n} marked {what}");
                 }
             } else if keys.mark {
                 mark(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &control, &mut hud, &mut sounds);
@@ -388,11 +484,15 @@ fn update(
         }
         (Phase::Firing, None) => {
             follow(v, &phys);
-            let event = v.volley.as_mut().and_then(|vo| vo.step(time.delta_secs()));
-            match event {
-                Some(VolleyEvent::Shot(i)) => shoot(v, i, script.as_deref_mut(), &mut sim, &mut player, &control),
-                Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
-                None => {}
+            let dt = time.delta_secs();
+            match v.run.as_mut() {
+                Some(Run::Volley(vo)) => match vo.step(dt) {
+                    Some(VolleyEvent::Shot { mark, round }) => shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut player, &control),
+                    Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
+                    None => {}
+                },
+                Some(Run::Melee(_)) => melee_step(v, dt, &combat, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds),
+                None => end(v, "nothing to fire", &mut sounds),
             }
         }
     }
@@ -419,7 +519,7 @@ fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, d
 
 /// V: start marking if the weapon and the AP allow (§3).
 #[allow(clippy::too_many_arguments)]
-fn try_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, allowed: bool, hud: &mut HudMessage, sounds: &mut Sounds) {
+fn try_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, gravity: f32, allowed: bool, hud: &mut HudMessage, sounds: &mut Sounds) {
     let ap = player_ap(script, sim);
     let refused = |v: &mut VatsMode, why: &str, hud: &mut HudMessage, sounds: &mut Sounds| {
         info!("vats mode: refused: {why}");
@@ -430,32 +530,35 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>
     if !allowed {
         return refused(v, "Fighting is not possible now.", hud, sounds);
     }
-    let w = match combat.vats_weapon() {
+    let w = match combat.vats_weapon(sim, gravity) {
         Ok(w) => w,
         Err(why) => return refused(v, why, hud, sounds),
     };
     let ap_now = ap.map_or(f32::INFINITY, |a| a.0);
     v.queue = MarkQueue::new(w.cost, w.rounds_per_shot, w.rounds);
-    if v.queue.check(ap_now) == Err(Refusal::ActionPoints) {
-        return refused(v, Refusal::ActionPoints.message(), hud, sounds);
+    // Not even one mark: no AP for it, or (a burst) not a whole burst loaded.
+    if let Err(r) = v.queue.check(ap_now) {
+        return refused(v, r.message(), hud, sounds);
     }
     v.phase = Phase::Marking;
     v.spots.clear();
-    v.volley = None;
+    v.run = None;
     v.fired = 0;
+    v.started = 0;
     v.spent = 0.0;
     v.entered_at = Some(v.now);
     v.left_at = None;
     v.stats.entered += 1;
-    info!(
-        "vats mode: on ({}, {:.0} AP a shot, {} rounds loaded, {} AP; at most {} marks)",
-        w.edid,
-        w.cost,
-        w.rounds,
-        ap.map_or_else(|| "unlimited".to_string(), |a| format!("{:.0}", a.0)),
-        v.queue.most(ap_now)
-    );
-    v.weapon = Some(InHand { id: w.id, reach: w.reach });
+    let ap_text = ap.map_or_else(|| "unlimited".to_string(), |a| format!("{:.0}", a.0));
+    let most = v.queue.most(ap_now);
+    // A single shot's line is as it was; the other kinds name themselves (§16).
+    match (w.style, w.style.label()) {
+        (_, None) => info!("vats mode: on ({}, {:.0} AP a shot, {} rounds loaded, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.rounds),
+        (AttackStyle::Melee, Some(kind)) => info!("vats mode: on ({}, {kind}, {:.0} AP a mark, reach {:.0}, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.melee_reach),
+        (AttackStyle::Thrown, Some(kind)) => info!("vats mode: on ({}, {kind}, {:.0} AP a mark, {} carried, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.rounds),
+        (_, Some(kind)) => info!("vats mode: on ({}, {kind}, {:.0} AP a mark, {} rounds loaded, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.rounds),
+    }
+    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach });
     sounds.play(v, "UIVATSEnter");
     sounds.looping(v, true);
 }
@@ -464,9 +567,12 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>
 fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     let was = v.phase;
     v.phase = Phase::Off;
-    v.volley = None;
+    v.run = None;
     v.shot = None;
     v.shooting = None;
+    v.swing_now = false;
+    v.striking = None;
+    v.closing = None;
     if matches!(was, Phase::Marking | Phase::Firing) {
         if was == Phase::Marking {
             sounds.looping(v, false);
@@ -564,22 +670,95 @@ fn mark(
     }
 }
 
-/// Fire mark `i` (§9.1): the view snaps to it, `crate::combat` fires at it this frame, its
-/// AP is spent.
-fn shoot(v: &mut VatsMode, i: usize, script: Option<&mut ScriptState>, sim: &mut SimState, player: &mut Player, control: &PlayerControl) {
-    let (Some(m), Some(s)) = (v.queue.marks().get(i).copied(), v.spots.get(i)) else { return };
-    let eye = player.eye();
-    (player.heading, player.pitch) = Crosshair::aim_at(control.crosshair.as_ref(), eye, s.point);
-    v.shot = Some(s.point);
+/// Fire round `round` of mark `i` (§9.1, §16.1, §16.3): the view snaps to it,
+/// `crate::combat` fires at it this frame (a throw on its arc); the mark's first round
+/// spends its AP.
+fn shoot(v: &mut VatsMode, i: usize, round: u32, script: Option<&mut ScriptState>, sim: &mut SimState, player: &mut Player, control: &PlayerControl) {
+    let Some(point) = v.spots.get(i).map(|s| s.point) else { return };
+    face(player, control, point);
+    v.shot = Some(point);
     v.shooting = Some(i);
     v.fired += 1;
     v.stats.shots += 1;
-    if let Some(rt) = script.and_then(|sc| sc.rt.as_mut()) {
-        with_world(rt, sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS, m.cost as f64));
-        v.spent += m.cost;
-        v.stats.ap_spent += m.cost;
+    if round > 0 {
+        debug!("vats mode: round {} of mark {}", round + 1, i + 1);
+        return;
     }
-    info!("vats mode: shot {} of {} at {} {} ({}), {:.0} AP spent", i + 1, v.queue.len(), s.name, m.target, s.part, m.cost);
+    let cost = start_mark(v, i, script, sim);
+    let (Some(m), Some(s)) = (v.queue.marks().get(i), v.spots.get(i)) else { return };
+    let n = v.queue.len();
+    match v.weapon.as_ref().map(|w| w.style) {
+        Some(AttackStyle::Burst { shots, .. }) => info!("vats mode: burst {} of {n} at {} {} ({}), {shots} shots, {cost:.0} AP spent", i + 1, s.name, m.target, s.part),
+        Some(AttackStyle::Thrown) => info!("vats mode: throw {} of {n} at {} {} ({}), {cost:.0} AP spent", i + 1, s.name, m.target, s.part),
+        _ => info!("vats mode: shot {} of {n} at {} {} ({}), {cost:.0} AP spent", i + 1, s.name, m.target, s.part),
+    }
+}
+
+/// The view snaps to `point`.
+fn face(player: &mut Player, control: &PlayerControl, point: [f32; 3]) {
+    let eye = player.eye();
+    (player.heading, player.pitch) = Crosshair::aim_at(control.crosshair.as_ref(), eye, point);
+}
+
+/// Mark `i`'s attack starts: its AP is spent (§7.2). The AP spent.
+fn start_mark(v: &mut VatsMode, i: usize, script: Option<&mut ScriptState>, sim: &mut SimState) -> f32 {
+    let Some(m) = v.queue.marks().get(i).copied() else { return 0.0 };
+    v.started = v.started.max(i + 1);
+    let Some(rt) = script.and_then(|sc| sc.rt.as_mut()) else { return 0.0 };
+    with_world(rt, sim, |rt| fnv_game::functions::add_actor_value_damage(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS, m.cost as f64));
+    v.spent += m.cost;
+    v.stats.ap_spent += m.cost;
+    m.cost
+}
+
+/// A melee sequence's frame (§16.2): the player is put beside the mark, swings at it, and
+/// the swing is waited for.
+#[allow(clippy::too_many_arguments)]
+fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &mut Player, control: &PlayerControl, sounds: &mut Sounds) {
+    let Some(Run::Melee(run)) = v.run.as_mut() else { return };
+    let i = run.current.min(run.marks.saturating_sub(1));
+    let eye = player.eye();
+    let across = v.spots.get(i).map_or(f32::INFINITY, |s| ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2)).sqrt());
+    let close = across <= v.weapon.as_ref().map_or(0.0, |w| w.melee_reach) + CLOSE_SLACK;
+    let action = run.step(dt, close, combat.player_swinging());
+    match action {
+        Some(MeleeAction::Approach(i)) => {
+            let Some(s) = v.spots.get(i) else { return };
+            let p = s.point;
+            // Once a mark: the player is put on the ground between where they stand and
+            // the mark, `stand_off` from it across the ground (owner 2026-10-20: "a
+            // teleport to target and attack").
+            if v.closing != Some(i) {
+                v.closing = Some(i);
+                let reach = v.weapon.as_ref().map_or(0.0, |w| w.melee_reach);
+                let feet = stand_beside(player.feet, p, stand_off(reach));
+                phys.place_player(feet, TELEPORT_UP, TELEPORT_DOWN);
+                player.feet = phys.prev_feet;
+                info!("vats mode: teleported to {} {} ({}), {across:.0} units away, now {:.0}", s.name, v.queue.marks()[i].target, s.part, stand_off(reach));
+            }
+            face(player, control, p);
+        }
+        Some(MeleeAction::Swing(i)) => {
+            let Some(p) = v.spots.get(i).map(|s| s.point) else { return };
+            face(player, control, p);
+            v.swing_now = true;
+            v.striking = Some(i);
+            v.shooting = Some(i);
+            v.fired += 1;
+            v.stats.shots += 1;
+            let cost = start_mark(v, i, script, sim);
+            let (m, s) = (v.queue.marks()[i], &v.spots[i]);
+            info!("vats mode: swing {} of {} at {} {} ({}), {across:.0} units across, {cost:.0} AP spent", i + 1, v.queue.len(), s.name, m.target, s.part);
+        }
+        // The view stays on the mark being swung at.
+        Some(MeleeAction::Wait(i)) => {
+            if let Some(p) = v.spots.get(i).map(|s| s.point).filter(|_| v.striking == Some(i)) {
+                face(player, control, p);
+            }
+        }
+        Some(MeleeAction::Done) => end(v, "all shots fired", sounds),
+        None => {}
+    }
 }
 
 /// GetVATSMode and GetVATSValue's view of the mode (§12).
@@ -665,7 +844,7 @@ impl Plugin for VatsModePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VatsMode>()
             .add_systems(Startup, spawn_marks)
-            .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).before(PlaySet::Physics))
+            .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).after(crate::player::encumbered_walks).before(PlaySet::Physics))
             .add_systems(Update, update.in_set(PlaySet::Activation).before(crate::combat::fire))
             .add_systems(Update, draw_marks.after(PlaySet::Activation))
             .add_systems(Last, report);
@@ -726,9 +905,39 @@ mod tests {
         v.queue.push(FormId(2), Some(1), 92.0).unwrap();
         assert_eq!(v.reserved(), 52.0);
         v.phase = Phase::Firing;
-        v.fired = 1;
+        v.started = 1;
         assert_eq!(v.reserved(), 26.0);
         v.phase = Phase::Off;
         assert_eq!(v.reserved(), 0.0);
+    }
+
+    #[test]
+    fn a_melee_teleport_lands_beside_the_mark_on_the_players_side() {
+        // A machete: reach 150 × 0.5 = 75; put 69.5 units from the mark, within reach + slack.
+        let off = stand_off(75.0);
+        assert!((off - 69.5).abs() < 1e-4);
+        assert!(off <= 75.0 + CLOSE_SLACK);
+        let feet = stand_beside([300.0, 0.0, 10.0], [0.0, 0.0, 40.0], off);
+        assert_eq!(feet, [69.5, 0.0, 40.0]);
+        // Standing on the mark: put to one side all the same.
+        let feet = stand_beside([5.0, 5.0, 0.0], [5.0, 5.0, 0.0], 50.0);
+        assert!((((feet[0] - 5.0).powi(2) + (feet[1] - 5.0).powi(2)).sqrt() - 50.0).abs() < 1e-4);
+        // The owner's 5 m at 70 units a metre.
+        assert_eq!(MELEE_MARK_REACH, 350.0);
+    }
+
+    #[test]
+    fn the_melee_mark_is_the_one_being_swung_at_while_firing() {
+        let mut v = VatsMode { phase: Phase::Firing, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
+        v.queue.push(FormId(7), None, 92.0).unwrap();
+        v.spots.push(Spot { point: [1.0, 2.0, 3.0], name: "dog".into(), part: "whole".into(), condition: None });
+        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0 });
+        assert_eq!(v.melee_mark(), None, "no swing yet");
+        v.striking = Some(0);
+        assert_eq!(v.melee_mark(), Some((7, [1.0, 2.0, 3.0], 75.0 + CLOSE_SLACK)));
+        v.swing_now = true;
+        assert!(v.take_swing() && !v.take_swing(), "one tap");
+        v.weapon.as_mut().unwrap().style = AttackStyle::Thrown;
+        assert_eq!(v.melee_mark(), None, "a throw is no blow");
     }
 }

@@ -23,6 +23,10 @@ pub struct PathParams {
     pub doors: bool,
     /// Whether ledge links may be used (drops down and climbs up a ledge).
     pub ledges: bool,
+    /// The highest ledge-up link used, game units from the middle of its edge to the
+    /// landing triangle's centre: what the actor's jump reaches
+    /// ([`crate::jump::LEDGE_RISE_MAX`]).
+    pub ledge_rise_max: f32,
     /// Cost per unit across triangles flagged "Preferred", relative to 1 elsewhere.
     pub preferred_cost: f32,
     /// Cost per unit across water triangles.
@@ -51,6 +55,7 @@ impl Default for PathParams {
             large: false,
             doors: true,
             ledges: false,
+            ledge_rise_max: crate::jump::LEDGE_RISE_MAX,
             preferred_cost: 0.85,
             water_cost: 3.0,
             door_cost: 256.0,
@@ -83,6 +88,18 @@ pub struct Leg {
     /// Doors that open in place on the way, in order: where the actor stops to open each
     /// ([`NavGraph::door_stops`]).
     pub door_stops: Vec<DoorStop>,
+    /// Ledge links crossed on the way, in order: the actor takes off at one point and
+    /// lands at the next (`crate::jump`).
+    pub hops: Vec<LedgeHop>,
+}
+
+/// A ledge link a leg crosses: from [`Leg::points`]`[point]`, on the top edge (a drop)
+/// or below it (a climb), to `points[point + 1]` on the triangle the link names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct LedgeHop {
+    pub point: usize,
+    /// A ledge-up link (a climb) rather than a ledge-down one (a drop).
+    pub up: bool,
 }
 
 /// A stop in front of a door that opens in place.
@@ -196,6 +213,23 @@ fn dist(a: [f32; 3], b: [f32; 3]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
 
+/// A leg being assembled from its pieces ([`NavGraph::legs_of`]).
+#[derive(Default)]
+struct LegBuild {
+    points: Vec<[f32; 3]>,
+    corridor: Vec<u32>,
+    stops: Vec<DoorStop>,
+    hops: Vec<LedgeHop>,
+}
+
+/// Where a piece of a leg starts: the point, its triangle, and the index in the leg's
+/// corridor of the piece's first triangle.
+struct Piece {
+    start: [f32; 3],
+    start_tri: u32,
+    first: usize,
+}
+
 impl NavGraph {
     /// Whether a path may step from triangle `t` over edge `e`.
     fn passable(&self, t: u32, e: usize, p: &PathParams) -> Option<u32> {
@@ -206,7 +240,8 @@ impl NavGraph {
         }
         match tri.kind[e] {
             EdgeKind::Internal | EdgeKind::Portal => {}
-            EdgeKind::LedgeUp | EdgeKind::LedgeDown if p.ledges => {}
+            EdgeKind::LedgeDown if p.ledges => {}
+            EdgeKind::LedgeUp if p.ledges && self.ledge_rise(t, e) <= p.ledge_rise_max => {}
             _ => return None,
         }
         if p.large && self.tris[n as usize].has(tri_flags::NO_LARGE_CREATURES) {
@@ -221,6 +256,50 @@ impl NavGraph {
             return None;
         }
         Some(n)
+    }
+
+    /// How far a ledge link (edge `e` of `t`) rises: from the middle of the edge to the
+    /// centre of the triangle beyond (negative for a drop), as navmesh.md §3 measures.
+    pub fn ledge_rise(&self, t: u32, e: usize) -> f32 {
+        let (l, r) = self.portal(t, e);
+        self.centre(self.tris[t as usize].next[e])[2] - (l[2] + r[2]) / 2.0
+    }
+
+    /// Where an actor crossing ledge link `e` of `t` takes off and lands: the middle of
+    /// the edge (kept `radius` from its outline ends), and the point of the triangle
+    /// beyond nearest to it seen from above, moved `radius` towards that triangle's
+    /// centre [design].
+    pub fn ledge_ends(&self, t: u32, e: usize, radius: f32) -> ([f32; 3], [f32; 3]) {
+        let (l, r) = self.shrunk_portal(t, e, radius);
+        let off = lerp(l, r, 0.5);
+        let n = self.tris[t as usize].next[e];
+        let c = self.centre(n);
+        let near = self.nearest_on_tri_xy(n, off);
+        let d = (c[0] - near[0]).hypot(c[1] - near[1]);
+        let s = if d > 1e-4 { (radius / d).min(1.0) } else { 0.0 };
+        let (x, y) = (near[0] + (c[0] - near[0]) * s, near[1] + (c[1] - near[1]) * s);
+        (off, [x, y, self.height_on(n, x, y)])
+    }
+
+    /// The point of triangle `t` nearest to `p` seen from above (its height on the plane).
+    fn nearest_on_tri_xy(&self, t: u32, p: [f32; 3]) -> [f32; 3] {
+        if self.contains_xy(t, p[0], p[1]) {
+            return [p[0], p[1], self.height_on(t, p[0], p[1])];
+        }
+        let c = self.corners(t);
+        let mut best = (f32::MAX, c[0]);
+        for k in 0..3 {
+            let (a, b) = (c[k], c[(k + 1) % 3]);
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let len2 = dx * dx + dy * dy;
+            let s = if len2 > 1e-8 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+            let q = lerp(a, b, s);
+            let d = (q[0] - p[0]).hypot(q[1] - p[1]);
+            if d < best.0 {
+                best = (d, q);
+            }
+        }
+        best.1
     }
 
     fn cost_factor(&self, t: u32, p: &PathParams) -> f32 {
@@ -474,36 +553,62 @@ impl NavGraph {
         Ok((chain, expanded))
     }
 
-    /// Split a chain of triangles into legs at doors, and pull each leg tight.
+    /// Split a chain of triangles into legs at doors, and pull each leg tight. A ledge
+    /// link splits a leg into pieces pulled tight apart: one ends where the actor takes
+    /// off, the next starts where it lands ([`LedgeHop`]).
     fn legs_of(&self, chain: &[(u32, Via)], s_at: [f32; 3], g_at: [f32; 3], from_space: Space, to_space: Space, p: &PathParams) -> Vec<Leg> {
         let mut legs = Vec::new();
-        let mut leg_start = s_at;
-        let mut corridor: Vec<u32> = Vec::new();
+        let mut leg = LegBuild::default();
+        let mut piece = Piece { start: s_at, start_tri: chain.first().map_or(NONE, |c| c.0), first: 0 };
         let mut portals: Vec<([f32; 3], [f32; 3])> = Vec::new();
         for (i, &(t, _)) in chain.iter().enumerate() {
-            corridor.push(t);
+            leg.corridor.push(t);
             let next = chain.get(i + 1);
             match next.map(|n| n.1) {
-                Some(Via::Edge(_, e)) => portals.push(self.shrunk_portal(t, e as usize, p.radius)),
+                Some(Via::Edge(_, e)) => {
+                    let kind = self.tris[t as usize].kind[e as usize];
+                    if matches!(kind, EdgeKind::LedgeUp | EdgeKind::LedgeDown) {
+                        let (off, land) = self.ledge_ends(t, e as usize, p.radius);
+                        let space = self.space_of_tri(t).unwrap_or(from_space);
+                        self.add_piece(&mut leg, space, &piece, off, &portals, p);
+                        leg.hops.push(LedgeHop { point: leg.points.len() - 1, up: kind == EdgeKind::LedgeUp });
+                        portals.clear();
+                        let n = self.tris[t as usize].next[e as usize];
+                        piece = Piece { start: land, start_tri: n, first: leg.corridor.len() };
+                    } else {
+                        portals.push(self.shrunk_portal(t, e as usize, p.radius));
+                    }
+                }
                 Some(Via::Door(_, di)) => {
                     let d = self.doors[&t][di];
-                    let end = self.door_approach(t, leg_start, p.radius);
+                    let end = self.door_approach(t, piece.start, p.radius);
                     let space = self.space_of_tri(t).unwrap_or(from_space);
-                    let points = self.shortcut(space, corridor[0], funnel(leg_start, end, &portals), p);
-                    let (points, door_stops) = self.door_stops(space, &corridor, points, p);
-                    legs.push(Leg { space, points, corridor: std::mem::take(&mut corridor), door: Some(d), door_stops });
+                    self.add_piece(&mut leg, space, &piece, end, &portals, p);
+                    let b = std::mem::take(&mut leg);
+                    legs.push(Leg { space, points: b.points, corridor: b.corridor, door: Some(d), door_stops: b.stops, hops: b.hops });
                     portals.clear();
-                    leg_start = d.arrival;
+                    piece = Piece { start: d.arrival, start_tri: next.map_or(NONE, |n| n.0), first: 0 };
                 }
                 Some(Via::Start) => unreachable!("only the first triangle has no predecessor"),
                 None => {
-                    let points = self.shortcut(to_space, corridor[0], funnel(leg_start, g_at, &portals), p);
-                    let (points, door_stops) = self.door_stops(to_space, &corridor, points, p);
-                    legs.push(Leg { space: to_space, points, corridor: std::mem::take(&mut corridor), door: None, door_stops });
+                    self.add_piece(&mut leg, to_space, &piece, g_at, &portals, p);
+                    let b = std::mem::take(&mut leg);
+                    legs.push(Leg { space: to_space, points: b.points, corridor: b.corridor, door: None, door_stops: b.stops, hops: b.hops });
                 }
             }
         }
         legs
+    }
+
+    /// Pull one piece of a leg tight (from `piece.start` to `end` through `portals`) and
+    /// add it to the leg, with the door stops on it.
+    fn add_piece(&self, leg: &mut LegBuild, space: Space, piece: &Piece, end: [f32; 3], portals: &[([f32; 3], [f32; 3])], p: &PathParams) {
+        let start_tri = if piece.start_tri != NONE { piece.start_tri } else { leg.corridor[piece.first] };
+        let points = self.shortcut(space, start_tri, funnel(piece.start, end, portals), p);
+        let (points, stops) = self.door_stops(space, &leg.corridor[piece.first..], points, p);
+        let base = leg.points.len();
+        leg.stops.extend(stops.into_iter().map(|s| DoorStop { door: s.door, point: s.point + base }));
+        leg.points.extend(points);
     }
 
     /// Stops in front of the doors that open in place a leg's polyline enters, in order.
