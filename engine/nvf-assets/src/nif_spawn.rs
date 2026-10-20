@@ -95,6 +95,9 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// BSShaderFlags bit 19 "Dynamic_Alpha" [documented: nif.xml] on a
+    /// BSShaderNoLightingProperty ([`shape_alpha_mode`]).
+    dynamic_alpha: bool,
     /// BSShaderFlags bit 18 "Hair" [documented: nif.xml].
     pub(crate) hair: bool,
     /// The shader property's type is [`SHADER_SKIN`]: the shape is an actor's skin.
@@ -116,6 +119,8 @@ pub(crate) struct Props {
     /// black, as the radios' dials store black and light up by their "Open" sequence
     /// (docs/spec-notes/activators.md §2).
     pub(crate) animated_emissive: bool,
+    /// A clip of the model drives the shape's material alpha ([`shape_alpha_mode`]).
+    pub(crate) animated_alpha: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -256,6 +261,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = uses_vertex_alpha(ty, flags);
+        p.dynamic_alpha = ty == "BSShaderNoLightingProperty" && flags & (1 << 19) != 0;
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
@@ -358,12 +364,23 @@ pub(crate) const LOD_BUILDING_CUT: f32 = 128.5 / 255.0;
 /// in `Fallout - Meshes.bsa` set the flag (no other shape does) and none has a
 /// NiAlphaProperty, yet their atlases carry cut-outs in alpha (trees, pylons, the water
 /// tower's legs: 14% of `WastelandNV.Buildings.dds` is alpha 0, near black in colour);
-/// drawn opaque those were black boxes on the hills around Goodsprings]. Everything else
-/// without the property is opaque.
+/// drawn opaque those were black boxes on the hills around Goodsprings]. An unlit shape
+/// whose shader sets "Dynamic_Alpha" (bit 19) and whose alpha a clip of its model drives
+/// is blended by its alpha [hypothesis,
+/// docs/spec-notes/explosion-effects.md §9: of the 257 weapon effect models only two
+/// shapes have no NiAlphaProperty and an unlit shader with the flag, the Fat Man
+/// explosion's mushroom-cloud card `SmokeGeo:0` (`explosionlarge01.nif`) and `WhiteBG:0`
+/// of `explosionincendiarygrenade.nif`, and both are faded in and out by alpha tracks
+/// from a stored alpha of 0; drawn opaque the mushroom stood whole for 5 s (owner,
+/// 2026-10-20). In the base mesh archives 29 more shapes have such a shader and no
+/// NiAlphaProperty (Lucky 38's light glows, terminal screens, Mr. House's screens), whose
+/// alpha no clip fades; they stay as they were checked, opaque]. Everything else without
+/// the property is opaque.
 pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
     match props.alpha {
         Some((flags, threshold)) => alpha_mode(flags, threshold),
         None if props.lod_building => AlphaMode::Mask(LOD_BUILDING_CUT),
+        None if props.unlit && props.dynamic_alpha && props.animated_alpha => AlphaMode::Blend,
         None => AlphaMode::Opaque,
     }
 }
@@ -887,6 +904,13 @@ mod tests {
         assert!(matches!(shape_alpha_mode(&Props { alpha: Some((0x12ED, 0)), ..block.clone() }), AlphaMode::Blend));
         assert!(matches!(shape_alpha_mode(&Props { lod_building: false, ..block }), AlphaMode::Opaque));
         assert!(matches!(shape_alpha_mode(&Props { alpha: Some((4844, 64)), ..Default::default() }), AlphaMode::Mask(_)));
+        // An unlit shape with "Dynamic_Alpha", faded by a clip and without a NiAlphaProperty
+        // blends (the Fat Man's mushroom card); otherwise it stays opaque.
+        let card = Props { shader: true, has_properties: true, unlit: true, dynamic_alpha: true, animated_alpha: true, ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&card), AlphaMode::Blend));
+        assert!(matches!(shape_alpha_mode(&Props { animated_alpha: false, ..card.clone() }), AlphaMode::Opaque));
+        assert!(matches!(shape_alpha_mode(&Props { dynamic_alpha: false, ..card.clone() }), AlphaMode::Opaque));
+        assert!(matches!(shape_alpha_mode(&Props { unlit: false, ..card }), AlphaMode::Opaque));
     }
 
     #[test]

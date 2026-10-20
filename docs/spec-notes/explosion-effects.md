@@ -195,3 +195,32 @@ script over `fnvtool nif decode`; supported types taken from the code of
 Texture paths written absolute in five Old World Blues projectiles and a Honest Hearts
 muzzle flash (`d:\projects\fallout\game\data\textures\...`) resolve: `fnv_vfs::texture_path`
 keeps what follows `\textures\`.
+
+## 9. Unlit cards without an alpha property [2026-10-20]
+
+The owner saw the Fat Man leave "a white mushroom cloud shape" behind.
+
+- **The file** [observed, `fnvtool nif decode` of `meshes\effects\explosionlarge01.nif`, the
+  model of `FatManNukeExplosion`, also of `SatcomNukeExplosion`, `vHDHooverDamExplosion` and
+  others]: a billboard `SmokeGeo` with one shape `SmokeGeo:0`, a mushroom-cloud card
+  (`FXNukeCloud02.dds`) under a `BSShaderNoLightingProperty` with shader flags 0x82080148
+  (bits 3 "Vertex_Alpha" and 19 "Dynamic_Alpha" among them [documented: nif.xml
+  BSShaderFlags]), a `NiMaterialProperty` with alpha 0, and no `NiAlphaProperty`. The
+  sequence shows `SmokeGeo` until 4.97 s and keys its alpha 0 until 1.3 s, 0.99 at 1.77 s,
+  0.96 at 3.8 s, 0 at 4.9 s.
+- Without an `NiAlphaProperty` the shape was drawn opaque, so the alpha keys did nothing
+  and the card stood whole from the burst until 4.97 s.
+- **Census** [observed]: of the 257 weapon effect models only two shapes have an unlit
+  shader with Dynamic_Alpha and no `NiAlphaProperty`: `SmokeGeo:0` and `WhiteBG:0` of
+  `explosionincendiarygrenade.nif`, and alpha tracks fade both from a stored alpha of 0.
+  In the base mesh archives 29 more shapes have such a shader without the property
+  (Lucky 38's light glows, `terminal01.nif`'s screen and keyboard, Mr. House's screens,
+  the Purity tank fog); no clip drives their alpha.
+- **Rule** [hypothesis]: an unlit shape with Dynamic_Alpha whose alpha a clip of its model
+  drives is drawn blended (source alpha, inverse source alpha); the others stay opaque as
+  they were checked against the owner's frames. Reading: a fade keyed from 0 to 1 and
+  back only means something if the shape blends.
+- Smoke `fatman-mushroom`: frames before, during and after the card's time.
+- The Fat Man file's mesh emitters emit from two hidden mushroom-shaped meshes
+  (`pCloudSkyEmit01:0`, `pCloudGroundEmit02:0`, Hidden flag set, no texture); they are
+  never drawn (§8: mesh emitters belong to the particles session).

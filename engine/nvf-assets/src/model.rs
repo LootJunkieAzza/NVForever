@@ -755,6 +755,13 @@ impl ModelCtx<'_> {
             .chain(effect.iter())
             .flat_map(|c| c.materials.iter().filter(|m| matches!(m.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult)).map(|m| m.shape.clone()))
             .collect();
+        let alpha_shapes: HashSet<String> = idle
+            .iter()
+            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .chain(groups.iter())
+            .chain(effect.iter())
+            .flat_map(|c| c.materials.iter().filter(|m| m.target == MaterialTarget::Alpha).map(|m| m.shape.clone()))
+            .collect();
         // Nodes a clip of the rig shows and hides (`NiVisController`): their shapes are
         // built even when the file hides them, and spawn hidden in the rig.
         let vis_nodes: HashSet<String> = idle
@@ -832,6 +839,7 @@ impl ModelCtx<'_> {
             let mut props = shape_props(&file, &dec, o, &by_block);
             let shape_name = o.name.clone().unwrap_or_default();
             props.animated_emissive = emissive_shapes.contains(&shape_name);
+            props.animated_alpha = alpha_shapes.contains(&shape_name);
             if props.is_helper() {
                 continue;
             }
