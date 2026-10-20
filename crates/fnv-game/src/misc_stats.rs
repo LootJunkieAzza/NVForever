@@ -82,6 +82,7 @@ pub const HAVE_LIMBS_CRIPPLED: u16 = 30;
 pub const ITEMS_CRAFTED: u16 = 32;
 pub const ITEMS_REPAIRED: u16 = 34;
 pub const TOTAL_THINGS_KILLED: u16 = 35;
+pub const DISMEMBERED_LIMBS: u16 = 36;
 pub const BARTER_AMOUNT_TRADED: u16 = 39;
 pub const ROULETTE_GAMES_PLAYED: u16 = 40;
 pub const CARAVAN_GAMES_WON: u16 = 37;
@@ -89,7 +90,7 @@ pub const CARAVAN_GAMES_LOST: u16 = 38;
 pub const BLACKJACK_GAMES_PLAYED: u16 = 41;
 
 /// The codes the rules or the engine count (the others only ModPCMiscStat changes).
-pub const COUNTED: [u16; 28] = [
+pub const COUNTED: [u16; 29] = [
     QUESTS_COMPLETED,
     LOCATIONS_DISCOVERED,
     PEOPLE_KILLED,
@@ -113,6 +114,7 @@ pub const COUNTED: [u16; 28] = [
     ITEMS_CRAFTED,
     ITEMS_REPAIRED,
     TOTAL_THINGS_KILLED,
+    DISMEMBERED_LIMBS,
     CARAVAN_GAMES_WON,
     CARAVAN_GAMES_LOST,
     BARTER_AMOUNT_TRADED,

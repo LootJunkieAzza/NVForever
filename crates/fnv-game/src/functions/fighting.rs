@@ -177,6 +177,28 @@ pub fn get_cause_of_death(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, S
     Ok(Value::Num(cause_code(record_type) as f64))
 }
 
+/// `actor.IsLimbGone limb [last]`: 1 when the body part at location `limb` (GetHitLocation's
+/// numbering), or any from `limb` to `last`, has been severed or exploded [documented: GECK
+/// wiki IsLimbGone] (`RefExtra::limbs_gone`, docs/spec-notes/dismemberment.md §5).
+pub fn is_limb_gone(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let first = a.int(0)?;
+    let last = a.int(1).unwrap_or(first);
+    let (lo, hi) = (first.min(last), first.max(last));
+    yes(g.extra.get(&r).is_some_and(|e| e.limbs_gone.range(lo..=hi).next().is_some()))
+}
+
+/// `actor.GetKillingBlowLimb`: the location of the hit that killed the actor, −1 while it
+/// lives or when no hit killed it [documented: GECK wiki GetKillingBlowLimb]. The last hit
+/// recorded is the killing one: hits on a corpse are not recorded (`Game::hit`).
+pub fn get_killing_blow_limb(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    if !g.is_dead(r) {
+        return Ok(Value::Num(-1.0));
+    }
+    Ok(Value::Num(g.extra.get(&r).and_then(|e| e.last_hit).map_or(-1, |h| h.location) as f64))
+}
+
 /// `actor.GetArmorRating`: the total damage resistance of the armour the actor has
 /// equipped [documented: catalogue summary]: the sum of the equipped ARMO's DNAM DR
 /// (stored × 100, [documented: xEdit wbDiv(100)]), rounded down [hypothesis: an
