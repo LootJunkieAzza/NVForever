@@ -892,7 +892,10 @@ fn ensure_body(
         }
         let model = w.and_then(|w| w.model_for(rig.view == View::First, weapon_mods));
         let (Some(path), Some(node)) = (model.map(fnv_actor::resolve::mesh_path), rig.weapon_node) else { continue };
-        match models.model(&path) {
+        // In the arms rig's hands the weapon wears its `1stperson` textures where it has
+        // them (`nvf_assets::texture::first_person_texture`).
+        let pm = if rig.view == View::First { models.model_first_person(&path) } else { models.model(&path) };
+        match pm {
             Some(pm) => {
                 let holder = commands.spawn((Name::new(format!("Player weapon {path}")), Transform::IDENTITY, Visibility::Inherited)).id();
                 commands.entity(rig.animator.nodes[node]).add_child(holder);

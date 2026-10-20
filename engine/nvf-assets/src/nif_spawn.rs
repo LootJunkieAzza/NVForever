@@ -74,6 +74,21 @@ pub(crate) fn affine(t: &NifTransform) -> Affine3A {
     Affine3A::from_mat3_translation(m * t.scale, Vec3::from_array(t.translation))
 }
 
+impl Props {
+    /// Name the first-person form of each texture that has one
+    /// (`crate::texture::first_person_texture`); the number named anew.
+    pub(crate) fn use_first_person_textures(&mut self, exists: impl Fn(&str) -> bool) -> usize {
+        let mut n = 0;
+        for t in self.textures.iter_mut().chain(self.glow.as_mut()) {
+            if let Some(first) = crate::texture::first_person_texture(t, &exists) {
+                *t = first;
+                n += 1;
+            }
+        }
+        n
+    }
+}
+
 /// Rendering-relevant properties accumulated from an object and its ancestors.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Props {
