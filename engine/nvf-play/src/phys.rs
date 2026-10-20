@@ -234,6 +234,10 @@ pub struct NpcBody {
     pub prev_feet: [f32; 3],
     /// Wanted horizontal velocity (x, y), game units per second.
     pub velocity: [f32; 2],
+    /// Jump at the next physics step (taken only standing on the ground, as the
+    /// player's; cleared once stepped): an actor jumping a ledge or an obstacle
+    /// (docs/spec-notes/actor-jumps.md).
+    pub jump: bool,
     /// How far below the feet the body is drawn ([`drawn_sink`]), as of the last
     /// physics step.
     pub sink: f32,
@@ -1012,7 +1016,7 @@ impl PhysState {
         let start = [feet[0], feet[1], hit.point[2] + params.rest_gap(hit.shell)];
         let mut ch = self.world.add_character(id, params, start);
         ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
-        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], sink: 0.0 };
+        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], jump: false, sink: 0.0 };
         b.sink = drawn_sink(&b.ch, self.drawn_ground(&b.ch));
         self.npcs.insert(id, b);
         true

@@ -28,7 +28,7 @@ extensive testing"]:
 | 8 | stagger: "staggered by an npc that is blocking" | a blocked blow's recoil |
 | 9 | reload | any reload, round by round included |
 | 10–11 | dodge, wait for lower body ("may be left overs") | never: no observer sample read them [observed] |
-| 12 | wait for special idle | the player's landing clip after a jump or fall [hypothesis; observed: the player read 12 after a jump, below] |
+| 12 | wait for special idle | the player's landing clip after a jump or fall [hypothesis; observed: the player read 12 after a jump, below]; an NPC's or creature's landing clip the same (actor-jumps.md §5) [hypothesis: no NPC was seen landing] |
 | 13 | "every action not included above": furniture, PlayIdle idles, crippled-limb staggers, getting up | PlayIdle and package begin/end/change idles, cowering, PlayGroup groups, crippled-limb staggers, a jam (player) |
 | 17 | not in the table | a round-by-round reload (.357 revolver, lever-actions, hunting shotgun) while its opening clip plays, player and NPCs [hypothesis, below] |
 

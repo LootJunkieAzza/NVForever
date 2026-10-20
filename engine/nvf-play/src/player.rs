@@ -1066,7 +1066,7 @@ fn step(
         // The actors another system walks, by the velocity it gave each.
         for (b, v) in p.npcs.values_mut().zip(walking) {
             b.prev_feet = b.ch.feet;
-            p.world.move_character(&mut b.ch, CharacterInput { velocity: v, ..Default::default() });
+            p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
         }
         p.world.step();
         status.record(&s, p.prev_feet, [vx, vy], dt);

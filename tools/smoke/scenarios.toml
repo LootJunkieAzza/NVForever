@@ -5553,3 +5553,19 @@ expect = [
   { re = 'mines: [1-9]\d* live mine\(s\) in the loaded cells', label = "it counts as a live mine" },
 ]
 forbid = [{ re = 'mines: 0x00000014 sets off mine 0xFF', label = "the player sets off its own mine" }]
+
+[[scenario]]
+name = "actor-jumps"
+source = "docs/spec-notes/actor-jumps.md §3.1: an NPC whose path goes over a navmesh ledge link drops off it in an arc and lands, its body playing the jump loop and the landing"
+note = "Easy Pete (EasyPeteRef) is set off from (-63600, -18250) above the drop down at (-63042, -18384), one of the three ledge links within 25,000 units of Goodsprings, with --npc-ledges (without them the way round is about 2,600 units). An --npc-travel walker flies the arc itself (no physics); the drawn body plays JumpLoop... then JumpLand..."
+areas = ["nav", "actors"]
+paths = ["crates/fnv-nav/src/jump.rs", "crates/fnv-actor/src/jump.rs", "engine/nvforever/src/actor_jumps.rs"]
+args = ["--cell", "Goodsprings", "--npc-travel", "EasyPeteRef@-63600,-18250,6700=-62800,-18480,6560", "--npc-ledges", "--follow-npc"]
+run_seconds = 70
+expect = [
+  { re = 'nav: EasyPeteRef drops off a ledge at \(-63042, -18384, 6689\)', count = 1, label = "Pete drops off the ledge once" },
+  { re = 'nav: EasyPeteRef lands at', count = 1, label = "and lands" },
+  { re = 'actor jumps: [0-9A-F]{8} is in the air on JumpLoop', label = "his body plays a jump loop" },
+  { re = 'actor jumps: [0-9A-F]{8} lands on JumpLand', label = "and a landing" },
+  "nav summary: 1 of 1 travellers arrived",
+]
