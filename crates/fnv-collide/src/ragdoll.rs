@@ -13,7 +13,7 @@ use crate::nif::{extract, HAVOK_SCALE};
 use crate::shape::{CollisionObject, Iso};
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
-use fnv_nif::Struct;
+use fnv_nif::{Struct, Value};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -28,6 +28,10 @@ pub struct RagdollBody {
     /// root's frame when the file was made [observed: equal to the node's bind pose in
     /// `characters\_male\skeleton.nif`, ragdoll.md §2]. Not used to place anything.
     pub stored: Iso,
+    /// Game units per stored Havok unit on this body ([`HAVOK_SCALE`] × its node's scale):
+    /// what a Ragdoll Template's pivots are multiplied by.
+    #[serde(skip)]
+    pub unit: f32,
 }
 
 impl RagdollBody {
@@ -191,6 +195,7 @@ pub fn ragdoll(file: &NifFile, dec: &Decoded) -> Ragdoll {
             linear_damping: info.and_then(|s| s.float("linear_damping")).unwrap_or(0.0),
             angular_damping: info.and_then(|s| s.float("angular_damping")).unwrap_or(0.0),
             stored,
+            unit: f,
         });
         scales.push(f);
     }
@@ -244,6 +249,181 @@ pub fn ragdoll(file: &NifFile, dec: &Decoded) -> Ragdoll {
         }
     }
     out
+}
+
+/// One constraint of a Ragdoll Template bone, in stored (Havok) units.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TemplateConstraint {
+    pub kind: JointKind,
+    pub pivot_a: [f32; 3],
+    pub pivot_b: [f32; 3],
+    pub max_friction: f32,
+    pub strength: Option<f32>,
+    /// The bone the constraint attaches to, when its `entity_b` points at another
+    /// bhkRagdollTemplateData of the file (ragdoll.md §6: hypothesis); `None` otherwise.
+    pub attached_to: Option<String>,
+}
+
+/// One bhkRagdollTemplateData: overrides for the body and constraints of the skeleton
+/// bone of the same name (ragdoll.md §6).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TemplateBone {
+    pub name: String,
+    pub mass: f32,
+    pub restitution: f32,
+    pub friction: f32,
+    /// Read; its meaning is not documented and it is not used.
+    pub radius: f32,
+    pub material: Option<u32>,
+    pub constraints: Vec<TemplateConstraint>,
+}
+
+/// A Ragdoll Template file (`.rdt`, ragdoll.md §6).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct RagdollTemplate {
+    pub bones: Vec<TemplateBone>,
+    pub problems: Vec<String>,
+}
+
+/// The template of a decoded `.rdt` file: the bones its bhkRagdollTemplate lists. `None`
+/// when the file has no bhkRagdollTemplate.
+pub fn template(file: &NifFile, dec: &Decoded) -> Option<RagdollTemplate> {
+    let list = file.blocks.iter().position(|b| b.type_name == "bhkRagdollTemplate")?;
+    let mut out = RagdollTemplate::default();
+    let is_data = |r: i32| file.blocks.get(r as usize).is_some_and(|b| b.type_name == "bhkRagdollTemplateData");
+    let name_of = |r: i32| dec.get(r).and_then(|d| d.text("name")).map(str::to_string);
+    for &r in dec.get(list as i32).and_then(|t| t.refs("bones")).unwrap_or_default() {
+        let Some(d) = dec.get(r).filter(|_| is_data(r)) else {
+            out.problems.push(format!("bone {r} is not a decodable bhkRagdollTemplateData"));
+            continue;
+        };
+        let Some(name) = name_of(r) else {
+            out.problems.push(format!("bone {r} has no name"));
+            continue;
+        };
+        let mut constraints = Vec::new();
+        for (k, w) in d.list("constraints").unwrap_or_default().iter().enumerate() {
+            let Value::Struct(w) = w else { continue };
+            let read = wrapped(w).and_then(|(ty, c, strength)| read_info(ty, c).map(|(kind, pa, pb, f)| (kind, pa, pb, f, strength)));
+            let Some((kind, pivot_a, pivot_b, max_friction, strength)) = read else {
+                out.problems.push(format!("{name}: constraint {k} not readable"));
+                continue;
+            };
+            let attached_to = w.strukt("constraint_info").and_then(|i| i.block_ref("entity_b")).filter(|&b| is_data(b)).and_then(name_of);
+            constraints.push(TemplateConstraint { kind, pivot_a, pivot_b, max_friction, strength, attached_to });
+        }
+        out.bones.push(TemplateBone {
+            name,
+            mass: d.float("mass").unwrap_or(0.0),
+            restitution: d.float("restitution").unwrap_or(0.0),
+            friction: d.float("friction").unwrap_or(0.0),
+            radius: d.float("radius").unwrap_or(0.0),
+            material: d.strukt("material").and_then(|m| m.int("material")).map(|m| m as u32),
+            constraints,
+        });
+    }
+    Some(out)
+}
+
+/// What [`Ragdoll::apply_template`] changed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct TemplateApplied {
+    /// Template bones that matched a body of the ragdoll.
+    pub bones: usize,
+    /// Joints replaced, and joints added (a constraint naming a pair the skeleton does
+    /// not join).
+    pub joints_replaced: usize,
+    pub joints_added: usize,
+    /// What could not be applied: bones the ragdoll has no body on, constraints with no
+    /// joint to replace, values left as they were.
+    pub skipped: Vec<String>,
+}
+
+impl Ragdoll {
+    /// Lay a Ragdoll Template over the skeleton's bodies and joints (ragdoll.md §6). Per
+    /// template bone, the body on the bone of that name (case ignored) takes its mass,
+    /// friction, restitution and material; its constraints replace the joints that body
+    /// is attached by (the joints whose `a` it is), the k-th the k-th, or the one to the
+    /// bone `entity_b` names when it names one. A mass or friction that is not a positive
+    /// (mass) or non-negative (friction) number is left as it was [design].
+    pub fn apply_template(&mut self, t: &RagdollTemplate) -> TemplateApplied {
+        let mut out = TemplateApplied::default();
+        let body_named = |bodies: &[RagdollBody], name: &str| bodies.iter().position(|b| b.object.node.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name)));
+        for bone in &t.bones {
+            let Some(i) = body_named(&self.bodies, &bone.name) else {
+                out.skipped.push(format!("{}: no body on that bone", bone.name));
+                continue;
+            };
+            out.bones += 1;
+            let o = &mut self.bodies[i].object;
+            if bone.mass.is_finite() && bone.mass > 0.0 {
+                o.mass = bone.mass;
+            } else {
+                out.skipped.push(format!("{}: mass {} kept at {}", bone.name, bone.mass, o.mass));
+            }
+            if bone.friction.is_finite() && bone.friction >= 0.0 {
+                o.friction = bone.friction;
+            } else {
+                out.skipped.push(format!("{}: friction {} kept at {}", bone.name, bone.friction, o.friction));
+            }
+            if bone.restitution.is_finite() {
+                o.restitution = bone.restitution;
+            }
+            if bone.material.is_some() {
+                o.material = bone.material;
+            }
+            let own: Vec<usize> = (0..self.joints.len()).filter(|&j| self.joints[j].a == i).collect();
+            // Each of the skeleton's joints is replaced once at most.
+            let mut used = vec![false; own.len()];
+            for (k, c) in bone.constraints.iter().enumerate() {
+                let to = c.attached_to.as_deref().and_then(|n| body_named(&self.bodies, n)).filter(|&b| b != i);
+                let free = |n: usize, used: &[bool]| (!used[n]).then_some(own[n]);
+                let target = match to {
+                    Some(b) => (0..own.len()).find(|&n| !used[n] && self.joints[own[n]].b == b).map(|n| { used[n] = true; Ok(own[n]) }).unwrap_or(Err(b)),
+                    None => match (k < own.len()).then(|| free(k, &used)).flatten() {
+                        Some(j) => {
+                            used[k] = true;
+                            Ok(j)
+                        }
+                        None => {
+                            out.skipped.push(format!("{}: constraint {k} has no joint to replace", bone.name));
+                            continue;
+                        }
+                    },
+                };
+                let b = match target {
+                    Ok(j) => self.joints[j].b,
+                    Err(b) => b,
+                };
+                let (ua, ub) = (self.bodies[i].unit, self.bodies[b].unit);
+                let kind = match c.kind {
+                    JointKind::Spring { length } => JointKind::Spring { length: length * ua },
+                    k => k,
+                };
+                let joint = |block| RagdollJoint {
+                    block,
+                    a: i,
+                    b,
+                    pivot_a: c.pivot_a.map(|v| v * ua),
+                    pivot_b: c.pivot_b.map(|v| v * ub),
+                    kind,
+                    max_friction: c.max_friction,
+                    strength: c.strength,
+                };
+                match target {
+                    Ok(j) => {
+                        self.joints[j] = joint(self.joints[j].block);
+                        out.joints_replaced += 1;
+                    }
+                    Err(_) => {
+                        self.joints.push(joint(usize::MAX));
+                        out.joints_added += 1;
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 impl RagdollJoint {

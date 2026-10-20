@@ -35,9 +35,9 @@ documentation). Reader: `fnv_collide::ragdoll`. Physics: `fnv_phys::ragdoll`. In
   (0.9 wherever skeletons have one) [documented: nif.xml; observed]. Two turret skeletons
   list a `bhkOrientHingedBodyAction` among their constraints; it is not a constraint and
   is left out [observed].
-- Not read: Ragdoll Template files (`.rdt`), which override bodies and constraints per
-  armour piece [documented: GECK wiki "Ragdoll Template"], and the RGDL record a body
-  part data's `RAGA` names (combat-data.md).
+- Ragdoll Template files (`.rdt`), which override bodies and constraints per armour
+  piece, are in §6. Not read: the RGDL record a body part data's `RAGA` names
+  (combat-data.md).
 
 ## 2. Frames and units
 
@@ -195,7 +195,8 @@ screenshots kept privately]:
   held bodies are built anew, and a shove sets velocities with a bounded spin
   (`MAX_PUSH_SPIN`).
 
-Not built: Ragdoll Templates, joint motors and `strength`, weapons dropping from dead
+Ragdoll Templates of worn armour are laid over the skeleton's data when the ragdoll is
+built (§6). Not built: joint motors and `strength`, weapons dropping from dead
 hands, knockdown of living actors (`PushActorAway`, explosions' Knock Down flags),
 dismembered limbs, pushing corpses by walking into them, dragging them (grab).
 
@@ -216,7 +217,81 @@ Observational (not a lab scenario), like `collide survey`.
   the nodes of a and b, the limits as read, `max_friction`, `strength`, `pivot_gap`,
   the bind pose's `cone`/`plane`/`twist` and whether it is inside the limits).
 
-## 6. Open questions
+## 6. Ragdoll Templates (armour)
+
+### What the data says
+
+- An armour record's `BMCT` subrecord, "Ragdoll Constraint Template", is a zero-ended
+  string [documented: xEdit wbDefinitionsFNV.pas ARMO; `schemas/fnv/objects.json`]: the
+  path of a `.rdt` file [documented: GECK wiki Armor, "Ragdoll Constraint Template ...
+  These files have the ".rdt" extension"] relative to `Data\Meshes\` [documented: GECK
+  wiki SetArmorRCT notes]. "Each armor piece and each character will be able to select a
+  single Ragdoll template file" [documented: GECK wiki Armor].
+- A Ragdoll Template is a NIF: a root NiNode with no children whose extra data is a
+  `bhkRagdollTemplate` named `RDT`, which lists `bhkRagdollTemplateData` blocks named
+  after bones of the base skeleton [documented: GECK wiki Ragdoll Template]. Layouts
+  [documented: nif.xml]: bhkRagdollTemplate is an NiExtraData with `num_bones` and
+  `bones` (refs); bhkRagdollTemplateData has `name`, `mass`, `restitution`, `friction`,
+  `radius` (floats), `material` (HavokMaterial), `num_constraints` and that many
+  `bhkWrappedConstraintData` (a constraint type, the constraint info with its two
+  entities, and the fields of that type, as in §3; type 13 holds a malleable
+  constraint). nif.xml places the files in `meshes\ragdollconstraint\*.rdt` and
+  calls them "Found in Fallout 3".
+- Meaning of the fields [documented: GECK wiki Ragdoll Template]: the data "contains
+  overrides for bhkRigidBody/bhkRigidBodyT and constraint blocks attached to bones on the
+  base skeleton with the same name"; mass, restitution ("near nonfunctional in New
+  Vegas"), friction; material "overrides the collision material of the shape attached to
+  the RigidBody"; `radius` has no description. Templates "can affect either all or a
+  handful of bones, and they can be layered using different equipment" (a body piece
+  and a helmet each changing their own bones).
+- Behaviour notes [documented: GECK wiki Ragdoll Template and Armor]: the Armor page says
+  templates "do *not* work correctly" in Fallout 3 and New Vegas; the Ragdoll Template
+  page says they work but do not reset when the armour is taken off (the reference needs
+  `Update3D`), and that a template's collision material affects every loaded NPC, not
+  only the wearers.
+- **In this install** [observed 2026-10-20, FNV 1.4.0.525 with all DLC]: 17 ARMO records
+  have a BMCT, all 30 bytes and all naming `RagdollConstraint\default.rdt`: the power
+  armours (T-45d, T-51b, the Brotherhood's T-51b, Remnants, NCR Salvaged, Enclave,
+  Tesla and its FX copy, the Gannons' Tesla, the Prototype Medic, the broken one, the
+  unplayable one, Lonesome Road's Scorched Sierra), the Enclave Shocktrooper armour, the
+  Raven Rock corpse's Enclave armour and the Dam war Enclave scientist's and officer's
+  outfits. No `.rdt` file is in any of the 21 archives or loose under `Data`, so the
+  path names a file the game does not have, and no format fact here has been checked
+  against a real template.
+- Not found: how the original matches a template's constraints to the skeleton's, what
+  a template constraint's `entity_a`/`entity_b` point at in a file with no bodies, and
+  what happens with a missing file [the last presumably nothing: hypothesis, since every
+  power armour corpse names one].
+
+### What NVForever does [design unless tagged]
+
+- `fnv_collide::ragdoll::template` reads the bhkRagdollTemplate of a decoded `.rdt` and
+  its bones (`schemas/nif/havok.json` has the two blocks); `Ragdoll::apply_template`
+  lays one over a skeleton's ragdoll. Tests on a synthetic file:
+  `crates/fnv-collide/tests/ragdoll_template.rs`.
+- Per template bone, the body on the bone of that name (case ignored) takes its mass,
+  friction, restitution and material. A mass that is not above 0 or a negative friction
+  is not taken (a body without mass would not fall).
+- Its constraints replace the joints by which that body is attached (those it is
+  body a of, §1): one whose `entity_b` points at another bone of the template replaces
+  the joint to that bone (or is added when the skeleton has none to it); the others
+  replace the body's joints in order, the k-th the k-th [hypothesis: the template keeps
+  the skeleton's constraint order]. Each joint is replaced once at most; constraints left
+  over are logged and not used. Pivots are scaled as the skeleton's (§2).
+- `radius` is read and not used (its meaning is not documented).
+- When an actor's ragdoll is built (death, knock-out, knockdown, the player's too), the
+  templates of the armour it wears are laid over in worn order, each path once
+  (`engine/nvforever/src/ragdoll.rs`, `worn_templates`); a later one overrides an earlier
+  one's bones. The template follows what is worn when the body falls, so taking armour
+  off leaves no trace (the original's not resetting is not copied), and a material only
+  changes the wearer's bodies.
+- A path the data lacks is logged once and the skeleton's own data is used:
+  `ragdoll template: meshes\ragdollconstraint\default.rdt: not in the data; the skeleton's own
+  bodies and joints`. With the shipped game this is the only outcome; the code matters for
+  mods that ship templates. Smoke scenario `ragdoll-armour-template` (Ringo killed in
+  T-45d power armour) checks the line.
+
+## 7. Open questions
 
 1. The sign of the plane and twist limits (§3) rests on anatomy. A capture could settle
    it: kill an NPC on flat ground and read limb bone angles (`GetNifBlockRotation`-style
@@ -225,3 +300,6 @@ Observational (not a lab scenario), like `collide survey`.
 3. Whether the original starts a ragdoll with the body's velocity at death, and how
    hard hits push (`fPushForce`-like settings were not looked for).
 4. Which layers DEAD_BIP collides with in the original.
+5. Templates (§6): how the original pairs a template's constraints with the skeleton's,
+   and what their entities point at. A mod's `.rdt` made in NifSkope, opened next to the
+   skeleton, would show it.

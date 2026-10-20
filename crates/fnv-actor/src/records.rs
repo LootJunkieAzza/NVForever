@@ -165,6 +165,11 @@ pub struct Armor {
     /// DNAM DR as stored (xEdit shows it divided by 100).
     pub dr_raw: i32,
     pub power_armor: bool,
+    /// BMCT "Ragdoll Constraint Template": a `.rdt` path relative to `meshes\`
+    /// [documented: xEdit ARMO BMCT; the path base: GECK wiki SetArmorRCT]
+    /// (docs/spec-notes/ragdoll.md §6). Not part of any report.
+    #[serde(skip)]
+    pub ragdoll_template: Option<String>,
 }
 
 /// A WEAP record as far as drawing and animating it goes (workstream 5 part H,
@@ -598,6 +603,7 @@ fn armor(d: &[Decoded]) -> Armor {
         dt: dnam.and_then(|v| num(v, "dt")).unwrap_or(0.0) as f32,
         dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
         power_armor,
+        ragdoll_template: path(first(d, b"BMCT")),
     }
 }
 

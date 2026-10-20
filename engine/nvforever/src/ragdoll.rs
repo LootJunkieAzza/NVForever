@@ -21,16 +21,18 @@
 //!   third-person rig carries a [`PlayerRig`] in place of an [`ActorRig`], so that the
 //!   systems of placed actors (head tracking, hit volumes, outfits) leave it alone.
 
+use crate::actors::ActorWorld;
 use crate::limbs::{ActorRig, LimbRig};
 use crate::locomotion::Dying;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use fnv_collide::ragdoll::Ragdoll;
+use fnv_collide::ragdoll::{Ragdoll, RagdollTemplate};
 use fnv_collide::Iso;
 use fnv_combat::data::Limb;
 use fnv_nif::scene::Decoded;
 use fnv_nif::NifFile;
 use fnv_phys::{BodyState, RagdollStart};
+use fnv_sim::FormId;
 use nvf_assets::data::GameData;
 use nvf_play::combat::ActorPush;
 use nvf_play::phys::PhysState;
@@ -58,6 +60,8 @@ pub const MAX_LIFTS: u8 = 3;
 pub struct Ragdolls {
     /// By skeleton path; `None` for a skeleton without a usable ragdoll.
     cache: HashMap<String, Option<Arc<Ragdoll>>>,
+    /// Ragdoll Templates by path under `meshes\`; `None` for a path the data lacks.
+    templates: HashMap<String, Option<Arc<RagdollTemplate>>>,
     /// Bone poses (game space, in the ragdoll's body order) of corpses by reference.
     pub rest: HashMap<u32, Vec<Option<Iso>>>,
     pub started: usize,
@@ -101,10 +105,63 @@ impl Ragdolls {
             .clone()
     }
 
+    /// The Ragdoll Template at `path` (an ARMO's BMCT, relative to `meshes\`; read once):
+    /// `None` when the data has no such file or it holds no template (ragdoll.md §6).
+    fn template(&mut self, data: &GameData, path: &str) -> Option<Arc<RagdollTemplate>> {
+        let rel = fnv_vfs::normalize(path);
+        let key = if rel.starts_with("meshes\\") { rel } else { format!("meshes\\{rel}") };
+        self.templates
+            .entry(key.clone())
+            .or_insert_with(|| {
+                let Some(bytes) = data.read(&key) else {
+                    info!("ragdoll template: {key}: not in the data; the skeleton's own bodies and joints");
+                    return None;
+                };
+                let file = NifFile::parse(&bytes, Some(&data.schema)).ok();
+                let t = file.as_ref().and_then(|f| fnv_collide::ragdoll::template(f, &Decoded::new(f, &bytes, &data.schema)));
+                match &t {
+                    Some(t) => info!("ragdoll template: {key}: {} bones{}", t.bones.len(), if t.problems.is_empty() { String::new() } else { format!(", problems: {}", t.problems.join("; ")) }),
+                    None => warn!("ragdoll template: {key}: not a template file (no bhkRagdollTemplate); not used"),
+                }
+                t.map(Arc::new)
+            })
+            .clone()
+    }
+
+    /// The skeleton's ragdoll with the worn armour's Ragdoll Templates laid over it, in
+    /// the order given (ragdoll.md §6; read once per skeleton and list of templates).
+    fn data_with(&mut self, data: &GameData, skeleton: &str, templates: &[String]) -> Option<Arc<Ragdoll>> {
+        let base = self.data(data, skeleton)?;
+        let found: Vec<(String, Arc<RagdollTemplate>)> = templates.iter().filter_map(|p| Some((p.clone(), self.template(data, p)?))).collect();
+        if found.is_empty() {
+            return Some(base);
+        }
+        let key = format!("{}|{}", fnv_vfs::normalize(skeleton), found.iter().map(|(p, _)| fnv_vfs::normalize(p)).collect::<Vec<_>>().join("|"));
+        self.cache
+            .entry(key.clone())
+            .or_insert_with(|| {
+                let mut r = (*base).clone();
+                for (path, t) in &found {
+                    let a = r.apply_template(t);
+                    info!(
+                        "ragdoll template: {path} on {}: {} bones, {} joints replaced, {} added{}",
+                        fnv_vfs::normalize(skeleton),
+                        a.bones,
+                        a.joints_replaced,
+                        a.joints_added,
+                        if a.skipped.is_empty() { String::new() } else { format!("; not applied: {}", a.skipped.join("; ")) }
+                    );
+                }
+                Some(Arc::new(r))
+            })
+            .clone()
+    }
+
     /// The [`Corpse`] of an actor, when its skeleton has a ragdoll and a bone for each
-    /// of its bodies.
-    pub fn corpse(&mut self, data: &GameData, rig: &ActorRig) -> Option<Corpse> {
-        let rag = self.data(data, &rig.skeleton)?;
+    /// of its bodies; `templates` are the Ragdoll Templates of the armour it wears
+    /// ([`worn_templates`]).
+    pub fn corpse(&mut self, data: &GameData, rig: &ActorRig, templates: &[String]) -> Option<Corpse> {
+        let rag = self.data_with(data, &rig.skeleton, templates)?;
         let bones: Option<Vec<usize>> = rag.bodies.iter().map(|b| b.object.node.as_ref().and_then(|n| rig.skel.by_name.get(n)).copied().filter(|&i| i > 0)).collect();
         let bones = bones?;
         let mut body_of = vec![None; rig.skel.parents.len()];
@@ -113,6 +170,18 @@ impl Ragdolls {
         }
         Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0 })
     }
+}
+
+/// The Ragdoll Templates (ARMO BMCT) of the armour in `worn`, in that order, each once.
+pub fn worn_templates(world: Option<&ActorWorld>, worn: &[FormId]) -> Vec<String> {
+    let Some(world) = world else { return Vec::new() };
+    let mut out: Vec<String> = Vec::new();
+    for t in worn.iter().filter_map(|a| world.actors.armors.get(a)?.ragdoll_template.clone()) {
+        if !out.iter().any(|o| o.eq_ignore_ascii_case(&t)) {
+            out.push(t);
+        }
+    }
+    out
 }
 
 /// The player's third-person rig while it lies as a ragdoll (`death_cam.rs`): the rig of
