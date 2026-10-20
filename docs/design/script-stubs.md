@@ -214,7 +214,9 @@ the same `Game` path the engine calls each frame.
 UseWeapon (0x119C, 13 calls) is implemented with the Use Weapon package
 (docs/design/use-weapon.md): the actor walks to where it is to stand, turns to its target
 and fires the number of shots, with the always-hit, no-damage, crouch-to-reload and
-hold-fire flags. 60 → 59 stubs, 313 → 300 calls.
+hold-fire flags. 60 → 59 stubs, 313 → 300 calls. Melee, unarmed and creatures' own
+attacks followed on 2026-10-20 (claude/q5-melee-useweapon, use-weapon.md §3.1): the actor
+closes in and swings the number of blows.
 
 ### 3.9 The script function audit (2026-10-16)
 

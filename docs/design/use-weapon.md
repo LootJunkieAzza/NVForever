@@ -37,7 +37,8 @@ no damage off.
 For each actor whose use is in place and still to be carried out (`Game::active_weapon_use`:
 not done; a package's not while the actor is in combat):
 
-- **The gun**: the use's weapon if it is a gun, else the gun drawn on it; none ends the use.
+- **The gun**: the use's weapon if it is a gun, else the gun drawn on it; a melee or
+  unarmed weapon, or none, swings instead (§3.1).
 - **Holds fire** while restrained, while the target is more than 256 units from the
   "target should be here" reference, and, with Hold Fire When Blocked, while anyone else
   stands in the line of fire (`combat_tactics::in_line_of_fire`); also until its weapon
@@ -56,9 +57,46 @@ not done; a package's not while the actor is in combat):
 - A script's use comes before the combat AI (`npc_combat` skips the actor), as the shipped
   scripts call StartCombat with UseWeapon (spec note §2). ResetAI drops the use.
 
+### 3.1 Melee (claude/q5-melee-useweapon, 2026-10-20)
+
+The page counts "how many times to use the weapon" [documented: GECK wiki UseWeapon
+(Function)]; nothing documents how a melee weapon is used. Ours, built on the combat AI's
+melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
+
+- **What it uses**: the weapon named when the game knows it as a weapon, else the one
+  drawn on the actor; a gun (thrown weapons included: they fire a projectile) fires as
+  above; any other weapon swings; with none, a creature uses its own attack and a person
+  its fists [design]. A use that names a melee weapon now swings it even when the actor
+  holds a gun (before, it fired the gun).
+- **Each shot is a blow**: the use's count (volleys and their sizes for a package) counts
+  blows begun (`WeaponUse::shot`); the use ends once the last blow has landed or missed.
+- **Reach**: the engine works out the actor's spacing as `npc_combat` does (the weapon's
+  reach and the two bodies' radii, `melee_spacing`; a creature's `creature_spacing`) and
+  puts it on the use (`WeaponUse::reach`: stop, strike). In place, a **script's** use closes
+  in on its target as a fighter does (`fnv_ai` `weapon_step` → `close_in`: runs to within
+  the stop distance, stands and faces it, sets off again beyond the strike distance), so
+  where to stand is where it sets out from [hypothesis: a blow from a stand out of reach
+  would never land; the shipped calls name the actor itself as the stand in most cases].
+  A **package's** melee use swings from where its package stands it, when the target is
+  within reach [design: the package's own walking is not interrupted].
+- **Swings**: facing the target (`FIRE_FACING`), its weapon drawn, within reach and within
+  128 units of height, every `STRIKE_SECONDS` over the weapon's attack speed (Attack Mult),
+  sooner at the last clip's `a:` key, which picks the next swing's group (a combo, as
+  #353); no block or attack-chance roll, the script asks for the blows [hypothesis]. A blow
+  lands at its clip's `Hit` key (`attack_anims` times) as an `ActorStrike` (damage, the
+  target's block, impacts and sounds as any NPC blow).
+- **Always Hit**: a blow lands even when the target stepped out of reach by its `Hit` key
+  [hypothesis]. **Do No Damage**: the swing plays and the blow is counted, but nothing is
+  struck: no damage, no sound, no impact [design: `ActorStrike` has no harmless form yet;
+  left out to keep clear of the open combat PRs]. **Hold Fire When Blocked** and **target
+  should be here** hold the swings as they hold shots; **Crouch To Reload** has nothing to
+  do.
+- No power attacks (#503, people's power attacks, is open; a use's blow is never one).
+
 ## 4. Not built
 
-- Melee weapons: a use whose weapon is not a gun and an actor with no gun drawn end at once.
+- Melee: harmless blows' sound and impact; power attacks; a package's melee use walking
+  up to its target.
 - Swapping the drawn model: a use naming a weapon other than the one drawn fires that
   weapon's shots from the drawn model.
 - Grabbing a weapon the actor does not carry.
@@ -73,3 +111,9 @@ not done; a package's not while the actor is in combat):
 - Smoke scenario `use-weapon` (tools/smoke/scenarios.toml): Violet fires three always-hit,
   harmless shots at the player from her own place; all three land, the player is not hurt,
   she goes back to her package.
+- Unit test `a_melee_use_closes_in_on_its_target_within_its_reach` (`crates/fnv-ai/tests/carry.rs`):
+  a script's use with a reach runs to its target, stops within it, and drops the closing in
+  when the use is over.
+- Smoke scenario `use-weapon-melee`: Violet uses a knife three times on the player 400 units
+  away, no damage: she runs up, swings three blows and goes back to her package; the
+  player is not hurt.

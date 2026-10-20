@@ -51,8 +51,8 @@ six functions still waiting for an in-game capture to settle their answers.
 
 From [status.md](status.md); the playthrough blockers above are not repeated.
 
-- **Gameplay**: VATS mode built for single-shot guns (bursts, melee and thrown weapons not yet); people's power attacks (creatures' are built); melee
-  weapon use through UseWeapon; a melee-only companion drawing its melee weapon (the
+- **Gameplay**: VATS mode built for single-shot guns (bursts, melee and thrown weapons not yet); people's power attacks (creatures' are built); ~~melee
+  weapon use through UseWeapon~~ (built 2026-10-20, use-weapon.md §3.1); a melee-only companion drawing its melee weapon (the
   companion wheel, aggressive/passive and sneaking with the player are built,
   [companion-wheel](spec-notes/companion-wheel.md)); perks that change skill points; slot machines; reputation disguises and resets.
 - **Animation**: actors' jumps, NPCs' sneaking weapon clips; armour ragdoll

@@ -19,6 +19,7 @@
 //! ([`Ai::push`]: over the navmesh, as far as it has room); left alone again it goes
 //! back to where its package has it (docs/design/actor-behaviour.md §5.7).
 
+use crate::alert::Search;
 use crate::goal::{self, Goal, Route, Talk};
 use crate::sandbox::{Doing, Sandbox};
 use fnv_game::ai::AiPhase;
@@ -1484,6 +1485,10 @@ impl Ai {
                 a.weapon_order = None;
                 a.walker.follower = None;
                 (a.activity, a.goal) = (Activity::None, None);
+                // A melee use's closing in ends with it.
+                if matches!(a.search, Some(Search::Closing { .. } | Search::Holding { .. })) {
+                    a.search = None;
+                }
                 self.log(game, actor, AiEvent::WeaponUseOver);
                 if let Some(p) = self.agents[&actor].package {
                     self.begin(game, nav, actor, p);
@@ -1519,6 +1524,31 @@ impl Ai {
                 self.log(game, actor, AiEvent::WeaponUse { target, length });
             }
             _ => {}
+        }
+        // A script's melee use in place closes in on its target within its reach, as a
+        // fighter does (`crate::alert`): it stops within the first distance and sets off
+        // again beyond the second (docs/design/use-weapon.md §3.1).
+        let melee = game.active_weapon_use(actor).filter(|w| w.in_place && w.source == Source::Script).and_then(|w| w.reach.map(|r| (w.target, r)));
+        if let Some((target, [stop, resume])) = melee {
+            let a = &self.agents[&actor];
+            if let Some(at) = goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space).map(|p| p.pos) {
+                let away = hdist(a.walker.feet, at);
+                let holding = a.search == Some(Search::Holding { target });
+                let going = a.activity == Activity::Travelling;
+                let close = away > if holding { resume } else { stop };
+                match (close, a.search) {
+                    (true, Some(Search::Closing { target: t, to, since })) if t == target && going && goal::dist(to, at) < crate::alert::CLOSE_REPLAN_DISTANCE && game.time - since < crate::alert::CLOSE_REPLAN_SECONDS => {}
+                    (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
+                    (false, Some(Search::Holding { target: t })) if t == target => {}
+                    (false, _) => {
+                        let a = self.agents.get_mut(&actor).expect("listed");
+                        a.walker.follower = None;
+                        a.activity = Activity::There;
+                        a.search = Some(Search::Holding { target });
+                        self.log(game, actor, AiEvent::Hold { target, away });
+                    }
+                }
+            }
         }
         let a = &self.agents[&actor];
         let space = a.walker.space;

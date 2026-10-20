@@ -6579,3 +6579,24 @@ check against the game:
   heat haze, the particle systems that emit from meshes (7 files: the nukes', the
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
+
+## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
+
+docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own
+attack now has the actor swing at its target instead of ending at once. My choices, to
+check in the original:
+- **It walks up to its target.** After going to where it is to stand, a script's melee use
+  runs at the target and stops within its weapon's reach (the combat AI's spacing), then
+  swings; if the target backs off it follows. *Check:* does the original's actor walk up,
+  or stand at its spot and swing at the air?
+- **Each "shot" is one blow**, combos included (a blow begun at the last clip's `a:` key
+  goes on with the group it names). No block or attack-chance roll.
+- **A use naming a knife swings the knife** even when the actor holds a gun; its drawn
+  model is still the one it was spawned with (models are not swapped live), so the knife's
+  clips play with the rifle in hand.
+- **Always Hit**: the blow lands even if the target stepped out of reach by the time the
+  clip's hit key comes. **Do No Damage**: the swing plays but nothing is struck, so no
+  hit sound or impact either.
+- **Use Weapon packages** with a melee weapon swing from where the package stands the
+  actor, only when the target is within reach; they do not walk up.
+- No power attacks in a use (people's power attacks are PR #503).
