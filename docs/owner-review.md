@@ -6803,3 +6803,32 @@ rest, so these are my choices:
   reproduced.
 *Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
 him into a wall and see whether the original's actor also stops dead there.
+
+## Depth of field (2026-10-20, session "q14", branch claude/q14-depth-of-field)
+
+docs/spec-notes/image-modifiers.md §8. The GECK wiki describes the three values in a few
+words and nothing says how the engine draws them, so these are my choices:
+- **The ramp**: the blur goes from none at Distance to full at Range (game units from the
+  eye), in a straight line. Distance above Range turns it round (blurred foreground, clear
+  background, as the wiki says). Distance equal to Range blurs everything beyond it.
+- **Use Target**: the same ramp measured from the target's distance. Mode - Front blurs
+  only what is nearer than the target, Mode - Back only what is beyond it, neither does
+  both sides. A modifier with Use Target and no engine target focuses on what is under
+  the screen's centre.
+- **Strength**: how far each point is mixed from sharp towards a blur of fixed radius 3
+  (the modifiers' blur units). It is not clamped, so FlashBangISfx's 2 goes past the blur
+  into a harsh, contrast-like look (the wiki says strengths above 1 do that).
+- **VATS**: focused on the mark (the last one marked, or the one being shot), strength
+  `fVATSDOFStrengthCap` 0.6, range `fVATSDOFRange` 500, only what is beyond the mark is
+  blurred (so the player's own gun stays sharp), faded with VATS's amber look. With no
+  mark nothing is blurred. The records VATScamDOFCloseBlur and VATScamDOF50 are not
+  referenced anywhere in the masters, so I did not use them.
+- **Down the sights**: by `fIronSightsDOFDistance` 275 / `fIronSightsDOFRange` 650, but the
+  game's `fIronSightsDOFStrengthCap` is 0, so there is none in the shipped game.
+- **Not used**: PipBackgroundFX and PauseBackgroundFX (nothing in the masters plays them; the
+  Pip-Boy keeps its own blur); kill-camera modifiers (CAMS) are not played at all yet.
+*Check:* in the game, enter VATS with a dog in front of the trailers (the smoke test's
+spot in Goodsprings): is the background blurred, by about as much as smoke
+`vats-mode-dof`'s vats_dof_marked.png, and is the near ground blurred too (then the mode
+is both sides, not Back)? Throw a flash-bang (or `player.placeatme FlashBangExplosion`) and
+compare the first seconds.

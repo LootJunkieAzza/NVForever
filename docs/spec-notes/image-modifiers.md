@@ -163,8 +163,8 @@ Menus, message boxes, subtitles and the HUD are drawn over the result and are no
 affected [observed for a message box: the same capture shows the pack box over the white
 screen].
 
-Not drawn: depth of field (6 records), motion blur (7), the HDR and bloom parameters
-(the renderer has no eye adaptation or bloom pass), radial blur and depth of field "use
+Depth of field is drawn as §8 says. Not drawn: motion blur (7 records), the HDR and
+bloom parameters (the renderer has no eye adaptation or bloom pass), radial blur "use
 target".
 
 ## 6. The opening
@@ -196,9 +196,101 @@ at that time.
   same window size.
 - Whether a second apply restarts or stacks; whether animated modifiers go on behind
   menus (§3).
-- Depth of field and motion blur; "use target".
+- Motion blur; radial blur "use target". Depth of field's constants and modes (§8.5)
+  against game screenshots: FlashBangISfx from the console (`imod`), VATS with a target
+  in front of a far background.
 - Explosions play theirs (explosion-effects.md §5, 2026-10-19). Other things that play
   modifiers are not built: weapons (their records name an IMAD), the get-hit and night-eye blocks of the image space.
   (`TriggerScreenSplatter`: screen-splatter.md; `SetCellImageSpace`: bink-films.md §4.)
 - `ApplyImageSpaceModifier` given a form that is not an IMAD fails the call here; the
   game's behaviour is not known.
+
+## 8. Depth of field
+
+Code: `fnv_world::image_modifier::dof_weight` (the rule below), `engine/nvforever/src/imagespace.rs`
+(the sources and the log line) with `imagespace_blur.wgsl` (the picture).
+
+### 8.1 The fields
+
+- An IMAD's depth of field is three key lists, **strength** (`WNAM`), **distance**
+  (`XNAM`) and **range** (`YNAM`), and two settings in DNAM, **Use Target** and the
+  flags **Mode - Front**, **Mode - Back** and **No Sky** [documented: xEdit IMAD, §1].
+- The GECK's words [documented: GECK wiki "ImageSpace Modifiers", owner export]:
+  strength is "how strong of a blur to apply", 0 to 1 "preserves image quality", more
+  gives "an awesome contrast-like effect"; distance is "the distance in units that
+  contains a clean, non-blurred view", and "setting the distance higher than the range
+  will create a blurred foreground with a clear background"; range is "the range in
+  units where the depth blur begins".
+- An image space (IMGS) carries no depth of field in Fallout: New Vegas: its DNAM is the
+  HDR, bloom, get-hit, night-eye and cinematic blocks [documented: xEdit IMGS DNAM,
+  schemas/fnv/sky.json]. So the only sources are modifiers and the engine's own uses.
+
+### 8.2 The records and who plays them [observed: `imad_dump`, a scan of FalloutNV.esm for references]
+
+| Record | Strength, distance, range | Use target, flags | Played by |
+|---|---|---|---|
+| FlashBangISfx 0x0002E5D4 | 2 → 1 (at 0.48) → 0 over 10 s, 0, 0 | no, 0 | the explosions FlashBangExplosion and GrenadeStunExplosion (EXPL MNAM) |
+| AntNectarISFX 0x00031032 | 0.25, 64, 1024 | no, 0 | the script AntNectarSCRIPTfx |
+| vault106HallucinationISFX 0x000892C2 | 0.24, 64, 1024 | no, 0 | the package vault106FatherWalk3A's script (Fallout 3's) |
+| PipBackgroundFX 0x00096389 | 0.7, 0, 0 | no, 0 | nothing in the masters |
+| PauseBackgroundFX 0x0004EEE8 | 1, 0, 0 (with blur radius 3) | no, 0 | nothing in the masters |
+| VATScamDOFCloseBlur 0x00053BCD | 0.75, 0, 512 | yes, Front | nothing in the masters |
+| VATScamDOF50, TurboDOF50 | 0 | yes, 0 | camera shots (CAMS MNAM: FirstPersonCamAuto, FirstPersonMissileHit) |
+
+Game settings [observed: FalloutNV.esm GMST]: `fVATSDOFRange` 500, `fVATSDOFStrengthCap`
+0.6, `fIronSightsDOFDistance` 275, `fIronSightsDOFRange` 650, `fIronSightsDOFStrengthCap` 0.
+No setting names a depth of field for dialogue or scopes [observed: no other GMST with DOF
+or Focus in its name].
+
+### 8.3 How much a point is blurred [hypothesis: our reading of the wiki's words]
+
+The blur at a point is `strength × t`, where `t` (0 sharp … 1 fully blurred) comes from
+the point's distance `z` from the eye along the view, in game units:
+
+- **Without Use Target**: `t` runs from 0 at `distance` to 1 at `range`, in a straight
+  line, held outside. With range above distance the near view is clean and the far view
+  blurs; with distance above range it is the other way round, the wiki's "blurred
+  foreground with a clear background". Distance equal to range: everything beyond it is
+  blurred (PipBackgroundFX and PauseBackgroundFX, 0 and 0, blur the whole picture).
+  The mode flags are not used without a target.
+- **With Use Target**: the same ramp is measured from the target's distance `f`: the
+  point is `|z − f|` from it; Mode - Front blurs only what is nearer than the target,
+  Mode - Back only what is beyond it, neither (or both) both sides. The target is the
+  engine's (VATS, §8.4); without one it is the point under the screen's centre.
+- **No Sky**: the sky (where nothing was drawn) is left sharp; without it the sky counts
+  as infinitely far.
+- **Several at once**: the strongest, as before (§4) [hypothesis]; the engine's own uses
+  (§8.4) count as one more.
+
+### 8.4 The engine's own uses [hypothesis: from the settings' names; the records the engine plays itself are not known]
+
+- **VATS**: while marking and firing, the view's depth of field is focused on the mark
+  (the last marked while marking, the one being shot while firing): strength
+  `fVATSDOFStrengthCap` (0.6), distance 0, range `fVATSDOFRange` (500), what is beyond
+  the target only (Mode - Back), faded in and out with VATS mode's look
+  (vats-mode.md §5). Without a mark nothing is blurred. Back only keeps the player's own
+  weapon and what is between the player and the target clean [design].
+- **Aiming down the sights**: strength `fIronSightsDOFStrengthCap` with the zoom's blend,
+  distance `fIronSightsDOFDistance`, range `fIronSightsDOFRange`. The shipped cap is 0,
+  so there is none in the shipped game [observed]; a plugin that raises it gets it.
+- PipBackgroundFX and PauseBackgroundFX are not used: the Pip-Boy keeps its blur from
+  `fBlurRadiusPipboy` (§5) and the pause menu covers the screen [design].
+- Camera shots' modifiers (VATS kill cameras, CAMS MNAM) are not played here.
+
+### 8.5 On the picture [hypothesis, every constant]
+
+- The blurred picture is the Gaussian blur of §5.1 at a fixed **radius 3**
+  (`DOF_BLUR_RADIUS`); each point is mixed from its sharp value towards that blur by its
+  weight `strength × t`. The weight is not clamped at 1: past 1 the mix goes beyond the
+  blur, away from it, which sharpens edges and raises contrast, the wiki's
+  "contrast-like effect" (FlashBangISfx starts at 2).
+- The mix is made in each of the two passes (across, then down), so a weight of 1 is the
+  full blur and weights between give a softer one.
+- The weight is the point's own (its depth), so a sharp object in front of a blurred
+  background keeps its edges.
+- Applied with the modifiers' blur (§5.1) where both are on; what is nearer than the
+  Pip-Boy's sharp depth stays sharp.
+
+Log line (smoke `imagespace-dof`, `vats-mode-dof`): "depth of field: strength S, distance D,
+range R[, focus F][, front][, back][, no sky] (source)" when it changes (source: the
+modifier's Editor ID, `VATS` or `iron sights`), and "depth of field: off".
