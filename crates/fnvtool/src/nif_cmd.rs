@@ -30,6 +30,10 @@ pub fn run(cmd: NifCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             textures(&data_dir, &schema, max_rows)
         }
+        NifCmd::Nodes { sources, schema, examples, values } => {
+            let schema = Schema::load_dir(&schema)?;
+            nodes(&sources, &schema, examples, values)
+        }
         NifCmd::Decode { source, path, schema, block } => {
             let schema = Schema::load_dir(&schema)?;
             let (label, data) = read_one(&source, path.as_deref())?;
@@ -316,6 +320,137 @@ fn scene(archive: &std::path::Path, schema: &Schema) -> anyhow::Result<Value> {
     }
     Ok(json!({"schema": "fnv.nif.scene/1", "archive": archive_name(archive), "skipped": skipped,
               "objects": objects, "shapes": shapes}))
+}
+
+/// One file's names: (kind, block type, name, value) per named object or extra data,
+/// plus every block type in the header.
+struct NodeRows {
+    types: Vec<String>,
+    entries: Vec<(&'static str, String, String, Option<String>)>,
+    undecoded: usize,
+}
+
+fn node_rows(data: &[u8], schema: &Schema) -> Result<NodeRows, String> {
+    let f = NifFile::parse(data, Some(schema)).map_err(|e| e.to_string())?;
+    let types = f.blocks.iter().map(|b| b.type_name.clone()).collect();
+    let dec = Decoded::new(&f, data, schema);
+    let mut entries = Vec::new();
+    let mut undecoded = 0;
+    for (i, b) in f.blocks.iter().enumerate() {
+        let Ok(s) = &dec.blocks[i] else {
+            undecoded += 1;
+            continue;
+        };
+        let ty = b.type_name.clone();
+        if dec.is_a(i, "NiExtraData") {
+            let name = s.text("name").unwrap_or("").to_string();
+            let value = if let Some(t) = s.text("string_data") {
+                Some(t.to_string())
+            } else if let Some(v) = s.int("integer_data") {
+                Some(v.to_string())
+            } else {
+                s.float("float_data").map(|v| v.to_string())
+            };
+            entries.push(("extra", ty.clone(), name, value));
+            for k in s.list("text_keys").unwrap_or_default() {
+                if let fnv_nif::Value::Struct(k) = k {
+                    if let Some(t) = k.text("value") {
+                        entries.push(("text_key", ty.clone(), t.to_string(), None));
+                    }
+                }
+            }
+        } else if dec.is_a(i, "NiObjectNET") {
+            if let Some(n) = s.text("name").filter(|n| !n.is_empty()) {
+                let kind = if dec.is_a(i, "NiNode") {
+                    "node"
+                } else if dec.is_a(i, "NiAVObject") {
+                    "object"
+                } else {
+                    "other"
+                };
+                entries.push((kind, ty, n.to_string(), None));
+            }
+        }
+    }
+    Ok(NodeRows { types, entries, undecoded })
+}
+
+#[derive(Default)]
+struct NodeTally {
+    files: u64,
+    count: u64,
+    types: BTreeMap<String, u64>,
+    values: BTreeMap<String, u64>,
+    examples: Vec<String>,
+}
+
+fn nodes(sources: &[std::path::PathBuf], schema: &Schema, examples: usize, max_values: usize) -> anyhow::Result<Value> {
+    let items = process(sources, &MESH_EXTS, None, |_, d| node_rows(d, schema))?;
+    // kind -> name -> tally; block types counted the same way.
+    let mut by_kind: BTreeMap<&'static str, BTreeMap<String, NodeTally>> = BTreeMap::new();
+    let mut types: BTreeMap<String, NodeTally> = BTreeMap::new();
+    let (mut files, mut skipped, mut undecoded) = (0u64, Vec::new(), 0usize);
+    for it in items {
+        let rows = match it.result {
+            Ok(Ok(r)) => r,
+            Ok(Err(reason)) | Err(reason) => {
+                skipped.push(json!({"path": it.path, "reason": reason}));
+                continue;
+            }
+        };
+        files += 1;
+        undecoded += rows.undecoded;
+        let mut seen = std::collections::BTreeSet::new();
+        for t in rows.types {
+            let e = types.entry(t.clone()).or_default();
+            e.count += 1;
+            if seen.insert(("type", t)) {
+                e.files += 1;
+                if e.examples.len() < examples {
+                    e.examples.push(it.path.clone());
+                }
+            }
+        }
+        for (kind, ty, name, value) in rows.entries {
+            let e = by_kind.entry(kind).or_default().entry(name.clone()).or_default();
+            e.count += 1;
+            *e.types.entry(ty).or_default() += 1;
+            if let Some(v) = value {
+                *e.values.entry(v).or_default() += 1;
+            }
+            if seen.insert((kind, name)) {
+                e.files += 1;
+                if e.examples.len() < examples {
+                    e.examples.push(it.path.clone());
+                }
+            }
+        }
+    }
+    let rows = |m: BTreeMap<String, NodeTally>| -> Vec<Value> {
+        let mut v: Vec<_> = m.into_iter().collect();
+        v.sort_by(|a, b| b.1.files.cmp(&a.1.files).then_with(|| a.0.cmp(&b.0)));
+        v.into_iter()
+            .map(|(name, t)| {
+                let mut values: Vec<_> = t.values.into_iter().collect();
+                values.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                values.truncate(max_values);
+                json!({"name": name, "files": t.files, "count": t.count, "types": t.types,
+                       "values": values, "examples": t.examples})
+            })
+            .collect()
+    };
+    let mut out = json!({
+        "schema": "fnv.nif.nodes/1",
+        "sources": sources.iter().map(|s| archive_name(s)).collect::<Vec<_>>(),
+        "files": files,
+        "undecoded_blocks": undecoded,
+        "skipped": skipped,
+        "block_types": rows(types),
+    });
+    for (kind, m) in by_kind {
+        out[kind] = json!(rows(m));
+    }
+    Ok(out)
 }
 
 #[derive(Default)]
