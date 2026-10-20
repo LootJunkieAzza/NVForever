@@ -46,6 +46,10 @@ pub const MAX_BRANCHES: usize = 8;
 pub struct ActorRig {
     pub reference: u32,
     pub base: u32,
+    /// The base its body comes from: a creature's Model/Animation source (a template's
+    /// pick), else `base`. Its body part data goes with the skeleton
+    /// (`CombatForms::body_parts_for`).
+    pub body: u32,
     pub skeleton: String,
     pub skel: Arc<PreparedSkeleton>,
     /// The skeleton's node entities, in `skel` order.
@@ -220,7 +224,7 @@ pub fn weapon_segment(shapes: &[ShapeBox]) -> Option<(Vec3, Vec3)> {
 fn rig_limbs(mut commands: Commands, combat: Res<Combat>, rigs: Query<(Entity, &ActorRig), Without<LimbRig>>) {
     for (e, rig) in &rigs {
         let mut limb = LimbRig { data: FormId(0), chains: Vec::new() };
-        if let Some(data) = combat.forms.body_parts_for(FormId(rig.base), &rig.skeleton) {
+        if let Some(data) = combat.forms.body_parts_for(FormId(rig.body), &rig.skeleton) {
             let parts = &combat.forms.body_parts[&data].parts;
             let names: Vec<Option<&str>> = parts.iter().map(|p| p.node.as_deref()).collect();
             let bind: Vec<Vec3> = rig.skel.bind_world.iter().map(|a| Vec3::from(a.translation)).collect();

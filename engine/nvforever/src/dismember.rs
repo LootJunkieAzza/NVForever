@@ -110,7 +110,7 @@ impl Plugin for DismemberPlugin {
 
 /// The body part data an actor's parts come from.
 fn body_parts<'a>(combat: &'a Combat, rig: &ActorRig, limb: Option<&LimbRig>) -> Option<&'a BodyPartData> {
-    let id = limb.map(|l| l.data).or_else(|| combat.forms.body_parts_for(FormId(rig.base), &rig.skeleton))?;
+    let id = limb.map(|l| l.data).or_else(|| combat.forms.body_parts_for(FormId(rig.body), &rig.skeleton))?;
     combat.forms.body_parts.get(&id)
 }
 
@@ -302,9 +302,11 @@ fn throw_gore(
         // hanging 15, 41 and 59 units below its origin, the head's just above it
         // [observed: `fnvtool nif decode` of GoreLegGore01.NIF and HeadBits01.NIF]. Turned
         // as the bone has turned from its bind pose, so a lying corpse's leg bits lie along
-        // its leg, not down into the floor [design].
+        // its leg, not down into the floor [design]. A gore bone the skeleton lacks falls
+        // back to the part's node: NVGecko's forelegs name a file there,
+        // `BASE Meshes\creatures\NVgiantrat\skeleton.nif` [observed: FalloutNV.esm BPTD].
         let bone = rig.and_then(|r| {
-            let n = node(r, part.gore_target_bone.as_deref().or(part.node.as_deref())?)?;
+            let n = part.gore_target_bone.as_deref().and_then(|b| node(r, b)).or_else(|| node(r, part.node.as_deref()?))?;
             Some((globals.get(r.nodes[n]).ok()?, Mat3::from(r.skel.bind_world.get(n)?.matrix3)))
         });
         let upright = rig.and_then(|r| globals.get(r.nodes[0]).ok()).map_or(Mat3::IDENTITY, |g| game_pose(g).1);

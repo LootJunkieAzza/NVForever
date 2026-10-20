@@ -131,6 +131,11 @@ impl Appearance {
 pub struct CreatureAppearance {
     /// The creature base after leveled resolution.
     pub creature: FormId,
+    /// The creature its Model/Animation group comes from (itself, or a template's pick),
+    /// whose body part data (`PNAM`) goes with the skeleton drawn
+    /// (docs/spec-notes/dismemberment.md §2.6). Not in `fnvtool actor creatures`' output.
+    #[serde(skip)]
+    pub body: FormId,
     pub edid: Option<String>,
     /// DATA type of the Model/Animation source.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -589,6 +594,7 @@ impl<'a> Resolver<'a> {
             .collect();
         Ok(CreatureAppearance {
             creature: crea.id,
+            body: model.id,
             edid: crea.edid.clone(),
             kind: model.kind.clone(),
             skeleton,
