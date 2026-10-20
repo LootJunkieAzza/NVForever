@@ -24,6 +24,11 @@ struct Grade {
     // centre's); use target, flags, the camera's near plane (imagespace.rs).
     dof: vec4<f32>,
     dof_mode: vec4<f32>,
+    // Motion blur: the exposure in frames (0: none), the sharp depth of the player's own
+    // body, the longest smear (a part of the screen height); this frame's clip space to
+    // the last one's (imagespace.rs).
+    motion: vec4<f32>,
+    reproject: mat4x4<f32>,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;
@@ -144,6 +149,65 @@ fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
     // Not clamped: past 1 the mix goes beyond the blur (§8.5).
     let blurred = gauss(uv, dir, max(DOF_BLUR_RADIUS, grade.blur), centre);
     return vec4(max(mix(base.rgb, blurred.rgb, w), vec3(0.0)), centre.a);
+}
+
+// Motion blur (image-modifiers.md §9.4): samples along the point's own motion on the
+// screen over the exposure [hypothesis, the count].
+const MOTION_TAPS: i32 = 12;
+
+// The depth prepass's value at `uv` (reverse depth: larger is nearer, 0 the sky).
+fn raw_depth(uv: vec2<f32>) -> f32 {
+    let dims = vec2<i32>(textureDimensions(depth));
+    let p = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2(0), dims - 1);
+    return textureLoad(depth, p, 0);
+}
+
+// The player's own body, which moves with the view and is left out of the smear.
+fn own_body(d: f32) -> bool {
+    return grade.motion.y > 0.0 && d > grade.motion.y;
+}
+
+// Each point smeared back along where it was on the screen: its depth reprojected into
+// the last frame's view gives its motion over the frame, scaled to the exposure and held
+// to the longest smear; the samples average the picture along that line, leaving out the
+// player's own body. The sky's depth (0) reprojects as a direction, so it smears by the
+// turn alone.
+@fragment
+fn motion_blur(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let uv = in.uv;
+    let centre = textureSampleLevel(screen, screen_sampler, uv, 0.0);
+    let d = raw_depth(uv);
+    if grade.motion.x <= 0.0 || own_body(d) {
+        return centre;
+    }
+    let before = grade.reproject * vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, d, 1.0);
+    if before.w <= 1.0e-6 {
+        return centre;
+    }
+    let ndc = before.xy / before.w;
+    let was = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let dims = vec2<f32>(textureDimensions(screen));
+    var smear = (uv - was) * grade.motion.x * dims;
+    let len = length(smear);
+    let most = grade.motion.z * dims.y;
+    if len > most {
+        smear *= most / len;
+    }
+    if length(smear) < 0.5 {
+        return centre;
+    }
+    let step = smear / dims / f32(MOTION_TAPS - 1);
+    var acc = centre.rgb;
+    var total = 1.0;
+    for (var i = 1; i < MOTION_TAPS; i++) {
+        let at = clamp(uv - step * f32(i), vec2(0.0), vec2(1.0));
+        if own_body(raw_depth(at)) {
+            continue;
+        }
+        acc += textureSampleLevel(screen, screen_sampler, at, 0.0).rgb;
+        total += 1.0;
+    }
+    return vec4(acc / total, centre.a);
 }
 
 @fragment
