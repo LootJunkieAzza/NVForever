@@ -163,7 +163,7 @@ Menus, message boxes, subtitles and the HUD are drawn over the result and are no
 affected [observed for a message box: the same capture shows the pack box over the white
 screen].
 
-Depth of field is drawn as §8 says. Not drawn: motion blur (7 records), the HDR and
+Depth of field is drawn as §8 says, motion blur as §9 says. Not drawn: the HDR and
 bloom parameters (the renderer has no eye adaptation or bloom pass), radial blur "use
 target".
 
@@ -196,7 +196,8 @@ at that time.
   same window size.
 - Whether a second apply restarts or stacks; whether animated modifiers go on behind
   menus (§3).
-- Motion blur; radial blur "use target". Depth of field's constants and modes (§8.5)
+- Radial blur "use target". Motion blur's constants (§9.4) against game screenshots:
+  `imod VATScamNoDOF` from the console while turning. Depth of field's constants and modes (§8.5)
   against game screenshots: FlashBangISfx from the console (`imod`), VATS with a target
   in front of a far background.
 - Explosions play theirs (explosion-effects.md §5, 2026-10-19). Other things that play
@@ -294,3 +295,79 @@ the point's distance `z` from the eye along the view, in game units:
 Log line (smoke `imagespace-dof`, `vats-mode-dof`): "depth of field: strength S, distance D,
 range R[, focus F][, front][, back][, no sky] (source)" when it changes (source: the
 modifier's Editor ID, `VATS` or `iron sights`), and "depth of field: off".
+
+## 9. Motion blur
+
+Code: `engine/nvforever/src/imagespace.rs` (`motion_blur`, `motion_frames`,
+`update_motion`, the log line) with `imagespace_blur.wgsl` (`motion_blur`, the picture).
+
+### 9.1 The field
+
+- An IMAD's motion blur is one key list, **strength** (`NAM4`), counted at DNAM byte 240
+  [documented: xEdit IMAD, §1]; `GetImageSpaceModTrait` calls it trait 63 "Full-Screen
+  Motion Blur: Strength" [documented: GECK wiki "GetImageSpaceModTrait", owner export].
+- The GECK's words [documented: GECK wiki "ImageSpace Modifiers", "FullScreen Motion
+  Blur"]: strength is "how much to blur the screen while moving", 0.0 no blur, 10.0
+  maximum. Nothing else says how it is drawn. The console's `ToggleMotionBlur` and
+  `SetMotionBlur` pages are empty [documented: the same export]. The reference flag
+  "Motion Blur" (512) is "Unused" [documented: GECK wiki "Reference"].
+- An image space (IMGS) has no motion blur field [documented: xEdit IMGS DNAM].
+
+### 9.2 The records and who plays them [observed: a scan of the masters' IMAD NAM4 lists and of every subrecord for their form IDs, 2026-10-20]
+
+Keys are (time: value); none of these is animatable except MS10DrinkSapISFX, and one that
+is not stays at its first keys (§3), so the value at time 0 is what shows.
+
+| Record | Motion blur | Played by |
+|---|---|---|
+| VATScamNoDOF 0x00028FA1 | 0: 0.15, 1: 0 | most VATS camera shots (CAMS MNAM: CamDefaultShoot, CamDefaultHit, FirstPersonCam, PlayerDeathDefault, ...) |
+| VATScamNoDOFDeSat 0x0007DC93 | 0: 0.2, 1: 0 | camera shots (DocuCam..., SlowMoSideFaceOff..., SniperCam...Desat) |
+| VATScamNoDOFDeSatGreen 0x0002A139 | 0: 0.2, 1: 0 | camera shots (NinjaCam..., MeleeActionCam...b, SkyCam01) |
+| VATScamNoDOFBlur 0x000A9E9C | 0: 0.2, 1: 0 | camera shots (the ...01b DocuCams) |
+| NightScopeISFX 0x0008CD8C | 0: 0.2, 1: 0 | nothing in the masters |
+| MS10DrinkSapISFX 0x000AC039 | animated 5 s: 0: 0, 0.06: 0.1, 1: 0 | nothing (Fallout 3's Oasis quest) |
+| MS10DrinkSap02ISFX 0x000CA8B2 | 0: 0.5, 0.06: 0.1, 1: 0 | nothing |
+
+In the add-ons: NVDLC01CloudPoisonISFX (Dead Money, 0.05; not referenced in its plugin),
+NVDLC02SacredDaturaPoisonIS (Honest Hearts, 0.75; the quest NVDLC02MS01's script) and
+NVDLC02WeapBindISFX (Honest Hearts, 0.2; the script NVDLC02WeapBindRitISFXscript).
+
+Game settings [observed: FalloutNV.esm GMST]: `fIronSightsMotionBlur` 0 and
+`fIronSightsGunMotionBlur` 0. No other setting names a motion blur.
+
+So in the shipped game a motion blur shows in VATS's kill cameras (not built here, §8.4)
+and when a script or the console applies one of these records.
+
+### 9.3 Sources
+
+- **Modifiers**: the largest strength among those on the screen (§4) [hypothesis].
+- **Down the sights**: `fIronSightsMotionBlur` × the zoom's blend, when larger than the
+  modifiers'; 0 in the shipped game, so none [hypothesis: from the setting's name, as for
+  the depth of field, §8.4]. `fIronSightsGunMotionBlur` (also 0) would be the weapon's own
+  smear; the player's own body is never smeared here (§9.4), so it is not used.
+- The VATS camera shots' records are not played (§8.4); NightScopeISFX is played by
+  nothing in the data, so a night-vision scope would be the engine's own use: not built.
+
+### 9.4 On the picture [hypothesis, every constant]
+
+- "While moving": each point is smeared along its own motion on the screen, found from
+  its depth: the point is put back through the last frame's camera, which gives where it
+  was on the screen a frame ago. So turning smears the whole picture, walking smears the
+  near ground more than the far hills, and a still view is sharp. The motion of other
+  actors is not counted (a still camera does not smear a running dog) [design: the
+  renderer has no motion vectors].
+- **Exposure**: the smear is the screen motion over the last `strength × 1/30 s`
+  (`MOTION_EXPOSURE`), at most 8 % of the screen height long (`MOTION_MAX_REACH`); 10 then
+  covers a third of a second, at the limit on any brisk turn [hypothesis]. With VATScamNoDOF's
+  0.15 a turn of 125° a second smears plainly (smoke `imagespace-motion-blur`,
+  motion_turning.png, 2026-10-20) [observed in ours].
+- The smear is 12 samples (`MOTION_TAPS`) back along the motion, averaged; it is drawn
+  before the blur and depth of field passes.
+- The player's own body (what is nearer than 40 units, `MOTION_SHARP`) moves with the view:
+  it is neither smeared nor smeared into what is behind it.
+- A camera that jumps more than 300 units or turns more than 45° in one frame was cut, not
+  moved: no smear that frame [design]. A paused game has no motion, so no smear.
+
+Log line (smoke `imagespace-motion-blur`): "motion blur: strength S (source)" when it
+changes, S in steps of 0.05 ("under 0.05" for less; source the modifier's Editor ID or
+`iron sights`), and "motion blur: off".

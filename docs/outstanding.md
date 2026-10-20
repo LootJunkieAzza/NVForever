@@ -58,7 +58,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **Animation**: open in [actor jumps](spec-notes/actor-jumps.md) (built 2026-10-20): how the original takes ledge-up links and obstacles.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); ~~depth of field~~ (built 2026-10-20, image-modifiers.md §8; constants to set against game frames),
-  motion blur, the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
+  ~~motion blur~~ (built 2026-10-20, image-modifiers.md §9; constants to set against game frames), the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
   66 particle-system smokes not drawn (playtest list 4 item 16).
 - **Interface**: credits. The weapon mod menu is built (2026-10-20,
   [weapon-mods](spec-notes/weapon-mods.md)): X on a weapon lists the carried mods that
