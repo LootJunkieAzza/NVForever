@@ -66,6 +66,11 @@ pub enum MaterialTarget {
     /// replaces the stored alpha]. The neon signs and lit windows fade with it
     /// (activators.md §6).
     Alpha,
+    /// `BSRefractionStrengthController` on the shape's BSShaderPPLightingProperty: the
+    /// refraction strength of a refracting shape (`nif_material`, "Refraction")
+    /// [hypothesis from the name; observed: the explosions' heat-haze shells,
+    /// `dlc03flamerexplosion.nif` 0.056 → 0.156 → 0.056 over 0.23 s].
+    Refraction,
 }
 
 /// One track of a sequence on a shape's material, by shape name.
@@ -122,6 +127,7 @@ impl MaterialTrack {
             ("NiMaterialColorController", ValueTrack::Point3(_)) if id == "SELF_ILLUM" => MaterialTarget::SelfIllum,
             ("BSMaterialEmittanceMultController", ValueTrack::Float(_)) => MaterialTarget::EmissiveMult,
             ("NiAlphaController", ValueTrack::Float(_)) => MaterialTarget::Alpha,
+            ("BSRefractionStrengthController", ValueTrack::Float(_)) => MaterialTarget::Refraction,
             ("NiTextureTransformController", ValueTrack::Float(_)) => match id {
                 "0-0-TT_TRANSLATE_U" => MaterialTarget::UvOffset(0),
                 "0-0-TT_TRANSLATE_V" => MaterialTarget::UvOffset(1),

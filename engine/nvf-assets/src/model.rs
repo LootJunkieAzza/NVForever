@@ -162,6 +162,8 @@ pub struct RigShape {
     /// and alpha: what a track that drives one of them leaves the others at
     /// (`crate::material_anim`).
     pub look: (String, [f32; 3], f32, f32),
+    /// Its stored refraction strength (0 unless it refracts).
+    pub refraction: f32,
     /// A clip of the rig drives the shape's material.
     pub animated: bool,
 }
@@ -170,7 +172,9 @@ impl RigShape {
     /// The shape's material slot ([`RigMaterials`]), drawn on `entity`.
     pub fn slot(&self, entity: Entity) -> MaterialSlot {
         let (name, emissive, mult, alpha) = self.look.clone();
-        MaterialSlot::new(name, entity, self.material.clone(), emissive, mult, alpha)
+        let mut slot = MaterialSlot::new(name, entity, self.material.clone(), emissive, mult, alpha);
+        slot.refraction = self.refraction;
+        slot
     }
 }
 
@@ -334,7 +338,7 @@ fn material_tracks_of_own(file: &NifFile, dec: &Decoded, inactive: bool) -> Vec<
     let mut out = Vec::new();
     for (i, b) in file.blocks.iter().enumerate() {
         let target = match b.type_name.as_str() {
-            "NiTextureTransformController" | "NiAlphaController" | "NiMaterialColorController" | "BSMaterialEmittanceMultController" => b.type_name.as_str(),
+            "NiTextureTransformController" | "NiAlphaController" | "NiMaterialColorController" | "BSMaterialEmittanceMultController" | "BSRefractionStrengthController" => b.type_name.as_str(),
             _ => continue,
         };
         let Ok(c) = &dec.blocks[i] else { continue };
@@ -360,6 +364,9 @@ fn material_tracks_of_own(file: &NifFile, dec: &Decoded, inactive: bool) -> Vec<
                     _ => continue,
                 }
             }
+            // On the shape's shader property, not its material.
+            "BSRefractionStrengthController" if file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "BSShaderPPLightingProperty") => MaterialTarget::Refraction,
+            "BSRefractionStrengthController" => continue,
             _ if !file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") => continue,
             "NiAlphaController" => MaterialTarget::Alpha,
             // The emissive colour (TC_SELF_ILLUM, 3) [documented: nif.xml MaterialColor];
@@ -654,12 +661,24 @@ impl ModelCtx<'_> {
         self.load(path, true)
     }
 
+    /// Like [`Self::model`], drawn with the first-person form of each texture that has
+    /// one (`crate::texture::first_person_texture`): the weapon in the arms rig's hands.
+    pub fn model_first_person(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
+        self.load_as(path, false, true)
+    }
+
     fn load(&mut self, path: &str, keep_cpu: bool) -> Option<Arc<PreparedModel>> {
-        let key = fnv_vfs::normalize(path);
+        self.load_as(path, keep_cpu, false)
+    }
+
+    fn load_as(&mut self, path: &str, keep_cpu: bool, first_person: bool) -> Option<Arc<PreparedModel>> {
+        let path = fnv_vfs::normalize(path);
+        // The first-person copy is kept apart from the model's own.
+        let key = if first_person { format!("{path}|1stperson") } else { path.clone() };
         if let Some(m) = self.cache.map.get(&key) {
             return m.clone();
         }
-        let m = match self.prepare(&key, keep_cpu) {
+        let m = match self.prepare(&path, keep_cpu, first_person) {
             Ok(m) => Some(Arc::new(m)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
@@ -670,7 +689,7 @@ impl ModelCtx<'_> {
         m
     }
 
-    fn prepare(&mut self, path: &str, keep_cpu: bool) -> Result<PreparedModel, String> {
+    fn prepare(&mut self, path: &str, keep_cpu: bool, first_person: bool) -> Result<PreparedModel, String> {
         let bytes = self.data.read(path).ok_or("not in any archive")?;
         let schema = self.data.schema.clone();
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
@@ -748,6 +767,13 @@ impl ModelCtx<'_> {
             .chain(effect.iter())
             .flat_map(|c| c.materials.iter().filter(|m| matches!(m.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult)).map(|m| m.shape.clone()))
             .collect();
+        let alpha_shapes: HashSet<String> = idle
+            .iter()
+            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .chain(groups.iter())
+            .chain(effect.iter())
+            .flat_map(|c| c.materials.iter().filter(|m| m.target == MaterialTarget::Alpha).map(|m| m.shape.clone()))
+            .collect();
         // Nodes a clip of the rig shows and hides (`NiVisController`): their shapes are
         // built even when the file hides them, and spawn hidden in the rig.
         let vis_nodes: HashSet<String> = idle
@@ -791,6 +817,7 @@ impl ModelCtx<'_> {
             })
             .flatten();
 
+        let mut first_textures = 0;
         for o in objects.iter().filter(|o| !o.is_node) {
             // Walk to the root: accumulate the transform below the root's own and look
             // for hidden ancestors.
@@ -825,8 +852,12 @@ impl ModelCtx<'_> {
             let mut props = shape_props(&file, &dec, o, &by_block);
             let shape_name = o.name.clone().unwrap_or_default();
             props.animated_emissive = emissive_shapes.contains(&shape_name);
+            props.animated_alpha = alpha_shapes.contains(&shape_name);
             if props.is_helper() {
                 continue;
+            }
+            if first_person {
+                first_textures += props.use_first_person_textures(|p| self.data.vfs.exists(p));
             }
             let Some((mut mesh, tris)) = build_mesh(data) else { continue };
             let (material, _missing) = shape_material(
@@ -881,7 +912,7 @@ impl ModelCtx<'_> {
                     let animated = animated_shapes.contains(&shape_name);
                     let (e, m) = props.emissive_parts();
                     let look = (shape_name.clone(), e, m, props.alpha_part());
-                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, animated });
+                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, refraction: props.refraction_part(), animated });
                 }
             }
             // A shape only a visibility track shows is the rig's alone.
@@ -905,6 +936,9 @@ impl ModelCtx<'_> {
                 },
             });
             out.triangles += tris;
+        }
+        if first_person {
+            info!("{path}: first person, {first_textures} texture(s) in their 1stperson form");
         }
         out.rig = rig.map(|(r, _)| r);
         Ok(out)

@@ -17,7 +17,7 @@
 //!   with its acceleration, plus the world velocity and acceleration (game axes); life ±
 //!   its range; scale from 0 through the two keys (the scale as the particle's width in
 //!   game units [hypothesis]); colour keys over the life from and back to the texture's
-//!   own colour; rotation ± range and spin ± range; one frame of the texture's U × V
+//!   own colour, the alpha held at the nearest key's (`ParticleShader::tint`); rotation ± range and spin ± range; one frame of the texture's U × V
 //!   grid each, at random [hypothesis]. Drawn as squares facing the camera, unlit, the
 //!   tint taken as display values as `particles.rs` does, blended by the destination
 //!   blend (One: added).

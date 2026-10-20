@@ -665,7 +665,7 @@ impl Residents {
         let mut all = false;
         let mut core = Core {
             // Test aid: conversations between NPCs anywhere in the loaded area.
-            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
+            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), find_buying: std::env::var("NVF_PLAY_TEST_FIND_BUYING").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
@@ -1233,6 +1233,7 @@ impl Core {
                 | AiEvent::EscortOn { .. }
                 | AiEvent::FindGoes { .. }
                 | AiEvent::Found { .. }
+                | AiEvent::Bought { .. }
                 | AiEvent::NothingFound { .. }
                 | AiEvent::UsesAt { .. }
                 | AiEvent::UsesItem { .. }
@@ -1454,6 +1455,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::EscortOn { target, .. } => format!("escorts {}: goes on", n(target)),
         AiEvent::FindGoes { package, object, length } => format!("finds {}: goes to it, {length:.0} units ({})", n(object), n(package)),
         AiEvent::Found { package, object, act } => format!("found {}: {} ({})", n(object), serde_json::to_value(act).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(), n(package)),
+        AiEvent::Bought { package, vendor, item, price } => format!("buys {} from {} for {price} caps ({})", n(item), n(vendor), n(package)),
         AiEvent::NothingFound { package, found } => format!("finds nothing more ({found} found, {})", n(package)),
         AiEvent::UsesAt { package, thing: Some(t) } => format!("uses {} ({})", n(t), n(package)),
         AiEvent::UsesAt { package, thing: None } => format!("has nothing to use: stays ({})", n(package)),

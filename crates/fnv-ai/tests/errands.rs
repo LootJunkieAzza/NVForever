@@ -85,6 +85,10 @@ const STAT: u32 = 0x810;
 const CHAIR: u32 = 0x811;
 const BOTTLE: u32 = 0x812;
 const MEAT: u32 = 0x813;
+const TONIC: u32 = 0x814;
+const STOCK: u32 = 0x815;
+/// The caps item [documented: FormID 0000000F].
+const CAPS: u32 = 0xF;
 // Package types [documented: xEdit PACK type enum].
 const FIND: u8 = 0;
 const ESCORT: u8 = 2;
@@ -103,6 +107,7 @@ const P_FLEE_HOME: u32 = 0x827;
 const P_FLEE_NOTHING: u32 = 0x828;
 const P_FIND_NONE: u32 = 0x829;
 const P_HUNT: u32 = 0x82A;
+const P_BUY: u32 = 0x82B;
 // Bases.
 const N_LEADER: u32 = 0x840;
 const N_GUEST: u32 = 0x841;
@@ -117,6 +122,8 @@ const N_CALM: u32 = 0x849;
 const N_IDLE_FINDER: u32 = 0x84A;
 const N_HUNTER: u32 = 0x84B;
 const N_POACHER: u32 = 0x84C;
+const N_BUYER: u32 = 0x84D;
+const N_VENDOR: u32 = 0x84E;
 // Cell and references.
 const CELL: u32 = 0x860;
 const MARK_FAR: u32 = 0x870;
@@ -139,6 +146,9 @@ const R_CALM: u32 = 0x889;
 const R_IDLE_FINDER: u32 = 0x88A;
 const R_HUNTER: u32 = 0x88B;
 const R_POACHER: u32 = 0x88C;
+const R_BUYER: u32 = 0x88D;
+const R_VENDOR: u32 = 0x88E;
+const R_STOCK: u32 = 0x88F;
 
 const C: Space = Space::Interior(CELL);
 
@@ -174,6 +184,8 @@ fn plugin_bytes() -> Vec<u8> {
         // Find meat with Allow Killing: it attacks the actors of its area, whatever they
         // carry (the original's gecko on FindFood, packages.md section 3.1).
         pack(P_HUNT, "HuntMeat", 0, FIND, type_flags::ALLOW_KILLING, Some((2, 0, 1500)), None, Some((1, MEAT, 1)), None),
+        // Find two tonics with Allow Buying: only the vendor's stock holds any.
+        pack(P_BUY, "BuyTonics", 0, FIND, type_flags::ALLOW_BUYING, Some((2, 0, 1500)), None, Some((1, TONIC, 2)), None),
     ]
     .concat();
     let npcs = [
@@ -190,15 +202,32 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_CALM, "Calm", &[P_FLEE_NOTHING]),
         npc(N_IDLE_FINDER, "IdleFinder", &[P_FIND_NONE]),
         npc(N_POACHER, "Poacher", &[P_HUNT]),
+        npc(N_BUYER, "Buyer", &[P_BUY]),
+        npc(N_VENDOR, "Vendor", &[]),
     ]
     .concat();
     let furn = record(b"FURN", CHAIR, &[sub(b"EDID", z("Chair")), sub(b"MNAM", 0x4000_0001u32.to_le_bytes().to_vec())]);
     let misc = [
         record(b"MISC", BOTTLE, &[sub(b"EDID", z("Bottle")), sub(b"DATA", [1i32.to_le_bytes(), 0.5f32.to_le_bytes()].concat())]),
         record(b"MISC", MEAT, &[sub(b"EDID", z("Meat")), sub(b"DATA", [1i32.to_le_bytes(), 0.5f32.to_le_bytes()].concat())]),
+        record(b"MISC", TONIC, &[sub(b"EDID", z("Tonic")), sub(b"DATA", [10i32.to_le_bytes(), 0.5f32.to_le_bytes()].concat())]),
+        record(b"MISC", CAPS, &[sub(b"EDID", z("Caps001")), sub(b"DATA", [1i32.to_le_bytes(), 0.0f32.to_le_bytes()].concat())]),
     ]
     .concat();
     let stat = record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]);
+    let cnto = |item: u32, n: i32| sub(b"CNTO", [item.to_le_bytes(), n.to_le_bytes()].concat());
+    let cont = record(b"CONT", STOCK, &[sub(b"EDID", z("VendorStock")), cnto(TONIC, 3)]);
+    // The vendor names its stock container in XMRC.
+    let vendor = record(
+        b"ACHR",
+        R_VENDOR,
+        &[
+            sub(b"EDID", z("VendorRef")),
+            sub(b"NAME", N_VENDOR.to_le_bytes().to_vec()),
+            sub(b"XMRC", R_STOCK.to_le_bytes().to_vec()),
+            sub(b"DATA", [1600.0f32.to_le_bytes(), 600.0f32.to_le_bytes(), [0; 4], [0; 4], [0; 4], 0.0f32.to_le_bytes()].concat()),
+        ],
+    );
     let refs = [
         placed(b"REFR", MARK_FAR, "MarkFar", STAT, [1850.0, 150.0, 0.0], None),
         placed(b"REFR", MARK_TRAP, "MarkTrap", STAT, [1000.0, 1700.0, 0.0], None),
@@ -220,6 +249,9 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_IDLE_FINDER, "IdleFinderRef", N_IDLE_FINDER, [1200.0, 1200.0, 0.0], None),
         placed(b"ACRE", R_HUNTER, "HunterRef", N_HUNTER, [1100.0, 600.0, 0.0], None),
         placed(b"ACHR", R_POACHER, "PoacherRef", N_POACHER, [1100.0, 700.0, 0.0], None),
+        placed(b"ACHR", R_BUYER, "BuyerRef", N_BUYER, [1600.0, 200.0, 0.0], None),
+        vendor,
+        placed(b"REFR", R_STOCK, "VendorStockRef", STOCK, [1900.0, 1900.0, -2000.0], None),
     ]
     .concat();
     let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Hall"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
@@ -230,6 +262,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"STAT", &stat),
         top(b"MISC", &misc),
         top(b"FURN", &furn),
+        top(b"CONT", &cont),
         top(b"NPC_", &npcs),
         top(b"CREA", &crea(N_HUNTER, "Hunter", &[P_HUNT])),
         top(b"PACK", &packs),
@@ -424,6 +457,39 @@ fn a_find_package_with_allow_killing_attacks_an_actor_carrying_nothing_it_wants(
     let mut s = sim(&f, &[R_POACHER]);
     s.run(10.0);
     assert!(!s.events(R_POACHER).iter().any(|e| matches!(e, AiEvent::Found { act: Act::Attacks, .. })), "{:?}", s.events(R_POACHER));
+}
+
+/// Allow Buying: the vendor's merchant container holds the tonics; the buyer goes up to
+/// the vendor and buys them one at a time at the player's buying price at its Barter
+/// skill (value 10, at least 10 caps), the caps going into the container (packages.md
+/// section 3.1, hypotheses). Without enough caps it finds nothing.
+#[test]
+fn a_find_package_with_allow_buying_buys_from_a_vendor() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_BUYER]);
+    s.game.world.add_item(FormId(R_BUYER), FormId(CAPS), 40).unwrap();
+    let price = fnv_ai::errand::buying_price(&mut s.game, FormId(R_BUYER), FormId(TONIC));
+    assert!((10..=16).contains(&price), "{price}");
+    s.run(20.0);
+    let ev = s.events(R_BUYER);
+    let bought: Vec<u32> = ev.iter().filter_map(|e| if let AiEvent::Bought { vendor, item, price, .. } = e { (vendor.0 == R_VENDOR && item.0 == TONIC).then_some(*price) } else { None }).collect();
+    assert_eq!(bought, [price, price], "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Found { object, act: Act::Buys, .. } if object.0 == R_VENDOR)), "{ev:?}");
+    let count = |s: &mut Sim, r: u32, i: u32| s.game.world.item_count(FormId(r), FormId(i)).unwrap();
+    assert_eq!((count(&mut s, R_BUYER, TONIC), count(&mut s, R_BUYER, CAPS)), (2, 40 - 2 * price as i32));
+    assert_eq!((count(&mut s, R_STOCK, TONIC), count(&mut s, R_STOCK, CAPS)), (1, 2 * price as i32));
+    assert!(dist(s.feet(R_BUYER), [1600.0, 600.0, 0.0]) < 120.0, "it went up to the vendor");
+    assert!(s.goal_met(R_BUYER), "the count is found");
+    assert_eq!(s.game.extra[&FormId(R_BUYER)].used_item, Some(FormId(TONIC)));
+
+    // Nine caps buy nothing (a tonic costs at least its value): the vendor is not gone to.
+    let mut s = sim(&f, &[R_BUYER]);
+    s.game.world.add_item(FormId(R_BUYER), FormId(CAPS), 9).unwrap();
+    s.run(10.0);
+    let ev = s.events(R_BUYER);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::NothingFound { found: 0, .. })), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::Bought { .. })), "{ev:?}");
+    assert_eq!(count(&mut s, R_STOCK, TONIC), 3);
 }
 
 #[test]

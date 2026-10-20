@@ -79,8 +79,9 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   enemy gunmen firing at it first, nearest first, then from its own target
   (docs/design/combat-ai.md §12.6.1); smoke combat-cover passes again without its three
   known_failing marks.
-- **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
-  package types and flags are carried out since #400).
+- ~~**AI packages**~~: done (the package types and flags are carried out since #400;
+  Find's Allow Buying and an escort joining its charge's fights since 2026-10-20,
+  packages.md §3.1, mostly hypotheses: no shipped Find package has the flag).
   - Find's Allow Killing: settled 2026-10-19 [observed, AI observer `gecko_find`]: an
     Unaggressive gecko on FindFood started fights with bloatflies, radroaches and a
     protectron that carries no food at all, so a creature on Find with Allow Killing now
@@ -153,14 +154,20 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
     player as the attacker, and was missing from `npc hits summary`. They are now
     their shooter's.
   - Left:
-    - the last trooper dies some 40 s sooner than in the original;
+    - the troopers die sooner than in the original (16–31 s after the first fighter
+      engaged against 30–132 s). Explained (npc-behaviour-compare.md §9.1): Cook-Cook
+      drew his Flamer instead of his Incinerator (fixed 2026-10-20, branch
+      claude/q9-trooper-time: the weapon choice counts a gun's explosion,
+      actors.md §9.3); left, the Incinerator's burn drains 4 Health a second in ours
+      against 1–2 in the original, cause unknown: needs a capture of one burn;
     - NPC weapons now wear from their own shots and blows by the documented per-shot
       rule, the player's (2026-10-20, combat-rules.md §17–18). The original's Incinerator
       losing 2.19 a burst is still not explained by it; 2.19 is a trooper's hit on
       Cook-Cook to two places, so the falls may come from hits he took. Settle it by
       running campaign fight_stats_round again and reading it with
       `tools/capture/fight_stats.py` (now splits weapon wear into firing and hits).
-      Ours, Cook-Cook draws his Flamer where the original's drew the Incinerator;
+      Ours drew Cook-Cook's Flamer where the original's drew the Incinerator until the
+      weapon choice counted a gun's explosion (2026-10-20, above);
     - the original's hits split by attacker, to check the Hunting Rifle's 22 a hit on a
       trooper.
 - Melee attackers keeping away from a god-mode player: not god mode's doing. In the same

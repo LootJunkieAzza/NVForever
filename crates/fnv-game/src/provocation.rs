@@ -57,6 +57,17 @@
 //!   between other actors are left to assistance and alarms (above, and
 //!   `crate::combat_group`): with this rule there too, every NCR trooper near Cook-Cook's
 //!   camp took the fight up on its own and fewer alarmed the others.
+//! - **Escorts** [documented: GECK wiki Defensive Combat, "The exception is for the
+//!   Accompany, Escort and Follow packages … if the target is attacked, the actor will
+//!   join into the combat"]: an actor whose current package is Escort takes up the fight
+//!   of the one it escorts (the package's target) against everyone attacking it: actors
+//!   in a combat state with the charge on their target list, and whoever hurt it. Its
+//!   Assistance does not matter; it never fights its own allies or friends, and a coward
+//!   stays out. Choices [hypothesis]: the escort must at least notice its charge (band
+//!   Noticed or Detected); a fight the charge starts is joined only once the foe
+//!   fights back; a charge that provoked the attacker is still helped; it holds for the
+//!   whole package, also once at the destination; the player's teammates are left to
+//!   `crate::followers`. Follow and Accompany (the same exception) are not built here.
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
 //! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
@@ -426,8 +437,87 @@ impl Game<'_> {
             }
         }
         joined += self.join_against_dangers();
+        joined += self.escorts_assist();
         // The player's teammates take up the player's fights (`crate::followers`).
         joined + self.teammates_assist()
+    }
+
+    /// An actor running an Escort package takes up its charge's fights (module notes,
+    /// "Escorts"; docs/spec-notes/packages.md §3.1): for each actor attacking the charge
+    /// (in a combat state with the charge on its target list, or having hurt it), the
+    /// escort holds a grudge and is alarmed at the attacker's position, as an assisting
+    /// ally is. Returns how many joined.
+    pub fn escorts_assist(&mut self) -> usize {
+        let data = self.data;
+        let escorts: Vec<(FormId, FormId)> = self
+            .extra
+            .iter()
+            .filter_map(|(id, e)| {
+                let def = data.package_defs.get(&e.current_package?)?;
+                (def.ty == crate::package::PackageType::Escort).then_some((*id, def))
+            })
+            .filter_map(|(id, def)| self.package_target(id, def).map(|t| (id, t)))
+            .filter(|(id, charge)| id != charge)
+            .collect();
+        let mut joined = 0;
+        for (escort, charge) in escorts {
+            if escort == FormId::PLAYER_REF || self.is_dead(escort) || !self.present(escort) || self.is_dead(charge) || self.is_teammate(escort) {
+                continue;
+            }
+            // It must at least notice its charge [hypothesis: an escort keeps track of the
+            // one it leads even while walking ahead with its back to it, so Noticed is
+            // enough where an ally's assistance needs Detected].
+            if !self.detection.pairs.get(&(escort, charge)).is_some_and(|(d, _)| d.band != Band::Hidden) {
+                continue;
+            }
+            for (attacker, at) in self.attackers_of(charge) {
+                if attacker == escort || self.is_dead(attacker) {
+                    continue;
+                }
+                let knows = self.awareness.get(escort).is_some_and(|a| a.targets.contains_key(&attacker) || a.alarms.iter().any(|x| x.owner == attacker));
+                if knows || self.provocations.holds(escort, attacker) {
+                    continue;
+                }
+                // Never against its own allies and friends [documented: they "cannot
+                // attack each other under any circumstances"].
+                if matches!(self.reaction_to(escort, attacker), ALLY | FRIEND) {
+                    continue;
+                }
+                if self.stays_out(escort, charge) {
+                    break;
+                }
+                let now = self.time;
+                if !self.would_attack(escort, attacker) {
+                    self.provocations.grudges.insert((escort, attacker), Grudge { why: Why::Assist { victim: charge }, since: now });
+                }
+                self.provocations.notes.push(Note::Assists { helper: escort, victim: charge, attacker });
+                let t = self.awareness.timers.unwrap_or_default();
+                self.awareness.actors.entry(escort).or_default().alarm(attacker, at, 0.0, Cause::Ally, now, &t);
+                joined += 1;
+            }
+        }
+        joined
+    }
+
+    /// Who attacks `victim`, with where they are: every actor in a combat state with
+    /// `victim` on its target list, and whoever hurt `victim` (its `Hurt` alarms).
+    fn attackers_of(&self, victim: FormId) -> Foes {
+        let pos = |g: &Game, r: FormId| g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos));
+        let mut out: Foes = self
+            .awareness
+            .actors
+            .iter()
+            .filter(|(id, a)| **id != victim && a.state.in_combat() && a.targets.contains_key(&victim))
+            .filter_map(|(id, _)| pos(self, *id).map(|p| (*id, p)))
+            .collect();
+        if let Some(a) = self.awareness.get(victim) {
+            for al in a.alarms.iter().filter(|x| x.cause == Cause::Hurt) {
+                if al.owner != victim && !out.iter().any(|o| o.0 == al.owner) {
+                    out.push((al.owner, al.at));
+                }
+            }
+        }
+        out
     }
 }
 

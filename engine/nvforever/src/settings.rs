@@ -144,6 +144,18 @@ pub fn register(app: &mut App) {
                 slider: None,
             },
         );
+        add_setting(
+            app,
+            Setting {
+                key: "weapon-sway",
+                group: GROUP_PICTURE,
+                label: "Weapon sway",
+                note: "On: in first person the arms and weapon lag behind a turn and bob as you walk and run. Off: they stay still in the view. (--no-weapon-sway)",
+                get: |w| w.resource::<PlayerBody>().weapon_sway,
+                set: |w, on| w.resource_mut::<PlayerBody>().weapon_sway = on,
+                slider: None,
+            },
+        );
     }
     add_setting(
         app,

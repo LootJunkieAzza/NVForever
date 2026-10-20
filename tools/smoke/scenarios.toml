@@ -284,6 +284,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "weapon-sway"
+source = "engine/nvforever/src/view_sway.rs (owner request 2026-10-20): the first-person arms lag behind a turn and bob while running; docs/design/player-body.md §1.4a"
+areas = ["player-body"]
+paths = ["engine/nvforever/src/view_sway.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_LOOK = "3:0:0,3.2:10:0,3.3:20:0,3.4:30:0,3.5:40:0,3.6:50:0", NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 13
+expect = [
+  { re = 'player body summary: weapon sway on, most turn lag (?P<n>[\d.]+) degrees sideways', range = [1.5, 5.01], label = "a quick turn leaves the arms behind, within the 5 degree limit" },
+  { re = 'player body summary: weapon sway on, most turn lag [\d.]+ degrees sideways and (?P<n>[\d.]+) up or down', range = [0, 3.51], label = "up or down within the 3.5 degree limit" },
+  { re = 'player body summary: weapon sway on, .*deepest bob (?P<n>[\d.]+) units', range = [0.3, 0.91], label = "running bobs the arms, within the 0.9 unit dip" },
+]
+
+[[scenario]]
 name = "graphics-settings"
 source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
@@ -1254,11 +1268,11 @@ expect = [
 [[scenario]]
 name = "furniture-fidgets"
 source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
-note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair"
+note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair. 15:00, not 12:00: from 12 to 14 his package is EasyPeteEat12x2 (fnvtool ai day), whose procedure 10 EAT picks the IDLE tree's SitChairFood branch (GetCurrentAIProcedure == 10) and he eats on the chair (SitChairEatB, food in hand) instead, as the game does [observed 2026-10-20 once procedure codes were read]; from 14 EasyPeteChairPackage14x4"
 areas = ["idles", "furniture"]
 paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/furniture.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_ACTIVATE = "3", NVF_PLAY_TEST_CONTROL = "6:view" }
-args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "15", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
 run_seconds = 90
 expect = [
   "furniture summary: 1 of 1 actors sat down, 1 got up again",
@@ -2770,10 +2784,10 @@ forbid = [{ re = "npc combat: .* blocks the player's blow", label = "a fighter b
 [[scenario]]
 name = "cook-cook-flamer"
 source = "owner's playtest 2026-10-16: Cook-Cook's flamer jittered as if it had recoil (its looping attack clip started again at every shot) and his left hand missed the gun (the Weapon node back at its bind pose; animation.md §9.7, §9.8)"
-note = "the player is put 100 units in front of Cook-Cook (FiendCookCookRef 000F5704) at 5 s, god mode; he fires his flamer at the player"
+note = "the player is put 100 units in front of Cook-Cook (FiendCookCookRef 000F5704) at 5 s, god mode; he fires his flamer at the player. He draws his Incinerator by the weapon choice (actors.md §9.3, as the original's Cook-Cook did), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat", "animation"]
 paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FACE = "5:000F5704" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -2784,10 +2798,10 @@ expect = [
 [[scenario]]
 name = "combat-flamer-reach"
 source = "owner request 2026-10-18: NPCs fired out of range; Cook-Cook fired his flamer from cover as soon as the player was in sight (docs/design/combat-ai.md §16)"
-note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer: max range 650, its flame 640) is set on the player about 1,700 units away at 3 s, god mode, run on his packages: he holds fire beyond 640 units, runs at the player (out of reach a gunman takes no flank place) and fires once within it. The AI's lines name him by FormID (ai [..] 000F5704: …). The other Fiends of the camp are not run on their packages; any gunman among them holds fire beyond its reach too (the summary counts every fighter)"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer: max range 650, its flame 640) is set on the player about 1,700 units away at 3 s, god mode, run on his packages: he holds fire beyond 640 units, runs at the player (out of reach a gunman takes no flank place) and fires once within it. The AI's lines name him by FormID (ai [..] 000F5704: …). The other Fiends of the camp are not run on their packages; any gunman among them holds fire beyond its reach too (the summary counts every fighter). He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,3:combat:0x000F5704:player" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
 run_seconds = 45
 expect = [
@@ -2803,6 +2817,40 @@ order = [[
   { re = 'npc combat: FiendCookCookRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 640\)', range = [0, 640], label = "then fires, from within his flame's reach" },
   { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "with the flamer's attack clip" },
 ]]
+
+[[scenario]]
+name = "npc-muzzle-flash-flamer"
+source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight"
+areas = ["combat", "shot-fx"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player", NVF_PLAY_TEST_FACE = "8:000F5704", NVF_PLAY_TEST_CONTROL = "9:view,9.2:zoom=400,9.4:orbit=90:10", NVF_PLAY_TEST_SHOTS = "10:npc_flash_flamer_00.png,10.25:npc_flash_flamer_01.png,10.5:npc_flash_flamer_02.png,10.75:npc_flash_flamer_03.png,11:npc_flash_flamer_04.png,11.25:npc_flash_flamer_05.png,11.5:npc_flash_flamer_06.png,11.75:npc_flash_flamer_07.png,12:npc_flash_flamer_08.png,12.25:npc_flash_flamer_09.png,12.5:npc_flash_flamer_10.png,12.75:npc_flash_flamer_11.png,13:npc_flash_flamer_12.png" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
+run_seconds = 20
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
+  { re = 'shot fx: 0x000F5704 muzzle flash at its weapon.s muzzle, (?P<n>[\d.]+) units from where the shot left', range = [0, 20], label = "his flash is at his flamer's muzzle (the marker as the attack clip has moved it since the shot's place was taken; the eyes, where shots without one leave, are about 75 units off)" },
+  { re = 'shot fx: 0x000F5704 muzzle flash .*its length (?P<n>\d+) degrees off the shot', range = [0, 30], label = "his flash points along his shot" },
+  { re = 'shot fx: other actors. muzzle flashes: (?P<n>\d+) at their weapon.s muzzle', range = [1, 100000], label = "the summary counts flashes at a muzzle" },
+  "Screenshot saved to npc_flash_flamer_12.png",
+]
+
+[[scenario]]
+name = "npc-muzzle-flash-rifle"
+source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
+note = "Violet (FiendVioletRef 0x000F570B) is given and made to equip a service rifle (WeapNVServiceRifle) and set on the player at 4 s (scripts' clock), god mode; at 12 s the player is put 100 units in front of her. Her flashes go under the rifle's muzzle marker. Frames npc_flash_rifle_00..39.png in target/smoke (14 to 16 s, every 0.05 s, the flash lasting 0.04 s) catch some of her flashes at the rifle's muzzle"
+areas = ["combat", "shot-fx"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapNVServiceRifle:1,3.5:call:FiendVioletRef:EquipItem:WeapNVServiceRifle,4:combat:FiendVioletRef:player", NVF_PLAY_TEST_FACE = "12:000F570B", NVF_PLAY_TEST_SHOTS = "14.00:npc_flash_rifle_00.png,14.05:npc_flash_rifle_01.png,14.10:npc_flash_rifle_02.png,14.15:npc_flash_rifle_03.png,14.20:npc_flash_rifle_04.png,14.25:npc_flash_rifle_05.png,14.30:npc_flash_rifle_06.png,14.35:npc_flash_rifle_07.png,14.40:npc_flash_rifle_08.png,14.45:npc_flash_rifle_09.png,14.50:npc_flash_rifle_10.png,14.55:npc_flash_rifle_11.png,14.60:npc_flash_rifle_12.png,14.65:npc_flash_rifle_13.png,14.70:npc_flash_rifle_14.png,14.75:npc_flash_rifle_15.png,14.80:npc_flash_rifle_16.png,14.85:npc_flash_rifle_17.png,14.90:npc_flash_rifle_18.png,14.95:npc_flash_rifle_19.png,15.00:npc_flash_rifle_20.png,15.05:npc_flash_rifle_21.png,15.10:npc_flash_rifle_22.png,15.15:npc_flash_rifle_23.png,15.20:npc_flash_rifle_24.png,15.25:npc_flash_rifle_25.png,15.30:npc_flash_rifle_26.png,15.35:npc_flash_rifle_27.png,15.40:npc_flash_rifle_28.png,15.45:npc_flash_rifle_29.png,15.50:npc_flash_rifle_30.png,15.55:npc_flash_rifle_31.png,15.60:npc_flash_rifle_32.png,15.65:npc_flash_rifle_33.png,15.70:npc_flash_rifle_34.png,15.75:npc_flash_rifle_35.png,15.80:npc_flash_rifle_36.png,15.85:npc_flash_rifle_37.png,15.90:npc_flash_rifle_38.png,15.95:npc_flash_rifle_39.png" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 22
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVServiceRifle \(gun\)', label = "Violet fights with the service rifle" },
+  { re = 'shot fx: 0x000F570B muzzle flash at its weapon.s muzzle, (?P<n>[\d.]+) units from where the shot left', range = [0, 20], label = "her flash is at her rifle's muzzle (the marker as the attack clip has moved it since the shot's place was taken; the eyes, where shots without one leave, are about 75 units off)" },
+  { re = 'shot fx: 0x000F570B muzzle flash .*its length (?P<n>\d+) degrees off the shot', range = [0, 30], label = "her flash points along her shot" },
+  { re = 'shot fx: other actors. muzzle flashes: (?P<n>\d+) at their weapon.s muzzle', range = [1, 100000], label = "the summary counts flashes at a muzzle" },
+  "Screenshot saved to npc_flash_rifle_39.png",
+]
 
 [[scenario]]
 name = "combat-shotgun-reach"
@@ -2842,10 +2890,11 @@ forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyon
 [[scenario]]
 name = "npc-flamer-holstered"
 source = "owner 2026-10-16: an NPC's holstered flamer should show its tank on the back and no gun in the hand, as the player's minigun does (animation.md §9.7)"
-note = "free camera behind Cook-Cook (000F5704), weapons holstered; screenshots of this view showed the tank on his back and empty hands, and with --actor-weapons drawn the flamer in both hands with the tank still on the back"
+note = "free camera behind Cook-Cook (000F5704), weapons holstered; screenshots of this view showed the tank on his back and empty hands, and with --actor-weapons drawn the flamer in both hands with the tank still on the back. He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s (the test aid needs --play; no packages run)"
 areas = ["animation"]
 paths = ["engine/nvforever/src/weapons.rs", "engine/nvforever/src/actors.rs"]
-args = ["--cell", "Goodsprings", "--pos=-43165,74560,4390", "--heading", "0", "--hour", "12"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer" }
+args = ["--cell", "Goodsprings", "--pos=-43165,74560,4390", "--heading", "0", "--hour", "12", "--play"]
 run_seconds = 15
 expect = [
   { re = 'actor weapons: 000F5704 \S*flamer\.nif: 1 shape\(s\) on the back, 1 gun shape\(s\) the clips show and hide', label = "Cook-Cook's flamer: the tank on the back, the gun apart" },
@@ -3161,7 +3210,7 @@ paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs",
 args = ["--cell=-16,-5", "--pos=-61744,-17983,6483", "--heading", "80", "--pitch", "-14", "--hour", "16"]
 run_seconds = 12
 expect = [
-  "dlcpittfxgroundsmoke01.nif: 1 material track(s) of controllers of their own, played on their own cycles",
+  "dlcpittfxgroundsmoke01.nif: 1 material and 0 transform track(s) of controllers of their own, played on their own cycles",
 ]
 
 [[scenario]]
@@ -3706,6 +3755,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "first-person-weapon-textures"
+source = "the owner (2026-10-20, screenshot of the game beside ours): the first-person laser rifle looked low-res; its model names the 128x128 LaserRifle01.dds and the game draws the 1024x1024 1stpersonlaserrifle01.dds beside it (docs/spec-notes/first-person-textures.md)"
+areas = ["combat"]
+paths = ["engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "00004336", NVF_PLAY_TEST_LOOK = "2:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 8
+expect = [
+  { re = 'laserrifle\.nif: first person, ([4-9]|\d\d+) texture\(s\) in their 1stperson form', label = "the arms rig's laser rifle wears its 1stperson textures" },
+  { re = 'player weapon model \(First person\): meshes.weapons.2handrifle.laserrifle\.nif' },
+]
+manual = "a --screenshot of this view: the small print on the rifle's focus housing (Focus 625 nm) legible, as in the owner's screenshot of the game"
+
+[[scenario]]
 name = "missile-explosion"
 source = "explosions look like the game's (docs/spec-notes/explosion-effects.md): a missile fired at the ground by the Prospector Saloon plays its EXPL model's SpecialIdle_AreaEffect sequence (fireball meshes growing, fading, shown and hidden), the dirt impact's own controllers, and the EXPL's image space modifier for the player within its IS radius"
 areas = ["combat", "particles"]
@@ -3719,6 +3782,35 @@ expect = [
   { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif: .*plays Effect' },
   { re = 'image space modifiers on the screen: .+' },
   { re = 'shot fx: (?P<n>\d+) effect models played their own animation, 1 explosion screen effects', range = [2, 1000] },
+]
+
+[[scenario]]
+name = "incinerator-heat-haze"
+source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
+note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; steps from 9 s so a slow start does not run the draw and the shots in one frame; frames at 0.3-2 s after the shots for the eye (the shell shows only for its first 0.3 s)"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "000906DA", NVF_PLAY_TEST_GIVE = "00029371:60", NVF_PLAY_TEST_LOOK = "9:46:-8", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "12.5:incinerator_0.png,12.7:incinerator_1.png,12.9:incinerator_2.png,13.3:incinerator_3.png,14:incinerator_4.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'combat: explosion \S*IncineratorFireBurst at', label = "the Incinerator's fire burst goes off" },
+  { re = 'shot fx: explosion meshes.dlc03.effects.dlc03flamerexplosion.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect \(.*, [1-9]\d* material\)', label = "its model: one refracting shell, material tracks played" },
+  { re = 'particles: add-on node 0 meshes.mps.mpsfiremed01.nif: [1-9]\d* system', label = "the fire add-on (MPSFireMed01) has systems to emit" },
+]
+
+[[scenario]]
+name = "fatman-mushroom"
+source = "owner 2026-10-20: the Fat Man left a white mushroom-cloud shape behind (docs/spec-notes/explosion-effects.md §9): its EXPL model explosionlarge01.nif has an unlit mushroom card SmokeGeo:0 with no NiAlphaProperty, stored alpha 0, faded in from 1.3 s and out by 4.9 s by its alpha track; it blends now, and its heat-haze shell GeoSphere03:0 refracts (§7)"
+note = "Fat Man (0000432C) with two mini nukes (00020799) fired at the ground beyond the Prospector Saloon, god mode; frames before, during and after the mushroom card's time for the eye: it fades in and out, never stands as a solid white shape"
+areas = ["combat", "particles"]
+paths = ["engine/nvf-assets/src/nif_spawn.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "9:46:-2", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "13.5:fatman_0.png,14.5:fatman_1.png,15.5:fatman_2.png,17:fatman_3.png,19:fatman_4.png,21:fatman_5.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 24
+expect = [
+  { re = 'combat: explosion FatManNukeExplosion at', label = "the mini nuke goes off" },
+  { re = 'shot fx: explosion meshes.effects.explosionlarge01.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect', label = "its model: one refracting shell, its sequence played" },
 ]
 
 # ------------------------------------------------------------------ playtest list 5: HUD (workstream D1)
@@ -4803,6 +4895,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "package-escort-fights"
+source = "An escort joins its charge's fights (fnv-game provocation.rs escorts_assist; docs/spec-notes/packages.md §3.1)"
+note = "the package-escort setup (a Goodsprings settler 256 units from the player given GomezEscortToAtrium, whose charge is the player); at 7 s Victor (VVictorFaction, neutral to the settler and the player) is put 700 units off and set on the player with StartCombat; the player is in god mode. The settler, which would leave Victor alone, takes up the player's fight against him"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler01Ref:player:256:0:0,4:call:GoodspringsSettler01Ref:AddScriptPackage:GomezEscortToAtrium,7:moveto:VictorREF:player:700:0:0,8:call:VictorREF:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler01Ref: package GomezEscortToAtrium",
+  { re = 'provocation: GoodspringsSettler01Ref 0x00104F03 helps the player against VictorREF 0x00103DFE', label = "the escort takes up the player's fight against Victor" },
+]
+
+[[scenario]]
 name = "package-find"
 source = "Find packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): FFER24FindFood given to a Goodsprings settler"
 note = "mole rat meat is placed at the player and a settler 300 units off is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): it walks to the meat and takes it"
@@ -4815,6 +4921,22 @@ expect = [
   "GoodspringsSettler03Ref: package FFER24FindFood",
   { re = 'GoodspringsSettler03Ref: finds 0x[0-9A-F]+: goes to it', label = "it sets off to the meat" },
   { re = 'GoodspringsSettler03Ref: found 0x[0-9A-F]+: takes \(FFER24FindFood\)', label = "it takes the meat" },
+]
+
+[[scenario]]
+name = "package-find-buying"
+source = "Find's Allow Buying (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): no shipped Find package has the flag, so the test aid NVF_PLAY_TEST_FIND_BUYING turns it on for every Find package"
+note = "in the general store at noon, GoodspringsSettler03Ref is moved 300 units from the player, given 100 caps, two Mole Rat Meat are put in Chet's merchant container (VendorContainerChet ref 00104C7A) and the settler is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): no meat lies about, so he walks up to Chet and buys one"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_FIND_BUYING = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,3.5:call:0x00104C7A:AddItem:MoleRatMeat:2,4:call:GoodspringsSettler03Ref:AddItem:Caps001:100,5:call:GoodspringsSettler03Ref:AddScriptPackage:FFER24FindFood" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler03Ref: package FFER24FindFood",
+  { re = 'GoodspringsSettler03Ref: finds (GSChetRef|0x00104C79): goes to it', label = "he sets off to Chet" },
+  { re = 'GoodspringsSettler03Ref: buys (MoleRatMeat|0x0003404C) from (GSChetRef|0x00104C79) for \d+ caps', label = "he buys the meat" },
+  { re = 'GoodspringsSettler03Ref: found (GSChetRef|0x00104C79): buys \(FFER24FindFood\)', label = "the find counts the purchase" },
 ]
 
 [[scenario]]
