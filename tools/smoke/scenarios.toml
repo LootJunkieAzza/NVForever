@@ -1741,12 +1741,12 @@ expect = [
 [[scenario]]
 name = "semi-auto-rate"
 source = "owner playtest 2026-10-19: the 9mm pistol and varmint rifle fire slower than in the original"
-note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later"
+note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later. The pulls start at 14 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded; until 12.1 s on the world aids' clock when the scripts start at 6.5 s or later): while one is open the player is held in a menu (script::hold_player) and the attack cycle stands still, so boxes open 0.18 s after the second shot kept its cooldown past the third pull [observed: smoke log of 2026-10-20, scripts ready in 12.36 s, 9 shots]"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,11.1:fire,11.36:fire,11.46:fire,11.72:fire,11.82:fire,12.08:fire,12.18:fire,12.44:fire,12.54:fire,12.8:fire,12.9:fire,13.16:fire,13.26:fire,13.52:fire,13.62:fire,13.88:fire,13.98:fire,14.24:fire,14.34:fire" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,14:fire,14.1:fire,14.36:fire,14.46:fire,14.72:fire,14.82:fire,15.08:fire,15.18:fire,15.44:fire,15.54:fire,15.8:fire,15.9:fire,16.16:fire,16.26:fire,16.52:fire,16.62:fire,16.88:fire,16.98:fire,17.24:fire,17.34:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
-run_seconds = 18
+run_seconds = 21
 expect = [
   { re = 'combat: (?P<n>\d+) shots \(', range = [10, 10], label = "every pull 0.36 s apart fires" },
 ]
@@ -2961,10 +2961,10 @@ order = [[
 [[scenario]]
 name = "npc-muzzle-flash-flamer"
 source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
-note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight. He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat", "shot-fx"]
 paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/weapons.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player", NVF_PLAY_TEST_FACE = "8:000F5704", NVF_PLAY_TEST_CONTROL = "9:view,9.2:zoom=400,9.4:orbit=90:10", NVF_PLAY_TEST_SHOTS = "10:npc_flash_flamer_00.png,10.25:npc_flash_flamer_01.png,10.5:npc_flash_flamer_02.png,10.75:npc_flash_flamer_03.png,11:npc_flash_flamer_04.png,11.25:npc_flash_flamer_05.png,11.5:npc_flash_flamer_06.png,11.75:npc_flash_flamer_07.png,12:npc_flash_flamer_08.png,12.25:npc_flash_flamer_09.png,12.5:npc_flash_flamer_10.png,12.75:npc_flash_flamer_11.png,13:npc_flash_flamer_12.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,3:combat:0x000F5704:player", NVF_PLAY_TEST_FACE = "8:000F5704", NVF_PLAY_TEST_CONTROL = "9:view,9.2:zoom=400,9.4:orbit=90:10", NVF_PLAY_TEST_SHOTS = "10:npc_flash_flamer_00.png,10.25:npc_flash_flamer_01.png,10.5:npc_flash_flamer_02.png,10.75:npc_flash_flamer_03.png,11:npc_flash_flamer_04.png,11.25:npc_flash_flamer_05.png,11.5:npc_flash_flamer_06.png,11.75:npc_flash_flamer_07.png,12:npc_flash_flamer_08.png,12.25:npc_flash_flamer_09.png,12.5:npc_flash_flamer_10.png,12.75:npc_flash_flamer_11.png,13:npc_flash_flamer_12.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
 run_seconds = 20
 expect = [
@@ -4211,10 +4211,10 @@ expect = [
 [[scenario]]
 name = "flamer-burns-player"
 source = "owner's playtest 2026-10-16: a flamer's hit sets its target on fire (the WEAP's object effect EnchFlamerEffect: FlamerFireDamage drains 2 health a second for 5 s, its effect shader Flames01 burns on the body; docs/spec-notes/hit-effects.md)"
-note = "Cook-Cook (FiendCookCookRef 000F5704) fires his flamer at the player, put 100 units in front of him at 9 s; no god mode, the player's health raised to 5000 by the console at 8 s (once the scripts run) so the burn can be watched; third person from 10 s"
+note = "Cook-Cook (FiendCookCookRef 000F5704) fires his flamer at the player, put 100 units in front of him at 9 s; no god mode, the player's health raised to 5000 by the console at 8 s (once the scripts run) so the burn can be watched; third person from 10 s. He draws his Incinerator by the weapon choice (actors.md §9.3, as the original's Cook-Cook did), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:000F5704", NVF_PLAY_TEST_CONTROL = "10:view,10.5:zoom=250", NVF_PLAY_TEST_SHOTS = "14:player_burning.png,17:player_burning2.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:000F5704", NVF_PLAY_TEST_CONTROL = "10:view,10.5:zoom=250", NVF_PLAY_TEST_SHOTS = "14:player_burning.png,17:player_burning2.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
