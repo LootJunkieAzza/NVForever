@@ -415,6 +415,53 @@ God mode changes nothing here: every attacker closed in and swung. The outdoor h
 of the outdoor spot near Violet's dogs; not settled]. NVForever's
 attackers close in, as these do: no change.
 
+### 9.1 Why the last trooper died sooner (2026-10-20, queue item 9)
+
+The question: in ours the troopers of `battle-ncr-fiends-four` died 34–57 s after the
+first fighter engaged, in the original 29.7–99.1 s. Read from the original's two
+`npc_battles` runs of 2026-10-17 (plugin version 7, the same four troopers, each fighter's
+combat target, weapon and Health every second frame; private outputs
+`obs_npc_battles_01_ncr_fiends.1792229805.jsonl` and `.1792234477.jsonl`) against our
+smoke logs [observed unless tagged]:
+
+- **Cook-Cook's weapon.** The original's Cook-Cook held his Incinerator (WEAP
+  0x000906DA) for the whole fight in all three runs (the two above and §9's), and stayed
+  1,100–2,000 units from the troopers, lobbing globs. Ours drew his Flamer (0x0000432D):
+  he carries both (`1ECookCook` CNTO: Incinerator at 55 %, Flamer at 80 %), and our
+  weapon choice took the higher base damage (Flamer 16, Incinerator 1). With the Flamer's
+  reach of 640 he ran at the troopers and burned them close up; the troopers, with him
+  charging, shot at him rather than at the Fiends.
+- **The troopers' targets.** In the original all four troopers shot the same Fiend
+  first (LvlFiend2GunVarNV 0x000F9CE6 from 2.3–3.7 s, dead at 14.2 s), then the next
+  (0x000F9CE8, from 14.9–16.4 s, dead at 19.7 s), and Cook-Cook last. Ours (before)
+  opened on Cook-Cook, and his charge kept him the nearest.
+- **Fixed: the weapon choice counts a gun's explosion** (actors.md §9.3; a hypothesis
+  fitted to Cook-Cook). Smoke `battle-ncr-fiends-four` after it (one run): Cook-Cook
+  fights with the Incinerator from about 1,500 units (his reach), the troopers turn on
+  0x000F9CE6 together within 3 s as in the original, and it dies 16 s after the first
+  fighter engaged (the original's 12 s); 0x000F9CE8 and 0x000F9CE9 at 24 s.
+- **Still sooner: the troopers died 16, 21, 27 and 31 s after the first fighter
+  engaged** (the original's 29.7–132.5 s over three runs). Two died of the Incinerator's
+  burn, one of a Fiend's Hunting Rifle (a 34-point hit; the original's 0x000F9CE7 rolled a
+  Lever-Action Shotgun in one run, so that weapon is the leveled list's chance), one of a
+  melee Fiend.
+- **The burn drains faster in ours.** The glob's explosion (NVIncineratorFireBurst)
+  applies `NVEnchIncineratorEffect`: FlamerFireDamage, Health, magnitude 4, duration 8
+  [observed: FalloutNV.esm ENCH 0x001519EF]. Ours drains 4 Health a second (hit-effects.md
+  §2). In the original the troopers' Health fell by exactly 1 every 0.5 s (2 a second:
+  0x000F36F6 from 33.0 to 63.5 s, on past its death to −22; 0x0015CE08 for 16.4 s and
+  again 16.1 s; 0x0015CE0A likewise) in one run, and by 1 every 1.0 s (1 a second;
+  0x0015CE08 for 19.5 s, 0x000F36F6) or every 0.5 s (0x000F36F5) in the other. None of
+  the troopers has Fire Resistance (`fnvtool actor values`: 0), and FalloutNV.esm has no
+  game setting that names such a scale. So the original burns an NPC at a quarter to half
+  the effect's magnitude a second, for longer than its 8 s, and why is not known
+  [hypothesis to test: the magnitude is scaled by the explosion's falloff at the target
+  when it is applied, which would give different rates from one glob to the next; or
+  by something of the caster]. Not built until a capture settles it: one actor burned
+  by one glob at a known distance, its Health every frame (a campaign for the observer).
+- Also seen: a death by an effect's drain is not written as `battle: … killed by …`, and
+  the battle summary counts such a dead trooper as standing (two in the run above).
+
 ## 10. The Strip's crowd against ours (2026-10-19)
 
 The original [observed]: campaign `strip` (tools/capture/observe/strip.campaign.json),

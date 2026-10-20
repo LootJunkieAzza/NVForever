@@ -96,6 +96,7 @@ mod appearance;
 mod script_look;
 mod ripples;
 mod settings;
+mod view_sway;
 mod setup;
 mod shadow_probe;
 mod shafts;
@@ -558,6 +559,10 @@ struct Args {
     /// alone as the original does; a switch of the settings page (player_body.rs).
     #[arg(long, requires = "play")]
     first_person_body: bool,
+    /// Keep the first-person arms and weapon still while turning and moving: no sway or
+    /// bob (view_sway.rs); a switch of the settings page.
+    #[arg(long, requires = "play")]
+    no_weapon_sway: bool,
     /// Do not turn actors' heads to the player and to NPCs near them (head_look.rs,
     /// docs/spec-notes/actors.md §12).
     #[arg(long)]
@@ -1226,7 +1231,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body, weapon_sway: !args.no_weapon_sway }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
