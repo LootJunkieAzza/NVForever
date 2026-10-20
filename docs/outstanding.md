@@ -154,8 +154,13 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
     their shooter's.
   - Left:
     - the last trooper dies some 40 s sooner than in the original;
-    - NPC weapons do not wear from firing (the original's Incinerator lost 2.19 a shot,
-      not explained by `fDamageToWeaponValue`);
+    - NPC weapons now wear from their own shots and blows by the documented per-shot
+      rule, the player's (2026-10-20, combat-rules.md §17–18). The original's Incinerator
+      losing 2.19 a burst is still not explained by it; 2.19 is a trooper's hit on
+      Cook-Cook to two places, so the falls may come from hits he took. Settle it by
+      running campaign fight_stats_round again and reading it with
+      `tools/capture/fight_stats.py` (now splits weapon wear into firing and hits).
+      Ours, Cook-Cook draws his Flamer where the original's drew the Incinerator;
     - the original's hits split by attacker, to check the Hunting Rifle's 22 a hit on a
       trooper.
 - Melee attackers keeping away from a god-mode player: not god mode's doing. In the same

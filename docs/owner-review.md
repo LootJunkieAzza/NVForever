@@ -6580,6 +6580,29 @@ check against the game:
   plasma's; their meshes play, those particles are not drawn), the bomb
   modifier that throws dirt outwards.
 
+## NPC weapons wearing from firing (2026-10-20, branch claude/q8-npc-weapon-wear)
+
+combat-rules.md §17–18; queue item 8.
+- **One rule for every actor.** An NPC's shots and landed blows now wear its weapon as the
+  player's do: `fDamageToWeaponValue` (0.2) a shot, or the weapon record's Damage to
+  Weapon Mult *in its place* when the record overrides it [documented: GECK wiki
+  SetWeaponDegradationMult]. That NPCs follow the player's rule is my guess
+  [hypothesis]; the documentation names no actor. A broken NPC weapon falls, as one shot
+  to nothing already did.
+- **The override replaces, it no longer multiplies.** Ours took 0.2 × 0.005 a shot for
+  the Flamer and Incinerator; now 0.005, as the ppNVSE page says. The player's Flamer,
+  Incinerators, chainsaw, Rippers, grenade machineguns and Thermic Lance wear five times
+  faster than before (still very slowly: 40,000 shots for a new Flamer).
+  *Check:* does a Flamer or Incinerator in the original wear visibly in one long fight?
+  If yes, the override is a multiplier of something larger, and I have it wrong.
+- **The original's 2.19 a burst is not explained.** A "shot" in that figure is a whole
+  burst (about four globs), so some 0.55 a glob: 110 times the override. 2.19 is, to two
+  places, the troopers' rifle hit on Cook-Cook (2.1875), so the falls may come from the
+  hits he took rather than from his firing [hypothesis]. The capture's raw output is not
+  on the desktop. `tools/capture/fight_stats.py` now splits weapon-health falls into
+  firing, hits and other; a rerun of campaign fight_stats_round settles it.
+- Not changed: a scripted FireWeapon wears nothing [design]; hits on the holder do not
+  wear his weapon (only hits on the weapon's own volume do, your rule).
 ## Melee weapon use through UseWeapon (2026-10-20, session "q5-melee-useweapon")
 
 docs/design/use-weapon.md §3.1. UseWeapon with a melee weapon, fists or a creature's own

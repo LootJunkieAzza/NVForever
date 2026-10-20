@@ -15,6 +15,13 @@ section 9): reads AI observer outputs (plugin version 9, the fight field set and
   Health the event carries less the target's Health at the next sample (0 when it did not
   fall), and the hit that killed counts what was left.
 - Distances are 2D, between the reference points (GetPos), at the sample of the shot.
+- **Weapon wear** (when the outputs carry `weapon_health`, GetEquippedCurrentHealth 5,
+  as campaign fight_stats_round's): each fall of a fighter's weapon health between two
+  samples is put down to an OnHit on that fighter logged between them ("hit"), else to
+  its attacking (GetAnimAction 2 or 3 in either sample: "firing"), else "other"; with
+  the firing falls per shot and the hit falls set beside the damage of those hits, for
+  combat-rules.md section 17 (whether a weapon wears from its own shots or from the hits
+  its holder takes).
 
 Standard library only; the outputs are only read.
 """
@@ -90,7 +97,32 @@ def stats(samples, events):
                                          "combat_first": None, "combat_last": None, "died": None, "base": None,
                                          "weapon": None, "creature": None})
 
+    hits_on = {}
+    for e in events:
+        if e["name"] == "OnHit" and e["second"] not in ("0", "00000000") and e["health"] >= 0:
+            hits_on.setdefault(e["first"], []).append(e)
+    wear = {}
+    last = {}
     prev = {}
+    for n, t, recs in samples:
+        for aid, rec in recs.items():
+            wh, was = num(rec, "weapon_health"), last.get(aid)
+            if wh is None or rec.get("dead") == "1":
+                continue
+            last[aid] = (n, wh, rec.get("anim_action"), rec.get("weapon"))
+            if not was or was[3] != rec.get("weapon") or wh >= was[1]:
+                continue
+            fall = was[1] - wh
+            w = wear.setdefault(aid, {"firing": [], "hit": [], "hit_damage": [], "other": []})
+            hits = [e for e in hits_on.get(aid, []) if was[0] <= e["n"] < n]
+            after = rec
+            if hits:
+                w["hit"].append(fall)
+                w["hit_damage"].append(max(0.0, hits[0]["health"] - num(after, "health", hits[0]["health"])))
+            elif "2" in (was[2], rec.get("anim_action")) or "3" in (was[2], rec.get("anim_action")):
+                w["firing"].append(fall)
+            else:
+                w["other"].append(fall)
     for n, t, recs in samples:
         for aid, rec in recs.items():
             a = f(aid)
@@ -129,6 +161,13 @@ def stats(samples, events):
                     "combat": [None if a["combat_first"] is None else round(a["combat_first"], 1),
                                None if a["combat_last"] is None else round(a["combat_last"], 1)],
                     "died": None if a["died"] is None else round(a["died"], 1)}
+        if aid in wear:
+            w = wear[aid]
+            out[aid]["weapon_wear"] = {
+                "firing": round(sum(w["firing"]), 2), "firing_falls": len(w["firing"]),
+                "per_shot": round(sum(w["firing"]) / a["shots"], 3) if a["shots"] else None,
+                "hit": round(sum(w["hit"]), 2), "hit_falls": quantiles(w["hit"]),
+                "hit_damage": quantiles(w["hit_damage"]), "other": round(sum(w["other"]), 2)}
     shots = sum(a["shots"] for a in out.values())
     hits = sum(a["hits"] for a in out.values())
     spans = [a["combat"] for a in out.values() if a["combat"][0] is not None]

@@ -5,11 +5,15 @@
 //! health), kept with the carried item (`fnv_sim::inventory::Extra::condition`).
 //!
 //! - **A weapon** loses `fDamageToWeaponValue` health points per attack (0.2 in
-//!   FalloutNV.esm [observed]), times its Damage to Weapon Mult when the record overrides
-//!   it, and with the ammunition's Weapon Condition effects applied [hypothesis: the
-//!   setting's role, from its name and from the published figure the owner quoted
+//!   FalloutNV.esm [observed]), or its record's Damage to Weapon Mult instead when the
+//!   record overrides it, with the ammunition's Weapon Condition effects applied
+//!   [documented: GECK wiki SetWeaponDegradationMult (ppNVSE), the override "overrides
+//!   the fDamageToWeaponValue when calculating the per shot degradation"; its example's
+//!   0.5 "will degrade 0.5 per shot"]. It fits the published figure the owner quoted
 //!   2026-10-11, "about 395 standard rounds" for the 10mm Pistol from full condition: its
-//!   health is 80 [observed], and 80 ÷ 0.2 = 400].
+//!   health is 80 [observed], and 80 ÷ 0.2 = 400. Every actor's weapon wears so, the
+//!   player's and an NPC's [hypothesis: the documentation names no actor; the original's
+//!   NPC weapons wear, combat-rules.md §17].
 //! - **Armour** loses `fDamageToArmorPercentage` (0.35 [observed]) of a hit's damage
 //!   before armour as health points [hypothesis: the setting's role, from its name]. A
 //!   hit on the head wears what is worn on the head, any other hit what is worn on the
@@ -32,8 +36,8 @@ use crate::tuning::{CombatTuning, Rules};
 
 /// Health points the weapon loses for one attack (see the module notes).
 pub fn weapon_wear(r: &Rules, w: &WeaponStats, ammo_effects: &[&AmmoEffect]) -> f32 {
-    let mult = w.damage_to_weapon_mult.unwrap_or(1.0);
-    apply_effects(r.damage_to_weapon_value * mult, ammo_effects, "Weapon Condition Mod").max(0.0)
+    let per_shot = w.damage_to_weapon_mult.unwrap_or(r.damage_to_weapon_value);
+    apply_effects(per_shot, ammo_effects, "Weapon Condition Mod").max(0.0)
 }
 
 /// Health points the armour struck loses, together, for a hit of `damage` before armour.
