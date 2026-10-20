@@ -197,8 +197,39 @@ fn unlinked_navmeshes_are_unreachable_and_ledges_are_opt_in() {
     let g = graph(&[(a, W), (b, W)]);
     assert!(g.stats.ledge_edges > 0);
     assert!(g.find_path(from, to, &PathParams::default()).is_err());
-    let p = g.find_path(from, to, &PathParams { ledges: true, ..Default::default() }).unwrap();
+    let ledges = PathParams { ledges: true, ..Default::default() };
+    let p = g.find_path(from, to, &ledges).unwrap();
     assert_eq!(p.end().map(|e| e[2]), Some(-300.0));
+    // The drop is a hop: off the top edge at x 200, onto the lower navmesh beyond it.
+    let leg = &p.legs[0];
+    assert_eq!(leg.hops.len(), 1, "{:?}", leg.points);
+    let h = leg.hops[0];
+    assert!(!h.up);
+    let (off, land) = (leg.points[h.point], leg.points[h.point + 1]);
+    assert!((off[0] - 200.0).abs() < 1e-3 && off[2] == 0.0, "{off:?}");
+    assert!(land[0] > 210.0 && land[0] < 300.0 && land[2] == -300.0, "{land:?}");
+    // Back up is 300: out of a jump's reach, so no way back.
+    assert!(g.find_path(to, from, &ledges).is_err());
+    assert!(g.find_path(to, from, &PathParams { ledge_rise_max: 400.0, ..ledges.clone() }).is_ok());
+}
+
+#[test]
+fn low_ledges_are_jumped_up() {
+    let a = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let b = grid(2, [200.0, 0.0], 2, 2, 100.0, &[], |_, _| 40.0);
+    let (mut a, mut b) = (a, b);
+    let (ea, eb) = (edges_at(&a, 200.0), edges_at(&b, 200.0));
+    for &(at, ae, ..) in &ea {
+        link(&mut a, at, ae, 2, eb[0].0, link_kind::LEDGE_UP);
+    }
+    for &(bt, be, ..) in &eb {
+        link(&mut b, bt, be, 1, ea[0].0, link_kind::LEDGE_DOWN);
+    }
+    let g = graph(&[(a, W), (b, W)]);
+    let ledges = PathParams { ledges: true, ..Default::default() };
+    let p = g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [350.0, 50.0, 40.0] }, &ledges).unwrap();
+    assert_eq!(p.legs[0].hops.iter().map(|h| h.up).collect::<Vec<_>>(), vec![true]);
+    assert_eq!(p.end().map(|e| e[2]), Some(40.0));
 }
 
 #[test]

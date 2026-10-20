@@ -10,6 +10,11 @@ paused target menu, no hit chances, no kill camera). The original's VATS stays "
 started" in docs/status.md; the script functions that ask about VATS answer for this
 mode (§12).
 
+2026-10-20: **beyond single-shot guns** (§16): automatic weapons fire a burst per mark,
+melee and unarmed weapons teleport beside each mark and swing, grenades and thrown weapons
+are lobbed at each mark; melee marks are within 5 m and the player teleports beside each
+to swing (owner 2026-10-20). Built, unit-tested, not yet seen in a game run.
+
 Tags: `[documented]` cites a page or file, `[observed]` is something we looked at in the
 game data or the references, `[hypothesis]` is unconfirmed, and **`[design]` is our own
 choice where the owner's design leaves something open**. The owner's design itself is
@@ -71,9 +76,10 @@ drawn); the refusal sound tells the player]:
 
 1. The game is playing (`PlayState::Playing`), the player is alive, and no script has
    disabled the fighting controls (`DisablePlayerControls`, `ControlLocks::fighting`).
-2. The weapon in use is a gun with a firing cycle: not melee or unarmed, not a thrown
-   weapon or mine (spends itself), and it fires a projectile (the detonator and the
-   binoculars do not). Message: "VATS mode needs a gun."
+2. The weapon in use is a gun with a firing cycle that fires a projectile (the detonator
+   and the binoculars do not), a melee or unarmed weapon (the Fists too), or a grenade or
+   thrown weapon (§16); not a mine. Message: "VATS mode needs a weapon to aim."
+   (Until 2026-10-20 guns only: "VATS mode needs a gun.")
 3. It is not reloading or jammed. Message: "Not while reloading."
 4. It has a round loaded. Message: "Out of ammo."
 5. The player has the AP for one shot (§7). Message: "Not enough action points."
@@ -189,9 +195,11 @@ the setting each type uses, from the names; values observed in FalloutNV.esm GMS
 | Grenade Throw / Thrown (1 Hand) | `fActionPointsAttackGrenade` | 35 |
 | Land Mine / Mine Drop (1 Hand) | `fActionPointsAttackMine` | 10 |
 
-Only guns enter VATS mode (§3), so only the first four rows are used now. Not applied
-yet [design, for later]: `fActionPointsSustainedFireMult` (2, automatic fire),
-`fActionPointsVATSMeleeMult`, perk entry points that change the cost (the "Action Point
+Mines do not enter VATS mode (§3), so the last row is not used. Since 2026-10-20 melee,
+unarmed and thrown weapons use their rows, and an automatic weapon's cost is one burst's
+(§16.1). Not applied [design]: `fActionPointsSustainedFireMult` (2; its role is not
+known [hypothesis: the original's sustained automatic fire]; a burst costs one attack,
+§16.1), `fActionPointsVATSMeleeMult` (value not read), perk entry points that change the cost (the "Action Point
 Cost" ingestible effect, Nerves of Steel's regeneration [documented: GECK wiki Misc
 "Action Point Cost … Modifies Action Point Cost of Weapons in VATS"]). Weapon mods do not
 change the AP cost [hypothesis].
@@ -416,12 +424,12 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 - Scenarios in `tools/smoke/scenarios.toml`: `vats-mode-two-marks` (the Goodsprings dogs,
   a .357: enter, mark both, accept, two shots, 52 AP), `vats-mode-unmark` (mark, unmark,
   right click again: off with nothing fired or spent) and `vats-mode-ammo-limit` (one
-  round loaded: the second mark is refused).
+  round loaded: the second mark is refused); for bursts, melee and throws §16.4.
 
 ## 14. Not built, for later
 
-- Automatic weapons' bursts (several shots per mark, `fActionPointsSustainedFireMult`),
-  shotguns as one shot already work; melee and thrown weapons in VATS mode.
+- Bursts, melee and thrown weapons: built 2026-10-20 (§16). Left: power attacks and
+  chained swings in VATS mode, a short last burst, mines.
 - Perk entry points on the AP cost and the "Action Point Cost" effect; the original's
   hit chances and the perks that change them (owner: 100 % for now).
 - A kill camera, the original's VATS menu, GetVATSTargetHeight, SetVatsTarget.
@@ -437,3 +445,126 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 | VATS SOUN Editor IDs | [observed] FalloutNV.esm SOUN records |
 | GetVATSMode return values, GetVATSValue queries | [documented] GECK wiki pages, local export `C:\fnv-private\geckwiki\functions.xml` |
 | The look of Dead Eye | [observed] the owner's two clips, frames in `C:\fnv-private\VATS\frames` (private) |
+
+## 16. Beyond single-shot guns (2026-10-20)
+
+Owner request (todo 6, follow-up): automatic and burst weapons, melee weapons and thrown
+weapons in VATS mode. Everything in this section is **[design]** unless tagged: the
+original's VATS has bursts, melee attacks and throws, but this mode is our own (§1), so
+nothing here is matched to it. The weapon's kind is decided on entering
+(`fnv_combat::vats::AttackStyle`) and fixes how each mark is spent:
+
+| Kind | Which weapons | A mark is | Rounds limit | Mark reach |
+|---|---|---|---|---|
+| Single | guns without the WEAP "Is Automatic" flag (shotguns: one shot of all their pellets) | one shot | rounds loaded (§7.2) | projectile range, else 8,192 |
+| Burst | guns with "Is Automatic" | one burst (§16.1) | rounds loaded | as Single |
+| Melee | melee and unarmed weapons, the Fists | a teleport beside the mark and one swing (§16.2) | none | `MELEE_MARK_REACH` 350 (5 m) |
+| Thrown | weapons that spend themselves (Grenade Throw, Thrown; not mines) | one throw (§16.3) | the count carried | projectile range, no farther than the throw reaches (§16.3) |
+
+The mark's AP is the weapon's attack cost (§7.1: the WEAP override, else the animation
+type's `fActionPointsAttack…`), reserved on marking and spent when the mark's attack
+starts (the first round of a burst, the swing, the throw); a sequence cut short spends
+only the marks it started (§9.3). Observed costs [observed: `fnvtool combat form` on
+FalloutNV.esm, WEAP DNAM, all with the override flag]:
+
+| Weapon | Kind | AP | Fire rate (shots/s) | Burst |
+|---|---|---|---|---|
+| Weap10mmSubmachineGun | Burst | 22 | 9 | 4 shots |
+| WeapNVAssaultCarbine | Burst | 20 | 12 | 5 shots |
+| WeapMinigun | Burst | 30 | 20 | 8 shots |
+| WeapNVMachete | Melee | 20 | | |
+| WeapKnifeCombat | Melee | 17 | | |
+| Fists | Melee (unarmed) | 18 | | |
+| WeapNVBallisticFist | Melee (unarmed) | 28 | | |
+| WeapGrenadeFrag, WeapNVDynamite | Thrown | 24 | | |
+| WeapNVThrowingSpear | Thrown | 24 | | |
+| WeapNVThrowingKnife | Thrown | 20 | | |
+
+The log's `on` line names the kind for the new ones:
+`vats mode: on (<EDID>, burst of <s>, <n> AP a mark, …)`, `… melee, …`, `… thrown, …`;
+a single-shot weapon's line is unchanged (`<n> AP a shot`).
+
+### 16.1 Bursts
+
+- **Size**: `burst_shots(fire_rate) = round(fire_rate × BURST_TIME)`, `BURST_TIME` 0.4 s
+  of game time, no fewer than 3 and no more than 8 shots (`BURST_MIN`, `BURST_MAX`). A
+  record without a fire rate fires 3. So a burst lasts about 0.4 s of game time
+  (0.8 s real at `FIRE_SCALE`) whatever the weapon.
+- **Rounds**: a burst takes `shots × Ammo Use` rounds, and only whole bursts are marked:
+  the marks stop when the rounds loaded do not cover another full burst (a carbine with
+  24 loaded takes 4 bursts of 5 and leaves 4) [design: simple and predictable; a short
+  last burst would need its own AP rule].
+- **AP**: one burst costs the weapon's attack cost once (the carbine's 20), not per round
+  [design: the AP override is an attack's cost and a mark is one attack; with the
+  observed costs a full bar of 92 AP buys 4 carbine bursts, about the magazine].
+  `fActionPointsSustainedFireMult` is not applied.
+- **Firing**: the burst's rounds leave `1 / fire_rate` game seconds apart (no faster than
+  one a frame), each straight at the mark's point (followed every frame), with no
+  spread, bloom, recoil or jam, as a single shot (§9.1). The next mark's burst starts
+  `SHOT_INTERVAL` after the last round of the previous one. The weapon's looping fire
+  sound (the minigun's) plays through the burst as usual (combat).
+- Log: `vats mode: burst <k> of <n> at <name> <ref> (<part>), <s> shots, <cost> AP spent`
+  at the burst's first round; `off (…)` and the summary count rounds fired as shots.
+
+### 16.2 Melee and unarmed
+
+Owner 2026-10-20: "for melee swap it to a teleport to target and attack but set it to a
+has to be in range within 5 meters or so for it to be allowed". (First written as a run
+at each mark; replaced before it was built into a run.)
+
+- **Marking** works as for guns, but only within `MELEE_MARK_REACH`, 350 units of the
+  eye (5 m at 70 units a metre, `fnv-phys`): a click on an actor farther away marks
+  nothing (`vats mode: nothing to mark under the crosshair`, the crosshair's ray is that
+  long). No rounds.
+- **Firing**, each mark in order (`fnv_combat::vats::MeleeRun`):
+  1. **Teleport**: the player is put on the ground beside the mark
+     (`PhysState::place_player`, the ground looked for from 150 units above to 600
+     below), on the line from where they stand to the mark's point, `stand_off` from it
+     across the ground: half the weapon's reach (`damage::melee_reach`: `fCombatDistance`
+     150 × the WEAP Reach) plus 32 units [design]; the view turns to the mark. Nothing
+     checks the spot is free beyond the character's own placing [design: the mark was
+     within 5 m and in sight, so the spot is too in practice].
+  2. **Swing**: the next frame (the mark is within the weapon's reach plus `CLOSE_SLACK`,
+     64 units, across the ground; `APPROACH_LIMIT`, 2.5 game s, is the fallback should it
+     not be), one tap of Use for combat's own swing (`fnv_combat::melee`: its clip,
+     timing, sounds, Attack line, impacts, wear), the view kept on the mark. The mark's
+     AP is spent now. At the swing's strike the blow lands on the mark (100 % accuracy)
+     when the mark is still within reach plus `CLOSE_SLACK` across the ground and the
+     first thing on the line from the eye to its point is the marked actor; else the
+     swing strikes as an ordinary one would (its fan of rays). The hit counts as a VATS
+     attack (the critical bonus, §9.2). Blocking applies as usual.
+  3. **Next**: once the swing has ended (or `SWING_LIMIT`, 2 game s, has passed), the next
+     mark. No power attacks and no chained swings [design: one plain swing a mark].
+- `AFTER_LAST` after the last swing the mode ends, as for shots. The player stays where
+  the last teleport put them.
+- Log: `vats mode: teleported to <name> <ref> (<part>), <d> units away, now <s>`, then
+  `vats mode: swing <k> of <n> at <name> <ref> (<part>), <d> units across, <cost> AP
+  spent`; at the strike `combat: vats mode blow on <ref> (<part>): <d> units across,
+  struck` before combat's own hit line.
+
+### 16.3 Grenades and thrown weapons
+
+- **Marking**: up to the count of the weapon carried (each throw spends one; god mode
+  spends none and still limits to the count), within the projectile's range and no
+  farther than the throw reaches on flat ground (speed² / gravity: the frag grenade's
+  1,200 units/s under 1 × the world's 686.7 units/s² reach 2,097 units) [observed:
+  GrenadeFragProjectile PROJ speed 1200, gravity 1.0, range 10000, Lobber].
+- **Firing**: every `THROW_INTERVAL` (0.35 game s, 0.7 s real) the next mark: the view
+  turns to it, one throw leaves through combat's own path (the wind-up skipped as for a
+  gun's shot, the count spent, the Attack/FireExplosive line), from the eye, with no
+  spread, along the **low arc that lands on the mark's point** for the projectile's
+  speed and gravity (`fnv_combat::vats::lob_dir`); a point out of reach is thrown at 45°
+  towards it. A projectile without gravity flies straight. Grenades' fuses and impacts
+  are their own (combat C7): a frag grenade's 2.5 s fuse may go off after the mode ends.
+- The last throw spends the last one carried and the weapon leaves the hand; the mode
+  then ends as "all shots fired", not "the weapon left the hand".
+- Log: `vats mode: throw <k> of <n> at <name> <ref> (<part>), <cost> AP spent`.
+
+### 16.4 The rest
+
+- GetVATSValue answers as before; the shot's weapon is the one in hand. A burst is one
+  VATS shot for the scripts while its rounds leave.
+- Smoke scenarios (§13): `vats-mode-burst` (a 10mm SMG, two marks: two bursts of 4,
+  44 AP), `vats-mode-melee` (a machete, one mark on a dog: teleport, swing, 20 AP),
+  `vats-mode-thrown` (frag grenades, one mark: one throw, 24 AP). Written 2026-10-20 by a
+  worker session that does not run the game: not yet run.
