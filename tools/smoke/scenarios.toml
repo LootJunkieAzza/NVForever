@@ -5692,6 +5692,28 @@ expect = [
 manual = "splatter_t0_5.png to splatter_t15_5.png against the original's fx_screen_splatter_look s100_20_2_2_t0.5 to _t15.5 (C:/fnv-private/capture/shots): the view nearly black under dark soft blobs with red cores, lighter at each step; splatter_small.png ten blobs like the original's before_fade; splatter_gone.png the clean view"
 
 [[scenario]]
+name = "screen-splatter-hurt"
+source = "Blood on the screen when the player is hurt (docs/spec-notes/screen-splatter.md §4, all a hypothesis): a hit that takes Health from the player adds ceil(lost / max x iBloodSplatterMaxCount) splats, at least one, up to 25 on the screen; DamageActorValue adds none (the original's capture). The hit aid hurts the player twice; the console's DamageAV must not add blood. Then ClearScreenSplatter takes the hurt blood away too, and TriggerScreenSplatter 10 20 2 2 brings flares (the flare texture is read)"
+areas = ["imagespace", "combat"]
+paths = ["engine/nvf-play/src/screen_splatter.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_HIT = "10:player:30,12:player:8", NVF_PLAY_TEST_CONSOLE = "14:player.DamageAV Health 5;14.2:clearscreensplatter;14.4:triggerscreensplatter 10 20 2 2;14.6:close", NVF_PLAY_TEST_SHOTS = "10.5:hurt_splatter.png,15:hurt_flares.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'combat: \S.* hits the player for 30\.0, health \d+/\d+', label = "the first hit hurts the player for 30" },
+  { re = 'screen splatter: ([4-9]|1\d|2[0-5]) splats on the screen \(hurt: 30\.0 of \d+ health\)$', label = "the 30-point hurt puts blood on the screen (ceil(30 / max x 25) splats)" },
+  { re = 'screen splatter: ([5-9]|1\d|2[0-5]) splats on the screen \(hurt: 8\.0 of \d+ health\)$', label = "the 8-point hurt adds more" },
+  "console: > player.DamageAV Health 5",
+  "screen splatter: cleared",
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 20 2 2)",
+]]
+expect = [
+  { re = 'screen splatter: \S+: ', count = 0, label = "the gore textures and the flare dot are read" },
+  { re = 'splats on the screen \(hurt: ', count = 2, label = "only the two hits add blood, not DamageAV" },
+]
+manual = "hurt_splatter.png: a few dark soft blobs with red cores over Doc Mitchell's house, no glints (opacity factor 1); hurt_flares.png: larger, darker blobs with small red glints near their cores (the flare)"
+
+[[scenario]]
 name = "cell-image-space"
 source = "SetCellImageSpace (GECK wiki: a loaded cell shows the new image space only once it loads again): Old World Blues' Think Tank turns to its red image space (NVDLC03ThinkTankImageSpaceRed, as quest stage 50 does) after coc back into it (the save keeps the change: fnv-game unit test)"
 areas = ["imagespace", "scripts"]
