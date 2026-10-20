@@ -4864,6 +4864,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "set-actors-ai-walk"
+source = "SetActorsAI 0 on a walking actor (fnv-ai carry.rs Ai::coast, engine residents.rs PhysMover::coast; docs/spec-notes/set-actors-ai.md): it walks on straight ahead through the character controller, as the original's settler did (owner-decision-captures.md §7, od_05)"
+note = "the package-find setup with the settler 900 units off: he sets off to the meat, his AI goes off at 7.5 s and on again at 13 s; he walks straight on meanwhile, then turns back and takes the meat"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:900:0:0,4:call:player:PlaceAtMe:MoleRatMeat,5:call:GoodspringsSettler03Ref:AddScriptPackage:FFER24FindFood,7.5:call:GoodspringsSettler03Ref:SetActorsAI:0,13:call:GoodspringsSettler03Ref:SetActorsAI:1" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 45
+expect = [
+  "GoodspringsSettler03Ref: package FFER24FindFood",
+  { re = 'actor [0-9A-F]{8} AI off: walks on at heading', count = 1, label = "his AI off, he walks on" },
+  { re = 'actor [0-9A-F]{8} AI off walk ended \(AI back on\): (?P<n>[\d.]+) units straight', range = [200, 1000], label = "he walked on 200+ units until the AI came back on" },
+  { re = 'GoodspringsSettler03Ref: found 0x[0-9A-F]+: takes \(FFER24FindFood\)', label = "back on, he goes back and takes the meat" },
+]
+
+[[scenario]]
 name = "package-find-buying"
 source = "Find's Allow Buying (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): no shipped Find package has the flag, so the test aid NVF_PLAY_TEST_FIND_BUYING turns it on for every Find package"
 note = "in the general store at noon, GoodspringsSettler03Ref is moved 300 units from the player, given 100 caps, two Mole Rat Meat are put in Chet's merchant container (VendorContainerChet ref 00104C7A) and the settler is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): no meat lies about, so he walks up to Chet and buys one"

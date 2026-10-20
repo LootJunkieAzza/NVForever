@@ -498,7 +498,7 @@ a picture is [observed].
   - **Verdict.** SetActorsAI 0 stops package choice, turning and the procedure, but not
     the movement in progress. Our runtime stops the walk instead ("the actor stands in its
     idle"). **Not changed here:** carrying on the last velocity needs the engine's
-    character movement; it is left as a follow-up.
+    character movement; it is left as a follow-up. (Built 2026-10-20: set-actors-ai.md.)
 - **od_02, actors "with no greeting": the premise was wrong.**
   - **The ranger.** HVRangerREF (Dobson) greeted the player. The pictures
     `hv_ranger_activated_30` and `_150` show his name and a GREETING line's subtitle.
