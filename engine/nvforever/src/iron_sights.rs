@@ -17,19 +17,24 @@
 //!   beside it stays put. It is turned about the sighting point so the barrel's axis lies
 //!   along the view, then moved so the point lands on the eye, eased in and out with the
 //!   zoom (`nvf_play::aim_zoom::AimZoom::blend`). The sway is laid over it.
-//! - **Which weapons** [design: the owner, 2026-10-20]: guns whose skill is Guns
-//!   (`Combat::true_sights`), held as pistols, rifles or automatics (`1hp`, `2hr`, `2ha`).
-//!   Energy weapons and Big Guns (laser rifles, miniguns) keep the original aim.
-//! - A switch of the settings page, on by default (`--no-true-iron-sights`); off, aiming
-//!   is the original's.
+//! - **Which weapons** [design: the owner, 2026-10-20, "laser rifle should not have a
+//!   true iron sight check its nif for the sight node"]: a gun with a Sight FOV whose
+//!   model has a sighting node. The laser rifle, laser pistol and minigun models have
+//!   none and keep the original aim; the plasma rifle has one [observed:
+//!   laserrifle.nif, laserpistol.nif, minigun.nif, plasmarifle.nif].
+//! - The node is named `##SightingNode` on most guns and `SightingNode` (once
+//!   `SightingNOde`) on 18 others: cowboy repeaters, the .32 snubnose, the .44 magnums,
+//!   the heavy-frame 10mms [observed: docs/spec-notes/nif-node-audit.md row 1].
+//! - While the sights are on the eye (any share of the way) the crosshair is not drawn
+//!   (`nvf_play::aim_zoom::TrueSights`) [design: the owner, 2026-10-20].
+//! - A switch of the settings page's Gameplay tab, on by default
+//!   (`--no-true-iron-sights`); off, aiming is the original's and the crosshair stays.
 
 use bevy::math::{Affine3A, Quat, Vec3};
 
 /// The weapon model's node that marks the eye's place down the sights.
-pub const SIGHTING_NODES: [&str; 1] = ["##SightingNode"];
-
-/// The weapon types (animation prefixes) that line their sights up.
-pub const PREFIXES: [&str; 3] = ["1hp", "2hr", "2ha"];
+/// (matched without regard to case).
+pub const SIGHTING_NODES: [&str; 2] = ["##SightingNode", "SightingNode"];
 
 /// The change (in the rig's model space) that takes the sighting point `sight`, whose
 /// weapon looks along `barrel`, to the eye `eye` looking along `view`, a share `s` (0–1)

@@ -1705,7 +1705,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat)): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -1714,12 +1714,16 @@ fn drive_body(
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
-        (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>),
+        (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
     let state = &mut *state;
     player.body_view = None;
+    // Set again below when the sights come up; not on the frames that leave early.
+    if let Some(t) = true_sights.as_deref_mut() {
+        t.0 = false;
+    }
     anim.drawing = false;
     anim.holstering = false;
     state.head_eye = None;
@@ -2012,13 +2016,19 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
-    // True iron sights: eased in with the zoom, for the guns that have them, while the
+    // True iron sights: eased in with the zoom, for the guns whose model has a sighting
+    // node, while the
     // player looks through the arms rig by themself.
-    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && crate::iron_sights::PREFIXES.contains(&prefix))
+    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()))
         .then(|| zoom.as_deref().map_or(0.0, |z| z.blend))
-        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(nvf_play::combat::Combat::true_sights));
+        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()));
     // The view's direction in the arms rig's own frame (turned by the heading only).
     let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
+    // The crosshair goes while the gun is on its way to the eye.
+    let lined = sights.is_some();
+    if let Some(t) = true_sights.as_deref_mut() {
+        t.0 = lined;
+    }
     if sights_in.is_some_and(|s| s >= 1.0) != m.sights_told {
         m.sights_told = !m.sights_told;
         info!("true iron sights: {}", if m.sights_told { "the sights are on the eye" } else { "off the eye" });

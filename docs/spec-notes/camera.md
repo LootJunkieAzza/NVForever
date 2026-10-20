@@ -98,7 +98,10 @@ is not covered: the frames show no weapon.
   | cowboyrepeater.nif | (−6.09, 7.71, 0) | (53.10, 6.55, 0) |
   | 357revolver.nif | (−25.78, 7.67, 0) | (23.44, 6.51, −0.02) |
 
-  [hypothesis] The node marks where the eye goes down the sights.
+  [hypothesis] The node marks where the eye goes down the sights. 18 more guns name it
+  `SightingNode` (once `SightingNOde`) without the `##` (nif-node-audit.md row 1). The
+  laser rifle, laser pistol and minigun models have no such node; the plasma rifle has
+  one at (−13.39, 11.7, 0.17) [observed].
 - As the game ships, the aim-down-the-sights clips (`2hraimis.kf`, `1hpaimis.kf`) hold
   the gun centred but low: the rear sight sits about 60–85 px below the middle of a
   720-line frame [observed: the owner's screenshots, Varmint Rifle and Weathered 10mm,
@@ -108,7 +111,9 @@ is not covered: the frames show no weapon.
 - NVForever (on by default, settings page, `--no-true-iron-sights`): the arms rig's
   `Bip01 Translate` is turned about the sighting node so the barrel's axis lies along
   the view and moved so the node lands on the camera node, eased in with the zoom
-  [design]. Guns-skill weapons held as pistols, rifles or automatics only; energy
-  weapons and Big Guns keep the original aim [design: the owner, 2026-10-20].
+  [design]. Only weapons whose model has the node; the others keep the original aim
+  [design: the owner, 2026-10-20, "check its nif for the sight node"]. The crosshair is
+  hidden while the sights come up [design: the owner, 2026-10-20]. The switch is on the
+  settings page's Gameplay tab.
 - Built in `engine/nvforever/src/iron_sights.rs`; smoke scenarios `true-iron-sights`,
   `true-iron-sights-laser`.

@@ -160,9 +160,9 @@ pub fn register(app: &mut App) {
             app,
             Setting {
                 key: "true-iron-sights",
-                group: GROUP_PICTURE,
+                group: GROUP_MENUS,
                 label: "True iron sights",
-                note: "On: aiming a gun lines its sights up with your eye. Off: the gun is held low as in the original. Energy weapons and Big Guns aim as the original either way. (--no-true-iron-sights)",
+                note: "On: aiming a gun lines its sights up with your eye. The crosshair is hidden while you aim down them. Off: the gun is held low with the crosshair, as in the original. Guns with no sights to look down (laser rifle, minigun) aim as the original either way. (--no-true-iron-sights)",
                 get: |w| w.resource::<PlayerBody>().true_iron_sights,
                 set: |w, on| w.resource_mut::<PlayerBody>().true_iron_sights = on,
                 slider: None,

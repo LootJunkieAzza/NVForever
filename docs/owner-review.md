@@ -6750,12 +6750,14 @@ smoke test turns the flag on for FFER24FindFood with a test aid.
 docs/spec-notes/camera.md §4.1. Aiming a gun now lines up its sights with the eye: each
 weapon model's `##SightingNode` (behind the gun, at sight height) is put on the camera,
 with the barrel along the view, eased in with the zoom. My choices:
-- **Which weapons**: your "miniguns and laser rifles" read as a rule: only weapons whose
-  skill is Guns, held as pistols, rifles or automatics. All energy weapons (laser
-  pistol, plasma, ...) and Big Guns aim as the original. *Check:* should any energy
-  pistol or a Big Guns weapon (grenade rifle?) have them?
-- **Switch**: on by default, a settings page switch "True iron sights"
-  (`--no-true-iron-sights`) gives the original aim.
+- **Which weapons**: as you said, the model decides: a weapon whose model has a sighting
+  node (`##SightingNode`, or `SightingNode` on 18 guns) gets them. The laser rifle,
+  laser pistol and minigun have none; the plasma rifle has one, so it does get them.
+  *Check:* the plasma rifle down its sights.
+- **Crosshair**: hidden from the moment the sights start coming up until they are down
+  again; the prompt under it ("E) Take") goes with it.
+- **Switch**: on by default, "True iron sights" on the settings page's Gameplay tab
+  (`--no-true-iron-sights`) gives the original aim and crosshair.
 - **What moves**: the arms and gun together (`Bip01 Translate`), turned and moved; the
   camera stays where the clip puts it. Sway is laid on top.
 - **Eye on the node exactly**: the gun's rear end ends up as close to the eye as the node
