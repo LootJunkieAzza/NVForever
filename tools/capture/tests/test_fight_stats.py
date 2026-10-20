@@ -51,6 +51,27 @@ class FightStats(unittest.TestCase):
         self.assertEqual(res["fighters"]["0000000B"]["died"], round(0.005 * 3600 / 30, 1))
         self.assertEqual(res["summary"]["hits_per_shot"], 1.0, "a hit with no attacker is left out")
 
+    def test_weapon_wear_split_by_cause(self):
+        doc = ob.fields_doc([], "fight", extra_parts=[[("weapon_health", "num", "GetEquippedCurrentHealth 5")]],
+                            events=["OnHit", "OnDeath"])
+        lines = [{"kind": "observing", "step": 1, "label": "f", "every": 1, "groups": ["nearby"], "fields": doc}]
+        # (n, anim, health, weapon health): a burst wears it 1.0, a hit on it 2.5 later.
+        rows = [(0, -1, 100, 110.0), (1, 2, 100, 110.0), (2, 2, 100, 109.0), (3, -1, 100, 109.0),
+                (4, -1, 90, 106.5), (5, -1, 90, 106.5)]
+        for n, anim, hp, wh in rows:
+            subj = [[f"0000000A|00000001|0|0|0|0|1|0000000B|13|{anim}|0|0|0|{hp}|00000002|0", f"{wh}"]]
+            lines.append({"kind": "sample", "step": 1, "n": n, "header": [10.0, 6.0 + n / 1000, 30.0, 0, 0, 0, 0, "00000000", 0],
+                          "groups": {"nearby": subj}, "errors": 0, "us": 1})
+        lines.append({"kind": "event", "step": 1, "n": 3, "name": "OnHit", "value": "0000000A|0000000B|10|6.003|100|0|0"})
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "o.jsonl")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+            res = fs.stats(*fs.read(p))
+        w = res["fighters"]["0000000A"]["weapon_wear"]
+        self.assertEqual((w["firing"], w["firing_falls"], w["per_shot"]), (1.0, 1, 1.0))
+        self.assertEqual((w["hit"], w["hit_falls"]["n"], w["hit_damage"]["median"], w["other"]), (2.5, 1, 10.0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

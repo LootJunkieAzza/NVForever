@@ -35,7 +35,7 @@ use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, RefChanged, Ref
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use fnv_phys::{layers, Filter, Owner};
-use fnv_sim::forms::BaseData;
+use fnv_sim::forms::{BaseData, ItemKind};
 use fnv_sim::world::Outcome;
 use fnv_sim::FormId;
 use outcome::{Action, Effect};
@@ -129,6 +129,9 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         None => unlocked,
     };
     let action = match &base.data {
+        // No prompt for a non-playable weapon; non-playable ammo shows one but cannot be
+        // taken (`fnv_sim::World::activate`) [documented: GECK wiki "Unplayable Items"].
+        BaseData::Item(it) if it.non_playable && it.kind == ItemKind::Weapon => return None,
         BaseData::Item(_) => Action::Take { count: state.map_or_else(|| sim.forms.placed_count(base.id, placed.and_then(|p| p.count)), |s| s.count) },
         BaseData::Container(_) => locked(Action::Open),
         BaseData::Door(_) => locked(match placed.and_then(|p| p.teleport) {

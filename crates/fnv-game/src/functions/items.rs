@@ -145,7 +145,8 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// `actor.UnequipItem item [NoEquipFlag] [HideEquipMessage]`. UnequipItem takes away a
 /// NoUnequip lock EquipItem put on; with NoEquipFlag 1 the item is locked off until
 /// EquipItem [documented: GECK wiki UnequipItem] (`fnv_sim::EquipLock`). The page's note
-/// that companions ignore the flag is not modelled (no actor re-equips by itself yet).
+/// that companions ignore the flag is not modelled: a fighting NPC takes up its best weapon
+/// again (`crate::style_weapon`), but not one locked off.
 /// HideEquipMessage has nothing to hide: the engine shows no equip lines.
 pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
@@ -270,7 +271,7 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     };
     for (item, n) in stacks {
         let Some(it) = forms.item(item) else { continue };
-        if it.non_playable || except.contains(&item) {
+        if it.non_playable_biped() || except.contains(&item) {
             continue;
         }
         if from == FormId::PLAYER_REF && g.world.is_quest_item(item) {

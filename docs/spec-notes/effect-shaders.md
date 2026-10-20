@@ -175,7 +175,10 @@ ratio 30, persistent 15; life 0.35 ± 0.1 s; along the normal 50 ± 50, −5; ve
 5°/s; dest blend One. Its membrane: no fill, an orange edge (215, 86, 0), fall off 3,
 persistent 1. Its add-on models are `debrisFlameMesh` 0x0005F9B7
 (`Effects\ActorFireFX\FireBall01–04.NIF`), not drawn. `Smoke01` 0x0005F9B8: particles
-only (No Membrane Shader), `Effects\FXDustSmoke01.dds`.
+only (No Membrane Shader), `Effects\FXDustSmoke01.dds` in 2 × 2 frames, dest blend Source
+Inverted Alpha; ratio 15, life 2.3 ± 0.5 s; velocity (0, 0, 50), acceleration (0, 0, 65);
+scale 25 at birth to 100 at death; colours (158, 106, 84), (84, 79, 69), (64, 64, 64) at
+alphas 0, 0.5, 0 and times 0, 0.07, 0.9 [observed, `fnvtool esm decode` 2026-10-20].
 
 Drawn here [hypothesis or design where marked]:
 
@@ -189,7 +192,11 @@ Drawn here [hypothesis or design where marked]:
   random direction.
 - Scale: linear from 0 to key 1 and to key 2, held after; the scale is the particle's
   width in game units [hypothesis]. Colour: linear between keys, from and back to white
-  at alpha 1 (the texture's own colour) [hypothesis: linear]; taken as display values as
+  (the texture's own colour) [hypothesis: linear]; the alpha is the nearest key's outside
+  the keys, not back to 1 [hypothesis: the wiki lists "Color Alpha" apart from "Color"
+  and says only the colour returns; `Smoke01`'s alphas 0, 0.5, 0 at 0, 0.07, 0.9 fade its
+  puffs out, and an alpha back to 1 flashed every puff white at full size before it went,
+  owner's playtest 2026-10-20]; taken as display values as
   NIF particles are (particles.md §2). One frame of the U × V grid per particle, at
   random [hypothesis].
 - Blend: as the membrane's destination blend (One: added) [design, §4]. Not built: the

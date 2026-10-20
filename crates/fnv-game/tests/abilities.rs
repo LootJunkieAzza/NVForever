@@ -35,6 +35,9 @@ const ENCH_METAL: u32 = 0x882;
 const HAT: u32 = 0x890;
 const GLASSES: u32 = 0x891;
 const METAL: u32 = 0x892;
+const PERK_SPELL_1: u32 = 0x875;
+const PERK_SPELL_2: u32 = 0x876;
+const SHARP_EYES: u32 = 0x8A0;
 const ROBOT: u32 = 0x400;
 const ROBOT_TEMPLATE: u32 = 0x401;
 const GHOUL: u32 = 0x402;
@@ -155,8 +158,22 @@ fn plugin_bytes() -> Vec<u8> {
         spel(AURA, "Aura", 0, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(GHOUL_RAD, "GhoulRad", 4, vec![effect(MOD_RAD, 50, 20, vec![])]),
         spel(HEAD_CRIPPLED, "HeadCrippleEffect", 4, vec![effect(REDUCE_PER, 4, 6, vec![head_crippled()])]),
+        spel(PERK_SPELL_1, "PerkSharpEyes1", 4, vec![effect(MOD_PER, 1, 6, vec![])]),
+        spel(PERK_SPELL_2, "PerkSharpEyes2", 4, vec![effect(MOD_PER, 2, 6, vec![])]),
     ]
     .concat();
+    // A perk of two ranks, an ability each holding the whole bonus (as Action Boy's).
+    let perk_subs = vec![
+        sub(b"EDID", z("SharpEyes")),
+        sub(b"DATA", vec![0, 1, 2, 1, 0]),
+        sub(b"PRKE", vec![1, 0, 0]),
+        sub(b"DATA", PERK_SPELL_1.to_le_bytes().to_vec()),
+        sub(b"PRKF", Vec::new()),
+        sub(b"PRKE", vec![1, 1, 0]),
+        sub(b"DATA", PERK_SPELL_2.to_le_bytes().to_vec()),
+        sub(b"PRKF", Vec::new()),
+    ];
+    let perks = record(b"PERK", 0, SHARP_EYES, &perk_subs);
     let enchs = [
         ench(ENCH_HAT, "EnchHat", 3, vec![effect(MOD_PER, 1, 6, vec![])]),
         ench(ENCH_GLASSES, "EnchGlasses", 3, vec![effect(MOD_PER, 2, 6, vec![luck_at_least(7.0)])]),
@@ -186,6 +203,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"RACE", &races),
         top(b"NPC_", &npcs),
         top(b"SPEL", &spels),
+        top(b"PERK", &perks),
         top(b"ENCH", &enchs),
         top(b"ARMO", &armos),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
@@ -499,4 +517,24 @@ fn a_crippled_head_lowers_perception() {
         g.tick();
     }
     assert_eq!(av(&mut g, robot, PERCEPTION), 5.0);
+}
+
+/// A perk's ability is on the player while the perk is held: the highest rank's alone,
+/// and gone with the perk (docs/spec-notes/levelup.md §9).
+#[test]
+fn perk_abilities_follow_the_perks() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    fnv_game::perks::gain_rank(&mut g, FormId(SHARP_EYES));
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+    assert_eq!(target(&mut g, P, PERK_SPELL_1), 1.0);
+    // Rank 2: its own ability (+2) in place of rank 1's.
+    fnv_game::perks::gain_rank(&mut g, FormId(SHARP_EYES));
+    assert_eq!(av(&mut g, P, PERCEPTION), 7.0);
+    assert_eq!(target(&mut g, P, PERK_SPELL_1), 0.0);
+    // RemovePerk: the ability goes.
+    g.player.perks.remove(&FormId(SHARP_EYES));
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    assert_eq!(target(&mut g, P, PERK_SPELL_2), 0.0);
 }

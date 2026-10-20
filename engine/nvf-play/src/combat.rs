@@ -502,6 +502,16 @@ pub(crate) const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
 /// enemy health bar, `crate::hud`.)
 const MARKER_SECONDS: f32 = 0.18;
 
+/// How one actor's weapon wore from its own attacks (`CombatStats::npc_weapon_wear`).
+#[derive(Default, Debug, Clone, Copy)]
+pub struct NpcWeaponWear {
+    pub attacks: u32,
+    /// Health points lost; the condition before the first and after the last.
+    pub points: f32,
+    pub first: f32,
+    pub last: f32,
+}
+
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
@@ -511,6 +521,9 @@ pub struct CombatStats {
     /// hit, its maximum health), for the summary that sets a fight against the AI
     /// observer's (docs/spec-notes/npc-behaviour-compare.md §9).
     pub npc_hits: std::collections::BTreeMap<u32, (String, Vec<f32>, f32)>,
+    /// Wear of other actors' weapons from their own shots and blows (§17), by actor and
+    /// weapon, for the exit summary.
+    pub npc_weapon_wear: std::collections::BTreeMap<(u32, u32), NpcWeaponWear>,
     pub shots: u32,
     pub projectiles: u32,
     pub actor_hits: u32,
@@ -1103,10 +1116,16 @@ fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut p
 /// `HelpCrippling`, "Arms: … Enemies will be disarmed at the moment their arm is
 /// crippled"; hypothesis: either arm, every actor but the player, as the text names
 /// enemies]. The weapon falls as a broken one does (`WeaponBroken`): a reference in front
-/// of it, out of its inventory.
+/// of it, out of its inventory. A weapon with the "Can't Drop" flag stays in the hand
+/// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
+/// actors"].
 fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stats: ResMut<CombatStats>, parts: Res<ActorParts>, mut broken: MessageWriter<WeaponBroken>) {
     for actor in std::mem::take(&mut feedback.disarms) {
         let Some(item) = parts.by_ref.get(&actor.0).and_then(|p| p.weapon) else { continue };
+        if sim.forms.item(item).is_some_and(|it| it.cant_drop) {
+            info!("combat: {actor}'s arm crippled: its {} ({item}) can't be dropped and stays in its hand", item_name(&sim, item));
+            continue;
+        }
         if sim.world.inventory_mut(actor).is_ok_and(|i| i.count(item) == 0) {
             let _ = sim.world.add_item(actor, item, 1);
         }
@@ -1847,7 +1866,10 @@ fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: F
 /// Take `points` health points from the weapon `item` that `actor` uses (§17). At zero
 /// it breaks: the player's is unequipped and stays in the inventory, where it cannot be
 /// equipped until it is repaired; another actor's falls to the ground (at `at`, when
-/// given) and [`WeaponBroken`] tells the renderer. `None` when the weapon does not wear
+/// given) and [`WeaponBroken`] tells the renderer, unless it has the "Can't Drop" flag:
+/// then it is unequipped and stays in the inventory as the player's does [documented:
+/// GECK wiki Weapon, a Can't Drop weapon "can still be disabled and rendered inoperable";
+/// hypothesis: that it is unequipped rather than kept in the hand]. `None` when the weapon does not wear
 /// (not carried, or its record has no health).
 #[allow(clippy::too_many_arguments)]
 pub fn wear_weapon(
@@ -1876,6 +1898,14 @@ pub fn wear_weapon(
         with_world(rt, sim, |rt| rt.game.combat_line(actor, None, "WeaponBroke"));
     }
     let name = item_name(sim, item);
+    if actor != FormId::PLAYER_REF && sim.forms.item(item).is_some_and(|it| it.cant_drop) {
+        let _ = sim.world.unequip(actor, item);
+        info!("combat: {actor}'s {name} ({item}) broke: it can't be dropped, so it is unequipped and kept");
+        if let Some(b) = broken {
+            b.write(WeaponBroken { form_id: actor.0, weapon: item, dropped: None });
+        }
+        return Some(w);
+    }
     if actor == FormId::PLAYER_REF {
         let _ = sim.world.unequip(actor, item);
         if let Some(h) = hud {
@@ -1904,6 +1934,33 @@ pub fn wear_weapon(
         b.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
     }
     Some(w)
+}
+
+/// An actor other than the player wore its weapon by its own attack (§17): `points`
+/// come off the unit it holds, counted for the exit summary. One broken by it falls
+/// where it is (`at`) as one hit to nothing, and its owner says WeaponBroke. A weapon
+/// the simulation's inventory lacks (the renderer's choice, `strike_weapon`) does not
+/// wear [design].
+#[allow(clippy::too_many_arguments)]
+fn wear_actor_weapon(
+    forms: &CombatForms,
+    sim: &mut SimState,
+    stats: &mut CombatStats,
+    broken: &mut MessageWriter<WeaponBroken>,
+    script: Option<&mut ScriptState>,
+    actor: FormId,
+    item: FormId,
+    points: f32,
+    at: V3,
+) {
+    if actor == FormId::PLAYER_REF || points <= 0.0 {
+        return;
+    }
+    let Some(w) = wear_weapon(forms, sim, stats, None, Some(broken), script, actor, item, points, Some(at)) else { return };
+    let e = stats.npc_weapon_wear.entry((actor.0, item.0)).or_insert(NpcWeaponWear { first: w.before, ..NpcWeaponWear::default() });
+    e.attacks += 1;
+    e.points += (w.before - w.after) * forms.item_health(item) as f32;
+    e.last = w.after;
 }
 
 /// A hit landed on the weapon `target` holds (§17): the hit's damage comes off the
@@ -2354,7 +2411,7 @@ fn actor_attacks(
     (mut shots, mut blows): (MessageReader<ActorFire>, MessageReader<ActorStrike>),
     (mut fired, mut sounds, mut messages, mut pushes): (MessageWriter<ShotFired>, MessageWriter<PlaySound>, MessageWriter<ActorHit>, MessageWriter<ActorPush>),
     sfx: Option<Res<Sfx>>,
-    mut impacts: MessageWriter<ImpactFx>,
+    (mut impacts, mut broken): (MessageWriter<ImpactFx>, MessageWriter<WeaponBroken>),
     (control, anim, player): Guard,
 ) {
     let c = &mut *c;
@@ -2363,7 +2420,7 @@ fn actor_attacks(
     // NPC blows from its front are then blocked as an NPC's are (combat-ai.md §14.3).
     let player_guard = (c.melee && control.as_deref().is_some_and(|k| k.aiming) && anim.as_deref().is_some_and(|a| a.ready)).then(|| player.as_deref().map(|p| p.look_dir())).flatten().map(|d| [d[0], d[1]]);
     let script_shots = std::mem::take(&mut c.script_shots);
-    for s in shots.read().chain(script_shots.iter()) {
+    for (s, scripted) in shots.read().map(|s| (s, false)).chain(script_shots.iter().map(|s| (s, true))) {
         let carried = |a: FormId| sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).is_some_and(|i| i.count(a) > 0);
         let ammo = c.forms.ammo_for(s.weapon, carried);
         let Some(chain) = c.forms.chain(s.weapon, ammo) else { continue };
@@ -2395,6 +2452,15 @@ fn actor_attacks(
             c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
         }
         debug!("combat: {} fires {} (cone {:.1}°)", s.shooter, c.forms.weapons.get(&s.weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"), s.cone);
+        // The shot wears the shooter's weapon as the player's (§17); a scripted
+        // FireWeapon does not, it is the reference's, not a carried gun's [design].
+        if !scripted {
+            if let Some(w) = c.forms.weapons.get(&s.weapon) {
+                let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
+                let points = condition::weapon_wear(&c.rules, w, &effects);
+                wear_actor_weapon(&c.forms, &mut sim, &mut stats, &mut broken, script.as_deref_mut(), s.shooter, s.weapon, points, seen_from);
+            }
+        }
     }
     for b in blows.read() {
         // The weapon: its own, else the Fists; a creature's own attack damage in the Fists'
@@ -2450,6 +2516,12 @@ fn actor_attacks(
                 stats.melee_impacts += 1;
                 show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
             }
+        }
+        // A blow that lands wears the weapon once, as the player's (§17); the Fists and
+        // a creature's own attack are no item and do not wear.
+        if let (Some(weapon), true) = (b.weapon, b.creature_damage.is_none()) {
+            let points = condition::weapon_wear(&c.rules, &w, &[]);
+            wear_actor_weapon(&c.forms, &mut sim, &mut stats, &mut broken, script.as_deref_mut(), b.attacker, weapon, points, b.point);
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken);
@@ -2935,6 +3007,16 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
                 d.iter().sum::<f32>(),
                 d[d.len() / 2],
                 d[d.len() - 1]
+            );
+        }
+        for ((actor, weapon), w) in &s.npc_weapon_wear {
+            info!(
+                "npc weapon wear summary: {actor:08X}'s {weapon:08X} lost {:.2} health in {} attacks ({:.3} an attack), condition {:.1}% -> {:.1}%",
+                w.points,
+                w.attacks,
+                w.points / w.attacks.max(1) as f32,
+                w.first * 100.0,
+                w.last * 100.0
             );
         }
     }

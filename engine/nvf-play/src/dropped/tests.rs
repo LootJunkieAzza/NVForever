@@ -274,6 +274,8 @@ fn a_dropped_modded_weapon_draws_its_mods_model() {
         model: Some(r"Weapons\2HandRifle\VarmintRifle.NIF".into()),
         anim_type: None,
         damage: 0,
+        projectile: None,
+        explosion_damage: 0.0,
         embedded: false,
         non_playable: false,
         first_person: None,

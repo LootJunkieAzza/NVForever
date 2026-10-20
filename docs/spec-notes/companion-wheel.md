@@ -101,8 +101,22 @@ scripts do the work [observed, FalloutNV.esm]:
     packages are chosen by their own conditions on them [observed: Boone's
     FollowersBooneFollowPlayerWAIT/LONG/DEFAULT; followers.md §2].
   - The combat styles carry Melee Only and Ranged Only [observed]; the combat AI honours
-    Melee Only (nvforever `npc_combat::arm_of`). A melee-only companion holding a gun
-    fights with its fists: switching to a carried melee weapon is not built.
+    Melee Only (nvforever `npc_combat::arm_of`). The style also picks the weapon held
+    [documented: GECK wiki Combat Style, "If Melee Only is selected, the combatant will
+    always use melee/hand-to-hand as their primary weapon", and Ranged Only likewise]:
+    while it fights, an NPC (a companion or any other) holding a weapon its style rules
+    out takes up the carried weapon its style allows with the highest damage (a gun's
+    explosion counted, actors.md §9.3), the first carried on ties [hypothesis: which one is not documented; the outfitting's own
+    rule]; with none allowed it keeps what it holds (a Melee Only actor with only guns
+    fights with its fists). Melee is Hand to Hand, Melee (1 Hand) and Melee (2 Hand);
+    ranged the pistols, rifles, Handle and Launcher; grenades, mines and thrown weapons are
+    never taken up [hypothesis]. An NPC fighting with no weapon equipped takes up its best
+    allowed one too [hypothesis: the GECK wiki's UnequipItem page says companions ignore
+    NoEquipFlag, i.e. do not stay unarmed; generalised to every fighting NPC]; a weapon
+    locked off by UnequipItem's NoEquip flag, or broken, is not taken. Every frame of a
+    fight, so a wheel switch mid-fight swaps at once; out of combat nothing changes
+    [hypothesis]. A swap is an ordinary equip (OnUnequip, OnEquip) and the engine draws
+    what the rules hold (`fnv_game::style_weapon`, log line `style weapon: …`).
   - `FollowerSwitchAggressive`: read by the engine [hypothesis: no shipped script turns it
     into behaviour; the companions' OnHit blocks set it to 1, the hire lines to 0]. A
     passive teammate (the variable declared and 0) attacks only an actor in combat with
@@ -158,6 +172,5 @@ scripts do the work [observed, FalloutNV.esm]:
 
 - The Xbox controller callouts and the controller's stick on the wheel; the menu's
   sounds; the blur behind it; the arrow from the hub.
-- A melee-only companion drawing its melee weapon (§4).
 - Hardcore's essential teammates, the companions' perks' effects, the Pip-Boy map
   marker for teammates.

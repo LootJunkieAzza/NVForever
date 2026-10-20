@@ -8,6 +8,9 @@
 //!   them away and they are saved with it. A race change (the character creator) swaps
 //!   the race's abilities. The abilities in the list are active while the actor is
 //!   loaded ([`Game::sync_abilities`]).
+//! - Perks' abilities ([`Game::sync_perk_abilities`], `crate::perks`): the Ability
+//!   effects of the player's perks and traits join the player's list while the perk is
+//!   held, and leave it with the perk.
 //! - The engine's own ability ([`ENGINE_ABILITIES`]): `HeadCrippleEffect` joins the list
 //!   of every actor but the player with its authored ones (docs/spec-notes/crippled-limbs.md
 //!   §2).
@@ -212,6 +215,9 @@ impl Game<'_> {
         }
         self.syncing_effects = true;
         self.give_abilities(r);
+        if r == FormId::PLAYER_REF {
+            self.sync_perk_abilities();
+        }
         self.sync_abilities(r);
         self.sync_worn(r);
         self.syncing_effects = false;

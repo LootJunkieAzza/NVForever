@@ -75,12 +75,20 @@ pub struct Item {
     /// WEAP/ARMO DATA: full health (condition 1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<i32>,
-    /// ARMO BMDT general flag "Non-Playable" [documented: xEdit wbBMDT]. The Pip-Boy 3000
-    /// and the Pip-Boy Glove carry it [observed: `fnvtool esm decode`]; the game never
+    /// The "Non-Playable" flag: ARMO BMDT general flags, WEAP DNAM flags 1, AMMO DATA
+    /// flags [documented: xEdit wbBMDT, wbDefinitionsFNV.pas WEAP and AMMO]. The Pip-Boy
+    /// 3000 and the Pip-Boy Glove carry it [observed: `fnvtool esm decode`]; the game never
     /// shows the glove in the inventory and it stays equipped [observed by the owner,
-    /// 2026-10-08]. Not part of `fnv.sim.items/1`.
+    /// 2026-10-08]. Boone's rifle and machete and `AmmoCompanion` ("Magical Companion
+    /// Ammo") carry it too [observed: `fnvtool esm decode`]. What it hides differs by type
+    /// ([`Item::listed`], [`Item::non_playable_biped`]). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub non_playable: bool,
+    /// WEAP DNAM flags 1 "Can't Drop" [documented: xEdit]: the weapon does not leave the
+    /// actor's hands, not at death and not shot out of them [documented: GECK wiki
+    /// Weapon, Flags]. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub cant_drop: bool,
     /// ARMO BMDT general flags "Medium" and "Heavy" [documented: xEdit wbBMDT]: the
     /// armour's class, light when neither is set. Detection's armour penalty reads it
     /// (docs/spec-notes/actor-behaviour.md §2.1). Not part of `fnv.sim.items/1`.
@@ -101,10 +109,12 @@ pub struct Item {
     /// part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub armor_dt: Option<f32>,
-    /// WEAP DATA "Base Damage" [documented: xEdit]. `None` for other items. Not part of
+    /// The damage the weapon choice ranks a weapon by ([`weapon_choice_damage`]): WEAP
+    /// DATA "Base Damage" [documented: xEdit], plus the damage of the explosion its
+    /// projectile sets off unless it is thrown or laid. `None` for other items. Not part of
     /// `fnv.sim.items/1`.
     #[serde(skip)]
-    pub weapon_damage: Option<i32>,
+    pub weapon_damage: Option<f32>,
     /// WEAP DNAM: what each mod slot (1, 2, 3) takes off the weight when its mod is on,
     /// the value A of a "Decrease Weight" effect, 0 for the other effects and other items
     /// (docs/spec-notes/weapon-mods.md §2, §3; [`Item::weight_with_mods`]). Not part of
@@ -141,6 +151,22 @@ pub struct Item {
 }
 
 impl Item {
+    /// Whether a menu lists the item in an inventory, the player's (`players`) or another
+    /// holder's: non-playable items are not shown in inventories other than the player's,
+    /// and non-playable biped items (armour) not in the player's either, while
+    /// non-playable weapons and ammo are [documented: GECK wiki "Unplayable Items"]. Other
+    /// kinds never carry the flag in the records; set on one, it hides it everywhere.
+    pub fn listed(&self, players: bool) -> bool {
+        !self.non_playable || (players && matches!(self.kind, ItemKind::Weapon | ItemKind::Ammo))
+    }
+
+    /// A non-playable biped item: RemoveAllItems and RemoveAllTypedItems leave it where
+    /// it is [documented: GECK wiki RemoveAllItems and RemoveAllTypedItems, the exception
+    /// is "Unplayable Biped items"; non-playable weapons and ammo move like the rest].
+    pub fn non_playable_biped(&self) -> bool {
+        self.non_playable && self.kind == ItemKind::Armor
+    }
+
     /// The weight of one unit with the mod flags `mods` on (1 slot 1, 2 slot 2, 4 slot 3):
     /// each Decrease Weight mod on takes its value off, never below 0, as
     /// `fnv_combat::WeaponStats::modded` does for the figures (weapon-mods.md §3).
@@ -454,6 +480,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         projectile: None,
                         health: None,
                         non_playable: false,
+                        cant_drop: false,
                         armor_class: ArmorClass::Light,
                         power_armor: false,
                         armor_dr: None,
@@ -520,6 +547,11 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     }
                     None => None,
                 };
+                if kind == ItemKind::Weapon {
+                    let anim = first(&d, b"DNAM").and_then(|v| v.get("animation_type")).and_then(text);
+                    let explosion = i.projectile.map_or(0.0, |p| explosion_damage(lo, schema, p));
+                    i.weapon_damage = i.weapon_damage.map(|base| weapon_choice_damage(base, explosion, anim.as_deref()));
+                }
                 BaseData::Item(i)
             }
             None => return Loaded::Skip, // non-carriable light
@@ -598,8 +630,13 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("biped_flags")).and_then(|f| int(f, "value")),
         _ => None,
     };
-    let non_playable = matches!(kind, ItemKind::Armor)
-        && first(d, b"BMDT").and_then(|v| v.get("general_flags")).is_some_and(|f| has_flag(f, "Non-Playable"));
+    let weapon_flags = matches!(kind, ItemKind::Weapon).then(|| first(d, b"DNAM").and_then(|v| v.get("flags1"))).flatten();
+    let non_playable = match kind {
+        ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("general_flags")).is_some_and(|f| has_flag(f, "Non-Playable")),
+        ItemKind::Weapon => weapon_flags.is_some_and(|f| has_flag(f, "Non-Playable")),
+        ItemKind::Ammo => data.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Non-Playable")),
+        _ => false,
+    };
     let general = matches!(kind, ItemKind::Armor).then(|| first(d, b"BMDT").and_then(|v| v.get("general_flags"))).flatten();
     let armor_class = match general {
         Some(f) if has_flag(f, "Heavy") => ArmorClass::Heavy,
@@ -609,6 +646,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
     Some(Item {
         kind,
         non_playable,
+        cant_drop: weapon_flags.is_some_and(|f| has_flag(f, "Can't Drop")),
         armor_class,
         power_armor: general.is_some_and(|f| has_flag(f, "Power Armor")),
         armor_dr: match kind {
@@ -619,8 +657,9 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             ItemKind::Armor => Some(first(d, b"DNAM").and_then(|v| num(v, "dt")).unwrap_or(0.0) as f32),
             _ => None,
         },
+        // The explosion is added by the caller, which can read the projectile.
         weapon_damage: match kind {
-            ItemKind::Weapon => Some(data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32),
+            ItemKind::Weapon => Some(data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as f32),
             _ => None,
         },
         weight_mods: match (kind, first(d, b"DNAM")) {
@@ -653,6 +692,42 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             _ => None,
         },
     })
+}
+
+/// Animation types of weapons that are thrown or laid rather than held and fired
+/// [documented: xEdit WEAP DNAM "Animation Type"; `schemas/fnv`].
+pub const THROWN_ANIM_TYPES: [&str; 4] = ["Grenade Throw (1 Hand)", "Thrown (1 Hand)", "Land Mine (1 Hand)", "Mine Drop (1 Hand)"];
+
+/// The damage an actor's weapon choice ranks a weapon by (docs/spec-notes/actors.md §9.3):
+/// its base damage, plus the damage of the explosion its projectile sets off for a weapon
+/// that is not thrown or laid [hypothesis: fitted to Cook-Cook drawing his Incinerator
+/// (base 1, its glob's explosion 20) and never his Flamer (16) in three runs of the
+/// original, npc-behaviour-compare.md §9.1; thrown weapons stay at their base damage, as
+/// grenade use is not built].
+pub fn weapon_choice_damage(base: f32, explosion: f32, anim_type: Option<&str>) -> f32 {
+    let thrown = anim_type.is_some_and(|a| THROWN_ANIM_TYPES.contains(&a));
+    base + if thrown { 0.0 } else { explosion }
+}
+
+/// The damage of the explosion projectile `proj` (a global FormID) sets off: PROJ DATA
+/// flag "Explosion" and "Explosion" → EXPL DATA "Damage" [documented: xEdit PROJ, EXPL;
+/// `schemas/fnv`]. 0 when it has none or a record does not decode.
+pub fn explosion_damage(lo: &LoadOrder, schema: &Schema, proj: FormId) -> f32 {
+    let data_of = |id: FormId, sig: &[u8; 4]| {
+        let d = lo.index.get(&id.0).and_then(|defs| defs.last())?;
+        let r = lo.records[d.plugin as usize][d.ordinal as usize];
+        if &r.header.sig != sig || r.header.flags & record_flags::DELETED != 0 {
+            return None;
+        }
+        let dec = extract::decode(r, schema).ok()?;
+        Some((d.plugin as usize, first(&dec, b"DATA").cloned()?))
+    };
+    let Some((pi, data)) = data_of(proj, b"PROJ") else { return 0.0 };
+    if !data.get("flags").is_some_and(|f| has_flag(f, "Explosion")) {
+        return 0.0;
+    }
+    let Some(Ok(Some(expl))) = data.get("explosion").and_then(local_fid).map(|l| global(lo, pi, l)) else { return 0.0 };
+    data_of(expl, b"EXPL").and_then(|(_, e)| num(&e, "damage")).unwrap_or(0.0).max(0.0) as f32
 }
 
 /// S.P.E.C.I.A.L. names in NPC_ DATA order.

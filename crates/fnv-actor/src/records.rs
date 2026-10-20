@@ -183,6 +183,14 @@ pub struct Weapon {
     pub anim_type: Option<String>,
     /// DATA base damage.
     pub damage: i32,
+    /// DNAM "Projectile" (resolved to a global FormID). Not part of any report.
+    #[serde(skip)]
+    pub projectile: Option<FormId>,
+    /// The damage of the explosion that projectile sets off (PROJ DATA flag "Explosion"
+    /// and "Explosion" → EXPL DATA "Damage"), 0 without one; filled by
+    /// [`ActorForms::build`] (actors.md §9.3). Not part of any report.
+    #[serde(skip)]
+    pub explosion_damage: f32,
     /// DNAM flags: "Embedded Weapon" (part of a creature body), "Non-Playable".
     pub embedded: bool,
     pub non_playable: bool,
@@ -382,6 +390,8 @@ impl ActorForms {
         for w in out.weapons.values_mut() {
             w.first_person_model = w.first_person.and_then(model_of);
             w.mod_first_person_models = w.mod_first_person.map(|f| f.and_then(model_of));
+            // The explosion its projectile sets off, for the weapon choice (actors.md §9.3).
+            w.explosion_damage = w.projectile.map_or(0.0, |p| fnv_sim::forms::explosion_damage(lo, schema, p));
         }
         out
     }
@@ -615,6 +625,8 @@ fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Iss
         model: path(first(d, b"MODL")),
         anim_type: dnam.and_then(|v| v.get("animation_type")).and_then(text),
         damage: first(d, b"DATA").and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32,
+        projectile: fid(lo, pi, id, "DNAM projectile", dnam.and_then(|v| v.get("projectile")), issues),
+        explosion_damage: 0.0,
         embedded: flags.is_some_and(|f| has_flag(f, "Embedded Weapon")),
         non_playable: flags.is_some_and(|f| has_flag(f, "Non-Playable")),
         first_person: fid(lo, pi, id, "WNAM", first(d, b"WNAM"), issues),
@@ -642,7 +654,7 @@ mod tests {
 
     #[test]
     fn a_modded_weapon_draws_the_model_of_its_mods() {
-        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, embedded: false, non_playable: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() };
+        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() };
         w.mod_models[0] = Some("ext.nif".into());
         w.mod_models[2] = Some("ext_scope.nif".into());
         w.mod_first_person_models[2] = Some("1st_ext_scope.nif".into());

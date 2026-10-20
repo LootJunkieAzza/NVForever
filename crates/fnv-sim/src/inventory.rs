@@ -533,6 +533,7 @@ mod tests {
             projectile: None,
             health: None,
             non_playable: false,
+            cant_drop: false,
             armor_class: Default::default(),
             power_armor: false,
             armor_dr: None,

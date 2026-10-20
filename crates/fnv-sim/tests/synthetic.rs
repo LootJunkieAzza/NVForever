@@ -174,6 +174,8 @@ const GATE_IN: u32 = 0x30F; // persistent door in WORLD2_PERSISTENT -> GATE_OUT,
 const ROUNDS_REF: u32 = 0x3F0; // BULLETS without XCNT: the AMMO's Clip Rounds (10)
 const GUARD: u32 = 0x181; // NPC_ carrying PISTOL, RIFLE, HELMET, HAT, SUIT, MINE
 const LONG_GUN: u32 = 0x182; // WEAP with a model and an animation type (drawable), damage 10
+const COMPANION_GUN: u32 = 0x17E; // WEAP, DNAM flags 1 Can't Drop | Non-Playable (Boone's rifle)
+const COMPANION_AMMO: u32 = 0x17F; // AMMO, DATA flags Non-Playable (AmmoCompanion)
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -258,7 +260,17 @@ fn plugin_bytes() -> Vec<u8> {
         m.extend(extra);
         m
     };
-    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine, &long_gun]);
+    let companion_gun = {
+        let mut m = weap(COMPANION_GUN, "TestCompanionGun", 0, 8.0);
+        let mut dnam = vec![0u8; 120];
+        dnam[12] = 0x88; // flags 1: Can't Drop (bit 3), Non-Playable (bit 7)
+        let extra = write_subrecords(&[sub(b"DNAM", dnam)]);
+        let size = u32::from_le_bytes(m[4..8].try_into().unwrap()) + extra.len() as u32;
+        m[4..8].copy_from_slice(&size.to_le_bytes());
+        m.extend(extra);
+        m
+    };
+    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine, &long_gun, &companion_gun]);
     let guard = record(
         b"NPC_",
         0,
@@ -281,7 +293,11 @@ fn plugin_bytes() -> Vec<u8> {
     let alch = record(b"ALCH", 0, AID, &[sub(b"EDID", z("TestAid")), sub(b"DATA", 0.5f32.to_le_bytes().to_vec()), sub(b"ENIT", enit)]);
     let ammo_data = cat(&[&1f32.to_le_bytes(), &[0u8, 0, 0, 0], &2i32.to_le_bytes(), &[10u8]]);
     let ammo_dat2 = cat(&[&1u32.to_le_bytes(), &0u32.to_le_bytes(), &0.1f32.to_le_bytes()]);
-    let ammo = record(b"AMMO", 0, BULLETS, &[sub(b"EDID", z("TestBullets")), sub(b"DATA", ammo_data), sub(b"DAT2", ammo_dat2)]);
+    let companion_ammo_data = cat(&[&1f32.to_le_bytes(), &[2u8, 0, 0, 0], &0i32.to_le_bytes(), &[1u8]]); // flags: Non-Playable
+    let ammo = cat(&[
+        &record(b"AMMO", 0, BULLETS, &[sub(b"EDID", z("TestBullets")), sub(b"DATA", ammo_data), sub(b"DAT2", ammo_dat2.clone())]),
+        &record(b"AMMO", 0, COMPANION_AMMO, &[sub(b"EDID", z("TestCompanionAmmo")), sub(b"DATA", companion_ammo_data), sub(b"DAT2", ammo_dat2)]),
+    ]);
     let coed = cat(&[&0u32.to_le_bytes(), &0u32.to_le_bytes(), &0.75f32.to_le_bytes()]);
     let locker = record(
         b"CONT",
@@ -1408,6 +1424,28 @@ fn non_playable_armour_is_flagged() {
     assert!(f.forms.item(id(GLOVE)).unwrap().non_playable);
     assert!(!f.forms.item(id(SUIT)).unwrap().non_playable);
     assert!(!f.forms.item(id(PISTOL)).unwrap().non_playable);
+}
+
+#[test]
+fn non_playable_weapons_and_ammo_are_flagged_and_leave_with_remove_all_items() {
+    let f = fixture();
+    let gun = f.forms.item(id(COMPANION_GUN)).unwrap();
+    assert!(gun.non_playable && gun.cant_drop && !gun.non_playable_biped());
+    assert!(gun.listed(true) && !gun.listed(false), "the player's own inventory shows it, others' do not");
+    let ammo = f.forms.item(id(COMPANION_AMMO)).unwrap();
+    assert!(ammo.non_playable && !ammo.cant_drop && ammo.listed(true) && !ammo.listed(false));
+    let pistol = f.forms.item(id(PISTOL)).unwrap();
+    assert!(!pistol.non_playable && !pistol.cant_drop && pistol.listed(false));
+    let glove = f.forms.item(id(GLOVE)).unwrap();
+    assert!(glove.non_playable_biped() && !glove.listed(true) && !glove.listed(false));
+    // GECK wiki RemoveAllItems keeps only unplayable biped items: these move.
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(COMPANION_GUN), 1).unwrap();
+    w.add_item(p, id(COMPANION_AMMO), 5).unwrap();
+    let removed = w.remove_all_items(p).unwrap();
+    assert!(removed.contains(&(id(COMPANION_GUN), 1)) && removed.contains(&(id(COMPANION_AMMO), 5)));
+    assert_eq!(w.item_count(p, id(GLOVE)).unwrap(), 1);
 }
 
 #[test]

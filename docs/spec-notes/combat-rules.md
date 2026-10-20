@@ -1229,9 +1229,23 @@ Owner's request, 2026-10-11. Code: `fnv_combat::condition`, `fnv_sim::inventory`
 
   What each of them does in the original is not documented anywhere we can cite. The
   two we use are read by `Rules` like the other settings.
-- **Weapon wear.** Each attack takes `fDamageToWeaponValue` health points, times the
-  record's Damage to Weapon Mult when its override flag is set, with the ammunition's
-  Weapon Condition effects applied (`condition::weapon_wear`).
+- **Weapon wear.** Each attack takes `fDamageToWeaponValue` health points, or the
+  record's Damage to Weapon Mult in its place when its override flag is set, with the
+  ammunition's Weapon Condition effects applied (`condition::weapon_wear`).
+  - [documented: GECK wiki SetWeaponDegradationMult (ppNVSE): the record's value
+    "overrides the fDamageToWeaponValue when calculating the per shot degradation", and
+    its example's 0.5 "will degrade 0.5 per shot".] Until 2026-10-20 ours multiplied the
+    two (0.2 × 0.005 for the Incinerator); the override now replaces the setting. The
+    GECK wiki's Weapon page calls the field the multiplier "that determines the amount of
+    damage the weapon will take", 0 for none [documented]; it does not say of what.
+  - FalloutNV.esm sets the override on twelve weapons, all automatic or fast: the
+    Flamer, Heavy Incinerator and Incinerator (health 200), the grenade machineguns,
+    the chainsaw, the Rippers, the Thermic Lance and Euclid's C-Finder at 0.005, the
+    binoculars and the BB gun at 0 [observed: `fnvtool esm decode`, every WEAP].
+  - It applies to every actor's weapon, the player's and an NPC's (an NPC's own shots and
+    landed blows since 2026-10-20, `nvf_play::combat::actor_attacks`) [hypothesis: the
+    documentation names no actor; the original's NPC weapons do wear, below]. A shot from
+    a scripted FireWeapon wears nothing [design].
   - [hypothesis: the setting's role.] It fits the published figure the owner quoted:
     "about 395 standard rounds, the equivalent of 33 reloads" for the 10mm Pistol from
     full condition. Its record has health 80 and 12 rounds [observed]: 80 ÷ 0.2 = 400
@@ -1360,14 +1374,38 @@ npc-behaviour-compare.md §9.
   - Difficulty therefore plays no part between NPCs. [hypothesis: the capture save's
     difficulty was not recorded; that difficulty scales only hits by and on the
     player.] NVForever has no difficulty setting yet.
-- **NPC armour does not wear; NPC weapons do** [observed: §17]. Ours does not yet wear
-  an NPC's weapon from firing: the Incinerator lost 2.19 health a shot in the original,
-  far more than `fDamageToWeaponValue` × its Damage to Weapon Mult (0.2 × 0.005).
-  Not built until it is understood.
+- **NPC armour does not wear; NPC weapons do** [observed: §17]. Ours wears an NPC's
+  weapon by the documented per-shot rule of §17 (0.2 a Service Rifle shot, 0.005 an
+  Incinerator glob). The original's Incinerator lost 2.19 health "a shot", far more,
+  and the rule does not explain it. What is known (2026-10-20):
+  - "A shot" there is `fight_stats.py`'s: GetAnimAction entering 2 or 3, so a full-auto
+    burst counts once [observed: the script's definition]. Cook-Cook's bursts held the
+    attack state 1.4–2.7 s, most 1.7–1.8 s, in campaign npc_battles (`ncr_fiends`, 20
+    bursts) [observed]: at the record's 2 globs a second, some four globs a burst. That
+    is about 0.55 a glob, 110 times the override; no ammunition effect explains it
+    (Cook-Cook carries plain Flamer Fuel: LootAmmoFlamerFuel, FalloutNV.esm [observed];
+    the homemade fuel's condition effect is × 3).
+  - 2.19 is, to two places, the troopers' Service Rifle hit on Cook-Cook: 2.1875, the 20 %
+    floor of 10.9375 (above). [hypothesis: the falls came from the troopers' shots
+    landing on his weapon, or from every hit he took, not from his firing.] The capture's
+    output with the per-sample weapon health is not on this machine, so it cannot be
+    split again here.
+  - To settle it: run campaign fight_stats_round again and read it with
+    `tools/capture/fight_stats.py`, which now splits each fall of a fighter's weapon
+    health into "hit" (an OnHit on the holder between the two samples), "firing" and
+    "other", with the firing falls per shot and the hits' damage beside the hit falls.
+    Ours is unchanged for hits on the holder until then: a hit on the weapon's own hit
+    volume wears it by the hit's damage before armour (the owner's rule, above).
+  - Ours, smoke `combat-npc-weapon-wear` (2026-10-20, one run) [observed]: the troopers'
+    Service Rifles lost 0.200 a shot (18–47 shots, 3.6–9.4 health); Cook-Cook drew his
+    Flamer, not the Incinerator the original's drew (both are in his inventory), and
+    lost 0.005 a shot from firing (49 shots) but went from 80 % to 61 % condition from
+    the troopers' shots on its hit volume.
 - **Explosions** do the EXPL's damage with its falloff, then DT and DR (§11), with no
   skill or condition. They are their cause's hits (§11). The Incinerator does damage
   only this way: its WEAP damage is 1, its glob's NVIncineratorFireBurst does 20 in 212
-  units, and its enchantment burns.
+  units, and its enchantment burns. The original's burn from it drained NPCs 1–2
+  Health a second against the record's 4 (npc-behaviour-compare.md §9.1); ours drains 4.
 - **Checked offline** (`fnvtool combat damage`, the records' values; condition and skill
   from §9's capture) [observed 2026-10-19]:
 
