@@ -1143,6 +1143,8 @@ fn main() -> AppExit {
     .add_systems(Update, cell_buffer::remember.after(world::stream))
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
+    .add_systems(Update, nvf_assets::morph::play_vertex_morphs.after(world::stream))
     .init_resource::<activators::ActivatorStats>()
     .add_systems(
         Update,

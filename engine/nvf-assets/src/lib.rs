@@ -9,6 +9,7 @@ pub mod data;
 pub mod material_anim;
 pub mod model;
 pub mod model_light;
+pub mod morph;
 pub mod particles;
 pub mod release;
 pub mod nif_material;
