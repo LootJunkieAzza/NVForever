@@ -755,6 +755,9 @@ pub struct Combat {
     /// The equipped unit's mod flags (`Extra::mods`): its figures are the modded ones
     /// (docs/spec-notes/weapon-mods.md §2).
     mods: u8,
+    /// The weapon and mod sound the player's shots last played, while it is a silenced
+    /// one: its log line is written once (weapon-mods.md §7).
+    silenced_logged: Option<(FormId, FormId)>,
     /// The Fists form (WEAP `Fists`), the unarmed weapon.
     fists: Option<FormId>,
     ammo: Option<FormId>,
@@ -1253,6 +1256,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         weapon: None,
         equipped: None,
         mods: 0,
+        silenced_logged: None,
         fists,
         ammo: None,
         self_ammo: false,
@@ -1799,8 +1803,15 @@ pub(crate) fn fire(
                     }
                     c.looping = Some((sound, LOOP_SOUND_HOLD));
                 }
-                // The player's own shot: the 2D sound where the weapon has one.
-                if let Some(sound) = weapon_fx.and_then(|f| f.shoot_2d.or(f.shoot_3d)) {
+                // The player's own shot: the 2D sound where the weapon has one, the mod
+                // set's with a Silence or Suppressor mod on (weapon-mods.md §7).
+                let silenced = c.equipped.flatten() == Some(id) && w.sound_mod_on(c.mods);
+                let shoot = weapon_fx.map(|f| f.shoot_sounds(silenced)).unwrap_or_default();
+                if let Some(sound) = shoot.own {
+                    if shoot.silenced && c.silenced_logged != Some((id, sound)) {
+                        info!("combat: {} shoots its silenced sound {}", w.edid.as_deref().unwrap_or("?"), sound_edid(sfx.as_deref(), sound));
+                    }
+                    c.silenced_logged = shoot.silenced.then_some((id, sound));
                     sounds.write(PlaySound { sound, at: None });
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
@@ -2625,9 +2636,20 @@ fn actor_attacks(
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
         fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
-        // Heard where it is fired: the weapon's 3D shoot sound.
-        if let Some(sound) = sfx.as_deref().and_then(|x| x.forms.weapons.get(&s.weapon)).and_then(|f| f.shoot_3d.or(f.shoot_2d)) {
-            sounds.write(PlaySound { sound, at: Some(seen_from) });
+        // Heard where it is fired: the weapon's 3D shoot sound, its distant one beyond
+        // the 3D sound's reach, the mod set's with a Silence or Suppressor mod on the
+        // unit in use (weapon-mods.md §7).
+        if let Some(fx) = sfx.as_deref().and_then(|x| x.forms.weapons.get(&s.weapon)) {
+            let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
+            let silenced = mods != 0 && c.forms.weapons.get(&s.weapon).is_some_and(|w| w.sound_mod_on(mods));
+            let shoot = fx.shoot_sounds(silenced);
+            let near_max = shoot.near.and_then(|n| sfx.as_deref().and_then(|x| x.forms.sounds.get(&n))).map_or(0.0, |n| n.max_distance);
+            let distance = player.as_deref().map_or(0.0, |p| vec::len(vec::sub(p.eye(), seen_from)));
+            let (sound, far) = shoot.heard_at(distance, near_max);
+            if let Some(sound) = sound {
+                debug!("combat: npc {} shot sound {} ({}, {})", s.shooter, sound_edid(sfx.as_deref(), sound), if shoot.silenced { "silenced" } else { "plain" }, if far { "distant" } else { "3D" });
+                sounds.write(PlaySound { sound, at: Some(seen_from) });
+            }
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
         let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false };
@@ -3333,6 +3355,11 @@ pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32
         spin_up: attack.filter(|a| a.2).and_then(|a| a.1),
         jam_len: None,
     }
+}
+
+/// A SOUN's editor ID for a log line (its form ID without one).
+fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
+    sfx.and_then(|x| x.forms.sounds.get(&sound)).and_then(|s| s.edid.clone()).unwrap_or_else(|| sound.to_string())
 }
 
 #[cfg(test)]

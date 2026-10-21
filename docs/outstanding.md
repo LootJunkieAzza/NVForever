@@ -70,8 +70,8 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   fit a free slot, attaching one uses it up and sets the weapon's mod flags (kept in
   saves), the player's figures and model in hand change; MenuMode 1061. Left of it
   (weapon-mods.md §6): modded models for weapons in the world and NPCs' hands, the
-  carried weight of Decrease Weight, projectile speed, ammo regeneration, the mod shoot
-  sounds, telling a modded and a plain unit at one condition apart when equipping or
+  carried weight of Decrease Weight, projectile speed, ammo regeneration (the mod shoot sounds are built:
+  claude/e12-silencer-sounds, weapon-mods.md §7), telling a modded and a plain unit at one condition apart when equipping or
   dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
   the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
   2026-10-19.)
