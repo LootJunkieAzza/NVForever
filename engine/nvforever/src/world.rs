@@ -38,6 +38,8 @@ pub struct WorldData {
     pub persistent_by_grid: HashMap<(i32, i32), Vec<u32>>,
     /// Regions with imposter lists (imposters.rs).
     pub imposters: &'static ImposterRegions,
+    /// Regions with weather lists (sky.rs `weather_region`).
+    pub weather_regions: &'static [fnv_world::sky::RegionWeather],
 }
 
 impl WorldData {
@@ -53,7 +55,8 @@ impl WorldData {
         let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
         let imposters: &'static ImposterRegions = Box::leak(Box::new(ImposterRegions::build(lo, schema)));
-        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new(), imposters };
+        let weather_regions: &'static [fnv_world::sky::RegionWeather] = Box::leak(fnv_world::sky::region_weathers(lo, schema).into_boxed_slice());
+        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new(), imposters, weather_regions };
         data.set_world(w.form_id);
         Ok(data)
     }

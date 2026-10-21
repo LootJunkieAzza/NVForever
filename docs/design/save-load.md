@@ -270,10 +270,13 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   QuickLoad (F9) keys, autosaves, `EngineSnapshot` (`nvf.engine.state/1`: first/third
   person and distance, sneak, always run, flashlight, the magazine of the weapon in hand,
   the Pip-Boy's active quest, and parts of other crates through `SaveHook`: nvforever's
-  sky saves its weather and whether a script holds it). The body is
+  sky saves its weather, whether a script holds it and the weather rolls' random state).
+  The body is
   `nvf.save.body/1` = game snapshot + engine snapshot.
 - **Loading**: `nvforever --load <name|path>` reads the header first (its worldspace,
-  cell, position, heading, pitch, hour and weather start the world there), then the body
+  cell, position, heading, pitch, hour and weather start the world there; the weather is
+  kept while the weather system lists it there, not pinned as `--weather` pins it,
+  spec-notes/world.md §6), then the body
   once the load order is known (remapped if it differs, §4.1); the script runtime restores the
   game and the simulation as it is made, before its first frame, and sends `RefChanged`
   for every reference the save changed so the drawn world follows; the engine part is put

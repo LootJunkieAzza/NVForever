@@ -57,6 +57,9 @@ pub struct Climate {
     pub model: Option<String>,
     /// TNAM "moons / phase length" byte as stored (NVDefaultClimate: 131).
     pub moons: u8,
+    /// TNAM volatility byte (GetClimateTraitNumeric trait 4 "Volatility" [documented:
+    /// GECK wiki]); 0 in every FalloutNV.esm climate [observed]. Its use: [`roll_due`].
+    pub volatility: u8,
 }
 
 /// Moon phases in order, as named by the textures `textures\sky\masser_<phase>.dds`
@@ -146,6 +149,7 @@ pub fn climate(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Climate> {
     c.sunset = (h("sunset_begin"), h("sunset_end"));
     c.model = f.string(b"MODL").filter(|s| !s.is_empty());
     c.moons = num(&t, "moons_phase_length").unwrap_or(0.0) as u8;
+    c.volatility = num(&t, "volatility").unwrap_or(0.0) as u8;
     Some(c)
 }
 
@@ -188,17 +192,170 @@ pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
     Some(w)
 }
 
-/// The climate's most likely weather: the highest chance among entries that are not
-/// gated by a global variable, or whose global is non-zero (first on ties)
-/// [hypothesis: NVDefaultClimate lists NVWastelandClearNight gated by the global VNight,
-/// which starts at 0, next to NVWastelandClear; both have chance 100].
+/// The climate's most likely weather: the highest chance among the [`eligible`] entries
+/// (first on ties).
 pub fn default_weather(c: &Climate, global_value: impl Fn(u32) -> Option<f32>) -> Option<u32> {
-    c.weathers
+    eligible(&c.weathers, global_value).into_iter().reduce(|a, b| if b.chance > a.chance { b } else { a }).map(|w| w.weather)
+}
+
+/// The entries of a weather list (CLMT WLST, REGN RDWT) a roll draws from now
+/// (docs/spec-notes/world.md §6 "Choosing a weather"): an entry with a global counts
+/// only while that global is non-zero, and entries whose global is set and non-zero
+/// win over the entries without a global; without any, the entries without a global
+/// [hypothesis: NVDefaultClimate (and NewVegasRegion) list NVWastelandClearNight gated
+/// by VNight, which NightQuestScript sets to 1 from 21:00 to 4:30, next to the ungated
+/// NVWastelandClear, both chance 100; MapHooverDam lists NVHooverFinalBattle gated by
+/// VStoryEventHooverDamBattleStarted next to the ungated NVHooverDamWeather, both 100.
+/// A plain draw would show the day weather on half the nights and the peaceful weather
+/// in half the battles, which the scripts setting those globals plainly do not mean].
+pub fn eligible(list: &[WeatherChoice], global_value: impl Fn(u32) -> Option<f32>) -> Vec<WeatherChoice> {
+    let open = |w: &&WeatherChoice| w.global.is_some_and(|g| global_value(g).is_some_and(|v| v != 0.0));
+    let gated: Vec<WeatherChoice> = list.iter().filter(open).copied().collect();
+    if !gated.is_empty() {
+        return gated;
+    }
+    list.iter().filter(|w| w.global.is_none()).copied().collect()
+}
+
+/// A weighted draw from `list` (the [`eligible`] entries): `u` in 0..1 picks an entry
+/// with probability chance / sum of chances; with no positive chance, every entry is
+/// equally likely [hypothesis: Fallout 3's WeatherMegaton lists two weathers at chance 0
+/// behind globals; the list is still meant to give one].
+pub fn roll(list: &[WeatherChoice], u: f32) -> Option<u32> {
+    let total: i64 = list.iter().map(|w| w.chance.max(0) as i64).sum();
+    if total <= 0 {
+        let n = list.len();
+        return (n > 0).then(|| list[((u.clamp(0.0, 1.0) * n as f32) as usize).min(n - 1)].weather);
+    }
+    let mut at = u.clamp(0.0, 1.0) as f64 * total as f64;
+    for w in list {
+        let c = w.chance.max(0) as f64;
+        if at < c {
+            return Some(w.weather);
+        }
+        at -= c;
+    }
+    list.iter().rev().find(|w| w.chance > 0).map(|w| w.weather)
+}
+
+/// Whether the hourly volatility check calls a new roll: with probability volatility /
+/// 255, `u` in 0..1 [hypothesis: GetClimateTraitNumeric names the TNAM byte
+/// "Volatility" and nothing documents its scale or schedule; read as the chance per game
+/// hour that the weather is rolled again. Every FalloutNV.esm climate stores 0, which
+/// keeps the Mojave's weather steady, as the unmodded game's is known to be].
+pub fn roll_due(volatility: u8, u: f32) -> bool {
+    volatility > 0 && u < volatility as f32 / 255.0
+}
+
+/// REGN RDAT data type of a weather list [documented: xEdit wbRegionDataEntries type 3,
+/// schemas/fnv/sky.json].
+const WEATHER_DATA: u64 = 3;
+
+/// REGN RDAT flags bit 0 on a weather block: the region's weathers replace the
+/// climate's while the player is in it [hypothesis: JohnnyGuitar's
+/// GetRegionWeatherOverride "returns true if Weather Region Data has an override flag"
+/// (GECK wiki) names the flag, not its bit. Observed in FalloutNV.esm: of the WastelandNV
+/// weather regions, the bit is set on those around one place with a weather of its own
+/// (NVUrbanRegion, NVSearchlightRegion, NVJacobstownRegion, NVBlackMountainRegion,
+/// NVLegateRegion, MapHooverDam, VMapTheFortRegion) and clear on GSWeatherRegion
+/// (NVWastelandGS, beside the test climate NVDefaultClimateGSTest), NVBorderRegion and
+/// NVColoradoRiverRegion; the lab's Goodsprings frames of the original name
+/// NVWastelandClear].
+pub const REGION_WEATHER_OVERRIDE: u8 = 1;
+
+/// A region with a weather list (REGN RDAT type 3 + RDWT).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RegionWeather {
+    pub form_id: u32,
+    pub edid: Option<String>,
+    /// WNAM: the worldspace its areas lie in.
+    pub world: Option<u32>,
+    /// RPLI/RPLD: each area a polygon of worldspace x, y points.
+    pub areas: Vec<Vec<[f32; 2]>>,
+    /// The weather block's RDAT flags and priority.
+    pub flags: u8,
+    pub priority: u8,
+    pub weathers: Vec<WeatherChoice>,
+}
+
+impl RegionWeather {
+    /// Whether the region's weathers replace the climate's ([`REGION_WEATHER_OVERRIDE`]).
+    pub fn overrides(&self) -> bool {
+        self.flags & REGION_WEATHER_OVERRIDE != 0
+    }
+
+    /// Whether a worldspace point lies inside one of the areas (as imposter regions).
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        self.areas.iter().any(|pts| crate::imposter::inside(pts, x, y))
+    }
+}
+
+/// Every region of the load order with a weather list and at least one area, in FormID
+/// order.
+pub fn region_weathers(lo: &LoadOrder, schema: &Schema) -> Vec<RegionWeather> {
+    let mut out = Vec::new();
+    for (&g, defs) in &lo.index {
+        let Some(d) = defs.last() else { continue };
+        let pi = d.plugin as usize;
+        let r = lo.records[pi][d.ordinal as usize];
+        if &r.header.sig != b"REGN" || r.header.flags & crate::placed::ref_flags::DELETED != 0 {
+            continue;
+        }
+        let Ok(f) = Fields::new(r, pi, schema) else { continue };
+        let mut rg = RegionWeather { form_id: g, edid: f.string(b"EDID"), world: f.formid(b"WNAM", lo), ..Default::default() };
+        let mut header: Option<Value> = None;
+        for s in &f.subs {
+            match &s.sig {
+                b"RPLI" => rg.areas.push(Vec::new()),
+                b"RPLD" => {
+                    let pts: Vec<[f32; 2]> = f
+                        .decode(s)
+                        .as_ref()
+                        .and_then(|v| v.as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|p| Some([num(p, "x")? as f32, num(p, "y")? as f32]))
+                        .collect();
+                    match rg.areas.last_mut() {
+                        Some(a) if a.is_empty() => *a = pts,
+                        _ => rg.areas.push(pts),
+                    }
+                }
+                b"RDAT" => header = f.decode(s),
+                b"RDWT" if header.as_ref().and_then(|h| h.get("type")?.as_u64()) == Some(WEATHER_DATA) => {
+                    let h = header.as_ref();
+                    rg.flags = h.and_then(|h| num(h, "flags")).unwrap_or(0.0) as u8;
+                    rg.priority = h.and_then(|h| num(h, "priority")).unwrap_or(0.0) as u8;
+                    for w in f.decode(s).as_ref().and_then(|v| v.as_array()).into_iter().flatten() {
+                        if let Some(id) = w.get("weather").and_then(formid_of).and_then(|l| global(lo, pi, l)) {
+                            rg.weathers.push(WeatherChoice {
+                                weather: id,
+                                chance: num(w, "chance").unwrap_or(0.0) as i32,
+                                global: w.get("global").and_then(formid_of).and_then(|l| global(lo, pi, l)),
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        rg.areas.retain(|a| a.len() >= 3);
+        if !rg.weathers.is_empty() && !rg.areas.is_empty() {
+            out.push(rg);
+        }
+    }
+    out.sort_by_key(|r| r.form_id);
+    out
+}
+
+/// The overriding weather region of worldspace `world` at (x, y): the highest priority
+/// among those containing the point, the lowest FormID on ties [hypothesis: the
+/// priority picks among overlapping regions; the tie rule is ours].
+pub fn region_at(regions: &[RegionWeather], world: u32, x: f32, y: f32) -> Option<&RegionWeather> {
+    regions
         .iter()
-        .filter(|w| w.global.is_none_or(|g| global_value(g).is_some_and(|v| v != 0.0)))
-        .copied()
-        .reduce(|a, b| if b.chance > a.chance { b } else { a })
-        .map(|w| w.weather)
+        .filter(|r| r.overrides() && r.world == Some(world) && r.contains(x, y))
+        .reduce(|a, b| if b.priority > a.priority { b } else { a })
 }
 
 /// A global variable's value (GLOB FLTV).
@@ -541,5 +698,48 @@ mod tests {
         let c = Climate { weathers: vec![w(4, 100, Some(9)), w(5, 100, None)], ..clim() };
         assert_eq!(default_weather(&c, |_| Some(0.0)), Some(5));
         assert_eq!(default_weather(&c, |_| Some(1.0)), Some(4));
+    }
+
+    #[test]
+    fn open_gates_win_over_ungated_entries() {
+        let w = |weather, chance, global| WeatherChoice { weather, chance, global };
+        let list = [w(4, 100, Some(9)), w(5, 100, None), w(6, 50, None)];
+        assert_eq!(eligible(&list, |_| Some(0.0)), vec![list[1], list[2]]);
+        assert_eq!(eligible(&list, |_| Some(1.0)), vec![list[0]]);
+        assert_eq!(eligible(&list, |_| None), vec![list[1], list[2]]);
+    }
+
+    #[test]
+    fn rolls_are_weighted_by_chance() {
+        let w = |weather, chance| WeatherChoice { weather, chance, global: None };
+        let urban = [w(1, 85), w(2, 15)];
+        assert_eq!(roll(&urban, 0.0), Some(1));
+        assert_eq!(roll(&urban, 0.84), Some(1));
+        assert_eq!(roll(&urban, 0.86), Some(2));
+        assert_eq!(roll(&urban, 1.0), Some(2));
+        let zero = [w(3, 0), w(4, 0)];
+        assert_eq!(roll(&zero, 0.2), Some(3));
+        assert_eq!(roll(&zero, 0.7), Some(4));
+        assert_eq!(roll(&[], 0.5), None);
+        let n = (0..1000).filter(|i| roll(&urban, *i as f32 / 1000.0) == Some(2)).count();
+        assert_eq!(n, 150);
+    }
+
+    #[test]
+    fn volatility_is_a_chance_per_hour() {
+        assert!(!roll_due(0, 0.0));
+        assert!(roll_due(255, 0.999));
+        assert!(roll_due(51, 0.19) && !roll_due(51, 0.21));
+    }
+
+    #[test]
+    fn override_regions_by_priority() {
+        let square = vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        let r = |form_id, flags, priority| RegionWeather { form_id, world: Some(7), areas: vec![square.clone()], flags, priority, ..Default::default() };
+        let rs = [r(1, 0, 200), r(2, 1, 50), r(3, 1, 100), r(4, 1, 100)];
+        assert_eq!(region_at(&rs, 7, 5.0, 5.0).map(|r| r.form_id), Some(3));
+        assert_eq!(region_at(&rs, 7, 50.0, 5.0).map(|r| r.form_id), None);
+        assert_eq!(region_at(&rs, 8, 5.0, 5.0).map(|r| r.form_id), None);
+        assert_eq!(region_at(&rs[..2], 7, 5.0, 5.0).map(|r| r.form_id), Some(2));
     }
 }

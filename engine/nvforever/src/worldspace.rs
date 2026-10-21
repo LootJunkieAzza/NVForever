@@ -53,7 +53,7 @@ pub fn switch(
     info!("render: worldspace {:08X} -> {to:08X} ({name})", world.world);
     world.set_world(to);
 
-    match SkyState::new(&world, args.weather.as_deref(), sky.hour) {
+    match SkyState::new(&world, args.weather.as_deref(), None, sky.hour, sky.rng) {
         Ok(mut s) => {
             s.shadows = sky.shadows;
             s.shadow_distance = sky.shadow_distance;
@@ -63,6 +63,7 @@ pub fn switch(
             s.time_scale = sky.time_scale;
             s.clock_running = sky.clock_running;
             s.days_passed = sky.days_passed;
+            s.clock_seen = sky.clock_seen;
             s.fog_override = sky.fog_override;
             info!("render: {name}: {}", s.describe());
             *sky = s;

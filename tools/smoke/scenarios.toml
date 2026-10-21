@@ -6553,3 +6553,19 @@ order = [[
 expect = [
   { re = 'grab: .*\(it caught on something\)', count = 0, label = "never caught while carried" },
 ]
+
+[[scenario]]
+name = "weather-roll"
+source = "ESM gap audit row 8 (docs/spec-notes/world.md §6 \"Choosing a weather\"): the weather is a weighted roll from the climate's list (CLMT WLST), and an overriding region's list (REGN RDWT) replaces it where the camera stands"
+note = "Goodsprings lies in no overriding weather region: the start rolls NVDefaultClimate's list, which by day is NVWastelandClear alone (NVWastelandClearNight waits for VNight). At 12 s the player is put inside NVUrbanRegion (Override flag, priority 100, NVUrbanClear 85 / NVWastelandClear 15), north of Freeside; the drop from z 9,000 does not matter, only the camera's x, y. The roll there is seeded (--weather-seed), so which of the two comes is the same every run"
+areas = ["sky", "weather"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs", "engine/nvforever/src/worldspace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "12:-20000:85000:9000" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+order = [[
+  { re = 'weather: \d+ region\(s\) override the climate here: .*NVUrbanRegion \(priority 100, 2 weathers\)', label = "WastelandNV's overriding weather regions are read" },
+  { re = 'weather roll: NVWastelandClear \(100 of 100 among 1 eligible\) from climate NVDefaultClimate at the start', label = "the start rolls the climate's list" },
+  { re = 'test aid: go to \(-20000, 85000, 9000\)', label = "the player is put in NVUrbanRegion" },
+  { re = 'weather roll: (NVUrbanClear \(85|NVWastelandClear \(15) of 100 among 2 eligible\) from region NVUrbanRegion \(priority 100\) on entering the region', label = "the region's list replaces the climate's, weighted 85/15" },
+]]
