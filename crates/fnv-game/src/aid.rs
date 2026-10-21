@@ -13,7 +13,7 @@
 
 use crate::data::{
     EffectItem, IngestibleDef, MagicEffectDef, ARCHETYPE_CHAMELEON, ARCHETYPE_CURE_ADDICTION, ARCHETYPE_INVISIBILITY, ARCHETYPE_LIMB_CONDITION,
-    ARCHETYPE_VALUE_AND_PARTS, ARCHETYPE_VALUE_MODIFIER,
+    ARCHETYPE_PARALYSIS, ARCHETYPE_TURBO, ARCHETYPE_VALUE_AND_PARTS, ARCHETYPE_VALUE_MODIFIER,
 };
 use crate::functions::actor as fa;
 use crate::game::Game;
@@ -107,7 +107,9 @@ pub fn value_change(m: &MagicEffectDef, e: &EffectItem, potency: f64, permanent:
         // Invisibility and Chameleon change their actor value as a Value Modifier does
         // [hypothesis: the Stealth Boy's "Stealth Field" names the actor value Chameleon
         // with Recover; detection reads that value, docs/design/detection.md].
-        ARCHETYPE_VALUE_MODIFIER | ARCHETYPE_INVISIBILITY | ARCHETYPE_CHAMELEON => (false, e.actor_value.or(m.actor_value)?),
+        // So do Paralysis and Turbo [hypothesis: their MGEFs name the actor values
+        // Paralysis and Turbo with Recover; docs/spec-notes/magic-archetypes.md §2].
+        ARCHETYPE_VALUE_MODIFIER | ARCHETYPE_INVISIBILITY | ARCHETYPE_CHAMELEON | ARCHETYPE_PARALYSIS | ARCHETYPE_TURBO => (false, e.actor_value.or(m.actor_value)?),
         ARCHETYPE_VALUE_AND_PARTS => (true, e.actor_value.or(m.actor_value)?),
         // Every limb condition (the first stands for them) [hypothesis: Doctor's Bag's
         // and Hydra's "NVRestoreLimbs" names no actor value; aid-items.md §3].
@@ -489,11 +491,15 @@ impl Game<'_> {
 
     /// What an effect's archetype does when it starts, besides value changes and scripts:
     /// Cure Addiction removes the target's addictions [hypothesis from the archetype's
-    /// name; aid-items.md §5.4].
+    /// name; aid-items.md §5.4]; Paralysis, the cures and Dispel:
+    /// `crate::magic_archetypes`.
     pub(crate) fn effect_archetype_start(&mut self, id: u32) {
         let Some(e) = self.effects.iter().find(|e| e.id == id) else { return };
         let (target, effect) = (e.target, e.effect);
         let archetype = self.data.magic_effects.get(&effect).map(|m| m.archetype);
+        if let Some(a) = archetype.filter(|_| self.data.magic_effects.get(&effect).is_some_and(crate::magic_archetypes::acts_on_start)) {
+            self.archetype_start(id, a);
+        }
         if archetype == Some(ARCHETYPE_CURE_ADDICTION) {
             for spell in self.addictions(target) {
                 if let Some(x) = self.extra.get_mut(&target) {

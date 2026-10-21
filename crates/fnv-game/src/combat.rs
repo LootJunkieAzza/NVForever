@@ -445,6 +445,12 @@ impl Game<'_> {
                 }
             }
         }
+        // The player's palm strike in VATS may paralyse (`crate::magic_archetypes`); its
+        // roll is a hash of the time and the target, so no other roll moves [design].
+        if info.attacker == Some(FormId::PLAYER_REF) && !out.died && self.vats.mode == crate::vats::MODE_PLAYBACK {
+            let roll = crate::magic_archetypes::hash_roll(self.time, target);
+            self.paralyzing_palm(target, info.weapon, roll);
+        }
         // What the target says (`crate::combat_lines`): Death was said by `kill`, KOed by
         // `knock_out`; nothing more from one lying knocked out.
         if !out.died && self.knockout(target).is_none() {

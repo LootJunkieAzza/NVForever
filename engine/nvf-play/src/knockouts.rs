@@ -50,6 +50,8 @@ pub struct KnockoutStats {
     pub fatigue: u32,
     /// Knockdowns: PushActorAway and explosions.
     pub knocked_down: u32,
+    /// Paralyses (`fnv_game::magic_archetypes`).
+    pub paralyzed: u32,
     pub got_up: u32,
 }
 
@@ -169,6 +171,17 @@ fn test_hits(
 /// Log the knockouts and the getting up since last frame.
 fn report_news(mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, mut stats: ResMut<KnockoutStats>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    // What the magic effect archetypes did (docs/spec-notes/magic-archetypes.md §3).
+    for n in rt.game.take_magic_news() {
+        use fnv_game::magic_archetypes::MagicNews;
+        let name = |r: FormId| sim.ref_name(Some(&rt.game), r.0).map_or_else(|| r.to_string(), |n| format!("{n} {r}"));
+        match n {
+            MagicNews::Paralyzed { actor, effect, seconds } => info!("magic: {} paralyzed by {} for {seconds:.0} s", name(actor), rt.game.data.name(effect)),
+            MagicNews::Cured { actor, what, count } => info!("magic: {what} on {}: {count} effects ended", name(actor)),
+            MagicNews::Concussed { actor, seconds } => info!("magic: {} concussed for {seconds:.0} s", name(actor)),
+            MagicNews::Palm { target } => info!("magic: Paralyzing Palm strikes {}", name(target)),
+        }
+    }
     for n in rt.game.take_knockout_news() {
         let name = sim.ref_name(Some(&rt.game), n.actor.0).map_or_else(|| n.actor.to_string(), str::to_string);
         match n.what {
@@ -182,8 +195,9 @@ fn report_news(mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, mut 
                     Cause::Essential => stats.essential += 1,
                     Cause::Fatigue => stats.fatigue += 1,
                     Cause::Pushed | Cause::KnockedDown => stats.knocked_down += 1,
+                    Cause::Paralyzed => stats.paralyzed += 1,
                 }
-                let how = if n.cause.knockdown() { "knocked down" } else { "knocked out" };
+                let how = if n.cause.awake() { "knocked down" } else { "knocked out" };
                 info!("knockout: {name} {} {how} ({})", n.actor, n.cause.name());
             }
         }
@@ -191,10 +205,13 @@ fn report_news(mut script: Option<ResMut<ScriptState>>, sim: Res<SimState>, mut 
 }
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<KnockoutStats>) {
-    if exit.read().last().is_none() || stats.essential + stats.fatigue + stats.knocked_down == 0 {
+    if exit.read().last().is_none() || stats.essential + stats.fatigue + stats.knocked_down + stats.paralyzed == 0 {
         return;
     }
-    info!("knockouts: {} essential, {} by fatigue, {} knocked down, {} got up", stats.essential, stats.fatigue, stats.knocked_down, stats.got_up);
+    info!(
+        "knockouts: {} essential, {} by fatigue, {} knocked down, {} paralyzed, {} got up",
+        stats.essential, stats.fatigue, stats.knocked_down, stats.paralyzed, stats.got_up
+    );
 }
 
 #[cfg(test)]

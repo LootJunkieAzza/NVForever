@@ -94,9 +94,11 @@ them.
   units to the actor spread, the size of one crippled arm with a pistol, for the player
   and NPCs (`fnv_combat::spread::crippled_spread`) [documented: owner notes; design: the
   number].
-- **Concussion** (not built): the help text names a "concussion effect". The masters'
-  concussion spell is the intro's (`PlayerConcussed`); nothing says the engine casts it
-  on a head crippling, and its Concussion archetype (a screen effect) is not built.
+- **Concussion** (built 2026-10-21, magic-archetypes.md §2): the help text names a
+  "concussion effect". The masters' concussion spell is `PlayerConcussed`, which the
+  player always carries; with its Concussion effect active a crippled head concusses for
+  `fConcussionTimer` seconds (GetConcussed 1, `ImageSpaceConcussion` on the player)
+  [hypothesis]. NPCs carry no Concussion effect, so they are never concussed.
 
 ## 3. Torso and arms
 
