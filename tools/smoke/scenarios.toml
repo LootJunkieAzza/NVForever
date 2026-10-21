@@ -3656,6 +3656,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "save-load-order"
+source = "no-owner queue item 29 (2026-10-21; docs/design/save-load.md §4.1): a save made with one load order loads into another: FormIDs move to their plugin's place now, what came from plugins no longer loaded is dropped and the player told; run after save-write, whose save it loads"
+note = "save-write runs with the ten masters; this run loads its save with three of them, Gun Runners' Arsenal moved before Dead Money (index 05 -> 01, Dead Money 01 -> 02), the add-ons Honest Hearts, Old World Blues, Lonesome Road and the four packs gone. The base game's changes come back as in save-load"
+areas = ["save"]
+paths = ["engine/nvf-play/src/save.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/reputation.rs"]
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.getitemcount Stimpak;12.5:0010A202.getdisabled;13:player.getav luck;13.5:player.getpos x;14:close" }
+args = ["--play", "--load", "smoke-roundtrip", "--plugins", "FalloutNV.esm", "GunRunnersArsenal.esm", "DeadMoney.esm"]
+run_seconds = 18
+expect = [
+  { re = 'load: .*smoke-roundtrip\.nvfsave was made with another load order: moved \["DeadMoney\.esm 01->02", "GunRunnersArsenal\.esm 05->01"\], missing now \["HonestHearts\.esm", "OldWorldBlues\.esm", "LonesomeRoad\.esm", "ClassicPack\.esm", "MercenaryPack\.esm", "TribalPack\.esm", "CaravanPack\.esm"\]', label = "the save's load order is remapped by name" },
+  { re = 'load: .*another load order: .*; (?P<n>\d+) FormIDs remapped', range = [1, 10000000], label = "FormIDs of the moved add-ons are rewritten" },
+  { re = 'load: .*another load order: .*, (?P<n>\d+) entries of missing plugins dropped', range = [1, 10000000], label = "what came from the missing add-ons is dropped" },
+  { re = 'load: This save relies on content that is no longer present: HonestHearts\.esm, ', label = "the player is told which plugins are missing" },
+  { re = 'load: restored .*smoke-roundtrip\.nvfsave: \d+ changed references', label = "the remapped game state is restored" },
+  { re = 'load: engine state of .*smoke-roundtrip\.nvfsave put back', label = "the remapped engine state is put back" },
+  { re = 'console: GetItemCount on player >> 12\.00', label = "the base game's Stimpaks came back through the remap" },
+  { re = 'console: GetDisabled on 0x0010A202 >> 1\.00', label = "the base game's disabled bottle stays disabled" },
+  { re = 'console: GetActorValue on player >> 9\.00', label = "the player's Luck came back through the remap" },
+  { re = 'console: GetPos on player >> -683\d\d\.', label = "the player stands where the save was made, in the remapped worldspace" },
+]
+
+[[scenario]]
 name = "script-saves-reticle"
 source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
 areas = ["save", "script"]

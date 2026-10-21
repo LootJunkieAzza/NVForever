@@ -163,6 +163,13 @@ const SAVE_HOOK: SaveHook = SaveHook {
         let m = m.into_iter().filter_map(|(k, [f, i])| Some((u32::from_str_radix(&k, 16).ok()?, (f, i)))).collect();
         w.insert_resource(Shown(Some(m)));
     },
+    // Keyed by faction FormID in hex: moved to the current load order, those of plugins
+    // no longer loaded dropped.
+    remap: Some(|v, r| {
+        if let Some(o) = v.as_object_mut() {
+            *o = std::mem::take(o).into_iter().filter_map(|(k, x)| Some((format!("{:08X}", r.map(u32::from_str_radix(&k, 16).ok()?)?), x))).collect();
+        }
+    }),
 };
 
 /// Whether a drawn, living actor in a combat state hunts the player (`crate::wait`'s

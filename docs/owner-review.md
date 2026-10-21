@@ -7047,6 +7047,30 @@ spot): does every wall sconce burn, as in placed_particles.png? In the Old Vegas
 with many barrel fires in view, do all of them burn at once? Does a stick of dynamite on a
 shelf show fuse sparks?
 
+## Loading a save into another load order (2026-10-21, queue item 29, branch claude/q29-save-load-order)
+
+Spec: [save-load](design/save-load.md) §4.1. A save made with other plugins (added before
+the save's own, removed or reordered) no longer refuses to load: every FormID's mod index
+moves to its plugin's place now (matched by file name), and what came from plugins no
+longer loaded is dropped. Decisions where the original is not documented:
+
+1. **Load with a notice, do not ask.** When plugins are missing the save loads and a corner
+   message says "This save relies on content that is no longer present: <plugins>. What
+   came from it was removed." (also in the console). The wording is ours; the original's
+   message (if any) is in its encrypted executable, not in the GECK wiki or the ESM.
+2. **What is dropped**: map entries keyed by a missing plugin's form (its references'
+   changes, inventory items, quest state, globals), list entries and remembered pairs
+   holding one, created references of its bases or in its cells, script instances and
+   magic effects on its forms, the radio station and weather shown if its. Other fields
+   that name one of its forms (an actor's last attacker, a package) keep an ID in the
+   unused `FE` slot that names nothing.
+3. **Standing in a missing plugin's cell or worldspace**: the load is refused (nowhere to
+   start the player). A fallback place (the last base-game marker) could be added.
+4. **255 plugins**: a save with missing plugins is refused then, since `FE` is a real
+   plugin slot in such a load order.
+
+*Check:* load a save made with an add-on, after turning that add-on off in NVForever's
+plugin list: the corner message, and the Mojave as it was without the add-on's things.
 ## Slot machines (2026-10-21, queue item 22, branch claude/q22-slot-machines)
 
 Spec: [slots](spec-notes/slots.md). The casinos' slot machines now open a slot machine
