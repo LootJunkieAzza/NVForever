@@ -3757,6 +3757,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "quest-target-conditions"
+source = "ESM gap audit row 17 (docs/spec-notes/quests-dialogue.md §2, target conditions): VCG03 objective 10 has two targets, the Broc Flower marked only while the player carries none and the Xander Root likewise; after AddItem BrocFlower only the Xander Root is marked, on the maps (the four-a-second evaluation's log) and in ShowQuestTargets"
+areas = ["quests", "pipboy", "console"]
+paths = ["crates/fnv-game/src/quest_targets.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:startquest VCG03;10.5:setobjectivedisplayed VCG03 10 1;11:forceactivequest VCG03;12:sqt;13:player.additem BrocFlower 1;14:sqt" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'quest targets: VCG03 objective 10 target 0x0015D981 VCG03BrocFlowerREF marked', label = "the Broc Flower is marked while the player has none" },
+  { re = 'quest targets: VCG03 objective 10 target 0x0015D982 VCG03XanderRootREF marked', label = "the Xander Root is marked" },
+  { re = 'console: VCG03 objective 10: target 0x0015D981 VCG03BrocFlowerREF in ', label = "sqt lists the Broc Flower before" },
+  { re = 'quest targets: VCG03 objective 10 target 0x0015D981 VCG03BrocFlowerREF not marked \(its conditions fail\)', label = "carrying a Broc Flower takes its mark away" },
+  { re = 'console: VCG03 objective 10: target 0x0015D981 VCG03BrocFlowerREF hidden \(its conditions fail\)', label = "sqt shows the Broc Flower hidden after" },
+  { re = 'quest targets: VCG03 objective 10 target 0x0015D982 VCG03XanderRootREF not marked', count = 0, label = "the Xander Root keeps its mark" },
+]
+
+[[scenario]]
 name = "save-delete-console"
 source = "outstanding.md §2 Saves and Console (2026-10-19; docs/design/save-load.md §6.1, docs/design/console.md): a console line of several statements runs each in order; a save written from the console is deleted from the pause menu's load page (Delete, then Yes) and the page lists the saves again without it"
 areas = ["save", "console"]

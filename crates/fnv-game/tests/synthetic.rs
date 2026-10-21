@@ -166,6 +166,7 @@ const GET_SECONDS_PASSED: u16 = 0x100C;
 const SET_OBJECTIVE_DISPLAYED: u16 = 0x11A3;
 const SHOW_MESSAGE: u16 = 0x1059;
 const GET_STAGE_DONE_INDEX: u16 = 0x3B;
+const GET_DISABLED_INDEX: u16 = 0x23;
 
 fn plugin_bytes() -> Vec<u8> {
     let glob = record(b"GLOB", 0, GLOBAL, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b's']), sub(b"FLTV", 5f32.to_le_bytes().to_vec())]);
@@ -276,6 +277,16 @@ fn plugin_bytes() -> Vec<u8> {
     q.extend(unit(0, &set(var(b'G', 1), ex(&[a("99")])), &[], &[GLOBAL]));
     q.push(sub(b"QOBJ", 10i32.to_le_bytes().to_vec()));
     q.push(sub(b"NNAM", z("Do the test")));
+    // Three targets: the activator once stage 30 is done, the NPC (ignoring locks) until
+    // then, and the activator again while it is enabled (GetDisabled run on the subject,
+    // which is the target).
+    let qsta = |target: u32, flags: u8| sub(b"QSTA", [target.to_le_bytes().to_vec(), vec![flags, 0, 0, 0]].concat());
+    q.push(qsta(ACT_REF, 0));
+    q.push(ctda(0, 1.0, GET_STAGE_DONE_INDEX, QUEST, 30));
+    q.push(qsta(NPC_REF, 1));
+    q.push(ctda(0, 0.0, GET_STAGE_DONE_INDEX, QUEST, 30));
+    q.push(qsta(ACT_REF, 0));
+    q.push(ctda(0, 0.0, GET_DISABLED_INDEX, 0, 0));
     let qust = record(b"QUST", 0, QUEST, &q);
     let acti = record(b"ACTI", 0, ACTIVATOR, &[sub(b"EDID", z("TestActivator")), sub(b"SCRI", ACT_SCRIPT.to_le_bytes().to_vec())]);
     let refr = record(
@@ -494,6 +505,33 @@ fn stage_entries_run_when_their_conditions_pass_and_done_stages_do_not_rerun() {
     assert!(!g.set_stage(q(), 15));
     g.set_stage(q(), 10);
     assert_eq!(g.quest_state(q()).stage(), 30);
+}
+
+#[test]
+fn quest_targets_are_marked_while_their_conditions_pass() {
+    let f = fixture();
+    let t = &f.data.quests[&q()].objectives[&10].targets;
+    assert_eq!(t.iter().map(|t| (t.target, t.ignores_locks, t.conditions.len())).collect::<Vec<_>>(), vec![
+        (Some(FormId(ACT_REF)), false, 1),
+        (Some(FormId(NPC_REF)), true, 1),
+        (Some(FormId(ACT_REF)), false, 1)
+    ]);
+    let mut g = game(&f);
+    g.new_game();
+    // Not shown yet: no target.
+    assert!(g.check_quest_targets(q()).is_empty());
+    g.set_stage(q(), 20);
+    let shown = |g: &mut Game| g.check_quest_targets(q()).iter().map(|c| (c.index, c.shown)).collect::<Vec<_>>();
+    assert_eq!(shown(&mut g), vec![(0, false), (1, true), (2, true)]);
+    // Stage 30 swaps the alternatives.
+    g.set_stage(q(), 30);
+    assert_eq!(shown(&mut g), vec![(0, true), (1, false), (2, true)]);
+    // The subject is the target: disabling it fails its own GetDisabled == 0.
+    g.world.set_enabled(FormId(ACT_REF), false).unwrap();
+    assert_eq!(shown(&mut g), vec![(0, true), (1, false), (2, false)]);
+    // A completed objective has no targets.
+    g.set_objective(q(), 10, None, Some(true));
+    assert!(g.check_quest_targets(q()).is_empty());
 }
 
 #[test]

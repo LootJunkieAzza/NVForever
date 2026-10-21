@@ -7555,3 +7555,26 @@ guesses:
   Pip-Boy, DATA > Misc, click "Deputy Beagle's Journal": the deputy reads six
   responses. Compare: does the original start it on selection or on a click, does picking it
   again stop it, does it go on with the Pip-Boy closed, and what the right side shows.
+
+## Quest target conditions (2026-10-21, ESM gap audit item 17, branch claude/e17-quest-target-conditions)
+
+An objective's targets are now marked on the Pip-Boy's world and local maps (and listed by the
+console's `sqt`, travelled to by `movetoqt`) only while their own conditions pass, so a quest
+with alternative targets shows the one that applies. Spec:
+[quests-dialogue](spec-notes/quests-dialogue.md) §2, "Target conditions". Decisions and guesses:
+
+- *Documented, chosen over another page:* the conditions run on the target reference as
+  subject. The Quest Objectives Tab says so; Category:Conditions says the player. The masters'
+  1,229 target conditions fit the first (VMS39 asks `GetDead == 0` and `GetDisabled == 0` with
+  no reference); the rest name their reference, so the choice only matters for those.
+- *Guess:* the one condition run on Target (VMQHouse objective 20, `GetItemCount`; the wiki
+  calls Run on Target invalid there) reads with no reference, so 0.
+- *Guess:* the active quest's targets are evaluated four times a second; the original's rate is
+  not documented.
+- *Guess:* "Compass Marker Ignores Locks": a target indoors is marked at a door into its
+  interior that is not locked, unless the target ignores locks or every door is locked. The
+  original routes through load doors; NVForever picks one door.
+- Not built: quest markers on the compass (the compass draws actors and map markers only).
+- *Check:* start "By a Campfire on the Trail" (VCG03) and open the world map: the Broc Flower and
+  the Xander Root are both marked; pick up a Broc Flower and its marker should go, the Xander
+  Root's stay. Does the original drop the marker at once?

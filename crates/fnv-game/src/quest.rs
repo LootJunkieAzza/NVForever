@@ -33,9 +33,14 @@ pub struct StageEntry {
     pub next_quest: Option<FormId>,
 }
 
+/// An objective's target (`QSTA` and the `CTDA` items after it): marked on the map while
+/// the objective is shown and its conditions pass (`crate::quest_targets`).
 #[derive(Debug, Clone, Default)]
 pub struct Target {
     pub target: Option<FormId>,
+    /// "Compass Marker Ignores Locks" (`QSTA` flags bit 0) [documented: xEdit
+    /// wbDefinitionsFNV.pas QUST].
+    pub ignores_locks: bool,
     pub conditions: Vec<Condition>,
 }
 

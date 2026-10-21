@@ -396,7 +396,10 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     door]; the picture is the HUD compass's objective marker
     `glow_hud_compass_objective_marker.dds` [hypothesis: the shape on the screenshots],
     56 wide [observed: fitted], 1.25 times as high, 15 right and 5 down [documented]. The
-    targets' conditions are not tested.
+    marker is for the targets whose conditions pass [documented: Quest Objectives Tab],
+    evaluated four times a second [hypothesis]; a
+    target indoors is marked at a door into it that is not locked unless the target ignores
+    locks [hypothesis] (quests-dialogue.md §2, target conditions).
   - The highlight box [documented]: 160 square, corners of 40 with 15-long fading tips, a
     dot of 8 (`waypoint_node.dds`) at its middle, the name in font 1 centred 180 down. It
     follows the pointer over the map and takes a marker's place and name within 40
