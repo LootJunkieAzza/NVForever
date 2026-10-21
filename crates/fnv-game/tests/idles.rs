@@ -57,6 +57,8 @@ const P_PLAIN: u32 = 0xB03;
 const NPC: u32 = 0xC01;
 const ACTOR: u32 = 0xD01;
 const CELL: u32 = 0xE01;
+/// A topic no line belongs to: saying it shows as `EventKind::NoLine`.
+const TOPIC: u32 = 0xF01;
 
 /// An IDLE: its file, loop minimum and maximum (the 8-byte DATA form).
 fn idle(fid: u32, edid: &str, model: &str, loops: (u8, u8)) -> Vec<u8> {
@@ -110,7 +112,7 @@ const IS_MOVING: u16 = 25;
 const GET_CURRENT_AI_PROCEDURE: u16 = 143;
 
 /// A Travel package at the editor location with a begin idle, a change idle and an idle
-/// collection run in sequence.
+/// collection run in sequence; [`P_SECOND`] also has a begin topic ([`TOPIC`]).
 fn pack(fid: u32, edid: &str, begin: Option<u32>, change: Option<u32>, collection: &[u32]) -> Vec<u8> {
     let mut subs = vec![
         sub(b"EDID", z(edid)),
@@ -127,6 +129,9 @@ fn pack(fid: u32, edid: &str, begin: Option<u32>, change: Option<u32>, collectio
     for (marker, idle) in [(b"POBA", begin), (b"POEA", None), (b"POCA", change)] {
         subs.push(sub(marker, vec![]));
         subs.push(sub(b"INAM", idle.unwrap_or(0).to_le_bytes().to_vec()));
+        if fid == P_SECOND && marker == b"POBA" {
+            subs.push(sub(b"TNAM", TOPIC.to_le_bytes().to_vec()));
+        }
     }
     record(b"PACK", fid, &subs)
 }
@@ -303,6 +308,26 @@ fn a_package_asks_for_its_begin_and_change_idles() {
     assert_eq!(asked(&mut g), [(player.0, IDLE_WAKE, IdleSource::PackageChange)]);
     assert_eq!(g.extra[&player].current_package, None);
     assert!(g.extra[&player].script_package.is_none());
+}
+
+/// A package's begin topic is said after its result script and before its begin idle
+/// is asked for (docs/spec-notes/packages.md §7.2).
+#[test]
+fn a_package_says_its_begin_topic() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    assert_eq!(f.data.package_defs[&FormId(P_SECOND)].events[0].topic, Some(FormId(TOPIC)));
+    let from = g.events.len();
+    call(&mut g, ADD_SCRIPT_PACKAGE, actor, &[ArgValue::Value(Value::Ref(P_SECOND))]);
+    let kinds: Vec<&EventKind> = g.events[from..].iter().map(|e| &e.kind).collect();
+    let said = kinds.iter().position(|k| **k == EventKind::NoLine { speaker: actor, topic: FormId(TOPIC) }).expect("the topic is said");
+    let idle = kinds.iter().position(|k| matches!(k, EventKind::IdleAsked { idle, .. } if *idle == FormId(IDLE_SIT))).expect("the idle is asked for");
+    assert!(said < idle);
+    // A package without a topic says nothing.
+    let from = g.events.len();
+    call(&mut g, ADD_SCRIPT_PACKAGE, actor, &[ArgValue::Value(Value::Ref(P_FIRST))]);
+    assert!(!g.events[from..].iter().any(|e| matches!(e.kind, EventKind::NoLine { .. })));
 }
 
 /// The tree's root idles that want the flee procedure play on a fleeing actor standing

@@ -46,6 +46,10 @@ pub struct PathParams {
     /// the approach to one goes straight on through it instead of backing off to the stop
     /// in front of it ([`NavGraph::square_approach`]).
     pub open_doors: Vec<u32>,
+    /// Whether the actor opens doors. One that does not (a creature flagged "Can't Open
+    /// Doors") uses no teleport door; doors that open in place are left to how it is
+    /// walked (docs/spec-notes/packages.md §7.1).
+    pub opens_doors: bool,
 }
 
 impl Default for PathParams {
@@ -64,6 +68,7 @@ impl Default for PathParams {
             max_slope_deg: None,
             keys: Vec::new(),
             open_doors: Vec::new(),
+            opens_doors: true,
         }
     }
 }
@@ -316,7 +321,7 @@ impl NavGraph {
     /// Whether a path may go through door `d`: its arrival is usable and the door is not
     /// locked, or the traveller holds its key, or may open locks.
     pub fn door_open(&self, d: &DoorEdge, p: &PathParams) -> bool {
-        if !self.usable(d.to) {
+        if !self.usable(d.to) || !p.opens_doors {
             return false;
         }
         match self.door_locks.get(&d.door) {

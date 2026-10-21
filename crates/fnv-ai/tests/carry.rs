@@ -101,16 +101,23 @@ fn placed(sig: &[u8; 4], fid: u32, edid: &str, base: u32, pos: [f32; 3], linked:
     placed_with(sig, fid, edid, base, pos, 0.0, linked, None)
 }
 
-/// [`placed`] with a heading (z rotation, radians) and a patrol idle time (XPRD).
+/// [`placed`] with a heading (z rotation, radians) and a patrol idle time (XPRD); a
+/// patrol point with an idle time also has patrol data (XPPA) naming [`PATROL_TOPIC`].
 #[allow(clippy::too_many_arguments)]
 fn placed_with(sig: &[u8; 4], fid: u32, edid: &str, base: u32, pos: [f32; 3], heading: f32, linked: Option<u32>, idle: Option<f32>) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec())];
     subs.extend(idle.map(|s| sub(b"XPRD", s.to_le_bytes().to_vec())));
+    if idle.is_some() {
+        subs.push(sub(b"XPPA", Vec::new()));
+        subs.push(sub(b"TNAM", PATROL_TOPIC.to_le_bytes().to_vec()));
+    }
     subs.extend(linked.map(|l| sub(b"XLKR", l.to_le_bytes().to_vec())));
     subs.push(sub(b"DATA", [pos[0].to_le_bytes(), pos[1].to_le_bytes(), pos[2].to_le_bytes(), [0; 4], [0; 4], heading.to_le_bytes()].concat()));
     record(sig, fid, &subs)
 }
 
+/// A topic no line belongs to: saying it shows as `EventKind::NoLine`.
+const PATROL_TOPIC: u32 = 0xF0F;
 const G_HOUR: u32 = 0x804;
 const G_DAYS: u32 = 0x805;
 const STAT: u32 = 0x810;
@@ -796,6 +803,10 @@ fn a_patrol_waits_out_a_points_idle_time() {
     assert!((6.0..7.0).contains(&(t1 - t0)), "waited {}", t1 - t0);
     // M1 and M3 have no idle time: no wait there.
     assert_eq!(log.iter().filter(|(_, e)| matches!(e, AiEvent::PatrolWait { .. })).count(), 1);
+    // On arriving at M2 the patroller says M2's topic (docs/spec-notes/packages.md §7.4).
+    assert_eq!(s.game.world.placed.get(FormId(M2)).and_then(|p| p.patrol_topic), Some(FormId(PATROL_TOPIC)));
+    let said = |k: &fnv_game::trace::EventKind| matches!(k, fnv_game::trace::EventKind::NoLine { speaker, topic } if speaker.0 == R_PATROL && topic.0 == PATROL_TOPIC);
+    assert!(s.game.events.iter().any(|e| said(&e.kind)), "says M2's topic");
 }
 
 #[test]

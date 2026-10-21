@@ -1302,6 +1302,12 @@ impl Ai {
         }
         // Doors the game has open (opened, or open by default and since touched).
         params.open_doors.extend(game.world.changed().filter(|(_, s)| s.open).map(|(id, _)| id.0));
+        // A creature flagged "Can't Open Doors" [documented: GECK wiki
+        // GetActorBaseFlagsHigh, Creature column] uses no teleport door [hypothesis: what
+        // not opening doors means for a path; docs/spec-notes/packages.md §7.1].
+        if game.cant_open_doors(actor) {
+            params.opens_doors = false;
+        }
         params
     }
 
@@ -1712,6 +1718,8 @@ impl Ai {
         let point = route.as_ref().map(|(r, i)| r.points[*i].0);
         self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: point });
         if let Some(point) = point {
+            // Its result script and topic first (`Game::patrol_point_reached`).
+            game.patrol_point_reached(actor, point);
             // The point's idle time is waited out before the next one [documented: GECK
             // wiki, Idle Markers "Patrol Data: Idle Time"].
             let idle = game.world.placed.get(point).and_then(|p| p.patrol_idle).filter(|s| *s > 0.0);

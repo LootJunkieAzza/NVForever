@@ -2736,11 +2736,35 @@ impl<'a> Game<'a> {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });
         }
-        // The idle follows the result script, so it sees what the script set
-        // [documented: GECK wiki, Category:Packages].
+        // The topic and the idle follow the result script, so they see what the script
+        // set [documented: GECK wiki, Category:Packages, Begin/End/Change tab]; the topic
+        // is said as Say says it, before the idle is asked for [hypothesis: their order;
+        // docs/spec-notes/packages.md §7.2].
+        if let Some(topic) = data.package_defs.get(&package).and_then(|d| d.events[which.min(2)].topic) {
+            if !self.is_dead(actor) {
+                self.say(actor, None, topic, false);
+            }
+        }
         self.ask_package_idle(actor, package, which);
         let ev = [event::ON_PACKAGE_START, event::ON_PACKAGE_DONE, event::ON_PACKAGE_CHANGE][which];
         self.ref_event(actor, ev, Some(Value::Ref(package.0)), None);
+    }
+
+    /// `actor` arrived at patrol point `point`: the point's result script runs (the actor
+    /// as `self`), then the actor says the point's topic [documented: GECK wiki Idle
+    /// Markers, Patrol Data "Topic", "Result Script"; hypothesis: the order, as for
+    /// package events; docs/spec-notes/packages.md §7.4].
+    pub fn patrol_point_reached(&mut self, actor: FormId, point: FormId) {
+        let data = self.data;
+        if let Some(&u) = data.patrol_scripts.get(&point) {
+            self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
+            self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });
+        }
+        if let Some(topic) = self.world.placed.get(point).and_then(|p| p.patrol_topic) {
+            if !self.is_dead(actor) {
+                self.say(actor, None, topic, false);
+            }
+        }
     }
 
     // AI package choice: crate::ai.
@@ -3030,7 +3054,8 @@ impl<'a> Game<'a> {
                 RunOn::Target => target,
                 RunOn::Reference(r) => r.map(FormId),
                 RunOn::LinkedReference => subject.and_then(|s| self.world.placed.get(s)).and_then(|p| p.linked),
-                RunOn::CombatTarget | RunOn::Other(_) => None,
+                RunOn::CombatTarget => subject.and_then(|s| self.combat_target_of(s)),
+                RunOn::Other(_) => None,
             };
             let v = self.condition_value(c, on, label);
             let rhs = match c.rhs {
@@ -3072,7 +3097,8 @@ impl<'a> Game<'a> {
                 RunOn::Target => target,
                 RunOn::Reference(r) => r.map(FormId),
                 RunOn::LinkedReference => subject.and_then(|s| self.world.placed.get(s)).and_then(|p| p.linked),
-                RunOn::CombatTarget | RunOn::Other(_) => None,
+                RunOn::CombatTarget => subject.and_then(|s| self.combat_target_of(s)),
+                RunOn::Other(_) => None,
             };
             let v = self.condition_value(c, on, "explain");
             let rhs = match c.rhs {

@@ -850,3 +850,112 @@ packages, packages in no list, placed actors whose base lists packages).
 - Low-level processing: whether and how unloaded actors advance their packages (the
   observer's tracked actors show where the game moves persistent NPCs while the player
   is elsewhere).
+
+## 7. ESM gap audit: AI and packages group (2026-10-21, branch claude/em1-ai-packages)
+
+The audit (`docs/handoff/esm-gap-audit-2026-10-21.md`, medium impact, "AI and packages")
+listed record data the engine ignored. What each piece means, and what is built:
+
+### 7.1 Creatures that cannot open doors (built)
+
+- CREA ACBS flag bit 22 is "Can't Open Doors"; on NPC_ the same bit is "Can Be All
+  Races" [documented: GECK wiki GetActorBaseFlagsHigh, flag table, Creature column;
+  `schemas/fnv/gameplay.json` ACBS]. 563 of the 1,578 CREA records in FalloutNV.esm carry
+  it: brahmin, geckos, night stalkers, cazadores, turrets, tumbleweeds [observed: scan of
+  the master 2026-10-21].
+- The wiki says no more than the name. What it means for a path [hypothesis]: such a
+  creature goes through no teleport door (load doors): its paths stay in its own space,
+  and a place only a load door leads to is unreachable to it, as behind a locked door it
+  has no key for. Doors that open in place (hinged doors and gates without XTEL) are left
+  as they were: the owner saw a Novac pack brahmin (flag set) expected to follow its
+  merchant through the chain-link gate by the motel (smoke `novac-brahmin-gate`), so
+  whether such a creature waits at a shut hinged door, goes round it, or passes one
+  someone else opened is open; not built.
+- The flag is read from the definition supplying the creature's base data (ACBS
+  template flag "Base Data") [hypothesis: the wiki's list of flags Base Data leaves out
+  does not name it].
+
+### 7.2 Package Begin / End / Change topics (built)
+
+- "For each of the possible state changes of a package (Begin, End/Done, Change) you
+  can specify an Idle to be played, a Topic to be said, and a Results Script to be run.
+  The script is run first, so if you set a quest stage or variable in the results script,
+  the topic and idle will react to it" [documented: GECK wiki Category:Packages,
+  Begin/End/Change tab]. The topic is the TNAM after POBA, POEA or POCA [documented:
+  xEdit PACK].
+- The actor says the topic as `Say` would (no listener: the player is the conditions'
+  target) after the result script and before the idle is asked for [hypothesis: the
+  order of topic and idle; both follow the script]. 59 master packages have a Begin
+  topic, 18 an End topic, 3 a Change topic [observed: scan 2026-10-21], e.g. the Vault 21
+  tour packages `VVault21SarahTourTo00`–`05`.
+
+### 7.3 Package combat style (built)
+
+- "Combat Style: Select the Combat Style the actor will use when the package is being
+  run" [documented: GECK wiki Category:Packages]; PACK CNAM [documented: xEdit]. 14
+  master packages name one (the Goodsprings gunfight packages among them) [observed].
+- While its current package names a style, an actor fights with it, over the style
+  SetCombatStyle gave the reference and the record's own [hypothesis: the package's
+  choice is the narrower, time-bound one, so it wins while it runs].
+
+### 7.4 Patrol points: topic and result script (built)
+
+- "Patrol Data … Topic: Dialog topic for the actor to say when arriving at this patrol
+  point. Result Script: Result script to run when the actor arrives at this patrol
+  point" [documented: GECK wiki Idle Markers, Patrol Data]. On the reference: XPPA, then
+  the script (SCHR … SCRO), then TNAM, the topic [documented: xEdit placed-reference
+  patrol data]. A REFR's TNAM of 4 bytes is that topic; the map marker's TNAM (inside
+  XMRK) is 2 bytes [documented: xEdit]; the schema tells them apart by size.
+- When a patrolling actor arrives at a point it runs the point's script (the actor as
+  `self`), then says the topic, then waits out the idle time [hypothesis: the order, as
+  for package events]. 107 master patrol points have a script and 14 a topic [observed].
+- The patrol point's INAM ("Patrol Idle" in the schema) is in no master reference
+  [observed] and no page says what it does: not built.
+
+### 7.5 Conditions run on "Combat Target" (built)
+
+- "Combat Reference: If the owning actor is in combat, the target is the actor's current
+  combat target. If the owning actor is the player, the target may also be any actor the
+  player is currently aiming at, even outside of combat" [documented: GECK wiki
+  Category:Conditions, Run On]. A condition run on it is evaluated on the subject's
+  combat target as GetCombatTarget gives it; with none (out of combat, or the player,
+  whose aim the engine does not hand to the conditions) the condition is run on nothing,
+  as before.
+
+### 7.6 Friendly Fire Comments (built)
+
+- "Friendly fire comments: Allow the actor to use the Hit combat topic to react to
+  friendly fire" [documented: GECK wiki Category:Packages, Enable Fallout Behavior].
+  Fallout behaviour flags apply only to packages with "Skip Fallout Behavior" set
+  (§3; `fnv_ai::social`). A hit from an ally or friend of the victim (its faction combat
+  reaction, `crate::provocation`) is friendly fire; while the victim's package does not
+  allow these comments it says no Hit line for it (Crippled and the health lines are
+  other topics and stay).
+
+### 7.7 Not built, and why
+
+- **Observe Combat Behavior** ("an actor will run away if they get too close to the
+  player or another actor that is in combat"): needs a combat-observer flee behaviour;
+  NVForever has none for actors outside a fight.
+- **Reaction To Player Actions** (the PLAYERFIREWEAPON, PLAYERJUMP … topics of the
+  Topics Tab page) and **Allow Idle Chatter** (the IdleChatter topic): NVForever says
+  none of these topics yet, so there is nothing for the flags to gate.
+- **Avoid Radiation** ("Allow actors to avoid entering radiated areas"): needs paths that
+  cost or close radiated ground (the radiation zones of #548 are not on the nav graph).
+- **Guard "Remain Near Reference to Guard"**: no page in the wiki export documents the
+  Guard package's tab.
+- **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard
+  Location page names only Near Editor Location, Near Current Location, In Cell and Near
+  Reference; how the other kinds choose a place is undocumented.
+- **XIBS Ignored By Sandbox**: "Appears not to work in New Vegas" [documented: GECK wiki
+  Reference Data Flags]; left alone on purpose.
+- **Header bit 25 No AI Acquire** ("AI will not attempt to pick up containers or objects
+  marked with this flag" [documented: Reference Data Flags]): NVForever's actors pick up
+  nothing on their own yet (a Find package's search is the nearest thing, and it finds
+  reference targets it is given), so there is nothing to keep them from. 67 REFR and 12
+  actor references carry it [observed].
+- **DOOR Minimal Use**: the wiki says only that SetMinimalUse sets the flag; no source
+  says what it changes.
+- **AIDT Responsibility in crime reactions**: the wiki documents Responsibility in the
+  disposition formula and in combat's iAvoidHurtingNonTargetsResponsibility, not in
+  crime reactions.

@@ -429,6 +429,9 @@ expect = [
   { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 3185, label = "never chosen as on main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 182, label = "at the player as on main 2026-10-11: 182" },
+  # packages.md §7.1 (2026-10-21): creatures flagged "Can't Open Doors" use no door; in
+  # FalloutNV.esm alone 26 pairs (the Camp Searchlight feral trooper ghouls' FollowEdwards)
+  { json = "verdicts.only through a door the creature cannot open (Can't Open Doors)", schema = "fnv.ai.reach/1", range = [1, 1000], label = "Can't Open Doors creatures kept from doors" },
 ]
 manual = "the sums of §5.3 (512 not reachable, 901 not carried out) are not checked one by one: explain a change of the verdicts against docs/design/actor-behaviour.md §5.3"
 

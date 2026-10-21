@@ -80,6 +80,14 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   [magic-archetypes](spec-notes/magic-archetypes.md)): left are guesses for the owner:
   Turbo's 0.5, what of the player Turbo exempts (movement and its clips; not jumps, fire
   rate or reloads), the concussion's rules, paralysis of "No Knockdowns" actors.
+- **AI and packages, ESM data** (built 2026-10-21, claude/em1-ai-packages, packages.md §7):
+  "Can't Open Doors" creatures kept from load doors, package Begin/End/Change topics and combat style, patrol
+  points' topic and script, Run On "Combat Target", Friendly Fire Comments. Left
+  (packages.md §7.7): Observe Combat, Reaction To Player Actions and Idle Chatter (their
+  topics are not said yet), Avoid Radiation (paths), Guard "Remain Near Reference" and
+  stay-at places by object (undocumented), No AI Acquire (no actor picks things up), DOOR
+  Minimal Use (undocumented), what such creatures do at a shut hinged door. Owner check: the Camp Searchlight feral trooper ghouls'
+  FollowEdwards travel now needs a door they cannot open (`fnvtool ai reach`).
 - **Saves**: AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1; loading into another load order built 2026-10-21, save-load.md §4.1).
 - **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
   pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in

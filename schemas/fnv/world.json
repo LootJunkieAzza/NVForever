@@ -1080,6 +1080,34 @@
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas REFR record"
     },
+    "TNAM": {
+     "name": "Map Marker Type / Patrol Topic",
+     "type": {
+      "union": [
+       {
+        "size": 2,
+        "type": {
+         "struct": [
+          {
+           "name": "marker_type",
+           "type": "u8"
+          },
+          {
+           "name": "unused",
+           "type": "u8"
+          }
+         ]
+        }
+       },
+       {
+        "size": 4,
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REFR: TNAM inside the map marker data (XMRK) is the marker type (u8) and an unused byte; TNAM after the patrol data's script (XPPA, SCHR...SCRO) is the patrol topic (DIAL FormID). Told apart by size; docs/spec-notes/packages.md 7.4"
+    },
     "XRDO": {
      "name": "Radio Data",
      "type": {

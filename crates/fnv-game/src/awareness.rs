@@ -980,8 +980,16 @@ pub fn is_in_combat(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
 /// outside Combat.
 pub fn get_combat_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let a = g.awareness.get(r).filter(|a| a.state == State::Combat);
-    Ok(a.and_then(|a| a.combat_target()).map(|(t, _)| Value::Ref(t.0)).unwrap_or(Value::NONE))
+    Ok(g.combat_target_of(r).map(|t| Value::Ref(t.0)).unwrap_or(Value::NONE))
+}
+
+impl Game<'_> {
+    /// The actor `r` fights in Combat ([`get_combat_target`]); also what a condition
+    /// run on "Combat Target" runs on (docs/spec-notes/packages.md §7.5).
+    pub fn combat_target_of(&self, r: FormId) -> Option<FormId> {
+        let a = self.awareness.get(r).filter(|a| a.state == State::Combat)?;
+        a.combat_target().map(|(t, _)| t)
+    }
 }
 
 /// `location.CreateDetectionEvent owner level [type]`: a detection event at the calling

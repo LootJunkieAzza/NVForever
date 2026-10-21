@@ -46,7 +46,7 @@ under active work.
 
 ## Medium impact (grouped)
 
-- **AI and packages.** Several PACK fallout behaviours are ignored: Observe Combat, Reaction
+- **AI and packages.** ~~Several PACK fallout behaviours are ignored: Observe Combat, Reaction
   To Player Actions, Allow Idle Chatter, Friendly Fire Comments, Avoid Radiation. Also
   ignored: the package CNAM combat-style override, the begin/end/change TNAM topics, Guard
   "Remain Near Reference", and stay-at packages that place by Object ID, Object Type or
@@ -55,7 +55,17 @@ under active work.
   By Sandbox) and header bit 25 No AI Acquire, on both items and actors. DOOR Minimal Use
   is stored but never reaches pathing. CREA "Can't Open Doors" is ignored (rated M–H), so
   animals path through doors. AIDT responsibility is never used by crime reactions.
-  Condition Run On "Combat Target" is evaluated with no subject (`game.rs:2918`).
+  Condition Run On "Combat Target" is evaluated with no subject (`game.rs:2918`).~~
+  Built in claude/em1-ai-packages ([packages](../spec-notes/packages.md) §7): CREA "Can't
+  Open Doors", Friendly Fire Comments, package CNAM combat style, Begin/End/Change topics,
+  patrol points' topic and result script, Run On "Combat Target" (the creatures are kept from
+  load doors; hinged doors are left as they were). Left, with the reason
+  (§7.7 there): Observe Combat, Reaction To Player Actions and Idle Chatter (no such lines
+  said yet), Avoid Radiation (needs radiation on the nav graph), Guard "Remain Near
+  Reference" and stay-at by Object ID / Object Type / package location (undocumented),
+  patrol INAM (in no master, undocumented), XIBS (the wiki: "appears not to work in New
+  Vegas"), No AI Acquire (no actor picks items up), DOOR Minimal Use (undocumented), AIDT
+  responsibility in crimes (undocumented).
 - **Combat style (CSTY).** Dodge chance, directions and timers; rushing attacks; "Ignore
   Damaging Self/Group/Spectators"; "Ignore Threats"; "Melee Alert OK"; max targeting FOV
   and combat radius (stored only).

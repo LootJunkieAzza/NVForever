@@ -298,6 +298,15 @@ impl Game<'_> {
         self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flag))
     }
 
+    /// Whether `actor`'s current package allows a Fallout behaviour (a
+    /// `crate::package::fallout` bit): the bits count only on a package with "Skip
+    /// Fallout Behavior" set (docs/spec-notes/packages.md §3); with no package, yes.
+    pub fn package_allows(&self, actor: FormId, behaviour: u16) -> bool {
+        let data = self.data;
+        let def = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p));
+        def.is_none_or(|d| !d.has(crate::package::flags::SKIP_FALLOUT_BEHAVIOR) || d.fallout_flags & behaviour != 0)
+    }
+
     /// Whether an actor other than the player sneaks: SetForceSneak holds, or its current
     /// package has "Always Sneak" ("Actor always sneaks during this package"
     /// [documented: GECK wiki Packages, Flags tab]). In a combat state an actor stands up

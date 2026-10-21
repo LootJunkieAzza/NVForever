@@ -7602,3 +7602,35 @@ with alternative targets shows the one that applies. Spec:
 - *Check:* start "By a Campfire on the Trail" (VCG03) and open the world map: the Broc Flower and
   the Xander Root are both marked; pick up a Broc Flower and its marker should go, the Xander
   Root's stay. Does the original drop the marker at once?
+
+## AI and packages from the ESM data (2026-10-21, ESM gap audit medium group "AI and packages", branch claude/em1-ai-packages)
+
+Spec: [packages](spec-notes/packages.md) §7. Built where the GECK wiki says what the data
+means; the rest is listed there (§7.7) with the reason. Decisions and guesses:
+
+- *Guess:* a creature flagged "Can't Open Doors" (563 master creatures: brahmin, geckos,
+  night stalkers, cazadores, feral trooper ghouls…) uses no load door: a place only a load
+  door leads to is unreachable to it, as behind a locked door without the key. Hinged
+  doors and gates are left as before (the Novac pack brahmin follows its merchant through
+  the motel gate, smoke `novac-brahmin-gate`). The flag comes from the template that
+  supplies the creature's base data.
+- *Check:* does a brahmin or gecko in the original push through a shut hinged door, wait
+  at it, or go round?
+- *Check:* `fnvtool ai reach` now lists 26 actor/package pairs in FalloutNV.esm as "only
+  through a door the creature cannot open": the Camp Searchlight feral trooper ghouls
+  (`CampSearchlightFeralTrooperGhoul`, flag set) on the Travel package `FollowEdwards`. Do
+  they follow Edwards through a door in the original?
+- *Guess:* a package's Begin/End/Change topic is said (as `Say`, to nobody) after the
+  result script and before the idle; the wiki only says both follow the script. Example:
+  the Vault 21 tour packages `VVault21SarahTourTo00`–`05`.
+- *Guess:* a package's combat style (CNAM) wins over SetCombatStyle's while the package
+  runs (14 master packages name one, e.g. the Goodsprings gunfight packages).
+- *Guess:* on arriving at a patrol point the actor runs the point's result script, then says
+  its topic, then waits out the idle time (107 master patrol points have a script, 14 a
+  topic).
+- *Decision:* a condition run on "Combat Target" reads the subject's combat target (as
+  GetCombatTarget); the player's aim target, which the wiki also allows, is not handed to
+  conditions.
+- *Decision:* a hit from an ally or friend of the victim (its faction combat reaction) is
+  friendly fire; with "Skip Fallout Behavior" and no "Friendly Fire Comments" the victim
+  says no Hit line for it (Crippled and the health lines stay).
