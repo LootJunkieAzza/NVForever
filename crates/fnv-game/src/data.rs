@@ -822,6 +822,10 @@ pub struct GameData {
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
     /// WATR XNAM: each water type's actor effect (`crate::radiation`).
     pub water_effects: HashMap<FormId, FormId>,
+    /// WATR "Causes Damage" (FNAM bit 0) with its DATA damage: health a second lost in
+    /// the water, by water type; only waters with the flag and a damage above 0
+    /// (`crate::radiation`, docs/spec-notes/radiation.md §3.1).
+    pub water_damage: HashMap<FormId, f64>,
     /// The radiation markers (placed references with XRAD) by the space they are in: a
     /// worldspace, or an interior cell (`crate::radiation`).
     pub radiation_markers: HashMap<FormId, Vec<crate::radiation::RadMarker>>,
@@ -1178,6 +1182,8 @@ struct Read {
     caravan_deck: Option<crate::caravan::DeckDef>,
     need_stage: Option<(u16, u32, FormId)>,
     water_effect: Option<FormId>,
+    /// A WATR's damage a second when it has "Causes Damage", else 0 (`Some` on every WATR).
+    water_damage: Option<u16>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -1272,6 +1278,7 @@ impl GameData {
             caravan_decks: HashMap::new(),
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
+            water_damage: HashMap::new(),
             radiation_markers: crate::radiation::markers(refs),
             class_services: HashMap::new(),
             issues: Issues::default(),
@@ -1509,6 +1516,15 @@ impl GameData {
             }
             if let Some(spell) = r.water_effect {
                 d.water_effects.insert(id, spell);
+            }
+            match r.water_damage {
+                Some(n) if n > 0 => {
+                    d.water_damage.insert(id, n as f64);
+                }
+                Some(_) => {
+                    d.water_damage.remove(&id);
+                }
+                None => {}
             }
         }
         for stages in d.need_stages.values_mut() {
@@ -1828,6 +1844,13 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
     if &sig == b"WATR" {
         out.water_effect = subs.iter().find(|s| &s.sig == b"XNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
+        // "Causes Damage" is FNAM bit 0; the damage is DATA's u16, the whole of a 2-byte
+        // DATA or the last two bytes of the old 186-byte form [documented: xEdit
+        // wbDefinitionsFNV.pas WATR FNAM, DATA; GECK wiki WaterType "Causes n damage per
+        // second"]. No master's water has either [observed]. radiation.md §3.1.
+        let flag = subs.iter().find(|s| &s.sig == b"FNAM").and_then(|s| s.data.first()).is_some_and(|f| f & 1 != 0);
+        let damage = subs.iter().find(|s| &s.sig == b"DATA").and_then(|s| s.data.len().checked_sub(2).and_then(|o| s.data.get(o..o + 2))).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+        out.water_damage = Some(if flag { damage } else { 0 });
     }
     // Recipes and their categories (`crate::crafting`): the raw layout; a recipe's
     // conditions are the common CTDA, read as any record's.

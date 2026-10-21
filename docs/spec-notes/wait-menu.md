@@ -348,9 +348,10 @@ screen instead of the menu, in this order [engineering choice: the order]:
 3. **In the air** (jumping or falling: the character controller is not on the ground,
    not swimming, and no furniture holds the player) [owner request 2026-10-17]: an
    NVForever line, no setting being known for it.
-4. **Taking radiation damage** [owner request 2026-10-17]: an empty check for now,
-   never true: nothing in the world irradiates the player yet (rads come only from aid
-   items, `fnv_game::aid`). Its line is NVForever's.
+4. **Taking radiation damage** [owner request 2026-10-17]: the player takes rads from
+   the world now (radiation markers, irradiated water, explosions' zones: rads a second
+   after Rad Resistance above 0, [radiation](radiation.md) §4); rads from aid items do
+   not count. Its line is NVForever's.
 5. **A hostile actor near**: the "enemies are nearby" line for waiting or for sleeping
    (the two texts FalloutNV.esm has). An actor is hostile when it is drawn, alive,
    enabled, not a teammate, not unconscious or restrained, and, by its Aggression:

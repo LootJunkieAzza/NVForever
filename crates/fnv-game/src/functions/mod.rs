@@ -550,6 +550,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x101A, "IsTurning", Impl(senses::is_turning)),
         (0x111F, "IsRunning", Impl(senses::is_running)),
         (0x10B9, "IsSwimming", Impl(senses::is_swimming)),
+        (0x114C, "IsInDangerousWater", Impl(senses::is_in_dangerous_water)),
         (0x10D3, "SetForceSneak", Impl(senses::set_force_sneak)),
         (0x1166, "IsPlayerMovingIntoNewSpace", Impl(senses::is_player_moving_into_new_space)),
         (0x1170, "IsPlayerActionActive", Impl(crate::anim_state::is_player_action_active)),
