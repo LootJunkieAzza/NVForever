@@ -42,7 +42,7 @@ impl ImposterRegion {
     }
 }
 
-fn inside(pts: &[[f32; 2]], x: f32, y: f32) -> bool {
+pub(crate) fn inside(pts: &[[f32; 2]], x: f32, y: f32) -> bool {
     let mut inside = false;
     let n = pts.len();
     for i in 0..n {

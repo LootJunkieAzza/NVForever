@@ -7252,6 +7252,33 @@ outside zones, changed by the reference's level modifier. Spec:
   should be the zone's tier, not the weakest. Compare with the original if you have a
   level-1 save near Vault 3 or Vault 11 (minimum 6, giant rats).
 
+## Weather variation (2026-10-21, ESM gap audit item 8, branch claude/e8-weather-roll)
+
+The weather is now chosen by rolls: a weighted draw from the climate's list, replaced by an
+overriding region's list while you stand in that region, with scripts' weathers on top.
+Spec: [world](spec-notes/world.md) §6 "Choosing a weather". In the unmodded Mojave this
+changes the weather only in the place regions (around Vegas NVUrbanRegion rolls NVUrbanClear
+85 % / NVWastelandClear 15 %; Searchlight, Jacobstown, Black Mountain, the Legate's camp,
+Hoover Dam and the Fort show their own weathers); Goodsprings and the open desert keep the
+clear day and night weathers. Decisions and guesses:
+
+- *Guess:* the region weather block's flag bit 0 is "Override": only regions with it replace
+  the climate (the Goodsprings test region GSWeatherRegion, NVBorderRegion and
+  NVColoradoRiverRegion do not). Among several, the highest priority wins, ties by FormID.
+- *Guess:* entries whose global is set and non-zero win over the ungated ones (VNight's clear
+  night weather at night, NVHooverFinalBattle once the battle global is set), instead of a
+  coin flip between them.
+- *Guess:* volatility is the chance per game hour (volatility / 255) of a new roll. Every
+  shipped climate stores 0, so without regions the weather never changes by itself.
+- *Guess:* a non-held SetWeather/ForceWeather lasts until the next roll.
+- *Guess:* the change still fades over half a game hour (WTHR "trans delta" unit unknown).
+- *Guess:* indoors the list followed stays as it was outside.
+- *Decision:* the rolls are seeded (`--weather-seed`, a fixed default) so every run rolls
+  alike; a save keeps the random state. A loaded game keeps its saved weather (no longer pins
+  it as `--weather` did). `--weather` still pins one weather (the lab's frames use it).
+- *Check:* walk from Goodsprings towards Freeside's outskirts (north-west of the Strip, e.g.
+  the Fiends' area): does the original change to a greyer urban weather there, and back when
+  you leave? At Hoover Dam during the final battle, is it the battle weather?
 ## Challenges (2026-10-21, ESM gap audit item 3, branch claude/e3-challenges)
 
 Every challenge type the masters use now counts from the player's own deeds: kills (by

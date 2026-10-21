@@ -261,11 +261,53 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   `FNAM`/`GNAM` sun and glare textures; `TNAM` = sunrise begin/end, sunset begin/end,
   volatility, moons, with times in 10-minute units (value / 6 = hours) [documented]. The
   Mojave: sunrise 6:00-8:00, sunset 18:00-20:00 [observed].
-- **Choosing a weather** [hypothesis]: NVDefaultClimate lists NVWastelandClearNight (chance
-  100, gated by the global `VNight`, value 0 in the masters) and NVWastelandClear (chance
-  100, no global). Reading a global as a condition that must be non-zero gives the clear
-  weather by day. The renderer uses the highest chance among eligible entries; the real
-  selection is random over chances (Layer 4+).
+- **Choosing a weather** (`fnv_world::sky::{eligible, roll, roll_due, region_weathers,
+  region_at}`, engine `sky.rs`; built 2026-10-21, ESM gap audit row 8). What the data
+  holds [observed, FalloutNV.esm]: every climate's TNAM volatility is 0. NVDefaultClimate
+  (and the worldless NewVegasRegion) lists NVWastelandClearNight (chance 100, gated by the
+  global `VNight`, 0 in the masters, set to 1 from 21:00 until GetCurrentTime 4.30, 4:18, by NightQuestScript) and
+  NVWastelandClear (chance 100, no global). 31 regions carry a weather block (REGN `RDAT`
+  type 3 then `RDWT`, laid out as `WLST` [documented: xEdit]); in WastelandNV the RDAT
+  flags' bit 0 is set on NVUrbanRegion (NVUrbanClear 85, NVWastelandClear 15),
+  NVSearchlightRegion, NVJacobstownRegion, NVBlackMountainRegion, NVLegateRegion,
+  MapHooverDam (NVHooverDamWeather 100, and NVHooverFinalBattle 100 gated by
+  VStoryEventHooverDamBattleStarted) and VMapTheFortRegion, all priority 100, and clear on
+  GSWeatherRegion (NVWastelandGS, made beside the test climate NVDefaultClimateGSTest),
+  NVBorderRegion (priority 90) and NVColoradoRiverRegion. The rules NVForever follows:
+  - The list followed is the climate's, or, while the camera (the player's eye in play)
+    stands inside an area of a region of the worldspace whose weather block has the
+    Override flag, that region's; among several, the highest priority, then the lowest
+    FormID [hypothesis: the flag is named by JohnnyGuitar's GetRegionWeatherOverride and
+    priority by GetRegionWeatherPriority (GECK wiki); bit 0 is read from the data above
+    (the place weathers have it, the test region over Goodsprings does not, and the lab's
+    Goodsprings frames of the original name NVWastelandClear); the tie rule is ours].
+    Indoors the list stays as it was.
+  - Eligible entries [hypothesis]: an entry with a global counts only while the global is
+    non-zero, and such entries win over the ungated ones; with none open, the ungated
+    entries. A plain draw over all open entries would give the day weather on half the
+    nights and the peaceful Hoover Dam weather in half the battles, which the scripts
+    setting those globals do not mean. Globals are read live from the scripts (`--play`),
+    except VNight, which follows the hour exactly as NightQuestScript sets it.
+  - A roll is a weighted draw, chance / sum of chances (all chances 0: equally likely)
+    [hypothesis: GECK "chance" read as a weight]. A roll is made when the list followed
+    changes (start, entering or leaving an overriding region) or its eligible entries
+    change (VNight at 21:00 and 4:18, the battle global), and, at each whole game hour,
+    with probability volatility / 255 [hypothesis: GetClimateTraitNumeric names the byte
+    "Volatility" (GECK wiki); its scale and schedule are not documented; with the shipped
+    0 the Mojave's weather never changes by itself, as the unmodded game's is known not
+    to]. The roll's random numbers come from a splitmix64 stream seeded by
+    `--weather-seed` (a fixed default, so every run rolls alike) and kept in saves.
+  - The change fades over `WEATHER_FADE_HOURS` (0.5 game hours, a placeholder: WTHR DATA
+    "trans delta", whose unit is not known; SetWeather's wiki page says the vanilla
+    transition is at most 30 s) while the game clock runs, and is at once at the start, on
+    a worldspace change and without a clock.
+  - A script's weather (SetWeather, ForceWeather) shows until the next roll; with the
+    override flag until ReleaseWeatherOverride and then until the next roll [documented:
+    GECK wiki SetWeather/ForceWeather "the weather will change back in the normal fashion
+    according to the weather system"; hypothesis: that is the next roll].
+  - A loaded game shows its saved weather and keeps it, without a roll, while the list
+    followed at its place lists it; `--weather` pins one weather for the whole run (the
+    parity lab passes it for every exterior frame; interior frames do not use the sky).
 - **Weather colours (WTHR NAM0)**: ten colour types in the order sky-upper, fog, unused,
   ambient, sunlight, sun, stars, sky-lower, horizon, effect lighting [documented]; each
   has one RGBA byte colour per time of day: sunrise, day, sunset, night and, in the

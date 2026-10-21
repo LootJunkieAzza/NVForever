@@ -54,7 +54,8 @@ use fnv_nif::NifFile;
 use fnv_world::imagespace::{adapter, cinematic_at, image_space, weather_adapters, Adapter, Cinematic};
 use std::collections::HashMap;
 use fnv_world::sky::{
-    climate, default_weather, global_value, moon_phase, smoothstep, sun_direction, weather, Climate, ColorType, Weather, MOON_PHASES,
+    climate, default_weather, eligible, global_value, moon_phase, roll, roll_due, smoothstep, sun_direction, weather, Climate, ColorType,
+    RegionWeather, Weather, WeatherChoice, MOON_PHASES,
 };
 use nvf_assets::{GameData, TextureCache};
 use std::f32::consts::PI;
@@ -243,7 +244,46 @@ pub struct SkyState {
     changed: bool,
     /// A script's weather (SetWeather, ForceWeather), while it lasts.
     script: Option<ScriptWeather>,
+    /// The weather was given (`--weather`): it never changes by itself (the parity lab's
+    /// frames and the reference views pass it).
+    pinned: bool,
+    /// The worldspace's overriding weather regions with their weathers.
+    regions: Vec<RegionList>,
+    /// The region whose list the weather follows (index into `regions`); `None`: the
+    /// climate's.
+    source: Option<usize>,
+    /// The camera's place has been looked at once ([`weather_region`]); until then the
+    /// weather is the one the start chose and no roll is made.
+    placed: bool,
+    /// The game clock has moved the sky (fades take game time; without a clock a change
+    /// is at once).
+    pub(crate) clock_seen: bool,
+    /// The list (region FormID, `None` for the climate) and its eligible weathers the
+    /// last roll was made for.
+    rolled_for: Option<(Option<u32>, Vec<u32>)>,
+    /// The weather the last roll chose: shown unless a script's weather is.
+    pick: u32,
+    /// Rolls made so far.
+    rolls: u64,
+    /// The weather rolls' random state (splitmix64; `--weather-seed`, kept in saves).
+    pub rng: u64,
+    /// The whole game hour of the last volatility check.
+    hour_index: Option<i64>,
+    /// Gating globals' values as the simulation has them (`--play`).
+    live_globals: HashMap<u32, f32>,
+    /// A loaded game's weather: kept, without a roll, by the first list it is eligible in.
+    resume: Option<u32>,
 }
+
+/// An overriding weather region of the worldspace and its weathers.
+struct RegionList {
+    region: RegionWeather,
+    choices: Vec<Choice>,
+}
+
+/// The weather rolls' seed when `--weather-seed` is not given [engineering choice: a
+/// fixed seed keeps every run the same, the smoke tests' included; a save keeps the state].
+pub const DEFAULT_WEATHER_SEED: u64 = 0x4E56_5745_4154_4852;
 
 /// The sky's part of a save (nvf_play::save): the weather shown (the start takes it from
 /// the save's header) and whether a script holds it against the climate.
@@ -251,77 +291,124 @@ pub const SAVE_HOOK: nvf_play::save::SaveHook = nvf_play::save::SaveHook {
     key: "sky",
     save: |w| {
         let s = w.get_resource::<SkyState>()?;
-        Some(serde_json::json!({"weather": s.weather.edid, "held": s.script.is_some_and(|sw| sw.hold)}))
+        Some(serde_json::json!({"weather": s.weather.edid, "held": s.script.is_some_and(|sw| sw.hold), "rng": s.rng.to_string()}))
     },
     load: |w, v| {
+        let Some(mut s) = w.get_resource_mut::<SkyState>() else { return };
+        if let Some(r) = v.get("rng").and_then(serde_json::Value::as_str).and_then(|r| r.parse().ok()) {
+            s.rng = r;
+        }
         if v.get("held").and_then(serde_json::Value::as_bool) == Some(true) {
-            if let Some(mut s) = w.get_resource_mut::<SkyState>() {
-                s.script = Some(ScriptWeather { hold: true, climate_pick: None });
-                info!("load: the weather stays held as a script left it");
-            }
+            let rolls = s.rolls;
+            s.script = Some(ScriptWeather { hold: true, roll: rolls });
+            info!("load: the weather stays held as a script left it");
         }
     },
     remap: None,
 };
 
 /// A weather a script set: held until ReleaseWeatherOverride, or kept until the
-/// climate's own choice changes from the one it was when the script set it
-/// [documented: GECK wiki SetWeather, "the weather will change back in the normal
-/// fashion according to the weather system"; hypothesis: "in the normal fashion" is the
-/// next change of the climate's choice].
+/// weather system's next roll after the one it was set under [documented: GECK wiki
+/// SetWeather, "the weather will change back in the normal fashion according to the
+/// weather system"; hypothesis: "in the normal fashion" is the next roll].
 #[derive(Debug, Clone, Copy)]
 struct ScriptWeather {
     hold: bool,
-    climate_pick: Option<u32>,
+    /// [`SkyState::rolls`] when the script set it.
+    roll: u64,
 }
 
-/// A climate weather with its chance and gating global.
+/// A weather list entry (climate or region) with its weather and gating global.
 struct Choice {
     weather: Weather,
     chance: i32,
-    /// Gate: the global's Editor ID and stored value.
-    global: Option<(Option<String>, Option<f32>)>,
+    global: Option<Gate>,
 }
 
-/// Value of a gating global at `hour`. Scripts do not run yet (Layer 5), so the renderer
-/// stands in for the one script that drives the Mojave's weather gate: NightQuestScript
-/// (FalloutNV.esm) sets VNight to 1 when `GetCurrentTime >= 21 || GetCurrentTime < 4.30`,
-/// else to 0 [observed: its source text, SCTX]. Other globals keep their stored value.
-fn gate_value(edid: Option<&str>, stored: Option<f32>, hour: f32) -> Option<f32> {
-    match edid {
-        Some(e) if e.eq_ignore_ascii_case("VNight") => Some(if !(4.3..21.0).contains(&hour) { 1.0 } else { 0.0 }),
-        _ => stored,
+/// A gating global: FormID, Editor ID and stored value.
+struct Gate {
+    id: u32,
+    edid: Option<String>,
+    stored: Option<f32>,
+}
+
+impl Choice {
+    fn entry(&self) -> WeatherChoice {
+        WeatherChoice { weather: self.weather.form_id, chance: self.chance, global: self.global.as_ref().map(|g| g.id) }
     }
 }
 
+/// Value of a gating global at `hour`: the simulation's value when it runs, else the
+/// stored one; VNight always by the hour, standing in for the one script that drives the
+/// Mojave's weather gate: NightQuestScript (FalloutNV.esm) sets VNight to 1 when
+/// `GetCurrentTime >= 21 || GetCurrentTime < 4.30`, else to 0 [observed: its source text,
+/// SCTX] (the script runs every few seconds, the stand-in keeps runs without `--play` and
+/// the hour's edge exact).
+fn gate_value(edid: Option<&str>, value: Option<f32>, hour: f32) -> Option<f32> {
+    match edid {
+        Some(e) if e.eq_ignore_ascii_case("VNight") => Some(if !(4.3..21.0).contains(&hour) { 1.0 } else { 0.0 }),
+        _ => value,
+    }
+}
+
+/// The next number in 0..1 of a splitmix64 stream.
+fn next_unit(state: &mut u64) -> f32 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 40) as f32 / (1u64 << 24) as f32
+}
+
 impl SkyState {
-    /// The worldspace's climate (or its parent's) and the given or most likely weather.
-    pub fn new(world: &WorldData, weather_name: Option<&str>, hour: f32) -> Result<SkyState, String> {
+    /// The worldspace's climate (or its parent's) and the weather: `pinned` (`--weather`)
+    /// for good, else `start` (a loaded game's) or the climate's most likely, followed by
+    /// the rolls from the first frame on ([`weather_region`]).
+    pub fn new(world: &WorldData, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
         let ws = &world.index.worldspaces[&world.world];
         let clim_id = ws
             .climate
             .or_else(|| ws.parent.and_then(|p| world.index.worldspaces.get(&p)).and_then(|p| p.climate))
             .ok_or("worldspace has no climate")?;
         let clim = climate(world.lo, world.schema, clim_id).ok_or("climate unreadable")?;
-        let wid = match weather_name {
-            Some(n) => find_weather(world, n).ok_or_else(|| format!("no weather {n}"))?,
-            None => default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather")?,
+        let most_likely = || default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather");
+        let wid = match (pinned, start) {
+            (Some(n), _) => find_weather(world, n).ok_or_else(|| format!("no weather {n}"))?,
+            (None, Some(n)) => match find_weather(world, n) {
+                Some(id) => id,
+                None => {
+                    warn!("weather: the saved weather {n} is not in the load order; the climate's instead");
+                    most_likely()?
+                }
+            },
+            (None, None) => most_likely()?,
         };
-        let choices = if weather_name.is_some() {
-            Vec::new()
-        } else {
-            clim.weathers
-                .iter()
+        let load = |list: &[WeatherChoice]| -> Vec<Choice> {
+            list.iter()
                 .filter_map(|c| {
-                    let global = c.global.map(|g| (global_edid(world, g), global_value(world.lo, world.schema, g)));
+                    let global = c.global.map(|g| Gate { id: g, edid: global_edid(world, g), stored: global_value(world.lo, world.schema, g) });
                     Some(Choice { weather: weather(world.lo, world.schema, c.weather)?, chance: c.chance, global })
                 })
                 .collect()
+        };
+        let (choices, regions) = if pinned.is_some() {
+            (Vec::new(), Vec::new())
+        } else {
+            let regions: Vec<RegionList> = world
+                .weather_regions
+                .iter()
+                .filter(|r| r.overrides() && r.world == Some(world.world))
+                .map(|r| RegionList { choices: load(&r.weathers), region: r.clone() })
+                .filter(|r| !r.choices.is_empty())
+                .collect();
+            (load(&clim.weathers), regions)
         };
         let w = weather(world.lo, world.schema, wid).ok_or("weather unreadable")?;
         let image_space = worldspace_image_space(world);
         let adapters = choices
             .iter()
+            .chain(regions.iter().flat_map(|r| &r.choices))
             .map(|c| &c.weather)
             .chain(std::iter::once(&w))
             .map(|w| {
@@ -329,7 +416,7 @@ impl SkyState {
                 (w.form_id, ids.map(|id| id.and_then(|id| adapter(world.lo, world.schema, id))))
             })
             .collect();
-        let mut s = SkyState {
+        Ok(SkyState {
             climate: clim,
             weather: w,
             hour,
@@ -351,34 +438,176 @@ impl SkyState {
             adapters,
             changed: true,
             script: None,
-        };
-        s.follow_climate(true);
-        Ok(s)
+            pinned: pinned.is_some(),
+            regions,
+            source: None,
+            placed: false,
+            clock_seen: false,
+            rolled_for: None,
+            pick: wid,
+            rolls: 0,
+            rng: seed,
+            hour_index: None,
+            live_globals: HashMap::new(),
+            resume: start.map(|_| wid),
+        })
     }
 
-    /// Pick the climate's weather for the current hour (highest chance among weathers
-    /// whose gate is open, as `default_weather`); start a fade when it changes, or switch
-    /// at once with `instant`.
-    fn follow_climate(&mut self, instant: bool) {
+    /// The camera stands in the overriding weather region `region` (FormID; `None`: in
+    /// none), or indoors with `at` = `None`, where the list followed stays as it was:
+    /// follow that region's list, or the climate's.
+    pub fn place(&mut self, at: Option<Option<u32>>) {
+        let first = !self.placed;
+        self.placed = true;
+        // Said here, not in `new`, which runs before the log is set up.
+        if first && !self.regions.is_empty() {
+            let names: Vec<String> = self
+                .regions
+                .iter()
+                .map(|r| format!("{} (priority {}, {} weathers)", r.region.edid.as_deref().unwrap_or("?"), r.region.priority, r.choices.len()))
+                .collect();
+            info!("weather: {} region(s) override the climate here: {}", self.regions.len(), names.join(", "));
+        }
+        if let Some(region) = at {
+            self.source = region.and_then(|f| self.regions.iter().position(|r| r.region.form_id == f));
+        }
+        self.follow_climate(first || !self.clock_seen);
+    }
+
+    /// The camera's region, if the place has been looked at.
+    pub fn region(&self) -> Option<&str> {
+        self.source.map(|i| self.regions[i].region.edid.as_deref().unwrap_or("?"))
+    }
+
+    /// The gating globals of the lists, to read from the simulation.
+    pub fn gate_globals(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self.choices.iter().chain(self.regions.iter().flat_map(|r| &r.choices)).filter_map(|c| c.global.as_ref().map(|g| g.id)).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// A gating global's value as the simulation has it; a change looks at the lists again.
+    pub fn set_live_global(&mut self, id: u32, v: f32) {
+        if self.live_globals.insert(id, v) != Some(v) {
+            self.follow_climate(!self.clock_seen);
+        }
+    }
+
+    /// The list followed now: the region's or the climate's, and its name.
+    fn list(&self) -> (&[Choice], String) {
+        match self.source {
+            Some(i) => {
+                let r = &self.regions[i].region;
+                (&self.regions[i].choices, format!("region {} (priority {})", r.edid.as_deref().unwrap_or("?"), r.priority))
+            }
+            None => (&self.choices, format!("climate {}", self.climate.edid.as_deref().unwrap_or("?"))),
+        }
+    }
+
+    /// The entries of the list followed that a roll draws from now.
+    fn eligible_now(&self) -> Vec<WeatherChoice> {
+        let (list, _) = self.list();
         let h = self.hour;
-        let Some(best) = self.climate_choice() else { return };
+        let entries: Vec<WeatherChoice> = list.iter().map(Choice::entry).collect();
+        eligible(&entries, |g| {
+            let gate = list.iter().find_map(|c| c.global.as_ref().filter(|x| x.id == g))?;
+            gate_value(gate.edid.as_deref(), self.live_globals.get(&g).copied().or(gate.stored), h)
+        })
+    }
+
+    /// Follow the weather system (docs/spec-notes/world.md §6 "Choosing a weather"): roll
+    /// again when the list followed or its eligible weathers change, or when the
+    /// climate's volatility calls for it at a whole game hour; show the pick unless a
+    /// script's weather holds. A change fades, or is at once with `instant`.
+    fn follow_climate(&mut self, instant: bool) {
+        if self.pinned || !self.placed {
+            return;
+        }
+        let src = self.source.map(|i| self.regions[i].region.form_id);
+        let el = self.eligible_now();
+        let key = (src, el.iter().map(|w| w.weather).collect::<Vec<u32>>());
+        let mut why = None;
+        if self.rolled_for.as_ref() != Some(&key) {
+            why = Some(match &self.rolled_for {
+                None => "at the start",
+                Some((s, _)) if *s != src && src.is_some() => "on entering the region",
+                Some((s, _)) if *s != src => "on leaving a weather region",
+                _ => "as the weathers open to it changed",
+            });
+            if let Some(p) = self.resume.take().filter(|p| key.1.contains(p)) {
+                self.pick = p;
+                self.rolled_for = Some(key.clone());
+                why = None;
+                info!("weather: {} kept from the saved game ({})", self.name_of(p), self.list().1);
+            }
+        }
+        let idx = (self.days_passed as f64 * 24.0 + self.hour as f64).floor() as i64;
+        if why.is_none() && self.climate.volatility > 0 {
+            if let Some(prev) = self.hour_index.filter(|&p| idx > p) {
+                for _ in prev..idx.min(prev + 24) {
+                    if roll_due(self.climate.volatility, next_unit(&mut self.rng)) {
+                        why = Some("by the climate's volatility");
+                        break;
+                    }
+                }
+            }
+        }
+        self.hour_index = Some(idx);
+        if let Some(why) = why {
+            let u = next_unit(&mut self.rng);
+            if let Some(p) = roll(&el, u) {
+                self.pick = p;
+                self.rolls += 1;
+                let total: i32 = el.iter().map(|w| w.chance.max(0)).sum();
+                let chance = el.iter().find(|w| w.weather == p).map_or(0, |w| w.chance);
+                info!(
+                    "weather roll: {} ({chance} of {total} among {} eligible) from {} {why}, at {:02}:{:02}",
+                    self.name_of(p),
+                    el.len(),
+                    self.list().1,
+                    self.hour as u32 % 24,
+                    (self.hour.fract() * 60.0) as u32
+                );
+            }
+            self.rolled_for = Some(key);
+        }
         if let Some(sw) = self.script {
-            if sw.hold || sw.climate_pick == Some(best.weather.form_id) {
+            if sw.hold || sw.roll == self.rolls {
                 return;
             }
             self.script = None;
             info!("weather: the climate takes over from the script's weather");
         }
-        let Some(best) = self.climate_choice() else { return };
-        if best.weather.form_id == self.weather.form_id {
+        let pick = self.pick;
+        if pick == self.weather.form_id {
             if instant {
                 self.prev = None;
                 self.fade = 1.0;
             }
             return;
         }
-        let next = best.weather.clone();
-        let old = std::mem::replace(&mut self.weather, next);
+        if let Some(next) = self.weather_by_id(pick) {
+            self.switch_to(next, instant);
+        }
+    }
+
+    /// A weather of the lists by FormID.
+    fn weather_by_id(&self, id: u32) -> Option<Weather> {
+        self.choices.iter().chain(self.regions.iter().flat_map(|r| &r.choices)).find(|c| c.weather.form_id == id).map(|c| c.weather.clone())
+    }
+
+    fn name_of(&self, id: u32) -> String {
+        match self.choices.iter().chain(self.regions.iter().flat_map(|r| &r.choices)).find(|c| c.weather.form_id == id) {
+            Some(c) => c.weather.edid.clone().unwrap_or_else(|| format!("{id:08X}")),
+            None => format!("{id:08X}"),
+        }
+    }
+
+    /// Show `w`: a fade from the weather shown, or at once.
+    fn switch_to(&mut self, w: Weather, instant: bool) {
+        let h = self.hour;
+        let old = std::mem::replace(&mut self.weather, w);
         if instant {
             self.prev = None;
             self.fade = 1.0;
@@ -390,22 +619,11 @@ impl SkyState {
         self.changed = true;
     }
 
-    /// The climate's weather for the current hour: the highest chance among the weathers
-    /// whose gate is open.
-    fn climate_choice(&self) -> Option<&Choice> {
-        let h = self.hour;
-        self.choices
-            .iter()
-            .filter(|c| c.global.as_ref().is_none_or(|(e, v)| gate_value(e.as_deref(), *v, h).is_some_and(|v| v != 0.0)))
-            .reduce(|a, b| if b.chance > a.chance { b } else { a })
-    }
-
     /// A script's weather (SetWeather fades to it, ForceWeather is `instant`), held
-    /// against the climate with `hold` until [`SkyState::release_script_weather`].
+    /// against the weather system with `hold` until [`SkyState::release_script_weather`].
     pub fn script_weather(&mut self, w: Weather, adapters: [Option<Adapter>; 6], instant: bool, hold: bool) {
         self.adapters.entry(w.form_id).or_insert(adapters);
-        let climate_pick = self.climate_choice().map(|c| c.weather.form_id);
-        self.script = Some(ScriptWeather { hold, climate_pick });
+        self.script = Some(ScriptWeather { hold, roll: self.rolls });
         info!(
             "weather: {} by a script ({}{})",
             w.edid.as_deref().unwrap_or("?"),
@@ -426,7 +644,7 @@ impl SkyState {
         self.changed = true;
     }
 
-    /// ReleaseWeatherOverride: the climate chooses again.
+    /// ReleaseWeatherOverride: the weather system chooses again (at its next roll).
     pub fn release_script_weather(&mut self) {
         if let Some(sw) = self.script.as_mut() {
             sw.hold = false;
@@ -451,6 +669,7 @@ impl SkyState {
     /// advances at TimeScale). Steps of half a game minute, so the weather is not
     /// re-evaluated every frame.
     pub fn follow_game_clock(&mut self, hour: f32, days_passed: f32) {
+        self.clock_seen = true;
         let ahead = (hour - self.hour).rem_euclid(24.0);
         if (1.0 / 120.0..12.0).contains(&ahead) {
             self.days_passed = days_passed.floor();
@@ -648,12 +867,34 @@ impl SkyState {
             return "interior lighting (XCLL / template)".into();
         }
         format!(
-            "{:02}:{:02}  climate {}  weather {}",
+            "{:02}:{:02}  climate {}  weather {}{}",
             self.hour as u32 % 24,
             ((self.hour.fract()) * 60.0) as u32,
             self.climate.edid.as_deref().unwrap_or("?"),
-            self.weather.edid.as_deref().unwrap_or("?")
+            self.weather.edid.as_deref().unwrap_or("?"),
+            self.region().map_or(String::new(), |r| format!("  region {r}"))
         )
+    }
+}
+
+/// The weather follows the region the camera stands in (the player's eye in play mode, as
+/// for imposters): an overriding weather region's list, else the climate's; indoors the
+/// list stays as it was [hypothesis].
+pub fn weather_region(world: Res<WorldData>, cam: Query<&Transform, With<FlyCam>>, mut sky: ResMut<SkyState>) {
+    let Ok(t) = cam.single() else { return };
+    if sky.interior.is_some() {
+        if !sky.placed {
+            sky.place(None);
+        }
+        return;
+    }
+    let g = crate::world::bevy_to_game(t.translation);
+    let inside = fnv_world::sky::region_at(world.weather_regions, world.world, g.x, g.y)
+        .map(|r| r.form_id)
+        .filter(|f| sky.regions.iter().any(|r| r.region.form_id == *f));
+    let now = sky.source.map(|i| sky.regions[i].region.form_id);
+    if !sky.placed || inside != now {
+        sky.place(Some(inside));
     }
 }
 
@@ -1160,6 +1401,7 @@ pub fn update_sky(
     let to_bevy = game_to_bevy();
     let unit = light_unit();
     if sky.time_scale > 0.0 && sky.clock_running && sky.interior.is_none() {
+        sky.clock_seen = true;
         let dt = time.delta_secs() * sky.time_scale;
         let h = sky.hour + dt;
         if h >= 24.0 {

@@ -197,9 +197,17 @@ struct Args {
     /// Time of day in hours (0-24).
     #[arg(long, default_value_t = 12.0)]
     hour: f32,
-    /// Weather Editor ID or load-order FormID (default: the climate's most likely).
+    /// Weather Editor ID or load-order FormID, kept for the whole run (default: the
+    /// weather system's rolls, docs/spec-notes/world.md §6; the parity lab's frames pin it).
     #[arg(long)]
     weather: Option<String>,
+    /// Seed of the weather rolls (default: a fixed one, so every run rolls the same).
+    #[arg(long)]
+    weather_seed: Option<u64>,
+    /// A loaded game's weather: shown at the start and kept while the weather system
+    /// lists it (not a pin, unlike --weather).
+    #[arg(skip)]
+    start_weather: Option<String>,
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
@@ -792,8 +800,8 @@ fn main() -> AppExit {
                 args.heading = pl.heading_deg;
                 args.pitch = pl.pitch_deg;
                 args.hour = f.header.game_hour;
-                if f.header.weather.is_some() {
-                    args.weather = f.header.weather.clone();
+                if f.header.weather.is_some() && args.weather.is_none() {
+                    args.start_weather = f.header.weather.clone();
                 }
                 // Before the log is set up: straight to the output.
                 eprintln!("load: {} ({}, level {}, {}): starting at {:?}", path.display(), f.header.player_name, f.header.level, f.header.location, pl);
@@ -880,7 +888,8 @@ fn main() -> AppExit {
             Vec3::new((grid.0 as f32 + 0.5) * s, (grid.1 as f32 + 0.5) * s, ground + 400.0)
         }
     };
-    let mut sky_state = match sky::SkyState::new(&world, args.weather.as_deref(), args.hour) {
+    let seed = args.weather_seed.unwrap_or(sky::DEFAULT_WEATHER_SEED);
+    let mut sky_state = match sky::SkyState::new(&world, args.weather.as_deref(), args.start_weather.as_deref(), args.hour, seed) {
         Ok(s) => s,
         Err(e) => return fail(e),
     };
@@ -1158,7 +1167,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, cell_buffer::remember.after(world::stream))
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
@@ -1626,6 +1635,12 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
 }
 
 fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>) {
+    // The weather lists' gating globals as the scripts set them (VStoryEventHooverDamBattleStarted).
+    for id in sky.gate_globals() {
+        if let Ok(v) = sim.world.global(fnv_sim::FormId(id)) {
+            sky.set_live_global(id, v);
+        }
+    }
     if sky.time_scale > 0.0 || args.still_sky {
         return;
     }
