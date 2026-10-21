@@ -19,7 +19,7 @@ left of knockdowns), used items and the remaining package types and flags (#400)
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
 (#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413), race and sex
 changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking activators
-(claude/actor-changes), Caravan, and IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (script-stubs.md §3.19), IsLimbGone (dismemberment), AttachAshPile (ash-piles.md) and GetRadiationLevel (environment radiation, radiation.md). 8 functions are still stubs. Saves from scripts and PlaceAtReticle
+(claude/actor-changes), Caravan, and IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (script-stubs.md §3.19), IsLimbGone (dismemberment), AttachAshPile (ash-piles.md), IsPlayerGrabbedRef with the grab (2026-10-21, [grab](spec-notes/grab.md)) and GetRadiationLevel (environment radiation, [radiation](spec-notes/radiation.md)). 7 functions are still stubs. Saves from scripts and PlaceAtReticle
 are built (rows 2 and 12, 2026-10-18,
 [script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)).
 
@@ -54,7 +54,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); ~~melee
   weapon use through UseWeapon~~ (built 2026-10-20, use-weapon.md §3.1) (the companion wheel, aggressive/passive, sneaking with the
   player and a melee-only companion drawing its melee weapon are built,
-  [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books, which Comprehension changes, is not built); slot machines; reputation disguises and resets.
+  [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books, which Comprehension changes, is not built); ~~grab~~ (built 2026-10-21, [grab](spec-notes/grab.md): Z held or E held picks up loose objects and corpses, carries, drops, throws; OnGrab, OnRelease, IsPlayerGrabbedRef; every constant guessed, the settings' values are not in the plugins); slot machines; reputation disguises and resets.
 - **Animation**: open in [actor jumps](spec-notes/actor-jumps.md) (built 2026-10-20): how the original takes ledge-up links and obstacles.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); ~~depth of field~~ (built 2026-10-20, image-modifiers.md §8; constants to set against game frames),

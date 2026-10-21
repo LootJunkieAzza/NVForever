@@ -55,6 +55,10 @@ pub struct Senses {
     /// The crosshair's ray as the engine last cast it (PlaceAtReticle); `None` before the
     /// engine told it (a headless run).
     pub reticle: Option<Reticle>,
+    /// The reference the player holds with the grab (`nvf-play` grab.rs), told by the
+    /// engine ([`Game::set_player_grab`]); `None` while the player holds nothing. Not
+    /// part of the saved state: a grab ends with the frame the game is saved in.
+    pub grabbed: Option<FormId>,
     /// The player's exposure to radiation, measured each frame (`crate::radiation`); the
     /// water the player is in is told by the engine.
     pub radiation: crate::radiation::Exposure,
@@ -84,7 +88,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, radiation: Default::default() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default() }
     }
 }
 
@@ -107,6 +111,27 @@ impl Game<'_> {
     /// The actor left the engine's view (unloaded, disabled, dead): forget its motion.
     pub fn forget_motion(&mut self, actor: FormId) {
         self.senses.motion.remove(&actor);
+    }
+
+    /// The engine tells what the player holds with the grab (docs/spec-notes/grab.md §4).
+    /// A change runs the OnRelease blocks of the reference let go, then the OnGrab
+    /// blocks of the one taken [documented: GECK wiki block-type list (OnGrab,
+    /// OnRelease) and the extender's OnPlayerGrab / OnPlayerRelease pages ("when the
+    /// player picks up (Control Code 27) / releases (drops the grabbed ref)"); observed:
+    /// codes 0x21 and 0x22, VCG01BrahminSkullSCRIPT sets CGTutorial stages 22 and 24 from
+    /// them, script-functions.md §3.3]. The order of a swap within one frame is
+    /// [hypothesis]; one grab key never swaps.
+    /// Returns which ran: (OnRelease, OnGrab).
+    pub fn set_player_grab(&mut self, now: Option<FormId>) -> (bool, bool) {
+        let before = self.senses.grabbed;
+        if before == now {
+            return (false, false);
+        }
+        self.senses.grabbed = now;
+        let player = Some(FormId::PLAYER_REF);
+        let released = before.is_some_and(|r| self.ref_event(r, crate::game::event::ON_RELEASE, None, player));
+        let grabbed = now.is_some_and(|r| self.ref_event(r, crate::game::event::ON_GRAB, None, player));
+        (released, grabbed)
     }
 
     /// The engine tells whether the camera is in first person.
@@ -204,6 +229,17 @@ pub fn get_line_of_sight(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     let r = ctx.subject()?;
     let target = a.form(0)?;
     yes(g.detection.get(r, target).is_some_and(|d| d.seen))
+}
+
+/// `IsPlayerGrabbedRef ref`: 1 while the player holds that reference with the grab
+/// [documented: GECK wiki IsPlayerGrabbedRef, "returns true if the player is currently
+/// grabbing the selected reference"]; the engine tells what is held
+/// ([`Game::set_player_grab`]). 0 at rest [observed: function probes, script-function-
+/// coverage.md]. The shipped uses ask it of corpses carried into a trigger
+/// (VMS18CarlyleStClairREF, ProperBurialCorpseref) [observed: their scripts].
+pub fn is_player_grabbed_ref(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = a.form(0)?;
+    yes(g.senses.grabbed == Some(r))
 }
 
 /// `IsPC1stPerson`: 1 while the camera is in first person [documented: GECK wiki
