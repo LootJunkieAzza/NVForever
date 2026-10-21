@@ -354,6 +354,8 @@ impl Game<'_> {
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
         let essential = self.is_essential(target);
         let floor = if essential { 1.0 } else { 0.0 };
+        // Scaled by the difficulty as a hit is (`crate::difficulty`).
+        let amount = amount * self.damage_mult(caster, target);
         let dealt = amount.max(0.0).min((before - floor).max(0.0));
         actor::add_damage(self, target, HEALTH, dealt);
         {
@@ -374,7 +376,14 @@ impl Game<'_> {
     }
 
     /// Apply `damage` health damage to `target` (see the module notes).
-    pub fn hit(&mut self, target: FormId, damage: f64, info: HitInfo) -> HitResult {
+    pub fn hit(&mut self, target: FormId, damage: f64, mut info: HitInfo) -> HitResult {
+        // The difficulty scales the player's hits and the hits on the player, limb damage
+        // too (`crate::difficulty`, docs/spec-notes/difficulty.md §3).
+        let mult = self.damage_mult(info.attacker, target);
+        let damage = damage * mult;
+        if let Some(l) = info.limb.as_mut() {
+            l.damage *= mult;
+        }
         let max_health = actor::actor_value_base(self, target, HEALTH);
         if self.is_dead(target) || self.is_immune(target) {
             let health = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
@@ -712,6 +721,8 @@ impl Game<'_> {
             [("VeryEasy", 0.0, 0.0), ("Easy", 1.0, 10.0), ("Average", 7.0, 20.0), ("Hard", 10.0, 30.0), ("VeryHard", 13.0, 50.0)]
         };
         let class = classes.iter().find(|(c, lvl, _)| level <= setting(self, &format!("iXPLevelKill{who}{c}"), *lvl)).unwrap_or(&classes[4]);
-        setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2)
+        // × the difficulty's `fDiffMultXP<level>` (1 at every level in FalloutNV.esm;
+        // `crate::difficulty`).
+        setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult()
     }
 }

@@ -953,6 +953,20 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         let level = fnv_game::levelup::advance(g);
         return Ok(ConsoleReply { lines: vec![format!("AdvancePCLevel >> level {level}")], requests: vec![ConsoleRequest::CloseMenus], ..Default::default() });
     }
+    // `SetGameDifficulty` / `GetGameDifficulty` (JIP: the catalogue gives them no
+    // opcode, so the console knows them by name): the settings page's level
+    // (`crate::difficulty`, docs/spec-notes/difficulty.md §4).
+    if on_name.is_none() && func.eq_ignore_ascii_case("SetGameDifficulty") {
+        let code = args.first().and_then(|a| a.parse::<f64>().ok()).ok_or("SetGameDifficulty <0-4>")?;
+        let d = fnv_game::difficulty::Difficulty::from_code(code as i64).ok_or("SetGameDifficulty: 0 (Very Easy) to 4 (Very Hard)")?;
+        crate::difficulty::set_level(d);
+        let line = g.set_difficulty(d);
+        info!("{line}");
+        return Ok(ConsoleReply { lines: vec![format!("SetGameDifficulty >> {} ({})", d.name(), d.code())], ..Default::default() });
+    }
+    if on_name.is_none() && func.eq_ignore_ascii_case("GetGameDifficulty") {
+        return Ok(ConsoleReply { lines: vec![format!("GetGameDifficulty >> {:.2}", g.difficulty.code() as f64)], ..Default::default() });
+    }
     // The `set <variable> to <value>` statement.
     if on_name.is_none() && func.eq_ignore_ascii_case("set") {
         let lines = fnv_game::functions::console::set_statement(g, &console_ctx, args)?;

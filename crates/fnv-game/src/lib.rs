@@ -61,6 +61,7 @@ pub mod death_items;
 pub mod detection;
 pub mod followers;
 pub mod dialogue;
+pub mod difficulty;
 pub mod experience;
 pub mod functions;
 pub mod hacking;

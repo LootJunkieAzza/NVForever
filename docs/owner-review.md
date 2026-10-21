@@ -7510,6 +7510,27 @@ inventory (a 10mm case at 20 %, a 12 gauge hull at 40 %, a drained small energy 
 - *Check:* fire a 10mm pistol 20 times with and without Hand Loader (and in Hardcore) and count
   the cases; does a message appear when one is picked up?
 
+## Difficulty (2026-10-21, ESM gap audit item 16, branch claude/e16-difficulty-damage)
+
+The settings page's Gameplay group has a Difficulty row (Very Easy … Very Hard, Normal by
+default, kept in NVForever.ini); the console takes `SetGameDifficulty 0-4` and
+`GetGameDifficulty`. Spec: [difficulty](spec-notes/difficulty.md). Decisions and guesses:
+
+- *Observed:* no master carries `fDiffMultHPByPC*` or `fDiffMultHPToPC*`, and the GECK wiki
+  export has no page for them; `fDiffMultXPVE/E/H/VH` are 1.0 in FalloutNV.esm (no XPN), so
+  kill XP does not change with the level (the wiki says the same).
+- *Guess:* the HP settings' values: dealt by the player 2, 1.5, 1, 0.75, 0.5 and taken 0.5,
+  0.75, 1, 1.5, 2 (Very Easy to Very Hard), the commonly reported figures. A capture can
+  settle them: `GetNumericGameSetting fDiffMultHPByPCVH` (and the other nine) in the original.
+- *Guess:* ByPC scales every hit by the player on another actor, ToPC every hit on the player
+  whatever its source (explosions without an owner, the player's own grenade); limb damage
+  and burn/poison effect damage scale the same way.
+- *Guess:* companions are not scaled, neither their hits nor the hits on them.
+- *Decision:* a setting of NVForever, not of the save (where the original keeps it is not
+  documented here).
+- *Check:* on Very Hard and Very Easy, shoot a Gecko with the same weapon and let it bite you;
+  compare its health bar and yours with the original at the same levels.
+
 
 ## Holotapes (2026-10-21, ESM gap audit item 14, branch claude/e14-holotapes)
 
