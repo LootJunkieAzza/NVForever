@@ -7441,3 +7441,22 @@ MOD3, `interface\HUD\*.nif`) once the zoom has reached the weapon's Sight FOV. S
   the circle's size against the screen, how fast the scope comes up, the green night vision
   and how much the view sways compared with the original. Does the original show the scope in
   third person?
+
+## Spent cases and drained cells (2026-10-21, ESM gap audit item 13, branch claude/e13-spent-casings)
+
+Each of the player's shots that spends ammo may now put the ammo's spent item into the
+inventory (a 10mm case at 20 %, a 12 gauge hull at 40 %, a drained small energy cell at 40 %
+…: AMMO DAT2 Consumed Ammo and Consumed Percentage). Spec:
+[spent-ammo-items](spec-notes/spent-ammo-items.md). Decisions and guesses:
+
+- *Decision (documented):* per shot fired, not per round reloaded (GECK wiki Ammo: "every time
+  the weapon is fired").
+- *Guess:* not tied to Hardcore mode (the wiki names no condition).
+- *Guess:* one roll per shot even for a weapon that spends several rounds a shot.
+- *Guess:* only the player; NPCs carry no inventory ammo here, so they get nothing.
+- *Guess:* given silently, no corner message.
+- *Guess:* Hand Loader and Vigilant Recycler (entry point 57, × 2 on Guns / Energy Weapons)
+  multiply the percentage itself, so a 10mm case becomes 40 %.
+- *Check:* fire a 10mm pistol 20 times with and without Hand Loader (and in Hardcore) and count
+  the cases; does a message appear when one is picked up?
+
