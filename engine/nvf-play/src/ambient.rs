@@ -22,8 +22,9 @@
 //! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
 //!   loops; other menus do not [design].
 //! - Not built: sound markers that neither loop nor play at random (played by scripts
-//!   or once), Random Location, Start at Random Position, Mute When Submerged, an
-//!   acoustic space's reverb environment, walla and region sounds (REGN `RDSD`).
+//!   or once), Random Location, Start at Random Position, Mute When Submerged, walla
+//!   and region sounds (REGN `RDSD`). Placed loops and random markers play through the
+//!   acoustic space's reverb ([`crate::reverb`]); the background loop does not.
 //!
 //! Switched off with the sound effects (`nvforever --no-sound`). An `ambient summary`
 //! line at the end.
@@ -130,7 +131,8 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 /// Start a SOUN going round, silent; the record's static gain with it. With `pan` it
 /// plays at a place.
-fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
+#[allow(clippy::too_many_arguments)]
+fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, settings: &SfxSettings, vfs: &fnv_vfs::Vfs, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
     let (s, name, path) = resolve(sfx, vfs, FormId(sound))?;
     let bytes = amb
         .files
@@ -156,7 +158,12 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, vfs: &f
     let speed = (1.0 + s.frequency_adjust_percent / 100.0).clamp(0.25, 4.0);
     let playback = PlaybackSettings::DESPAWN.with_speed(speed);
     let entity = match &pan {
-        Some(pan) => commands.spawn((AudioPlayer::<Panned<LayeredMusic>>(assets.1.add(Panned { inner: music, pan: pan.clone() })), playback, AmbientSound)).id(),
+        Some(pan) => {
+            // A placed loop sounds in the room it is heard in (crate::reverb).
+            let reverb = crate::reverb::for_sound(sfx.room_reverb, settings, &s);
+            sfx.reverbed += reverb.is_some() as u32;
+            commands.spawn((AudioPlayer::<Panned<LayeredMusic>>(assets.1.add(Panned { inner: music, pan: pan.clone(), reverb })), playback, AmbientSound)).id()
+        }
         None => commands.spawn((AudioPlayer::<LayeredMusic>(assets.0.add(music)), playback, AmbientSound)).id(),
     };
     Some((Playing { entity, level, pan }, static_gain(&s)))
@@ -272,7 +279,7 @@ fn play(
                 }
             } else if !held {
                 let pan = Pan::new(pan_gains(eye, player.heading, m.at));
-                let Some((p, _)) = start_loop(&mut commands, amb, sfx, &data.vfs, &mut streams, m.sound, Some(pan)) else { continue };
+                let Some((p, _)) = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, m.sound, Some(pan)) else { continue };
                 p.set(gain);
                 amb.loops.insert(m.key, p);
                 if m.source {
@@ -313,7 +320,7 @@ fn play(
             amb.beds_leaving.push(old);
         }
         if let Some(sound) = wanted {
-            let started = start_loop(&mut commands, amb, sfx, &data.vfs, &mut streams, sound, None);
+            let started = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, sound, None);
             amb.beds_started += started.is_some() as u32;
             // A sound without a file is remembered too, so it is not asked for again.
             let gain = started.as_ref().map_or(0.0, |s| s.1);

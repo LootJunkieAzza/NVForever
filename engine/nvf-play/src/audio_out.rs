@@ -307,6 +307,20 @@ pub fn register_settings(app: &mut App) {
     for (key, label, note, get, set) in rows {
         add_setting(app, Setting::slider(key, GROUP_SOUND, label, note, slider(get, set)));
     }
+    if app.world().contains_resource::<crate::sfx::SfxSettings>() {
+        add_setting(
+            app,
+            Setting {
+                key: "reverb",
+                group: GROUP_SOUND,
+                label: "Reverb",
+                note: "World sounds echo as the place you are in does (a cave, a hall, a small room). Off: --no-reverb.",
+                get: |w| w.resource::<crate::sfx::SfxSettings>().reverb,
+                set: |w, on| w.resource_mut::<crate::sfx::SfxSettings>().reverb = on,
+                slider: None,
+            },
+        );
+    }
 }
 
 /// The run-long mixer every sound plays into, and the line to the watcher thread.

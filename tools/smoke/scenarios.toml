@@ -4164,6 +4164,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "reverb-cave-exit"
+source = "no-owner queue item 27 (docs/spec-notes/audio.md §14.6): the acoustic space's reverb environment; the Goodsprings cave is Cave, two shots ring through it, then out through the cave door to the desert, whose Medium Room plays dry (2026-10-21)"
+areas = ["audio"]
+paths = ["engine/nvf-play/src/reverb.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/ambient.rs", "crates/fnv-world/src/audio.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "6:weapon,8:fire,8.4:fire", NVF_PLAY_TEST_SCRIPT = "11:activate:0x0015315F" }
+args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "reverb: interior 00153159: acoustic space INTCave (001445CA) environment Cave -> Cave", label = "the cave rings as a Cave" },
+  { re = 'reverb: exterior cell [0-9A-F]{8}: acoustic space \S+ \([0-9A-F]{8}\) environment Medium Room -> no reverb \(a room.s environment outside\)', label = "out of the door: the desert plays dry" },
+  { re = 'reverb summary: 2 changes of space, environments Cave, (?P<n>\d+) sounds through a reverb', range = [2, 400], label = "the shots went through the cave's reverb" },
+]
+
+[[scenario]]
 name = "cave-skeletons"
 source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
 areas = ["world", "ragdoll", "physics"]
