@@ -60,7 +60,7 @@ controls.md (bindings).
 | Menu Mode | Tab | tapped, the inventory (the Pip-Boy is not built); held 1 s, the flashlight on or off (`nvf-play` `flashlight.rs`, owner request 2026-10-11) |
 | Ammo Swap | 2 | the next carried ammo type down the weapon's list, then a reload (combat C4) |
 | Rest | T | the Wait menu, or the Sleep menu while lying on a bed (docs/spec-notes/wait-menu.md) |
-| Vats, Hotkeys 1 and 3–8, QuickSave F5, QuickLoad F9, Grab Z | | bound; pressing one shows "… : not available yet" |
+| Vats, Hotkeys 1 and 3–8, QuickSave F5, QuickLoad F9 | | bound; pressing one shows "… : not available yet" |
 
 Scripts can turn groups of these controls off and on (`DisablePlayerControls`,
 `EnablePlayerControls`): `control::ControlLocks`, docs/spec-notes/controls.md §5.

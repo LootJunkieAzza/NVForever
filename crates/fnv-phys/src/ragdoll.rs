@@ -89,7 +89,7 @@ pub struct RagdollReport {
 #[derive(Debug, Clone)]
 pub(crate) struct RagdollBodies {
     /// Per ragdoll body; `None` when its shape could not be converted.
-    bodies: Vec<Option<RigidBodyHandle>>,
+    pub(crate) bodies: Vec<Option<RigidBodyHandle>>,
     /// Per body, its frame in its bone's (the body transform, scaled).
     local: Vec<Iso>,
     /// Per body, the other bodies it collides with (bit per body index).
@@ -98,7 +98,7 @@ pub(crate) struct RagdollBodies {
     /// ([`PhysWorld::set_ragdoll_at_rest`]).
     at_rest: bool,
     /// What it was built from, to build it again at rest or roused.
-    data: Arc<Ragdoll>,
+    pub(crate) data: Arc<Ragdoll>,
     scale: f32,
     parts: Vec<u8>,
     /// Per stored joint, its joint in the world (none at rest, or when cut).

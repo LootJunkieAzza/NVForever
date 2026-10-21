@@ -54,6 +54,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_ACTIVATE]
 sep = ","
+[timed.NVF_PLAY_TEST_GRAB]
+sep = ","
 [timed.NVF_PLAY_TEST_WAIT]
 sep = ","
 [timed.NVF_PLAY_TEST_RADIO]
@@ -6346,4 +6348,28 @@ run_seconds = 10
 expect = [
   { re = 'nv_nevadaflag\.nif .*: vertex morphs, 7 morph\(s\) over a \S+ s cycle \(own controller\)', label = "the Nevada flag is read with its 7 morphs" },
   { re = 'vertex morphs: \S*nv_nevadaflag\.nif .* running', label = "its mesh is rewritten as the weights change" },
+]
+
+[[scenario]]
+name = "grab-skull"
+source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 90°, dropped; its OnGrab and OnRelease blocks run"
+areas = ["grab", "physics"]
+paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C10", NVF_PLAY_TEST_GRAB = "16:z:2:0:at=00104C10,22:e:3:90:at=00104C10" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  { re = 'grab: picked up loose object .*00104C10\) by Aid: 5\.0 kg', label = "Z picks up the 5 kg skull" },
+  "grab: the grabbed object's OnGrab ran",
+  { re = 'grab: carrying .*00104C10\) at .*, (?P<n>[\d.]+) units from where it is held', range = [0, 10], label = "held where it is wanted" },
+  { re = 'grab: dropped .*00104C10\) after 2\.\d s \(let go\)', label = "let go when Z comes up" },
+  "grab: the released object's OnRelease ran",
+  { re = 'grab: .*00104C10\) came to rest at', label = "it comes to rest" },
+  { re = 'grab: picked up loose object .*00104C10\) by Aid: 5\.0 kg', label = "E held picks it up again" },
+  { re = 'grab: carrying .*00104C10\)', label = "carried" },
+  { re = 'grab: dropped .*00104C10\) after 2\.\d s \(let go\) at .*, (?P<n>[\d.]+) units from where it was picked up', range = [30, 300], label = "carried round with the view and dropped there (held 3 s less E's 0.4 s)" },
+  { re = 'grab: .*00104C10\) came to rest at .*, (?P<n>[\d.]+) units from where it was picked up', range = [30, 300], label = "it rests away from where it lay" },
+]]
+expect = [
+  { re = 'grab: .*\(it caught on something\)', count = 0, label = "never caught while carried" },
 ]

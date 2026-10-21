@@ -22,8 +22,10 @@
 //!   The mouse wheel zooms the third-person camera.
 //! - VATS (V) is VATS mode's (`crate::vats_mode`, docs/design/vats-mode.md), which also
 //!   takes Use, Block and Activate while it is on.
-//! - The game's other controls (Rest, the hotkeys, Ammo Swap, Quick Save, Quick Load,
-//!   Grab) are bound but not built: pressing one says so on screen.
+//! - Grab (Z) held picks up what is under the crosshair and carries it (`crate::grab`,
+//!   docs/spec-notes/grab.md).
+//! - The game's other controls (the hotkeys, Quick Save, Quick Load) are bound but not
+//!   built: pressing one says so on screen.
 //! - Scripts turn groups of controls off and on (`DisablePlayerControls`,
 //!   `EnablePlayerControls`): [`ControlLocks`], applied to every frame's requests by
 //!   [`enforce_locks`].
@@ -487,7 +489,7 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 }
 
 /// The controls that are bound but not built yet.
-const NOT_BUILT: [Control; 10] = [
+const NOT_BUILT: [Control; 9] = [
     Control::Hotkey1,
     Control::Hotkey3,
     Control::Hotkey4,
@@ -497,7 +499,6 @@ const NOT_BUILT: [Control; 10] = [
     Control::Hotkey8,
     Control::QuickSave,
     Control::QuickLoad,
-    Control::Grab,
 ];
 
 /// Toggles, holds, the third-person zoom; see the module notes.

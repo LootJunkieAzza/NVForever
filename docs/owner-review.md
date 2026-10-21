@@ -6971,3 +6971,30 @@ drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
 is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
 stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
 upwards, about once a second?
+
+## Grab: picking up and carrying objects (2026-10-21, queue item 24, branch claude/q24-grab)
+
+Spec: [grab](spec-notes/grab.md). No capture of the original's grab was made; the
+settings it uses (`fGrabMaxWeight*`, `fZKey*`) are named in the executable but are not
+records of the shipped plugins, so their values are not known.
+1. *Decision:* **Grab (Z) held** picks up what is under the crosshair and holds it until
+   Z comes up; **E held 0.4 s** does too (until E comes up), a shorter press of E
+   activates as before, when E comes up. Only presses of E on things that can be held
+   wait for the key to come up; everything else still activates on the press.
+2. *Decision:* what can be held: loose objects (one dynamic Havok body: placed clutter,
+   dropped items) and corpses (the ragdoll body nearest the crosshair). Not living
+   actors.
+3. *Guesses:* held at the distance it was picked up from (at least 50 units), hanging
+   from the point the crosshair touched; follows at up to 700 units/s; spin damped;
+   dropped when it lags more than 90 units behind (caught on something).
+4. *Decision:* **Use while holding throws** it along the view (2500 kg·units/s over its
+   mass, at most 600 units/s) and does not fire the weapon.
+5. *Guesses:* not picked up above 100 kg (`fGrabMaxWeightWalking`), the player walks
+   while holding more than 25 kg (`fGrabMaxWeightRunning`); for a corpse the held body's
+   mass counts, not the whole body's.
+6. Not built: arms reaching for the object (`bGrabIK`), rotating a held object,
+   GetPlayerGrabbedRef (no New Vegas opcode).
+*Check:* in the game, in Doc Mitchell's house: does a tap of E on the brahmin skull do
+nothing and holding E pick it up? Does Z pick it up? How far in front is it held, does
+it swing or keep its turn, how fast does it follow a quick turn, and does attacking
+throw it? Can you drag a corpse, and does carrying something heavy slow you to a walk?
