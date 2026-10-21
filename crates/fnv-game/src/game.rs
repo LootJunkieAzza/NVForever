@@ -903,6 +903,8 @@ pub struct Game<'a> {
     /// references, for the engine to set off as it does a hit's (explosions, model).
     /// Not part of the saved state.
     pub destruction_changes: Vec<(FormId, crate::combat::DestructionChange)>,
+    /// Activate children waiting for their delay (`crate::traps`). Not saved.
+    pub due_children: Vec<crate::traps::DueChild>,
     /// Knockouts and getting up since the engine last took them
     /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
     pub knockout_news: Vec<crate::unconscious::News>,
@@ -1320,6 +1322,7 @@ impl<'a> Game<'a> {
             toggles: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
+            due_children: Vec::new(),
             knockout_news: Vec::new(),
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
@@ -1846,6 +1849,8 @@ impl<'a> Game<'a> {
             }
         }
         self.combat_blocks();
+        // Activate children whose delay passed (`crate::traps`).
+        self.activate_due_children();
         // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
         self.arm_by_style();
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
@@ -2603,6 +2608,8 @@ impl<'a> Game<'a> {
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);
         }
+        // Its activate children go off (`crate::traps`).
+        self.set_off_children(target);
         match act.outcome {
             Outcome::PickedUp { item, count, .. } => {
                 self.emit(EventKind::ItemAdded { to: actor, item, count, silent: false });

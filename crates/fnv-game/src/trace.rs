@@ -49,6 +49,9 @@ pub enum EventKind {
     },
     Moved { reference: FormId, #[serde(skip_serializing_if = "Option::is_none")] cell: Option<FormId>, pos: [f32; 3] },
     Activated { reference: FormId, by: FormId, #[serde(skip_serializing_if = "Option::is_none")] outcome: Option<serde_json::Value> },
+    /// An activate parent's default activation set off one of its activate children,
+    /// due after `delay` seconds (`crate::traps`).
+    ActivateChild { parent: FormId, child: FormId, delay: f32 },
     /// A Begin block ran because of an event other than the per-frame ones.
     BlockRun { unit: String, block: String, #[serde(skip_serializing_if = "Option::is_none")] on: Option<FormId> },
     /// A dialogue or package result script ran (runner inputs standing in for Layer 6).

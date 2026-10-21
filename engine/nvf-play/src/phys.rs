@@ -571,6 +571,12 @@ impl PhysState {
     }
 
     /// Whether a reference has collision bodies in the world now.
+    /// The trigger volumes (Trigger-layer phantoms) of a model, in the model's frame, once
+    /// the model was read for a loaded cell; `None` until then (`crate::script_trigger`).
+    pub fn model_triggers(&self, path: &str) -> Option<Arc<Vec<fnv_collide::CollisionObject>>> {
+        self.models.triggers(path)
+    }
+
     pub fn has_collision(&self, form_id: u32) -> bool {
         !self.world.ref_bodies(form_id).is_empty()
     }

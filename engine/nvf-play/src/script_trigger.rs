@@ -5,6 +5,16 @@
 //! 0x00104C16 is a 216 × 93 × 100 box (half extents) whose OnTriggerEnter sets VCG01
 //! stage 60 [observed: `fnvtool esm decode`, `fnvtool script decompile`].
 //!
+//! A scripted reference whose *model* holds trigger volumes counts too: phantoms
+//! (`bhkSimpleShapePhantom`) on the Trigger layer (12), as in the bear trap, the
+//! tripwire and the pressure plate (`meshes\traps\beartrap01.nif` node "Trigger": a
+//! box 32 × 32 × 8 units half extents) [observed: `fnvtool nif decode`]. Each phantom
+//! is the box of its shape's bounds in the model, scaled, turned and moved by the
+//! reference [hypothesis: the box shapes under a transform shape are what Havok tests;
+//! docs/spec-notes/traps.md §1]. The model is the one the physics cell loader read
+//! ([`crate::phys::PhysState::model_triggers`]); until it has, the reference is asked
+//! again on the next frame.
+//!
 //! Physics does not hold these volumes (`fnv_phys` loads primitives of CollisionMarker
 //! references only, as solid collision); the test here is geometric, each frame:
 //! - **Who**: every actor in the loaded cells, not only the player [documented: any actor
@@ -31,6 +41,7 @@
 
 use crate::script::Runtime;
 use crate::script_events::{trigger_changes, Capsule, TriggerKind, TriggerShape};
+use crate::phys::PhysState;
 use crate::PlayWorld;
 use fnv_game::game::event;
 use fnv_phys::CharacterParams;
@@ -41,8 +52,11 @@ use std::collections::{BTreeSet, HashMap};
 
 #[derive(Default)]
 pub struct Triggers {
-    /// The volume of each candidate, once read (`None`: no usable primitive).
-    shapes: HashMap<FormId, Option<TriggerShape>>,
+    /// The volumes of each candidate, once read (empty: no usable primitive or model
+    /// trigger).
+    shapes: HashMap<FormId, Vec<TriggerShape>>,
+    /// Candidates whose model had not been read yet.
+    waiting: HashMap<FormId, Lookup>,
     /// Scripts with a trigger block, by SCPT.
     has_blocks: HashMap<FormId, bool>,
     /// Actor references (ACHR, ACRE) placed in each cell, once listed.
@@ -57,20 +71,55 @@ fn is_actor(sig: &[u8; 4]) -> bool {
     sig == b"ACHR" || sig == b"ACRE"
 }
 
-/// The primitive of a placed reference as a trigger volume at its current pose.
-fn shape(play: &PlayWorld, rt: &Runtime, r: FormId) -> Option<TriggerShape> {
-    let p = fnv_phys::primitive::primitive(play.lo, play.schema, r.0)?;
-    let kind = match p.kind {
-        fnv_phys::primitive::PrimitiveKind::Box => TriggerKind::Box { half_extents: p.bounds.map(f32::abs) },
-        fnv_phys::primitive::PrimitiveKind::Sphere => TriggerKind::Sphere { radius: p.bounds[0].abs() },
-        _ => return None,
-    };
-    let placed = rt.game.world.placed.get(r)?;
+/// Where a candidate's volumes come from, once looked up.
+enum Lookup {
+    /// Its volumes, at its pose when read.
+    Shapes(Vec<TriggerShape>),
+    /// Its model's trigger volumes, at this pose (position, rotation, scale), once the
+    /// model has been read.
+    Model(String, [f32; 3], [f32; 9], f32),
+}
+
+/// The trigger volumes of a placed reference at its current pose: its primitive (XPRM),
+/// else the Trigger-layer phantoms of its model.
+fn lookup(play: &PlayWorld, rt: &Runtime, r: FormId) -> Lookup {
+    let Some(placed) = rt.game.world.placed.get(r) else { return Lookup::Shapes(Vec::new()) };
     let (pos, rot) = match rt.game.world.peek(r) {
         Some(s) => (s.pos, s.rot),
         None => (placed.pos, placed.rot),
     };
-    Some(TriggerShape { pos, rot: ref_rotation(rot), scale: placed.scale.unwrap_or(1.0), kind })
+    let scale = placed.scale.unwrap_or(1.0);
+    let rot = ref_rotation(rot);
+    if let Some(p) = fnv_phys::primitive::primitive(play.lo, play.schema, r.0) {
+        let kind = match p.kind {
+            fnv_phys::primitive::PrimitiveKind::Box => TriggerKind::Box { half_extents: p.bounds.map(f32::abs) },
+            fnv_phys::primitive::PrimitiveKind::Sphere => TriggerKind::Sphere { radius: p.bounds[0].abs() },
+            _ => return Lookup::Shapes(Vec::new()),
+        };
+        return Lookup::Shapes(vec![TriggerShape { pos, rot, scale, kind }]);
+    }
+    match fnv_world::placed::base_object(play.lo, play.schema, placed.base.0).and_then(|b| b.world_model_path()) {
+        Some(path) => Lookup::Model(path, pos, rot, scale),
+        None => Lookup::Shapes(Vec::new()),
+    }
+}
+
+/// Each trigger object of a model as a box at the reference's pose: the bounds of its
+/// shape in the model, centred where they are, turned and scaled with the reference.
+pub fn model_shapes(objects: &[fnv_collide::CollisionObject], pos: [f32; 3], rot: [f32; 9], scale: f32) -> Vec<TriggerShape> {
+    objects
+        .iter()
+        .filter_map(|o| {
+            let b = o.root_bounds();
+            if !b.is_valid() {
+                return None;
+            }
+            let c = b.center().map(|v| v * scale);
+            let rc = [rot[0] * c[0] + rot[1] * c[1] + rot[2] * c[2], rot[3] * c[0] + rot[4] * c[1] + rot[5] * c[2], rot[6] * c[0] + rot[7] * c[1] + rot[8] * c[2]];
+            let half = b.extent().map(|v| v / 2.0);
+            Some(TriggerShape { pos: [pos[0] + rc[0], pos[1] + rc[1], pos[2] + rc[2]], rot, scale, kind: TriggerKind::Box { half_extents: half } })
+        })
+        .collect()
 }
 
 /// The actors that can fire triggers now, with their capsules: the player (its physics
@@ -103,7 +152,7 @@ fn actors(rt: &mut Runtime, player: Capsule) -> Vec<(FormId, Capsule)> {
 
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
 /// is the player's capsule; `None` when the player has no position yet.
-pub fn update(rt: &mut Runtime, play: &PlayWorld, player: Option<Capsule>) {
+pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>) {
     let Some(player) = player else { return };
     let data = rt.game.data;
     let mut candidates: Vec<FormId> = Vec::new();
@@ -122,12 +171,31 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, player: Option<Capsule>) {
             continue;
         }
         if !rt.triggers.shapes.contains_key(&r) {
-            let s = shape(play, rt, r);
-            rt.triggers.shapes.insert(r, s);
+            let l = match rt.triggers.waiting.remove(&r) {
+                Some(l) => l,
+                None => lookup(play, rt, r),
+            };
+            match l {
+                Lookup::Shapes(s) => {
+                    rt.triggers.shapes.insert(r, s);
+                }
+                Lookup::Model(path, pos, rot, scale) => match phys.model_triggers(&path) {
+                    Some(objects) => {
+                        let s = model_shapes(&objects, pos, rot, scale);
+                        if !s.is_empty() {
+                            bevy::log::info!("script: trigger {} has {} trigger volume(s) in its model", rt.game.data.name(r), s.len());
+                        }
+                        rt.triggers.shapes.insert(r, s);
+                    }
+                    // The model is not read yet: ask again on the next frame.
+                    None => {
+                        rt.triggers.waiting.insert(r, Lookup::Model(path, pos, rot, scale));
+                        continue;
+                    }
+                },
+            }
         }
-        if let Some(s) = rt.triggers.shapes[&r] {
-            shapes.push((r, s));
-        }
+        shapes.extend(rt.triggers.shapes[&r].iter().map(|s| (r, *s)));
     }
     let mut now = BTreeSet::new();
     if !shapes.is_empty() {
