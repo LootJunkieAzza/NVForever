@@ -1754,6 +1754,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "spent-ammo-items"
+source = "ESM gap audit row 13 (docs/handoff/esm-gap-audit-2026-10-21.md): AMMO DAT2 Consumed Ammo at its Consumed Percentage on each of the player's shots: spent cases and drained cells (docs/spec-notes/spent-ammo-items.md)"
+note = "The 10mm pistol with 40 rounds, Hand Loader added at the console at 4 s (10mm Case chance 20 % x 2), 12 shots by fresh pulls from 11 s; at 19 s the laser pistol is equipped at the console (Energy Cell, Drained Small Energy Cell at 40 %, no perk) and fires 12 shots from 22 s. The rolls have their own seeded RNG, so a given run's count repeats; at least one item of each is expected (none in 12 shots at 40 % has odds of 0.2 %). Written 2026-10-21"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:40,00004335:1,00020772:40", NVF_PLAY_TEST_CONSOLE = "4:player.addperk HandLoader;4.3:close;19:player.equipitem 00004335;19.3:close", NVF_PLAY_TEST_CONTROL = "8:weapon,11.0:fire,11.2:fire,11.6:fire,11.8:fire,12.2:fire,12.4:fire,12.8:fire,13.0:fire,13.4:fire,13.6:fire,14.0:fire,14.2:fire,14.6:fire,14.8:fire,15.2:fire,15.4:fire,15.8:fire,16.0:fire,16.4:fire,16.6:fire,17.0:fire,17.2:fire,17.6:fire,17.8:fire,22.0:fire,22.2:fire,22.6:fire,22.8:fire,23.2:fire,23.4:fire,23.8:fire,24.0:fire,24.4:fire,24.6:fire,25.0:fire,25.2:fire,25.6:fire,25.8:fire,26.2:fire,26.4:fire,26.8:fire,27.0:fire,27.4:fire,27.6:fire,28.0:fire,28.2:fire,28.6:fire,28.8:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+expect = [
+  { re = 'combat: spent ammo item 0x00140AA7 from Ammo10mm given to the player \(40 % chance after HandLoader\)', label = "a 10mm case at Hand Loader's doubled chance" },
+  { re = 'combat: spent ammo item 0x0012115E from AmmoSmallEnergyCell given to the player \(40 % chance\)', label = "a drained small energy cell at the ammo's own 40 %" },
+  { re = 'combat: spent ammo items: (?P<n>\d+) shots rolled', range = [16, 24], label = "about 24 shots rolled for a spent item" },
+]
+
+[[scenario]]
 name = "tgm-no-ammo"
 source = "playtest list 5 item 49 (2026-10-16): in god mode (tgm) shots use no ammo and the weapon never needs reloading"
 note = "God mode by its test aid; the 9mm pistol (clip 13) with 3 rounds carried, fired 16 times by fresh pulls: without god mode it would run dry after 3"

@@ -552,6 +552,10 @@ pub struct NpcWeaponWear {
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
+    /// The player's shots that rolled for their ammo's spent item (a case, hull or
+    /// drained cell), and the items given, by item.
+    pub spent_rolls: u32,
+    pub spent_given: std::collections::BTreeMap<u32, u32>,
     /// The magic items hits applied and which are still active (`hit_effects`).
     pub hit_effects: hit_effects::HitEffects,
     /// Hits between actors other than the player, by target: (name, the damage of each
@@ -821,6 +825,9 @@ pub struct Combat {
     flinch_until: f32,
     flinch_end: Option<f32>,
     flinch_rng: SplitMix,
+    /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
+    /// leave the shots' rolls as they were.
+    spent_rng: SplitMix,
 }
 
 impl Combat {
@@ -1289,6 +1296,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
+        spent_rng: SplitMix(4),
     });
 }
 
@@ -1614,6 +1622,35 @@ pub(crate) fn player_weapon_perk(script: Option<&mut ScriptState>, sim: &mut Sim
     (ops.entry(point, v), ops.names().into_iter().map(str::to_string).collect())
 }
 
+/// The item a spent round leaves the player (a case, a hull, a drained cell): the
+/// ammo's DAT2 Consumed Ammo, given at its Consumed Percentage on every shot that spent
+/// ammo [documented: GECK wiki Ammo, "Ammo Consumed (Percentage)": created in the
+/// user's inventory "every time the weapon is fired"], the chance changed by the
+/// player's Modify Chance for Ammo Item perks with the Weapon tab (Hand Loader and
+/// Vigilant Recycler x 2) [documented: GECK wiki GetPerkModifier, entry 57's tab;
+/// observed: the two perks' entries]. Not tied to Hardcore mode [hypothesis: the page
+/// names no condition]. Its own rolls (`spent_rng`). docs/spec-notes/spent-ammo-items.md.
+fn spent_ammo_item(rng: &mut SplitMix, stats: &mut CombatStats, script: Option<&mut ScriptState>, sim: &mut SimState, forms: &CombatForms, weapon: FormId, ammo: FormId) {
+    let Some(a) = forms.ammo.get(&ammo) else { return };
+    let Some((item, pct)) = a.consumed.filter(|(i, p)| i.0 != 0 && *p > 0.0) else { return };
+    let (pct, by) = player_weapon_perk(script, sim, fnv_game::perks::MODIFY_CHANCE_FOR_AMMO_ITEM, weapon, pct);
+    stats.spent_rolls += 1;
+    let roll = rng.next_f32() * 100.0;
+    if roll >= pct {
+        return;
+    }
+    if sim.world.add_item(FormId::PLAYER_REF, item, 1).is_err() {
+        warn!("combat: the spent item {item} of {} is not an item", a.edid.as_deref().unwrap_or("?"));
+        return;
+    }
+    *stats.spent_given.entry(item.0).or_default() += 1;
+    info!(
+        "combat: spent ammo item {item} from {} given to the player ({pct:.0} % chance{})",
+        a.edid.as_deref().unwrap_or("?"),
+        if by.is_empty() { String::new() } else { format!(" after {}", by.join(", ")) }
+    );
+}
+
 /// Logs what the perks of a hit changed, when they changed anything.
 fn log_hit_perks(attacker: FormId, target: Option<FormId>, a: &damage::EntryOps, t: &damage::EntryOps, d: &damage::Damage) {
     if a.is_empty() && t.is_empty() {
@@ -1766,6 +1803,7 @@ pub(crate) fn fire(
                 if rounds > 0 && !god {
                     if let Some(a) = c.ammo {
                         let _ = sim.world.remove_item(FormId::PLAYER_REF, a, rounds as i32);
+                        spent_ammo_item(&mut c.spent_rng, &mut stats, script.as_deref_mut(), &mut sim, &c.forms, id, a);
                     }
                 }
                 if c.self_ammo && !god {
@@ -3231,6 +3269,10 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires, {} jams, {} melee impacts",
             s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires, s.jams, s.melee_impacts
         );
+        if s.spent_rolls > 0 {
+            let given: Vec<String> = s.spent_given.iter().map(|(i, n)| format!("{i:08X} x {n}")).collect();
+            info!("combat: spent ammo items: {} shots rolled, {} given [{}]", s.spent_rolls, s.spent_given.values().sum::<u32>(), given.join(", "));
+        }
         info!("combat lines: {} said, {} tries without a line", s.combat_lines, s.combat_lines_none);
         info!("combat blocks: {} blows blocked, {} blocks broken by power attacks", s.blows_blocked, s.blocks_broken);
         info!(
