@@ -7657,3 +7657,43 @@ sleeping are refused while the world irradiates the player. Spec:
 - *Check:* fire a Fat Man at the ground nearby (tgm on): does the Geiger counter click near
   the blast, how strong (10 rads/s before Rad Resistance here), how far out (616 units here),
   and how long until it stops (12 s here)? Does the level fade or stop at once?
+
+## The combat style's other fields (2026-10-21, ESM gap audit medium group 1, branch claude/em2-combat-style)
+
+Melee fighters now dodge (left, right, back, forward) or idle by their combat style's
+maneuver decision, roll for rushing attacks, and power-attack a little more when rested;
+fighters stop pursuing beyond their Combat Radius, take up no new target outside their Max
+Targeting FOV, hold explosive shots that would catch themselves, a comrade or a bystander
+(unless the Ignore Damaging flags say otherwise), and run out of a live grenade's blast
+saying their AvoidThreat line (unless Ignore Threats). Spec:
+[combat-ai](design/combat-ai.md) §17. Decisions and guesses:
+
+- *Guess:* the maneuver decision is made each time the melee decision holds (neither
+  block nor attack); the wiki gives no moment. With DefaultCombatstyle a rested person
+  dodges about half the time it holds when its opponent swings (51.8 %), 39 % otherwise.
+- *Guess:* the dodge's way: back, forward and sideways weighed by the back multiplier, the
+  forward multiplier and 1; sideways then rolls Left/Right % (else it idles). The wiki
+  names the multipliers without saying how they combine.
+- *Guess:* a dodge walks for its timer at the actor's walking speed (a 1 s dodge is about
+  87 units for a person); creatures turn to the way they dodge (people keep facing).
+- *Guess:* "encumbered speed" is the AI's alert walking speed (86.8 units/s for people),
+  so the masters' −110 base takes about 23 points off every person's dodge chance. The
+  wiki's "around 110" is Oblivion's GetWalkSpeed.
+- *Guess:* the rushing attack (named, never described): rolled once as the target comes
+  within reach × (1 + Distance Mult); a rush's first melee decision on arrival is an
+  attack, no hold or block.
+- *Guess:* the combat radius is measured from where the fighter stood when its fight began,
+  moved to where it stands each time it loses health; 0 is no limit.
+- *Guess:* Max Targeting FOV 0 is no limit (83 of 84 styles); only a new target is held
+  back, and the fighter still turns to it, so the limit delays a fight.
+- *Guess:* iAvoidHurtingNonTargetsResponsibility (in no master) is 30: a fighter with less
+  Responsibility fires its explosives into bystanders.
+- *Guess:* what counts as a threat is a live grenade (a lobbed projectile with an
+  explosion), in flight or at rest, within its radius + 64 units; the fighter runs 64
+  units beyond the radius. Mines, exploding cars and threats out of combat are not built.
+- *Decision:* Melee Alert OK changes nothing ("an old field for Oblivion"; our fighters
+  already wait when they cannot reach their target); Cannot Use Stealthboy is set on every
+  style and no NPC uses one.
+- *Check:* in a fist fight (Goodsprings, the NCR troopers and Fiends), how often do the
+  fighters step aside or back between blows, and how far? Do NPCs run from a frag grenade
+  landing near them, and say "Grenade!" or the like?
