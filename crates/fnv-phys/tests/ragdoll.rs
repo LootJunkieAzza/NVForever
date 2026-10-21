@@ -444,3 +444,27 @@ fn gore_pieces_fly_land_and_belong_to_the_corpse() {
     assert!(c.feet[0] > p[0] + 50.0, "walked through: {:?}", c.feet);
     assert!(w.remove_gore(0) && !w.remove_gore(0));
 }
+
+#[test]
+fn a_held_corpse_is_dragged_and_lies_again_when_let_go() {
+    let mut w = ground();
+    let (_, _, slept) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 20.0);
+    assert!(slept);
+    assert!(w.set_ragdoll_at_rest(0x10));
+    let grip = nodes(&w, 0x10)[0].translation;
+    assert!(w.grip_mass(GripOn::Ragdoll(0x10), grip).is_some());
+    assert!(w.grab(GripOn::Ragdoll(0x10), grip, HoldParams::default()).is_some());
+    // Dragged 80 units along the ground, held 20 up.
+    let target = [grip[0] + 80.0, grip[1], grip[2] + 20.0];
+    w.set_grip_target(target);
+    for _ in 0..120 {
+        w.step();
+    }
+    let p = w.grip_point().unwrap();
+    assert!((p[0] - target[0]).abs() < 10.0, "{p:?} {target:?}");
+    w.release_grip(None);
+    for _ in 0..600 {
+        w.step();
+    }
+    assert!(nodes(&w, 0x10)[0].translation[0] > grip[0] + 50.0);
+}

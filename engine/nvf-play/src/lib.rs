@@ -40,6 +40,7 @@ pub mod flashlight;
 pub mod free_cam;
 pub mod game_start;
 pub mod furniture;
+pub mod grab;
 pub mod hitvol;
 pub mod interface;
 pub mod intro;
@@ -52,6 +53,7 @@ pub mod loading;
 pub mod main_menu;
 pub mod lockpick;
 pub mod roulette;
+pub mod slots;
 pub mod blackjack;
 pub mod companion_wheel;
 pub mod caravan;
@@ -286,6 +288,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
+            .add_plugins(slots::SlotsPlugin)
             .add_plugins(blackjack::BlackjackPlugin)
             .add_plugins(companion_wheel::CompanionWheelPlugin)
             .add_plugins(caravan::CaravanPlugin)
@@ -303,7 +306,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(mines::MinesPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
-            .add_plugins(vats_mode::VatsModePlugin);
+            .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(grab::GrabPlugin);
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);

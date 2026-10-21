@@ -6971,6 +6971,83 @@ drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
 is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
 stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
 upwards, about once a second?
+
+## Grab: picking up and carrying objects (2026-10-21, queue item 24, branch claude/q24-grab)
+
+Spec: [grab](spec-notes/grab.md). No capture of the original's grab was made; the
+settings it uses (`fGrabMaxWeight*`, `fZKey*`) are named in the executable but are not
+records of the shipped plugins, so their values are not known.
+1. *Decision:* **Grab (Z) held** picks up what is under the crosshair and holds it until
+   Z comes up; **E held 0.4 s** does too (until E comes up), a shorter press of E
+   activates as before, when E comes up. Only presses of E on things that can be held
+   wait for the key to come up; everything else still activates on the press.
+2. *Decision:* what can be held: loose objects (one dynamic Havok body: placed clutter,
+   dropped items) and corpses (the ragdoll body nearest the crosshair). Not living
+   actors.
+3. *Guesses:* held at the distance it was picked up from (at least 50 units), hanging
+   from the point the crosshair touched; follows at up to 700 units/s; spin damped;
+   dropped when it lags more than 90 units behind (caught on something).
+4. *Decision:* **Use while holding throws** it along the view (2500 kg·units/s over its
+   mass, at most 600 units/s) and does not fire the weapon.
+5. *Guesses:* not picked up above 100 kg (`fGrabMaxWeightWalking`), the player walks
+   while holding more than 25 kg (`fGrabMaxWeightRunning`); for a corpse the held body's
+   mass counts, not the whole body's.
+6. Not built: arms reaching for the object (`bGrabIK`), rotating a held object,
+   GetPlayerGrabbedRef (no New Vegas opcode).
+*Check:* in the game, in Doc Mitchell's house: does a tap of E on the brahmin skull do
+nothing and holding E pick it up? Does Z pick it up? How far in front is it held, does
+it swing or keep its turn, how fast does it follow a quick turn, and does attacking
+throw it? Can you drag a corpse, and does carrying something heavy slow you to a walk?
+
+## Placed particle smokes (2026-10-21, queue item 21, branch claude/q21-particle-smokes)
+
+Spec: [particles](spec-notes/particles.md) §7. The survey of the base archives found 1,920
+placed references (106 model files) with particle systems or add-on nodes; since
+2026-10-20 they all had emitters, but most drew little.
+1. *Decision:* a placed model's own particle systems are **each reference's own** (they
+   were one pool per file: Gomorrah's 43 sconces shared 14 flames). Shot-effect models keep
+   one pool per file.
+2. *Decision:* an add-on master system (barrel fires: 10 emitters at once) serves the
+   emitters **nearest the camera** first; which ones the game serves is not known.
+3. *Decision:* spherical colliders keep particles on the side they started (the snow
+   globes' flakes stay in the globe), bouncing or dying as the planar ones do.
+4. References a script enables now emit too (11 of the 16 tyre-smoke columns start
+   disabled).
+5. Left as they were: placed dynamite's fuse sparks lying in the world, the 89 small
+   boulders' rock-slide dust emitting from the start, the Lucky 38 reactor's
+   reset-on-loop controller.
+*Check:* in the game, stand in Gomorrah's casino floor (smoke `placed-particle-smokes`'s
+spot): does every wall sconce burn, as in placed_particles.png? In the Old Vegas sewers
+with many barrel fires in view, do all of them burn at once? Does a stick of dynamite on a
+shelf show fuse sparks?
+
+## Slot machines (2026-10-21, queue item 22, branch claude/q22-slot-machines)
+
+Spec: [slots](spec-notes/slots.md). The casinos' slot machines now open a slot machine
+menu (ShowSlotMachineMenuParams), as roulette's and blackjack's tables do.
+1. *Found in the data:* every casino's record gives each of the 7 symbols 2 of a reel's
+   14 stops; the 7th ("W") is the cherries. The machine model's payout screen lists three
+   bells 10, BARs 20, sevens 30, lemons 40, grapes 80, oranges 160, and one, two, three
+   cherries 2, 5, 10, each as "= BET x N".
+2. *Decision:* "= BET x N" is the chips handed back for the bet (a win of x2 on 5 gives
+   10, 5 more than staked); cherries count from the left reel on (a cherry on the middle
+   reel alone pays nothing); only the middle row is a payline. With the shipped stops
+   that pays back about 1.35 a chip, so the max winnings and the ban come quickly.
+3. *Decision:* the stops lie round a reel in turn (bell, BAR, seven, lemon, grapes,
+   orange, cherries, then again); every stop as likely; the three reels alike.
+4. *Decision:* Bet Max only sets the bet to the most allowed (does not spin); the bet
+   starts at the minimum; reels stop at 1.4, 2.0 and 2.6 s; the result shows 2 s.
+5. *Decision:* MenuMode 1103 (the original's code is not in the menu files or the wiki
+   export). The words ("Spin", "Payout List", "Bet Max", the info rows, "Three oranges:
+   you win 800 chips.") are NVForever's.
+6. *Not built:* the machine's 3D model (cabinet, arm pull, coin fall, payout screen
+   sliding in); the menu is drawn flat from the symbol pictures, as Caravan's. The slots
+   challenge and the Atomic Wrangler's jackpot message.
+*Check:* in the game, play a slot machine at The Tops: what do the menu's buttons and
+rows say, how does the payout list look, does one cherry on the left reel pay, does a
+cherry on another reel pay, and does a win of "x 2" leave you 1 or 2 bets up? A screenshot
+of the menu, of a win and of the payout list would settle most of these.
+
 ## Traps: trigger boxes and activate parents (2026-10-21, queue item 25, branch claude/q25-traps)
 
 Spec: [traps](spec-notes/traps.md). Disarming, XP and damage are the trap scripts' own

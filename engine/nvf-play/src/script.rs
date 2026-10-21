@@ -142,7 +142,7 @@ pub fn menu_code(mode: Mode) -> u16 {
 }
 
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
-/// the engine's container, inventory, barter, wait, recipe and roulette menus: the script overlay shows it
+/// the engine's container, inventory, barter, wait, recipe, roulette and slot machine menus: the script overlay shows it
 /// and the player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
     code != MENU_CONTAINER
@@ -157,6 +157,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != fnv_game::crafting::RECIPE_MENU
         && code != fnv_game::repair::REPAIR_SERVICES_MENU
         && code != crate::roulette::MENU_ROULETTE
+        && code != crate::slots::MENU_SLOTS
         && code != fnv_game::companion_wheel::MENU_CODE
 }
 
@@ -1742,7 +1743,7 @@ fn hold_player(
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe, roulette, repair): EngineMenus,
-    (blackjack, poker, caravan, wheel): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>),
+    (blackjack, poker, caravan, wheel, slots): (Option<Res<crate::blackjack::BlackjackScreen>>, Res<crate::poker::PokerScreen>, Option<Res<crate::caravan::CaravanScreen>>, Option<Res<crate::companion_wheel::WheelScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
@@ -1750,9 +1751,9 @@ fn hold_player(
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
     // menu (`crate::crafting`), the repair services (`crate::repair`), the blackjack table (`crate::blackjack`), the roulette
-    // table (`crate::roulette`), the poker table (`crate::poker`), the Caravan table (`crate::caravan`) and the
+    // table (`crate::roulette`), the slot machines (`crate::slots`), the poker table (`crate::poker`), the Caravan table (`crate::caravan`) and the
     // companion wheel (`crate::companion_wheel`).
-    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some());
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some()) || poker.0.is_some() || caravan.is_some_and(|c| c.0.is_some()) || wheel.is_some_and(|w| w.0.is_some()) || slots.is_some_and(|s| s.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || repair.is_some_and(|r| r.is_open()) || table {
         return;
     }

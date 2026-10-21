@@ -410,6 +410,23 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
+/// `ShowSlotMachineMenuParams casino [minBet] [maxBet] [maxWinnings]`: the slot machine
+/// menu for a casino (`Game::slots_requests`; the engine opens it when the player carries
+/// the casino's chips and is not banned there) [documented: GECK wiki
+/// ShowSlotMachineMenuParams; docs/spec-notes/slots.md §1]. Left out, the bets are 1 to 75
+/// [hypothesis: The Tops' machines'].
+pub fn show_slot_machine_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let casino = a.form(0)?;
+    if !g.data.casinos.contains_key(&casino) {
+        return Err(format!("{casino} is not a casino"));
+    }
+    let min_bet = a.num_or(1, 1.0).max(1.0) as u32;
+    let max_bet = (a.num_or(2, 75.0).max(0.0) as u32).max(min_bet);
+    let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
+    g.slots_requests.push(crate::slots::SlotsRequest { casino, min_bet, max_bet, max_winnings });
+    none()
+}
+
 /// `ShowCaravanMenu deck difficulty maxBetPercent`: a game of Caravan against the calling
 /// reference (`Game::caravan_requests`; the engine opens it) [documented: GECK wiki
 /// ShowCaravanMenu; docs/spec-notes/caravan.md §1]. Left out, the share is a quarter

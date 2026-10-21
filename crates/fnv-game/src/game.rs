@@ -67,6 +67,8 @@ pub mod event {
     pub const SCRIPT_EFFECT_UPDATE: u16 = 0x13;
     pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
     pub const ON_FIRE: u16 = 0x24;
+    pub const ON_GRAB: u16 = 0x21;
+    pub const ON_RELEASE: u16 = 0x22;
     pub const ON_TRIGGER: u16 = 0x18;
     pub const ON_START_COMBAT: u16 = 0x19;
     pub const ON_RESET: u16 = 0x1E;
@@ -631,6 +633,9 @@ pub struct PlayerState {
     /// The blackjack help message has been shown (it comes the first time only).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub blackjack_help_shown: bool,
+    /// The slot machine help message has been shown (it comes the first time only).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub slots_help_shown: bool,
     /// The Caravan cards owned, the last deck built and the record against each opponent
     /// (`crate::caravan`).
     #[serde(skip_serializing_if = "crate::caravan::CaravanState::is_empty", default)]
@@ -946,6 +951,9 @@ pub struct Game<'a> {
     /// Roulette menus asked for by ShowRouletteMenuParams (`crate::roulette`); the engine
     /// opens them.
     pub roulette_requests: Vec<crate::roulette::RouletteRequest>,
+    /// Slot machine menus asked for by ShowSlotMachineMenuParams (`crate::slots`); the
+    /// engine opens them.
+    pub slots_requests: Vec<crate::slots::SlotsRequest>,
     /// Blackjack menus asked for by ShowBlackJackMenuParams (`crate::blackjack`); the
     /// engine opens them.
     pub blackjack_requests: Vec<crate::blackjack::BlackjackRequest>,
@@ -1289,6 +1297,7 @@ impl<'a> Game<'a> {
             recipe_requests: Vec::new(),
             repair_requests: Vec::new(),
             roulette_requests: Vec::new(),
+            slots_requests: Vec::new(),
             blackjack_requests: Vec::new(),
             caravan_requests: Vec::new(),
             teammate_containers: Vec::new(),
