@@ -455,6 +455,8 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
     match made {
         Ok(added) => {
             rt.game.count_stat(fnv_game::misc_stats::ITEMS_CRAFTED, times as f64);
+            let ingredients: Vec<FormId> = recipe.ingredients.iter().map(|&(i, _)| i).collect();
+            rt.game.challenge_crafted(&ingredients, times);
             let what = added.iter().map(|(i, k)| format!("{k} x {}", crate::menu::model::display_name(forms, *i))).collect::<Vec<_>>().join(", ");
             if times > 1 {
                 info!("recipe menu: made {times} x {:?} ({what})", recipe.name);

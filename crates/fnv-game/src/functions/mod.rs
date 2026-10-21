@@ -45,6 +45,7 @@ pub use objects::scale_of;
 pub use player::refuse_power_armor;
 pub use refs::{list_members, repair_list};
 pub use fighting::cause_code;
+pub(crate) use items::equipped_weapon as equipped_weapon_of;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
 pub use reputation::level as reputation_level;
 

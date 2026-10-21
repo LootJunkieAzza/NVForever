@@ -22,6 +22,7 @@ const G_TIME: u32 = 0x808;
 const G_DONE: u32 = 0x809;
 const REP: u32 = 0x820;
 const CHAL: u32 = 0x821;
+const CHAL_ROBOTS: u32 = 0x825;
 const RACE_CHILD: u32 = 0x822;
 const F1: u32 = 0x823;
 const F2: u32 = 0x824;
@@ -92,7 +93,12 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let repu = record(b"REPU", 0, REP, &[sub(b"EDID", z("RepTest")), sub(b"DATA", f32b(20.0))]);
-    let chal = record(b"CHAL", 0, CHAL, &[sub(b"EDID", z("ChalTest")), sub(b"DATA", [u32s(&[13, 1, 1, 0]), vec![0; 8]].concat())]);
+    let chal = [
+        record(b"CHAL", 0, CHAL, &[sub(b"EDID", z("ChalTest")), sub(b"DATA", [u32s(&[13, 1, 1, 0]), vec![0; 8]].concat())]),
+        // Kill any in a category: robots (creature type 6, value2 7), 2 of them, a notice each.
+        record(b"CHAL", 0, CHAL_ROBOTS, &[sub(b"EDID", z("ChalRobots")), sub(b"FULL", z("Robot Killer")), sub(b"DATA", [u32s(&[2, 2, 0, 1]), vec![0, 0, 7, 0, 0, 0, 0, 0]].concat())]),
+    ]
+    .concat();
     let race = record(b"RACE", 0, RACE_CHILD, &[sub(b"EDID", z("ChildRace")), sub(b"DATA", [vec![0; 16], vec![0; 16], u32s(&[4])].concat())]);
     let fact = [
         record(b"FACT", 0, F1, &[sub(b"EDID", z("F1")), sub(b"XNAM", u32s(&[F2, 0, 1])), sub(b"WMI1", REP.to_le_bytes().to_vec())]),
@@ -1760,4 +1766,31 @@ fn securitron_expression_survives_a_load() {
     v.as_object_mut().unwrap().remove("securitron_faces");
     let old: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
     assert!(old.securitron_faces.is_empty());
+}
+
+/// Kill challenges count the player's kills by the record's filters, complete at the
+/// threshold and queue their notices (docs/spec-notes/challenges.md).
+#[test]
+fn kill_challenges_count_the_players_kills() {
+    use fnv_game::challenges::{kind, Notice};
+    let f = fixture();
+    let mut g = game(&f);
+    let d = &g.data.challenge_defs[&FormId(CHAL_ROBOTS)];
+    assert_eq!((d.kind, d.threshold, d.interval, d.value2), (kind::KILL_CATEGORY, 2, 1, 7));
+    assert_eq!(d.name.as_deref(), Some("Robot Killer"));
+    // A person killed is no robot; the robot is.
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(PLAYER)]);
+    assert!(!g.player.challenges.contains_key(&FormId(CHAL_ROBOTS)));
+    call(&mut g, 0x108B, Some(CREA_REF), &[r(PLAYER)]);
+    assert_eq!(g.player.challenges[&FormId(CHAL_ROBOTS)].progress, 1);
+    assert_eq!(g.take_challenge_notices(), vec![Notice::Progress { challenge: FormId(CHAL_ROBOTS), progress: 1, threshold: 2 }]);
+    // The second robot completes it: counted in Challenges Completed, not recurring.
+    g.challenge_step(FormId(CHAL_ROBOTS), 1.0);
+    let s = &g.player.challenges[&FormId(CHAL_ROBOTS)];
+    assert!(s.completed);
+    assert_eq!(s.progress, 2);
+    assert_eq!(g.take_challenge_notices(), vec![Notice::Completed { challenge: FormId(CHAL_ROBOTS) }]);
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::CHALLENGES_COMPLETED), 1.0);
+    g.challenge_step(FormId(CHAL_ROBOTS), 1.0);
+    assert_eq!(g.player.challenges[&FormId(CHAL_ROBOTS)].progress, 2);
 }
