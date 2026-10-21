@@ -551,7 +551,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1170, "IsPlayerActionActive", Impl(crate::anim_state::is_player_action_active)),
         (0x1188, "IsPC1stPerson", Impl(senses::is_pc_1st_person)),
         (0x118A, "PushActorAway", Impl(fighting::push_actor_away)),
-        (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
+        (0x11D0, "IsPlayerGrabbedRef", Impl(senses::is_player_grabbed_ref)),
         (0x110C, "trapUpdate", Stub("physics (traps)")),
         (0x11C0, "EnableNavMesh", Impl(navigation::enable_navmesh)),
         (0x11BF, "DisableNavmesh", Impl(navigation::disable_navmesh)),

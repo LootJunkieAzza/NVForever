@@ -287,7 +287,7 @@ pub struct PhysWorld {
     /// Metres per game unit (rapier's internal length unit).
     pub(crate) k: f32,
     terrain: BTreeMap<(i32, i32), ColliderHandle>,
-    refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
+    pub(crate) refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// Actor hit volumes by reference FormID (`crate::actors`).
     pub(crate) actors: BTreeMap<u32, crate::actors::ActorBody>,
     /// Ragdolls by actor reference FormID, and the ragdoll body each of their rigid
@@ -316,6 +316,8 @@ pub struct PhysWorld {
     steps: u64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
     pub(crate) water: crate::water::Waters,
+    /// The body held by the player's grab (`crate::grab`), driven before every step.
+    pub(crate) grip: Option<crate::grab::Grip>,
 }
 
 impl PhysWorld {
@@ -350,6 +352,7 @@ impl PhysWorld {
             pending_sleep: Vec::new(),
             steps: 0,
             water: Default::default(),
+            grip: None,
         }
     }
 
@@ -681,6 +684,7 @@ impl PhysWorld {
             self.dirty = true;
             self.update_queries();
         }
+        self.drive_grip();
         self.step_world();
         self.dirty = false;
         self.new_bodies.clear();
@@ -818,6 +822,7 @@ impl PhysWorld {
             pending_sleep: self.pending_sleep.clone(),
             steps: self.steps,
             water: self.water.clone(),
+            grip: self.grip.clone(),
         }
     }
 

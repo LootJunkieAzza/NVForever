@@ -1513,3 +1513,67 @@ fn the_landing_profile_needs_a_drop_above_the_step_height() {
     assert!(!fnv_phys::character::landing_profile(170.0, 20.0, 24.0));
     assert!(!fnv_phys::character::landing_profile(90.0, 30.0, 24.0));
 }
+
+#[test]
+fn a_held_box_follows_the_grip_target_and_falls_when_let_go() {
+    let mut w = ground();
+    w.add_ref(&at(5, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    for _ in 0..60 {
+        w.step();
+    }
+    let rest = w.ref_bodies(5)[0].translation;
+    // Nothing to hold on a reference without collision.
+    assert!(w.grab(GripOn::Ref(6), rest, HoldParams::default()).is_none());
+    let mass = w.grip_mass(GripOn::Ref(5), rest).unwrap();
+    assert_eq!(w.grab(GripOn::Ref(5), rest, HoldParams::default()), Some(mass));
+    // Lifted 60 units and carried 40 to the side: the grip point is there within a second.
+    let target = [rest[0], rest[1] + 40.0, rest[2] + 60.0];
+    w.set_grip_target(target);
+    for _ in 0..60 {
+        w.step();
+    }
+    let p = w.grip_point().unwrap();
+    let gap = (0..3).map(|i| (p[i] - target[i]).powi(2)).sum::<f32>().sqrt();
+    assert!(gap < 3.0, "grip point {p:?}, target {target:?}");
+    // Held still in the air: it does not sag away from the target.
+    for _ in 0..60 {
+        w.step();
+    }
+    let p = w.grip_point().unwrap();
+    assert!((p[2] - target[2]).abs() < 2.0, "{p:?}");
+    assert_eq!(w.holding().map(|g| g.on), Some(GripOn::Ref(5)));
+    // Let go, it falls back to the ground.
+    assert!(w.release_grip(None).is_some());
+    assert!(w.holding().is_none() && w.release_grip(None).is_none());
+    for _ in 0..120 {
+        w.step();
+    }
+    let end = w.ref_bodies(5)[0].translation;
+    assert!((end[2] - rest[2]).abs() < 2.0 && (end[1] - rest[1] - 40.0).abs() < 15.0, "{end:?} from {rest:?}");
+}
+
+#[test]
+fn a_thrown_box_flies_off() {
+    let mut w = ground();
+    w.add_ref(&at(5, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    let rest = w.ref_bodies(5)[0].translation;
+    w.grab(GripOn::Ref(5), rest, HoldParams::default()).unwrap();
+    w.set_grip_target([rest[0], rest[1], rest[2] + 50.0]);
+    for _ in 0..30 {
+        w.step();
+    }
+    w.release_grip(Some([400.0, 0.0, 0.0]));
+    for _ in 0..30 {
+        w.step();
+    }
+    assert!(w.ref_bodies(5)[0].translation[0] > rest[0] + 100.0);
+}
+
+#[test]
+fn a_static_reference_cannot_be_held() {
+    let mut w = ground();
+    w.add_ref(&at(7, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Static)]);
+    assert!(w.grip_mass(GripOn::Ref(7), [60.0, 0.0, 6.0]).is_none());
+    assert!(w.grab(GripOn::Ref(7), [60.0, 0.0, 6.0], HoldParams::default()).is_none());
+    assert!(w.holding().is_none());
+}
