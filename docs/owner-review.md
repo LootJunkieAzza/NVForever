@@ -7251,3 +7251,31 @@ outside zones, changed by the reference's level modifier. Spec:
 - *Check:* start a new character at level 1 and go into Vault 3 (minimum 12): the Fiends
   should be the zone's tier, not the weakest. Compare with the original if you have a
   level-1 save near Vault 3 or Vault 11 (minimum 6, giant rats).
+
+## Vendor services (2026-10-21, ESM gap audit item 6, branch claude/e6-vendor-services)
+
+Vendors now sell only the item categories their AI data's "Buys/Sells" flags name (Weapons,
+Armor, Alcohol, Books, Food, Chems, Stimpaks, Miscellaneous), and GetOffersServicesNow
+answers from the current package's "Offers Services" flag. Spec:
+[vendor-services](spec-notes/vendor-services.md). Decisions and guesses:
+
+- *Decision (documented):* vendors still buy anything from the player; the GECK wiki's
+  Class page says the "buys" half is unused in FNV. Only the vendor's own stock is limited.
+- *Guess:* drinks and drugs go by their equip type (Food, Alcohol, Chems, Stimpak), not by the
+  wiki's food/medicine flags: with the flags, Trudy could not sell Nuka-Cola or Sarsaparilla
+  (they are "unmarked", so chems), and the High Times dealer's Alcohol flag would do nothing.
+- *Guess:* ammunition and weapon mods count as Weapons (Mick has only Weapons and Armor yet
+  stocks loose ammunition); keys, notes, chips, Caravan cards and the like as Miscellaneous.
+- *Guess:* "Autocalc Service" on an NPC takes its class's flags instead of its own (28 NPCs,
+  mostly the travelling merchants, whose own flags are the same).
+- *Decision:* the barter menu opens whatever the vendor's package says: Chet's and Mick's
+  packages have no "Offers Services" flag, and no dialogue of the masters asks
+  GetOffersServicesNow. The barter log says whether the vendor offers services now.
+- *Guess:* GetOffersServicesNow is 0 while the vendor walks to its package's place (the wiki's
+  note), while it talks with another NPC, in combat and dead; talking to the player keeps it.
+- *Guess:* an item the player sells to a vendor that does not deal in it cannot be bought back
+  after the trade is accepted.
+- *Guess:* Find's Allow Buying buys only what the vendor's services sell.
+- *Check:* barter with Trudy (once she is at the bar) or a doctor such as Julie Farkas: their
+  menus should show only drinks and food, or chems, stimpaks, food and books; selling them a
+  gun should still work. Does the original let you buy back a gun you just sold to a doctor?

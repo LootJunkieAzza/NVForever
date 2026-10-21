@@ -253,6 +253,23 @@ fn scripts_open_barter(script: Option<ResMut<crate::script::ScriptState>>, mut o
     }
 }
 
+/// What `merchant` sells, by its services (`fnv_game::services`,
+/// docs/spec-notes/vendor-services.md §4), logged with whether it offers its services now;
+/// `None` without the script data (everything is sold).
+fn vendor_sells(script: Option<&mut crate::script::ScriptState>, sim: &mut SimState, merchant: FormId) -> Option<model::Sells> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (services, now) = crate::script::with_world(rt, sim, |rt| (rt.game.services(merchant), rt.game.offers_services_now(merchant)));
+    let data: &'static fnv_game::GameData = rt.game.data;
+    let names = fnv_game::services::names(services);
+    info!(
+        "barter: {} sells {} (its services); offers services now: {}",
+        data.name(merchant),
+        if names.is_empty() { "nothing".to_string() } else { names.join(", ") },
+        if now { "yes" } else { "no" }
+    );
+    Some(model::Sells(std::sync::Arc::new(move |item| fnv_game::services::item_service(data, item).filter(|c| services & c == 0).map(fnv_game::services::name))))
+}
+
 /// The player's Barter skill as scripts see it (`GetActorValue Barter`, within 0 to
 /// 100), else [`DEFAULT_BARTER_SKILL`].
 fn barter_skill(script: Option<&mut crate::script::ScriptState>, sim: &mut SimState) -> f32 {
@@ -317,7 +334,16 @@ pub(crate) fn open_menus(
             let stock = sim.refs.get(merchant).and_then(|p| p.merchant_container).unwrap_or(merchant);
             let skill = barter_skill(script.as_deref_mut(), &mut sim);
             info!("menu: barter with {merchant}: stock in {stock}, Barter skill {skill}");
-            MenuModel::open_barter(&mut sim.world, merchant, stock, model::CAPS, skill, b.discount)
+            let sells = vendor_sells(script.as_deref_mut(), &mut sim, merchant);
+            MenuModel::open_barter(&mut sim.world, merchant, stock, model::CAPS, skill, b.discount).and_then(|mut m| {
+                if let Some(s) = sells {
+                    m.set_sells(&mut sim.world, s)?;
+                    let held = m.trade.as_ref().map_or(&[][..], |t| &t.withheld[..]);
+                    let list: Vec<String> = held.iter().map(|(i, c)| format!("{} ({c})", model::display_name(sim.world.forms, *i))).collect();
+                    info!("barter: {merchant} holds back {} item(s) outside its services: {}", held.len(), if list.is_empty() { "none".into() } else { list.join(", ") });
+                }
+                Ok(m)
+            })
         }
         (None, Some(c)) => MenuModel::open_container(&mut sim.world, FormId(c.container)),
         (None, None) => MenuModel::open_inventory(&mut sim.world),

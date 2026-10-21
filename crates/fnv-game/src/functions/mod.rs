@@ -457,6 +457,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x106E, "GetCurrentAIPackage", Impl(ai_state::get_current_ai_package)),
         (0x108F, "GetCurrentAIProcedure", Impl(ai_state::get_current_ai_procedure)),
         (0x10A1, "GetIsCurrentPackage", Impl(actor::get_is_current_package)),
+        (0x10FF, "GetOffersServicesNow", Impl(ai_state::get_offers_services_now)),
         (0x10A2, "IsCurrentFurnitureRef", Impl(furniture::is_current_furniture_ref)),
         (0x1065, "IsWeaponOut", Impl(actor::is_weapon_out)),
         (0x106C, "GetWeaponAnimType", Impl(actor::get_weapon_anim_type)),

@@ -417,6 +417,12 @@ pub struct ActorDef {
     /// field names; the behaviour: `crate::aggro`].
     pub aggro_radius_behavior: bool,
     pub aggro_radius: u32,
+    /// AIDT "Buys/Sells and Services" flags (`crate::services`) [documented: xEdit
+    /// wbAIDT, wbServiceFlags; schema `gameplay.json` ServiceFlags].
+    pub services: u32,
+    /// ACBS "Autocalc Service" (NPC_ only): the class's services stand for the AIDT ones
+    /// (`crate::services`) [documented: xEdit ACBS flag bit 23].
+    pub autocalc_service: bool,
     /// ACBS template flags "Traits" (race, sex, voice, class), "Model/Animation",
     /// "Inventory" and "Script" [documented: GECK wiki GetActorTemplateFlag, flag IDs 1,
     /// 64, 256 and 512; xEdit ACBS template flags].
@@ -793,6 +799,10 @@ pub struct GameData {
     /// The radiation markers (placed references with XRAD) by the space they are in: a
     /// worldspace, or an interior cell (`crate::radiation`).
     pub radiation_markers: HashMap<FormId, Vec<crate::radiation::RadMarker>>,
+    /// CLAS DATA "Buys/Sells and Services" flags by class (`crate::services`)
+    /// [documented: xEdit wbDefinitionsFNV.pas CLAS DATA, after the four tag skills and
+    /// the class flags].
+    pub class_services: HashMap<FormId, u32>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -1133,6 +1143,7 @@ struct Read {
     recipe: Option<crate::crafting::RecipeDef>,
     recipe_category: Option<crate::crafting::RecipeCategoryDef>,
     casino: Option<crate::casino::CasinoDef>,
+    class_services: Option<u32>,
     caravan_card: Option<crate::caravan::CardDef>,
     caravan_deck: Option<crate::caravan::DeckDef>,
     need_stage: Option<(u16, u32, FormId)>,
@@ -1231,6 +1242,7 @@ impl GameData {
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
             radiation_markers: crate::radiation::markers(refs),
+            class_services: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -1437,6 +1449,9 @@ impl GameData {
             }
             if let Some(v) = r.casino {
                 d.casinos.insert(id, v);
+            }
+            if let Some(v) = r.class_services {
+                d.class_services.insert(id, v);
             }
             if let Some(v) = r.caravan_card {
                 d.caravan_cards.insert(id, v);
@@ -1801,6 +1816,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     }
     if &sig == b"RCCT" {
         out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));
+    }
+    // CLAS DATA: four tag skills (i32), the class flags (u32), then the services (u32)
+    // [documented: xEdit wbDefinitionsFNV.pas CLAS; schema `gameplay.json`].
+    if &sig == b"CLAS" {
+        out.class_services = subs.iter().find(|s| &s.sig == b"DATA").and_then(|s| <[u8; 4]>::try_from(s.data.get(20..24)?).ok()).map(u32::from_le_bytes);
     }
     if &sig == b"CSNO" {
         out.casino = Some(crate::casino::CasinoDef::from_raw(&subs, &map));
@@ -2291,6 +2311,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.responsibility = v.as_ref().and_then(|v| v.get("responsibility")).and_then(Json::as_i64);
                         a.aggro_radius_behavior = v.as_ref().and_then(|v| v.get("aggro_radius_behavior")).is_some_and(|b| b.as_str() == Some("True") || b.as_bool() == Some(true) || b.as_u64().is_some_and(|n| n != 0));
                         a.aggro_radius = v.as_ref().and_then(|v| v.get("aggro_radius")).and_then(Json::as_u64).map_or(0, |n| n.min(u64::from(u32::MAX)) as u32);
+                        a.services = flag_bits(v.as_ref().and_then(|v| v.get("services")));
                     }
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
@@ -2303,6 +2324,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.respawn = has_flag(f, "Respawn");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
+                        a.autocalc_service = &sig == b"NPC_" && has_flag(f, "Autocalc Service");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
                         (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
                         (a.fatigue, a.speed_mult) = (n("fatigue"), n("speed_multiplier"));

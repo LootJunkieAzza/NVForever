@@ -85,6 +85,7 @@ pub mod sound;
 pub mod style_weapon;
 pub mod talking_activators;
 pub mod runner;
+pub mod services;
 pub mod sight;
 pub mod templates;
 pub mod terminal;

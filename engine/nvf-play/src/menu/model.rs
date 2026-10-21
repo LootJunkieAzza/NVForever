@@ -415,6 +415,30 @@ pub struct Trade {
     pub purse: [i32; 2],
     /// The caps the trade moves: positive when the player is paid.
     pub balance: i64,
+    /// What the merchant sells (its services, docs/spec-notes/vendor-services.md §4):
+    /// `None` sells everything (no script data to ask).
+    pub sells: Option<Sells>,
+    /// The merchant's items held back at the last refresh, with the category it does not
+    /// sell them under, in row order.
+    pub withheld: Vec<(FormId, &'static str)>,
+}
+
+/// Whether the merchant sells an item: `None` when it does, else the name of the service
+/// category it lacks (`fnv_game::services`). Vendors buy any item [documented: GECK wiki
+/// Class, "vendors can buy any item"], so only the merchant's own rows are asked.
+#[derive(Clone)]
+pub struct Sells(pub std::sync::Arc<dyn Fn(FormId) -> Option<&'static str> + Send + Sync>);
+
+impl std::fmt::Debug for Sells {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sells(..)")
+    }
+}
+
+impl PartialEq for Sells {
+    fn eq(&self, other: &Sells) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 impl Trade {
@@ -538,10 +562,20 @@ impl MenuModel {
             offered: [BTreeMap::new(), BTreeMap::new()],
             purse: [0, 0],
             balance: 0,
+            sells: None,
+            withheld: Vec::new(),
         });
         m.focus = Side::Player;
         m.refresh(world)?;
         Ok(m)
+    }
+
+    /// Limit the merchant's rows to what it sells, and list the trade again.
+    pub fn set_sells(&mut self, world: &mut World<'_>, sells: Sells) -> Result<(), SimError> {
+        if let Some(t) = self.trade.as_mut() {
+            t.sells = Some(sells);
+        }
+        self.refresh(world)
     }
 
     fn empty(mode: Mode, title: String) -> MenuModel {
@@ -634,15 +668,26 @@ impl MenuModel {
             t.purse[i] = world.item_count(t.holder(side), t.caps)?;
             let mult = t.mult(side);
             let prices = t.prices;
+            let mut withheld = Vec::new();
             own[i] = l
                 .rows
                 .into_iter()
                 .filter(|r| r.item != t.caps && !r.quest)
+                .filter(|r| {
+                    let why = (side == Side::Container).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
+                    if let Some(w) = why.filter(|_| !withheld.iter().any(|(i, _)| *i == r.item)) {
+                        withheld.push((r.item, w));
+                    }
+                    why.is_none()
+                })
                 .map(|mut r| {
                     r.price = r.value.map(|v| prices.value_at(v, r.condition) * mult);
                     r
                 })
                 .collect();
+            if side == Side::Container {
+                t.withheld = withheld;
+            }
             // What is no longer there cannot stay put up.
             let rows = &own[i];
             t.offered[i].retain(|units, n| match rows.iter().find(|r| r.units() == *units) {

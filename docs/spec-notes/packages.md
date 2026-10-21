@@ -426,7 +426,8 @@ normal package behavior"]:
     without a merchant container is not a vendor. Nearest first, as every other object.
     It walks up to the vendor as to any actor it looks for (the vendor may move; it is
     reached within three times the arrival distance), then buys one: the cheapest such
-    item it can pay for (lowest form ID on a tie). The price is what the player would
+    item it can pay for (lowest form ID on a tie), among what the vendor sells by its
+    services (vendor-services.md §4; 2026-10-21). The price is what the player would
     pay at the actor's own Barter skill: the item's value (SetItemValue's, else the
     record's; condition not counted) times `fBarterBuyBase + Barter × fBarterBuyMult /
     100`, never under the value, rounded to the nearest cap, halves up. Its caps go into

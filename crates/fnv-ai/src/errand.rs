@@ -561,14 +561,16 @@ impl Ai {
     /// ([`buying_price`]). `None` when the vendor has no merchant container (an actor
     /// without one is not a vendor), nothing that is wanted, or nothing affordable
     /// [hypothesis: the merchant container is the vendor's stock as in the barter menu;
-    /// the cheapest is our choice].
+    /// the cheapest is our choice]. Only what the vendor sells: an item whose category is
+    /// among its services (`fnv_game::services`, as in the barter menu;
+    /// docs/spec-notes/vendor-services.md §4) [hypothesis: actors buy as the player does].
     pub fn offer(game: &mut Game, buyer: FormId, vendor: FormId, wanted: Wanted) -> Option<(FormId, FormId, u32)> {
         if !Self::alive(game, vendor) {
             return None;
         }
         let stock = game.world.placed.get(vendor).and_then(|p| p.merchant_container)?;
         let caps = game.world.item_count(buyer, CAPS).unwrap_or(0).max(0) as u32;
-        let items: Vec<FormId> = carried(game, stock).into_iter().filter(|i| *i != CAPS && item_wanted(game, stock, *i, wanted)).collect();
+        let items: Vec<FormId> = carried(game, stock).into_iter().filter(|i| *i != CAPS && game.sells(vendor, *i) && item_wanted(game, stock, *i, wanted)).collect();
         let mut best: Option<(u32, FormId)> = None;
         for item in items {
             let price = buying_price(game, buyer, item);
