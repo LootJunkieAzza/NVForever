@@ -43,6 +43,7 @@ pub mod game_start;
 pub mod furniture;
 pub mod grab;
 pub mod hitvol;
+pub mod holotape;
 pub mod interface;
 pub mod intro;
 pub mod levelup;
@@ -282,7 +283,7 @@ impl Plugin for PlayPlugin {
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
-            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, holotape::HolotapePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))

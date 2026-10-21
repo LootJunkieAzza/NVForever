@@ -356,8 +356,9 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   window [design]; arrows at its right when it is longer [documented]. The window reaches
   10 over the first line so its letters are not cut [design]. Our lines break exactly as
   the screenshot's [observed]. An image note shows its picture (`XNAM`) 360 square at the
-  right [documented]; sound and voice notes show the empty audio meter: they are not
-  played. "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
+  right [documented]; sound and voice notes (holotapes) play when used (a click or
+  Enter; again to stop) and show the Radio tab's wave panel, still wave while playing
+  ([holotapes](holotapes.md) §3). "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
 - **Radio**: the stations the Pip-Boy receives where the player is, by name (`crate::radio`,
   radio.md); the one playing has its square filled; a click or Enter tunes to a station,
   or turns the radio off on the one playing [hypothesis: "Tune"]. The waveform panel
@@ -440,7 +441,7 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   how done ones look; the hollow square's size (ours draws smaller than the original's,
   about 9 px against 14); which doors and markers the local map shows and its zoom;
   where the World Map opens; how the original turns the arrow; the radio's waveform model;
-  Place Marker, Challenges, audio notes, the buttons' hover boxes.
+  Place Marker, Challenges, the audio notes' panel, the buttons' hover boxes.
 
 ## 6. Keys and pointer [hypothesis unless marked]
 
