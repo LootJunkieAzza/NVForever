@@ -2021,7 +2021,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"QSTA" => {
                         if let Some(o) = objective.and_then(|i| q.objectives.get_mut(&i)) {
                             let t = v.as_ref().and_then(|v| v.get("target")).and_then(hexid).and_then(map).map(FormId);
-                            o.targets.push(Target { target: t, conditions: Vec::new() });
+                            let ignores_locks = flag_bits(v.as_ref().and_then(|v| v.get("flags"))) & 1 != 0;
+                            o.targets.push(Target { target: t, ignores_locks, conditions: Vec::new() });
                             at = At::Target;
                         }
                     }

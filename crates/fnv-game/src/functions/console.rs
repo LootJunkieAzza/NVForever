@@ -124,6 +124,9 @@ struct QuestTarget {
     cell: Option<FormId>,
     pos: [f32; 3],
     rot_z: f32,
+    ignores_locks: bool,
+    /// Its conditions pass (`crate::quest_targets`): it is marked.
+    shown: bool,
 }
 
 /// The quests whose targets the console shows: the active quest, else every running quest
@@ -136,40 +139,32 @@ fn target_quests(g: &Game, ctx: &ConsoleCtx) -> Vec<FormId> {
     g.quests.iter().filter(|(_, s)| s.running && s.objectives.values().any(|o| o.displayed && !o.completed)).map(|(&q, _)| q).collect()
 }
 
-/// Every target of the objectives shown and not done, where it is now. The targets'
-/// conditions are not tested (as the compass markers, `pipboy::data::quest_targets`).
-fn quest_targets(g: &Game, ctx: &ConsoleCtx) -> Vec<QuestTarget> {
+/// Every target of the objectives shown and not done, where it is now, and whether its
+/// conditions pass now (as the map markers, `pipboy::data::quest_targets`).
+fn quest_targets(g: &mut Game, ctx: &ConsoleCtx) -> Vec<QuestTarget> {
     let mut out = Vec::new();
     for q in target_quests(g, ctx) {
-        let (Some(def), Some(state)) = (g.data.quests.get(&q), g.quests.get(&q)) else { continue };
-        for (i, o) in &state.objectives {
-            if !o.displayed || o.completed {
-                continue;
-            }
-            for t in def.objectives.get(i).into_iter().flat_map(|d| &d.targets) {
-                let Some(r) = t.target else { continue };
-                let (cell, pos, rot) = match g.world.peek(r) {
-                    Some(s) => (s.cell, s.pos, s.rot),
-                    None => match g.world.placed.get(r) {
-                        Some(p) => (p.cell, p.pos, p.rot),
-                        None => continue,
-                    },
-                };
-                out.push(QuestTarget { quest: q, objective: *i, target: r, cell, pos, rot_z: rot[2] });
-            }
+        for c in g.check_quest_targets(q) {
+            let r = c.target;
+            let (cell, pos, rot) = match g.world.peek(r) {
+                Some(s) => (s.cell, s.pos, s.rot),
+                None => match g.world.placed.get(r) {
+                    Some(p) => (p.cell, p.pos, p.rot),
+                    None => continue,
+                },
+            };
+            out.push(QuestTarget { quest: q, objective: c.objective, target: r, cell, pos, rot_z: rot[2], ignores_locks: c.ignores_locks, shown: c.shown });
         }
     }
     out
 }
 
-/// The door outdoors into an interior cell, if one leads there: (its cell, position).
-fn door_into(g: &Game, cell: FormId) -> Option<(FormId, [f32; 3])> {
-    let refs = g.world.placed;
-    refs.refs.values().find_map(|d| {
-        let t = d.teleport?;
-        (refs.get(t.door)?.cell == Some(cell)).then_some(())?;
-        Some((d.cell?, d.pos))
-    })
+/// The door outdoors into an interior cell a marker stands at, if one leads there: (its
+/// cell, position) (`quest_targets::marker_door`).
+fn door_into(g: &Game, cell: FormId, ignores_locks: bool) -> Option<(FormId, [f32; 3])> {
+    let door = crate::quest_targets::marker_door(&g.world, &g.doors_into(cell), ignores_locks)?;
+    let d = g.world.placed.get(door)?;
+    Some((d.cell?, d.pos))
 }
 
 fn cell_label(g: &Game, cell: Option<FormId>) -> String {
@@ -183,15 +178,16 @@ fn cell_label(g: &Game, cell: Option<FormId>) -> String {
 }
 
 /// `ShowQuestTargets` (`sqt`): each target of the active quest's objectives shown and not
-/// done: quest, objective, target reference, its cell and position, and for a target
-/// indoors the door outdoors that leads to it.
+/// done whose conditions pass: quest, objective, target reference, its cell and position,
+/// and for a target indoors the door outdoors that leads to it; then each target whose
+/// conditions fail, marked as hidden.
 pub fn show_quest_targets(g: &mut Game, ctx: &ConsoleCtx, _a: &[String]) -> Result<Vec<String>, String> {
     let ts = quest_targets(g, ctx);
     if ts.is_empty() {
         return Ok(vec!["No quest targets (no objective shown and not done)".into()]);
     }
     let mut out = Vec::new();
-    for t in &ts {
+    for t in ts.iter().filter(|t| t.shown) {
         out.push(format!(
             "{} objective {}: target {} in {} at {:.0} {:.0} {:.0}",
             g.data.name(t.quest),
@@ -203,20 +199,23 @@ pub fn show_quest_targets(g: &mut Game, ctx: &ConsoleCtx, _a: &[String]) -> Resu
             t.pos[2]
         ));
         if let Some(c) = t.cell.filter(|c| !g.world.placed.cell_world.contains_key(c)) {
-            if let Some((dc, p)) = door_into(g, c) {
+            if let Some((dc, p)) = door_into(g, c, t.ignores_locks) {
                 out.push(format!("  load door outdoors in {} at {:.0} {:.0} {:.0}", cell_label(g, Some(dc)), p[0], p[1], p[2]));
             }
         }
     }
+    for t in ts.iter().filter(|t| !t.shown) {
+        out.push(format!("{} objective {}: target {} hidden (its conditions fail)", g.data.name(t.quest), t.objective, label(g, t.target)));
+    }
     Ok(out)
 }
 
-/// `MoveToQuestTarget [index]` (`movetoqt`): the player travels to a target of the active
-/// quest (`index` from 0 among `sqt`'s list, else the first), arriving at the target's
-/// position [hypothesis: the original puts the player at the target; collision then
-/// moves the player out of it].
+/// `MoveToQuestTarget [index]` (`movetoqt`): the player travels to a marked target of the
+/// active quest (`index` from 0 among `sqt`'s list, else the first), arriving at the
+/// target's position [hypothesis: the original puts the player at the target; collision
+/// then moves the player out of it].
 pub fn move_to_quest_target(g: &mut Game, ctx: &ConsoleCtx, a: &[String]) -> Result<Vec<String>, String> {
-    let ts = quest_targets(g, ctx);
+    let ts: Vec<QuestTarget> = quest_targets(g, ctx).into_iter().filter(|t| t.shown).collect();
     let i = match a.first() {
         Some(w) => w.parse::<usize>().map_err(|_| format!("{w:?} is not an index"))?,
         None => 0,
