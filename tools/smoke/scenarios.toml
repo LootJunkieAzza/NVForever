@@ -2384,6 +2384,30 @@ order = [[
 expect = ["effect shaders summary: 2 played, 2 ended"]
 
 [[scenario]]
+name = "effect-shader-holes-addons"
+source = "docs/spec-notes/effect-shaders.md §7-§8: PlayMagicShaderVisuals GooShader01 (holes texture FXMagicDisolveAlpha01, value 255 to 0 from 0.2 to 1.75 s) on Sunny for 3 s, then GlowingOneFXShader (add-on models: DEBR debrisGOGlowMesh) for 4 s (the test aid call:); frames at 7 s (about half dissolved) and 12 s (glow meshes on her bones) in target/smoke"
+areas = ["scripts", "effect-shaders"]
+paths = [
+  "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs", "schemas/fnv/effects.json",
+  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvforever/src/shot_fx.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:PlayMagicShaderVisuals:0x0009BA49:3,10:call:SunnyRef:PlayMagicShaderVisuals:0x0008AA59:4", NVF_PLAY_TEST_SHOTS = "7:effect_holes.png,12:effect_addons.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'effect shader: GooShader01 on .* \(fill and edge, for 3\.5 s\)', label = "effect shader: GooShader01 on Sunny for its 3.5 s cycle" },
+  { re = 'effect shader: GooShader01 holes on (\d+) meshes of .* \(textures\\effects\\fxmagicdisolvealpha01\.dds, 255 to 0 from 0\.20 to 1\.75 s', range = [3, 100], label = "effect shader: GooShader01's holes eat Sunny's meshes, 255 to 0 over 0.2-1.75 s" },
+  { re = 'effect shader: GooShader01 on .* ends \(its time is up\)', label = "effect shader: GooShader01 ends by itself" },
+  { re = 'effect shader: GlowingOneFXShader puts (\d+) add-on models of DEBR 0008AA5A on .* \(meshes\\effects\\glowingonefxshader\\goglowmesh0[1-4]\.nif first', range = [1, 8], label = "effect shader: GlowingOneFXShader's glow meshes (debrisGOGlowMesh) on Sunny's bones" },
+  { re = 'effect shader: GlowingOneFXShader on .* ends \(its time is up\)', label = "effect shader: the glow ends by itself" },
+]]
+expect = [
+  "effect shaders summary: 2 played, 2 ended",
+  { re = 'effect shaders summary: .* (\d+) meshes given holes', range = [3, 1000], label = "meshes given holes" },
+  { re = 'effect shaders summary: .* (\d+) add-on models', range = [1, 8], label = "add-on models put on" },
+]
+
+[[scenario]]
 name = "securitron-expression"
 source = "docs/spec-notes/effect-shaders.md §5: SetSecuritronExpression puts victor_alert.dds on the screen (Screen01:0) of a street Securitron by the Strip's north gate (VStreetSecuritron 0x0013BB1F, the test aid call:); frames before (7 s) and after (11 s) in target/smoke"
 areas = ["scripts", "effect-shaders"]
@@ -4221,6 +4245,7 @@ expect = [
   { re = 'hit effect: EnchFlamerEffect on the player by \S+: FlamerFireDamage -2\.0 Health/s for 5 s', label = "the flamer's Burning on the player: 2 health a second for 5 s" },
   { re = 'effect shader: Flames01 on \S+ \(no fill and edge, while the effect lasts\)', label = "Flames01's orange edge on the player while burning" },
   { re = 'effect shader: Flames01 covers (?P<n>\d+) meshes of 0x00000014', range = [1, 1000], label = "Flames01 covers the player's third-person body" },
+  { re = 'effect shader: Flames01 puts (?P<n>\d+) add-on models of DEBR 0005F9B7 on \S+ \(meshes\\effects\\actorfirefx\\fireball0[1-4]\.nif first', range = [1, 8], label = "Flames01's fireballs (debrisFlameMesh) on the burning player (effect-shaders.md §8)" },
   { re = 'effect particles summary: \d+ plays drew particles, (?P<n>\d+) born', range = [50, 100000000], label = "flames born on the burning player" },
   { re = 'effect particles: Flames01 on the player \(textures\\effects\\fxflamesmallsub02\.dds', label = "Flames01's flames drawn on the player" },
   { re = 'hit effects summary: (?P<n>\d+) applied', range = [1, 1000000], label = "hit effects applied" },

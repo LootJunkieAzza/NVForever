@@ -38,7 +38,7 @@ full list is in the schema):
 | 84 | f32 | fill full alpha ratio | alpha at the top of the cycle |
 | 88 | f32 | edge full alpha ratio | |
 | 92 | u32 | membrane dest blend | blend mode enum |
-| 96 … | | particle shader (§6), holes, add-on models | holes and add-on models not drawn (§4) |
+| 96 … | | particle shader (§6), add-on models (§8), holes (§7) | |
 
 Blend mode enum: 1 Zero, 2 One, 3 Source Colour, 4 Source Inverse Colour, 5 Source
 Alpha, 6 Source Inverted Alpha, 7 Dest Alpha, 8 Dest Inverted Alpha, 9 Dest Colour,
@@ -113,8 +113,8 @@ Read here as [hypothesis where marked]:
   [design: the wiki's "darken rather than lighten" needs a subtractive blend].
 - Z test: the overlay is drawn at the surface (Equal To is the only value in the
   masters' membranes); "Greater Than" (seen through walls) is not built.
-- The particle shader: §6. Not built: holes, add-on models, "Affect Skin Only" (the
-  whole actor is covered).
+- The particle shader: §6; holes: §7; add-on models: §8. Not built: "Affect Skin
+  Only" (the whole actor is covered).
 - A shader on the player: drawn on whatever body the player has (the wiki notes the
   original keeps it on the perspective it started in).
 
@@ -174,7 +174,7 @@ ratio 30, persistent 15; life 0.35 ± 0.1 s; along the normal 50 ± 50, −5; ve
 (255, 107, 64), (255, 156, 23), (244, 80, 0) at 0.2, 0.5, 0.9; rotation ± 180°, spin 5 ±
 5°/s; dest blend One. Its membrane: no fill, an orange edge (215, 86, 0), fall off 3,
 persistent 1. Its add-on models are `debrisFlameMesh` 0x0005F9B7
-(`Effects\ActorFireFX\FireBall01–04.NIF`), not drawn. `Smoke01` 0x0005F9B8: particles
+(`Effects\ActorFireFX\FireBall01–04.NIF`), drawn as §8 says. `Smoke01` 0x0005F9B8: particles
 only (No Membrane Shader), `Effects\FXDustSmoke01.dds` in 2 × 2 frames, dest blend Source
 Inverted Alpha; ratio 15, life 2.3 ± 0.5 s; velocity (0, 0, 50), acceleration (0, 0, 65);
 scale 25 at birth to 100 at death; colours (158, 106, 84), (84, 79, 69), (64, 64, 64) at
@@ -203,3 +203,86 @@ Drawn here [hypothesis or design where marked]:
   particle z test "Always Show" (seen through walls).
 - When the play ends, no more are born; those alive live out their time.
 
+## 7. Holes
+
+Layout [documented: xEdit EFSH, field order of `schemas/fnv/effects.json`; byte offsets
+counted from it]: `NAM7` the holes texture; in `DATA` 248 holes start time, 252 holes end
+time, 256 holes start value, 260 holes end value, 264 edge width (alpha units), 268 edge
+colour (RGB and an unused byte; the schema's `edge_color_2`), all f32 but the colour.
+The GECK wiki's EffectShader page says nothing of holes [observed: the owner's export,
+`Special-Effect.xml`], so the meanings below come from the names and the records.
+
+What the masters hold [observed, a private script over the ten masters, 2026-10-21]: eight
+records name a holes texture, seven of them `Effects\FXMagicDisolveAlpha01.dds`:
+
+| Record | Start, end time (s) | Start, end value | Edge width, colour | Played by |
+|---|---|---|---|---|
+| `GooShader01` 0x0009BA49 | 0.2, 1.75 | 255, 0 | 1, white | `PlasmaGooificationEffectScript` (with GooShader02; `GooEnd` at 1.4 s) |
+| `effectLaserDisintegration` 0x000BDA2D | 0.1, 1.4 | 255, 0 | 1, (255, 85, 13) | `LaserDisintegrationEffectScript` (ash pile at 1.3 s, `DisintegrateEnd` at 1.8 s) |
+| `effectAlienDisintegration` 0x0005C6C0 | 0.1, 1.8 | 255, 0 | 3, (187, 255, 249) | |
+| `effectAtomization` 0x00044AEF | 0, 0.6 | 255, 0 | 3, (248, 255, 234) | |
+| `NukeAtomShader` 0x000446D3 | 0, 2 | 255, 0 | 3, (255, 64, 69) | `NukeCritEffectScript` |
+| `PuffOfSmokeVanish` 0x000614F9 | 0, 0.3 | 255, 0 | 0 | |
+| `HaroldLiniment` 0x00055B50 | 0, 4 | 0, 127 | 3, white | no script names it |
+| `NVDLC03HoloRmShader` (Old World Blues) | 0, 10 | 255, 0 | 0.05, white | `NVDLC03X13HoloRmEffectsSCRIPT`; its holes texture is `dlcanch\effects\dlcanchrezeffectalpha.dds`, also its fill |
+
+The other records carry (0, 10, 255, 0), edge width 0 and a white edge colour, and no
+holes texture (`GlowingOneFXShader`'s 248-byte DATA ends before the holes fields).
+
+Drawn here [hypothesis or design where marked]:
+
+- Only a record with a holes texture has holes [hypothesis: the default numbers would
+  otherwise dissolve every shader's target over 10 s].
+- The value: the start value until the start time, linear to the end value by the end
+  time, held after [hypothesis].
+- A point of the reference's surface whose holes-texture alpha (0–255) is at or above
+  the value is a hole: not drawn, in any pass (shadows too); at 255 or more there are
+  none [hypothesis: the masters' dissolves go from 255 to 0, are played on deaths
+  (gooification, disintegration, atomization, "vanish") and end with the body gone:
+  `GooEnd` hides the reference after 1.4 s, by when GooShader01's value is about 70].
+  The texture is read at the mesh's own texture coordinates [hypothesis].
+- The band of "edge width" alpha units below the value (where the holes will open
+  next) is drawn in the edge colour, unlit [hypothesis: the name "edge width (alpha
+  units)" and the glowing colours of the death records]. The membrane's own overlays
+  get the same holes.
+- The holes cover the meshes the membrane covers (§4) and last while the play does;
+  when it ends the meshes get their own materials back [hypothesis]. `HaroldLiniment`'s
+  0 to 127 would start with the whole body a hole; no script plays it.
+- Not combined: `SetActorAlpha` on a reference while it has holes takes the holed
+  material as its own [design: no record does both].
+
+## 8. Add-on models
+
+Layout [documented: xEdit EFSH, as §7]: `DATA` 244 add-on models (a DEBR FormID), 284
+fade in time, 288 fade out time, 292 scale start, 296 scale end, 300 scale in time, 304
+scale out time (f32). A DEBR lists models with a percentage each [documented: GECK wiki
+"Debris": "the chance that this particular kind of debris will appear"]. The EffectShader
+page says nothing of add-on models.
+
+What the masters hold [observed, 2026-10-21]: two records name one:
+
+- `Flames01` 0x0005F9B6 (burning): `debrisFlameMesh` 0x0005F9B7, `FireBall01–04.NIF` at 25 %
+  each; fade in 0.75 s, out 2 s, scale 0.5 at the start and 0.2 at the end, scale in and
+  out 1 s.
+- `GlowingOneFXShader` 0x0008AA59 (the Legion explorers' aura, the spore carriers, the
+  Legendary Bloatfly, the tunnelers): `debrisGOGlowMesh` 0x0008AA5A,
+  `Effects\GlowingOneFXShader\GOGlowMesh01–04.NIF` at 25 % each; its DATA is 248 bytes
+  long, so no timing.
+
+The models are small unskinned sprites [observed: `fnvtool nif decode`: a BSFadeNode over
+an NiBillboardNode and one NiTriStrips each, with texture-transform controllers; the
+fireballs also with a transform controller].
+
+Drawn here [hypothesis or design where marked]:
+
+- Where: one model on each of up to 8 bones of the reference's skinned meshes, spread
+  evenly over them, at the bone itself; an unskinned reference gets one, at its first
+  mesh [design: the record gives no count and no places].
+- Which: a model of the DEBR by its percentages, picked once per place and play [design].
+- Each is played as an effect model: its billboards face the camera, its controllers play
+  (`shot_fx::spawn_attached`).
+- Timing: from the play's start the model grows from the scale start to 1 over the scale
+  in time and fades in over the fade in time; after the play ends it shrinks from where
+  it was to the scale end over the scale out time and fades out over the fade out time,
+  and goes when both are done [hypothesis: the field names; linear ramps]. Without the
+  timing fields (248-byte DATA): full size and alpha at once, gone at once [hypothesis].
