@@ -7510,3 +7510,27 @@ inventory (a 10mm case at 20 %, a 12 gauge hull at 40 %, a drained small energy 
 - *Check:* fire a 10mm pistol 20 times with and without Hand Loader (and in Hardcore) and count
   the cases; does a message appear when one is picked up?
 
+
+## Holotapes (2026-10-21, ESM gap audit item 14, branch claude/e14-holotapes)
+
+Voice notes (holotapes, audio logs) in the Pip-Boy's DATA > Misc (Notes) list now play when
+used: a click or Enter on the row. Spec: [holotapes](spec-notes/holotapes.md). Decisions and
+guesses:
+
+- *Guess:* which line a holotape plays: the first line of its topic that names the note's
+  speaker (fixed speaker, or `GetIsID <speaker>`), else the first that names nobody, else the
+  first. Every master's holotape fits (nine topics of one line; Jacobstown's log names
+  GREETING and its line is the one with `GetIsID JacobstownSurvivor`). The line's other
+  conditions and the note's quest (the wiki says it must match) are not tested.
+- *Guess:* one holotape at a time; using another stops the one playing, using the one playing
+  stops it. It keeps playing with the Pip-Boy put away, is held by the pause menu, at full
+  volume in the Voice category (voice volume and the "Dialogue voice" switch apply). The
+  Pip-Boy radio keeps playing under it: does the original mute the radio?
+- *Design:* the right side shows the Radio tab's wave panel, a still wave while the tape
+  plays, a flat line otherwise. The original's audio-note panel is not measured.
+- *Guess:* a Sound note plays its SOUN once and cannot be stopped; no master note has a sound.
+- Not built: subtitles of the responses (does the original show them?), the read flag.
+- *Check:* AddNote VMQ01BeagleJournalNote (or pick up Beagle's journal at Primm), open the
+  Pip-Boy, DATA > Misc, click "Deputy Beagle's Journal": the deputy reads six
+  responses. Compare: does the original start it on selection or on a click, does picking it
+  again stop it, does it go on with the Pip-Boy closed, and what the right side shows.

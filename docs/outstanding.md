@@ -75,7 +75,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
   the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
   2026-10-19.)
-- **Audio and video**: spatial sinks; reverb's SOUN `GNAM` attenuation and voices in rooms (audio.md §14.6); ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
+- **Audio and video**: spatial sinks; ~~holotapes~~ (built 2026-10-21, [holotapes](spec-notes/holotapes.md); left: subtitles, the JIP note functions, GetNoteRead); reverb's SOUN `GNAM` attenuation and voices in rooms (audio.md §14.6); ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
 - **Magic effect archetypes** (built 2026-10-21, claude/e15-mgef-archetypes,
   [magic-archetypes](spec-notes/magic-archetypes.md)): left are guesses for the owner:
   Turbo's 0.5, what of the player Turbo exempts (movement and its clips; not jumps, fire

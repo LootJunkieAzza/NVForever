@@ -296,6 +296,14 @@ pub struct NoteDef {
     pub text: Option<String>,
     /// XNAM of an image note: a texture path.
     pub texture: Option<String>,
+    /// SNAM: a Sound note's sound (SOUN), a Voice note's speaker (NPC_ or CREA)
+    /// [documented: xEdit wbDefinitionsFNV.pas NOTE, a union by note type; GECK wiki
+    /// GetNoteSound, GetNoteSpeaker]. docs/spec-notes/holotapes.md §1.
+    pub sound: Option<FormId>,
+    pub speaker: Option<FormId>,
+    /// TNAM of a Voice note: the topic (DIAL) whose line it plays [documented: xEdit
+    /// NOTE TNAM union; GECK wiki GetNoteTopic].
+    pub topic: Option<FormId>,
 }
 
 /// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
@@ -2202,8 +2210,19 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     _ => {}
                 }
             }
-            if n.kind == 1 {
-                n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data));
+            let form_of = |sig: &[u8; 4]| {
+                let s = subs.iter().find(|s| &s.sig == sig)?;
+                let b = s.data.get(..4)?;
+                map(u32::from_le_bytes([b[0], b[1], b[2], b[3]])).filter(|f| *f != 0).map(FormId)
+            };
+            match n.kind {
+                0 => n.sound = form_of(b"SNAM"),
+                1 => n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data)),
+                3 => {
+                    n.speaker = form_of(b"SNAM");
+                    n.topic = form_of(b"TNAM");
+                }
+                _ => {}
             }
             out.note = Some(n);
         }
