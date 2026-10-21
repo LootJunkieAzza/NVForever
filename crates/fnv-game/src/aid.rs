@@ -278,6 +278,7 @@ impl Game<'_> {
             for (code, n) in crate::misc_stats::ingest_counts(&def, &applied) {
                 self.count_stat(code, n);
             }
+            self.challenge_used(item);
         }
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();
         let has_monitor = self.data.effect_items.get(&item).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
