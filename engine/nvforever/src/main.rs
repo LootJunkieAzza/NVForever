@@ -106,6 +106,7 @@ mod shafts;
 mod imagespace;
 mod imposters;
 mod sky;
+mod weather_fx;
 mod limping;
 mod sneaking;
 mod swimming;
@@ -1327,6 +1328,8 @@ fn main() -> AppExit {
     }
     if play.is_some() {
         app.add_systems(Update, (script_weather, sky_follows_game).chain().before(sky::update_sky));
+        // The weather's sounds, precipitation and lightning (weather_fx.rs).
+        app.add_plugins(weather_fx::WeatherFxPlugin);
     }
     if play.is_some() || residents.is_some() {
         // Idle animations (idles.rs): after the game asked for them (scripts, packages,

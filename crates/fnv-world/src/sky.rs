@@ -117,6 +117,68 @@ pub struct Weather {
     /// DATA wind speed, 0-255 [documented: xEdit]; 50 for most weathers, 127 for
     /// HVDustStorm, 130 for NVHooverFinalBattle [observed].
     pub wind_speed: u8,
+    /// SNAM sounds with their kind, in record order [documented: xEdit wbWeatherSounds].
+    pub sounds: Vec<WeatherSound>,
+    /// MODL: the precipitation model drawn about the camera [documented: GECK wiki
+    /// GetWeatherPrecipitationModel, "the Precipitation model path of a weather"].
+    pub precipitation_model: Option<String>,
+    /// DATA fade fields and lightning frequency, raw bytes [documented: xEdit
+    /// wbDefinitionsFNV WTHR DATA; GECK wiki GetWeatherTraitNumeric traits 8-12].
+    pub precipitation_fade: (u8, u8),
+    pub lightning_fade: (u8, u8),
+    pub lightning_frequency: u8,
+    /// DATA "weather classification" flags: 1 Pleasant, 2 Cloudy, 4 Rainy, 8 Snow
+    /// [documented: xEdit; GECK wiki GetWeatherTraitNumeric].
+    pub classification: u8,
+    /// DATA lightning colour (RGB bytes) [documented: xEdit].
+    pub lightning_color: [u8; 3],
+}
+
+/// The kinds of a weather sound (WTHR SNAM type) [documented: xEdit wbWeatherSounds].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeatherSoundKind {
+    Default,
+    Precipitation,
+    Wind,
+    Thunder,
+}
+
+/// One WTHR SNAM entry: a SOUN (global FormID) and its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WeatherSound {
+    pub sound: u32,
+    pub kind: WeatherSoundKind,
+}
+
+impl WeatherSoundKind {
+    pub fn from_u32(v: u32) -> Option<WeatherSoundKind> {
+        Some(match v {
+            0 => WeatherSoundKind::Default,
+            1 => WeatherSoundKind::Precipitation,
+            2 => WeatherSoundKind::Wind,
+            3 => WeatherSoundKind::Thunder,
+            _ => return None,
+        })
+    }
+}
+
+impl Weather {
+    /// The sounds that go round while the weather is shown (all but thunder).
+    pub fn loops(&self) -> impl Iterator<Item = &WeatherSound> {
+        self.sounds.iter().filter(|s| s.kind != WeatherSoundKind::Thunder)
+    }
+
+    /// The thunder sounds, one of which follows each lightning flash.
+    pub fn thunder(&self) -> impl Iterator<Item = &WeatherSound> {
+        self.sounds.iter().filter(|s| s.kind == WeatherSoundKind::Thunder)
+    }
+
+    /// Lightning flashes in this weather: a lightning frequency and a thunder sound or a
+    /// Rainy classification [hypothesis: the GECK wiki's TriggerLightningFX "only work[s]
+    /// when ... it is raining"; a weather with a thunder sound flashes too].
+    pub fn lightning(&self) -> bool {
+        self.lightning_frequency > 0 && (self.rainy || self.thunder().next().is_some())
+    }
 }
 
 fn byte_color(v: &Value) -> Option<[u8; 3]> {
@@ -188,7 +250,27 @@ pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
         .get(b"DATA")
         .and_then(|d| d.get("flags").and_then(|fl| num(fl, "value")))
         .is_some_and(|v| (v as u64) & 4 != 0);
-    w.wind_speed = f.get(b"DATA").and_then(|d| num(&d, "wind_speed")).map_or(0, |v| v as u8);
+    if let Some(d) = f.get(b"DATA") {
+        let b = |k: &str| num(&d, k).map_or(0, |v| v as u8);
+        w.wind_speed = b("wind_speed");
+        w.precipitation_fade = (b("precipitation_begin_fade_in"), b("precipitation_end_fade_out"));
+        w.lightning_fade = (b("lightning_begin_fade_in"), b("lightning_end_fade_out"));
+        w.lightning_frequency = b("lightning_frequency");
+        w.classification = d.get("flags").and_then(|fl| num(fl, "value")).map_or(0, |v| v as u8);
+        if let Some(c) = d.get("lightning_color").and_then(|c| c.as_array()) {
+            for (i, v) in c.iter().take(3).enumerate() {
+                w.lightning_color[i] = v.as_u64().unwrap_or(0) as u8;
+            }
+        }
+    }
+    for s in f.subs.iter().filter(|s| &s.sig == b"SNAM" && s.data.len() >= 8) {
+        let local = u32::from_le_bytes([s.data[0], s.data[1], s.data[2], s.data[3]]);
+        let kind = WeatherSoundKind::from_u32(u32::from_le_bytes([s.data[4], s.data[5], s.data[6], s.data[7]]));
+        if let (Some(sound), Some(kind)) = (global(lo, pi, local).filter(|&g| g != 0 && local != 0), kind) {
+            w.sounds.push(WeatherSound { sound, kind });
+        }
+    }
+    w.precipitation_model = f.string(b"MODL").filter(|s| !s.is_empty());
     Some(w)
 }
 

@@ -308,6 +308,73 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   - A loaded game shows its saved weather and keeps it, without a roll, while the list
     followed at its place lists it; `--weather` pins one weather for the whole run (the
     parity lab passes it for every exterior frame; interior frames do not use the sky).
+- **Weather sound, precipitation and lightning** (`fnv_world::sky::Weather::{sounds,
+  precipitation_model, lightning}`, engine `weather_fx.rs`; built 2026-10-21, ESM gap
+  audit row 9). The fields [documented: xEdit wbDefinitionsFNV WTHR, wbWeatherSounds]:
+  `SNAM` (repeating) = a SOUN and a kind, 0 Default, 1 Precipitation, 2 Wind, 3 Thunder;
+  `MODL` = the precipitation model (GECK wiki GetWeatherPrecipitationModel: "the
+  Precipitation model path of a weather"); `DATA` bytes after wind speed: trans delta,
+  sun glare, sun damage, precipitation begin fade in, precipitation end fade out,
+  lightning begin fade in, lightning end fade out, lightning frequency, the "weather
+  classification" flags (1 Pleasant, 2 Cloudy, 4 Rainy, 8 Snow; GECK wiki
+  GetWeatherTraitNumeric traits 8-14 name the same fields) and the lightning colour (RGB).
+  What the masters hold [observed, `weather_dump --sounds` over the ten masters]:
+  - No WTHR has a `MODL`: no weather in the masters draws precipitation by itself.
+  - Sounds: the seven `DLC01Pitt…` weathers (Fallout 3 leftovers, no NV worldspace uses
+    their climates) name a Default sound 0x000922EA that is not in the load order; Honest
+    Hearts' two rain weathers (NVDLC02ZVRainWeather, NVDLC02TheNarrowsRainWeather) name
+    one Thunder sound, AMBNVDLC02ThunderDis1. No other weather has a sound.
+  - Lightning: the two Honest Hearts rain weathers are the only Rainy ones (class 4,
+    lightning frequency 138, fades 128/128, colour white); the clear weathers store
+    frequency 255 and a black colour with the Pleasant class; the overcast ones (class
+    Cloudy) frequency 15 or 50.
+  - Honest Hearts' rain and Hidden Valley's dust storm are drawn by scripts, not the
+    weather: NVDLC02rainscript moves the activators NVDLC02Rain/NVDLC02RainUp
+    (`meshes\nvdlc02\sky\nvdlc02rain*.nif`; see **Rain** below) to the player and enables the rain-sound
+    reference NVDLC02AmbRainEffectREF while IsRaining; VHiddenValleyDustStormQuestScript
+    sets HVDustStorm (a weather with fog and wind 127 but no sound or model) and enables
+    the placed HVSandStormNight01-10 references, and HVSandStormAudioScript plays the
+    storm loop. Those run through the script engine and the placed references as any
+    script does; nothing here is special to them.
+  The rules NVForever follows:
+  - **Outdoors only.** Indoors (the cell's own lighting) no weather sound plays, no
+    precipitation is drawn and no lightning flashes [documented: GECK wiki
+    TriggerLightningFX "will only work when the player is outdoors"; hypothesis for sounds
+    and precipitation: the rain script plays its own interior rain sound, so the weather's
+    does not reach indoors].
+  - **Sounds.** Default and Wind sounds loop at the listener while their weather is shown
+    (from the start of the change to it until the start of the change away);
+    Precipitation sounds loop while its precipitation falls (below) [hypothesis]. They play
+    through the effects volume, as every SOUN does (`nvf_play::sfx::LoopSound`). Log:
+    `weather fx: <SOUN> (<kind>) loops for <weather>` / `… stops`.
+  - **Precipitation** falls while the weather's change has passed its begin-fade-in byte
+    (as a share of 255 of the change) and, when changing away, until the change passes its
+    end-fade-out byte [hypothesis from the field names; a weather shown without a change
+    rains at once]. Its model is drawn about the camera: a holder at the camera's place,
+    moved with it every frame, with the model's particle systems emitting there (world
+    space particles stay where they fell). Log: `weather fx: precipitation <model> on for
+    <weather>` / `… off`.
+  - **Lightning** flashes in a weather with a lightning frequency above 0 that is Rainy
+    or has a Thunder sound [hypothesis: TriggerLightningFX "only work[s] when ... it is
+    raining"; the clear weathers' 255 would otherwise flash], over the same share of the
+    change as precipitation but with the lightning fade bytes. The time to the next flash
+    is drawn evenly from 0.5 to 1.5 times `LIGHTNING_MEAN_MIN + (LIGHTNING_MEAN_MAX −
+    LIGHTNING_MEAN_MIN) × (1 − frequency / 255)` real seconds (4 to 40: 138 gives about 22)
+    [hypothesis: the byte's scale is not documented; higher is read as more often]. A
+    flash adds the lightning colour to the ambient light and the sky's glow, falling off
+    over `FLASH_SECONDS` (0.35 s) with a second, weaker pulse [hypothesis, a look]. A
+    Thunder sound (one of the weather's, at random) follows each flash after 1 to 4 s, as
+    from a strike some hundreds of metres to over a kilometre away [hypothesis]. Log:
+    `weather fx: lightning flash in <weather> (colour r,g,b), next in <s> s` and
+    `weather fx: thunder <SOUN> <s> s after the flash`.
+  - Test aid `NVF_PLAY_TEST_WEATHER_FX=precip=<model>;sound=<SOUN EDID>` gives the shown
+    weather a precipitation model and a Precipitation sound, as a mod's weather would
+    have (no master weather has either); the smoke scenario `weather-sound-precip` uses it
+    with Honest Hearts' rain model and rain loop beside NVDLC02ZVRainWeather's own
+    lightning and thunder.
+  - Not built: the Snow class, sun damage and sun glare bytes, the wind speed moving
+    anything, GetWeatherTraitNumeric and the JIP weather setters, and lightning lighting
+    the clouds by their own colour.
 - **Weather colours (WTHR NAM0)**: ten colour types in the order sky-upper, fog, unused,
   ambient, sunlight, sun, stars, sky-lower, horizon, effect lighting [documented]; each
   has one RGBA byte colour per time of day: sunrise, day, sunset, night and, in the
