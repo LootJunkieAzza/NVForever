@@ -238,7 +238,7 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
    frame since 2026-10-18, docs/spec-notes/anim-state.md) and **AI package codes**
    (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2; built 2026-10-18, script-stubs.md §3.16): each a few dozen quests.
 9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan** (built
-   2026-10-19, docs/spec-notes/caravan.md), **slot machines**.
+   2026-10-19, docs/spec-notes/caravan.md), **slot machines** (built 2026-10-21, docs/spec-notes/slots.md).
 
 Cheap fixes left (the system exists, little use): GetDialogueEmotion's
 current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, a loaded
@@ -298,7 +298,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 32 | dialogue: current response | wrong | 0 | 0 / 0 | 0 / 20 | GetDialogueEmotion | - | - |
 | 33 | environment radiation | no-system | 0 | 0 / 0 | 0 / 7 | GetRadiationLevel | - | - |
 | 34 | swimming told to the rules | wrong | 0 | 0 / 0 | 0 / 7 | IsSwimming | - | - |
-| 35 | casino slot machines | no-system | 0 | 0 / 0 | 5 / 0 | ShowSlotMachineMenuParams | - | - |
+| 35 | casino slot machines (built 2026-10-21, slots.md) | no-system | 0 | 0 / 0 | 5 / 0 | ShowSlotMachineMenuParams | - | - |
 | 36 | grabbing objects | no-system | 0 | 0 / 0 | 3 / 1 | IsPlayerGrabbedRef | - | - |
 | 37 | IDLE-tree idles picked by scripts | wrong | 0 | 0 / 0 | 2 / 0 | PickIdle | - | - |
 | 38 | forced hit reactions | no-system | 0 | 0 / 0 | 0 / 2 | GetForceHitReaction | - | - |
@@ -688,7 +688,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ShowRepairMenu | 0x117A | 15 / 0 | no-system | repair menu | - | Item condition exists; repair does not. |
 | ShowRouletteMenuParams | 0x1256 | 6 / 0 | match | - | - | not in the audit's table |
 | ShowSleepWaitMenu | 0x1279 | 2 / 0 | match | - | - |  |
-| ShowSlotMachineMenuParams | 0x1252 | 5 / 0 | no-system | casino slot machines | - | Stub; blackjack and roulette are built. |
+| ShowSlotMachineMenuParams | 0x1252 | 5 / 0 | match | casino slot machines | - | Built 2026-10-21 (spec-notes/slots.md): the menu, reels from the record's stops, the payout screen's payouts (hypotheses), earnings and bans. |
 | ShowTraitMenu | 0x1268 | 5 / 0 | match | - | - |  |
 | ShowTutorialMenu | 0x11E3 | 2 / 0 | match | - | - | The tutorial menu from tutorial_menu.xml over the open menu (tutorial-menu.md); its code 1059 [observed: capture mh1_tutorial]; CloseAllMenus closes it with the menu under it [observed]. |
 | ShowWarning | 0x11B9 | 71 / 0 | match | - | - |  |

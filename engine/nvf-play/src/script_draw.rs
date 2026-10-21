@@ -48,6 +48,11 @@ struct Dormant {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ScriptDrawnRoot(pub u32);
 
+/// The model a [`ScriptDrawnRoot`] draws (archive path): the engine puts the model's
+/// particle emitters under the root (`nvforever::particles`, particles.md §7.4).
+#[derive(Component, Clone, Debug)]
+pub struct ScriptDrawnModel(pub String);
+
 #[derive(Resource, Default)]
 pub struct ScriptDrawn {
     /// Dormant references per render cell, read when the cell first loads.
@@ -178,7 +183,7 @@ fn sync(
                         continue;
                     };
                     let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * pose(&sim, &d.placement)));
-                    let root = commands.spawn((Name::new(format!("Enabled {id:08X}")), ScriptDrawnRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
+                    let root = commands.spawn((Name::new(format!("Enabled {id:08X}")), ScriptDrawnRoot(id), ScriptDrawnModel(d.path.clone()), t, Visibility::default(), ChildOf(cell_e))).id();
                     // A rig that only plays the model as an effect (`Rig::effect`, a mine's light
                     // controller) is not drawn as one: as render streaming, a reference's own node
                     // hierarchy is for an idle, a door or script groups, and the flat shapes keep a

@@ -79,6 +79,7 @@ pub mod respawn;
 pub mod resurrect;
 pub mod rest;
 pub mod roulette;
+pub mod slots;
 pub mod sound;
 pub mod style_weapon;
 pub mod talking_activators;

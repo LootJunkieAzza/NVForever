@@ -2464,6 +2464,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "placed-particle-smokes"
+source = "docs/spec-notes/particles.md §7 (queue item 21, playtest list 4 item 16): placed models' own particle systems are each reference's own, not one pool shared by every reference of the file; Gomorrah's casino floor (Gomorrah00) has 43 wall sconces (neoclassicalsconcefire01.nif, two flame systems each) whose systems were one pool shared by all of them before (a vertex count of particles for the whole floor); the exit line counts the placed references whose particles were born; one frame in target/smoke (placed_particles.png)"
+areas = ["particles", "effects"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/particles.rs", "engine/nvf-play/src/script_draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:placed_particles.png" }
+args = ["--play", "--cell", "Gomorrah00", "--pos=5300,1660,6440", "--heading", "270", "--hour", "21", "--no-voice", "--no-messages"]
+run_seconds = 8
+expect = [
+  { re = 'particles: model \S*neoclassicalsconcefire01\.nif: 2 system', label = "the sconces' own flames are read" },
+  { re = 'particles: model \S*neoclassicalsconcefire01\.nif: .*not read', count = 0, label = "every particle block of the sconce read" },
+  { re = 'particles: born in \S*neoclassicalsconcefire01\.nif: .* [1-9]', label = "the sconces' flames are born" },
+  { re = 'particles: placed references emitting: (?P<n>\d+) of', range = [30, 1000], label = "most of the 45 placed particle models of the floor emit" },
+  { re = 'particles: placed references emitting: .* at most (?P<n>\d+) placed model instances', range = [30, 1000], label = "each sconce has its own systems" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]
@@ -5003,6 +5019,30 @@ order = [[
 expect = [
   { re = 'roulette view: .* 159 bet points', label = "every bet point of the points model read" },
   "roulette summary: 1 asked, 1 opened (0 refused); 2 bets placed, 0 refused; 1 spins, 865 chips won, 0 lost; 0 bans",
+]
+
+[[scenario]]
+name = "slots"
+source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (0x0016546A in TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
+areas = ["slots", "menus"]
+paths = ["crates/fnv-game/src/slots.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvf-play/src/lockpick/help.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_help.png,38.5:slots_payouts.png,41:slots_spin.png,43.5:slots_result.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 61
+order = [[
+  "slots: the player is given 200 chips",
+  'slots: open The Tops (0x00144C3F): bets 1 to 75, 200 chips carried, earnings 0 of 10000, reel stops [2, 2, 2, 2, 2, 2, 2] (14 a reel), 7 symbol pictures, model terminals\NV_SlotMachine\NV_SlotMachine-Minigame.NIF; help message shown (first use)',
+  "slots: help message closed",
+  "slots: payout list shown",
+  "slots: payout list hidden",
+  "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips, net 795; earnings 795 of 10000 (level 0)",
+  "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips, net 5; earnings 800 of 10000 (level 0)",
+  "slots: the reels stop on Bell BAR Seven: nothing, net -5; earnings 795 of 10000 (level 0)",
+  "slots: closed (the player left)",
+]]
+expect = [
+  "slots summary: 1 asked, 1 opened (0 refused); 3 spins, 2 won, 800 chips won, 5 lost; 0 bans",
 ]
 
 [[scenario]]
