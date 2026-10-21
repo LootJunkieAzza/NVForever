@@ -77,8 +77,8 @@ under active work.
 - **Sound.** Several sounds never play: MSTT SNAM, STAT RNAM and BRUS (bush rustle), LIGH
   SNAM hum, TERM SNAM, ADDN SNAM, the PROJ in-flight sound, WEAP Shoot Dist, NAM6 Block and
   UNAM Idle, WATR SNAM, and MGEF effect sounds. SOUN ignores its attenuation curve, loop
-  points, the 2D flag, Mute When Submerged and Start at Random Position. ASPC has no reverb
-  (environment type) and no crowd walla. ALOC location and retrigger delays are stored
+  points, the 2D flag, Mute When Submerged and Start at Random Position. ASPC has no crowd walla
+  (its reverb environment is played since claude/q27-reverb). ALOC location and retrigger delays are stored
   only. ARMO "Modulates Voice" is ignored. TACT "No Voice Filter" (header bit 13) is not
   in the schema, and no radio or intercom voice filter exists.
 - **Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only

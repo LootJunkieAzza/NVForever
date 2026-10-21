@@ -131,8 +131,8 @@ The acoustic space of the cell the player is in names a looping sound per time o
 17–21, night otherwise; a space with only its first sound plays it all day; one loop
 gives way to the next over 2 seconds. The hours the game uses are not known.
 
-Not built: the reverb environment, walla, and the region an acoustic space points to
-(REGN sound lists, `RDSD`).
+Not built: walla, and the region an acoustic space points to (REGN sound lists,
+`RDSD`). The space's reverb environment: §14.6.
 
 ## 7. Playback (`nvforever --play`)
 
@@ -828,17 +828,75 @@ loops and random markers, objects' and creatures' sources, radios. Not panned: s
 the listener (the player's own, interface), background loops, music, voices (a
 recorded decision: voice plays flat, voice.md).
 
-### 14.6 Reverb (not built)
+### 14.6 Reverb
 
-ASPC `ANAM` is an environment type [documented: xEdit]: None, Default, Generic, Padded
-Cell, Room, Bathroom, Livingroom, Stone Room, Auditorium, Concerthall, Cave, Arena,
-Hangar, Carpeted Hallway, Hallway, Stone Corridor, Alley, Forest, City, Mountains,
-Quarry, Plain, Parkinglot, Sewerpipe, Underwater, Small Room … Large Hall, Plate: the
-names of the I3DL2 / EAX reverb presets [hypothesis: the game hands the preset to its
-audio library]. Used in FalloutNV.esm [observed]: Small Room 26, Stone Corridor 25,
-Auditorium 23, Medium Room 15, Large Room 10, Cave 5, Medium Hall 3, Mountains 2,
-Livingroom, Sewerpipe, Stone Room and None 1 each. Not built: no reverb is applied; the
-preset values would need a documented source.
+**The records.**
+- ASPC `ANAM` is an environment type, stored as a number 0–30 [documented: xEdit
+  `wbDefinitionsFNV.pas`, schemas/fnv/audio.json]: None, Default, Generic, Padded Cell,
+  Room, Bathroom, Livingroom, Stone Room, Auditorium, Concerthall, Cave, Arena, Hangar,
+  Carpeted Hallway, Hallway, Stone Corridor, Alley, Forest, City, Mountains, Quarry,
+  Plain, Parkinglot, Sewerpipe, Underwater, Small Room, Medium Room, Large Room, Medium
+  Hall, Large Hall, Plate. The GECK wiki calls the field a "drop-down list of DirectSound
+  reverb presets" [documented: GECK wiki "Acoustic Space"], and the names after None are
+  DirectSound's I3DL2 environment presets in the order of its
+  `DSFX_I3DL2_ENVIRONMENT_PRESET_*` list [documented: Windows SDK `um/dsound.h`]. New
+  Vegas has no REVB records (those are later games') [observed: no REVB group in
+  FalloutNV.esm].
+- The preset's parameters are DirectSound's `I3DL2_ENVIRONMENT_PRESET_*` values, the
+  twelve fields of `DSFXI3DL2Reverb`: Room and Room HF (mB), Room Rolloff Factor, Decay
+  Time (s), Decay HF Ratio, Reflections (mB) and Reflections Delay (s), Reverb (mB) and
+  Reverb Delay (s), Diffusion and Density (%), HF Reference (Hz) [documented: dsound.h,
+  Windows SDK 10.0.26100.0]. `nvf_play::reverb::PRESETS` holds them.
+- SOUN `SNDD` flag 2 is Environment Ignored, flag 5 Menu Sound [documented: xEdit; GECK
+  wiki GetSoundFlag]; SOUN `GNAM` is "Reverb Attenuation Control" (i16) [documented:
+  xEdit; GECK wiki GetSoundTraitNumeric, trait 11]; its unit is not documented and it is
+  not read. The desert's background loops carry Environment Ignored [observed:
+  `AMBDesertBedDawn`].
+- The game applies the environment only when the INI setting `bEnableEnviroEffectsOnPC`
+  is 1 [documented: GECK wiki "Acoustic Space" notes], and the shipped default INI sets
+  it to 0 [observed: `Fallout_default.ini`]: as shipped, the original plays no reverb on
+  PC. The wiki also says acoustic spaces placed in cells (the placed boxes) do not work
+  in New Vegas [documented: GECK wiki].
+- In FalloutNV.esm [observed, `fnvtool world audio`, `acoustic_spaces`]: 113 spaces,
+  99 interior, 14 exterior. Interior: Small Room 26, Stone Corridor 25, Auditorium 23,
+  Large Room 10, Cave 5, Medium Room 3, Medium Hall 3, Livingroom, Sewerpipe, Stone Room
+  and None 1 each. Exterior: Medium Room 12 (`ExtDesertDefault`, the lake shore and the
+  lake body, the airport, Hoover Dam, …), Mountains 2 (`EXTTheStrip`, `ExtSlum`).
+  Examples: the Prospector Saloon and Doc Mitchell's house are Small Room, Vault 19
+  Stone Corridor, the Goodsprings cave Cave.
+
+**As built** (`nvf_play::reverb`, NVForever plays it on by default; the settings page's
+Sound tab switch `reverb`, or `--no-reverb`, turns it off) [design: the owner asked for
+reverb indoors, owner-review.md].
+- **The environment** is that of the acoustic space of the cell the listener is in (CELL
+  `XCAS`, as for the background loops, §6): inside, as stored; outside, only an open-air
+  preset (Alley, Forest, City, Mountains, Quarry, Plain, Parkinglot, Underwater), a
+  room's preset playing dry [hypothesis: the Medium Room of 12 exterior spaces, the open
+  desert among them, reads as a value left unset]. The log says each change:
+  `reverb: interior 00153159: acoustic space INTCave (001445CA) environment Cave -> Cave`.
+- **The sounds** [hypothesis]: every sound effect (§10–§14: shots, impacts, footsteps,
+  doors, creatures, the random placed sounds) and the placed loops, as they start; not
+  the records with Environment Ignored or Menu Sound, the interface sounds (`UI…`), the
+  background loops (the room's own tone), music, voices, radios, or the loops a weapon
+  holds while it fires (they repeat their file, and the tail would break at each repeat).
+- **Per sound** [hypothesis: DirectSound's effects run on each sound buffer, so a sound's
+  reverb falls with its distance as the sound does]: each sound has its own reverb and
+  plays in stereo, and goes on for the preset's delays plus its decay time (at most 6 s)
+  after its file ends.
+- **The processor** [hypothesis: how DirectSound renders the parameters is not
+  documented]: the sound mixed to one channel; Room HF a one-pole low-pass at the HF
+  reference; the early reflections one tap at Reflections Delay at Room + Reflections;
+  the late reverb Reverb Delay later at Room + Reverb, through eight parallel feedback
+  combs per ear (Freeverb's lengths, the right ear 23 samples longer) and four series
+  all-passes. Each comb falls 60 dB in Decay Time; a low-pass in its loop makes the HF
+  reference fall in Decay Time × Decay HF Ratio (a ratio above 1 taken as 1). The combs'
+  inputs are scaled so an impulse's late tail carries its level's energy. Density scales
+  the comb lengths (half to whole), Diffusion the all-passes' gain (up to 0.5). Room
+  Rolloff Factor is 0 in every preset.
+- Not built: the `GNAM` reverb attenuation, voices in rooms (the wiki says the
+  original's reverb is cut at the end of each spoken line), a reverb that changes under a
+  sound already playing.
+- Smoke: `reverb-cave-exit` (the Goodsprings cave, a shot, out through its door).
 
 ### 14.7 Checks
 

@@ -976,7 +976,7 @@ fn play(
             // Panned where the receiver or actor is (`crate::sfx`).
             Some(at) => {
                 let at = SoundAt::new(at, Some(&player));
-                let handle = panned.add(Panned { inner: sound, pan: at.pan.clone() });
+                let handle = panned.add(Panned::new(sound, at.pan.clone()));
                 commands.spawn((AudioPlayer::<Panned<RadioSound>>(handle), PlaybackSettings::DESPAWN, at, RadioEntity, SoundCategory::Radio)).id()
             }
             None => commands.spawn((AudioPlayer::<RadioSound>(assets.add(sound)), PlaybackSettings::DESPAWN, RadioEntity, SoundCategory::Radio)).id(),
