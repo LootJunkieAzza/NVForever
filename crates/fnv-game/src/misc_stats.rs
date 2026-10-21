@@ -88,9 +88,10 @@ pub const ROULETTE_GAMES_PLAYED: u16 = 40;
 pub const CARAVAN_GAMES_WON: u16 = 37;
 pub const CARAVAN_GAMES_LOST: u16 = 38;
 pub const BLACKJACK_GAMES_PLAYED: u16 = 41;
+pub const SLOTS_GAMES_PLAYED: u16 = 42;
 
 /// The codes the rules or the engine count (the others only ModPCMiscStat changes).
-pub const COUNTED: [u16; 29] = [
+pub const COUNTED: [u16; 30] = [
     QUESTS_COMPLETED,
     LOCATIONS_DISCOVERED,
     PEOPLE_KILLED,
@@ -120,6 +121,7 @@ pub const COUNTED: [u16; 29] = [
     BARTER_AMOUNT_TRADED,
     ROULETTE_GAMES_PLAYED,
     BLACKJACK_GAMES_PLAYED,
+    SLOTS_GAMES_PLAYED,
 ];
 
 /// The code of a statistic's name, ignoring case.

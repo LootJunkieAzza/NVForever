@@ -78,6 +78,7 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 | Items Repaired | the player repairs an item from the Pip-Boy (a vendor's repair does not count) [hypothesis] | `nvf-play` Pip-Boy repair |
 | Barter Amount Traded | an accepted trade: the caps that changed hands [hypothesis: not the goods' value] | `nvf-play` menu |
 | Roulette / Blackjack Games Played | a spin is paid; a blackjack hand is dealt | `nvf-play` roulette, blackjack |
+| Slots Games Played | a slot machine spin is paid ([slots](slots.md) §4) | `nvf-play` slots |
 | Caravan Games Won / Lost | a Caravan game ends (a forfeit is a loss) | `nvf-play` caravan ([caravan](caravan.md) §7) |
 
 **Not counted** (only ModPCMiscStat changes them): Pockets Picked (pickpocketing is not
@@ -85,7 +86,7 @@ built), Pants Exploded, Books Read (skill books), Weapons Created, Sandman Kills
 Paralyzing Punches, Robots Disabled, Corpses Eaten, Mysterious Stranger Visits, Miss
 Fortunate Occurrences, Disintegrations, Dismembered Limbs (no dismemberment), Speech
 Failures and New Vegas skill-check successes (the checks' pass and fail are not judged by
-the dialogue yet), Weapon Modifications, Slots Games Played (no slot machines). "Days passed" is not a statistic of the list; it is
+the dialogue yet), Weapon Modifications. "Days passed" is not a statistic of the list; it is
 the GameDaysPassed global.
 
 ## 4. The Pip-Boy
