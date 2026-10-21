@@ -1229,6 +1229,46 @@ pub struct GameSnapshot {
     pub fade_moves: BTreeMap<FormId, crate::functions::misc::FadeMove>,
 }
 
+impl GameSnapshot {
+    /// After a save made with another load order was remapped (`fnv_save::remap_json`,
+    /// docs/design/save-load.md §4.1): drop what stands on forms of plugins no longer
+    /// loaded (`gone`), where a field and not a key names them. References whose base form
+    /// or cell is gone (created ones: a plugin's creature placed with PlaceAtMe, its item
+    /// dropped), script instances whose key or script is gone, magic effects whose effect,
+    /// source, target or script is gone (and their effect scripts), and the radio station
+    /// or weather shown. Other fields keep the gone ID, which names no form: a lookup of it
+    /// fails as one of any form that does not exist [hypothesis: the original's behaviour
+    /// with a missing plugin is not documented]. Returns how many were dropped.
+    pub fn drop_gone(&mut self, gone: impl Fn(FormId) -> bool) -> usize {
+        let mut n = 0;
+        let before = self.sim.refs.len();
+        self.sim.refs.retain(|_, r| !gone(r.base) && !r.cell.is_some_and(&gone));
+        n += before - self.sim.refs.len();
+        let before = self.effects.len();
+        self.effects.retain(|e| !gone(e.effect) && !gone(e.source) && !gone(e.target) && !e.script.is_some_and(&gone));
+        n += before - self.effects.len();
+        let live: BTreeSet<u32> = self.effects.iter().map(|e| e.id).collect();
+        let before = self.instances.len();
+        self.instances.retain(|(k, inst)| {
+            let key_gone = match k {
+                InstKey::Ref { reference } => gone(*reference),
+                InstKey::Quest { quest } => gone(*quest),
+                InstKey::Item { holder, item } => gone(*holder) || gone(*item),
+                InstKey::Effect { id } => !live.contains(id),
+            };
+            !key_gone && !inst.script.is_some_and(&gone)
+        });
+        n += before - self.instances.len();
+        for slot in [&mut self.pipboy_station, &mut self.weather_shown] {
+            if slot.is_some_and(&gone) {
+                *slot = None;
+                n += 1;
+            }
+        }
+        n
+    }
+}
+
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
 
 /// How an activation runs.

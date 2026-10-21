@@ -168,12 +168,65 @@ normal case; a reordered list is remapped by name (rewrite the high byte of ever
 ID); a missing plugin drops the forms from it with a warning. Dynamic (created) IDs are
 ours and never remapped.
 
-Built so far (2026-10-18): equal lists, and plugins added after all of the save's
+Built (2026-10-18): equal lists, and plugins added after all of the save's
 (`fnv_save::PluginCheck::Appended`: every saved form ID keeps its plugin's place, so the
 save loads as it is and the added plugins' objects appear, a save holding only the
-differences). Anything else, a plugin added before one of the save's, a missing or
-reordered one, still refuses to load, saying which plugins differ; a load from the menu or
-the pause menu that fails this way says so in a message box.
+differences). Built 2026-10-21 (queue item 29): any other list, §4.1.
+
+### 4.1 Loading into another load order
+
+Facts. A form ID's top byte is its plugin's position in the load order [documented: GECK
+wiki FormID, "the first two digits of a FormID correspond with the position of the data
+file from which the form originates in your load order", up to 255 files, `FF` for forms
+made in play]. Form IDs therefore change when the load order changes [documented: GECK
+wiki GetFormIDString, "FormIDs may change on game load, dependent on load order"; the
+xNVSE function ValidateModIndex resolves "a mod index which was stored during a previous
+game session to account for any changes to the user's load order", or fails when "the mod
+is no longer loaded"]. The original's saves hold the plugin list they were made with and
+their form IDs index it [observed: save-files.md §4, §6.3]. What the original shows when
+plugins are missing is not documented in the GECK wiki export (no setting in
+`FalloutNV.esm` names it; its strings would be in the encrypted executable).
+
+What NVForever does (`fnv_save::PluginRemap`, `fnv_save::remap_json`,
+`fnv_game::game::GameSnapshot::drop_gone`, `nvf_play::save::read_for_load`):
+
+1. The save's plugins are matched to the current ones by file name, case ignored. Each
+   saved index maps to the plugin's index now, or to *missing*.
+2. If every index maps to itself (same list, or plugins appended) the body loads as it is.
+3. Otherwise every form ID in the body is rewritten: its top byte becomes the plugin's
+   index now; created forms (`FF`) and 0 ("none") stay. Form IDs are found by how the
+   snapshots write them: strings `0x%08X` (values and map keys) and script variables'
+   `{"ref": n}`; the engine part's raw numbers (weapon in hand, active quest) and the
+   modules' parts (`SaveHook::remap`: map markers found, reputation titles shown) are
+   remapped by their owners.
+4. A form of a missing plugin: where it is a map key, a list entry, or in a pair or tuple
+   that is a list entry, that entry is removed (a reference of the plugin's, an item in an
+   inventory, a quest's state, a global, a form-list entry, a remembered pair).
+   Anywhere else (a field) it is moved to the *gone* slot `FE` with its low bytes, which no
+   plugin uses; then the game layer drops what stands on one: references whose base or
+   cell is gone (created ones of the plugin's bases), script instances whose key or script
+   is gone, magic effects whose effect, source, target or script is gone, the radio station
+   and weather shown. Other fields keep the gone ID, which names no form, as a script's
+   reference to a form that does not exist [hypothesis: the original's handling is not
+   documented].
+5. The player's place: if its worldspace or interior cell is from a missing plugin the
+   load is refused (there is nowhere to start); otherwise it is remapped before the world
+   opens.
+6. A load order of 255 plugins uses the `FE` slot: a save with missing plugins is then
+   refused, saying so [hypothesis: our choice, rather than let gone forms alias a real one].
+7. The run's output says what happened, e.g. `load: <save> was made with another load
+   order: moved ["DeadMoney.esm 01->02", ...], missing now [...], added [...]; N FormIDs
+   remapped, M entries of missing plugins dropped ({per plugin}), K fields named a missing
+   plugin's form, J entries holding them dropped by the game layer`. When plugins are
+   missing the player gets a corner message as the game comes up: "This save relies on
+   content that is no longer present: <plugins>. What came from it was removed." (also in
+   the console) [hypothesis: our wording and our choice to load with a notice rather than
+   ask; the original's is not documented].
+
+Smoke `save-load-order` (run after `save-write`): the round-trip save made with the ten
+masters loads with `--plugins FalloutNV.esm GunRunnersArsenal.esm DeadMoney.esm`
+[observed 2026-10-21: 455 FormIDs remapped, 536 entries of Honest Hearts, Old World Blues
+and Lonesome Road dropped, 36 more by the game layer; the base game's changes back].
 
 ## 5. Decisions (owner 2026-10-15: the recommendations below)
 
@@ -193,9 +246,8 @@ the pause menu that fails this way says so in a message box.
 4. **AI continuity**: packages start again from where each actor stands; patrol and
    sandbox progress is not saved. Revisit if a reload in a busy cell looks wrong.
 5. **Physics**: objects load at rest where they were.
-6. **Another load order**: forms would be remapped by name; **not built yet**: a save made
-   with other plugins (missing, added or reordered) is refused with the differences
-   listed.
+6. **Another load order**: forms are remapped by name, those of missing plugins dropped
+   with a notice; built 2026-10-21 (§4.1).
 7. **Importing a `.fos`**: not planned.
 8. **Thumbnail**: 512×288 from the main camera; built (§6), shown on the pause menu's load
    page.
@@ -222,7 +274,7 @@ the pause menu that fails this way says so in a message box.
   `nvf.save.body/1` = game snapshot + engine snapshot.
 - **Loading**: `nvforever --load <name|path>` reads the header first (its worldspace,
   cell, position, heading, pitch, hour and weather start the world there), then the body
-  once the load order is known (refused if it differs); the script runtime restores the
+  once the load order is known (remapped if it differs, §4.1); the script runtime restores the
   game and the simulation as it is made, before its first frame, and sends `RefChanged`
   for every reference the save changed so the drawn world follows; the engine part is put
   back next. Loading while playing (console `load`, F9, the pause and main menus) starts
@@ -288,6 +340,6 @@ load and save menus carry a Delete hint (`load_and_save_menus.xml`, `save_delete
 shown with a controller); the key, the question and its place are NVForever's]. Smoke
 `save-delete-console`.
 
-Not built: renaming saves from the menu, remapping another load order, in-place loading
+Not built: renaming saves from the menu, in-place loading
 without a new run (by design, see above), AI agent progress, corpse poses beyond their position, the sitting or
 lying pose (the player stands up), playback positions of music and radio.
