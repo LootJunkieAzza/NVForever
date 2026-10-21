@@ -252,6 +252,8 @@ pub struct DataState {
     seen_count: u64,
     /// "Show Active Quest Notes" is on.
     notes_of_active: bool,
+    /// The Notes tab shows the challenges instead ("Challenges", R; `crate::challenges`).
+    challenges: bool,
     /// The point shown at each map's middle (world: the picture's 0–1; local: game x, y)
     /// and its magnification.
     centre: [Option<[f32; 2]>; 2],
@@ -591,6 +593,8 @@ struct Lists {
     stations: Vec<(u32, String)>,
     /// The station the Pip-Boy plays (its base), when on.
     playing: Option<u32>,
+    /// The Notes tab lists these instead of the notes.
+    challenges: Option<Vec<crate::challenges::Row>>,
 }
 
 fn lists(st: &mut DataState, game: &Game) -> Lists {
@@ -627,6 +631,9 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         }
     }
     out.notes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.form.cmp(&b.form)));
+    if st.challenges {
+        out.challenges = Some(crate::challenges::rows(g));
+    }
     if let (Some(radio), Some(places)) = (game.radio.as_ref(), game.places.as_ref()) {
         out.stations = radio
             .pipboy_list
@@ -645,7 +652,7 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
 fn list_len(tab: usize, l: &Lists) -> usize {
     match tab {
         QUESTS => l.quests.len(),
-        NOTES => l.notes.len(),
+        NOTES => l.challenges.as_ref().map_or(l.notes.len(), Vec::len),
         RADIO => l.stations.len(),
         _ => 0,
     }
@@ -680,6 +687,9 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             st.boxed = true;
             st.text_first = 0.0;
         }
+    }
+    if tab == NOTES && input.keys.just_pressed(KeyR) {
+        st.acts.push(Act::Button(ButtonKind::Challenges));
     }
     if tab == NOTES {
         if input.keys.just_pressed(PageDown) {
@@ -873,7 +883,14 @@ fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
         ButtonKind::ShowLocation => {
             input.pip_out.write(PipBoyInput::Tab(WORLD));
         }
-        ButtonKind::PlaceMarker | ButtonKind::Challenges => info!("pipboy data: {k:?} is not built"),
+        ButtonKind::Challenges => {
+            st.challenges = !st.challenges;
+            st.sel[NOTES] = 0;
+            st.first[NOTES] = 0;
+            st.text_first = 0.0;
+            info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
+        }
+        ButtonKind::PlaceMarker => info!("pipboy data: {k:?} is not built"),
     }
 }
 
@@ -909,6 +926,18 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
                 .collect();
             let right = l.quests.get(st.sel[QUESTS]).map_or(Right::None, |q| Right::Objectives(objectives(game, q.form)));
             Body::List { rows, first: st.first[QUESTS], boxed: st.boxed.then_some(st.sel[QUESTS]), right }
+        }
+        NOTES if l.challenges.is_some() => {
+            // The challenges in place of the notes; R goes back [hypothesis: the button's
+            // word then].
+            buttons.push(Button { text: "Notes".into(), key: Some("R)"), kind: ButtonKind::Challenges });
+            let list = l.challenges.as_deref().unwrap_or_default();
+            let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
+            let right = list.get(st.sel[NOTES]).map_or(Right::None, |c| {
+                let state = if c.completed { "Completed".to_string() } else { format!("{}/{}", c.progress, c.threshold) };
+                Right::Text { text: format!("{}\n\n{state}", c.description), first: st.text_first }
+            });
+            Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
         }
         NOTES => {
             let text = if st.notes_of_active { "Show All Notes" } else { "Show Active Quest Notes" };

@@ -131,6 +131,8 @@ pub enum InstKey {
     Item { holder: FormId, item: FormId },
     /// The effect script of one active magic effect ([`ActiveEffect::id`]).
     Effect { id: u32 },
+    /// A challenge's reward script, run once (`crate::challenges`).
+    Challenge { challenge: FormId },
 }
 
 impl InstKey {
@@ -140,6 +142,7 @@ impl InstKey {
             InstKey::Quest { quest } => format!("quest:{quest}"),
             InstKey::Item { holder, item } => format!("item:{item}@{holder}"),
             InstKey::Effect { id } => format!("effect:{id}"),
+            InstKey::Challenge { challenge } => format!("challenge:{challenge}"),
         }
     }
 }
@@ -406,9 +409,15 @@ pub struct ChallengeState {
     /// RemoveRecurringFromChallenge cleared the Recurring flag.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub not_recurring: bool,
-    /// Progress towards the threshold (IncrementScriptedChallenge).
+    /// Progress towards the threshold (`crate::challenges`).
     #[serde(skip_serializing_if = "is_zero_u32", default)]
     pub progress: u32,
+    /// A part step not yet counted (damage), below 1.
+    #[serde(skip_serializing_if = "is_zero_f64", default)]
+    pub carry: f64,
+    /// Times completed (a recurring challenge more than once).
+    #[serde(skip_serializing_if = "is_zero_u32", default)]
+    pub times: u32,
 }
 
 fn is_zero_u32(v: &u32) -> bool {
@@ -1068,6 +1077,9 @@ pub struct Game<'a> {
     /// Cannibal's and Mister Sandman's acts under way (GetCannibal, GetSandman). Not
     /// saved.
     pub perk_acts: Vec<crate::activate_choices::PerkAct>,
+    /// Challenge rewards and notices waiting for the next frame (`crate::challenges`).
+    /// Not saved.
+    pub challenge_queue: crate::challenges::Queue,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -1265,6 +1277,7 @@ impl GameSnapshot {
                 InstKey::Quest { quest } => gone(*quest),
                 InstKey::Item { holder, item } => gone(*holder) || gone(*item),
                 InstKey::Effect { id } => !live.contains(id),
+                InstKey::Challenge { challenge } => gone(*challenge),
             };
             !key_gone && !inst.script.is_some_and(&gone)
         });
@@ -1383,6 +1396,7 @@ impl<'a> Game<'a> {
             appearance_changes: Vec::new(),
             activate_menu: None,
             perk_acts: Vec::new(),
+            challenge_queue: Default::default(),
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,
@@ -1423,7 +1437,15 @@ impl<'a> Game<'a> {
     }
 
     pub fn emit(&mut self, kind: EventKind) {
+        let acquired = match kind {
+            EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, .. } => Some((item, count)),
+            _ => None,
+        };
         self.events.push(Event { frame: self.frame, kind });
+        // Items coming to the player count towards the acquire challenges (`crate::challenges`).
+        if let Some((item, count)) = acquired {
+            self.challenge_acquired(item, count);
+        }
     }
 
     /// The new-game state: every quest flagged "Start game enabled" is running, with no
@@ -1817,6 +1839,10 @@ impl<'a> Game<'a> {
         // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
         if !self.perk_acts.is_empty() {
             self.finish_perk_acts();
+        }
+        // The rewards of challenges completed last frame (`crate::challenges`).
+        if !self.challenge_queue.rewards.is_empty() {
+            self.run_challenge_rewards();
         }
         if self.loading {
             self.side_blocks(menus::LOADING);

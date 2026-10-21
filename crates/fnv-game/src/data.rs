@@ -714,6 +714,8 @@ pub struct GameData {
     pub challenges: HashMap<FormId, u32>,
     /// CHAL DATA threshold: the progress at which the challenge is completed.
     pub challenge_thresholds: HashMap<FormId, u32>,
+    /// The whole CHAL record: what counts towards it (`crate::challenges`).
+    pub challenge_defs: HashMap<FormId, crate::challenges::ChallengeDef>,
     pub regions: HashMap<FormId, RegionDef>,
     pub magic_effects: HashMap<FormId, MagicEffectDef>,
     /// The effects of every ALCH, SPEL, ENCH and INGR, in record order.
@@ -1110,8 +1112,8 @@ struct Read {
     package: Option<PackageDef>,
     reputation: Option<f32>,
     reputation_name: Option<String>,
-    /// CHAL DATA flags and threshold.
-    challenge: Option<(u32, u32)>,
+    /// CHAL DATA, SNAM, XNAM, FULL and DESC.
+    challenge: Option<crate::challenges::ChallengeDef>,
     region: Option<RegionDef>,
     magic_effect: Option<MagicEffectDef>,
     effects: Option<Vec<EffectItem>>,
@@ -1205,6 +1207,7 @@ impl GameData {
             reputation_names: HashMap::new(),
             challenges: HashMap::new(),
             challenge_thresholds: HashMap::new(),
+            challenge_defs: HashMap::new(),
             regions: HashMap::new(),
             magic_effects: HashMap::new(),
             effect_items: HashMap::new(),
@@ -1362,9 +1365,11 @@ impl GameData {
             if let Some(v) = r.reputation_name {
                 d.reputation_names.insert(id, v);
             }
-            if let Some((flags, threshold)) = r.challenge {
-                d.challenges.insert(id, flags);
-                d.challenge_thresholds.insert(id, threshold);
+            if let Some(mut c) = r.challenge {
+                c.form = id;
+                d.challenges.insert(id, c.flags);
+                d.challenge_thresholds.insert(id, c.threshold);
+                d.challenge_defs.insert(id, c);
             }
             if let Some(v) = r.region {
                 d.regions.insert(id, v);
@@ -2363,11 +2368,28 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.reputation_name = decoded.iter().find(|(s, _)| *s == b"FULL").and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string)).filter(|n| !n.trim().is_empty());
         }
         b"CHAL" => {
-            out.challenge = decoded
-                .iter()
-                .find(|(s, _)| *s == b"DATA")
-                .and_then(|(_, v)| v.as_ref())
-                .map(|v| (flag_bits(v.get("flags")), v.get("threshold").and_then(Json::as_u64).unwrap_or(0) as u32));
+            let sub = |sig: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref());
+            let text = |sig: &[u8; 4]| sub(sig).and_then(|v| v.as_str()).map(str::to_string).filter(|t| !t.trim().is_empty());
+            let link = |sig: &[u8; 4]| sub(sig).and_then(hexid).and_then(map).map(FormId).filter(|f| f.0 != 0);
+            out.challenge = sub(b"DATA").map(|v| {
+                let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u32;
+                // value1/value2 are two bytes, value3 four (xEdit); read little-endian.
+                let bytes = |k: &str| v.get(k).and_then(Json::as_array).map_or(0, |a| a.iter().rev().fold(0u32, |acc, b| (acc << 8) | b.as_u64().unwrap_or(0) as u32));
+                crate::challenges::ChallengeDef {
+                    form: FormId(0),
+                    kind: v.get("type").and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t)).unwrap_or(-1),
+                    threshold: n("threshold"),
+                    flags: flag_bits(v.get("flags")),
+                    interval: n("interval"),
+                    value1: bytes("value1"),
+                    value2: bytes("value2"),
+                    value3: bytes("value3"),
+                    form1: link(b"SNAM"),
+                    form2: link(b"XNAM"),
+                    name: text(b"FULL"),
+                    description: text(b"DESC"),
+                }
+            });
         }
         b"REGN" => {
             let mut rg = RegionDef::default();

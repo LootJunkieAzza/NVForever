@@ -3525,6 +3525,27 @@ order = [[
 forbid = [{ re = 'VSpawnTier2GeckoMed \(', label = "the template actor's Editor ID as the name" }]
 
 [[scenario]]
+name = "challenge-kill"
+source = "ESM gap audit row 3 (docs/handoff/esm-gap-audit-2026-10-21.md; docs/spec-notes/challenges.md): challenges progress from the player's deeds; Animal Control (NVChallengeAnimalControl 0x0015EB24, kill any Mutated Animal, threshold 50) counts gecko kills, completes at 50 and runs its reward script (Animal Control perk, RewardXP 50)"
+note = "the geckos of creature-names (0x00157B3D, 0x00157B3E, creature type Mutated Animal); the challenge test aid sets Animal Control to 48 at 15 s, the script aid kills the geckos as the player at 16 and 17 s: 49/50, then 50/50 and completed; the reward script runs the next frame"
+areas = ["challenges"]
+paths = ["crates/fnv-game/src/challenges.rs", "engine/nvf-play/src/challenges.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "15:challenge:NVChallengeAnimalControl:48,16:kill:0x00157B3D,17:kill:0x00157B3E" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  { re = 'test aid: challenge NVChallengeAnimalControl at 48', label = "the test aid sets the progress" },
+  { re = 'challenge: Animal Control 49/50', label = "the first gecko kill counts (kill any in a category)" },
+  { re = 'challenge: Animal Control 50/50, completed', label = "the second completes it" },
+]]
+expect = [
+  { re = 'challenge notice: Challenge completed: Animal Control', label = "the completion's corner message" },
+  { re = 'xp: \+50 XP from a script', label = "the reward script's RewardXP 50 (ChallengeAnimalSCRIPT)" },
+  { re = 'challenge: Up to the Challenge 1/50', label = "the completion counts in Challenges Completed (a Miscellaneous Stat challenge)" },
+  { re = 'challenge: A Fistful of Hollars 2/42', label = "the kills with no weapon count as unarmed kills (kill from a form list, animation type Hand to Hand)" },
+]
+
+[[scenario]]
 name = "creature-no-talk"
 source = "playtest list 4 item 19 (engine/nvf-play/src/activate.rs): a creature with nothing to say shows only its name, no Talk"
 note = "a Goodsprings bighorner (0x0015EF63, GSBigHorner 'Young Bighorner', unaggressive, neutral to the player, no GREETING line)"
