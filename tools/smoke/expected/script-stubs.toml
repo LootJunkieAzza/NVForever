@@ -10,15 +10,15 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 9
+stubs = 8
 stub_calls = 19
-stub_condition_uses = 19
+stub_condition_uses = 12
 unhandled_used = 1
 
 [summary.by_status]  # every status, 0 when no stub has it
 assigned = 0
 implementable = 0
-needs_system = 9
+needs_system = 8
 no_op = 4
 
 # History (moved from scenarios.toml, 2026-10-19; the newest last):
@@ -96,3 +96,5 @@ no_op = 4
 # fnvtool script stubs on the ten masters, 2026-10-20].
 # claude/q20-ash-piles implemented AttachAshPile (4 calls, docs/spec-notes/ash-piles.md):
 # 10 -> 9 stubs, 23 -> 19 calls.
+# claude/q26-env-radiation implemented GetRadiationLevel (0 calls, 7 condition uses): 9 stubs,
+# 19 condition uses before it.

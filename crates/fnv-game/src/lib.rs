@@ -72,6 +72,7 @@ pub mod perks;
 pub mod poker;
 pub mod provocation;
 pub mod quest;
+pub mod radiation;
 pub mod radio;
 pub mod repair;
 pub mod respawn;

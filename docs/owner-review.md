@@ -6971,3 +6971,29 @@ drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
 is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
 stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
 upwards, about once a second?
+## Environment radiation (2026-10-21, queue item 26, branch claude/q26-env-radiation)
+
+Spec: [radiation](spec-notes/radiation.md). Radiation markers (the 119 `RadiationMarker`
+references with XRAD/XRDS) and irradiated water now give the player rads by the second,
+cut by Rad Resistance; GetRadiationLevel answers; the Geiger counter clicks; the HUD shows
+a radiation meter. Radiation sickness was already built (the Rads stages).
+1. *Decision:* a marker's whole level holds inside its radius and nothing outside; where
+   markers overlap the strongest counts (they do not add). Read from the masters' habit of
+   stacking markers of rising level and falling radius on one spot.
+2. *Decision:* rads taken = level × fRadiationAccumulationRate (1.0) × (1 − Rad
+   Resistance %), resistance capped at 85 % (the cap is a guess, as Damage Resistance's).
+3. *Decision:* water: no water has a WATR damage value, so swimming gives the water's
+   drink effect's rads × fSwimRadiationDamageMult (0.1), wading × fWadeRadiationDamageMult
+   (0.1): 1 rad a second in the river and lake waters (WaterHeal4Bad), 2 in
+   RadioactiveWater. The water type is the cell's.
+4. *Decision:* Geiger counter: one of the one-second bursts every second, A under 5 rads a
+   second, B under 10, C from 10. The bands are guesses.
+5. *Decision:* the meter shows "+n RADS" (rads a second taken) in the HUD's red just over
+   the health piece; the file gives no place and no text. The pointer picture is not drawn.
+6. Not built: NPCs taking rads, Glowing Ones' aura (area effects), fRadiationDecayRate and
+   fRadiationResistanceAvoidLevel (meaning unknown).
+*Check:* in the game, stand in the nuclear test site's shack (or by the Camp Searchlight
+crater) and compare with smoke `environment-radiation`: is the gain steady inside a
+marker's radius, or does it rise as you walk in? How many rads a second does the meter
+show, and where is it? Does the counter click faster with stronger radiation? Swim in
+Lake Mead for ten seconds: how many rads?

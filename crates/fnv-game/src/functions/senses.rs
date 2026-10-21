@@ -55,6 +55,9 @@ pub struct Senses {
     /// The crosshair's ray as the engine last cast it (PlaceAtReticle); `None` before the
     /// engine told it (a headless run).
     pub reticle: Option<Reticle>,
+    /// The player's exposure to radiation, measured each frame (`crate::radiation`); the
+    /// water the player is in is told by the engine.
+    pub radiation: crate::radiation::Exposure,
 }
 
 /// The ray under the crosshair, game space: where it starts (about the player's eye,
@@ -81,7 +84,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, radiation: Default::default() }
     }
 }
 
@@ -294,4 +297,12 @@ impl Game<'_> {
         }
         self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))
     }
+}
+
+/// GetRadiationLevel: the radiation level of the player's surroundings, rads a second
+/// before Rad Resistance (`crate::radiation`); 0 on any other actor [documented: GECK
+/// wiki GetRadiationLevel and GetRadiationLevelAlt].
+pub fn get_radiation_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(if r == FormId::PLAYER_REF { g.radiation().level } else { 0.0 }))
 }
