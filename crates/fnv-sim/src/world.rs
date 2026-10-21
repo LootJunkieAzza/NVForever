@@ -217,7 +217,7 @@ pub struct Activation {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Equip {
-    /// Aid items are used up instead of worn.
+    /// Aid items and skill books are used up instead of worn.
     pub consumed: bool,
     /// Items unequipped to make room.
     pub unequipped: Vec<FormId>,
@@ -890,7 +890,9 @@ impl<'a> World<'a> {
         let forms = self.forms;
         let trained = self.power_armor_training;
         let inv = self.inventory(actor)?;
-        if it.kind == ItemKind::Aid {
+        // A skill book is read, and so used up like an aid item (`fnv_game::books`,
+        // docs/spec-notes/skill-books.md §2); a book that teaches nothing is not used.
+        if it.kind == ItemKind::Aid || (it.kind == ItemKind::Book && it.teaches.is_some()) {
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
                 1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
                 _ => Err(SimError::NotCarried { actor, item }),
@@ -1413,6 +1415,12 @@ impl<'a> World<'a> {
             // [documented: GECK wiki "Unplayable Items"; scripted activation is not
             // covered there and still gives it, hypothesis].
             if !scripted && it.non_playable && matches!(it.kind, ItemKind::Weapon | ItemKind::Ammo) {
+                return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
+            }
+            // A placed book flagged "Can't be Taken" stays where it is (skill-books.md
+            // §4) [hypothesis: by the flag's name; the GECK wiki Book page calls the flag
+            // unused; scripted activation still gives it, as for non-playable items].
+            if !scripted && it.cant_be_taken {
                 return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
             }
             let count = if scripted { t.count.min(1) } else { t.count };
