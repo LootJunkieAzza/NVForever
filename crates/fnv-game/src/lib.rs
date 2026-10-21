@@ -44,6 +44,7 @@ pub mod anims;
 pub mod awareness;
 pub mod blackjack;
 pub mod caravan;
+pub mod challenges;
 pub mod casino;
 pub mod chargen;
 pub mod combat;

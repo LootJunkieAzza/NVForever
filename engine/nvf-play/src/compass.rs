@@ -101,7 +101,7 @@ pub struct CompassPlugin;
 impl Plugin for CompassPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CompassView>()
-            .add_systems(Update, (discover, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet));
+            .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet));
         crate::save::add_save_hook(app, SAVE_HOOK);
     }
 }
@@ -139,6 +139,8 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
     for (form, name) in found {
         let gained = fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Discovery, xp);
+        // Discovery challenges and Locations Discovered ones (`fnv_game::challenges`).
+        rt.game.challenge_marker_found(FormId(form));
         info!("compass: discovered {name} ({}), +{gained} XP", FormId(form));
         if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));

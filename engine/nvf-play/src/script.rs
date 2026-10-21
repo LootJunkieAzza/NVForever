@@ -967,6 +967,13 @@ impl Runtime {
                 }
                 info!("test aid: the player killed {r}");
             }
+            ScriptAid::Challenge(c, p) => {
+                let c = resolve(g, c)?;
+                if !g.set_challenge_progress(c, *p) {
+                    return Err(format!("{} is not a challenge", g.data.name(c)));
+                }
+                info!("test aid: challenge {} at {}", g.data.name(c), g.player.challenges[&c].progress);
+            }
             ScriptAid::Enable(r) => {
                 let r = resolve(g, r)?;
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: 0x1021, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };

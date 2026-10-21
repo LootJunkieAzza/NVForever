@@ -611,6 +611,9 @@ pub enum ScriptAid {
     /// `kill:<actor>`: the player kills the actor (`Game::kill` with the player as the
     /// killer: karma and murder are judged, `fnv_game::crime`).
     Kill(String),
+    /// `challenge:<challenge>:<progress>`: the challenge's progress is set (below its
+    /// threshold), to reach a completion in a short run (`fnv_game::challenges`).
+    Challenge(String, u32),
     /// `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`: the speaker's script
     /// calls `SayTo target topic 0 flag`.
     SayTo(String, String, String, bool),
@@ -700,6 +703,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 }
                 ["enable", r] => ScriptAid::Enable(r.to_string()),
                 ["kill", r] => ScriptAid::Kill(r.to_string()),
+                ["challenge", c, p] => ScriptAid::Challenge(c.to_string(), p.parse().map_err(|_| format!("{rest:?}: bad progress {p:?}"))?),
                 ["stop", q] => ScriptAid::Stop(q.to_string()),
                 ["stage", q, s] => ScriptAid::Stage(q.to_string(), int(s)?),
                 ["objective", q, i] => ScriptAid::Objective(q.to_string(), int(i)?),
@@ -730,7 +734,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, combat:, moveto:, enable:, kill:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle:, call:, damage:, set_av:, hardcore: or perk:"
+                        "{rest:?}: expected start:, stop:, combat:, moveto:, enable:, kill:, challenge:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle:, call:, damage:, set_av:, hardcore: or perk:"
                     ))
                 }
             };
