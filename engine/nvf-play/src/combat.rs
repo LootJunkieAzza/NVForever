@@ -3357,6 +3357,11 @@ pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32
     }
 }
 
+/// A SOUN's editor ID for a log line (its form ID without one).
+fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
+    sfx.and_then(|x| x.forms.sounds.get(&sound)).and_then(|s| s.edid.clone()).unwrap_or_else(|| sound.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3444,9 +3449,4 @@ mod tests {
         assert_eq!(jam_anim("Reload"), None);
         assert_eq!(jam_anim("AttackLeft"), None);
     }
-}
-
-/// A SOUN's editor ID for a log line (its form ID without one).
-fn sound_edid(sfx: Option<&Sfx>, sound: FormId) -> String {
-    sfx.and_then(|x| x.forms.sounds.get(&sound)).and_then(|s| s.edid.clone()).unwrap_or_else(|| sound.to_string())
 }
