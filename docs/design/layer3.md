@@ -354,6 +354,24 @@ owner once the first comparisons exist; they are then frozen like any other tole
 4. ~~Confirm in game that initially-disabled references are hidden at the start of a
    new game in the cells we test (expected for quest-gated objects).~~ → Owner
    2026-10-08: disabled references are not drawn, have no collision and no interaction.
+5. **Exterior reference frames** (queue item 31, 2026-10-21): 2 of 8 exterior frames meet
+   the 0.6 SSIM threshold (spring_mountains_east 0.71, black_mountain_north 0.60, on the
+   line); all 7 interior ones do. Lab runs (`python -m fnvlab run --scenario "L3.frame.*"`,
+   main's build, then the branch's), SSIM before to after: goodsprings_noon 0.477 to 0.476,
+   goodsprings_dusk 0.487 to 0.487, goodsprings_hill_lod 0.557 to 0.557, lake_shore_noon
+   0.505 to 0.504, black_mountain_north 0.602 to 0.601, goodsprings_east 0.439 to 0.438,
+   spring_mountains_east 0.709 to 0.712, hoover_ridge_lake 0.562 to 0.559; mean colour
+   error spring 0.077 to 0.046, hoover 0.048 to 0.030, black mountain 0.025 to 0.015. The
+   change: the fog takes on half the sunlight's hue by day (world.md §6 "Fog colour by
+   day"). The light's strength is not what fails the frames: the near ground's colours
+   agree within a few levels. What does: the clouds lie elsewhere (with the game's sky
+   pasted in, all eight would pass at 0.63-0.85), and the renderer's cloud texture
+   placement does not match the game's by any offset (world.md §6 "Cloud texture
+   placement"). *For the owner:* (a) add each frame's seconds since the save was loaded
+   to `frames/manifest.json` (22, 41, 59 and 79 s for noon, dusk, hill_lod and lake per
+   world.md §6; the other four are not recorded) so the scenarios can pass it on, and
+   (b) captures of a still sky to learn the game's cloud mapping: one camera twice, a
+   known number of seconds apart, and once looking straight up.
 
 ## 6. Updated spec notes
 

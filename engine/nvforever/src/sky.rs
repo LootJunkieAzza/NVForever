@@ -571,9 +571,23 @@ impl SkyState {
     /// weather colour, by about the sunlight colour's hue [hypothesis fitted to the noon
     /// reference frames, world.md §6 "Sky colours"].
     pub fn cloud_tint(&self, c: [f32; 3]) -> [f32; 3] {
+        self.sun_hue(c, CLOUD_SUN)
+    }
+
+    /// The fog colour as distant land fades into it: by day the game's haze is warm where
+    /// the weather's fog colour is a light blue (NVWastelandClear day (150, 168, 190)), so
+    /// the fog takes on the sunlight colour's hue in full daylight [hypothesis, fitted to
+    /// the exterior reference frames, world.md §6 "Fog colour by day"].
+    pub fn fog_color(&self) -> [f32; 3] {
+        self.sun_hue(self.color(ColorType::Fog), FOG_SUN)
+    }
+
+    /// `c` moved towards the sunlight colour's hue (each channel × sunlight / its largest
+    /// channel) by `share` × daylight.
+    fn sun_hue(&self, c: [f32; 3], share: f32) -> [f32; 3] {
         let s = self.color(ColorType::Sunlight);
         let m = s.iter().copied().fold(1e-3f32, f32::max);
-        let k = (self.daylight() * CLOUD_SUN).min(1.0);
+        let k = (self.daylight() * share).min(1.0);
         std::array::from_fn(|i| c[i] * (1.0 + (s[i] / m - 1.0) * k))
     }
 
@@ -1103,6 +1117,12 @@ const SKY_DIM: f32 = 0.6;
 const SKY_GLOW: f32 = 0.05;
 /// Share of the sunlight hue in the clouds' colour in full daylight (see `cloud_tint`).
 const CLOUD_SUN: f32 = 0.5;
+/// Share of the sunlight hue in the fog's colour in full daylight (see `fog_color`)
+/// [hypothesis, fitted 2026-10-21]: 1.0 took the mean colour error of the
+/// spring_mountains_east reference frame from 0.077 to 0.013 and of hoover_ridge_lake from
+/// 0.048 to 0.011, but lowered black_mountain_north's SSIM from 0.602 to 0.5996, under the
+/// 0.6 threshold; 0.5 leaves 0.046 and 0.030 and keeps it at 0.60 (world.md §6).
+const FOG_SUN: f32 = 0.5;
 /// Sun elevation (degrees) at which daylight reaches full strength.
 const DAYLIGHT_DEG: f32 = 40.0;
 
@@ -1239,7 +1259,7 @@ pub fn update_sky(
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
-    fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
+    fog.color = to_color(sky.fog_color()).with_alpha(strength);
     fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
     if sky.time_scale <= 0.0 {
         let desc = match range {
