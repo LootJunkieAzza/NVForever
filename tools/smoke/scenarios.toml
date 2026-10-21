@@ -3153,12 +3153,12 @@ expect = [
 [[scenario]]
 name = "combat-grenade-evade"
 source = "ESM gap audit medium group 1 (docs/design/combat-ai.md §17.7): fighters whose combat style does not ignore threats run out of a live grenade's blast and say their AvoidThreat line"
-note = "the combat-block fist fight; the player (GOD) is given frag grenades (00004330) and throws two at the nearest fighter. Fighters with Ignore Threats stay"
+note = "an NCR trooper (0x000F36F5) set on the player (GOD) and put 200 units in front of them (the combat-block-break setup); the player is given frag grenades (00004330) and throws two at him. The Goodsprings dogs' style has Ignore Threats: they stay"
 areas = ["combat", "combat-groups"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat_style.rs", "crates/fnv-game/src/combat_group.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0", NVF_PLAY_TEST_GIVE = "00004330:5", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "8:weapon,14:aimnpc,14.2:fire,24:aimnpc,24.2:fire" }
-args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
-run_seconds = 40
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:200:0,13:moveto:0x000F36F5:player:0:200:0", NVF_PLAY_TEST_GIVE = "00004330:5", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "3:weapon,7:aimnpc,7.2:fire,14:aimnpc,14.2:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 30
 expect = [
   { re = 'npc combat: .* runs from a grenade \d+ units away \(blast radius \d+\)', label = "a fighter runs from the grenade" },
   { re = 'npc combat style summary: .*?(?P<n>\d+) runs from grenades', range = [1, 100000], label = "runs from grenades in the combat style summary" },
