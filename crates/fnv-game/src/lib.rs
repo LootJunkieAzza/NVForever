@@ -34,6 +34,7 @@ pub mod abilities;
 pub mod activate_choices;
 pub mod actor_values;
 pub mod aggro;
+pub mod ash_piles;
 pub mod aid;
 pub mod appearance;
 pub mod ai;

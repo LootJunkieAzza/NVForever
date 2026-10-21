@@ -154,7 +154,7 @@ what writes it now).
 | AgeRace | 0x11E4 | 2/0 | stub | — | stub |  |
 | AlwaysShowActorSubtitles | 0x1277 | 16/ | `senses.always_subtitles` | rules; engine voice | matches |  |
 | ApplyImageSpaceModifier | 0x1191 | 355/0 | writes | engine draws | matches |  |
-| AttachAshPile | 0x1211 | 4/0 | stub | — | stub |  |
+| AttachAshPile | 0x1211 | 4/0 | stub | — | implemented 2026-10-21 (ash-piles.md) |  |
 | AutoDisplayObjectives | 0x1225 | 2/0 | stub | — | stub | script-stubs.md §4 |
 | Autosave | 0x115E | 74/- | `ui.autosaves` | rules / save.rs:326 | matches |  |
 | CastImmediateOnSelf | 0x11D9 | 233/- | `apply_magic_item` | rules | matches |  |

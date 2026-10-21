@@ -10,15 +10,15 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 9
-stub_calls = 18
+stubs = 8
+stub_calls = 14
 stub_condition_uses = 19
 unhandled_used = 1
 
 [summary.by_status]  # every status, 0 when no stub has it
 assigned = 0
 implementable = 0
-needs_system = 9
+needs_system = 8
 no_op = 4
 
 # History (moved from scenarios.toml, 2026-10-19; the newest last):
@@ -94,5 +94,7 @@ no_op = 4
 # claude/dismemberment implemented IsLimbGone (51 calls) with dismemberment
 # (docs/spec-notes/dismemberment.md): 11 -> 10 stubs, 74 -> 23 calls [observed: the branch's
 # fnvtool script stubs on the ten masters, 2026-10-20].
+# claude/q20-ash-piles implemented AttachAshPile (4 calls, docs/spec-notes/ash-piles.md):
+# 10 -> 9 stubs, 23 -> 19 calls.
 # claude/q22-slot-machines implemented ShowSlotMachineMenuParams (5 calls,
-# docs/spec-notes/slots.md): 10 -> 9 stubs, 23 -> 18 calls.
+# docs/spec-notes/slots.md): with the ash piles: 9 -> 8 stubs, 19 -> 14 calls.

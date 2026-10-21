@@ -6899,6 +6899,28 @@ docs/spec-notes/vertex-morphs.md. nif.xml gives the blocks' fields only; my choi
 spot) and at The Fort: do the flags ripple as in vertex_morphs_0/1.png, and do The Fort's
 flags move in step with each other?
 
+## Ash piles (2026-10-21, session "q20", branch claude/q20-ash-piles)
+
+docs/spec-notes/ash-piles.md. The wiki gives the Crit Effect / On Death rule and
+AttachAshPile's two pile types; the shipped effect scripts do the rest. My choices:
+- **Critical effects in general**: every weapon's Crit Effect is now applied on its critical
+  hits (On Death ones only on a killing critical), not only the energy weapons': the
+  flamer's FlamerCritEffect02 and the Fat Man's NukeCritEffect now play too.
+- **Not on the player**: an NPC's critical kill does not disintegrate the player (our death
+  camera has no culled body to show). The original probably does.
+- **The pile**: at the actor reference's position (where it stood when it died; the
+  ragdoll's drift in the second before is not followed), upright, with the actor's heading.
+  Any type other than 2 gives the ash pile; a second AttachAshPile on the same actor adds
+  nothing; ResurrectActor removes the pile.
+- **Looting**: the pile says Search and opens the dead actor's own inventory (items are not
+  moved into the pile); the culled body can no longer be targeted.
+- **Disintegrations** (Pip-Boy statistic) counts a pile from an actor the player killed.
+- **Not built**: the ragdoll changes of GooStart/DisintegrateStart, the pile's looping sound,
+  the effect shaders' holes (PR #540).
+*Check:* in the game, kill someone with a laser critical (`player.AddPerk` Better Criticals
+helps) and compare with smoke `ash-pile-chet`'s ash_pile_burning.png / ash_pile_after.png:
+does the pile lie where the body fell, facing the same way? Does Search on it show the
+body's items?
 ## Refraction: fire refraction and the Stealth Boy's shimmer (2026-10-21, queue item 18, branch claude/q18-refraction)
 
 Spec: [refraction](spec-notes/refraction.md). Shapes with the Refraction flag were already

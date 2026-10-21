@@ -404,6 +404,15 @@ pub fn set_critical_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     none()
 }
 
+/// `actor.AttachAshPile [type]`: the ash (1, or left out) or goo (2) pile is placed at
+/// the actor (`Game::attach_ash_pile`, docs/spec-notes/ash-piles.md §3).
+pub fn attach_ash_pile(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let kind = a.num_or(0, 1.0) as i64;
+    g.attach_ash_pile(r, kind)?;
+    none()
+}
+
 pub fn is_in_critical_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     yes(g.extra.get(&r).map(|e| e.critical_stage).unwrap_or(0) == a.code(0)?)

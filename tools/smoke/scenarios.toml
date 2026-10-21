@@ -6275,6 +6275,23 @@ expect = [
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
 
 [[scenario]]
+name = "ash-pile-chet"
+source = "ash piles (docs/spec-notes/ash-piles.md): a laser's critical kill applies its On Death critical effect Disintegration [documented: GECK wiki Weapons, Crit Effect / On Death; observed: WeapLaserRifle CRDT 000BDA30], whose script (LaserDisintegrationEffectScript) calls AttachAshPile and SetCriticalStage DisintegrateEnd [observed: FalloutNV.esm SCPT 000BDA2E]: an ash pile (DefaultAshPile1, AshPile01.NIF) replaces Chet's body"
+note = "the hit aid kills Chet with a critical laser rifle hit (500 damage, :crit) at 8 s; the script places the pile 1.3 s later and culls the body 0.5 s after that; frames before and after for a look"
+areas = ["combat", "effects"]
+paths = ["crates/fnv-game/src/ash_piles.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapLaserRifle:crit", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:ash_pile_before.png,8.8:ash_pile_burning.png,12:ash_pile_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'combat: critical effect LaserDisintegrationFXSpell \(0x000BDA30\) on .*0x00104C79 \(on death\)', label = "the laser's critical kill applies its Disintegration" },
+  { re = 'ash pile: \S+ \(DefaultAshPile1\) replaces the body of 0x00104C79', count = 1, label = "one ash pile replaces Chet's body" },
+  { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: .*ashpile01\.nif', label = "the pile is drawn" },
+  { re = 'script: GSChetRef culled by its critical stage', label = "the body is culled (DisintegrateEnd)" },
+]
+manual = "ash_pile_burning.png: Chet glowing (the disintegration shaders); ash_pile_after.png: an ash pile where he fell, no body"
+
+[[scenario]]
 name = "bike-smoke-intact"
 source = "docs/spec-notes/destruction-stages.md §3 (owner report 2026-10-20): the three Motorcycle01Static bikes in front of the Prospector Saloon (00106341, 00106342, 0010750C; STAT, no DEST) never smoke: motorcycle01.nif's smoke (AddOnNode2, ADDN MPSSmokeMed01) sits under DamageStage1-3 and waits for a damage stage they never reach; frame bike_smoke_intact.png in target/smoke shows them without smoke"
 areas = ["particles", "effects", "destruction"]

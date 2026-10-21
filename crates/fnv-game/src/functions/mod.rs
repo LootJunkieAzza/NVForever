@@ -559,7 +559,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1125, "StopMagicShaderVisuals", Impl(misc::stop_magic_shader_visuals)),
         (0x1248, "SetSecuritronExpression", Impl(misc::set_securitron_expression)),
         (0x1146, "Reset3DState", Impl(misc::reset_3d_state)),
-        (0x1211, "AttachAshPile", Stub("rendering (death effects)")),
+        (0x1211, "AttachAshPile", Impl(objects::attach_ash_pile)),
         (0x115D, "SetSceneIsComplex", NoOp("performance switch of the original's AI")),
         (0x1196, "SetCellImageSpace", Impl(misc::set_cell_image_space)),
         (0x1104, "SetWeather", Impl(crate::weather::set_weather)),

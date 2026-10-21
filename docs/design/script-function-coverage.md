@@ -283,7 +283,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
 | 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
 | 19 | drawn scale (SetScale) | match (2026-10-18, misc-stats.md §5) | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
+| 20 | dismemberment and critical deaths | built (2026-10-20 dismemberment.md, 2026-10-21 ash-piles.md) | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
 | 21 | Bink videos | match (2026-10-18, bink-films.md) | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 22 | cell image spaces | match (2026-10-18, bink-films.md §4) | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
 | 23 | screen blood splatter | match (2026-10-18, screen-splatter.md; fitted to a capture) | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
@@ -334,7 +334,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | AgeRace | 0x11E4 | 2 / 0 | built | race and sex change on NPCs | - | Steps along RACE ONAM/YNAM, clamped [documented]; any actor; the engine draws it anew (docs/spec-notes/appearance-changes.md; smoke `agerace-sexchange-npc`; probe ac2). |
 | AlwaysShowActorSubtitles | 0x1277 | 16 / 0 | match | - | - |  |
 | ApplyImageSpaceModifier | 0x1191 | 355 / 0 | match | - | - |  |
-| AttachAshPile | 0x1211 | 4 / 0 | no-system | dismemberment and critical deaths | - | Stub. |
+| AttachAshPile | 0x1211 | 4 / 0 | implemented | dismemberment and critical deaths | - | Implemented 2026-10-21: docs/spec-notes/ash-piles.md. |
 | AutoDisplayObjectives | 0x1225 | 2 / 0 | open | objective display switch | - | Kept with the player; the HUD keeps the objective list on screen while on [hypothesis: what the display shows; capture job menu_hooks] (script-stubs.md §3.15). |
 | Autosave | 0x115E | 74 / 0 | match | - | - |  |
 | CastImmediateOnSelf | 0x11D9 | 233 / 0 | match | - | - |  |
