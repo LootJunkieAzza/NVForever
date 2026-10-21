@@ -32,6 +32,7 @@ pub mod crime;
 pub mod dialogue;
 pub mod dialogue_look;
 pub mod dialogue_menu;
+pub mod difficulty;
 pub mod dismember;
 pub mod doors;
 pub mod dropped;
@@ -311,7 +312,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
-            .add_plugins(grab::GrabPlugin);
+            .add_plugins(grab::GrabPlugin)
+            .add_plugins(difficulty::DifficultyPlugin);
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);

@@ -298,6 +298,13 @@ pub struct RefExtra {
     /// (`crate::unconscious`). Not SetUnconscious's flag (`unconscious`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub knocked_out: Option<crate::unconscious::KnockOut>,
+    /// Concussed until this game time (GetConcussed, `crate::magic_archetypes`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub concussed_until: Option<f64>,
+    /// Its head was crippled when last looked at while it had a Concussion effect
+    /// (`crate::magic_archetypes`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub head_crippled: bool,
     /// The actor has its weapon out (IsWeaponOut): told by whoever animates the actor
     /// ([`Game::set_weapon_out`]).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
@@ -905,6 +912,8 @@ pub struct Game<'a> {
     pub data: &'a GameData,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
+    /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
+    pub difficulty: crate::difficulty::Difficulty,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
@@ -917,6 +926,9 @@ pub struct Game<'a> {
     /// Knockouts and getting up since the engine last took them
     /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
     pub knockout_news: Vec<crate::unconscious::News>,
+    /// What the magic effect archetypes did since the engine last took it
+    /// (`crate::magic_archetypes::MagicNews`). Not saved.
+    pub magic_news: Vec<crate::magic_archetypes::MagicNews>,
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
@@ -1338,10 +1350,12 @@ impl<'a> Game<'a> {
         Game {
             data,
             toggles: Default::default(),
+            difficulty: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),
             knockout_news: Vec::new(),
+            magic_news: Vec::new(),
             idle_requests: Vec::new(),
             idle_picks: Vec::new(),
             weapon_uses: BTreeMap::new(),
@@ -1959,6 +1973,7 @@ impl<'a> Game<'a> {
         self.sync_loaded_actor_effects();
         if !in_menu {
             self.update_effects(dt);
+            self.tick_concussions();
             self.tick_radiation(dt);
             self.tick_needs(dt);
             self.tick_knockouts(dt);

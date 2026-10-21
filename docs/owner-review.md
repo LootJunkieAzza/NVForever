@@ -7462,6 +7462,36 @@ MOD3, `interface\HUD\*.nif`) once the zoom has reached the weapon's Sight FOV. S
   and how much the view sways compared with the original. Does the original show the scope in
   third person?
 
+## Magic effect archetypes (2026-10-21, ESM gap audit item 15, branch claude/e15-mgef-archetypes)
+
+Base effects of the archetypes Paralysis, Cure Paralysis, Cure Poison, Dispel, Concussion and
+Turbo now act. Spec: [magic-archetypes](spec-notes/magic-archetypes.md). What the data says:
+the masters have Paralysis effects (Paralyzing Palm, Miss Fortune, the Compliance Regulator,
+the Antenna Club), one Cure Paralysis and one Concussion (the player's `PlayerConcussed`), but
+no Dispel, Cure Poison or Turbo archetype at all: the Turbo chem raises the actor value Turbo
+(a Value Modifier) and Antivenom is a script that dispels the eight animal poisons by name.
+Decisions and guesses:
+
+- *Guess:* Turbo slows the world to **0.5** of its speed (no setting names a number). The
+  player's walking, running, swimming and body clips run at full speed; jumps and falls, the
+  rate of fire and reloads stay on the slowed clock, as do sounds (as the death camera's slow
+  motion slows them).
+- *Decision:* a paralysed actor drops as a ragdoll (as a knockout) and lies until its
+  Paralysis effects are over, then gets up with the knockdown get-up clip. GetKnockedState
+  reads 1 (documented). The Paralysis actor value holds the effect's magnitude while it lasts.
+- *Guess:* the player is paralysed too, as it is knocked down (camera outside, controls held).
+- *Guess:* "No Knockdowns" and Immobile actors are paralysed all the same.
+- *Guess:* Cure Poison ends effects from spells of type Poison; Dispel ends every effect that
+  is not an ability, a worn enchantment or an addiction; Cure Paralysis ends Paralysis effects.
+- *Guess:* Concussion: with the Concussion effect active (the player always has it), a newly
+  crippled head concusses for `fConcussionTimer` (40 s): GetConcussed reads 1 and the
+  `ImageSpaceConcussion` modifier (11 s) plays on the player.
+- *Guess:* the Paralyzing Palm: a player hit with fists or an Unarmed weapon while VATS plays
+  back, with the perk's entry point, paralyses with chance `fVATSParalyzePalmChance` (0.3)
+  and counts a Paralyzing Punch. VATS here marks gun shots only, so it rarely applies yet.
+- *Check:* take Turbo in Goodsprings and watch NPCs walk and a bottle fall: how slow, and
+  is the player's own speed and gun the original's? Get the head crippled: blur and ringing?
+  Hit someone with the Paralyzing Palm perk in VATS: do they go limp or freeze standing?
 ## Spent cases and drained cells (2026-10-21, ESM gap audit item 13, branch claude/e13-spent-casings)
 
 Each of the player's shots that spends ammo may now put the ammo's spent item into the
@@ -7479,6 +7509,27 @@ inventory (a 10mm case at 20 %, a 12 gauge hull at 40 %, a drained small energy 
   multiply the percentage itself, so a 10mm case becomes 40 %.
 - *Check:* fire a 10mm pistol 20 times with and without Hand Loader (and in Hardcore) and count
   the cases; does a message appear when one is picked up?
+
+## Difficulty (2026-10-21, ESM gap audit item 16, branch claude/e16-difficulty-damage)
+
+The settings page's Gameplay group has a Difficulty row (Very Easy … Very Hard, Normal by
+default, kept in NVForever.ini); the console takes `SetGameDifficulty 0-4` and
+`GetGameDifficulty`. Spec: [difficulty](spec-notes/difficulty.md). Decisions and guesses:
+
+- *Observed:* no master carries `fDiffMultHPByPC*` or `fDiffMultHPToPC*`, and the GECK wiki
+  export has no page for them; `fDiffMultXPVE/E/H/VH` are 1.0 in FalloutNV.esm (no XPN), so
+  kill XP does not change with the level (the wiki says the same).
+- *Guess:* the HP settings' values: dealt by the player 2, 1.5, 1, 0.75, 0.5 and taken 0.5,
+  0.75, 1, 1.5, 2 (Very Easy to Very Hard), the commonly reported figures. A capture can
+  settle them: `GetNumericGameSetting fDiffMultHPByPCVH` (and the other nine) in the original.
+- *Guess:* ByPC scales every hit by the player on another actor, ToPC every hit on the player
+  whatever its source (explosions without an owner, the player's own grenade); limb damage
+  and burn/poison effect damage scale the same way.
+- *Guess:* companions are not scaled, neither their hits nor the hits on them.
+- *Decision:* a setting of NVForever, not of the save (where the original keeps it is not
+  documented here).
+- *Check:* on Very Hard and Very Easy, shoot a Gecko with the same weapon and let it bite you;
+  compare its health bar and yours with the original at the same levels.
 
 
 ## Holotapes (2026-10-21, ESM gap audit item 14, branch claude/e14-holotapes)

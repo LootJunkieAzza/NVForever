@@ -894,6 +894,7 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
+    turbo: Option<Res<crate::script::PlayerTimeScale>>,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
 ) {
@@ -998,6 +999,12 @@ fn step(
             let [x, y] = velocity(&intent, player.heading, *speeds);
             [x * k, y * k, 0.0]
         };
+        // Turbo slows the world's clock, not the player: its own movement goes faster by
+        // the clock's inverse; falling and jumping stay on the clock (magic-archetypes.md
+        // §2) [design].
+        let fast = turbo.as_deref().map_or(1.0, |t| t.0);
+        let (vx, vy) = (vx * fast, vy * fast);
+        let vz = if c.swimming { vz * fast } else { vz };
         p.prev_feet = c.feet;
         let view = Some([player.heading.sin(), player.heading.cos()]);
         // Actors stand in the way where they are now, and those that stand still give

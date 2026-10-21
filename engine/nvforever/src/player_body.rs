@@ -1745,7 +1745,7 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, turbo): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -1805,7 +1805,8 @@ fn drive_body(
         show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.ragdolled(), arms: true, weapon: true }, false);
         return;
     }
-    let dt = time.delta_secs();
+    // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).
+    let dt = time.delta_secs() * turbo.as_deref().map_or(1.0, |t| t.0);
     let m = &mut state.motion;
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
 
