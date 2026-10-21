@@ -570,6 +570,17 @@ pub const ARCHETYPE_VALUE_MODIFIER: i64 = 0;
 pub const ARCHETYPE_SCRIPT: i64 = 1;
 /// MGEF archetype "Dispel" [documented: xEdit wbArchtypeEnum].
 pub const ARCHETYPE_DISPEL: i64 = 2;
+/// MGEF archetype "Paralysis" [documented: xEdit wbArchtypeEnum; GECK wiki
+/// GetBaseEffectArchetype].
+pub const ARCHETYPE_PARALYSIS: i64 = 24;
+/// MGEF archetype "Cure Paralysis" [documented: as Paralysis].
+pub const ARCHETYPE_CURE_PARALYSIS: i64 = 30;
+/// MGEF archetype "Cure Poison" [documented: as Paralysis].
+pub const ARCHETYPE_CURE_POISON: i64 = 32;
+/// MGEF archetype "Concussion" [documented: as Paralysis].
+pub const ARCHETYPE_CONCUSSION: i64 = 33;
+/// MGEF archetype "Turbo" [documented: as Paralysis].
+pub const ARCHETYPE_TURBO: i64 = 36;
 /// MGEF archetype "Invisibility" [documented: xEdit wbArchtypeEnum].
 pub const ARCHETYPE_INVISIBILITY: i64 = 11;
 /// MGEF archetype "Chameleon" [documented: xEdit wbArchtypeEnum].

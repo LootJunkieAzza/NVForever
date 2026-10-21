@@ -1248,6 +1248,7 @@ impl Plugin for ScriptPlugin {
         app.insert_resource(st)
             .insert_resource(crate::pause::WorldAidClock::from_env())
             .init_resource::<ClockScale>()
+            .init_resource::<PlayerTimeScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
@@ -1297,23 +1298,37 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// and they follow the multiplier itself].
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
-/// (`crate::vats_mode`, docs/design/vats-mode.md §4); those two also slow sound
+/// (`crate::vats_mode`, docs/design/vats-mode.md §4), and so does the player's Turbo
+/// ([`PlayerTimeScale`] keeps the player at full speed); those also slow sound
 /// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
+#[allow(clippy::too_many_arguments)]
 fn time_multiplier(
-    script: Res<ScriptState>,
+    mut script: ResMut<ScriptState>,
     scale: Option<Res<ClockScale>>,
     vats: Option<Res<crate::vats_mode::VatsMode>>,
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
+    mut player_scale: ResMut<PlayerTimeScale>,
     mut told: Local<Option<f32>>,
 ) {
-    let Some(rt) = script.rt.as_ref() else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
     let asked = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
     let before = told.replace(asked).unwrap_or(1.0);
     if before != asked {
         info!("time multiplier: {before} -> {asked} (SetGlobalTimeMultiplier)");
     }
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats.map_or(1.0, |v| v.time_scale());
+    // Turbo slows the world but for the player (docs/spec-notes/magic-archetypes.md §2).
+    let turbo = rt.game.turbo_time_scale() as f32;
+    let exempt = 1.0 / turbo.max(0.01);
+    if (player_scale.0 - exempt).abs() > 1e-6 {
+        if turbo < 1.0 {
+            info!("magic: Turbo on: the world runs at {turbo:.2}, the player at full speed");
+        } else {
+            info!("magic: Turbo off");
+        }
+        player_scale.0 = exempt;
+    }
+    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats.map_or(1.0, |v| v.time_scale()) * turbo;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);
@@ -1321,6 +1336,18 @@ fn time_multiplier(
     if let Some(mut sound) = sound {
         let script_sound = if rt.game.ui.time_keeps_sound { 1.0 } else { asked };
         sound.set_if_neq(crate::audio_out::SoundSpeed(crate::audio_out::slowed_sound(engine) * script_sound));
+    }
+}
+
+/// How much faster than the game's clock the player moves and animates (1 for the same):
+/// Turbo slows the world's clock and the player keeps its own speed by this factor, the
+/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2).
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct PlayerTimeScale(pub f32);
+
+impl Default for PlayerTimeScale {
+    fn default() -> Self {
+        PlayerTimeScale(1.0)
     }
 }
 

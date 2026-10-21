@@ -99,11 +99,18 @@ pub fn force_flee(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// `actor.GetConcussed`: 1 while the actor is concussed [documented: GECK wiki
+/// GetConcussed; the rule: `crate::magic_archetypes`, magic-archetypes.md §2].
+pub fn get_concussed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(if g.is_concussed(r) { 1.0 } else { 0.0 }))
+}
+
 /// `actor.GetKnockedState`: −1 knocked out by fatigue, 0 normal, 1 knocked out
 /// (unconscious essentials, paralysis, negative fatigue), 2 knocked down [documented:
 /// GECK wiki GetKnockedState]. Here −1 for a fatigue knockout, 1 for an essential one
-/// (`crate::unconscious`) and for SetUnconscious [hypothesis for SetUnconscious], 2 for
-/// an explosion's knockdown, else 0. An actor PushActorAway laid down reads 0 until it is
+/// (`crate::unconscious`), a paralysis [documented] and SetUnconscious [hypothesis for
+/// SetUnconscious], 2 for an explosion's knockdown, else 0. An actor PushActorAway laid down reads 0 until it is
 /// up, also when it is knocked out meanwhile [documented: the page's notes]. Getting up
 /// reads 0 [observed: an essential RingoRef knocked out by KillActor read 1 for 10 s and 0
 /// from the sample his get-up began, AI observer campaign `functions_round` 2026-10-19,
@@ -116,7 +123,7 @@ pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, St
         Some(k) if k.pushed => 0.0,
         Some(k) => match k.cause {
             Cause::Fatigue => -1.0,
-            Cause::Essential => 1.0,
+            Cause::Essential | Cause::Paralyzed => 1.0,
             Cause::KnockedDown => 2.0,
             Cause::Pushed => 0.0,
         },

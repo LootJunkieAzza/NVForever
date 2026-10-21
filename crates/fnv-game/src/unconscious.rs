@@ -26,6 +26,9 @@
 //!   with their own causes ([`Cause::Pushed`], [`Cause::KnockedDown`]) that last
 //!   [`KNOCKDOWN_DOWN`] seconds; a push gives the body a velocity the engine takes
 //!   ([`Game::take_shove`]).
+//! - **Paralysis** ([`Cause::Paralyzed`], `crate::magic_archetypes`): down while a
+//!   Paralysis effect lasts on the actor, the player too; GetKnockedState 1
+//!   (docs/spec-notes/magic-archetypes.md §2).
 //! - SetUnconscious holds a lying actor down until it is cleared (§5).
 //! - The player is knocked down like anyone (§5.4) but never knocked out; enemies may
 //!   still attack it while it lies (`Game::would_attack`).
@@ -96,6 +99,9 @@ pub enum Cause {
     Pushed,
     /// Knocked down by an explosion.
     KnockedDown,
+    /// Paralysed by a Paralysis effect: down while one lasts on it
+    /// (`crate::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2).
+    Paralyzed,
 }
 
 impl Cause {
@@ -105,6 +111,7 @@ impl Cause {
             Cause::Fatigue => "fatigue",
             Cause::Pushed => "pushed",
             Cause::KnockedDown => "knocked_down",
+            Cause::Paralyzed => "paralyzed",
         }
     }
 
@@ -113,12 +120,19 @@ impl Cause {
         matches!(self, Cause::Pushed | Cause::KnockedDown)
     }
 
+    /// Not out cold: a knockdown or a paralysis. The player can be laid down so; no KOed
+    /// or Wake line, no Fatigue restored on getting up.
+    pub fn awake(self) -> bool {
+        self.knockdown() || self == Cause::Paralyzed
+    }
+
     /// Which cause wins when a second one comes while the actor lies: essential over
-    /// fatigue over a knockdown.
+    /// fatigue over a paralysis over a knockdown.
     fn rank(self) -> u8 {
         match self {
-            Cause::Essential => 2,
-            Cause::Fatigue => 1,
+            Cause::Essential => 3,
+            Cause::Fatigue => 2,
+            Cause::Paralyzed => 1,
             Cause::Pushed | Cause::KnockedDown => 0,
         }
     }
@@ -206,7 +220,7 @@ impl Game<'_> {
 
     fn knock(&mut self, r: FormId, cause: Cause, by: Option<FormId>, shove: Option<[f32; 3]>) -> bool {
         // The player is knocked down but never knocked out (§2.1, §5.4).
-        if (r == FormId::PLAYER_REF && !cause.knockdown()) || self.is_dead(r) {
+        if (r == FormId::PLAYER_REF && !cause.awake()) || self.is_dead(r) {
             return false;
         }
         let old = self.knockout(r);
@@ -230,9 +244,9 @@ impl Game<'_> {
         self.extra.entry(r).or_default().knocked_out = Some(KnockOut { cause, at: now, facing_up, held: false, rising: None, pushed, shove });
         self.emit(EventKind::KnockedOut { actor: r, cause: cause.name() });
         self.knockout_news.push(News { actor: r, cause, what: Happened::Down });
-        if !cause.knockdown() {
+        if !cause.awake() {
             self.combat_line(r, by, "KOed");
-        } else if by == Some(FormId::PLAYER_REF) && r != FormId::PLAYER_REF {
+        } else if cause.knockdown() && by == Some(FormId::PLAYER_REF) && r != FormId::PLAYER_REF {
             self.challenge_knockdown(r);
         }
         true
@@ -374,6 +388,8 @@ impl Game<'_> {
                 Cause::Fatigue => now - k.at + 1e-9 >= FATIGUE_DOWN,
                 Cause::Essential => now - k.at + 1e-9 >= ESSENTIAL_DOWN,
                 Cause::Pushed | Cause::KnockedDown => now - k.at + 1e-9 >= if r == FormId::PLAYER_REF { PLAYER_KNOCKDOWN_DOWN } else { KNOCKDOWN_DOWN },
+                // Down while a Paralysis effect lasts (`crate::magic_archetypes`).
+                Cause::Paralyzed => !self.paralysis_holds(r),
             };
             // SetUnconscious holds a lying actor down until it is cleared [hypothesis:
             // the thugs that fake death, SCPT 0x00118A77, push their actor down, set it
@@ -390,7 +406,7 @@ impl Game<'_> {
                 }
                 continue;
             }
-            if !k.cause.knockdown() {
+            if !k.cause.awake() {
                 actor::restore(self, r, FATIGUE, f64::MAX);
             }
             if k.cause == Cause::Essential {
@@ -409,7 +425,7 @@ impl Game<'_> {
             // "Said when an actor wakes from unconsciousness" [documented: GECK wiki
             // Combat Tab, Wake; docs/spec-notes/combat-dialogue.md §5]; not after a
             // knockdown, which is no unconsciousness [design].
-            if !k.cause.knockdown() {
+            if !k.cause.awake() {
                 self.combat_line(r, None, "Wake");
             }
             up.push(r);
@@ -429,5 +445,6 @@ mod tests {
         assert_eq!(Cause::Pushed.name(), "pushed");
         assert!(Cause::KnockedDown.knockdown() && !Cause::Essential.knockdown());
         assert!(Cause::Essential.rank() > Cause::Fatigue.rank() && Cause::Fatigue.rank() > Cause::Pushed.rank());
+        assert!(Cause::Paralyzed.awake() && !Cause::Paralyzed.knockdown() && Cause::Paralyzed.rank() > Cause::Pushed.rank());
     }
 }

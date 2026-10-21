@@ -180,6 +180,15 @@ pub fn after_tick(rt: &mut Runtime, from: usize) {
                     ended.push(*source);
                 }
             }
+            // A poison's end on the player, run out or cured (Antivenom's script dispels
+            // them, docs/spec-notes/magic-archetypes.md §1).
+            EventKind::EffectFinished { target, source, .. } if *target == P && data.spell_types.get(source) == Some(&fnv_game::magic_archetypes::SPELL_POISON) => {
+                // Once for a spell whose several effects end together.
+                let line = format!("magic: {} on the player ended", data.name(*source));
+                if !lines.contains(&line) {
+                    lines.push(line);
+                }
+            }
             EventKind::Addicted { actor, item, spell } if *actor == P => {
                 lines.push(format!("aid: the player is addicted to {} ({})", data.name(*item), data.name(*spell)));
                 rt.aid.addicted.push(data.name(*spell));
