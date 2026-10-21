@@ -114,6 +114,8 @@ impl Game<'_> {
         let p = FormId::PLAYER_REF;
         let started: Vec<u32> = self.effects.iter().filter(|e| e.target == p).map(|e| e.id).collect();
         self.advance_effects(seconds);
+        // Explosions' radiation zones fade over the hours waited too (radiation.md §2.1).
+        self.age_radiation_zones(seconds);
         let effects_ended = started.iter().filter(|id| !self.effects.iter().any(|e| e.id == **id)).count();
         let mut needs = Vec::new();
         if self.hardcore() {

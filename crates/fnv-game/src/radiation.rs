@@ -20,6 +20,18 @@
 //!   Resistance ÷ 100), the resistance held to [`RESIST_CAP`] [hypothesis: the setting's
 //!   name; resistance as a percentage, as Rad-X's +50 % reads]. They raise the Rads
 //!   actor value; its stages (radiation sickness) follow in `crate::needs`.
+//! - **Explosion zones** ([`RadZone`]): an explosion with a radiation level (EXPL DATA
+//!   "RAD Level", "Dissipation Time", "Radius") leaves a zone where it went off: the
+//!   level, fading linearly to nothing over the dissipation time (seconds of play),
+//!   within the radiation radius (the Fat Man's: 10 rads/s, 12 s, 616 units)
+//!   [documented: GECK wiki Explosion, "Amount of RADs per second", "Duration of
+//!   radiation effect"; observed: the masters' values; hypothesis: the fade and the time
+//!   unit]. A zone counts as a marker does: whole
+//!   within its radius, the strongest of markers and zones counting (radiation.md §2.1).
+//! - **Damaging water**: a water with "Causes Damage" takes its DATA damage of health
+//!   from the player once a second while the player is in it [documented: GECK wiki
+//!   WaterType, "Causes n damage per second"; hypothesis: wading counts as swimming, the
+//!   first hit a second after going in]. No master's water has it [observed].
 //! - Only the player takes environment radiation here [design]; GetRadiationLevel on
 //!   another actor is 0 [documented: GECK wiki GetRadiationLevelAlt, the vanilla function
 //!   "would only return a value when called on the player"].
@@ -49,6 +61,64 @@ pub struct RadMarker {
     pub radius: f32,
 }
 
+/// A radiation zone an explosion left (EXPL DATA radiation).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadZone {
+    /// Counts up from 1 per game; the engine tells zones apart by it.
+    pub serial: u32,
+    /// The explosion (EXPL) that left it.
+    pub explosion: FormId,
+    /// The worldspace, else the interior cell, it lies in.
+    pub space: FormId,
+    pub pos: [f32; 3],
+    /// Rads a second when it was left (EXPL "RAD Level").
+    pub level: f32,
+    /// Game units.
+    pub radius: f32,
+    /// Seconds of play it takes to fade (EXPL "Dissipation Time").
+    pub duration: f32,
+    /// Seconds of play since it was left.
+    pub age: f64,
+}
+
+impl RadZone {
+    /// The zone's level now: falling linearly from its first level to nothing at its
+    /// duration [hypothesis: the shape of the fade].
+    pub fn level_now(&self) -> f64 {
+        let d = self.duration as f64;
+        if d <= 0.0 || self.age >= d {
+            return 0.0;
+        }
+        self.level as f64 * (1.0 - self.age / d)
+    }
+}
+
+/// The zone an explosion leaves, if any: one with a radiation level above 0 and a
+/// dissipation time above 0; its radius the radiation radius when that is at least one
+/// unit, else the blast's radius [observed: every master's EXPL with radiation has a
+/// radiation radius, 100 to 3000; hypothesis: the fallback, which no master needs].
+/// `serial` and `space` are filled in by [`Game::add_radiation_zone`].
+pub fn zone_of(explosion: FormId, pos: [f32; 3], level: f32, radiation_radius: f32, blast_radius: f32, dissipation: f32) -> Option<RadZone> {
+    if !(level > 0.0 && dissipation > 0.0) {
+        return None;
+    }
+    let radius = if radiation_radius >= 1.0 { radiation_radius } else { blast_radius.max(0.0) };
+    (radius > 0.0).then_some(RadZone { serial: 0, explosion, space: FormId(0), pos, level, radius, duration: dissipation, age: 0.0 })
+}
+
+/// The level at `pos` from the zones of `space` and the strongest zone covering it.
+pub fn zone_level(zones: &[RadZone], space: FormId, pos: [f32; 3]) -> (f64, Option<FormId>) {
+    let mut best: (f64, Option<FormId>) = (0.0, None);
+    for z in zones.iter().filter(|z| z.space == space) {
+        let d2: f32 = (0..3).map(|i| (z.pos[i] - pos[i]).powi(2)).sum();
+        let l = z.level_now();
+        if d2 <= z.radius * z.radius && l > best.0 {
+            best = (l, Some(z.explosion));
+        }
+    }
+    best
+}
+
 /// What the engine says of the player and water.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WaterContact {
@@ -64,9 +134,11 @@ pub struct WaterContact {
 pub struct Exposure {
     /// The water the player is in, as the engine told it.
     pub water: Option<WaterContact>,
-    /// Rads a second from the markers, and the strongest marker covering the player.
+    /// Rads a second from the place: the strongest marker or explosion zone covering the
+    /// player, and which marker, or which zone's explosion, it is.
     pub markers: f64,
     pub marker: Option<FormId>,
+    pub zone: Option<FormId>,
     /// Rads a second from the water.
     pub from_water: f64,
     /// The level (markers and water, before resistance): GetRadiationLevel.
@@ -75,6 +147,12 @@ pub struct Exposure {
     pub rate: f64,
     /// The Rad Resistance that cut it (percent, before the cap).
     pub resist: f64,
+    /// Health a second the water takes ("Causes Damage"), 0 for a harmless one.
+    pub water_damage: f64,
+    /// Seconds in damaging water towards the next hit.
+    pub water_clock: f64,
+    /// Hits the water has dealt in all.
+    pub water_hits: u32,
 }
 
 /// The markers of the placed references, by the space they are in (the worldspace of an
@@ -134,21 +212,62 @@ impl Game<'_> {
         self.senses.radiation
     }
 
+    /// An explosion went off at `pos`: the radiation zone it leaves, if it leaves one
+    /// ([`zone_of`]), in the space the player is in (explosions go off in the loaded
+    /// world around the player) [design].
+    pub fn add_radiation_zone(&mut self, explosion: FormId, pos: [f32; 3], level: f32, radiation_radius: f32, blast_radius: f32, dissipation: f32) -> Option<RadZone> {
+        let mut z = zone_of(explosion, pos, level, radiation_radius, blast_radius, dissipation)?;
+        let p = FormId::PLAYER_REF;
+        let cell = self.world.peek(p).and_then(|s| s.cell).or_else(|| self.world.placed.get(p).and_then(|r| r.cell))?;
+        z.space = self.world.placed.world_of(cell).unwrap_or(cell);
+        self.senses.rad_serial += 1;
+        z.serial = self.senses.rad_serial;
+        self.senses.rad_zones.push(z);
+        Some(z)
+    }
+
+    /// The radiation zones explosions left that have not faded yet.
+    pub fn radiation_zones(&self) -> &[RadZone] {
+        &self.senses.rad_zones
+    }
+
+    /// `seconds` of play pass for the zones (a frame, or hours waited); faded ones go.
+    pub(crate) fn age_radiation_zones(&mut self, seconds: f64) {
+        for z in &mut self.senses.rad_zones {
+            z.age += seconds.max(0.0);
+        }
+        self.senses.rad_zones.retain(|z| z.level_now() > 0.0);
+    }
+
+    /// IsInDangerousWater: the player is in a water that "Causes Damage".
+    pub fn in_dangerous_water(&self) -> bool {
+        self.senses.radiation.water.is_some_and(|w| self.data.water_damage.contains_key(&w.water))
+    }
+
     /// One frame of game-mode time: measure the player's exposure and add the rads.
     pub(crate) fn tick_radiation(&mut self, dt: f64) {
         let p = FormId::PLAYER_REF;
         let data = self.data;
         let place = self.world.peek(p).map(|s| (s.cell, s.pos)).or_else(|| self.world.placed.get(p).map(|r| (r.cell, r.pos)));
-        let (markers, marker) = match place {
+        self.age_radiation_zones(dt);
+        let (markers, marker, zone) = match place {
             Some((Some(cell), pos)) => {
                 let space = self.world.placed.world_of(cell).unwrap_or(cell);
                 let list = data.radiation_markers.get(&space).map(Vec::as_slice).unwrap_or_default();
                 let world = &self.world;
-                marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true))
+                let (m, marker) = marker_level(list, pos, |id| world.is_enabled(id).unwrap_or(true));
+                let (z, zone) = zone_level(&self.senses.rad_zones, space, pos);
+                // The strongest counts, a marker on a tie (radiation.md §2.1).
+                if z > m {
+                    (z, None, zone)
+                } else {
+                    (m, marker, None)
+                }
             }
-            _ => (0.0, None),
+            _ => (0.0, None, None),
         };
-        let water = self.senses.radiation.water;
+        let before = self.senses.radiation;
+        let water = before.water;
         let from_water = water.map_or(0.0, |w| {
             let mult = if w.swimming { setting(self, "fSwimRadiationDamageMult", 0.1) } else { setting(self, "fWadeRadiationDamageMult", 0.1) };
             water_rads(data, w.water) * mult
@@ -159,7 +278,16 @@ impl Game<'_> {
         if rate > 0.0 && dt > 0.0 {
             self.shift_need(RAD_LEVEL, rate * dt);
         }
-        self.senses.radiation = Exposure { water, markers, marker, from_water, level, rate, resist };
+        // Damaging water: a hit of its damage each full second in it (§3.1).
+        let water_damage = water.and_then(|w| data.water_damage.get(&w.water).copied()).unwrap_or(0.0);
+        let mut water_clock = if water_damage > 0.0 { before.water_clock + dt.max(0.0) } else { 0.0 };
+        let mut water_hits = before.water_hits;
+        while water_damage > 0.0 && water_clock >= 1.0 {
+            water_clock -= 1.0;
+            water_hits += 1;
+            self.effect_health_damage(p, water_damage, None);
+        }
+        self.senses.radiation = Exposure { water, markers, marker, zone, from_water, level, rate, resist, water_damage, water_clock, water_hits };
     }
 }
 
@@ -182,6 +310,36 @@ mod tests {
         assert_eq!(marker_level(&list, [0.0, 0.0, 10001.0], all), (0.0, None));
         // A disabled marker gives nothing.
         assert_eq!(marker_level(&list, [1000.0, 0.0, 0.0], |id| id != FormId(3)), (10.0, Some(FormId(2))));
+    }
+
+    #[test]
+    fn an_explosion_zone_fades_linearly_within_its_radiation_radius() {
+        // FatManNukeExplosion: 10 rads/s, 12 s, radiation radius 616, blast radius 1700.
+        let mut z = zone_of(FormId(0x14C06), [0.0, 0.0, 0.0], 10.0, 616.0, 1700.0, 12.0).expect("a zone");
+        assert_eq!(z.radius, 616.0);
+        assert_eq!(z.level_now(), 10.0);
+        z.age = 6.0;
+        assert!((z.level_now() - 5.0).abs() < 1e-9);
+        z.age = 12.0;
+        assert_eq!(z.level_now(), 0.0);
+        // Without a radiation radius, the blast's.
+        assert_eq!(zone_of(FormId(1), [0.0; 3], 12.0, 0.0, 1200.0, 616.0).map(|z| z.radius), Some(1200.0));
+        // No radiation or no time: no zone.
+        assert!(zone_of(FormId(1), [0.0; 3], 0.0, 0.0, 1200.0, 616.0).is_none());
+        assert!(zone_of(FormId(1), [0.0; 3], 12.0, 0.0, 1200.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn zones_count_in_their_own_space_within_their_radius() {
+        let w = FormId(0xDA726);
+        let mut a = zone_of(FormId(1), [0.0, 0.0, 0.0], 12.0, 0.0, 1700.0, 616.0).unwrap();
+        a.space = w;
+        let mut b = zone_of(FormId(2), [0.0, 0.0, 0.0], 2.0, 0.0, 450.0, 200.0).unwrap();
+        b.space = w;
+        let zones = [a, b];
+        assert_eq!(zone_level(&zones, w, [100.0, 0.0, 0.0]), (12.0, Some(FormId(1))));
+        assert_eq!(zone_level(&zones, w, [1800.0, 0.0, 0.0]), (0.0, None));
+        assert_eq!(zone_level(&zones, FormId(7), [100.0, 0.0, 0.0]), (0.0, None));
     }
 
     #[test]

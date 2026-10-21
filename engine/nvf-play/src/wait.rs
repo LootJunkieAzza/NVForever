@@ -324,9 +324,9 @@ fn refusal(
     if airborne {
         return Some((Refusal::Falling, "the player is in the air".into()));
     }
-    // Taking radiation damage [owner request 2026-10-17]: kept as an empty check, since
-    // nothing in the world irradiates the player yet (rads come from aid items only).
-    if taking_radiation_damage() {
+    // Taking radiation damage [owner request 2026-10-17]: rads from the world now
+    // (markers, water, explosion zones: docs/spec-notes/radiation.md).
+    if taking_radiation_damage(rt.as_deref()) {
         return Some((Refusal::Radiation, "the player is taking radiation damage".into()));
     }
     let rt = rt?;
@@ -367,11 +367,11 @@ fn refusal(
     })
 }
 
-/// Whether the player takes radiation damage now. Always no: NVForever has no
-/// radiation in the world yet (no irradiated water, areas or hazards); the refusal waits
-/// for it [owner request 2026-10-17].
-fn taking_radiation_damage() -> bool {
-    false
+/// Whether the player takes radiation damage now: rads from the world (radiation
+/// markers, irradiated water, explosions' zones) after Rad Resistance [owner request
+/// 2026-10-17; docs/spec-notes/radiation.md §4].
+fn taking_radiation_damage(rt: Option<&crate::script::Runtime>) -> bool {
+    rt.is_some_and(|rt| rt.game.radiation().rate > 0.0)
 }
 
 /// Whether the player is in the world, where a request opens the menu: no menu, no

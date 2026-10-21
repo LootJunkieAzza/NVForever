@@ -3065,8 +3065,22 @@ fn fly(
             at[0],
             at[1],
             at[2],
-            if x.radiation_level > 0.0 || x.placed_object.is_some() { " (radiation and placed object not built yet)" } else { "" }
+            if x.placed_object.is_some() { " (placed object not built yet)" } else { "" }
         );
+        // The radiation it leaves (docs/spec-notes/radiation.md §2.1).
+        if x.radiation_level > 0.0 {
+            let zone = script.as_deref_mut().and_then(|s| s.rt.as_mut()).and_then(|rt| with_world(rt, &mut sim, |rt| rt.game.add_radiation_zone(id, at, x.radiation_level, x.radiation_radius, x.radius, x.radiation_dissipation_time)));
+            if let Some(z) = zone {
+                info!(
+                    "radiation: explosion {} leaves a radiation zone (#{}): {:.1} rads/s within {:.0} units, fading over {:.0} s",
+                    x.edid.as_deref().unwrap_or("?"),
+                    z.serial,
+                    z.level,
+                    z.radius,
+                    z.duration
+                );
+            }
+        }
     }
     let now = c.time;
     let due: Vec<Pending> = {
