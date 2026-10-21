@@ -7413,6 +7413,26 @@ answers from the current package's "Offers Services" flag. Spec:
   menus should show only drinks and food, or chems, stimpaks, food and books; selling them a
   gun should still work. Does the original let you buy back a gun you just sold to a doctor?
 
+## Silenced shot sounds (2026-10-21, ESM gap audit item 12, branch claude/e12-silencer-sounds)
+
+A weapon with a Silence or Suppressor mod on now shoots with the weapon's mod sounds (WEAP
+WMS1 3D, WMS2 2D), for the player and for NPCs; another actor's shot heard farther off than
+its 3D sound reaches plays the weapon's distant sound (Shoot Dist). Spec:
+[weapon-mods](spec-notes/weapon-mods.md) §7. Decisions and guesses:
+
+- *Documented:* the switch happens only for the Silence and Suppressor effects (GECK wiki
+  Weapons). The grenade rifles carry mod sounds but no such mod, so they never switch.
+- *Observed:* the silenced .22 pistol and .22 SMG carry their quiet sounds as their plain
+  sounds; they needed nothing.
+- *Guess:* a silenced shot has no distant sound (no master gives WMS1 a second entry), so
+  far off a silenced shot is simply not heard rather than booming like the plain gun.
+- *Guess:* a missing mod 2D sound falls back to the mod 3D and the reverse; a silenced weapon
+  whose record has no mod sounds keeps its plain ones; the looping sound is not switched (no
+  mod loop field exists).
+- *Guess:* an NPC's weapon counts as silenced by the mods of the unit it has equipped (or
+  would take), as for the player; its other figures stay plain.
+- *Check:* put the silencer on the 10mm pistol and fire: the quiet .22-style pop, not the
+  10mm crack. Have an NPC with a plain rifle fire from far away: the distant report.
 ## Weapon scopes (2026-10-21, ESM gap audit item 10, branch claude/e10-weapon-scopes)
 
 Aiming a scoped weapon (sniper rifle, anti-materiel rifle, hunting revolver, a hunting rifle

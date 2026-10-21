@@ -1167,7 +1167,9 @@ docs/spec-notes/particles.md.
   - pitch: the frequency adjustment, and ±5% at random with Random Frequency Shift
     [design: the size];
   - combat plays: Shoot 2D (else Shoot 3D) for each shot of the player's [hypothesis:
-    that the 2D sound is the shooter's own]; the Shoot 3D Looping sound going round
+    that the 2D sound is the shooter's own]; another actor's Shoot 3D at its muzzle, or
+    Shoot Dist beyond the 3D sound's maximum distance; a silenced or suppressed weapon's
+    mod sounds (`WMS1`, `WMS2`) instead (weapon-mods.md §7); the Shoot 3D Looping sound going round
     from a weapon's first shot until 0.25 s after its last [hypothesis: when; design:
     the 0.25 s]; No Ammo on an empty trigger; Equip and
     Unequip when the player starts to draw or put away [hypothesis: when]; an impact's
