@@ -16,8 +16,12 @@
 //! the Bink by hitting the escape key"]; the music pauses under it when asked
 //! (`pauseMusic`, [`Intro::silences_music`]); a letterboxed film is fitted inside the
 //! window with black around it, else stretched over the whole window [hypothesis: the
-//! page only says letterboxing is skipped]. `muteAudio 0` (world sounds go on) is not
-//! built: the world is held under the film either way. The file must be loose under
+//! page only says letterboxing is skipped]. `muteAudio 0` keeps the world's sounds going
+//! under the film while the game stays held [documented: the page, "the game's world
+//! sounds will continue to play"]: the placed and background loops (`crate::ambient`)
+//! and the world's radios (`crate::radio`) are not paused
+//! ([`Intro::film_keeps_world_sound`]); lines being said stay held with the scripts
+//! that time them [hypothesis]. The file must be loose under
 //! `Data` [documented: the page, "can't be packaged into a BSA File"]: one that is not
 //! there is skipped and the game goes on at once (the opening's `fnvlogo1.bik`,
 //! `fnvlogo2.bik` and `vb01.bik` are not in the owner's `Data\Video`, which holds only
@@ -173,6 +177,19 @@ impl Intro {
         })
     }
 
+    /// While a script's film plays: whether the world's sounds go on under it (`muteAudio
+    /// 0`, `Some(true)`) or are held (`muteAudio 1`, the default, `Some(false)`); `None`
+    /// when no scripted film plays (the intro before a new game holds them as the pause
+    /// menu does). The game itself is held either way [documented: GECK wiki PlayBink,
+    /// "appears to stop game time, even if the flags are set to keep ingame noises
+    /// going"].
+    pub fn film_keeps_world_sound(&self) -> Option<bool> {
+        self.playing.as_ref().and_then(|p| match &p.film {
+            Film::Intro => None,
+            Film::Script(f) => Some(!f.mute_audio),
+        })
+    }
+
     /// `path` is the intro film's.
     fn is_intro(&self, path: &str) -> bool {
         self.film.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(path))
@@ -258,6 +275,13 @@ impl Plugin for IntroPlugin {
             .add_audio_source::<IntroSound>()
             .add_systems(Update, (take_films, start, play).chain().in_set(PlaySet::Ui));
     }
+}
+
+/// Whether the held game holds the world's sounds (`crate::ambient`, `crate::radio`):
+/// whatever holds the game (`paused`, the pause menu or a film) holds them, except a
+/// scripted film with `muteAudio 0` (`film_keeps`, [`Intro::film_keeps_world_sound`]).
+pub fn world_sound_held(paused: bool, film_keeps: Option<bool>) -> bool {
+    paused && film_keeps != Some(true)
 }
 
 /// Let the held new game run (what New Game does once the film is over).
@@ -368,9 +392,10 @@ fn start(
     match &film {
         Film::Intro => info!("intro: playing {} ({w}x{h}, {frames} frames)", path.display()),
         Film::Script(f) => info!(
-            "film: playing {} ({w}x{h}, {frames} frames, PlayBink{}{}{})",
+            "film: playing {} ({w}x{h}, {frames} frames, PlayBink{}{}{}{})",
             f.path,
             if f.interruptible { ", Esc ends it" } else { "" },
+            if f.mute_audio { "" } else { ", world sounds go on" },
             if f.pause_music { ", music paused" } else { "" },
             if f.letterboxed { ", letterboxed" } else { ", stretched" }
         ),
@@ -533,6 +558,14 @@ fn play(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_film_with_mute_audio_0_keeps_the_world_sounding() {
+        assert!(!world_sound_held(false, None));
+        assert!(world_sound_held(true, None), "the pause menu or the intro holds them");
+        assert!(world_sound_held(true, Some(false)), "muteAudio 1 holds them");
+        assert!(!world_sound_held(true, Some(true)), "muteAudio 0 leaves them playing");
+    }
 
     #[test]
     fn the_film_fits_inside_the_window_with_black_around_it() {

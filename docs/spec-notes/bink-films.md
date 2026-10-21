@@ -47,7 +47,18 @@ Here:
   as under the pause menu (scripts, clock, world sounds); afterwards the game goes on.
 - letterboxed: fitted inside the window with black bars; 0: stretched over the window
   [hypothesis: what the original does without letterboxing on a wide screen].
-- `muteAudio 0` is not built: the world is held under the film, so its sounds are too.
+- muteAudio: the game is held under every film [documented: the page, a film "appears
+  to stop game time, even if the flags are set to keep ingame noises going"]; with 1 (the
+  default) the world's sounds are held with it, with 0 they go on under the film [documented:
+  the page, "the game's world sounds will continue to play during the Bink movie"]. Here the
+  world's sounds are the placed and background loops and random sounds (`ambient.rs`) and
+  the world's radios (`radio.rs`): under a `muteAudio 0` film they are not paused and new
+  random sounds are still rolled, by the wall clock, though the world stands still
+  [hypothesis: which of the original's sounds count as world sounds is not documented].
+  Lines being said stay held with the scripts that time them, else a line's sound and its
+  timer would part [hypothesis]. Of the shipped calls only the opening's logo films and
+  `vb01.bik` pass 0, and none of those files is in the owner's install (§1), so the
+  shipped game never shows it here [observed: §1].
 - A file that is not there is skipped at once (log `film: <path>: not a loose file …; the
   game goes on`) [hypothesis: the original's behaviour with a missing file is not known;
   capture idea in owner-review].
@@ -63,10 +74,14 @@ Here:
 ## 3. Log and test aids
 
 `engine/nvf-play/src/intro.rs` module notes: `film: playing <path> (<w>x<h>, <n> frames,
-PlayBink[, Esc ends it][, music paused], letterboxed|stretched)`, `film: skipped at`,
+PlayBink[, Esc ends it][, world sounds go on][, music paused], letterboxed|stretched)`, `film: skipped at`,
 `film: ended after`, `film: the game goes on`; `NVF_PLAY_TEST_INTRO_SKIP` /
-`NVF_PLAY_TEST_INTRO_SHOT` act on every film (`film.png` for a scripted one). Smoke:
-`film-opening`, `film-console`, `main-menu` (the opening's call is not played twice).
+`NVF_PLAY_TEST_INTRO_SHOT` act on every film (`film.png` for a scripted one). `engine/nvf-play/src/ambient.rs`: `ambient: world sounds held (<why>, <n> loops)`, `ambient:
+world sounds go on (<n> loops)` when that changes (why: loading, the poker table, a film,
+PlayBink muteAudio 1, the game is held), and `ambient: world sounds go on under the film
+(PlayBink muteAudio 0, <n> loops)`. Smoke: `film-opening`, `film-console` (muteAudio 1
+holds the world's sounds), `film-world-sounds` (muteAudio 0 in Goodsprings: its loops go on
+under the film), `main-menu` (the opening's call is not played twice).
 
 ## 4. SetCellImageSpace [documented: GECK wiki SetCellImageSpace]
 

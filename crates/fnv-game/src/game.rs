@@ -1922,6 +1922,7 @@ impl<'a> Game<'a> {
         self.sync_loaded_actor_effects();
         if !in_menu {
             self.update_effects(dt);
+            self.tick_radiation(dt);
             self.tick_needs(dt);
             self.tick_knockouts(dt);
             self.update_speech(dt);
