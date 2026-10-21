@@ -6745,3 +6745,32 @@ forbid = [
   { text = "weather fx: precipitation model", label = "the precipitation model does not load" },
   { text = "(no particle systems)", label = "the precipitation model is drawn without its particle systems" },
 ]
+
+[[scenario]]
+name = "magic-archetypes"
+source = "ESM gap audit row 15 (2026-10-21): the MGEF archetypes Paralysis, Turbo, Cure Poison, Concussion and Dispel (docs/spec-notes/magic-archetypes.md)"
+note = "the knockout-boxing-gloves setup: Easy Pete is brought 300 units north of the player at 3 s. At 6 s the console casts PerkParalyzingPalm (Paralysis 1 for 30 s) on him: he drops as a ragdoll, GetKnockedState reads 1 and Paralysis 1, and he gets up about 30 s of game time later; the player is poisoned with CazadorPoison (30 s). At 10 s the player takes Turbo (TurboEffect, Turbo 1 for 3 s): the world's clock runs at 0.5 while the player keeps its speed, then Turbo ends. At 16 s the player takes Antivenom, whose script dispels the poison long before its 30 s are over (the poison's end is logged once per frame and spell). God mode, so the poison does not matter"
+areas = ["magic", "knockouts"]
+paths = ["crates/fnv-game/src/magic_archetypes.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/unconscious.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "6:EasyPeteRef.CastImmediateOnSelf PerkParalyzingPalm;6.2:EasyPeteRef.GetKnockedState;6.4:EasyPeteRef.GetAV Paralysis;6.6:player.CastImmediateOnSelf CazadorPoison;6.8:close;10:player.additem NVTurbo 1;10.2:player.equipitem NVTurbo;10.4:close;16:player.additem NVAntivenom 1;16.2:player.equipitem NVAntivenom;16.4:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+expect = [
+  { re = 'magic: Easy Pete \S+ paralyzed by Paralysis for 30 s', label = "the Paralyzing Palm's Paralysis takes hold of Easy Pete for 30 s" },
+  { re = 'knockout: Easy Pete \S+ knocked down \(paralyzed\)', label = "he is knocked down paralysed" },
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "he goes limp as a ragdoll" },
+  { re = 'console: GetKnockedState on .*>> 1(\.0+)?$', label = "GetKnockedState reads 1 for a paralysed actor" },
+  { re = 'console: GetActorValue on .*>> 1(\.0+)?$', label = "his Paralysis actor value is 1 while it lasts" },
+  { re = 'magic: Turbo on: the world runs at 0\.50, the player at full speed', label = "Turbo slows the world but not the player" },
+  "magic: Turbo off",
+  { re = 'test aid NVF_PLAY_TEST_CONSOLE: player\.equipitem NVAntivenom', label = "the player takes Antivenom" },
+  { re = 'magic: CazadorPoison on the player ended', label = "Antivenom ends the cazador poison" },
+  { re = 'knockout: Easy Pete \S+ gets up \(paralyzed knockout over\)', label = "he gets up once the paralysis is over" },
+]
+forbid = [
+  { re = 'combat: Easy Pete \S+ killed', label = "Easy Pete is killed" },
+]
+order = [
+  ["magic: Turbo on: the world runs at 0.50, the player at full speed", "magic: Turbo off"],
+  ["test aid NVF_PLAY_TEST_CONSOLE: player.equipitem NVAntivenom", "magic: CazadorPoison on the player ended"],
+]

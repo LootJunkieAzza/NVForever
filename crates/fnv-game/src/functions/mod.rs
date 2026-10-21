@@ -511,6 +511,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x103F, "GetAttacked", Impl(crate::provocation::get_attacked)),
         (0x1120, "GetFriendHit", Impl(crate::provocation::get_friend_hit)),
         (0x106B, "GetKnockedState", Impl(fighting::get_knocked_state)),
+        (0x11E9, "GetConcussed", Impl(fighting::get_concussed)),
         (0x118E, "IsLimbGone", Impl(fighting::is_limb_gone)),
         (0x11F0, "GetKillingBlowLimb", Impl(fighting::get_killing_blow_limb)),
         (0x118D, "GetCauseofDeath", Impl(fighting::get_cause_of_death)),
