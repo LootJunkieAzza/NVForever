@@ -57,6 +57,7 @@ pub mod cond;
 pub mod crafting;
 pub mod crime;
 pub mod data;
+pub mod death_items;
 pub mod detection;
 pub mod followers;
 pub mod dialogue;
