@@ -140,6 +140,9 @@ pub struct Forced {
 pub struct ScreenModifiers {
     records: HashMap<u32, Option<ImageModifier>>,
     pub forced: Vec<Forced>,
+    /// Modifiers the engine holds on the screen at their first keys while a state lasts:
+    /// a night-vision scope's (`scope_view.rs`, docs/spec-notes/weapon-scopes.md §4).
+    pub held: Vec<u32>,
     /// Modifiers the engine plays once (an explosion's, `shot_fx`): the record and when it
     /// started, in `Time::elapsed_secs`.
     played: Vec<(u32, f32)>,
@@ -162,6 +165,14 @@ impl ScreenModifiers {
     pub fn play(&mut self, form: u32, now: f32) {
         self.played.retain(|(f, _)| *f != form);
         self.played.push((form, now));
+    }
+
+    /// Hold modifier `form` on the screen at its first keys (`on`), or take it off.
+    pub fn hold(&mut self, form: u32, on: bool) {
+        self.held.retain(|f| *f != form);
+        if on {
+            self.held.push(form);
+        }
     }
 
     fn record(&mut self, world: &WorldData, form: u32) -> Option<&ImageModifier> {
@@ -217,6 +228,7 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
         });
         playing.push((f.form, seconds));
     }
+    playing.extend(mods.held.iter().map(|&f| (f, 0.0)));
     // Those played once: gone when they have run.
     let mut played = std::mem::take(&mut mods.played);
     played.retain(|&(form, start)| match mods.record(world, form) {

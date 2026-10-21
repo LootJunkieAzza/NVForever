@@ -810,6 +810,9 @@ pub struct Combat {
     /// The spread cone's half-angle in degrees a shot would leave in now, while a weapon
     /// with a firing cycle is drawn and ready; for the crosshair (`crate::reticle`).
     pub crosshair_cone: Option<f32>,
+    /// The player's spread (PSp, spread units, after "Calculate Gun Spread" perks) at the
+    /// same time: a scope's sway (docs/spec-notes/weapon-scopes.md §5).
+    pub player_spread: Option<f32>,
     /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
     /// last one ended, and its own rolls (the view's kick).
     flinch_until: f32,
@@ -818,6 +821,11 @@ pub struct Combat {
 }
 
 impl Combat {
+    /// Seconds since the player's last shot.
+    pub fn since_last_shot(&self) -> f32 {
+        self.time - self.last_shot
+    }
+
     /// Projectiles in flight now (the stress tests' samples).
     pub fn in_flight(&self) -> usize {
         self.flying.len()
@@ -1273,6 +1281,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         tracer_hold,
         load_magazine: None,
         crosshair_cone: None,
+        player_spread: None,
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
@@ -1678,6 +1687,7 @@ pub(crate) fn fire(
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
     c.crosshair_cone = None;
+    c.player_spread = None;
     if c.melee {
         return;
     }
@@ -1732,6 +1742,7 @@ pub(crate) fn fire(
         let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
+        c.player_spread = Some(if c.no_spread { 0.0 } else { actor_spread.max(0.0) });
     }
     let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
     if eject_now && anim.ejects_on_key {

@@ -67,6 +67,7 @@ mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
 mod terminal_view;
+mod scope_view;
 mod poker_view;
 mod lod;
 mod locomotion;
@@ -1250,6 +1251,8 @@ fn main() -> AppExit {
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
+        // A weapon's scope: its picture, night vision and sway (scope_view.rs).
+        app.add_plugins(scope_view::ScopeViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
     }
