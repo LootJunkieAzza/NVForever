@@ -6391,6 +6391,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "environment-radiation"
+source = "docs/spec-notes/radiation.md §2-§6: the player in the nuclear test site's shack (SLNuclearTestShackINT), inside the radius of its radiation marker (ref 00154611, 15 rads a second within 2000 units): the level, the rads taken after Rad Resistance, the Geiger counter's strongest burst, radiation sickness once the rads pass 200, and the run's summary"
+areas = ["radiation", "aid", "hud", "sound"]
+paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'radiation: level 15\.0 rads/s \(marker 0x00154611 15\.0\), taking 1\d\.\d\d/s \(Rad Resistance \d+ %\)', label = "the marker's whole level, cut by Rad Resistance" },
+  { re = 'geiger: UIPipBoyRadiationC \(level 15\.0\)', label = "the counter's strongest burst" },
+  { re = 'needs: Rad Level 2\d\d(\.\d)?: Radiation200', label = "radiation sickness from 200 rads" },
+  { re = 'script: message CGTutorialRadiation', label = "the game's own script sees the sickness (its tutorial box)" },
+  { re = 'radiation summary: .*\(\+(?P<n>[\d.]+)\)', range = [150, 1000], label = "rads taken over the run" },
+]
+
+[[scenario]]
 name = "grab-skull"
 source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 90°, dropped; its OnGrab and OnRelease blocks run"
 areas = ["grab", "physics"]
