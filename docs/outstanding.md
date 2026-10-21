@@ -65,7 +65,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   placed models' systems per reference, nearest add-on emitters served first, script-enabled
   references and snow globes emit; open there: the reactor's reset-on-loop controller,
   placed dynamite's fuse, the rock-slide boulders).
-- **Interface**: credits. The weapon mod menu is built (2026-10-20,
+- **Interface**: credits. ~~Weapon scopes~~ (built 2026-10-21, [weapon-scopes](spec-notes/weapon-scopes.md): the MOD3 picture, night-vision scopes and the sway; left: the scope in third person, the original's timing). The weapon mod menu is built (2026-10-20,
   [weapon-mods](spec-notes/weapon-mods.md)): X on a weapon lists the carried mods that
   fit a free slot, attaching one uses it up and sets the weapon's mod flags (kept in
   saves), the player's figures and model in hand change; MenuMode 1061. Left of it

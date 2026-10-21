@@ -16,6 +16,10 @@
 //!   view do. Whatever else sets the field of view (the console's SetCameraFOV,
 //!   chargen) sets the unzoomed angle: a change this module did not make is taken as
 //!   the new base.
+//! - **Scopes** (docs/spec-notes/weapon-scopes.md §2): a scoped gun (WEAP Has Scope, or
+//!   Scope from Mod with an Increase Zoom mod on) at full zoom in first person puts its
+//!   scope up ([`Scope`]); nvforever `scope_view.rs` draws the MOD3 picture, the night
+//!   vision and the sway, the arms rig and the crosshair go meanwhile.
 
 use bevy::prelude::*;
 
@@ -23,6 +27,7 @@ use crate::combat::{Combat, WeaponAnim};
 use crate::control::PlayerControl;
 use crate::free_cam::{vertical_fov, FreeCam};
 use crate::{PlayState, PlayerCamera, PlaySet};
+use fnv_sim::FormId;
 
 /// Seconds from the unzoomed view to the full zoom and back [design: not captured].
 pub const ZOOM_SECONDS: f32 = 0.25;
@@ -56,11 +61,25 @@ pub fn zoomed_fov(base: f32, sight: f32, blend: f32) -> f32 {
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct TrueSights(pub bool);
 
+/// The weapon's scope is up (weapon-scopes.md §2): a scoped gun aimed in first person and
+/// zoomed all the way to its Sight FOV.
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct Scope {
+    pub on: bool,
+    /// The weapon, its scope's picture (WEAP MOD3) and whether it gives night vision, while
+    /// on.
+    pub weapon: Option<FormId>,
+    pub model: Option<String>,
+    pub night_vision: bool,
+    /// The Sight FOV (degrees) zoomed to.
+    pub sight_fov: f32,
+}
+
 pub struct AimZoomPlugin;
 
 impl Plugin for AimZoomPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AimZoom>().init_resource::<TrueSights>().add_systems(Update, zoom.in_set(PlaySet::Sync));
+        app.init_resource::<AimZoom>().init_resource::<TrueSights>().init_resource::<Scope>().add_systems(Update, zoom.in_set(PlaySet::Sync));
     }
 }
 
@@ -73,6 +92,7 @@ fn zoom(
     combat: Option<Res<Combat>>,
     free: Option<Res<FreeCam>>,
     mut z: ResMut<AimZoom>,
+    mut scope: ResMut<Scope>,
     mut cams: Query<&mut Projection, With<PlayerCamera>>,
 ) {
     let Ok(mut proj) = cams.single_mut() else { return };
@@ -91,6 +111,27 @@ fn zoom(
     let step = time.delta_secs().min(0.25) / ZOOM_SECONDS;
     let was = z.blend;
     z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };
+    // The scope: up at full zoom in first person, down as soon as the aim is let go.
+    let scoped = sight.filter(|_| z.blend >= 1.0 && !control.third_person_view()).and_then(|(w, deg)| {
+        let stats = combat.as_deref()?.player_stats(w)?;
+        Some(Scope { on: true, weapon: Some(w), model: stats.scope_model().map(str::to_string), night_vision: stats.night_vision_scope(), sight_fov: deg })
+    });
+    let scoped = scoped.filter(|s| s.model.is_some()).unwrap_or_default();
+    if scoped != *scope {
+        if scoped.on && (scope.weapon != scoped.weapon || !scope.on) {
+            let edid = combat.as_deref().and_then(|c| c.forms.weapons.get(&scoped.weapon?)).and_then(|ws| ws.edid.clone()).unwrap_or_else(|| "?".into());
+            info!(
+                "scope: {edid} ({}) up: {}, sight FOV {:.1}°, {}",
+                scoped.weapon.map_or_else(String::new, |w| w.to_string()),
+                scoped.model.as_deref().unwrap_or("?"),
+                scoped.sight_fov,
+                if scoped.night_vision { "a night-vision scope" } else { "a plain scope" }
+            );
+        } else if !scoped.on && scope.on {
+            info!("scope: down");
+        }
+        *scope = scoped;
+    }
     if was == 0.0 && z.blend == 0.0 {
         return;
     }
