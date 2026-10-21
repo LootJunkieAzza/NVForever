@@ -49,6 +49,14 @@
 //! inside a fireball's shell still show, and draws nothing into the depth-only passes
 //! (shadows). Particles and other blended shapes are drawn later and are not bent.
 //!
+//! Fire refraction: a refracting shape with the Fire Refraction flag as well
+//! (`nif_spawn::fire_period`) moves its bend: the normal map is read a second time,
+//! scrolled up its texture once every [`NifSurface::fire_period`] seconds, and that
+//! tilt is added to the shift [hypothesis, docs/spec-notes/refraction.md §3]. The
+//! Stealth Boy's field (nvforever `stealth_field.rs`) uses the same to make an actor's
+//! body shimmer. A refracting shape keeps the outline of its alpha cut
+//! ([`NifSurface::alpha_cut`]).
+//!
 //! Holes: a shape can be eaten away by a holes texture (an effect shader's dissolve,
 //! nvforever `effect_shaders.rs`, docs/spec-notes/effect-shaders.md §7): where the
 //! texture's alpha (0–255, read at the shape's own texture coordinates) is at or above
@@ -168,6 +176,10 @@ pub struct NifSurface {
     /// notes, "Refraction"), in screen UV; 0 for every other shape.
     #[uniform(100)]
     pub refraction: f32,
+    /// Seconds for the normal map of a refracting shape to scroll once up its texture,
+    /// negative for down (module notes, "Fire refraction"); 0: it does not move.
+    #[uniform(100)]
+    pub fire_period: f32,
     /// The shape refracts (module notes, "Refraction").
     pub refract: bool,
     /// The shape lies on another surface (a decal shader flag is set): drawn with
@@ -202,6 +214,7 @@ impl Default for NifSurface {
             alpha_cut: 0.0,
             add_whole: 0.0,
             refraction: 0.0,
+            fire_period: 0.0,
             refract: false,
             decal: false,
             hard_edges: false,

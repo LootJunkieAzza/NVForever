@@ -6927,3 +6927,25 @@ docs/spec-notes/vertex-morphs.md. nif.xml gives the blocks' fields only; my choi
 *Check:* in the game, stand in Goodsprings near the Nevada flag (smoke `vertex-morphs`'s
 spot) and at The Fort: do the flags ripple as in vertex_morphs_0/1.png, and do The Fort's
 flags move in step with each other?
+
+## Refraction: fire refraction and the Stealth Boy's shimmer (2026-10-21, queue item 18, branch claude/q18-refraction)
+
+Spec: [refraction](spec-notes/refraction.md). Shapes with the Refraction flag were already
+drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
+1. *Decision:* **Fire Refraction** (66 of the 75 refracting models in the base archives)
+   scrolls the normal map up its texture once every `fire period × 0.1` s and adds that
+   tilt to the bend; a negative period scrolls down, 0 stays still. The unit (tenths of
+   a second) and the direction are guessed.
+2. *Decision:* the **Stealth Boy** draws the player's body and arms refracting (strength
+   0.03, normal map scrolling every 2 s) instead of the faint blue copy at 30 %. The
+   Stealth Field's record names no shader, so the look is the engine's; strength and
+   period are guesses near the game's own effects (Mister Handy's jet 0.04). Hair and
+   other blended parts are cut at alpha 0.5.
+3. Not built: Nightkin and other actors under Chameleon still draw normally;
+   `SetActorRefraction` (console only, no script uses it, opcode unknown);
+   `BSRefractionFirePeriodController` (only the Novac windows have it, and they lack the
+   Refraction flag so they never refract).
+*Check:* in the game, use a Stealth Boy in third person by a wall with detail: how strong
+is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
+stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
+upwards, about once a second?

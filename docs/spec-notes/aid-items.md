@@ -68,9 +68,9 @@ record in any master (§5.1).
   value as a Value Modifier does: with Recover, a modifier while the effect lasts
   [hypothesis: the archetype names the actor value Chameleon]. Detection reads it: a
   target whose Invisibility or Chameleon is 1 or more is seen × fSneakStealthboyMult
-  (docs/design/detection.md). The player's body is drawn see-through meanwhile [design:
-  no refraction shader; `stealth_field.rs` blends the body's and arms' materials at 30 %
-  opacity, tinted blue].
+  (docs/design/detection.md). The player's body is drawn refracting meanwhile, a bent,
+  shimmering outline of what lies behind it [hypothesis, `stealth_field.rs`,
+  refraction.md §5].
 
 ## 3. What an effect does to an actor value
 

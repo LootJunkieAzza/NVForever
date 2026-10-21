@@ -2603,7 +2603,22 @@ order = [[
   "aid: the player used StealthBoy (potency 1.00): Chameleon +75.0 while it lasts (120 s), Sneak +100.0 while it lasts (120 s)",
   { re = 'detection: GSSettlerAM 00104F0A → the player: (noticed|detected) → hidden \(value -?[\d.]+: sound [\d.]+, visual 0\.0, .*sneaking' },
 ]]
-manual = "a shot after 22 s shows the player's body faint and bluish (third person)"
+manual = "a shot after 22 s shows the player's body refracting what lies behind it (third person)"
+
+[[scenario]]
+name = "stealth-boy-refraction"
+source = "queue item 18 (docs/spec-notes/refraction.md §5): the Stealth Boy's field draws the player's body refracting, what lies behind it bent by the body's normals with a scrolling normal map (the shimmer), instead of a faint blended copy"
+note = "aid-stealth-boy's set-up without the sneaking settler: third person from 6 s, the Stealth Boy used at 12 s; one frame at 14 s for the eye"
+areas = ["aid"]
+paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/refraction.rs", "engine/nvf-assets/src/nif_material.wgsl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_CONTROL = "6:view", NVF_PLAY_TEST_DROP = "12:00043E94:use", NVF_PLAY_TEST_SHOTS = "14:stealth_refraction.png" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'stealth field: on \(Chameleon 75\): [1-9]\d* meshes see-through \(refracting, strength 0\.030\)', label = "the field makes the body's meshes refract" },
+  { re = 'refraction: drawn: [1-9]\d* refracting meshes in view \([1-9]\d* with a moving bend\)', label = "the camera draws refracting meshes that shimmer" },
+]
+manual = "the frame at 14 s shows the player's body as a clear, slightly bent outline of what lies behind it"
 
 [[scenario]]
 name = "no-messages"
@@ -4029,7 +4044,7 @@ name = "incinerator-heat-haze"
 source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
 note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; steps from 9 s so a slow start does not run the draw and the shots in one frame; frames at 0.3-2 s after the shots for the eye (the shell shows only for its first 0.3 s)"
 areas = ["combat", "particles"]
-paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/refraction.rs"]
 env = { NVF_PLAY_TEST_EQUIP = "000906DA", NVF_PLAY_TEST_GIVE = "00029371:60", NVF_PLAY_TEST_LOOK = "9:46:-8", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "12.5:incinerator_0.png,12.7:incinerator_1.png,12.9:incinerator_2.png,13.3:incinerator_3.png,14:incinerator_4.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 20
@@ -4037,6 +4052,7 @@ expect = [
   { re = 'combat: explosion \S*IncineratorFireBurst at', label = "the Incinerator's fire burst goes off" },
   { re = 'shot fx: explosion meshes.dlc03.effects.dlc03flamerexplosion.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect \(.*, [1-9]\d* material\)', label = "its model: one refracting shell, material tracks played" },
   { re = 'particles: add-on node 0 meshes.mps.mpsfiremed01.nif: [1-9]\d* system', label = "the fire add-on (MPSFireMed01) has systems to emit" },
+  { re = 'refraction: drawn: [1-9]\d* refracting meshes in view \([1-9]\d* with a moving bend\)', label = "its shell is drawn refracting, with fire refraction's moving bend (refraction.md §3)" },
 ]
 
 [[scenario]]

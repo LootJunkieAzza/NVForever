@@ -23,7 +23,8 @@
 // REFRACT (shapes with the Refraction shader flag, main pass): what lies behind the shape
 // (Bevy's view transmission texture), shifted on the screen by the shape's normal (normal
 // map applied) in view space times `surface.refraction` [hypothesis, nif_material.rs
-// "Refraction"]; nothing of the shape's own colour or lighting.
+// "Refraction"]; nothing of the shape's own colour or lighting. With a fire period the
+// normal map's tilt, scrolled over time, is added (nif_material.rs "Fire refraction").
 //
 // Holes (nif_material.rs "Holes"): where `surface.holes.x` is 0 or more, the holes
 // texture's alpha (0-255) at or above it leaves a hole and the band of `surface.holes.y`
@@ -52,7 +53,8 @@
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
     pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD},
     lighting::{EnvBRDFApprox, F_AB},
-    mesh_view_bindings::{lights, view, view_transmission_texture, view_transmission_sampler},
+    mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler},
+    pbr_bindings,
     view_transformations::frag_coord_to_uv,
 }
 #ifdef SHADE_LIGHT
@@ -77,6 +79,9 @@ struct NifSurface {
     add_whole: f32,
     // REFRACT: the screen shift (UV) per unit of the view-space normal; 0 otherwise.
     refraction: f32,
+    // REFRACT: seconds for the normal map to scroll once up its texture (fire
+    // refraction); 0: it does not move.
+    fire_period: f32,
     // Holes: x the value (alpha units, negative: no holes), y the edge band's width.
     holes: vec4<f32>,
     // The edge band's colour (linear).
@@ -201,7 +206,25 @@ fn fragment(
 #endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 #ifdef REFRACT
-    let tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
+    var tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
+#ifdef STANDARD_MATERIAL_NORMAL_MAP
+#ifdef VERTEX_UVS_A
+#ifndef BINDLESS
+    if surface.fire_period != 0.0 {
+        // Fire refraction (nif_material.rs "Fire refraction"): the normal map read again,
+        // scrolled up its texture once every `fire_period` seconds (down when negative:
+        // fract keeps the offset in 0..1 either way); its tangent-space tilt
+        // is added to the shift as it is.
+        let scrolled = in.uv + vec2(0.0, fract(globals.time / surface.fire_period));
+        tilt += textureSample(pbr_bindings::normal_map_texture, pbr_bindings::normal_map_sampler, scrolled).rg * 2.0 - 1.0;
+    }
+#endif
+#endif
+#endif
+    // A cut-out (hair, a refracting actor's alpha-tested parts) keeps its outline.
+    if pbr_input.material.base_color.a < surface.alpha_cut {
+        discard;
+    }
     let shifted = clamp(frag_coord_to_uv(in.position.xy) + vec2(tilt.x, -tilt.y) * surface.refraction, vec2(0.0), vec2(1.0));
     var refracted: FragmentOutput;
     refracted.color = vec4(textureSampleLevel(view_transmission_texture, view_transmission_sampler, shifted, 0.0).rgb, 1.0);

@@ -26,6 +26,7 @@ struct NifSurface {
     alpha_cut: f32,
     add_whole: f32,
     refraction: f32,
+    fire_period: f32,
     holes: vec4<f32>,
     holes_edge: vec4<f32>,
 }

@@ -41,7 +41,7 @@ belong to the "Animate laser beams" session and are listed only.
 | Free `NiVisController` | 130 + 13 + 12 (458) | weapons' `##` parts, `aobardishrag.nif`, `dlcanch\effects` | No: almost all are weapon parts shown and hidden by the holder's clips (already played from the clips, animation.md §9.7) |
 | `NiGeomMorpherController` (vertex morphs) | free 20, seq 18 `.nif`; 287 `.kf` | flags (`clutter\flags\nv_ncr_flag.nif`, `nv_legionflag.nif`), `utilitypolewsingle01nv.nif` (swinging wires), the `##dgRubberBand:0` of 1st-person clips | **Now** for self-running and idle-sequence morphs (flags, holograms; [vertex-morphs](vertex-morphs.md)); the placed wire poles have no morphs |
 | `NiLightColorController`, `NiLightDimmerController` | 9 + 1 `.nif`, seq | `clutter\questitems\monumentlight01.nif` | No (lights inside models are read for their colour only, world.md §8) |
-| `BSRefractionStrengthController`, `BSRefractionFirePeriodController`; refraction and fire-refraction shader flags | 51 + 13 `.nif` seq, 2 free; flags on ~70 shapes | windows of Novac (`bungalow_windowext.nif`), Mr. Handy's jet `fxmrhandyjetaddon.nif` | No: refraction is not drawn at all (heat shimmer, frosted glass) |
+| `BSRefractionStrengthController`, `BSRefractionFirePeriodController`; refraction and fire-refraction shader flags | 51 + 13 `.nif` seq, 2 free; flags on ~70 shapes | windows of Novac (`bungalow_windowext.nif`), Mr. Handy's jet `fxmrhandyjetaddon.nif` | Yes since 2026-10-20/21: refracting shapes, strength controllers, fire refraction's moving bend ([refraction](refraction.md)); the Novac windows carry the controllers but not the flag, so they do not refract |
 | Particle controllers other than the emitter's rate and on/off keys | `NiPSysModifierActiveCtlr` 96 files; emitter speed/life/radius/declination/planar `Ctlr`s 1-37 files each; `NiPSysGravityStrengthCtlr` 26 | `nv_hooverdam_aagun.nif`, `ul_fountainnewfx.nif` | No (particles.md §5) |
 | Particle emitter rate keys (free, moving) | 3 (5) | `dlc04fxmuckpoolmudholegeyser01.nif` | No: the rate is read as the interpolator's single value |
 | `NiFloatExtraDataController` | 14 + 2 free | `nv_mojoutpost_statue01.nif`, `legionhelmetbase_go.nif` | No (drives a float extra data; what reads it is not known) |
@@ -166,7 +166,7 @@ pulse".
 
 - Vertex morphs a script or a non-idle sequence starts, and the 1st-person rubber band
   (flags and holograms are built: vertex-morphs.md).
-- Refraction (heat shimmer of the jets, the Novac windows) and its controllers.
+- ~~Refraction (heat shimmer of the jets, the Novac windows) and its controllers.~~ Built ([refraction](refraction.md)); the fire period controller is not played.
 - Lights inside models (`NiLightColorController`, `NiLightDimmerController`).
 - Particle controllers beyond the emitter's rate and on/off keys; keyed birth rates.
 - Shot effects (muzzle flashes, beams, impacts, projectiles): the "Animate laser beams:
