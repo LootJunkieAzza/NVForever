@@ -273,6 +273,9 @@ pub struct SkyState {
     live_globals: HashMap<u32, f32>,
     /// A loaded game's weather: kept, without a roll, by the first list it is eligible in.
     resume: Option<u32>,
+    /// A lightning flash's light now (linear RGB, added to the ambient light and the
+    /// sky's glow; `crate::weather_fx`).
+    flash: [f32; 3],
 }
 
 /// An overriding weather region of the worldspace and its weathers.
@@ -450,6 +453,7 @@ impl SkyState {
             hour_index: None,
             live_globals: HashMap::new(),
             resume: start.map(|_| wid),
+            flash: [0.0; 3],
         })
     }
 
@@ -651,6 +655,14 @@ impl SkyState {
             info!("weather: a script releases its weather");
         }
         self.follow_climate(false);
+    }
+
+    /// Light a lightning flash adds now (linear RGB; zero when none).
+    pub fn set_flash(&mut self, flash: [f32; 3]) {
+        if flash != self.flash {
+            self.flash = flash;
+            self.changed = true;
+        }
     }
 
     /// The weather shown is rainy (WTHR DATA) and its change is over (IsRaining).
@@ -1394,6 +1406,7 @@ pub fn update_sky(
     mut dome: Query<(&Mesh3d, &SkyDome, &mut Transform), (Without<FlyCam>, Without<Sun>, Without<CloudLayer>)>,
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<CloudLayer>)>,
     mut materials: ResMut<Assets<SkyMaterial>>,
+    mut flashed: Local<bool>,
 ) {
     let mut cam = cam;
     let Ok((cam_t, mut fog)) = cam.single_mut() else { return };
@@ -1457,7 +1470,9 @@ pub fn update_sky(
     }
 
     // Daylight on every sky part that takes it (see SkyLight).
-    let light = sky.light();
+    let mut light = sky.light();
+    let flash = Vec3::from_array(sky.flash);
+    light.glow += flash.extend(0.0);
     let ids: Vec<_> = materials.ids().collect();
     for id in ids {
         if let Some(mut m) = materials.get_mut(id) {
@@ -1495,7 +1510,7 @@ pub fn update_sky(
         light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0);
     }
     let amb = sky.color(ColorType::Ambient);
-    ambient.color = to_color(amb);
+    ambient.color = to_color([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z]);
     ambient.brightness = unit;
 
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
@@ -1503,7 +1518,9 @@ pub fn update_sky(
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
     fog.color = to_color(sky.fog_color()).with_alpha(strength);
     fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
-    if sky.time_scale <= 0.0 {
+    // A lightning flash changes the light each frame it lasts: not worth a line each.
+    let flashing = std::mem::replace(&mut *flashed, flash != Vec3::ZERO);
+    if sky.time_scale <= 0.0 && flash == Vec3::ZERO && !flashing {
         let desc = match range {
             Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} x{strength:.2}"),
             Some(_) => format!("{near:.0}..{far:.0}"),

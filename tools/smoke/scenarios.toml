@@ -6608,3 +6608,26 @@ order = [[
   { re = 'test aid: go to \(-20000, 85000, 9000\)', label = "the player is put in NVUrbanRegion" },
   { re = 'weather roll: (NVUrbanClear \(85|NVWastelandClear \(15) of 100 among 2 eligible\) from region NVUrbanRegion \(priority 100\) on entering the region', label = "the region's list replaces the climate's, weighted 85/15" },
 ]]
+
+[[scenario]]
+name = "weather-sound-precip"
+source = "ESM gap audit row 9 (docs/spec-notes/world.md §6 \"Weather sound, precipitation and lightning\"): a weather's SNAM sounds loop at the listener outdoors, its precipitation model is drawn about the camera, and lightning flashes with thunder after it"
+note = "NVDLC02ZVRainWeather (Honest Hearts' Zion rain, Rainy, lightning frequency 138, one Thunder sound AMBNVDLC02ThunderDis1) is pinned with --weather over Goodsprings. No weather in the masters has a precipitation model or a looping sound, so the test aid NVF_PLAY_TEST_WEATHER_FX gives the shown weather Honest Hearts' rain model and rain loop, as a mod's weather would carry them. The first flash comes 11-33 s after the start (the lightning roll is seeded), the thunder 1-4 s after it"
+areas = ["sky", "weather", "sound"]
+paths = ["engine/nvforever/src/weather_fx.rs", "crates/fnv-world/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_WEATHER_FX = 'precip=nvdlc02\sky\nvdlc02rain.nif;sound=AMBNVDLC02RainAmb' }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--weather", "NVDLC02ZVRainWeather", "--no-voice", "--no-messages"]
+run_seconds = 50
+order = [[
+  { text = "test aid: weather fx: the weather shown gets precipitation", label = "the test aid is read" },
+  { re = 'weather fx: AMBNVDLC02RainAmb \(Precipitation\) loops for NVDLC02ZVRainWeather', label = "the weather's precipitation sound loops" },
+  { re = 'weather fx: precipitation meshes\\nvdlc02\\sky\\nvdlc02rain\.nif on for NVDLC02ZVRainWeather', label = "the precipitation model is drawn, with its particle systems" },
+  { re = 'weather fx: lightning in NVDLC02ZVRainWeather \(frequency 138\)', label = "the Rainy weather has lightning" },
+  { re = 'weather fx: lightning flash in NVDLC02ZVRainWeather \(colour \[255, 255, 255\]\)', label = "a flash in the weather's lightning colour" },
+  { text = "weather fx: thunder AMBNVDLC02ThunderDis1 after the flash", label = "the weather's thunder follows the flash" },
+]]
+forbid = [
+  { re = 'sfx: AMBNVDLC02(RainAmb|ThunderDis1):', label = "a weather sound without a file we can play" },
+  { text = "weather fx: precipitation model", label = "the precipitation model does not load" },
+  { text = "(no particle systems)", label = "the precipitation model is drawn without its particle systems" },
+]

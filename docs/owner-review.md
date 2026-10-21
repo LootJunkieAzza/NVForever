@@ -7335,3 +7335,32 @@ its skill rises, Books Read counts one and a corner line says so. Spec:
 - *Not built:* books that teach nothing (their OnEquip scripts), NPCs reading.
 - *Check:* read Guns and Bullets with Guns at 15 in the original: is it 18, what line shows,
   and does Books Read in the Pip-Boy's General stats rise? With Comprehension, 4?
+
+## Weather sound, precipitation and lightning (2026-10-21, ESM gap audit item 9, branch claude/e9-weather-sound-precip)
+
+A weather's own sounds now loop outdoors, its precipitation model falls about the camera,
+and a rainy weather flashes with lightning and thunder. Spec:
+[world](spec-notes/world.md) §6 "Weather sound, precipitation and lightning". What the
+masters hold: no weather has a precipitation model, and no weather a world uses has a
+looping sound; only Honest Hearts' two Zion rain weathers do anything here (lightning,
+frequency 138, white, one distant thunder sound). Zion's rain and Hidden Valley's dust
+storm are drawn by their own scripts and placed references, as before. Decisions and
+guesses:
+
+- *Guess:* lightning frequency 255 means a flash every 4 s on average, 1 every 40 s, so
+  Zion's 138 flashes about every 22 s (each wait drawn between half and one and a half of
+  that). The byte's scale is not documented.
+- *Guess:* only Rainy weathers or weathers with a thunder sound flash (the clear weathers
+  store frequency 255 and would otherwise flash all the time).
+- *Guess:* a flash lights the scene and the sky in the lightning colour for 0.35 s, a
+  bright stroke and a weaker second one; thunder comes 1 to 4 s later.
+- *Guess:* the fade bytes (precipitation and lightning "begin fade in" / "end fade out")
+  are shares of 255 of the weather change: the rain starts once the change to the weather
+  is that far along and stops on a change away once it passes the other.
+- *Decision:* Default and Wind sounds loop while the weather is shown, Precipitation
+  sounds while its rain falls; all play at the listener with the effects volume, and none
+  indoors (the Zion rain script plays its own indoor rain sound).
+- *Not built:* the Snow class, sun damage and glare, wind moving anything,
+  GetWeatherTraitNumeric and the JIP weather setters.
+- *Check:* in Zion Canyon during rain in the original: how often does lightning flash,
+  how bright and long is a flash, and how long until the thunder?

@@ -5,10 +5,13 @@
 //! often the high-noon and midnight colours equal the day and night ones, or are black.
 //! With `--fog`: every weather's FNAM fog distances, flagging zero or empty (far <= near)
 //! ranges, and which climates list each such weather.
+//! With `--sounds`: every weather with sounds, a precipitation model, lightning or a
+//! classification flag: its SNAM sounds by kind, MODL, DATA fades and lightning, and
+//! which climates and regions list it (docs/spec-notes/world.md §6 "Weather sound").
 //! With `--imad`: every image space adapter's cinematic tracks (IAD 0x11-0x14 multiply
 //! and 0x51-0x54 add) as (time, value) keys, and every image space's cinematic values.
 //!
-//! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey | --fog | --imad]
+//! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey | --fog | --imad | --sounds]
 
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_world::fields::Fields;
@@ -33,6 +36,10 @@ fn main() {
     }
     if want == "--fog" {
         fog_survey(&lo, &schema);
+        return;
+    }
+    if want == "--sounds" {
+        sound_survey(&lo, &schema);
         return;
     }
     if want == "--imad" {
@@ -209,4 +216,58 @@ fn imad_survey(lo: &LoadOrder, schema: &Schema) {
             );
         }
     }
+}
+
+fn sound_survey(lo: &LoadOrder, schema: &Schema) {
+    let mut users: std::collections::HashMap<u32, Vec<String>> = Default::default();
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"CLMT") {
+            let Some(c) = lo.to_global(pi, r.header.form_id).and_then(|id| climate(lo, schema, id)) else { continue };
+            for w in &c.weathers {
+                users.entry(w.weather).or_default().push(format!("CLMT {}", c.edid.clone().unwrap_or_default()));
+            }
+        }
+    }
+    for rg in fnv_world::sky::region_weathers(lo, schema) {
+        for w in &rg.weathers {
+            users.entry(w.weather).or_default().push(format!("REGN {}", rg.edid.clone().unwrap_or_default()));
+        }
+    }
+    let edid = |id: u32| {
+        fnv_world::fields::winner(lo, id)
+            .and_then(|(pi, r)| Fields::new(r, pi, schema).ok()?.string(b"EDID"))
+            .unwrap_or_else(|| format!("{id:#010x}"))
+    };
+    let (mut total, mut shown) = (0, 0);
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"WTHR") {
+            let Some(id) = lo.to_global(pi, r.header.form_id) else { continue };
+            if fnv_world::fields::winner(lo, id).is_some_and(|(wpi, _)| wpi != pi) {
+                continue;
+            }
+            let Some(w) = weather(lo, schema, id) else { continue };
+            total += 1;
+            if w.sounds.is_empty() && w.precipitation_model.is_none() && w.lightning_frequency == 0 && w.classification == 0 {
+                continue;
+            }
+            shown += 1;
+            let sounds: Vec<String> = w.sounds.iter().map(|s| format!("{:?}:{}", s.kind, edid(s.sound))).collect();
+            println!(
+                "{:18} {:#010x} {:28} class {:#04x} wind {:3} precip {:?} fade {:?} lightning freq {} fade {:?} colour {:?} sounds [{}] used by {:?}",
+                MASTERS[pi],
+                id,
+                w.edid.clone().unwrap_or_default(),
+                w.classification,
+                w.wind_speed,
+                w.precipitation_model,
+                w.precipitation_fade,
+                w.lightning_frequency,
+                w.lightning_fade,
+                w.lightning_color,
+                sounds.join(", "),
+                users.get(&id).cloned().unwrap_or_default()
+            );
+        }
+    }
+    println!("{shown} of {total} weathers have sounds, precipitation, lightning or a classification");
 }
