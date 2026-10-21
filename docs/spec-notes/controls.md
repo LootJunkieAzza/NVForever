@@ -99,8 +99,10 @@ key text [observed: the prefab's `_xbox` switch]. `FalloutPrefs.ini` also holds
   mouse wheel zooms the third-person camera.
 - Rest: the Wait menu, or the Sleep menu while lying on a bed
   (docs/spec-notes/wait-menu.md).
+- Grab (Z) held picks up and carries what is under the crosshair; E held does too
+  (docs/spec-notes/grab.md §2).
 - Not built yet (a line on screen says so): attacking, reloading, VATS, the
-  hotkeys and Ammo Swap, Quick Save, Quick Load, Grab.
+  hotkeys and Ammo Swap, Quick Save, Quick Load.
 
 ## 4. Captures wanted
 

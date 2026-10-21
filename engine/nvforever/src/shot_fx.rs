@@ -237,6 +237,26 @@ fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &P
     let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.effect.as_ref()?))) else {
         return (spawn_model(commands, parent, pm, place), 0.0);
     };
+    let (holder, root, drawn) = spawn_rig(commands, parent, pm, rig, clip, place, source);
+    if beam {
+        // Every shape gets a material of its own to fade, not only those the clip drives
+        // (the laser beam's white core is not).
+        let fades_itself = clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha);
+        if !fades_itself {
+            let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
+            commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
+        }
+        commands.entity(holder).insert(Fade { root, own: fades_itself });
+        fx.beams_animated += 1;
+    }
+    fx.animated += 1;
+    (holder, clip.length() / clip.frequency.max(1e-6))
+}
+
+/// Spawn `rig` under a holder at `place` playing `clip`, with the billboards, add-on
+/// nodes and visibility tracks of [`spawn_effect`]; returns the holder, the rig's root
+/// and its drawn shapes.
+fn spawn_rig(commands: &mut Commands, parent: Entity, pm: &PreparedModel, rig: &nvf_assets::model::Rig, clip: &nvf_assets::anim_play::Clip, place: Transform, source: &str) -> (Entity, Entity, Vec<Entity>) {
     // Under a holder at the place: a track of the clip may drive the file's root node.
     let holder = commands.spawn((place, Visibility::Inherited, ChildOf(parent))).id();
     let (root, drawn, by_name) = rig.spawn_playing(commands, holder, Transform::IDENTITY, source, 0.0, Some(clip));
@@ -256,19 +276,25 @@ fn spawn_effect(commands: &mut Commands, fx: &mut ShotFx, parent: Entity, pm: &P
     if !shown.is_empty() {
         commands.entity(root).insert(EffectVisibility(shown));
     }
-    if beam {
-        // Every shape gets a material of its own to fade, not only those the clip drives
-        // (the laser beam's white core is not).
-        let fades_itself = clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha);
-        if !fades_itself {
-            let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
-            commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
-        }
-        commands.entity(holder).insert(Fade { root, own: fades_itself });
-        fx.beams_animated += 1;
+    (holder, root, drawn)
+}
+
+/// Spawn a model another effect puts on something (an effect shader's add-on models,
+/// `crate::effect_shaders`) under `parent` at `place`, as [`spawn_effect`] does: its rig
+/// playing its effect clip, its billboards turning, its add-on nodes emitting. Returns
+/// the entity above it and the rig root whose [`RigMaterials::fade`] fades it (`None`:
+/// no rig, or its clip drives its own alpha).
+pub(crate) fn spawn_attached(commands: &mut Commands, parent: Entity, pm: &PreparedModel, place: Transform, source: &str) -> (Entity, Option<Entity>) {
+    let Some((rig, clip)) = pm.rig.as_ref().and_then(|r| Some((r, r.effect.as_ref()?))) else {
+        return (spawn_model(commands, parent, pm, place), None);
+    };
+    let (holder, root, drawn) = spawn_rig(commands, parent, pm, rig, clip, place, source);
+    if clip.materials.iter().any(|t| t.target == MaterialTarget::Alpha) {
+        return (holder, None);
     }
-    fx.animated += 1;
-    (holder, clip.length() / clip.frequency.max(1e-6))
+    let slots = rig.shapes.iter().zip(&drawn).map(|(s, e)| s.slot(*e)).collect();
+    commands.entity(root).insert(RigMaterials { slots, idle: Arc::new(clip.materials.clone()), dark: false, fade: 1.0 });
+    (holder, Some(root))
 }
 
 /// On a beam's holder: the root of its rig, whose materials fade with the beam's
@@ -532,9 +558,11 @@ fn casings(
     mut phys: ResMut<PhysState>,
     mut models: ModelCtx,
     mut fx: ResMut<ShotFx>,
-    root: Query<Entity, With<WorldRoot>>,
+    root: Query<(Entity, &GlobalTransform), With<WorldRoot>>,
     mut live: Query<(Entity, &mut Casing, &mut Transform)>,
     mut knocks: MessageWriter<PlaySound>,
+    body: Option<Res<PlayerBody>>,
+    nodes: Query<&GlobalTransform>,
 ) {
     let dt = time.delta_secs();
     let gravity = phys.world.params.gravity;
@@ -570,17 +598,24 @@ fn casings(
             t.rotation = Quat::from_scaled_axis(c.spin * dt) * t.rotation;
         }
     }
-    let (Some(sfx), Ok(world_root)) = (sfx, root.single()) else {
+    let (Some(sfx), Ok((world_root, root_at))) = (sfx, root.single()) else {
         thrown.clear();
         return;
     };
+    // The held weapon's `ShellCasingNode` as drawn (last frame's place), under the world
+    // root: in first person the arms are drawn through a narrower view than the world's
+    // (`player_body::place_lens`), so the node as posed is not where the weapon is seen.
+    let seen = body.as_deref().and_then(PlayerBody::casing_entity).and_then(|e| nodes.get(e).ok()).map(|g| root_at.affine().inverse() * g.affine());
     for c in thrown.read() {
         let Some(model) = sfx.forms.weapons.get(&c.weapon).and_then(|w| w.shell_casing_model.as_deref()) else { continue };
         let Some(pm) = load(&mut models, &mut fx, "shell casing", model) else { continue };
-        let velocity = Vec3::from_array(c.velocity);
+        let (point, velocity) = match seen {
+            Some(m) => (m.translation.into(), m.transform_vector3(Vec3::Z).normalize_or_zero() * Vec3::from_array(c.velocity).length()),
+            None => (Vec3::from_array(c.point), Vec3::from_array(c.velocity)),
+        };
         // It tumbles about an axis across its flight [design].
         let spin = velocity.cross(Vec3::Z).normalize_or(Vec3::X) * 12.0;
-        let holder = spawn_model(&mut commands, world_root, &pm, Transform::from_translation(Vec3::from_array(c.point)));
+        let holder = spawn_model(&mut commands, world_root, &pm, Transform::from_translation(point));
         let sound = sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref() == Some(casing_sound(model))).map(|(&id, _)| id);
         commands.entity(holder).insert(Casing { velocity, spin, left: c.life.max(0.5), resting: false, sound, knocks: 0 });
         fx.casings += 1;

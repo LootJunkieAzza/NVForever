@@ -799,7 +799,8 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
   `eyebot` or `libertyprime` folders; the Securitron's skeleton has a `ShellCasingNode`
   (under `Dummy01_MachineGun`). Where those robots' shots leave is not known.
 - `ShellCasingNode`: 123 of the 362, 112 directly under the root. Ours throws the
-  shell casing from it along its own +z [hypothesis; the reasons and the build are in
+  shell casing from it along its own +z, at the attack clip's `Eject` key where it has
+  one [hypothesis for the axis; the reasons and the build are in
   docs/spec-notes/combat-rules.md §16].
 - First-person models: 10 files named `1st…`, nine of them melee weapons and one
   `2handrifle\1stpersongaussrifleunique.nif` (the only one with the node). The 10mm

@@ -40,6 +40,7 @@ pub mod flashlight;
 pub mod free_cam;
 pub mod game_start;
 pub mod furniture;
+pub mod grab;
 pub mod hitvol;
 pub mod interface;
 pub mod intro;
@@ -305,7 +306,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(mines::MinesPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
-            .add_plugins(vats_mode::VatsModePlugin);
+            .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(grab::GrabPlugin);
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);

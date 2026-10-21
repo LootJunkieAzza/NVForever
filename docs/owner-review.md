@@ -6881,6 +6881,35 @@ there a visible smear, by about as much as smoke `imagespace-motion-blur`'s
 motion_turning.png? Does walking forward smear the ground? Does the gun stay sharp?
 `rimod VATScamNoDOF` afterwards.
 
+## Effect shaders' holes and add-on models (2026-10-21, session "q19", branch claude/q19-efsh-holes)
+
+docs/spec-notes/effect-shaders.md §7-§8. The GECK wiki's EffectShader page says nothing of
+either, so the meanings come from xEdit's field names and the records; my choices:
+- **Holes only with a holes texture.** Most other records carry holes numbers (0, 10, 255, 0) but no
+  texture; only the 8 with one dissolve.
+- **Direction**: where the holes texture's alpha is at or above the value there is a hole;
+  the value moves linearly from the start value (until the start time) to the end value
+  (by the end time). The death shaders go 255 to 0, so the body is whole at first and gone
+  at the end (GooShader01 over 0.2-1.75 s; the gooification script hides the body at 1.4 s).
+- **Edge band**: the "edge width" alpha units next to the holes are drawn unlit in the holes'
+  edge colour (orange for the laser, cyan for the alien blaster, red for the nuke).
+- **Texture coordinates**: the holes texture is read at each mesh's own UVs.
+- **After the play** the meshes get their own materials back.
+- **Add-on models**: one model of the DEBR (by its percentages) on each of up to 8 bones of
+  the actor, spread over its skeleton; an object gets one. Played as effect models
+  (billboards face the camera).
+- **Add-on timing**: grow from "scale start" to full size over "scale in time" and fade in
+  over "fade in time" from the start; after the end shrink to "scale end" over "scale out
+  time" and fade out over "fade out time". GlowingOneFXShader's short record has no timing:
+  full size at once, gone at once.
+- `HaroldLiniment` (0 to 127) would start with the body a hole under these rules; no script
+  plays it.
+*Check:* in the game, kill an NPC with a plasma critical (or `player.pms GooShader01` on a
+target): does the body break up in patches from the inside out with a thin light rim, as
+smoke `effect-shader-holes-addons`'s effect_holes.png shows? Set an NPC on fire with a
+flamer: how many fireballs ride on the body, and where (hands, head, chest)? Do they shrink
+and fade over about 2 s after the burning stops? A Legion explorer (GlowingOneFXShader): are
+glow meshes visible on the body?
 ## Vertex morphs (2026-10-20, session "q17", branch claude/q17-vertex-morphs)
 
 docs/spec-notes/vertex-morphs.md. nif.xml gives the blocks' fields only; my choices:
@@ -6942,6 +6971,33 @@ drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
 is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
 stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
 upwards, about once a second?
+
+## Grab: picking up and carrying objects (2026-10-21, queue item 24, branch claude/q24-grab)
+
+Spec: [grab](spec-notes/grab.md). No capture of the original's grab was made; the
+settings it uses (`fGrabMaxWeight*`, `fZKey*`) are named in the executable but are not
+records of the shipped plugins, so their values are not known.
+1. *Decision:* **Grab (Z) held** picks up what is under the crosshair and holds it until
+   Z comes up; **E held 0.4 s** does too (until E comes up), a shorter press of E
+   activates as before, when E comes up. Only presses of E on things that can be held
+   wait for the key to come up; everything else still activates on the press.
+2. *Decision:* what can be held: loose objects (one dynamic Havok body: placed clutter,
+   dropped items) and corpses (the ragdoll body nearest the crosshair). Not living
+   actors.
+3. *Guesses:* held at the distance it was picked up from (at least 50 units), hanging
+   from the point the crosshair touched; follows at up to 700 units/s; spin damped;
+   dropped when it lags more than 90 units behind (caught on something).
+4. *Decision:* **Use while holding throws** it along the view (2500 kg·units/s over its
+   mass, at most 600 units/s) and does not fire the weapon.
+5. *Guesses:* not picked up above 100 kg (`fGrabMaxWeightWalking`), the player walks
+   while holding more than 25 kg (`fGrabMaxWeightRunning`); for a corpse the held body's
+   mass counts, not the whole body's.
+6. Not built: arms reaching for the object (`bGrabIK`), rotating a held object,
+   GetPlayerGrabbedRef (no New Vegas opcode).
+*Check:* in the game, in Doc Mitchell's house: does a tap of E on the brahmin skull do
+nothing and holding E pick it up? Does Z pick it up? How far in front is it held, does
+it swing or keep its turn, how fast does it follow a quick turn, and does attacking
+throw it? Can you drag a corpse, and does carrying something heavy slow you to a walk?
 
 ## Slot machines (2026-10-21, queue item 22, branch claude/q22-slot-machines)
 
