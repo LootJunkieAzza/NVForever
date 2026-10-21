@@ -203,7 +203,7 @@ pub fn default_weather(c: &Climate, global_value: impl Fn(u32) -> Option<f32>) -
 /// only while that global is non-zero, and entries whose global is set and non-zero
 /// win over the entries without a global; without any, the entries without a global
 /// [hypothesis: NVDefaultClimate (and NewVegasRegion) list NVWastelandClearNight gated
-/// by VNight, which NightQuestScript sets to 1 from 21:00 to 4:30, next to the ungated
+/// by VNight, which NightQuestScript sets to 1 from 21:00 to 4:18, next to the ungated
 /// NVWastelandClear, both chance 100; MapHooverDam lists NVHooverFinalBattle gated by
 /// VStoryEventHooverDamBattleStarted next to the ungated NVHooverDamWeather, both 100.
 /// A plain draw would show the day weather on half the nights and the peaceful weather

@@ -416,13 +416,6 @@ impl SkyState {
                 (w.form_id, ids.map(|id| id.and_then(|id| adapter(world.lo, world.schema, id))))
             })
             .collect();
-        if !regions.is_empty() {
-            let names: Vec<String> = regions
-                .iter()
-                .map(|r| format!("{} (priority {}, {} weathers)", r.region.edid.as_deref().unwrap_or("?"), r.region.priority, r.choices.len()))
-                .collect();
-            info!("weather: {} region(s) override the climate here: {}", regions.len(), names.join(", "));
-        }
         Ok(SkyState {
             climate: clim,
             weather: w,
@@ -466,6 +459,15 @@ impl SkyState {
     pub fn place(&mut self, at: Option<Option<u32>>) {
         let first = !self.placed;
         self.placed = true;
+        // Said here, not in `new`, which runs before the log is set up.
+        if first && !self.regions.is_empty() {
+            let names: Vec<String> = self
+                .regions
+                .iter()
+                .map(|r| format!("{} (priority {}, {} weathers)", r.region.edid.as_deref().unwrap_or("?"), r.region.priority, r.choices.len()))
+                .collect();
+            info!("weather: {} region(s) override the climate here: {}", self.regions.len(), names.join(", "));
+        }
         if let Some(region) = at {
             self.source = region.and_then(|f| self.regions.iter().position(|r| r.region.form_id == f));
         }

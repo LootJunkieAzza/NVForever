@@ -265,7 +265,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   region_at}`, engine `sky.rs`; built 2026-10-21, ESM gap audit row 8). What the data
   holds [observed, FalloutNV.esm]: every climate's TNAM volatility is 0. NVDefaultClimate
   (and the worldless NewVegasRegion) lists NVWastelandClearNight (chance 100, gated by the
-  global `VNight`, 0 in the masters, set to 1 from 21:00 to 4:30 by NightQuestScript) and
+  global `VNight`, 0 in the masters, set to 1 from 21:00 until GetCurrentTime 4.30, 4:18, by NightQuestScript) and
   NVWastelandClear (chance 100, no global). 31 regions carry a weather block (REGN `RDAT`
   type 3 then `RDWT`, laid out as `WLST` [documented: xEdit]); in WastelandNV the RDAT
   flags' bit 0 is set on NVUrbanRegion (NVUrbanClear 85, NVWastelandClear 15),
@@ -291,7 +291,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   - A roll is a weighted draw, chance / sum of chances (all chances 0: equally likely)
     [hypothesis: GECK "chance" read as a weight]. A roll is made when the list followed
     changes (start, entering or leaving an overriding region) or its eligible entries
-    change (VNight at 21:00 and 4:30, the battle global), and, at each whole game hour,
+    change (VNight at 21:00 and 4:18, the battle global), and, at each whole game hour,
     with probability volatility / 255 [hypothesis: GetClimateTraitNumeric names the byte
     "Volatility" (GECK wiki); its scale and schedule are not documented; with the shipped
     0 the Mojave's weather never changes by itself, as the unmodded game's is known not
