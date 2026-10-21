@@ -367,7 +367,7 @@ impl Cycle {
                     }
                     dt -= left;
                     self.shots += 1;
-                    let free = self.free_fourth && self.shots % 4 == 0;
+                    let free = self.free_fourth && self.shots.is_multiple_of(4);
                     let rounds = if self.no_ammo || free { 0 } else { self.ammo_use };
                     self.magazine -= rounds;
                     out.push(Event::Fired { rounds });
