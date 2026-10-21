@@ -328,8 +328,8 @@ impl Bomb {
     }
 }
 
-/// `NiPSysPlanarCollider` under a `NiPSysColliderManager` (particles.md §6.4), in the file's
-/// frame.
+/// `NiPSysPlanarCollider` or `NiPSysSphericalCollider` under a `NiPSysColliderManager`
+/// (particles.md §6.4, §7.3), in the file's frame.
 #[derive(Debug, Clone)]
 pub struct Collider {
     pub origin: Vec3,
@@ -338,6 +338,8 @@ pub struct Collider {
     pub y_axis: Vec3,
     pub half_width: f32,
     pub half_height: f32,
+    /// A spherical collider's radius in the file's frame (the plane fields unused).
+    pub sphere: Option<f32>,
     pub bounce: f32,
     pub die: bool,
 }
@@ -349,6 +351,9 @@ impl Collider {
     /// velocity)))` when it bounces.
     #[allow(clippy::type_complexity)]
     pub fn hit(&self, frame: &Affine3A, from: Vec3, to: Vec3, vel: Vec3) -> Option<Option<(Vec3, Vec3)>> {
+        if let Some(radius) = self.sphere {
+            return self.hit_sphere(frame, radius, from, to, vel);
+        }
         let (x, y) = (frame.transform_vector3(self.x_axis), frame.transform_vector3(self.y_axis));
         let (hw, hh) = (self.half_width * x.length(), self.half_height * y.length());
         let (x, y) = (x.normalize_or_zero(), y.normalize_or_zero());
@@ -366,6 +371,28 @@ impl Collider {
         if self.die {
             return Some(None);
         }
+        let across = n * vel.dot(n);
+        Some(Some((at, vel - across - across * self.bounce)))
+    }
+
+    /// A sphere about the collider object: a particle crossing its surface, either way
+    /// (a snow globe's flakes stay inside), dies or is put back on the surface with the
+    /// part of its velocity along the surface normal turned round and scaled by `bounce`
+    /// [hypothesis, particles.md §7.3].
+    #[allow(clippy::type_complexity)]
+    fn hit_sphere(&self, frame: &Affine3A, radius: f32, from: Vec3, to: Vec3, vel: Vec3) -> Option<Option<(Vec3, Vec3)>> {
+        let centre = frame.transform_point3(self.origin);
+        let r = radius * frame.transform_vector3(Vec3::X).length();
+        let (a, b) = ((from - centre).length() - r, (to - centre).length() - r);
+        if r <= 0.0 || (a > 0.0) == (b > 0.0) || a == b {
+            return None;
+        }
+        if self.die {
+            return Some(None);
+        }
+        let n = (from + (to - from) * (a / (a - b)) - centre).normalize_or(Vec3::Z);
+        // Back on the surface, a hair to the side it came from.
+        let at = centre + n * (r + a.signum() * 1e-3);
         let across = n * vel.dot(n);
         Some(Some((at, vel - across - across * self.bounce)))
     }
@@ -982,7 +1009,7 @@ impl ModelCtx<'_> {
                         });
                     }
                     "NiPSysColliderManager" => {
-                        // The manager's chain of colliders; planar ones are read.
+                        // The manager's chain of colliders; planar and spherical ones are read.
                         let mut c = m.block_ref("collider").unwrap_or(-1);
                         let mut steps = 0;
                         while let (Some(cty), Some(col)) = (type_of(c), dec.get(c)) {
@@ -997,7 +1024,21 @@ impl ModelCtx<'_> {
                                     y_axis: y.normalize_or(Vec3::Y),
                                     half_width: cf("width") * 0.5 * x.length(),
                                     half_height: cf("height") * 0.5 * y.length(),
+                                    sphere: None,
                                     bounce: cf("bounce"),
+                                    die: matches!(col.get("die_on_collide"), Some(fnv_nif::value::Value::Bool(true))),
+                                });
+                            } else if cty == "NiPSysSphericalCollider" {
+                                // The object's place times its own scale gives the sphere's.
+                                let frame = place(col.block_ref("collider_object").unwrap_or(-1));
+                                def.colliders.push(Collider {
+                                    origin: frame.translation.into(),
+                                    x_axis: Vec3::X,
+                                    y_axis: Vec3::Y,
+                                    half_width: 0.0,
+                                    half_height: 0.0,
+                                    sphere: Some(col.float("radius").unwrap_or(0.0) * frame.transform_vector3(Vec3::X).length()),
+                                    bounce: col.float("bounce").unwrap_or(0.0),
                                     die: matches!(col.get("die_on_collide"), Some(fnv_nif::value::Value::Bool(true))),
                                 });
                             } else if !out.unread.iter().any(|u| u == cty) {
@@ -1270,7 +1311,7 @@ mod tests {
 
     #[test]
     fn a_planar_collider_bounces_or_kills_within_its_rectangle() {
-        let c = Collider { origin: Vec3::new(0.0, 0.0, -50.0), x_axis: Vec3::X, y_axis: Vec3::Y, half_width: 100.0, half_height: 100.0, bounce: 0.5, die: false };
+        let c = Collider { origin: Vec3::new(0.0, 0.0, -50.0), x_axis: Vec3::X, y_axis: Vec3::Y, half_width: 100.0, half_height: 100.0, sphere: None, bounce: 0.5, die: false };
         let (at, v) = c.hit(&I, Vec3::new(0.0, 0.0, -40.0), Vec3::new(0.0, 0.0, -60.0), Vec3::new(10.0, 0.0, -200.0)).unwrap().unwrap();
         assert!((at.z + 50.0).abs() < 1e-4 && (v - Vec3::new(10.0, 0.0, 100.0)).length() < 1e-3, "{at} {v}");
         // Outside the rectangle, or not crossing: nothing.
@@ -1281,6 +1322,18 @@ mod tests {
         // Placed upside down by its model's place: the plane is then at z = +50.
         let flipped = Affine3A::from_rotation_x(std::f32::consts::PI);
         assert!(c.hit(&flipped, Vec3::new(0.0, 0.0, 60.0), Vec3::new(0.0, 0.0, 40.0), Vec3::NEG_Z).is_some());
+    }
+
+    #[test]
+    fn a_spherical_collider_keeps_particles_inside() {
+        let c = Collider { origin: Vec3::new(0.0, 0.0, 10.0), x_axis: Vec3::X, y_axis: Vec3::Y, half_width: 0.0, half_height: 0.0, sphere: Some(5.0), bounce: 0.5, die: false };
+        // Falling out of the bottom of the sphere: back on its surface, thrown up at half speed.
+        let (at, v) = c.hit(&I, Vec3::new(0.0, 0.0, 6.0), Vec3::new(0.0, 0.0, 4.0), Vec3::new(0.0, 0.0, -20.0)).unwrap().unwrap();
+        assert!((at.z - 5.0).abs() < 1e-2 && (v.z - 10.0).abs() < 1e-3, "{at} {v}");
+        // Moving inside without reaching the surface: nothing; a scaled frame scales it.
+        assert!(c.hit(&I, Vec3::new(0.0, 0.0, 9.0), Vec3::new(0.0, 0.0, 7.0), Vec3::NEG_Z).is_none());
+        let big = Affine3A::from_scale(Vec3::splat(2.0));
+        assert!(c.hit(&big, Vec3::new(0.0, 0.0, 12.0), Vec3::new(0.0, 0.0, 11.0), Vec3::NEG_Z).is_none());
     }
 
     #[test]

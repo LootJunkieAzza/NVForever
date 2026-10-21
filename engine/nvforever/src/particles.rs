@@ -31,7 +31,10 @@
 //!   spherical gravity sit where the emitter's node placed them when the particle was
 //!   born (`Particle::frame`).
 //! - **Placed models** emit their own systems and their add-on nodes' from a holder at
-//!   the reference (`world::spawn_emitters`: Gomorrah's roof fires), not while hidden.
+//!   the reference (`world::spawn_emitters`: Gomorrah's roof fires), not while hidden;
+//!   a placed model's own systems are that reference's own, and a master system serves
+//!   the add-on nodes nearest the camera first (particles.md §7). References a script
+//!   enables (`nvf_play::script_draw`) emit too.
 //! - **Damage stages.** An add-on node below a `BSDamageStage` node emits only while its
 //!   reference is drawn at one of that node's model damage stages ([`StagedAddon`],
 //!   docs/spec-notes/destruction-stages.md): a motorcycle's `DamageStage1-3` smoke starts
@@ -49,6 +52,7 @@ use fnv_combat::rng::SplitMix;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::particles::{particle_mesh, InitialVelocity, ParticleSystemDef, PreparedParticles};
 use nvf_play::script::ScriptState;
+use nvf_play::script_draw::{ScriptDrawnModel, ScriptDrawnRoot};
 use nvf_play::sfx::Sfx;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -65,11 +69,18 @@ pub const DRAG_STEPS_PER_SECOND: f32 = 30.0;
 pub struct AddonEmitter {
     pub index: i32,
     age: f32,
+    /// The placed reference it belongs to (the exit count of placed emitters).
+    placed: Option<u32>,
 }
 
 impl AddonEmitter {
     pub fn new(index: i32) -> AddonEmitter {
-        AddonEmitter { index, age: 0.0 }
+        AddonEmitter { index, age: 0.0, placed: None }
+    }
+
+    /// An add-on node of placed reference `r` (a barrel's fire, a vehicle's smoke).
+    pub fn placed(index: i32, r: u32) -> AddonEmitter {
+        AddonEmitter { index, age: 0.0, placed: Some(r) }
     }
 }
 
@@ -91,7 +102,7 @@ pub struct StagedAddon {
 pub fn place_addon(commands: &mut Commands, e: Entity, r: u32, nodes: &[nvf_assets::model::ModelNode], i: usize, index: i32) {
     match nvf_assets::model::damage_stages_of(nodes, i) {
         Some(stages) => commands.entity(e).insert(StagedAddon { r, index, stages, at: None }),
-        None => commands.entity(e).insert(AddonEmitter::new(index)),
+        None => commands.entity(e).insert(AddonEmitter::placed(index, r)),
     };
 }
 
@@ -110,7 +121,7 @@ fn staged_addons(mut commands: Commands, script: Option<Res<ScriptState>>, mut s
             info!("damage stage: {:08X} add-on node {} waits for model stages {lo}-{hi} (at {stage})", s.r, s.index);
         }
         if shown && !was {
-            commands.entity(e).insert(AddonEmitter::new(s.index));
+            commands.entity(e).insert(AddonEmitter::placed(s.index, s.r));
             info!("damage stage: {:08X} add-on node {} on at model stage {stage}", s.r, s.index);
         } else if !shown && was {
             commands.entity(e).remove::<AddonEmitter>();
@@ -129,11 +140,19 @@ fn staged_addons(mut commands: Commands, script: Option<Res<ScriptState>>, mut s
 pub struct ModelEmitter {
     pub path: String,
     age: f32,
+    /// The placed reference whose model it is: its systems are its own, not shared with
+    /// the other references of the same model (particles.md §7.1).
+    placed: Option<u32>,
 }
 
 impl ModelEmitter {
     pub fn new(path: impl Into<String>) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: 0.0 }
+        ModelEmitter { path: path.into(), age: 0.0, placed: None }
+    }
+
+    /// The model of placed reference `r` (a dust cloud, a sconce's flame, a smoke column).
+    pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
+        ModelEmitter { path: path.into(), age: 0.0, placed: Some(r) }
     }
 }
 
@@ -142,6 +161,23 @@ impl ModelEmitter {
 enum Source {
     Addon(i32),
     Model(String),
+}
+
+impl Source {
+    fn label(&self) -> String {
+        match self {
+            Source::Addon(i) => format!("add-on node {i}"),
+            Source::Model(path) => path.clone(),
+        }
+    }
+}
+
+/// Live systems: a source's shared ones (`instance` `None`: an ADDN's master systems, a
+/// shot effect model's), or one placed model's own (`instance`: its emitter entity).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Key {
+    source: Source,
+    instance: Option<Entity>,
 }
 
 struct Particle {
@@ -176,15 +212,23 @@ struct Live {
     /// about one particle, and a count kept by each flash would round most of them away
     /// [design].
     owed: f32,
-    /// Particles born into it so far (the exit report).
-    born: u64,
 }
 
 #[derive(Resource)]
 pub struct Particles {
-    /// The live systems of each ADDN index or model file; `None`: none we can read.
-    systems: HashMap<Source, Option<Vec<Live>>>,
+    /// The live systems of each ADDN index, shot effect model or placed model instance;
+    /// `None`: none we can read.
+    systems: HashMap<Key, Option<Vec<Live>>>,
     reported: HashSet<Source>,
+    /// Sources whose systems were logged (once each, however many instances).
+    described: HashSet<Source>,
+    /// Particles born, per source and system (by name, in file order): the exit report.
+    tally: HashMap<Source, Vec<(String, u64)>>,
+    /// Placed references with an emitter, and those whose emitters gave birth.
+    placed_seen: HashSet<u32>,
+    placed_emitted: HashSet<u32>,
+    /// Most placed model instances live at once.
+    most_instances: usize,
     rng: SplitMix,
     pub born: u64,
     pub most_alive: usize,
@@ -192,7 +236,18 @@ pub struct Particles {
 
 impl Default for Particles {
     fn default() -> Self {
-        Particles { systems: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x2545_f491), born: 0, most_alive: 0 }
+        Particles {
+            systems: HashMap::new(),
+            reported: HashSet::new(),
+            described: HashSet::new(),
+            tally: HashMap::new(),
+            placed_seen: HashSet::new(),
+            placed_emitted: HashSet::new(),
+            most_instances: 0,
+            rng: SplitMix(0x2545_f491),
+            born: 0,
+            most_alive: 0,
+        }
     }
 }
 
@@ -200,7 +255,18 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Update, (staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+        app.init_resource::<Particles>().add_systems(Update, (script_drawn, staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+    }
+}
+
+/// A reference a script enabled, drawn by nvf-play (`script_draw`): its model's own
+/// systems and add-on nodes emit as render streaming's do (`world::spawn_emitters`,
+/// particles.md §7.4): the smoke of a burning tyre pile a quest lights.
+fn script_drawn(mut commands: Commands, mut models: ModelCtx, added: Query<(Entity, &ScriptDrawnRoot, &ScriptDrawnModel), Added<ScriptDrawnModel>>) {
+    for (e, root, path) in &added {
+        if let Some(model) = models.model(&path.0) {
+            crate::world::spawn_emitters(&mut commands, e, root.0, &model, &path.0, Affine3A::IDENTITY);
+        }
     }
 }
 
@@ -225,13 +291,14 @@ pub fn game_affine(e: Entity, transforms: &Query<&Transform>, parents: &Query<&C
 
 fn systems_of<'a>(
     p: &'a mut Particles,
-    source: &Source,
+    key: &Key,
     sfx: Option<&Sfx>,
     models: &mut ModelCtx,
     commands: &mut Commands,
     root: Entity,
 ) -> Option<&'a mut Vec<Live>> {
-    if !p.systems.contains_key(source) {
+    let source = &key.source;
+    if !p.systems.contains_key(key) {
         let (path, what) = match source {
             Source::Addon(index) => {
                 let addon = sfx.and_then(|s| s.forms.addons.get(index));
@@ -241,13 +308,16 @@ fn systems_of<'a>(
         };
         let prepared: Option<Arc<PreparedParticles>> = path.as_deref().and_then(|p| models.particles(p));
         let live = prepared.filter(|pp| !pp.systems.is_empty()).map(|pp| {
-            info!(
-                "particles: {what} {}: {} system(s) [{}]{}",
-                path.as_deref().unwrap_or("?"),
-                pp.systems.len(),
-                pp.systems.iter().map(ParticleSystemDef::describe).collect::<Vec<_>>().join("; "),
-                if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) }
-            );
+            if p.described.insert(source.clone()) {
+                p.tally.insert(source.clone(), pp.systems.iter().map(|d| (d.name.clone(), 0)).collect());
+                info!(
+                    "particles: {what} {}: {} system(s) [{}]{}",
+                    path.as_deref().unwrap_or("?"),
+                    pp.systems.len(),
+                    pp.systems.iter().map(ParticleSystemDef::describe).collect::<Vec<_>>().join("; "),
+                    if pp.unread.is_empty() { String::new() } else { format!("; not read: {}", pp.unread.join(", ")) }
+                );
+            }
             pp.systems
                 .iter()
                 .map(|def| {
@@ -255,7 +325,7 @@ fn systems_of<'a>(
                     let entity = commands
                         .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(def.material.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root)))
                         .id();
-                    Live { def: def.clone(), particles: Vec::new(), mesh, entity, served: 0, owed: 0.0, born: 0 }
+                    Live { def: def.clone(), particles: Vec::new(), mesh, entity, served: 0, owed: 0.0 }
                 })
                 .collect()
         });
@@ -263,9 +333,9 @@ fn systems_of<'a>(
         if live.is_none() && matches!(source, Source::Addon(_)) && p.reported.insert(source.clone()) {
             warn!("particles: {what}: no particle systems ({})", path.as_deref().unwrap_or("no ADDN record or model"));
         }
-        p.systems.insert(source.clone(), live);
+        p.systems.insert(key.clone(), live);
     }
-    p.systems.get_mut(source).and_then(Option::as_mut)
+    p.systems.get_mut(key).and_then(Option::as_mut)
 }
 
 /// A number in −1..1.
@@ -282,41 +352,66 @@ fn emit(
     mut p: ResMut<Particles>,
     sfx: Option<Res<Sfx>>,
     mut models: ModelCtx,
-    root: Query<Entity, With<WorldRoot>>,
+    root: Query<(Entity, &Transform), With<WorldRoot>>,
+    camera: Query<&Transform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
     mut emitters: Query<(Entity, &mut AddonEmitter, Option<&InheritedVisibility>)>,
     mut model_emitters: Query<(Entity, &mut ModelEmitter, Option<&InheritedVisibility>)>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
 ) {
-    let Ok(root) = root.single() else { return };
+    let Ok((root, root_t)) = root.single() else { return };
+    // The camera in game space: emitters nearest it are served first.
+    let eye = camera.single().ok().map(|c| Vec3A::from(root_t.compute_affine().inverse().transform_point3(c.translation)));
     let dt = time.delta_secs();
     let p = &mut *p;
     for live in p.systems.values_mut().flatten().flatten() {
         live.served = 0;
     }
-    let mut sources = Vec::new();
+    let mut sources: Vec<(Entity, Key, f32, Option<u32>)> = Vec::new();
+    // Placed model instances whose emitter still exists (hidden or not).
+    let mut present: HashSet<Entity> = HashSet::new();
     // A hidden emitter (a disabled placed fire, `world::spawn_emitters`) keeps its time
     // but makes nothing. Not in its first frame, before its visibility was worked out:
     // a muzzle flash lives one frame [design].
     let hidden = |age: f32, v: Option<&InheritedVisibility>| age > 0.0 && v.is_some_and(|v| !v.get());
     for (e, mut em, v) in &mut emitters {
+        if let Some(r) = em.placed {
+            p.placed_seen.insert(r);
+        }
         if !hidden(em.age, v) {
-            sources.push((e, Source::Addon(em.index), em.age));
+            sources.push((e, Key { source: Source::Addon(em.index), instance: None }, em.age, em.placed));
         }
         em.age += dt;
     }
     for (e, mut em, v) in &mut model_emitters {
+        // A placed model's systems are its own (particles.md §7.1).
+        let instance = em.placed.map(|_| e);
+        if let Some(r) = em.placed {
+            p.placed_seen.insert(r);
+            present.insert(e);
+        }
         if !hidden(em.age, v) {
-            sources.push((e, Source::Model(em.path.clone()), em.age));
+            sources.push((e, Key { source: Source::Model(em.path.clone()), instance }, em.age, em.placed));
         }
         em.age += dt;
     }
-    for (e, source, age) in sources {
+    // A master system serves at most `max_emitters` emitters a frame: the ones nearest the
+    // camera [hypothesis, particles.md §7.2], so the fires in view burn when more barrels
+    // than that are loaded.
+    let places: Vec<Affine3A> = sources.iter().map(|(e, ..)| game_affine(*e, &transforms, &parents, root)).collect();
+    let mut order: Vec<usize> = (0..sources.len()).collect();
+    if let Some(eye) = eye {
+        order.sort_by(|&a, &b| places[a].translation.distance_squared(eye).total_cmp(&places[b].translation.distance_squared(eye)));
+    }
+    for i in order {
+        let (_, key, age, placed) = &sources[i];
+        let (age, placed) = (*age, *placed);
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, &source, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
-        let node = game_affine(e, &transforms, &parents, root);
+        let Some(systems) = systems_of(p, key, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
+        let node = places[i];
+        let mut counts = vec![0u64; systems.len()];
         let mut born = 0;
-        for live in systems.iter_mut() {
+        for (k, live) in systems.iter_mut().enumerate() {
             let owed = &mut live.owed;
             let d = &live.def;
             let on = d.on_time(age, age + dt);
@@ -387,12 +482,38 @@ fn emit(
                     trail_clock: 0.0,
                 });
                 born += 1;
-                live.born += 1;
+                counts[k] += 1;
             }
         }
         p.rng = rng;
         p.born += born;
+        if born > 0 {
+            if let Some(t) = p.tally.get_mut(&key.source) {
+                for (slot, n) in t.iter_mut().zip(&counts) {
+                    slot.1 += n;
+                }
+            }
+            if let Some(r) = placed {
+                p.placed_emitted.insert(r);
+            }
+        }
     }
+    // A placed model's systems go once its emitter is gone (its cell unloaded, a script
+    // disabled it) and their last particles have died.
+    let gone: Vec<Key> = p
+        .systems
+        .iter()
+        .filter(|(k, live)| k.instance.is_some_and(|e| !present.contains(&e)) && live.as_ref().is_none_or(|l| l.iter().all(|s| s.particles.is_empty())))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for k in gone {
+        for live in p.systems.remove(&k).flatten().unwrap_or_default() {
+            commands.entity(live.entity).try_despawn();
+            models.meshes.remove(&live.mesh);
+        }
+    }
+    let instances = p.systems.keys().filter(|k| k.instance.is_some()).count();
+    p.most_instances = p.most_instances.max(instances);
 }
 
 /// Ageing and movement of every live particle.
@@ -548,18 +669,19 @@ fn display_colour(c: [f32; 4]) -> [f32; 4] {
 fn report(mut exit: MessageReader<AppExit>, p: Res<Particles>) {
     if exit.read().last().is_some() && p.born > 0 {
         info!("particles: {} born in {} add-on systems, at most {} alive at once", p.born, p.systems.values().flatten().count(), p.most_alive);
-        // Each system that emitted, by its file.
-        for (source, live) in &p.systems {
-            let Some(live) = live else { continue };
-            let file = match source {
-                Source::Addon(i) => format!("add-on node {i}"),
-                Source::Model(path) => path.clone(),
-            };
-            let born: Vec<String> = live.iter().filter(|l| l.born > 0).map(|l| format!("{} {}", l.def.name, l.born)).collect();
+        // Each system that emitted, by its file (all instances of a placed model together).
+        for (source, systems) in &p.tally {
+            let born: Vec<String> = systems.iter().filter(|(_, n)| *n > 0).map(|(name, n)| format!("{name} {n}")).collect();
             if !born.is_empty() {
-                info!("particles: born in {file}: {}", born.join(", "));
+                info!("particles: born in {}: {}", source.label(), born.join(", "));
             }
         }
+        info!(
+            "particles: placed references emitting: {} of {} with particle systems, at most {} placed model instances at once",
+            p.placed_emitted.len(),
+            p.placed_seen.len(),
+            p.most_instances
+        );
     }
 }
 

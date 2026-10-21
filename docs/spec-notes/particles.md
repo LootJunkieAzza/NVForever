@@ -1,6 +1,7 @@
 # Particle effects: add-on nodes and master particle systems
 
-Status 2026-10-11: built for the effects of the player's shots (muzzle sparks and smoke,
+Status 2026-10-21: placed models' own systems are each reference's own and script-enabled
+references emit (§7). 2026-10-11: built for the effects of the player's shots (muzzle sparks and smoke,
 a missile's trail, the flamer's flame, impact dust and debris) and, since 2026-10-16, for
 the systems inside explosion and impact models (§3 `ModelEmitter`), and since 2026-10-20
 for models placed in cells (§5: fires, steam, smoke). Code:
@@ -157,7 +158,7 @@ for models placed in cells (§5: fires, steam, smoke). Code:
   emits only while its reference is at one of that node's model damage stages (a
   motorcycle's smoke once it is damaged, never on the Prospector Saloon's static bikes):
   `destruction-stages.md`.
-- Not built: turbulence, spawn on death, spherical colliders, the ADDN's sound and particle cap,
+- Not built: turbulence, spawn on death, the ADDN's sound and particle cap (spherical colliders: §7.3),
   the dust devils' path (`fxdustwhirlwind01.nif` emits from a mesh emitter that moves along
   a path). Placed smoke drawn since the 2026-10-20 change (drew nothing before):
   `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
@@ -298,3 +299,81 @@ names [hypothesis] unless tagged otherwise.
   trails, ribbons).
 - Not built: an emitter object moved by the model's sequence still emits from its place
   in the file; spawning on collision; the strip's cap sizes (0 in both files).
+
+## 7. Placed particle systems: the survey and what was still missing [2026-10-21]
+
+The survey [observed: `fnvtool world refs` over every worldspace and interior cell of
+FalloutNV.esm, joined with `fnvtool nif stats` of `Fallout - Meshes.bsa` and `Update.bsa`,
+the base archives only; `fnvtool nif decode` for the fields below]: **1,920 placed
+references of 106 model files** hold a particle system or an add-on node. 81 files (1,239
+references) have systems of their own (`NiParticleSystem`, `BSStripParticleSystem`), 25
+files (681 references) only add-on nodes; 97 of the references start disabled. The most
+placed: `barrel02firelight.nif` (278 LIGH, add-on node 14), the ambient dust motes
+`fxlightdustparticleswide02.nif` / `wide01.nif` (161 and 129 STAT), `nvbouldersm.nif` (89
+MSTT), `fxradiationdust1x1.nif` (80), `fxfiresmall01.nif` (77, add-on 14), the Gomorrah
+sconce `neoclassicalsconcefire01.nif` (76), `fxambdust02.nif` (69), `fxsmokemed01.nif`
+(68, add-on 2), `fxfiremed01.nif` (63, add-on 0). The "about 66 smokes" of playtest list
+4 item 16 (§5: light smoke, Primm's dark smoke, tyre smoke, ashtray smoke, HELIOS steam)
+are among them.
+
+Since 2026-10-20 render streaming gives every one of these an emitter (§5). Why many
+still drew little or nothing, by group:
+
+### 7.1 One pool for every reference of a file (1,239 references; fixed)
+
+A model's own systems were one live system per file: every placed copy emitted into the
+same particles, capped at the file's vertex count. The sconce's flame system holds 14
+(`bs_max_vertices`), so Gomorrah's floor of 43 sconces shared 14 flames; the loaded copies
+of the wide dust motes shared 60 particles [observed: the data blocks' vertex counts]. These systems are plain `NiParticleSystem`s with an
+`NiPSysEmitterCtlr` (no `max_emitters`, no `BSMasterParticleSystem` above them), so they
+are read as one system per copy of the model, as any other block of a placed model is
+[hypothesis; the master systems of §2 are the ones made to be shared].
+Now each placed reference (render streaming's and a script-enabled one's) has its own
+live systems, made when it first emits and dropped once its emitter is gone and its last
+particle has died. Shot-effect models (flashes, impacts, explosions) keep one pool per
+file, as before (their emitters live a frame or two and the system keeps the owed part
+of a particle, §3).
+
+### 7.2 A master system serves `max_emitters` emitters (681 add-on references; changed)
+
+An ADDN's master system serves at most its controller's `max_emitters` a frame [§2]:
+`mpsfiresmall01.nif` (add-on 14, the barrel fires and `fxfiresmall01`) 10, with 70 and 130
+particles; `mpsfiremed01.nif` (add-on 0) 15; `mpssmokemed01.nif` (add-on 2) 9;
+`mpssmokesmall01.nif` (add-on 35) 5 [observed]. The emitters were served in no set order,
+so with more barrel fires loaded than that (38 in `OVNorthSewers01`) the ones burning
+were any ten. Now the emitters nearest the camera are served first [hypothesis: which
+emitters the game serves when there are more is not known; nearest-first keeps the fires
+in view burning]. The particles of the system stay shared (its vertex count).
+
+### 7.3 Spherical colliders (14 references; built)
+
+The seven snow globes (`clutter\snowglobes\snowglobes_*.nif`, a MISC and a STAT copy
+each) have five snow systems each with an `NiPSysSphericalCollider` [observed], whose
+fields are the collider's (§6.4) and a `radius` [documented: nif.xml]. Reading
+[hypothesis]: a sphere of that radius about the collider object (scaled with it); a
+particle crossing its surface either way dies when `die_on_collide`, else is put back on
+the surface with the part of its velocity along the normal turned round and multiplied
+by `bounce`: the flakes stay in the globe.
+
+### 7.4 References a script enables (97 references; fixed)
+
+References disabled at the start are drawn by nvf-play when a script enables them
+(`script_draw.rs`); their particle systems and add-on nodes did not emit. 11 of the 16
+tyre-smoke columns, 23 of the 89 small boulders and 20 of the 36 force-field glows are
+among them. They now emit as render streaming's do (`world::spawn_emitters` under the
+script-drawn root).
+
+### 7.5 Left open
+
+- `NiPSysResetOnLoopCtlr` (1 reference, the Lucky 38 reactor, `nvlucky38reactor.nif`): not
+  read; its system loops without the reset.
+- Placed items' own systems emit lying in the world: the 44 dynamite sticks
+  (`dynamite.nif`, a fuse system of 1,000 particles) [hypothesis: whether the game keeps a
+  dynamite's fuse unlit until thrown is not known; not changed].
+- `nvbouldersm.nif` (89 MSTT, 5,000 particles, stop time 20 s): a rock-slide effect that
+  emits from the start; whether the game holds it until a trigger is not known.
+- Unchanged from §5: turbulence, spawn on death, the ADDN's particle cap (`DNAM`), the dust
+  devils' path; an emitter moved by its model's sequence emits from its place in the file.
+- Exit log: `particles: placed references emitting: <n> of <m> with particle systems, at
+  most <k> placed model instances at once`; smoke `placed-particle-smokes` (Gomorrah's
+  floor: 45 of 45, 45 instances [observed 2026-10-21]).
