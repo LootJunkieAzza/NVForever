@@ -7047,3 +7047,17 @@ menu (ShowSlotMachineMenuParams), as roulette's and blackjack's tables do.
 rows say, how does the payout list look, does one cherry on the left reel pay, does a
 cherry on another reel pay, and does a win of "x 2" leave you 1 or 2 bets up? A screenshot
 of the menu, of a win and of the payout list would settle most of these.
+
+## Ragdolls' rest rule (2026-10-21, session "q30-death-cam-rest", queue item 30)
+
+- **Cause of `death-cam-first`'s flaky rest check**: the rest rule read the ragdoll bodies'
+  velocities, and a light body (forearm, hand, upper arm, neck) pressed between the ground
+  and a joint limit shivers with velocities flipping step to step at up to 8 rad/s while
+  going nowhere. About a quarter of drops of the human ragdoll never came to rest that way
+  (ragdoll.md §4 "Rest").
+- **Decided**: calm is now judged from each bone's net motion over 0.25 s windows (the same
+  12 units/s, 0.6 rad/s and 1.5 s as before). The window length is a guess [design]; the
+  thresholds are unchanged.
+- **To check in game**: a corpse should still lie still once it looks still, and a corpse
+  sliding slowly down a slope should not freeze mid-slide (a net slide under 12 units/s, as
+  before, is still taken as calm).
