@@ -278,6 +278,10 @@ fn tell_scripts(script: Option<&mut crate::script::ScriptState>, sim: &mut SimSt
     }
 }
 
+/// The player's view and what holds the controls: the crosshair, the activation target,
+/// furniture, VATS mode.
+type Around<'w> = (Res<'w, PlayerControl>, Res<'w, Target>, Option<Res<'w, crate::furniture::PlayerSeat>>, Option<Res<'w, crate::vats_mode::VatsMode>>);
+
 /// Find what could be held, pick it up, carry it, let it go (see the module notes).
 #[allow(clippy::too_many_arguments)]
 fn grab(
@@ -290,7 +294,7 @@ fn grab(
     phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<crate::script::ScriptState>>,
-    (control, target, seat, vats): (Res<PlayerControl>, Res<Target>, Option<Res<crate::furniture::PlayerSeat>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (control, target, seat, vats): Around,
 ) {
     let Some(mut phys) = phys else { return };
     let g = &mut *grab;

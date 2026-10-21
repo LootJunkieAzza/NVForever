@@ -346,13 +346,16 @@ impl AutoActivate {
 /// (each absent in tests that build without them).
 pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
 
+/// What E acts on: the target, a queued activation, VATS mode holding the keys, the grab.
+type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, Option<Res<'w, crate::vats_mode::VatsMode>>, Option<ResMut<'w, crate::grab::GrabState>>);
+
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn activate(
     input: crate::bindings::ControlInput,
     (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
-    (target, next, vats, mut grab): (Res<Target>, Option<ResMut<ActivateNext>>, Option<Res<crate::vats_mode::VatsMode>>, Option<ResMut<crate::grab::GrabState>>),
+    (target, next, vats, mut grab): ActivateFrom,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
