@@ -70,6 +70,35 @@ recorded in §5.
   while the objective is shown, every target whose conditions pass appears on the compass
   and map [documented: Quest Objectives Tab]. "Compass Markers Ignore Locks" makes the
   route to the target ignore locked doors [documented].
+- **Target conditions (NVForever, ESM gap audit row 17).** Record layout: each `QSTA`
+  (target reference, flags byte, bit 0 "Compass Marker Ignores Locks") is followed by
+  its own `CTDA` items [documented: xEdit wbDefinitionsFNV.pas QUST; schemas/fnv
+  gameplay.json].
+  - **Subject: the target reference**; Target: none [documented: GECK wiki Quest
+    Objectives Tab, "the conditions are applied to the quest target" and "Run on Target
+    is invalid"]. Category:Conditions says the subject on quest targets is the player;
+    the masters agree with the Objectives Tab [observed: a survey of FalloutNV.esm's 1,229
+    target conditions: 844 name their reference (Run On Reference: the player for
+    GetInCell/GetInWorldspace/GetItemCount, the target itself for most GetDead/GetDisabled),
+    384 run on the subject, and among those VMS39 objective 50 asks `GetDead == 0` and
+    `GetDisabled == 0` with no reference, which only means something of the target].
+    The one Run-on-Target item (VMQHouse objective 20, `GetItemCount`) is evaluated with no
+    reference, so it reads 0 [hypothesis: what the original does with an invalid run-on is
+    not documented].
+  - Evaluated with the shared condition evaluator and its AND/OR grouping (§3).
+  - **When**: the markers follow the conditions as they change. NVForever evaluates the
+    active quest's targets four times a second [hypothesis: the original's rate is not
+    documented; a quarter second does not show on a map], and the console's
+    ShowQuestTargets / MoveToQuestTarget evaluate when called. A target that fails is not
+    on the Pip-Boy's world or local map (nor would it be on the compass, which draws no
+    quest marker yet: hud.md §11). Example [observed: FalloutNV.esm]: VCG03 "By a Campfire
+    on the Trail" objective 10 marks the Broc Flower only while the player carries none
+    (and the quest's variable 2 is 0), and the Xander Root likewise.
+  - **Compass Marker Ignores Locks**: a target indoors is marked outdoors at a door into
+    its interior; NVForever picks a door that is not locked when there is one, and the
+    first door when the target ignores locks or every door is locked [hypothesis: the
+    Objectives Tab describes a path that avoids locked doors "if possible"; NVForever
+    takes one door, not a path through several cells].
 - An objective is **displayed or not** and **completed or not**, set by
   SetObjectiveDisplayed / SetObjectiveCompleted (value 1 or 0) and read by the matching Get
   functions. CompleteAllObjectives completes every displayed objective [documented:

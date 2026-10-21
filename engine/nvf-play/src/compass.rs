@@ -101,7 +101,8 @@ pub struct CompassPlugin;
 impl Plugin for CompassPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CompassView>()
-            .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet));
+            .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
+            .add_systems(Update, crate::pipboy::data::refresh_quest_targets.in_set(PlaySet::Ui));
         crate::save::add_save_hook(app, SAVE_HOOK);
     }
 }

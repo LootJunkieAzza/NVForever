@@ -276,8 +276,15 @@ pub struct DataState {
     shown: Option<View>,
     was_open: bool,
     last_tab: Option<usize>,
-    /// The door outdoors into each interior a quest target is in (worldspace, place).
-    doors_into: HashMap<u32, Option<(u32, [f32; 3])>>,
+    /// The doors outdoors into each interior a quest target is in (`Game::doors_into`).
+    doors_into: HashMap<u32, Vec<FormId>>,
+    /// The active quest's targets of the objectives shown and not done, with whether their
+    /// conditions passed when last evaluated (`refresh_quest_targets`).
+    target_checks: Vec<fnv_game::quest_targets::TargetCheck>,
+    /// Seconds until the targets' conditions are evaluated again.
+    target_poll: f32,
+    /// The quest whose targets were last evaluated.
+    target_quest: Option<FormId>,
     poll: f32,
     acts: Vec<Act>,
     drag: Vec2,
@@ -1253,45 +1260,70 @@ struct Target {
     pos: [f32; 3],
 }
 
-/// The targets of the active quest's objectives shown and not done, where they are now;
-/// a target indoors also at the door outdoors into its interior [hypothesis: as the
-/// owner's screenshots show the marker of "Talk to Sunny Smiles in the Prospector
-/// Saloon" outdoors in Goodsprings]. The targets' conditions are not tested.
+/// How often the active quest's target conditions are evaluated, in seconds [hypothesis:
+/// the original's rate is not documented; quests-dialogue.md §2].
+const TARGET_POLL: f32 = 0.25;
+
+/// Evaluate the active quest's target conditions (`Game::check_quest_targets`) four times
+/// a second, and log each target that is marked or loses its mark.
+pub(crate) fn refresh_quest_targets(time: Res<Time<Real>>, state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
+    let (Some(mut st), Some(mut sim)) = (state, sim) else { return };
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    st.target_poll -= time.delta_secs();
+    if st.target_poll > 0.0 {
+        return;
+    }
+    st.target_poll = TARGET_POLL;
+    let quest = st.active_quest.map(FormId).or(rt.game.ui.active_quest);
+    // The conditions read the world played (`crate::script::with_world`).
+    let checks = quest.map(|q| crate::script::with_world(rt, &mut sim, |rt| rt.game.check_quest_targets(q))).unwrap_or_default();
+    if quest != st.target_quest {
+        st.target_quest = quest;
+        info!("quest targets: evaluating {} ({} target(s))", quest.map_or("no quest".into(), |q| rt.game.data.name(q)), checks.len());
+    }
+    let key = |c: &fnv_game::quest_targets::TargetCheck| (c.quest, c.objective, c.index);
+    for c in &checks {
+        let before = st.target_checks.iter().find(|o| key(o) == key(c)).map(|o| o.shown);
+        if before != Some(c.shown) {
+            let d = rt.game.data;
+            let name = rt.game.world.placed.get(c.target).and_then(|p| p.edid.clone()).unwrap_or_else(|| d.name(c.target));
+            let what = if c.shown { "marked" } else { "not marked (its conditions fail)" };
+            info!("quest targets: {} objective {} target {} {name} {what}", d.name(c.quest), c.objective, c.target);
+        }
+    }
+    st.target_checks = checks;
+}
+
+/// The targets of the active quest's objectives shown and not done whose conditions pass
+/// (`refresh_quest_targets`), where they are now; a target indoors also at a door
+/// outdoors into its interior (`quest_targets::marker_door`: one not locked, unless the target
+/// ignores locks) [hypothesis: as the owner's screenshots show the marker of "Talk to
+/// Sunny Smiles in the Prospector Saloon" outdoors in Goodsprings].
 fn quest_targets(st: &mut DataState, game: &Game) -> Vec<Target> {
     let mut out = Vec::new();
     let (Some(q), Some(sim)) = (st.active_quest, game.sim.as_ref()) else { return out };
     let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) else { return out };
-    let (Some(def), Some(state)) = (rt.game.data.quests.get(&FormId(q)), rt.game.quests.get(&FormId(q))) else { return out };
     let refs = sim.refs;
-    for (i, o) in &state.objectives {
-        if !o.displayed || o.completed {
+    let checks: Vec<_> = st.target_checks.iter().filter(|c| c.quest.0 == q && c.shown).copied().collect();
+    for c in checks {
+        let r = c.target;
+        let (cell, pos) = match sim.world.peek(r) {
+            Some(s) => (s.cell, s.pos),
+            None => match refs.get(r) {
+                Some(p) => (p.cell, p.pos),
+                None => continue,
+            },
+        };
+        let Some(cell) = cell else { continue };
+        if let Some(w) = refs.cell_world.get(&cell) {
+            out.push(Target { interior: None, world: w.0, pos });
             continue;
         }
-        for t in def.objectives.get(i).into_iter().flat_map(|d| &d.targets) {
-            let Some(r) = t.target else { continue };
-            let (cell, pos) = match sim.world.peek(r) {
-                Some(s) => (s.cell, s.pos),
-                None => match refs.get(r) {
-                    Some(p) => (p.cell, p.pos),
-                    None => continue,
-                },
-            };
-            let Some(cell) = cell else { continue };
-            if let Some(w) = refs.cell_world.get(&cell) {
-                out.push(Target { interior: None, world: w.0, pos });
-                continue;
-            }
-            out.push(Target { interior: Some(cell.0), world: 0, pos });
-            let door = *st.doors_into.entry(cell.0).or_insert_with(|| {
-                refs.refs.values().find_map(|d| {
-                    let t = d.teleport?;
-                    (refs.get(t.door)?.cell == Some(cell)).then_some(())?;
-                    Some((refs.cell_world.get(&d.cell?)?.0, d.pos))
-                })
-            });
-            if let Some((w, p)) = door {
-                out.push(Target { interior: None, world: w, pos: p });
-            }
+        out.push(Target { interior: Some(cell.0), world: 0, pos });
+        let doors = st.doors_into.entry(cell.0).or_insert_with(|| rt.game.doors_into(cell));
+        let door = fnv_game::quest_targets::marker_door(&sim.world, doors, c.ignores_locks).and_then(|d| refs.get(d)).and_then(|d| Some((refs.cell_world.get(&d.cell?)?.0, d.pos)));
+        if let Some((w, p)) = door {
+            out.push(Target { interior: None, world: w, pos: p });
         }
     }
     out
