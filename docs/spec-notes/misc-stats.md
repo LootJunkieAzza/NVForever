@@ -72,6 +72,7 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 | Mines Disarmed | the player disarms a placed mine | `Game::default_activation` |
 | Speech Successes | a Fallout 3 style speech challenge line is said (the roll is not modelled, dialogue.md §3.3) | `Game::choose` |
 | Challenges Completed | a challenge completes (each time for a recurring one) [hypothesis] | `functions::ui` |
+| Books Read | the player reads a skill book (one per book; books that teach nothing do not count) [hypothesis] ([skill-books](skill-books.md) §5) | `Game::read_book` |
 | Have Limbs Crippled | a hit cripples one of the player's limbs | `Game::hit` |
 | Disintegrations | AttachAshPile turns an actor the player killed to ash or goo [hypothesis: by the name; ash-piles.md §3] | `Game::attach_ash_pile` |
 | Times Slept | a sleep starts in the wait menu (not a wait; a sleep already passing that is lengthened does not count again) [hypothesis] | `Game::begin_rest` |
@@ -83,7 +84,7 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 | Caravan Games Won / Lost | a Caravan game ends (a forfeit is a loss) | `nvf-play` caravan ([caravan](caravan.md) §7) |
 
 **Not counted** (only ModPCMiscStat changes them): Pockets Picked (pickpocketing is not
-built), Pants Exploded, Books Read (skill books), Weapons Created, Sandman Kills,
+built), Pants Exploded, Weapons Created, Sandman Kills,
 Paralyzing Punches, Robots Disabled, Corpses Eaten, Mysterious Stranger Visits, Miss
 Fortunate Occurrences, Dismembered Limbs (no dismemberment), Speech
 Failures and New Vegas skill-check successes (the checks' pass and fail are not judged by

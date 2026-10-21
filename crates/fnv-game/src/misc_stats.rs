@@ -72,6 +72,7 @@ pub const CHEMS_TAKEN: u16 = 9;
 pub const TIMES_ADDICTED: u16 = 10;
 pub const MINES_DISARMED: u16 = 11;
 pub const SPEECH_SUCCESSES: u16 = 12;
+pub const BOOKS_READ: u16 = 15;
 pub const HEALTH_FROM_STIMPAKS: u16 = 16;
 pub const HEALTH_FROM_FOOD: u16 = 18;
 pub const WATER_CONSUMED: u16 = 19;
@@ -92,7 +93,7 @@ pub const BLACKJACK_GAMES_PLAYED: u16 = 41;
 pub const SLOTS_GAMES_PLAYED: u16 = 42;
 
 /// The codes the rules or the engine count (the others only ModPCMiscStat changes).
-pub const COUNTED: [u16; 31] = [
+pub const COUNTED: [u16; 32] = [
     QUESTS_COMPLETED,
     LOCATIONS_DISCOVERED,
     PEOPLE_KILLED,
@@ -106,6 +107,7 @@ pub const COUNTED: [u16; 31] = [
     TIMES_ADDICTED,
     MINES_DISARMED,
     SPEECH_SUCCESSES,
+    BOOKS_READ,
     HEALTH_FROM_STIMPAKS,
     HEALTH_FROM_FOOD,
     WATER_CONSUMED,

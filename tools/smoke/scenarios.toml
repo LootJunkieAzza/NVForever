@@ -2620,6 +2620,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "skill-books"
+source = "skill books (docs/spec-notes/skill-books.md §2-§5): two Guns and Bullets read from the inventory in Doc Mitchell's house, the second with Comprehension"
+areas = ["aid", "actor-values", "perks", "menus"]
+paths = ["crates/fnv-game/src/books.rs", "crates/fnv-sim/src/forms.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0003403E:2", NVF_PLAY_TEST_SCRIPT = "8:perk:Comprehension", NVF_PLAY_TEST_DROP = "6:0003403E:use,11:0003403E:use" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 18
+# The new player's Guns is 15; a book is worth fBookPerkBonus (3), Comprehension's entry
+# point 11 adds 1. Books Read counts each.
+expect = [
+  "book: the player read BookSkillGuns: Guns 15 → 18 (+3); Books Read 1",
+  "corner message: \"Guns increased to 18\"",
+  "test aid: the player has the perk Comprehension",
+  "book: the player read BookSkillGuns: Guns 18 → 22 (+4); perks: Comprehension (entry point 11); Books Read 2",
+  "on screen: Guns increased to 22",
+]
+
+[[scenario]]
 name = "aid-perks-needs-survey"
 kind = "tool"
 source = "aid leftovers (docs/spec-notes/aid-items.md §6, §10-§12): the masters' perk entry points and need stages; three Buffouts with Chemist and Chem Resistant then a five-hour wait; Hardcore needs over three hours slept"

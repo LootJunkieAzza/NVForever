@@ -544,6 +544,8 @@ mod tests {
             quest_item: false,
             icon: None,
             placed_count: None,
+            teaches: None,
+            cant_be_taken: false,
         };
         assert_eq!([0, 1, 2, 4, 6].map(|m| it.weight_with_mods(m)), [Some(6.0), Some(6.0), Some(3.5), Some(0.0), Some(0.0)]);
         let mut forms = FormStore::default();
