@@ -86,6 +86,7 @@ impl Game<'_> {
         if was_culled {
             self.script_looks.critical_changed.push(r);
         }
+        self.remove_ash_pile(r);
         if regenerated {
             self.roll_again(r, rolls);
             self.stop_combat(r);
