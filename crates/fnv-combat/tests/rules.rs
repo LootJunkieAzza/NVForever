@@ -63,6 +63,27 @@ fn gun_damage_skill_and_dt() {
     assert!(close(d.dealt, 7.5));
 }
 
+#[test]
+fn a_damage_type_takes_its_resistance_in_place_of_dr() {
+    // weapon-data-fields.md §3: a laser is cut by Energy Resistance, not DR; DT first.
+    let laser = WeaponStats { resist: Some("Energy Resistance".into()), ..gun(20) };
+    assert_eq!(damage::resistance_of(&laser), Some("Energy Resistance"));
+    let d = hit(&laser, 1, &skilled(), &Target { dt: 5.0, dr: 50.0, resist: 20.0, ..Target::default() }, &[], HitPart::default(), 0.99);
+    assert!(close(d.dr, 20.0) && close(d.dealt, 12.0), "{d:?}");
+    // No resistance of that kind: all of what DT leaves.
+    let d = hit(&laser, 1, &skilled(), &Target { dt: 5.0, dr: 50.0, ..Target::default() }, &[], HitPart::default(), 0.99);
+    assert!(close(d.dealt, 15.0));
+    // Capped as DR is (fMaxArmorRating 85).
+    let d = hit(&laser, 1, &skilled(), &Target { resist: 100.0, ..Target::default() }, &[], HitPart::default(), 0.99);
+    assert!(close(d.dr, 85.0) && close(d.dealt, 3.0), "{d:?}");
+    // None and Damage Resistance keep DR.
+    for r in ["None", "Damage Resistance"] {
+        let w = WeaponStats { resist: Some(r.into()), ..gun(20) };
+        assert_eq!(damage::resistance_of(&w), None);
+        assert!(close(hit(&w, 1, &skilled(), &Target { dt: 5.0, dr: 50.0, resist: 90.0, ..Target::default() }, &[], HitPart::default(), 0.99).dealt, 7.5));
+    }
+}
+
 /// Hits between NPCs in the original's NCR-Fiend fight (npc-behaviour-compare.md §9,
 /// combat-rules.md §18), with the records' values from FalloutNV.esm: a trooper (Guns
 /// 46) with a Service Rifle (18, crit 18) at 50 % on Cook-Cook (Metal Armor DT 12 +
@@ -278,6 +299,32 @@ fn semi_automatic_cycle_and_reload() {
     let mut c = Cycle::new(&w, timing, false, 0);
     let ev = run(&mut c, &t, 20, 0.05, |_| true, 0);
     assert_eq!(ev, vec![Event::DryFire]);
+}
+
+#[test]
+fn every_fourth_shot_is_free_with_a_regenerate_ammo_shots_mod() {
+    // weapon-data-fields.md §5: shots 4 and 8 of eight use no ammunition.
+    let t = CombatTuning::default();
+    let w = WeaponStats { free_fourth_shot: true, clip_size: 20, ..gun(20) };
+    let timing = Timing::of(&w, &ClipTiming::default(), &t);
+    let mut c = Cycle::new(&w, timing, false, 20);
+    let ev = run(&mut c, &t, 200, 0.05, |k| k % 12 == 0, 0);
+    let rounds: Vec<u32> = ev.iter().filter_map(|e| if let Event::Fired { rounds } = e { Some(*rounds) } else { None }).take(8).collect();
+    assert_eq!(rounds, vec![1, 1, 1, 0, 1, 1, 1, 0], "{ev:?}");
+    let used: u32 = ev.iter().map(|e| if let Event::Fired { rounds } = e { *rounds } else { 0 }).sum();
+    assert_eq!(c.magazine, 20 - used);
+}
+
+#[test]
+fn a_projectile_speed_mod_speeds_all_but_hitscan_shots() {
+    let p = ProjectileStats { speed: 1000.0, range: 5000.0, ..ProjectileStats::default() };
+    let mut shot = Projectile::spawn(&p, None, [0.0; 3], [1.0, 0.0, 0.0], None, 0.0, &CombatTuning::default());
+    shot.speed_up(1.5);
+    assert!(close(shot.speed, 1500.0) && close(shot.vel[0], 1500.0));
+    let beam = ProjectileStats { flags: vec!["Hitscan".into()], ..p.clone() };
+    let mut laser = Projectile::spawn(&beam, None, [0.0; 3], [1.0, 0.0, 0.0], None, 0.0, &CombatTuning::default());
+    laser.speed_up(1.5);
+    assert!(close(laser.speed, 1000.0));
 }
 
 #[test]

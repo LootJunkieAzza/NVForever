@@ -85,9 +85,9 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
 | Split Beam | A: projectiles added (negative: taken); B: min spread multiplier (1 keeps it); "the 30% bonus the modification already applies" | `projectile_count + A` (at least 1), `min_spread × B` when B ≠ 0; the 30 % is not applied [hypothesis: the wiki does not say what it applies to] |
 | Silence | no values; silences the weapon | `sound_level` "Silent" [hypothesis: the weapon's own noise, the wiki calls it untested] |
 | Suppressor | (no description) | as Silence [hypothesis] |
-| Increase Projectile Speed | A: multiplier of the projectile speed | kept, not applied (the speed is the PROJ's) |
-| Regenerate Ammo (shots / seconds) | shots: every 4th shot is free; seconds: A added to the recharge time | kept, not applied |
-| Decrease Equip Time, VATS Bonus | (VATS Bonus "unused in game") | kept, not applied |
+| Increase Projectile Speed | A: multiplier of the projectile speed | the shot's speed × A, not for hitscan projectiles ([weapon-data-fields](weapon-data-fields.md) §5) |
+| Regenerate Ammo (shots / seconds) | shots: every 4th shot is free; seconds: A added to the recharge time | shots: the player's every fourth shot uses no ammunition; seconds: `regen_rate + A` on a recharging weapon, at least 0.1 s (weapon-data-fields.md §5) |
+| Decrease Equip Time, VATS Bonus | (VATS Bonus "unused in game") | kept, not applied (no master mod uses either) |
 
 - The "(Mod)" reload animation is used once a mod with Increase Clip Capacity is on
   [hypothesis: the magazine is the part the reload handles]; NVForever swaps

@@ -1477,6 +1477,9 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 
 ### 9.3 Which weapon, which stance
 
+No NPC's own choice takes a weapon flagged Player Only or Not Used In Normal Combat
+(2026-10-21, [weapon-data-fields](weapon-data-fields.md) §1).
+
 - WEAP: `MODL` third-person model, DNAM "Animation Type" (14 values), DNAM flags
   "Embedded Weapon" and "Non-Playable", DATA base damage [documented: xEdit WEAP;
   `schemas/fnv`]. 496 WEAP records, 372 drawable (a model, not embedded, a known type)

@@ -194,6 +194,10 @@ pub struct Weapon {
     /// DNAM flags: "Embedded Weapon" (part of a creature body), "Non-Playable".
     pub embedded: bool,
     pub non_playable: bool,
+    /// DNAM flags2 "Player Only" or "Not Used In Normal Combat": no NPC's own weapon choice
+    /// takes it (docs/spec-notes/weapon-data-fields.md §1). Not part of any report.
+    #[serde(skip)]
+    pub not_for_npcs: bool,
     /// WNAM "1st Person Model": a form (a STAT [observed: the 9mm pistol's,
     /// `1stPerson9mm`]) whose model the first-person view shows [documented: xEdit WEAP
     /// WNAM]. Not part of any report.
@@ -683,6 +687,7 @@ fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Iss
         explosion_damage: 0.0,
         embedded: flags.is_some_and(|f| has_flag(f, "Embedded Weapon")),
         non_playable: flags.is_some_and(|f| has_flag(f, "Non-Playable")),
+        not_for_npcs: dnam.and_then(|v| v.get("flags2")).is_some_and(|f| has_flag(f, "Player Only") || has_flag(f, "Not Used In Normal Combat")),
         first_person: fid(lo, pi, id, "WNAM", first(d, b"WNAM"), issues),
         first_person_model: None,
         mod_models: [b"MWD1", b"MWD2", b"MWD3", b"MWD4", b"MWD5", b"MWD6", b"MWD7"].map(|sig| path(first(d, sig))),
@@ -708,7 +713,7 @@ mod tests {
 
     #[test]
     fn a_modded_weapon_draws_the_model_of_its_mods() {
-        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() };
+        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() };
         w.mod_models[0] = Some("ext.nif".into());
         w.mod_models[2] = Some("ext_scope.nif".into());
         w.mod_first_person_models[2] = Some("1st_ext_scope.nif".into());
