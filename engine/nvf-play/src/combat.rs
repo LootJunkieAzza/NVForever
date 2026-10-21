@@ -2039,7 +2039,16 @@ fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, s
     with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects))
 }
 
-/// Apply `dealt` health damage through the script runtime; report and remember it.
+/// A weapon's critical effect (WEAP CRDT: the actor effect and its On Death flag), for
+/// [`apply_hit`] (`fnv_game::ash_piles`, docs/spec-notes/ash-piles.md §1).
+pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId, bool)> {
+    let w = c.forms.weapons.get(&weapon?)?;
+    Some((w.crit_effect?, w.crit_on_death))
+}
+
+/// Apply `dealt` health damage through the script runtime; report and remember it. A
+/// critical hit then gives the weapon's critical effect (`crit`: the actor effect and
+/// its On Death flag; `fnv_game::Game::apply_crit_effect`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_hit(
     script: Option<&mut ScriptState>,
@@ -2053,6 +2062,7 @@ pub(crate) fn apply_hit(
     messages: &mut MessageWriter<ActorHit>,
     effects: &[FormId],
     guard_broken: bool,
+    crit: Option<(FormId, bool)>,
 ) -> Option<HitResult> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
@@ -2063,6 +2073,13 @@ pub(crate) fn apply_hit(
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
     let name = sim.ref_name(Some(&rt.game), target.0).map_or_else(|| target.to_string(), str::to_string);
+    if let Some((spell, on_death)) = crit.filter(|_| info.critical && !r.immune) {
+        let done = with_world(rt, sim, |rt| rt.game.apply_crit_effect(target, spell, on_death, r.died, info.attacker));
+        if let fnv_game::ash_piles::CritEffect::Applied(ids) = done {
+            let spell_name = rt.game.data.name(spell);
+            info!("combat: critical effect {spell_name} ({spell}) on {name} {target}{}: {} effect(s)", if on_death { " (on death)" } else { "" }, ids.len());
+        }
+    }
     if mine {
         stats.damage += r.dealt as f32;
     } else if info.attacker.is_some() && !r.immune {
@@ -2335,7 +2352,7 @@ fn melee(
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
             let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken);
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
             if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
                 dm.checks.push(check);
             }
@@ -2563,7 +2580,7 @@ fn actor_attacks(
             wear_actor_weapon(&c.forms, &mut sim, &mut stats, &mut broken, script.as_deref_mut(), b.attacker, weapon, points, b.point);
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
-        let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken);
+        let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
         }
@@ -2792,7 +2809,7 @@ fn fly(
             let info = blast_hit_info(cause);
             // The blast's object effect on those it catches (hit-effects.md §1).
             let items: Vec<FormId> = x.enchantment.into_iter().collect();
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false);
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, None);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
             }
@@ -2931,7 +2948,7 @@ fn fly(
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
-        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false);
+        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
         if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
             dm.checks.push(check);
         }

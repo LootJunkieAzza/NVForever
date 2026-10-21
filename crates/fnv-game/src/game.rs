@@ -344,6 +344,12 @@ pub struct RefExtra {
     /// SetCriticalStage (0 none, 1 goo start, 2 goo end, 3 disintegrate start, 4 end).
     #[serde(skip_serializing_if = "is_zero", default)]
     pub critical_stage: u16,
+    /// The ash or goo pile AttachAshPile left of this actor (`crate::ash_piles`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ash_pile: Option<FormId>,
+    /// On a pile: the actor it came from (GetAshPileSource; `crate::ash_piles`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ash_pile_source: Option<FormId>,
     /// SetScale in saves from before 2026-10-18 (it is now kept on the reference's state,
     /// `fnv_sim::world::RefState::scale`); read by GetScale, cleared by the next SetScale.
     #[serde(skip_serializing_if = "Option::is_none", default)]

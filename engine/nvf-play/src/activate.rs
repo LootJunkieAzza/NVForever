@@ -225,10 +225,14 @@ pub(crate) fn find_target(
         described
             .entry(id)
             .or_insert_with(|| {
-                if rt.as_deref().is_some_and(|rt| rt.game.activation_refused(FormId(id))) {
+                // A body culled by its critical stage (turned to ash or goo) is gone.
+                if rt.as_deref().is_some_and(|rt| rt.game.activation_refused(FormId(id)) || rt.game.culled(FormId(id))) {
                     return None;
                 }
+                let pile = rt.as_deref().is_some_and(|rt| rt.game.ash_pile_source(FormId(id)).is_some());
                 describe(&sim, play.index, id).map(|(n, a)| match a {
+                    // An ash or goo pile is searched as the body was (ash-piles.md §3).
+                    Action::Activate if pile => (n, Action::Search),
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))

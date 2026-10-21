@@ -73,6 +73,7 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 | Speech Successes | a Fallout 3 style speech challenge line is said (the roll is not modelled, dialogue.md §3.3) | `Game::choose` |
 | Challenges Completed | a challenge completes (each time for a recurring one) [hypothesis] | `functions::ui` |
 | Have Limbs Crippled | a hit cripples one of the player's limbs | `Game::hit` |
+| Disintegrations | AttachAshPile turns an actor the player killed to ash or goo [hypothesis: by the name; ash-piles.md §3] | `Game::attach_ash_pile` |
 | Times Slept | a sleep starts in the wait menu (not a wait; a sleep already passing that is lengthened does not count again) [hypothesis] | `Game::begin_rest` |
 | Items Crafted | a recipe is made (one per make, whatever it yields) [hypothesis] | `nvf-play` crafting |
 | Items Repaired | the player repairs an item from the Pip-Boy (a vendor's repair does not count) [hypothesis] | `nvf-play` Pip-Boy repair |
@@ -83,7 +84,7 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 **Not counted** (only ModPCMiscStat changes them): Pockets Picked (pickpocketing is not
 built), Pants Exploded, Books Read (skill books), Weapons Created, Sandman Kills,
 Paralyzing Punches, Robots Disabled, Corpses Eaten, Mysterious Stranger Visits, Miss
-Fortunate Occurrences, Disintegrations, Dismembered Limbs (no dismemberment), Speech
+Fortunate Occurrences, Dismembered Limbs (no dismemberment), Speech
 Failures and New Vegas skill-check successes (the checks' pass and fail are not judged by
 the dialogue yet), Weapon Modifications, Slots Games Played (no slot machines). "Days passed" is not a statistic of the list; it is
 the GameDaysPassed global.
