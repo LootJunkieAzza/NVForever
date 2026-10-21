@@ -160,6 +160,17 @@ pub struct WeaponStats {
     pub embedded: bool,
     pub playable: bool,
     pub sound_level: Option<String>,
+    /// MOD3: the scope's overlay model (docs/spec-notes/weapon-scopes.md §1). Not part of
+    /// any report.
+    #[serde(skip)]
+    pub scope_nif: Option<String>,
+    /// EFSD: the scope's effect shader, which the original ignores (weapon-scopes.md §1).
+    #[serde(skip)]
+    pub scope_effect: Option<FormId>,
+    /// A mod with the Increase Zoom effect is on ([`WeaponStats::modded`]): the scope of a
+    /// "Scope from Mod" weapon is there.
+    #[serde(skip)]
+    pub zoom_mod_on: bool,
 }
 
 /// AMMO.
@@ -264,7 +275,10 @@ impl WeaponStats {
                     w.attack_shots_per_sec *= 1.0 + a;
                     w.attack_mult *= 1.0 + a;
                 }
-                Some("Increase Zoom") => w.sight_fov = (w.sight_fov - a).max(1.0),
+                Some("Increase Zoom") => {
+                    w.sight_fov = (w.sight_fov - a).max(1.0);
+                    w.zoom_mod_on = true;
+                }
                 Some("Split Beam") => {
                     w.projectile_count = (w.projectile_count.max(1) as i64 + a.round() as i64).max(1) as u32;
                     if b != 0.0 {
@@ -284,6 +298,24 @@ impl WeaponStats {
     /// effects] (docs/spec-notes/weapon-mods.md §7).
     pub fn sound_mod_on(&self, flags: u8) -> bool {
         self.mods.iter().any(|m| flags & mod_flag(m.slot) != 0 && matches!(m.effect.as_deref(), Some("Silence" | "Suppressor")))
+    }
+
+    /// Whether a DNAM flag (Flags 1 or Flags 2) is set, by name.
+    pub fn has_flag(&self, name: &str) -> bool {
+        self.flags.iter().any(|f| f == name)
+    }
+
+    /// The scope's overlay model (MOD3) when the weapon is scoped: "Has Scope", and for a
+    /// "Scope from Mod" weapon an Increase Zoom mod on it [documented: GECK wiki
+    /// "Weapons", docs/spec-notes/weapon-scopes.md §2].
+    pub fn scope_model(&self) -> Option<&str> {
+        let there = self.has_flag("Has Scope") && (!self.has_flag("Scope from Mod") || self.zoom_mod_on);
+        self.scope_nif.as_deref().filter(|m| there && !m.is_empty())
+    }
+
+    /// The scope gives night vision ("Scope has NightVision") while it is up.
+    pub fn night_vision_scope(&self) -> bool {
+        self.scope_model().is_some() && self.has_flag("Scope has NightVision")
     }
 
     /// Held in two hands: its DNAM animation type is one of the "(2 Hand)" types
@@ -906,6 +938,9 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         embedded: flags1.is_some_and(|x| has_flag(x, "Embedded Weapon")),
         playable: !flags1.is_some_and(|x| has_flag(x, "Non-Playable")),
         sound_level: label(first(d, b"VNAM")),
+        scope_nif: first(d, b"MOD3").and_then(text),
+        scope_effect: cx.fid("EFSD", first(d, b"EFSD")),
+        zoom_mod_on: false,
     }
 }
 
@@ -1163,6 +1198,28 @@ mod tests {
     }
 
     #[test]
+    fn a_scope_from_a_mod_needs_an_increase_zoom_mod() {
+        let flags = |f: &[&str]| f.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let sniper = WeaponStats { flags: flags(&["Has Scope"]), scope_nif: Some("mildotscope.nif".into()), ..Default::default() };
+        assert_eq!(sniper.scope_model(), Some("mildotscope.nif"));
+        assert!(!sniper.night_vision_scope());
+        let hunting = WeaponStats {
+            flags: flags(&["Has Scope", "Scope from Mod"]),
+            scope_nif: Some("germanscope.nif".into()),
+            mods: vec![slot(1, 1, "Increase Zoom", 20.0, 0.0), slot(2, 2, "Increase Clip Capacity", 5.0, 0.0)],
+            sight_fov: 55.0,
+            ..Default::default()
+        };
+        assert_eq!(hunting.scope_model(), None);
+        assert_eq!(hunting.modded(2).scope_model(), None);
+        assert_eq!(hunting.modded(1).scope_model(), Some("germanscope.nif"));
+        let varmint = WeaponStats { flags: flags(&["Has Scope", "Scope has NightVision", "Scope from Mod"]), ..hunting.clone() };
+        assert!(!varmint.night_vision_scope() && varmint.modded(1).night_vision_scope());
+        // No flag, no scope, whatever MOD3 says.
+        assert_eq!(WeaponStats { scope_nif: Some("x.nif".into()), ..Default::default() }.scope_model(), None);
+    }
+
+    #[test]
     fn each_effect_by_the_wiki() {
         let base = WeaponStats { base_damage: 10, weight: 5.0, health: 100, fire_rate: 10.0, attack_mult: 1.0, sight_fov: 55.0, projectile_count: 1, min_spread: 2.0, ..Default::default() };
         let with = |e: &str, a: f32, b: f32| WeaponStats { mods: vec![slot(1, 1, e, a, b)], ..base.clone() }.modded(1);
@@ -1172,6 +1229,7 @@ mod tests {
         assert_eq!(with("Increase Max. Condition", 50.0, 0.0).health, 150);
         assert!((with("Increase Rate of Fire", 0.2, 0.0).fire_rate - 12.0).abs() < 1e-4);
         assert!((with("Increase Zoom", 15.0, 0.0).sight_fov - 40.0).abs() < 1e-6);
+        assert!(with("Increase Zoom", 15.0, 0.0).zoom_mod_on && !with("Decrease Weight", 2.0, 0.0).zoom_mod_on);
         let split = with("Split Beam", 2.0, 1.5);
         assert_eq!(split.projectile_count, 3);
         assert!((split.min_spread - 3.0).abs() < 1e-6);

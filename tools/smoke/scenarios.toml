@@ -4967,6 +4967,38 @@ expect = [
 ]
 
 [[scenario]]
+name = "scope-overlay"
+source = "ESM gap audit row 10 (docs/handoff/esm-gap-audit-2026-10-21.md): a scoped weapon aimed shows its WEAP MOD3 picture at its Sight FOV, the arms and crosshair go, the view sways (docs/spec-notes/weapon-scopes.md, engine/nvforever/src/scope_view.rs)"
+note = "the sniper rifle (00004353, Has Scope, mildotscope.nif) drawn at 9 s, Block held 12-15 s at noon; screenshot at 14 s through the scope"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/scope_view.rs", "engine/nvf-play/src/aim_zoom.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "00004353", NVF_PLAY_TEST_GIVE = "0006B53C:20", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,15:aim", NVF_PLAY_TEST_SHOTS = "14" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'scope: WeapSniperRifle \(\S+\) up: interface.HUD.mildotscope\.NIF, sight FOV (?P<n>[\d.]+)°, a plain scope', range = [1, 74.9], label = "aimed, the sniper rifle's scope comes up at its sight FOV" },
+  { re = 'scope view: meshes.interface.HUD.mildotscope\.NIF drawn \((?P<n>\d+) shapes\), 920 units high', range = [3, 8], label = "the MOD3 picture is drawn" },
+  { re = 'scope sway: PSp [\d.]+, radius [\d.]+°', label = "the view sways through the scope" },
+  { re = 'scope: down', label = "letting go of Block takes the scope down" },
+  { re = 'scope: night vision', count = 0, label = "a plain scope gives no night vision" },
+]
+
+[[scenario]]
+name = "scope-night-vision"
+source = "ESM gap audit row 10: a night-vision scope (WEAP Scope has NightVision) gives night vision at night, NightScopeISFX held on the screen (docs/spec-notes/weapon-scopes.md §4)"
+note = "Ratslayer (000E5B17, night-vision scope) drawn at 9 s, Block held 12-15 s at 23:00"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/scope_view.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "000E5B17", NVF_PLAY_TEST_GIVE = "0007EA27:20", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,15:aim" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "23"]
+run_seconds = 20
+expect = [
+  { re = 'scope: WeapNVVarmintRifleUnique \(\S+\) up: interface.HUD.varmitscope\.NIF, sight FOV [\d.]+°, a night-vision scope', label = "Ratslayer's night-vision scope comes up" },
+  { re = 'scope: night vision NightScopeISFX on', label = "at night the scope gives night vision" },
+  { re = 'scope: night vision NightScopeISFX off', label = "and takes it away when the scope goes down" },
+]
+
+[[scenario]]
 name = "true-iron-sights-laser"
 source = "owner 2026-10-20: the laser rifle's model has no sighting node, so it keeps the original aim and its crosshair (engine/nvforever/src/iron_sights.rs)"
 note = "Laser rifle drawn at 3 s, Block held 6-9 s"

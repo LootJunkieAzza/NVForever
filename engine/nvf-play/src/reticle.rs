@@ -321,7 +321,7 @@ fn draw(
     (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool)>,
-    (locks, bindings, creator, sights): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>),
+    (locks, bindings, creator, sights, scope): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -343,11 +343,13 @@ fn draw(
         return;
     };
     let show = |on: bool| if on { Visibility::Inherited } else { Visibility::Hidden };
-    // Down a gun's true iron sights the sights are the aim: no crosshair.
-    let sights = sights.is_some_and(|s| s.0);
+    // Down a gun's true iron sights the sights are the aim, through a scope its reticle
+    // (docs/spec-notes/weapon-scopes.md §2): no crosshair.
+    let scoped = scope.is_some_and(|s| s.on);
+    let sights = sights.is_some_and(|s| s.0) || scoped;
     if sights != logged.2 {
         logged.2 = sights;
-        info!("crosshair: {}", if sights { "hidden down the true iron sights" } else { "shown again" });
+        info!("crosshair: {}", if !sights { "shown again" } else if scoped { "hidden by the scope" } else { "hidden down the true iron sights" });
     }
     for mut v in &mut root {
         v.set_if_neq(show(playing && !sights));

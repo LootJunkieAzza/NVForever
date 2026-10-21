@@ -7433,3 +7433,31 @@ its 3D sound reaches plays the weapon's distant sound (Shoot Dist). Spec:
   would take), as for the player; its other figures stay plain.
 - *Check:* put the silencer on the 10mm pistol and fire: the quiet .22-style pop, not the
   10mm crack. Have an NPC with a plain rifle fire from far away: the distant report.
+## Weapon scopes (2026-10-21, ESM gap audit item 10, branch claude/e10-weapon-scopes)
+
+Aiming a scoped weapon (sniper rifle, anti-materiel rifle, hunting revolver, a hunting rifle
+or Varmint Rifle with its scope mod, and the rest) now shows the weapon's scope picture (WEAP
+MOD3, `interface\HUD\*.nif`) once the zoom has reached the weapon's Sight FOV. Spec:
+[weapon-scopes](spec-notes/weapon-scopes.md). Decisions and guesses:
+
+- *Guess:* the scope picture appears when the zoom is complete (0.25 s after Block) and goes
+  the moment Block is let go; the original's timing is not measured.
+- *Guess:* the picture's size: the model's black mask rectangle (1480 × 920 units) is taken as
+  the screen at 16:10, so the scope's circle is about 0.75 of the screen's height; wider
+  screens get black at the sides.
+- *Decision:* no scope picture in third person; the view only zooms there, as before.
+- *Guess:* the first-person arms and weapon and the crosshair are hidden while the scope is up.
+- *Guess:* night vision is the record NightScopeISFX (a green tint, brightness ×2.5, a slight
+  radial and motion blur), held while a night-vision scope is up indoors or between the end of
+  sunset and the start of sunrise. Nothing in the data plays that record, so this is a guess
+  from its name.
+- *Guess:* the sway plays `scopewobble.nif`'s 5 s loop (X up and down, Z sideways), scaled so
+  its widest point is half of the player's spread × 5.955° (the wiki's measured circle), × 0.5
+  unless the player fired in the last 0.5 s. A new character with the sniper rifle sways about
+  1°. The shots follow the swaying view and NVForever's spread cone still applies on top.
+- *Decision (documented):* EFSD (the scope's effect shader) is not used: the GECK wiki says the
+  original ignores it.
+- *Check:* aim the sniper rifle at noon, then Ratslayer at night (or indoors): the reticle,
+  the circle's size against the screen, how fast the scope comes up, the green night vision
+  and how much the view sways compared with the original. Does the original show the scope in
+  third person?
