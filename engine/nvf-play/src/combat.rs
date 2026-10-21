@@ -2529,7 +2529,13 @@ fn actor_attacks(
             c.next_visual += 1;
             c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
         }
-        debug!("combat: {} fires {} (cone {:.1}°)", s.shooter, c.forms.weapons.get(&s.weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"), s.cone);
+        let wname = c.forms.weapons.get(&s.weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?");
+        if scripted {
+            // A script's FireWeapon (a rigged shotgun, a turret): worth a line.
+            info!("combat: FireWeapon: {} fires {wname} from ({:.0}, {:.0}, {:.0})", s.shooter, leaving.origin[0], leaving.origin[1], leaving.origin[2]);
+        } else {
+            debug!("combat: {} fires {wname} (cone {:.1}°)", s.shooter, s.cone);
+        }
         // The shot wears the shooter's weapon as the player's (§17); a scripted
         // FireWeapon does not, it is the reference's, not a carried gun's [design].
         if !scripted {
@@ -2622,11 +2628,15 @@ fn actor_attacks(
 /// a positive x looking down [hypothesis: the game turns both clockwise]. The model's
 /// projectile node is not used yet.
 fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire> {
-    let s = sim.world.peek(from)?;
+    // A reference nothing has moved yet (a rigged shotgun) stands where it was placed.
+    let (pos, rot) = match sim.world.peek(from) {
+        Some(s) => (s.pos, s.rot),
+        None => sim.world.placed.get(from).map(|p| (p.pos, p.rot))?,
+    };
     let actor = from == FormId::PLAYER_REF || sim.is_actor(from.0);
-    let [x, _, z] = s.rot;
+    let [x, _, z] = rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
-    let origin = [s.pos[0], s.pos[1], s.pos[2] + if actor { 64.0 } else { 0.0 }];
+    let origin = [pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }];
     Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
 }
 

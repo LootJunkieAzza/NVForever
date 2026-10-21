@@ -36,8 +36,9 @@ type Objects = Arc<Vec<CollisionObject>>;
 /// on the Water layer, physics.md §6.6), for a door model with "Open" and "Close"
 /// sequences its animation (`crate::doors`), and for a model with collision the floors
 /// of its drawn geometry ([`DrawnFloors`]) and its node tree (to pose the objects,
-/// [`pose_stored`]); or why it could not be read.
-type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>, Option<Arc<NodeTree>>), String>;
+/// [`pose_stored`]), and its trigger volumes (phantoms on the Trigger layer, the traps'
+/// pressure boxes, `crate::script_trigger`); or why it could not be read.
+type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>, Option<Arc<NodeTree>>, Objects), String>;
 
 /// Collision per model path (lower case), shared by the loader thread and the main
 /// thread. A model is read once: a second caller waits for the first.
@@ -73,7 +74,7 @@ impl ModelCache {
     /// [`ModelCache::objects`]) and has collision and floors.
     pub fn drawn(&self, path: &str) -> Option<Arc<DrawnFloors>> {
         match self.slot(path).get() {
-            Some(Ok((_, _, _, drawn, _))) => drawn.clone(),
+            Some(Ok((_, _, _, drawn, ..))) => drawn.clone(),
             _ => None,
         }
     }
@@ -86,7 +87,17 @@ impl ModelCache {
 
     /// The node tree of a model with collision (read through the cache).
     pub fn tree(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<NodeTree>> {
-        self.read(data, path, times).ok().and_then(|(.., tree)| tree)
+        self.read(data, path, times).ok().and_then(|(_, _, _, _, tree, _)| tree)
+    }
+
+    /// A model's trigger volumes (phantoms on the Trigger layer), when it was read
+    /// already (by the cell loader); `None` while it was not.
+    pub fn triggers(&self, path: &str) -> Option<Objects> {
+        match self.slot(path).get() {
+            Some(Ok((.., triggers))) => Some(triggers.clone()),
+            Some(Err(_)) => Some(Arc::default()),
+            None => None,
+        }
     }
 }
 
@@ -127,7 +138,8 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
     let file = file?;
     let t = Instant::now();
     let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, dec.as_ref().expect("decoded with the file"));
-    let water: Vec<CollisionObject> = phantoms.into_iter().filter(|o| o.layer == fnv_phys::layers::WATER).collect();
+    let (water, rest): (Vec<CollisionObject>, Vec<CollisionObject>) = phantoms.into_iter().partition(|o| o.layer == fnv_phys::layers::WATER);
+    let triggers: Vec<CollisionObject> = rest.into_iter().filter(|o| o.layer == fnv_phys::layers::TRIGGER).collect();
     let dec = dec.expect("decoded with the file");
     let anim = solid.iter().any(|o| o.motion == fnv_collide::Motion::Keyframed).then(|| ModelAnim::new(&file, &dec));
     let anim = anim.filter(|a| a.door().is_some()).map(Arc::new);
@@ -135,7 +147,7 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
     let drawn = if solid.is_empty() { None } else { DrawnFloors::from_nif(&file, &dec).map(Arc::new) };
     let tree = (!solid.is_empty()).then(|| Arc::new(NodeTree::new(&file, &dec)));
     times.convert += ms_since(t);
-    Ok((Arc::new(solid), Arc::new(water), anim, drawn, tree))
+    Ok((Arc::new(solid), Arc::new(water), anim, drawn, tree, Arc::new(triggers)))
 }
 
 /// What preparing needs: the plugins, the archives and the world's parameters. Cheap to

@@ -6971,3 +6971,26 @@ drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
 is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
 stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
 upwards, about once a second?
+## Traps: trigger boxes and activate parents (2026-10-21, queue item 25, branch claude/q25-traps)
+
+Spec: [traps](spec-notes/traps.md). Disarming, XP and damage are the trap scripts' own
+and already ran; what was missing was what sets the traps off.
+1. *Decision:* a scripted trap without a placed trigger box uses the **Trigger-layer box in
+   its model** (bear trap, tripwire, pressure plate: 32 × 32 × 8 units half extents for the
+   bear trap). The box shape's bounds are taken as the volume.
+2. *Decision:* a parent sets off its **activate children** only on its **default
+   activation** (the tripwire's `activate self`, the plate's `activate`, a hand on a
+   parent without OnActivate), not when its OnActivate block runs (otherwise looking at a
+   tripwire would fire its shotgun). The children are activated with the **parent as the
+   action reference** (the rigged shotgun fires only for a non-player action reference),
+   after their XAPR delay in game seconds. Pending children are not saved.
+3. *Decision:* "Parent Activate Only" (XAPD) refuses the player's hand. No shipped
+   reference sets it.
+4. Not built: the **swinging traps** (log, I-beams, engine block, brahmin corpses;
+   `trapUpdate`): their chains of constrained bodies are not simulated, so they are
+   activated but do not swing or hit. Where a rigged shotgun's pellets leave (the game may
+   use a `ProjectileNode`) is open: in the smoke run they struck the world, not the player.
+*Check:* in the game, walk into a tripwire guarding a rigged shotgun (Nipton's paranoid
+man's house): does the shotgun fire the moment the wire springs, and does looking at the
+tripwire (without disarming) leave the shotgun quiet? Step on a bear trap south of
+Goodsprings: does it close when the foot is about a third of a metre from its centre?

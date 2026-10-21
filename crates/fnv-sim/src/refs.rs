@@ -18,7 +18,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::extract::{self, first, global, has_flag, int, local_fid, num, text, Issues};
+use crate::extract::{self, all, first, global, has_flag, int, local_fid, num, text, Issues};
 use crate::form::FormId;
 use crate::forms::ser_sig;
 
@@ -54,6 +54,16 @@ pub struct EnableParent {
     /// Not serialised: dumps of placed references stay as they were.
     #[serde(skip)]
     pub pop_in: bool,
+}
+
+/// An activate parent of a reference (XAPR): activating `reference` (its default
+/// activation) sets this one off after `delay` seconds [documented: xEdit
+/// wbDefinitionsFNV.pas "Activate Parent Ref" (reference, delay); GECK wiki Bethsoft
+/// Tutorial Traps; docs/spec-notes/traps.md §2].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ActivateParent {
+    pub reference: FormId,
+    pub delay: f32,
 }
 
 /// A volume stored on the reference itself (XPRM) rather than in a model: trigger
@@ -107,6 +117,14 @@ pub struct PlacedRef {
     /// stays as it was).
     #[serde(skip)]
     pub primitive: Option<Primitive>,
+    /// XAPR, one per parent (not written to JSON).
+    #[serde(skip)]
+    pub activate_parents: Vec<ActivateParent>,
+    /// XAPD "Parent Activate Only": only its activate parents set it off; the player
+    /// cannot activate it by hand [documented: xEdit; hypothesis: what the flag does,
+    /// traps.md §2] (not written to JSON).
+    #[serde(skip)]
+    pub parent_activate_only: bool,
 }
 
 impl PlacedRef {
@@ -132,6 +150,9 @@ pub struct RefTable {
     pub world_grid: HashMap<FormId, BTreeMap<(i32, i32), FormId>>,
     /// Merchant containers (XMRC targets) -> the actor references whose stock they hold.
     pub merchant_containers: BTreeMap<FormId, Vec<FormId>>,
+    /// Activate parents -> their activate children with each child's delay (XAPR read
+    /// backwards).
+    pub activate_children: BTreeMap<FormId, Vec<(FormId, f32)>>,
     /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
@@ -216,6 +237,9 @@ impl RefTable {
                 if let Some(m) = pr.merchant_container {
                     t.merchant_containers.entry(m).or_default().push(pr.id);
                 }
+                for p in &pr.activate_parents {
+                    t.activate_children.entry(p.reference).or_default().push((pr.id, p.delay));
+                }
                 t.refs.insert(pr.id, pr);
             }
         }
@@ -279,6 +303,17 @@ fn field_fid(
             issues.note("FormID outside master list", || format!("{id} {what} 0x{l:08X}"));
             None
         }
+    }
+}
+
+/// A decoded boolean enum (`BoolU8`: "True" / "False", or its number).
+fn truthy(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0),
+        serde_json::Value::String(s) => s.eq_ignore_ascii_case("true") || s.parse::<f64>().is_ok_and(|x| x != 0.0),
+        serde_json::Value::Object(o) => o.get("value").or_else(|| o.get("name")).is_some_and(truthy),
+        _ => false,
     }
 }
 
@@ -385,5 +420,9 @@ fn load_ref(
             };
             Some(Primitive { sphere, bounds: vec3(v.get("bounds"))?.map(f32::abs) })
         }),
+        activate_parents: all(&d, b"XAPR")
+            .filter_map(|v| Some(ActivateParent { reference: fid(v.get("reference"), "XAPR", issues)?, delay: num(v, "delay").unwrap_or(0.0) as f32 }))
+            .collect(),
+        parent_activate_only: first(&d, b"XAPD").is_some_and(truthy),
     })
 }

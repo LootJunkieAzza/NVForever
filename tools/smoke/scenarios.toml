@@ -1922,6 +1922,45 @@ expect = [
   { re = 'anim sounds summary:.*\b1 object group sounds' },
 ]
 
+[[scenario]]
+name = "traps-bear"
+source = "queue item 25 (traps): a bear trap's model holds a Trigger-layer box that sets off its OnTriggerEnter; another is disarmed by hand (docs/spec-notes/traps.md)"
+note = "South of Goodsprings, by three bear traps (0x00165495, 0x0015834D, 0x0015834C). trapbearskillreq01 set to 0; the player activates 0x00165495 at 15 s and picks Disarm; at 17 s the player is put on 0x0015834D, whose trigger box the player's capsule enters: its OnTriggerEnter plays Forward, damages the player 45 and a leg"
+areas = ["traps", "scripts"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "engine/nvf-play/src/phys/prepare.rs", "crates/fnv-game/src/traps.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1,17:moveto:player:0x0015834D" }
+args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'script: trigger 0x0015834D has 1 trigger volume\(s\) in its model', label = "the bear trap's model box is its trigger" },
+  { re = 'script: message .*"You have disarmed the trap\."', label = "the first trap is disarmed" },
+  { text = "playgroup: 0x00165495 plays Forward", label = "the disarmed trap springs shut" },
+  { text = "script: player entered trigger 0x0015834D", label = "the player steps into the second trap" },
+  { re = 'script: OnTriggerEnter of .*SCPT 0x0002CBA1 ran on', label = "its OnTriggerEnter runs" },
+  { text = "playgroup: 0x0015834D plays Forward", label = "and it springs on the player" },
+]
+
+[[scenario]]
+name = "traps-tripwire"
+source = "queue item 25 (traps): a tripwire's default activation sets off its activate child (XAPR), the rigged shotgun, which fires; a disarmed tripwire sets nothing off (docs/spec-notes/traps.md)"
+note = "Nipton, the paranoid man's house: two tripwires (0x00139522, 0x00139521) each guard a rigged shotgun (0x0013951E, 0x00139520). trapplateskillreq set to 0; at 13 s the player activates 0x00139521 and disarms it; at 17 s the player is put on 0x00139522: its OnTriggerEnter plays Forward and activates itself, which sets off 0x0013951E with the tripwire as action reference, and the shotgun's OnActivate fires its weapon; at 21 s the player is put on the disarmed 0x00139521, whose shotgun stays quiet. God mode keeps the player standing"
+areas = ["traps", "scripts", "combat"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "crates/fnv-game/src/traps.rs", "crates/fnv-sim/src/refs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "11:var:0x0002012B:trapplateskillreq:0,13:activate:0x00139521,13.1:button:1,17:moveto:player:0x00139522,21:moveto:player:0x00139521" }
+args = ["--cell", "NiptonHouse8Paranoid", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'script: message .*"[^"]*disarm[^"]*"', label = "the second tripwire is disarmed" },
+  { text = "script: player entered trigger 0x00139522", label = "the player walks into the armed tripwire" },
+  { re = 'script: activate parent 0x00139522 sets off 0x0013951E after 0\.00 s', label = "the tripwire sets off its shotgun" },
+  { re = 'script: OnActivate of FalloutNV\.esm\|SCPT 0x0003E877 ran on Some\(0x0013951E\)', label = "the shotgun's OnActivate runs (its action reference is not the player)" },
+  { re = 'combat: FireWeapon: 0x0013951E fires ', label = "the rigged shotgun fires" },
+]
+forbid = [
+  { re = 'script: activate parent 0x00139521 sets off', label = "the disarmed tripwire sets nothing off" },
+  { re = 'combat: FireWeapon: 0x00139520 fires', label = "its shotgun stays quiet" },
+]
+
 # ------------------------------------------------------------------ dialogue, Pip-Boy, terminals
 
 [[scenario]]

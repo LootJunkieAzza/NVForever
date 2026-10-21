@@ -519,7 +519,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | EnableLoadingMenu | 0x1270 | 2 | 0 | implemented 2026-10-19 (§3.19) | the following travel's loading screen is one for anywhere |
 | StartMisterSandman | 0x107C | 1 | 0 | implemented 2026-10-18 (§3.17) | perks: docs/spec-notes/perk-activation.md |
 | GetCannibal | 0x10E3 | 0 | 1 | implemented 2026-10-18 (§3.17) | perks: docs/spec-notes/perk-activation.md |
-| trapUpdate | 0x110C | 1 | 0 | needs a system not built yet | physics (traps) |
+| trapUpdate | 0x110C | 1 | 0 | needs a system not built yet | physics: the swinging traps' constrained bodies (spec-notes/traps.md §4; trigger volumes and activate parents built 2026-10-21) |
 | IsWaterObject | 0x1130 | 0 | 1 | needs a system not built yet | AI (drinking) |
 | PreloadMagicEffect | 0x1163 | 1 | 0 | deliberately no-op | loading: effect particles load when drawn |
 | GetPlantedExplosive | 0x11AC | 0 | 1 | needs a system not built yet | combat (live explosives planted by reverse pickpocketing) |

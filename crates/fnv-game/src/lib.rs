@@ -86,6 +86,7 @@ pub mod sight;
 pub mod templates;
 pub mod terminal;
 pub mod trace;
+pub mod traps;
 pub mod unconscious;
 pub mod use_weapon;
 pub mod vats;

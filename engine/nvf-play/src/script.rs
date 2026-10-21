@@ -678,6 +678,12 @@ impl Runtime {
         if self.game.activation_refused(target) {
             return Ok(ByHand::Refused);
         }
+        // Only its activate parents set off a "Parent Activate Only" reference
+        // (`fnv_game::traps`).
+        if self.game.parent_activate_only(target) {
+            info!("activate: {} is set off by its activate parents only", self.game.data.name(target));
+            return Ok(ByHand::Refused);
+        }
         // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
         // opens first, unless it was just answered with the default action.
         if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
@@ -713,6 +719,8 @@ impl Runtime {
                 Ok(mut a) => {
                     self.skip.insert(g.events.len());
                     g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
+                    // Its activate children go off (`fnv_game::traps`).
+                    g.set_off_children(target);
                     if let Outcome::PickedUp { item, count, .. } = a.outcome {
                         self.skip.insert(g.events.len());
                         g.emit(EventKind::ItemAdded { to: player, item, count, silent: false });
@@ -1521,7 +1529,7 @@ pub(crate) fn run_scripts(
         // A conversation with the player pauses the game: nobody moves, and no trigger
         // block runs (OnTrigger would, every frame) until it is over.
         if rt.game.dialogue.is_none() {
-            crate::script_trigger::update(rt, &play, player_capsule);
+            crate::script_trigger::update(rt, &play, &phys, player_capsule);
         }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
@@ -1777,6 +1785,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::Activated { reference, by, outcome } => {
             info!("script: {} activated by {}: {}", n(*reference), n(*by), outcome.as_ref().map_or_else(String::new, |o| o.to_string()))
         }
+        EventKind::ActivateChild { parent, child, delay } => info!("script: activate parent {} sets off {} after {delay:.2} s", n(*parent), n(*child)),
         EventKind::BlockRun { unit, block, on } if block != "OnTrigger" => info!("script: {block} of {unit} ran on {on:?}"),
         EventKind::MenuOpened { menu } => info!("script: menu {menu} open"),
         EventKind::MenuClosed { menu } => info!("script: menu {menu} closed"),
