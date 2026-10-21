@@ -7047,6 +7047,30 @@ spot): does every wall sconce burn, as in placed_particles.png? In the Old Vegas
 with many barrel fires in view, do all of them burn at once? Does a stick of dynamite on a
 shelf show fuse sparks?
 
+## Loading a save into another load order (2026-10-21, queue item 29, branch claude/q29-save-load-order)
+
+Spec: [save-load](design/save-load.md) §4.1. A save made with other plugins (added before
+the save's own, removed or reordered) no longer refuses to load: every FormID's mod index
+moves to its plugin's place now (matched by file name), and what came from plugins no
+longer loaded is dropped. Decisions where the original is not documented:
+
+1. **Load with a notice, do not ask.** When plugins are missing the save loads and a corner
+   message says "This save relies on content that is no longer present: <plugins>. What
+   came from it was removed." (also in the console). The wording is ours; the original's
+   message (if any) is in its encrypted executable, not in the GECK wiki or the ESM.
+2. **What is dropped**: map entries keyed by a missing plugin's form (its references'
+   changes, inventory items, quest state, globals), list entries and remembered pairs
+   holding one, created references of its bases or in its cells, script instances and
+   magic effects on its forms, the radio station and weather shown if its. Other fields
+   that name one of its forms (an actor's last attacker, a package) keep an ID in the
+   unused `FE` slot that names nothing.
+3. **Standing in a missing plugin's cell or worldspace**: the load is refused (nowhere to
+   start the player). A fallback place (the last base-game marker) could be added.
+4. **255 plugins**: a save with missing plugins is refused then, since `FE` is a real
+   plugin slot in such a load order.
+
+*Check:* load a save made with an add-on, after turning that add-on off in NVForever's
+plugin list: the corner message, and the Mojave as it was without the add-on's things.
 ## Slot machines (2026-10-21, queue item 22, branch claude/q22-slot-machines)
 
 Spec: [slots](spec-notes/slots.md). The casinos' slot machines now open a slot machine
@@ -7074,6 +7098,19 @@ rows say, how does the payout list look, does one cherry on the left reel pay, d
 cherry on another reel pay, and does a win of "x 2" leave you 1 or 2 bets up? A screenshot
 of the menu, of a win and of the payout list would settle most of these.
 
+## Ragdolls' rest rule (2026-10-21, session "q30-death-cam-rest", queue item 30)
+
+- **Cause of `death-cam-first`'s flaky rest check**: the rest rule read the ragdoll bodies'
+  velocities, and a light body (forearm, hand, upper arm, neck) pressed between the ground
+  and a joint limit shivers with velocities flipping step to step at up to 8 rad/s while
+  going nowhere. About a quarter of drops of the human ragdoll never came to rest that way
+  (ragdoll.md §4 "Rest").
+- **Decided**: calm is now judged from each bone's net motion over 0.25 s windows (the same
+  12 units/s, 0.6 rad/s and 1.5 s as before). The window length is a guess [design]; the
+  thresholds are unchanged.
+- **To check in game**: a corpse should still lie still once it looks still, and a corpse
+  sliding slowly down a slope should not freeze mid-slide (a net slide under 12 units/s, as
+  before, is still taken as calm).
 ## A film's `muteAudio 0` (2026-10-21, session "q28 film mute audio")
 
 Queue item 28; spec in docs/spec-notes/bink-films.md §2.
@@ -7112,3 +7149,30 @@ docs/design/layer3.md §5 item 5.
      does not match by any shift of its texture coordinates).
 *Check:* in the game at noon, looking at the far hills: is the haze warm (yellow-tan) as in
 the reference frames, and does nvforever's now look closer?
+## Reverb (2026-10-21, queue item 27, branch claude/q27-reverb)
+
+Spec: [audio](spec-notes/audio.md) §14.6. New Vegas has no REVB records: an acoustic
+space (ASPC) names one of DirectSound's 30 reverb presets, whose parameters come from
+DirectSound's own header. As shipped, the original plays **no** reverb on PC (its INI
+switch `bEnableEnviroEffectsOnPC` is 0), so this is closer to the original with that
+switch turned on.
+1. *Decision:* reverb is **on** by default (you asked for reverb indoors); the settings
+   page's Sound tab has a **Reverb** switch, kept in the INI, and `--no-reverb`.
+2. *Decision:* the environment is the acoustic space of the cell you are in, taken when
+   a sound starts. Inside, as stored. **Outside, only open-air presets** (Mountains,
+   City, Plain …) play: 12 of the 14 outdoor spaces, the open desert included, store
+   "Medium Room", which I took for a value left unset, so the Mojave plays dry; the Strip
+   and the slums (Mountains) get a faint distant echo.
+3. *Decision:* what goes through it: sound effects (shots, impacts, footsteps, doors,
+   creatures, the random placed sounds) and placed loops. Not: interface sounds, sounds
+   flagged Environment Ignored or Menu Sound, the room's background loop, music, voices,
+   radios, and a weapon's held firing loop.
+4. *Guesses:* how DirectSound turned the preset's numbers into sound is not documented;
+   I built a Freeverb-style reverb driven by them (decay time, HF damping, early
+   reflection and late levels and delays, density, diffusion); each sound rings on for
+   its preset's decay after its file ends (at most 6 s). The record's "Reverb
+   Attenuation Control" (SOUN `GNAM`) is not used: its unit is unknown.
+*Check:* fire a gun in the Goodsprings cave (Cave), in Vault 19 (Stone Corridor) and in
+the Prospector Saloon (Small Room): does each sound like the place, is any too wet or
+too long? Outside in Goodsprings, is the dry sound what you want, or should the desert
+have some echo? Is the reverb on footsteps welcome or distracting?

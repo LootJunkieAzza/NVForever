@@ -261,6 +261,7 @@ pub const SAVE_HOOK: nvf_play::save::SaveHook = nvf_play::save::SaveHook {
             }
         }
     },
+    remap: None,
 };
 
 /// A weather a script set: held until ReleaseWeatherOverride, or kept until the

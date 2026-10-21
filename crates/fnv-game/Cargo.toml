@@ -17,3 +17,6 @@ rand_core = "0.9"
 rand_chacha = "0.9"
 rayon = "1"
 tracing = "0.1"
+
+[dev-dependencies]
+fnv-save = { path = "../fnv-save" }

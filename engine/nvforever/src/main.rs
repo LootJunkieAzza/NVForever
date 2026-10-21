@@ -533,6 +533,10 @@ struct Args {
     /// sounds and the cells' background loops).
     #[arg(long)]
     no_sound: bool,
+    /// With --play: play world sounds dry, without the acoustic space's reverb (the
+    /// settings page's Sound tab switch `reverb`, kept in the INI, wins).
+    #[arg(long)]
+    no_reverb: bool,
     /// With --play: dialogue voice volume, 1 = as recorded.
     #[arg(long, default_value_t = 1.0)]
     voice_volume: f32,
@@ -760,7 +764,20 @@ fn main() -> AppExit {
     // the world is opened); its body waits for the scripts (nvf_play::save).
     let loaded = match args.load.as_deref() {
         Some(name) => match nvf_play::save::SaveConfig::default().path_of(name).and_then(|p| fnv_save::read(&p).map(|f| (p, f)).map_err(|e| e.to_string())) {
-            Ok((path, f)) => {
+            Ok((path, mut f)) => {
+                // A save made with another load order (nvf_play::save::read_for_load):
+                // the place's FormIDs move to the current one; a place in a plugin no
+                // longer loaded cannot be started in.
+                let remap = fnv_save::PluginRemap::from_names(&f.header.plugins, &args.plugins);
+                if !remap.is_identity() {
+                    let pl = &mut f.header.place;
+                    for id in [&mut pl.world, &mut pl.interior].into_iter().flatten() {
+                        match remap.map(*id) {
+                            Some(n) => *id = n,
+                            None => return fail(format!("--load {name}: the save was made in 0x{id:08X} of {}, which is not loaded now", remap.plugin_of(*id).unwrap_or("a plugin"))),
+                        }
+                    }
+                }
                 let pl = &f.header.place;
                 if let Some(w) = pl.world {
                     args.world = format!("0x{w:08X}");
@@ -796,13 +813,13 @@ fn main() -> AppExit {
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
 
-    // The save is read in full once the load order is known: it must be the one the save
-    // was made with.
+    // The save is read in full once the load order is known: a save made with another
+    // one is remapped to it (nvf_play::save::read_for_load).
     let pending = match &loaded {
         Some(path) => {
             let plugins: Vec<fnv_save::PluginEntry> = world.lo.plugins.iter().map(|p| fnv_save::PluginEntry { name: p.name.clone(), size: p.file_size }).collect();
             match nvf_play::save::read_for_load(path, &plugins) {
-                Ok((_, body)) => Some(nvf_play::save::PendingLoad { path: path.clone(), body }),
+                Ok((_, body, order)) => Some(nvf_play::save::PendingLoad { path: path.clone(), body, order }),
                 Err(e) => return fail(format!("--load: {e}")),
             }
         }
@@ -1180,7 +1197,7 @@ fn main() -> AppExit {
         app.insert_resource(nvf_play::script::NoMessages);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
-    app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
+    app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, reverb: !args.no_reverb, ..Default::default() });
     app.insert_resource(nvf_play::combat::HitMarks { show: args.hit_markers });
     if args.god {
         nvf_play::combat::set_god_mode(true);

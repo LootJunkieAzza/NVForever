@@ -113,6 +113,13 @@ const SAVE_HOOK: SaveHook = SaveHook {
         let found: BTreeSet<u32> = serde_json::from_value(v.clone()).unwrap_or_default();
         DataState::restore_discovered(w, found);
     },
+    // Marker references by FormID (numbers): moved to the current load order, those of
+    // plugins no longer loaded dropped.
+    remap: Some(|v, r| {
+        if let Some(a) = v.as_array_mut() {
+            *a = a.iter().filter_map(|x| x.as_u64().and_then(|n| r.map(n as u32)).map(serde_json::Value::from)).collect();
+        }
+    }),
 };
 
 /// Markers found since the last frame: the message, the experience, the log.

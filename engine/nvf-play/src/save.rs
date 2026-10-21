@@ -115,6 +115,10 @@ pub struct SaveHook {
     pub key: &'static str,
     pub save: fn(&World) -> Option<serde_json::Value>,
     pub load: fn(&mut World, &serde_json::Value),
+    /// For a save made with another load order (design §4.1): move the FormIDs the part
+    /// holds to the current load order ([`fnv_save::PluginRemap::map`]; `None` for a
+    /// plugin no longer loaded). `None` for a part that holds none.
+    pub remap: Option<fn(&mut serde_json::Value, &fnv_save::PluginRemap)>,
 }
 
 #[derive(Resource, Default, Clone)]
@@ -165,11 +169,21 @@ pub struct SaveBody {
 pub struct PendingLoad {
     pub path: PathBuf,
     pub body: SaveBody,
+    /// The save was made with another load order ([`read_for_load`]).
+    pub order: Option<OrderChange>,
+}
+
+/// How a save's load order differs from the current one, once its body was remapped.
+#[derive(Debug, Clone)]
+pub struct OrderChange {
+    pub remap: fnv_save::PluginRemap,
+    /// The save's plugins no longer loaded.
+    pub missing: Vec<String>,
 }
 
 /// The engine part waiting for the runtime to be restored.
 #[derive(Resource)]
-pub struct PendingEngine(pub EngineSnapshot, pub PathBuf);
+pub struct PendingEngine(pub EngineSnapshot, pub PathBuf, pub Option<OrderChange>);
 
 /// Whether the save given at the start (`--load`) is still being put back (scripts that
 /// cannot run never put it back: not waited for then).
@@ -275,8 +289,8 @@ impl Plugin for SavePlugin {
             .add_systems(Update, (write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
             .add_systems(Last, flush_on_exit);
         if let Some(p) = app.world_mut().remove_resource::<PendingLoad>() {
-            let PendingLoad { path, body } = p;
-            app.insert_resource(PendingEngine(body.engine, path.clone()));
+            let PendingLoad { path, body, order } = p;
+            app.insert_resource(PendingEngine(body.engine, path.clone(), order));
             app.insert_resource(crate::script::PendingGame(Box::new(body.game), path));
         }
         let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set, slider: None };
@@ -690,7 +704,7 @@ fn apply_engine(world: &mut World) {
     if world.get_resource::<ScriptState>().is_none_or(|s| s.rt.is_none() || s.pending_game_waiting()) {
         return;
     }
-    let Some(PendingEngine(e, path)) = world.remove_resource::<PendingEngine>() else { return };
+    let Some(PendingEngine(e, path, order)) = world.remove_resource::<PendingEngine>() else { return };
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
         c.pov = if e.third_person { crate::control::Pov::Third } else { crate::control::Pov::First };
         if e.distance > 0.0 {
@@ -711,33 +725,84 @@ fn apply_engine(world: &mut World) {
     let hooks = world.resource::<SaveHooks>().0.clone();
     for h in hooks {
         if let Some(v) = e.extra.get(h.key) {
-            (h.load)(world, v);
+            let mut v = v.clone();
+            if let (Some(remap), Some(o)) = (h.remap, &order) {
+                remap(&mut v, &o.remap);
+            }
+            (h.load)(world, &v);
         }
     }
     info!("load: engine state of {} put back ({} part(s) from other modules)", path.display(), e.extra.len());
     world.resource_mut::<SaveLog>().0.push(format!("Loaded {}", path.display()));
+    // Plugins the save was made with that are not loaded: said in a corner message as the
+    // game comes up (our wording [hypothesis]: what the original shows is not documented
+    // and its executable's strings cannot be read).
+    if let Some(o) = order.filter(|o| !o.missing.is_empty()) {
+        let text = missing_content_text(&o.missing);
+        world.resource_mut::<SaveLog>().0.push(text.clone());
+        if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+            c.push(crate::script_events::Note { text, icon: None, seconds: Some(6.0) });
+        }
+    }
+}
+
+/// What the player is told when a save's plugins are missing (design §4.1).
+pub fn missing_content_text(missing: &[String]) -> String {
+    format!("This save relies on content that is no longer present: {}. What came from it was removed.", missing.join(", "))
 }
 
 /// Read a save for `--load`: its header (to start the world at its place) and its body.
-/// Refuses a save made with another load order (remapping is not built, design §4).
-pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<(SaveHeader, SaveBody), String> {
+/// A save made with another load order is remapped by plugin name (design §4.1): every
+/// FormID's mod index moves to its plugin's place now; what came from plugins no longer
+/// loaded is dropped and reported. Called before the log is set up: its lines go straight
+/// to the output, as nvforever's first `load:` line.
+pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<(SaveHeader, SaveBody, Option<OrderChange>), String> {
     let f = fnv_save::read(path).map_err(|e| e.to_string())?;
-    match fnv_save::check_plugins(&f.header.plugins, current) {
-        fnv_save::PluginCheck::Same => {}
-        fnv_save::PluginCheck::Appended { added } => info!("load: plugins added since the save, after its own: {}", added.join(", ")),
-        fnv_save::PluginCheck::Differs { missing, added, reordered } => {
-            return Err(format!(
-                "{} was made with other plugins (missing now: {missing:?}, added: {added:?}{}); only plugins added after the save's own load into it",
-                path.display(),
-                if reordered { ", order changed" } else { "" }
-            ));
+    let remap = fnv_save::PluginRemap::new(&f.header.plugins, current);
+    let body_of = |v: serde_json::Value| -> Result<SaveBody, String> {
+        let body: SaveBody = serde_json::from_value(v).map_err(|e| format!("{}: {e}", path.display()))?;
+        if body.format != BODY_FORMAT {
+            return Err(format!("{}: body format {:?}, this NVForever reads {BODY_FORMAT}", path.display(), body.format));
         }
+        Ok(body)
+    };
+    let raw: serde_json::Value = serde_json::from_slice(&f.body).map_err(|e| format!("{}: {e}", path.display()))?;
+    if remap.is_identity() {
+        if let fnv_save::PluginCheck::Appended { added } = fnv_save::check_plugins(&f.header.plugins, current) {
+            eprintln!("load: plugins added since the save, after its own: {}", added.join(", "));
+        }
+        return Ok((f.header, body_of(raw)?, None));
     }
-    let body: SaveBody = serde_json::from_slice(&f.body).map_err(|e| format!("{}: {e}", path.display()))?;
-    if body.format != BODY_FORMAT {
-        return Err(format!("{}: body format {:?}, this NVForever reads {BODY_FORMAT}", path.display(), body.format));
+    let missing = remap.missing();
+    if !missing.is_empty() && current.len() > fnv_save::GONE_INDEX as usize {
+        return Err(format!("{} was made with plugins that are not loaded now ({missing:?}) and the load order has 255 plugins: unload one to load it", path.display()));
     }
-    Ok((f.header, body))
+    let added: Vec<&str> = current.iter().filter(|c| !f.header.plugins.iter().any(|p| p.name.eq_ignore_ascii_case(&c.name))).map(|c| c.name.as_str()).collect();
+    let moved = remap.moved().iter().map(|(n, a, b)| format!("{n} {a:02X}->{b:02X}")).collect::<Vec<_>>();
+    let mut raw = raw;
+    let report = fnv_save::remap_json(&mut raw, &remap);
+    let mut body = body_of(raw)?;
+    let gone = |id: fnv_sim::FormId| fnv_save::is_gone(id.0);
+    let dropped_game = body.game.drop_gone(gone);
+    let e = &mut body.engine;
+    e.magazine = e.magazine.and_then(|(w, n)| remap.map(w).map(|w| (w, n)));
+    e.active_quest = e.active_quest.and_then(|q| remap.map(q));
+    eprintln!(
+        "load: {} was made with another load order: moved {:?}, missing now {:?}, added {:?}; {} FormIDs remapped, {} entries of missing plugins dropped ({:?}), {} fields named a missing plugin's form, {} entries holding them dropped by the game layer",
+        path.display(),
+        moved,
+        missing,
+        added,
+        report.moved,
+        report.dropped_total(),
+        report.dropped,
+        report.gone_total(),
+        dropped_game,
+    );
+    if !missing.is_empty() {
+        eprintln!("load: {}", missing_content_text(&missing));
+    }
+    Ok((f.header, body, Some(OrderChange { remap, missing })))
 }
 
 #[cfg(test)]

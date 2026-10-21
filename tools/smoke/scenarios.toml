@@ -3656,6 +3656,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "save-load-order"
+source = "no-owner queue item 29 (2026-10-21; docs/design/save-load.md §4.1): a save made with one load order loads into another: FormIDs move to their plugin's place now, what came from plugins no longer loaded is dropped and the player told; run after save-write, whose save it loads"
+note = "save-write runs with the ten masters; this run loads its save with three of them, Gun Runners' Arsenal moved before Dead Money (index 05 -> 01, Dead Money 01 -> 02), the add-ons Honest Hearts, Old World Blues, Lonesome Road and the four packs gone. The base game's changes come back as in save-load"
+areas = ["save"]
+paths = ["engine/nvf-play/src/save.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/reputation.rs"]
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.getitemcount Stimpak;12.5:0010A202.getdisabled;13:player.getav luck;13.5:player.getpos x;14:close" }
+args = ["--play", "--load", "smoke-roundtrip", "--plugins", "FalloutNV.esm", "GunRunnersArsenal.esm", "DeadMoney.esm"]
+run_seconds = 18
+expect = [
+  { re = 'load: .*smoke-roundtrip\.nvfsave was made with another load order: moved \["DeadMoney\.esm 01->02", "GunRunnersArsenal\.esm 05->01"\], missing now \["HonestHearts\.esm", "OldWorldBlues\.esm", "LonesomeRoad\.esm", "ClassicPack\.esm", "MercenaryPack\.esm", "TribalPack\.esm", "CaravanPack\.esm"\]', label = "the save's load order is remapped by name" },
+  { re = 'load: .*another load order: .*; (?P<n>\d+) FormIDs remapped', range = [1, 10000000], label = "FormIDs of the moved add-ons are rewritten" },
+  { re = 'load: .*another load order: .*, (?P<n>\d+) entries of missing plugins dropped', range = [1, 10000000], label = "what came from the missing add-ons is dropped" },
+  { re = 'load: This save relies on content that is no longer present: HonestHearts\.esm, ', label = "the player is told which plugins are missing" },
+  { re = 'load: restored .*smoke-roundtrip\.nvfsave: \d+ changed references', label = "the remapped game state is restored" },
+  { re = 'load: engine state of .*smoke-roundtrip\.nvfsave put back', label = "the remapped engine state is put back" },
+  { re = 'console: GetItemCount on player >> 12\.00', label = "the base game's Stimpaks came back through the remap" },
+  { re = 'console: GetDisabled on 0x0010A202 >> 1\.00', label = "the base game's disabled bottle stays disabled" },
+  { re = 'console: GetActorValue on player >> 9\.00', label = "the player's Luck came back through the remap" },
+  { re = 'console: GetPos on player >> -683\d\d\.', label = "the player stands where the save was made, in the remapped worldspace" },
+]
+
+[[scenario]]
 name = "script-saves-reticle"
 source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
 areas = ["save", "script"]
@@ -4161,6 +4183,20 @@ args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", 
 run_seconds = 16
 expect = [
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
+]
+
+[[scenario]]
+name = "reverb-cave-exit"
+source = "no-owner queue item 27 (docs/spec-notes/audio.md §14.6): the acoustic space's reverb environment; the Goodsprings cave is Cave, two shots ring through it, then out through the cave door to the desert, whose Medium Room plays dry (2026-10-21)"
+areas = ["audio"]
+paths = ["engine/nvf-play/src/reverb.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/ambient.rs", "crates/fnv-world/src/audio.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "6:weapon,8:fire,8.4:fire", NVF_PLAY_TEST_SCRIPT = "11:activate:0x0015315F" }
+args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "reverb: interior 00153159: acoustic space INTCave (001445CA) environment Cave -> Cave", label = "the cave rings as a Cave" },
+  { re = 'reverb: exterior cell [0-9A-F]{8}: acoustic space \S+ \([0-9A-F]{8}\) environment Medium Room -> no reverb \(a room.s environment outside\)', label = "out of the door: the desert plays dry" },
+  { re = 'reverb summary: 2 changes of space, environments Cave, (?P<n>\d+) sounds through a reverb', range = [2, 400], label = "the shots went through the cave's reverb" },
 ]
 
 [[scenario]]
@@ -4727,7 +4763,7 @@ order = [[
 expect = [
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
-  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest", known_failing = "flaky, cause open: the player's ragdoll came to rest 9.0 s of game time after the death on 2026-10-16 and 1.5 s on #405 merged with main (2026-10-17 22:30Z), but never in the 15 s after it on main d2637b64 (31 fps) or the poker branch on #399 (65 fps) ('ragdolls: ... 0 came to rest'); #405 changed no physics, so the drop itself varies. The exit line 'ragdoll: actor 00000014 not at rest at exit' says how fast its fastest body moves and how long it stayed calm when it fails" },
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
   "death camera: 1 death(s) shown, the player dead at exit",
 ]
 
@@ -4756,7 +4792,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays on it",
-  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest", known_failing = "flaky, the same cause as death-cam-first's: on 2026-10-18 the desktop ran it on f161b419 (before #432: PASS, then FAIL), 94f94ffc (#432 merged: PASS) and main bc13755b (FAIL twice), and the laptop failed it twice on b4e8fea4 (main 94f94ffc with #433 and #434); when it fails the player's ragdoll is still turning about 1.4 rad/s at exit and stayed calm 0.86 s of the 1.5 s that sets it ('ragdoll: actor 00000014 not at rest at exit')" },
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
 ]
 
 [[scenario]]

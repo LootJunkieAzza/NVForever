@@ -333,7 +333,8 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
 - `world audio [--cell C [--at x,y,z] [--hour H]]` → `fnv.world.audio/1`: `counts` of
-  music types, media sets by type, controllers and acoustic spaces, and `music_types`.
+  music types, media sets by type, controllers and acoustic spaces, `music_types` and
+  `acoustic_spaces` (each with its reverb environment, ASPC `ANAM`, and interior flag).
   Without `--cell`: `world`, statistics of every audio marker and sound marker of the load
   order. With `--cell`: `cell` (music type, acoustic space with its sounds) and
   `audio_markers`, `controllers` and `sound_markers` in earshot (the whole worldspace for

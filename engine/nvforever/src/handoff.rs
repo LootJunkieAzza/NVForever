@@ -16,7 +16,7 @@
 //! 3. This run sees the file and ends.
 //!
 //! If the new run ends before it is ready, the screen comes down and this game goes on;
-//! when the new run's log says why it stopped (a save made with other plugins, say), the
+//! when the new run's log says why it stopped (a save made in a plugin not loaded now, say), the
 //! player is told in a message box (not in unattended runs) and the log line carries it.
 //! Closing this window while it waits ends the new run too. A new run still hidden after
 //! [`SHOW_AFTER_SECS`] shows itself anyway.

@@ -544,6 +544,57 @@ fn snapshots_round_trip() {
 }
 
 #[test]
+fn a_save_made_with_another_load_order_drops_the_missing_plugins_forms() {
+    // docs/design/save-load.md §4.1. The save was made with [Test.esm, Extra.esm] and is
+    // loaded with [Test.esm]: everything of Extra.esm (index 0x01) in it goes, the rest
+    // comes back as it was.
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    g.frames(10);
+    g.radio.npc_radios.insert(FormId::PLAYER_REF, FormId(ACT_REF));
+    g.world.set_enabled(FormId(NPC_REF), false).unwrap();
+    let s = g.snapshot();
+    let mut v = serde_json::to_value(&s).unwrap();
+    // Extra.esm's part of the save: a changed reference of its own, a created reference of
+    // one of its bases, a global, its quest with a script instance, a form list entry, a
+    // radio, and the weather shown.
+    let some_ref = v["sim"]["refs"].as_object().unwrap().values().next().cloned().expect("a changed reference");
+    let mut own = some_ref.clone();
+    own["base"] = json!("0x01000ABC");
+    v["sim"]["refs"]["0x01000123"] = some_ref.clone();
+    v["sim"]["refs"]["0xFF000099"] = own;
+    v["sim"]["globals"]["0x01000800"] = json!(3.0);
+    let quest = v["quests"].as_object().unwrap().values().next().cloned().unwrap();
+    v["quests"]["0x01000900"] = quest;
+    let inst = v["instances"][0][1].clone();
+    v["instances"].as_array_mut().unwrap().push(json!([{"kind": "quest", "quest": "0x01000900"}, inst]));
+    v["form_lists"]["0x00000100"] = json!(["0x01000001", "0x00000300"]);
+    v["npc_radios"]["0x01000321"] = json!("0x00000300");
+    v["weather_shown"] = json!("0x01000044");
+    let e = |n: &str| fnv_save::PluginEntry { name: n.into(), size: 0 };
+    let remap = fnv_save::PluginRemap::new(&[e("Test.esm"), e("Extra.esm")], &[e("Test.esm")]);
+    assert_eq!(remap.missing(), vec!["Extra.esm".to_string()]);
+    let report = fnv_save::remap_json(&mut v, &remap);
+    // Dropped as keys and list entries: the reference, the global, the quest, the form list
+    // entry, the radio; left for drop_gone: the created reference's base, the instance's
+    // quest, the weather.
+    assert_eq!((report.dropped_total(), report.gone_total()), (5, 3), "{report:?}");
+    let mut back: fnv_game::game::GameSnapshot = serde_json::from_value(v).unwrap();
+    assert_eq!(back.drop_gone(|id| fnv_save::is_gone(id.0)), 3, "the created reference, the quest instance, the weather");
+    // The form list keeps its entry of Test.esm.
+    assert_eq!(back.form_lists.remove(&FormId(0x100)), Some(vec![FormId(0x300)]));
+    assert_eq!(back, s);
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    g.frames(30);
+    h.frames(30);
+    assert_eq!(g.quests, h.quests);
+    assert_eq!(g.instances, h.instances);
+}
+
+#[test]
 fn the_runner_follows_the_actions_contract() {
     let f = fixture();
     let input: fnv_game::runner::Input = serde_json::from_value(json!({
