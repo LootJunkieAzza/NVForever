@@ -125,6 +125,12 @@ fn base(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     }
 }
 
+/// The permanent value of an actor value (GetPermanentActorValue): base plus permanent
+/// modifier.
+pub(crate) fn permanent_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+    permanent(g, actor, code)
+}
+
 /// The permanent value: the base plus the permanent modifier.
 fn permanent(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     Ok(base(g, actor, code)? + modifier(g, actor, code))

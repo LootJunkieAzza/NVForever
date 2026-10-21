@@ -136,6 +136,28 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
     r
 }
 
+/// The player reads `item` (already taken from the inventory by the menu) when it is a
+/// skill book (`fnv_game::books`, docs/spec-notes/skill-books.md); false for any other
+/// item. Logs `book: the player read <book>: <Skill> a → b (+p[, worth w]); perks: …;
+/// Books Read n`.
+pub fn read_book(rt: &mut Runtime, item: FormId) -> bool {
+    let Some(r) = rt.game.read_book(P, item) else { return false };
+    let data = rt.game.data;
+    let mut extra = String::new();
+    if r.worth != r.points {
+        extra.push_str(&format!(", worth {}", whole(r.worth)));
+    }
+    if !r.perks.is_empty() {
+        let perks: Vec<String> = r.perks.iter().map(|p| format!("{} (entry point {})", data.name(*p), fnv_game::perks::ADJUST_BOOK_SKILL_POINTS)).collect();
+        extra.push_str(&format!("; perks: {}", perks.join(", ")));
+    }
+    let skill = fnv_game::chargen::skill_name(&rt.game, r.skill);
+    let read = rt.game.misc_stat(fnv_game::misc_stats::BOOKS_READ);
+    info!("book: the player read {}: {skill} {} → {} (+{}){extra}; Books Read {}", data.name(item), whole(r.before), whole(r.after), whole(r.points), whole(read));
+    *rt.aid.used.entry(data.name(item)).or_default() += 1;
+    true
+}
+
 fn whole(v: f64) -> String {
     if (v - v.round()).abs() < 0.05 {
         format!("{:.0}", v)

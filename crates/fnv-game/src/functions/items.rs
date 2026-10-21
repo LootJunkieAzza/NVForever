@@ -133,7 +133,10 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         // treated as though it were used normally"].
         // The hide-equip-message flag also hides its "removed" line [hypothesis].
         g.emit(EventKind::ItemRemoved { from: actor, item, count: 1, silent: hide_flag(a, 2) });
-        g.ingest(actor, item);
+        // A skill book is read (`crate::books`) [hypothesis: as from the inventory].
+        if g.read_book(actor, item).is_none() {
+            g.ingest(actor, item);
+        }
     } else {
         g.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
     }

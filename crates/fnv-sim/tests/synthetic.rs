@@ -1616,3 +1616,44 @@ fn placed_ammo_without_a_count_holds_its_clip_rounds() {
     w.activate(p, id(ROUNDS_REF)).unwrap();
     assert_eq!(w.item_count(p, id(BULLETS)).unwrap(), before + 10);
 }
+
+/// Skill books (docs/spec-notes/skill-books.md §2, §4): the stimpak stands in for a book.
+fn as_book(f: &mut Fixture, teaches: Option<u16>, cant_be_taken: bool) {
+    let b = f.forms.bases.get_mut(&id(STIMPAK)).unwrap();
+    match &mut b.data {
+        BaseData::Item(i) => {
+            i.kind = ItemKind::Book;
+            i.teaches = teaches;
+            i.cant_be_taken = cant_be_taken;
+        }
+        other => panic!("stimpak: {other:?}"),
+    }
+}
+
+#[test]
+fn a_skill_book_is_used_up_and_a_plain_book_is_not() {
+    let mut f = fixture();
+    as_book(&mut f, Some(41), false);
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(STIMPAK), 2).unwrap();
+    assert!(w.equip(p, id(STIMPAK)).unwrap().consumed);
+    assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 1);
+    let mut f = fixture();
+    as_book(&mut f, None, false);
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(p, id(STIMPAK), 1).unwrap();
+    assert_eq!(w.equip(p, id(STIMPAK)), Err(SimError::NotEquippable(id(STIMPAK))));
+    assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 1);
+}
+
+#[test]
+fn a_book_that_cant_be_taken_stays_unless_a_script_activates_it() {
+    let mut f = fixture();
+    as_book(&mut f, None, true);
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    assert!(matches!(w.activate(p, id(STIM_REF)).unwrap().outcome, Outcome::NoDefault { .. }));
+    assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 0);
+    assert!(matches!(w.activate_scripted(p, id(STIM_REF)).unwrap().outcome, Outcome::PickedUp { .. }));
+}

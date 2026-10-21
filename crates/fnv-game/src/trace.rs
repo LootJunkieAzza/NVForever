@@ -89,6 +89,9 @@ pub enum EventKind {
     /// An actor used an ingestible (aid item): its effects applied with `potency` on
     /// their beneficial Value Modifier magnitudes (docs/spec-notes/aid-items.md §4).
     Ingested { actor: FormId, item: FormId, potency: f64 },
+    /// An actor read a skill book (`crate::books`): the skill's permanent value rose by
+    /// `points` to `value`; `perks` the perks whose entry point changed the points.
+    BookRead { actor: FormId, book: FormId, skill: u16, points: f64, value: f64, perks: Vec<FormId> },
     /// An actor became addicted: the item's withdrawal effect (an Addiction spell) was
     /// added (aid-items.md §5).
     Addicted { actor: FormId, item: FormId, spell: FormId },

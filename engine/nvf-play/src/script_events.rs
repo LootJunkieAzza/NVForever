@@ -126,6 +126,11 @@ pub trait EffectCtx {
     /// The icon file and the seconds of a message that is not a box, as [`Note`] has
     /// them.
     fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>);
+    /// A skill's name and icon file (its AVIF record's FULL and ICON), for the line of a
+    /// skill book read.
+    fn skill_look(&self, code: u16) -> (String, Option<String>) {
+        (fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string(), None)
+    }
     /// References whose enable parent chain leads to `r` (their presence follows it).
     fn enable_children(&self, r: FormId) -> Vec<FormId>;
     /// Whether the reference's enable parent data has the "Pop In" flag.
@@ -349,6 +354,13 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                 Some((_, n)) => *n += count,
                 None => added.push((*item, *count)),
             },
+            // A skill book read: "<Skill> increased to <value>" with the skill's icon
+            // [hypothesis: wording and icon NVForever's, the original's line is not in
+            // the plugins; docs/spec-notes/skill-books.md §5].
+            EventKind::BookRead { actor, value, skill, .. } if *actor == player => {
+                let (name, icon) = ctx.skill_look(*skill);
+                out.push(ScriptEffect::Notify(Note { text: format!("{name} increased to {}", value.round()), icon, seconds: None }));
+            }
             EventKind::ItemRemoved { from, item, count, silent: false } if *from == player => {
                 let n = ctx.name(*item);
                 out.push(ScriptEffect::Notify(if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into()));

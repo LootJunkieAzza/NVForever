@@ -246,6 +246,6 @@ Rules: `crate::perks` (`ADJUST_GAINED_SKILL_POINTS`, `rank_abilities`,
   the Pip-Boy and every script read the skills with the abilities' effects (they are
   active effects), so nothing else reads them separately. Logged `perks: <perk>'s
   ability <spell> on` and `perks: ability <spell> off`.
-- **Not built**: reading skill books (BOOK's skill and the "Books Read" statistic), so
-  Comprehension's code 11 is defined but not yet asked for; Hacking Science Bonus; the
-  teammates' perks (`AddPerk perk 1`).
+- **Skill books**: Comprehension's code 11 changes a book's points when one is read
+  ([skill-books](skill-books.md) §3).
+- **Not built**: Hacking Science Bonus; the teammates' perks (`AddPerk perk 1`).
