@@ -194,6 +194,7 @@ impl Game<'_> {
     pub fn count_stat(&mut self, code: u16, n: f64) {
         if n != 0.0 {
             *self.player.misc_stats.entry(code).or_default() += n;
+            self.challenge_stat(code, n);
         }
     }
 

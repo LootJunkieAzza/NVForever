@@ -7252,6 +7252,38 @@ outside zones, changed by the reference's level modifier. Spec:
   should be the zone's tier, not the weakest. Compare with the original if you have a
   level-1 save near Vault 3 or Vault 11 (minimum 6, giant rats).
 
+## Challenges (2026-10-21, ESM gap audit item 3, branch claude/e3-challenges)
+
+Every challenge type the masters use now counts from the player's own deeds: kills (by
+victim list, victim, creature type, weapon), hits (damage, criticals, crippled limbs,
+knockdowns, by body part and weapon), damage dealt, discovered map markers, items used,
+items acquired, recipes made and the miscellaneous statistics. At the threshold the
+challenge completes, counts in Challenges Completed and runs its reward script (the XP and
+the challenge perks: Animal Control, Bug Stomper, Lord Death …). The Pip-Boy's Notes tab
+shows the challenges on R ("Challenges"). Spec: [challenges](spec-notes/challenges.md).
+Decisions and guesses:
+
+- *Read off the records (no document):* value3 is the weapon's animation type + 1, value2 the
+  weapon's skill (kills, damage), the creature type + 1 ("kill any in a category") or the hit
+  kind (0 damage, 1 critical, 2 knockdown, 3 cripple); value1 the body part or the statistic.
+  The body parts 3, 5 and 6 (left arm, left leg, right leg) are a guess; no master uses them.
+- *Guess:* every kill counts, not only enemies'; a kill's weapon is the one you last hit the
+  victim with, else the one in your hands; no weapon counts as Unarmed (fists).
+- *Guess:* damage counts as dealt to health (after DT); fractions carry over.
+- *Guess:* acquiring counts everything that reaches your inventory, bought and looted too
+  (the Sierra Madre chip challenges).
+- *Guess:* the messages: "Challenge completed: <name>" with the challenge picture
+  (perk_challenge.dds), and "<name> 10/50" at each interval. What do the original's say,
+  and does a completion play a sound?
+- *Guess:* the Pip-Boy list shows unlocked challenges with progress (and those flagged Show
+  Zero Progress at 0), running first, completed ones faint, each by name; the right side
+  the description and "10/50" or "Completed"; R toggles back to the notes ("Notes").
+  The original's headline of the challenge type is not built.
+- *Guess:* Find Vault 34 (threshold 0) completes at 1, as its sibling vaults.
+- *Check:* kill a few geckos with a pistol and open the Pip-Boy's Notes, R: Animal Control
+  and A Fistful of Hollars (unarmed only) should match what the original shows for the same
+  kills; pick a lock and see Low Tech move.
+
 ## Skill books (2026-10-21, ESM gap audit item 4, branch claude/e4-skill-books)
 
 The 14 skill books can now be read: use one in the inventory or Pip-Boy and it is used up,

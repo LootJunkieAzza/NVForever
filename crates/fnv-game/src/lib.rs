@@ -45,6 +45,7 @@ pub mod awareness;
 pub mod blackjack;
 pub mod books;
 pub mod caravan;
+pub mod challenges;
 pub mod casino;
 pub mod chargen;
 pub mod combat;

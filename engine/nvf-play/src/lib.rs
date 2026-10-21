@@ -57,6 +57,7 @@ pub mod slots;
 pub mod blackjack;
 pub mod companion_wheel;
 pub mod caravan;
+pub mod challenges;
 pub mod poker;
 pub mod menu;
 pub mod mines;

@@ -285,6 +285,7 @@ impl Game<'_> {
         if killer == Some(FormId::PLAYER_REF) {
             self.player_kills(r);
             self.count_kill(r);
+            self.challenge_kill(r);
         }
         let e = self.extra.entry(r).or_default();
         e.dead = true;
@@ -409,6 +410,11 @@ impl Game<'_> {
             if crippled && target == FormId::PLAYER_REF {
                 self.count_stat(crate::misc_stats::HAVE_LIMBS_CRIPPLED, 1.0);
             }
+        }
+        // The player's hit counts towards the hit and damage challenges (`crate::challenges`).
+        if info.attacker == Some(FormId::PLAYER_REF) {
+            let part = crate::challenges::body_part(info.limb.map(|l| l.condition), info.location);
+            self.challenge_hit(target, info.weapon, part, dealt, info.critical, out.crippled);
         }
         if health <= floor && !self.is_dead(target) {
             if essential {
