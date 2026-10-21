@@ -5409,6 +5409,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "difficulty-damage"
+source = "ESM gap audit row 16 (docs/handoff/esm-gap-audit-2026-10-21.md): difficulty scales the damage the player deals and takes (docs/spec-notes/difficulty.md)"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 3 s; the console sets Very Easy at 8 s; at 10 s Pete hits the player for 10 and at 11 s the player hits Pete for 10 (the hit aid); the console sets Very Hard at 13 s and the same two hits come at 15 s and 16 s. Very Easy: the player takes 5 and deals 20; Very Hard: takes 20, deals 5 (the default fDiffMultHP* values, no master sets them). Pete may fight back after the first hit; only the aid's lines are judged"
+areas = ["combat"]
+paths = ["crates/fnv-game/src/difficulty.rs", "engine/nvf-play/src/difficulty.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "8:setgamedifficulty 0;8.3:close;13:setgamedifficulty 4;13.3:close", NVF_PLAY_TEST_HIT = "10:player:10:by=EasyPeteRef,11:EasyPeteRef:10,15:player:10:by=EasyPeteRef,16:EasyPeteRef:10" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'difficulty: Very Easy \(0\): damage by the player x2\.00, to the player x0\.50', label = "the console sets Very Easy" },
+  { re = 'difficulty: Very Hard \(4\): damage by the player x0\.50, to the player x2\.00', label = "the console sets Very Hard" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 5: health', label = "Very Easy: Pete's 10-point hit takes 5 from the player" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 20: health', label = "Very Easy: the player's 10-point hit does 20" },
+  { re = 'test aid: 0x[0-9A-F]{8} hits 0x00000014 for 20: health', label = "Very Hard: the same hit takes 20 from the player" },
+  { re = 'test aid: the player hits 0x[0-9A-F]{8} for 5: health', label = "Very Hard: the player's same hit does 5" },
+]
+
+[[scenario]]
 name = "knockout-boxing-gloves"
 source = "owner request 2026-10-17: boxing gloves knock out by fatigue, with no corner message (docs/spec-notes/unconscious.md)"
 note = "in Goodsprings, Easy Pete (not essential) is brought 300 units north of the player at 3 s; at 6 s and 7 s the player hits him with WeapNVBoxingGloves (1 damage each): the gloves' OnHit script takes 35 Fatigue a hit, so the second (fatigue 50 - 70) knocks him out; his fatigue returns at 10 a second and his fatigue knockout lasts 30 s (a test value, unconscious.md §2.5) whatever goes on, so he gets up at about 37 s of game time (later on the clock: scripted message boxes pause game time)"

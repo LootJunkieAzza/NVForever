@@ -905,6 +905,8 @@ pub struct Game<'a> {
     pub data: &'a GameData,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
+    /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
+    pub difficulty: crate::difficulty::Difficulty,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
@@ -1338,6 +1340,7 @@ impl<'a> Game<'a> {
         Game {
             data,
             toggles: Default::default(),
+            difficulty: Default::default(),
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),

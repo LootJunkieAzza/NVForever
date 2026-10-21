@@ -11,7 +11,9 @@
 //! also limb damage on a part holding 1 % of the actor's health, so a hit of a few
 //! points cripples it; docs/spec-notes/crippled-limbs.md), and with `:crit` as a critical
 //! hit, which gives the weapon's critical effect (an energy weapon's disintegration:
-//! docs/spec-notes/ash-piles.md) [test aid].
+//! docs/spec-notes/ash-piles.md); with `:by=<reference>` that actor hits instead of the
+//! player (`player` as the reference hits the player; the difficulty's smoke,
+//! docs/spec-notes/difficulty.md §4) [test aid].
 
 use crate::activate::HudMessage;
 use crate::combat::{apply_hit, ActorHit, CombatStats, HitFeedback};
@@ -62,6 +64,8 @@ pub struct TestHit {
     pub limb: Option<String>,
     /// `:crit`: a critical hit, which gives the weapon's critical effect.
     pub critical: bool,
+    /// `:by=<reference>`: the attacker, else the player.
+    pub by: Option<String>,
 }
 
 /// The aid's hits still to come, soonest first.
@@ -78,6 +82,7 @@ pub fn parse_hits(v: &str) -> Result<Vec<TestHit>, String> {
             let mut parts: Vec<&str> = item.split(':').map(str::trim).collect();
             let limb = parts.iter().position(|p| p.starts_with("limb=")).map(|i| parts.remove(i)["limb=".len()..].to_string());
             let critical = parts.iter().position(|p| p.eq_ignore_ascii_case("crit")).map(|i| parts.remove(i)).is_some();
+            let by = parts.iter().position(|p| p.starts_with("by=")).map(|i| parts.remove(i)["by=".len()..].to_string());
             let (t, target, damage, weapon) = match parts.as_slice() {
                 [t, r, d] => (t, r, d, None),
                 [t, r, d, w] => (t, r, d, Some(w.to_string())),
@@ -85,7 +90,7 @@ pub fn parse_hits(v: &str) -> Result<Vec<TestHit>, String> {
             };
             let at = t.parse::<f32>().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
             let damage = damage.parse::<f32>().map_err(|_| format!("{item:?}: bad damage {damage:?}"))?;
-            Ok(TestHit { at, target: target.to_string(), damage, weapon, limb, critical })
+            Ok(TestHit { at, target: target.to_string(), damage, weapon, limb, critical, by })
         })
         .collect::<Result<Vec<_>, String>>()?;
     out.sort_by(|a, b| a.at.total_cmp(&b.at));
@@ -116,9 +121,10 @@ fn test_hits(
             let g = &rt.game;
             let target = fnv_game::runner::resolve(g, &h.target)?;
             let weapon = h.weapon.as_deref().map(|w| fnv_game::runner::resolve(g, w)).transpose()?;
-            Ok::<_, String>((target, weapon))
+            let by = h.by.as_deref().map(|b| fnv_game::runner::resolve(g, b)).transpose()?.unwrap_or(FormId::PLAYER_REF);
+            Ok::<_, String>((target, weapon, by))
         });
-        let (target, weapon) = match found {
+        let (target, weapon, by) = match found {
             Ok(x) => x,
             Err(e) => {
                 warn!("test aid: hit {}: {e}", h.target);
@@ -134,7 +140,7 @@ fn test_hits(
             None => None,
         };
         let crit = combat.as_deref().filter(|_| h.critical).and_then(|c| crate::combat::crit_effect(c, weapon));
-        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: 0, critical: h.critical, limb };
+        let info = HitInfo { attacker: Some(by), weapon, location: 0, critical: h.critical, limb };
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, h.damage, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false, crit);
         // A hit on a limb that kills, or lands on the corpse, may dismember it as a shot
         // there would (docs/spec-notes/dismemberment.md §4).
@@ -149,12 +155,12 @@ fn test_hits(
             let (dx, dy) = (at[0] - from[0], at[1] - from[1]);
             let len = dx.hypot(dy);
             let dir = if len > 1.0 { [dx / len, dy / len, 0.0] } else { [0.0, 1.0, 0.0] };
-            if let Some(check) = part.and_then(|p| crate::combat::dismember_check(target, Some(p as u8), &w, r, Some(FormId::PLAYER_REF), at, dir)) {
+            if let Some(check) = part.and_then(|p| crate::combat::dismember_check(target, Some(p as u8), &w, r, Some(by), at, dir)) {
                 dm.checks.push(check);
             }
         }
         match r {
-            Some(r) => info!("test aid: the player hits {target} for {:.0}{}: health {:.0}/{:.0}", r.dealt, weapon.map_or(String::new(), |w| format!(" with {w}")), r.health, r.max_health),
+            Some(r) => info!("test aid: {} hits {target} for {:.0}{}: health {:.0}/{:.0}", if by == FormId::PLAYER_REF { "the player".to_string() } else { by.to_string() }, r.dealt, weapon.map_or(String::new(), |w| format!(" with {w}")), r.health, r.max_health),
             None => warn!("test aid: hit {target}: no scripts"),
         }
     }
@@ -198,13 +204,15 @@ mod tests {
     #[test]
     fn hits_parse_in_time_order() {
         let h = parse_hits("6:GSSunnySmilesREF:30:WeapNVBoxingGloves, 4:0x00104E87:500").unwrap();
-        assert_eq!(h[0], TestHit { at: 4.0, target: "0x00104E87".into(), damage: 500.0, weapon: None, limb: None, critical: false });
+        assert_eq!(h[0], TestHit { at: 4.0, target: "0x00104E87".into(), damage: 500.0, weapon: None, limb: None, critical: false, by: None });
         assert_eq!(h[1].weapon.as_deref(), Some("WeapNVBoxingGloves"));
         let h = parse_hits("5:GSChetRef:1000:limb=RightAttackCondition,6:GSChetRef:1:Weap10mmPistol:limb=LeftMobilityCondition").unwrap();
         assert_eq!((h[0].weapon.as_deref(), h[0].limb.as_deref()), (None, Some("RightAttackCondition")));
         assert_eq!((h[1].weapon.as_deref(), h[1].limb.as_deref()), (Some("Weap10mmPistol"), Some("LeftMobilityCondition")));
         let h = parse_hits("5:GSChetRef:500:WeapLaserRifle:crit").unwrap();
         assert!(h[0].critical && h[0].weapon.as_deref() == Some("WeapLaserRifle"));
+        let h = parse_hits("7:player:10:by=GSSunnySmilesREF").unwrap();
+        assert_eq!((h[0].target.as_str(), h[0].by.as_deref(), h[0].damage), ("player", Some("GSSunnySmilesREF"), 10.0));
         assert!(parse_hits("4:x").is_err());
         assert!(parse_hits("a:x:1").is_err());
     }

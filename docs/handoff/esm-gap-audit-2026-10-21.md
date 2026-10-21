@@ -40,7 +40,7 @@ under active work.
 | 13 | ~~No spent casings or drained cells: DAT2 consumed_ammo and consumed_percentage are stored only.~~ Built in claude/e13-spent-casings ([spent-ammo-items](../spec-notes/spent-ammo-items.md)): one roll per player shot, perk entry point 57 (Hand Loader, Vigilant Recycler). Left: NPCs' shots (they carry no inventory ammo). | AMMO | Feeds the reloading-bench and recharger recipes. |
 | 14 | Holotapes never play: NOTE SNAM, and TNAM for Sound and Voice notes, are ignored. | NOTE | Audio logs. |
 | 15 | MGEF archetypes Paralysis and Turbo are not implemented. Cure Poison, Concussion and Dispel are missing too. | MGEF | Paralyzing Palm, the Turbo chem's slow time, Antivenom. |
-| 16 | Difficulty does not scale damage: no `fDiffMultHP*` game setting is read. | GMST | Damage dealt and taken per difficulty level. |
+| 16 | ~~Difficulty does not scale damage: no `fDiffMultHP*` game setting is read.~~ Built in claude/e16-difficulty-damage ([difficulty](../spec-notes/difficulty.md)): a Difficulty row on the settings page (and SetGameDifficulty/GetGameDifficulty at the console) scales the player's hits by `fDiffMultHPByPC*` and hits on the player by `fDiffMultHPToPC*`, and kill XP by `fDiffMultXP*`. No master carries the ten HP settings, so their values are hypotheses (spec §3.6). | GMST | Damage dealt and taken per difficulty level. |
 | 17 | Quest target conditions are not tested, so every alternative marker shows at once. | QUST QSTA + CTDA | Only targets whose conditions pass get a marker. |
 | 18 | Model texture swaps are missing: MODS/MO2S/MO3S/MO4S are not in the schema. | WEAP, ARMO, AMMO, STAT… → TXST | Re-skinned variants of shared meshes (how many vanilla records use them: unverified). |
 
