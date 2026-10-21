@@ -1,7 +1,7 @@
 //! The casinos (CSNO) and the player's standing at each: the record the casino games read
 //! (docs/spec-notes/blackjack.md §2), the net chips won per casino, the winnings levels the
 //! casinos' scripts read and the ban at the max winnings (§4), and whether a casino's game
-//! opens for the player. Shared by the casino games (`crate::blackjack`, roulette).
+//! opens for the player. Shared by the casino games (`crate::blackjack`, roulette, `crate::slots`).
 
 use crate::blackjack::Card;
 use crate::game::Game;
@@ -28,6 +28,12 @@ pub struct CasinoDef {
     pub roulette_model: Option<String>,
     /// ICO2: the deck's back, under `textures\`.
     pub back_texture: Option<String>,
+    /// DATA 8: the slot machine reel stops, symbols 1 to 6 and W (slots.md §2).
+    pub reel_stops: [u32; 7],
+    /// MOD2: the slot machine's model, under `meshes\` (slots.md §2).
+    pub slot_model: Option<String>,
+    /// ICON × 7: the slot symbols' pictures, under `textures\`, in the reel stops' order.
+    pub symbols: Vec<String>,
 }
 
 impl CasinoDef {
@@ -44,6 +50,9 @@ impl CasinoDef {
                     let d = &s.data;
                     c.shuffle_share = u32_at(d, 0).map_or(0.0, f32::from_bits);
                     c.payout = u32_at(d, 4).map_or(0.0, f32::from_bits);
+                    for (i, n) in c.reel_stops.iter_mut().enumerate() {
+                        *n = u32_at(d, 8 + 4 * i).unwrap_or(0);
+                    }
                     c.decks = u32_at(d, 36).unwrap_or(0);
                     c.max_winnings = u32_at(d, 40).unwrap_or(0);
                     c.chip = fid(u32_at(d, 44));
@@ -52,6 +61,8 @@ impl CasinoDef {
                 }
                 b"MOD3" => c.table_model = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
                 b"MOD4" => c.roulette_model = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
+                b"MOD2" => c.slot_model = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
+                b"ICON" => c.symbols.push(zstring(&s.data)),
                 b"ICO2" => c.back_texture = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
                 _ => {}
             }
@@ -176,6 +187,9 @@ mod tests {
             sub(b"MOD3", b"terminals\\NV_Blackjack\\NV_Blackjack-TableG.NIF\0".to_vec()),
             sub(b"MOD4", b"terminals\\NV_Roulette\\NV_Roulette-TableG.NIF\0".to_vec()),
             sub(b"ICO2", b"terminals\\NV_PlayingCards\\DeckG\\cardG_Back.dds\0".to_vec()),
+            sub(b"MOD2", b"terminals\\NV_SlotMachine\\NV_SlotMachine-Minigame-Gom.NIF\0".to_vec()),
+            sub(b"ICON", b"terminals\\NV_SlotMachine\\NV_SlotMachine-Symbol1.dds\0".to_vec()),
+            sub(b"ICON", b"terminals\\NV_SlotMachine\\NV_SlotMachine-Symbol2.dds\0".to_vec()),
         ];
         let c = CasinoDef::from_raw(&subs, &Some);
         assert_eq!(c.name, "Gommorah");
@@ -183,6 +197,9 @@ mod tests {
         assert_eq!((c.decks, c.max_winnings, c.stay_soft17), (3, 9000, false));
         assert!((c.shuffle_share - 0.2).abs() < 1e-6 && (c.payout - 1.5).abs() < 1e-6);
         assert_eq!(c.chip, Some(FormId(0x0013_9FE0)));
+        assert_eq!(c.reel_stops, [2; 7]);
+        assert_eq!(c.slot_model.as_deref(), Some("terminals\\NV_SlotMachine\\NV_SlotMachine-Minigame-Gom.NIF"));
+        assert_eq!(c.symbols.len(), 2);
         assert_eq!(c.face_texture(Card::parse("Ah").unwrap()).as_deref(), Some("terminals\\NV_PlayingCards\\DeckG\\cardG_h01.dds"));
     }
 }
