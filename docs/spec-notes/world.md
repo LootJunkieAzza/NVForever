@@ -458,6 +458,54 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
   fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
   Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Fog colour by day** [observed 2026-10-21, the eight exterior reference frames against
+  renders of the same cameras, mean colour per 30-pixel row]: distant land fades into a
+  warm haze in the game and into a light blue-grey in the renderer. At
+  spring_mountains_east (camera 18,448 up, looking east over the valley) the land rows
+  are (173, 161, 131) to (100, 89, 58) in the game and (162, 168, 169) to (87, 83, 71) in
+  the renderer; without fog (`--fog 0,100000000`) the renderer's land is (93, 78, 50) to
+  (69, 55, 27), so the fog's share is about right and its colour is not: solving
+  game = (1 - f)·unfogged + f·F with the renderer's f gives an on-screen fog colour of
+  about (226, 217, 185) in the game against (220, 228, 230) in the renderer. The
+  weather's day fog colour (150, 168, 190) cannot give that through the same grade that
+  matches the near ground (the near ground's colours agree within a few levels at
+  Goodsprings and Black Mountain). The renderer now moves the fog colour towards the
+  sunlight colour's hue by day, as it does the clouds (`SkyState::fog_color`, half way
+  in full daylight) [hypothesis, fitted; the game's mechanism is not known]. Full
+  sunlight hue fitted the colour best (mean colour error of spring_mountains_east 0.077
+  to 0.013, hoover_ridge_lake 0.048 to 0.011) but pushed black_mountain_north's SSIM just
+  under the 0.6 threshold (0.602 to 0.5996; run-to-run noise is about 0.001), so half is
+  used (0.046 and 0.030). SSIM, which the frame scenarios judge, moves by less than 0.005
+  either way: it compares luminance structure, not hue. The same treatment of the sky's
+  horizon colour (also too blue-white in the renderer: (235, 236, 210) against (224, 216,
+  181) a few degrees up) made the mean colour worse at both shares tried (0.5, 1.0) and
+  was dropped. The FNAM fog powers (day 0.6, night 0.5 [documented: xEdit names]) are
+  still unused; the fog's share already fits these frames.
+- **What holds the exterior frames under the threshold** [observed 2026-10-21]: with the
+  game's own pixels pasted over the renderer's top quarter (the sky, mostly clouds), the
+  eight exterior frames would score SSIM 0.63-0.85, all passing (goodsprings_noon 0.477
+  to 0.653, goodsprings_dusk 0.487 to 0.677, goodsprings_hill_lod 0.557 to 0.700,
+  lake_shore_noon 0.505 to 0.643, black_mountain_north 0.602 to 0.692, goodsprings_east
+  0.439 to 0.634, spring_mountains_east 0.709 to 0.852, hoover_ridge_lake 0.562 to 0.741).
+  The top-row tiles score 0.0-0.4 because the cloud pattern lies elsewhere, so the cloud
+  placement, not the light's strength, decides the threshold; the rows below (near
+  grass, shrubs and rocks) are the second gap (row SSIM 0.2-0.5 at Goodsprings).
+- **Cloud texture placement does not match the game's** [observed 2026-10-21]: a render
+  with the cloud layer's own texture coordinates written as colour (an experiment, not
+  kept) gave each sky pixel's (u, v) for the four Goodsprings/Lake frames. Correlating
+  the game's sky luminance (smooth gradient removed) with `NVCloudlight.dds`'s alpha at
+  (u, v) + offset over every offset (1/128 steps, refined to 1/1024), with u and v
+  swapped, negated and scaled by 0.5, 1 and 2, gave no clear peak for goodsprings_noon
+  (best correlation 0.15-0.24, 2.2-3.8 standard deviations above the mean of 16,384
+  offsets, what chance gives). So the game does not draw that texture with the
+  LowerLayer shape's texture coordinates shifted by an offset: the layer-to-shape
+  pairing, the use of the shape's coordinates, or the texture's scale differs
+  [hypothesis: the game may project cloud textures by view direction instead]. Matching
+  the clouds needs (1) the game's mapping, from frames of a still sky (one camera twice,
+  a known number of seconds apart, and once looking straight up), and (2) each reference
+  frame's seconds since the save was loaded (above: placement follows that time), which
+  the frame manifest and scenarios do not carry; only the owner may add it
+  (parity-lab/AGENT.md).
 - **Stars and moon** [observed, `fnvtool esm decode --edid NVDefaultClimate`]: the
   climate has a `MODL` subrecord, `Sky\Stars.nif` (the starfield sphere above, additive:
   NiAlphaProperty 0x1001 = blend ONE/ONE), and its TNAM moons byte is 131 (0x83): bit 7 set,
