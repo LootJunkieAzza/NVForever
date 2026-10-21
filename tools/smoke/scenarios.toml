@@ -2048,6 +2048,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "pipboy-holotape"
+source = "ESM gap audit row 14 (docs/spec-notes/holotapes.md §3, §4): a Voice note (holotape) picked in the Pip-Boy's Notes list plays its line's voice files, one response after another; picked again it stops"
+areas = ["pipboy", "audio"]
+paths = ["engine/nvf-play/src/holotape.rs", "engine/nvf-play/src/pipboy/data.rs", "crates/fnv-game/src/holotapes.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,23.5:note=001618BF,25:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720"]
+run_seconds = 27
+note = "VMQ01BeagleJournalNote (001618BF, Beagle's journal): speaker PrimmDeputy, topic VMQ01BeagleJournal, one line (001618B7) of six responses in MaleAdult11, the first 6.36 s long; the second note= at 23.5 s, during the second response, stops it"
+order = [[
+  "pipboy data: note … (0x001618BF) picked",
+  "holotape: VMQ01BeagleJournalNote plays … said by PrimmDeputy, 6 responses",
+  'holotape: playing sound\voice\falloutnv.esm\maleadult11\nvprimmdep_vmq01beaglejour_001618b7_1.ogg (6.36 s) response 1/6',
+  'holotape: playing sound\voice\falloutnv.esm\maleadult11\nvprimmdep_vmq01beaglejour_001618b7_2.ogg (6.87 s) response 2/6',
+  "holotape: stopped VMQ01BeagleJournalNote",
+]]
+
+[[scenario]]
 name = "hacking"
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
 areas = ["hacking", "terminal"]

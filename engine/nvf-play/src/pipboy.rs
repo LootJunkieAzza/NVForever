@@ -252,6 +252,8 @@ pub struct PipBoyAid {
     /// A drag of the map shown (canvas units), as the left button held and moved would
     /// (`drag=`), taken by the DATA page.
     pub drag: Vec2,
+    /// A note of the Notes list to select and use (`note=`), taken by the DATA page.
+    pub note: Option<u32>,
 }
 
 /// Where the test aid points.
