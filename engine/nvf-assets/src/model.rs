@@ -24,7 +24,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
-use fnv_nif::anim::{sequences, transform_track, value_track, BoolTrack, Channel, TransformTrack, ValueTrack};
+use fnv_nif::anim::{geom_morphers, sequences, transform_track, value_track, BoolTrack, Channel, GeomMorpher, TransformTrack, ValueTrack};
 use fnv_nif::scene::{scene_objects, segment_triangles, Decoded, SceneObject};
 use fnv_nif::{NifFile, Struct};
 use std::collections::{HashMap, HashSet};
@@ -98,6 +98,25 @@ pub struct ModelNode {
     /// stands for [observed: the value is the number in the node's name `AddOnNode<n>`
     /// in every file looked at; docs/spec-notes/particles.md].
     pub addon: Option<i32>,
+    /// A `BSDamageStage`: the model damage stages, lowest and highest, its children are
+    /// shown at (its `min` and `max`, from the name `DamageStage<min>-<max>`)
+    /// [documented: nif.xml BSRangeNode fields; hypothesis: their meaning,
+    /// docs/spec-notes/destruction-stages.md].
+    pub damage_stages: Option<(i32, i32)>,
+}
+
+/// The model damage stages node `i` of `nodes` is shown at: the overlap of the ranges of
+/// the `BSDamageStage` nodes it is, or is below; `None`: at every stage.
+pub fn damage_stages_of(nodes: &[ModelNode], i: usize) -> Option<(i32, i32)> {
+    let mut out: Option<(i32, i32)> = None;
+    let mut at = Some(i);
+    while let Some(n) = at {
+        if let Some((lo, hi)) = nodes[n].damage_stages {
+            out = Some(out.map_or((lo, hi), |(a, b)| (a.max(lo), b.min(hi))));
+        }
+        at = nodes[n].parent;
+    }
+    out
 }
 
 /// The nodes of a file below its roots, parents before children, and each one's index
@@ -122,7 +141,8 @@ pub fn model_nodes(objects: &[SceneObject]) -> (Vec<ModelNode>, HashMap<usize, u
             // a scene object's fields.
             let billboard = (co.type_name == "NiBillboardNode").then_some(0);
             let addon = (co.type_name == "BSValueNode").then_some(-1);
-            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform), billboard, addon });
+            let damage_stages = (co.type_name == "BSDamageStage").then_some((0, i32::MAX));
+            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform), billboard, addon, damage_stages });
             queue.push(c);
         }
     }
@@ -404,6 +424,45 @@ fn material_tracks_of_own(file: &NifFile, dec: &Decoded, inactive: bool) -> Vec<
     out
 }
 
+/// The vertex morphs a model plays by shape block (docs/spec-notes/vertex-morphs.md §3):
+/// `NiGeomMorpherController`s that run by themselves (Active, not manager controlled)
+/// or that the file's `Idle` (else `SpecialIdle`) sequence drives, whose shape moves,
+/// with relative targets whose morph 0 has the shape's vertex count. A clamped one whose
+/// weights end where they start is played looping: the NCR, Nevada and Followers flags
+/// (clamped, -2 s to 22.8 or 34.7 s, every weight back at its start value at the stop
+/// time [observed: `examples/morph_survey.rs`]) are cycles meant to repeat
+/// [hypothesis]; other clamped ones are left out [hypothesis: they play once when
+/// something starts them (the tripwire's snap, the dart gun's band, an explosion's
+/// splash); on a world object's clock they would have ended before anyone sees them].
+fn shape_morphs(file: &NifFile, dec: &Decoded, seqs: &[fnv_nif::anim::Sequence], name_of: impl Fn(usize) -> Option<String>) -> HashMap<usize, GeomMorpher> {
+    let named = |s: &&fnv_nif::anim::Sequence, want: &str| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want));
+    let idle: Vec<&fnv_nif::anim::Sequence> = seqs.iter().filter(|s| named(s, "idle")).chain(seqs.iter().filter(|s| named(s, "specialidle"))).collect();
+    let mut out = HashMap::new();
+    for mut g in geom_morphers(file, dec) {
+        let Ok(target) = usize::try_from(g.target) else { continue };
+        if !g.is_free() {
+            // Manager controlled: fed by the idle sequence, if it drives this shape.
+            let Some(name) = name_of(target).filter(|_| g.flags & 0x20 != 0) else { continue };
+            if !idle.iter().any(|s| g.take_sequence(s, &name) > 0) {
+                continue;
+            }
+        }
+        let n = g.num_vertices;
+        if (g.flags >> 1) & 3 == 2 {
+            let seam = (1..g.morphs.len()).map(|i| (g.weight_at(i, g.start_time) - g.weight_at(i, g.stop_time)).abs()).fold(0.0, f32::max);
+            if seam > 0.01 {
+                continue;
+            }
+            g.flags &= !0x6;
+        }
+        if !g.relative || g.morphs.len() < 2 || g.morphs.iter().any(|m| m.vectors.len() != n) || !g.moves() {
+            continue;
+        }
+        out.insert(target, g);
+    }
+    out
+}
+
 /// A controller's own timing (fields of NiTimeController [documented: nif.xml]).
 fn own_cycle(c: &Struct, flags: i64) -> OwnCycle {
     OwnCycle {
@@ -554,6 +613,8 @@ pub struct ModelCache {
     map: HashMap<String, Option<Arc<PreparedModel>>>,
     /// The particle systems of files by archive path (`particles.rs`).
     pub(crate) particles: HashMap<String, Option<Arc<crate::particles::PreparedParticles>>>,
+    /// The meshes of morphing shapes (`morph.rs`), rewritten every frame.
+    pub morphs: crate::morph::MorphMeshes,
     /// The colour of the light inside files by archive path (`model_light.rs`).
     pub(crate) light_colours: HashMap<String, Option<[f32; 3]>>,
     /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
@@ -713,6 +774,11 @@ impl ModelCtx<'_> {
             if nodes[*i].addon.is_some() {
                 nodes[*i].addon = dec.blocks[*block].as_ref().ok().and_then(|s| s.int("value")).map(|v| v as i32);
             }
+            if nodes[*i].damage_stages.is_some() {
+                let field = |k: &str| dec.blocks[*block].as_ref().ok().and_then(|s| s.int(k)).map(|v| v as i32);
+                // Unread: shown once damaged at all, never on the intact model [design].
+                nodes[*i].damage_stages = Some(field("min").zip(field("max")).unwrap_or((1, i32::MAX)));
+            }
         }
         out.nodes = nodes;
         out.particles = file.blocks.iter().any(|b| matches!(b.type_name.as_str(), "NiParticleSystem" | "BSStripParticleSystem"));
@@ -752,6 +818,9 @@ impl ModelCtx<'_> {
                 None => idle = Some(Clip::from_controllers(free, moving)),
             }
         }
+        // Vertex morphs that run by themselves, or with the Idle (else SpecialIdle)
+        // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
+        let morph_of = shape_morphs(&file, &dec, &seqs, |b| by_block.get(&b).and_then(|o| o.name.clone()));
         // A door's Open and Close, when both move nodes of this file.
         let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
         // Every named sequence that animates this file (scripts' PlayGroup).
@@ -864,6 +933,19 @@ impl ModelCtx<'_> {
                 first_textures += props.use_first_person_textures(|p| self.data.vfs.exists(p));
             }
             let Some((mut mesh, tris)) = build_mesh(data) else { continue };
+            // A morphing shape: its mesh stays readable in the main world so that
+            // `morph::play_vertex_morphs` can rewrite its vertices.
+            let morph = morph_of.get(&o.block).filter(|g| g.num_vertices == mesh.count_vertices()).map(|g| {
+                mesh.asset_usage = RenderAssetUsages::all();
+                let label = format!("{path} {shape_name}");
+                info!("{label}: vertex morphs, {} morph(s) over a {:.2} s cycle ({})", g.morphs.len() - 1, g.stop_time - g.start_time, if g.is_free() { "own controller" } else { "idle sequence" });
+                Arc::new(crate::morph::ShapeMorph {
+                    label,
+                    base: g.morphs[0].vectors.clone(),
+                    offsets: g.morphs[1..].iter().map(|m| (m.vectors.clone(), m.weight.clone())).collect(),
+                    cycle: OwnCycle { start: g.start_time, stop: g.stop_time, frequency: g.frequency.max(1e-6), phase: g.phase, cycle_type: (g.flags >> 1) & 3 },
+                })
+            });
             let (material, _missing) = shape_material(
                 &props,
                 &mut mesh,
@@ -907,6 +989,12 @@ impl ModelCtx<'_> {
                 _ => None,
             };
             let mesh = self.meshes.add(mesh);
+            if let Some(m) = &morph {
+                self.cache.morphs.add(mesh.id(), m.clone());
+                if let Some((skinned, ..)) = &rig_skinned {
+                    self.cache.morphs.add(skinned.id(), m.clone());
+                }
+            }
             if let Some((r, index)) = rig.as_mut() {
                 if let Some(&node) = index.get(&o.block) {
                     let (mesh, skin) = match rig_skinned {
@@ -953,6 +1041,18 @@ impl ModelCtx<'_> {
 mod tests {
     use super::*;
     use fnv_nif::scene::Transform as NifTransform;
+
+    #[test]
+    fn nodes_below_damage_stages_take_their_ranges() {
+        let node = |parent, damage_stages| ModelNode { name: None, parent, local: Affine3A::IDENTITY, billboard: None, addon: None, damage_stages };
+        // motorcycle01.nif's shape: Motorbike > DamageStage1-3 > AddOnNode2, and a
+        // range nested in another.
+        let nodes = [node(None, None), node(Some(0), Some((1, 3))), node(Some(1), None), node(Some(1), Some((2, 5))), node(Some(0), None)];
+        assert_eq!(damage_stages_of(&nodes, 0), None);
+        assert_eq!(damage_stages_of(&nodes, 2), Some((1, 3)));
+        assert_eq!(damage_stages_of(&nodes, 3), Some((2, 3)));
+        assert_eq!(damage_stages_of(&nodes, 4), None);
+    }
 
     #[test]
     fn a_cached_model_goes_once_nothing_draws_it() {

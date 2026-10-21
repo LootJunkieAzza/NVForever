@@ -126,6 +126,9 @@ pub(crate) struct Props {
     decal: bool,
     /// The Refraction shader flag is set ([`refracts`]): the stored refraction strength.
     refraction: Option<f32>,
+    /// The Fire Refraction shader flag is set too ([`fire_period`]): seconds for the
+    /// normal map to scroll once, else 0.
+    fire_period: f32,
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
@@ -224,6 +227,23 @@ pub(crate) fn refracts(shader_flags: i64) -> bool {
     shader_flags & (1 << 15) != 0
 }
 
+/// Seconds for a refracting shape's normal map to scroll once up its texture: with
+/// BSShaderFlags bit 16 "Fire_Refraction" [documented: nif.xml BSShaderFlags] the
+/// BSShaderPPLightingProperty's "Refraction Fire Period" [documented: nif.xml; the GECK
+/// wiki's NIF controller page names `BSRefractionFirePeriodController` as animating it],
+/// read as tenths of a second, a negative period scrolling down instead of up
+/// [hypothesis, docs/spec-notes/refraction.md §3]; 0 without the flag or with a period
+/// of 0.
+pub(crate) fn fire_period(shader_flags: i64, period: Option<i64>) -> f32 {
+    match period {
+        Some(p) if p != 0 && shader_flags & (1 << 16) != 0 => p as f32 * FIRE_PERIOD_UNIT,
+        _ => 0.0,
+    }
+}
+
+/// Seconds per unit of the stored fire period [hypothesis, docs/spec-notes/refraction.md §3].
+pub const FIRE_PERIOD_UNIT: f32 = 0.1;
+
 /// BSShaderFlags bit 6 switches the view-angle falloff of a BSShaderNoLightingProperty on
 /// [hypothesis, docs/spec-notes/nif.md §6 "View-angle falloff". nif.xml names the bit
 /// "Empty" for this game and "Use_Falloff" ("Use Falloff value in EffectShaderProperty")
@@ -282,6 +302,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.external_emittance = flags & (1 << 29) != 0;
         p.decal = is_decal(flags);
         p.refraction = refracts(flags).then(|| s.float("refraction_strength").unwrap_or(0.0));
+        p.fire_period = fire_period(flags, s.int("refraction_fire_period"));
         p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
     }
@@ -602,7 +623,10 @@ pub(crate) fn shape_material(
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
     if let Some(strength) = props.refraction {
-        refraction_material(&mut material, strength);
+        refraction_material(&mut material, strength, props.fire_period);
+        // The models' refracting shells bend all of their area, as before the cut was
+        // read for refraction (docs/spec-notes/refraction.md §4).
+        material.extension.alpha_cut = 0.0;
     }
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
@@ -613,10 +637,11 @@ pub(crate) fn shape_material(
 /// Make `material` a refracting one (`nif_material`, module notes "Refraction"): drawn
 /// after the opaque pass from Bevy's copy of it (a specular transmission above 0 puts
 /// the material there and keeps it out of the prepass), opaque, without depth writes.
-fn refraction_material(material: &mut NifMaterial, strength: f32) {
+pub fn refraction_material(material: &mut NifMaterial, strength: f32, fire_period: f32) {
     material.base.specular_transmission = 1.0;
     material.base.alpha_mode = AlphaMode::Opaque;
     material.extension.refraction = strength;
+    material.extension.fire_period = fire_period;
     material.extension.refract = true;
 }
 
@@ -884,6 +909,18 @@ impl SpawnCtx<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fire_period_needs_its_flag() {
+        // The Incinerator's shell: flags 0x82018101, period 10.
+        assert!((fire_period(0x8201_8101, Some(10)) - 1.0).abs() < 1e-6);
+        // Refraction without Fire Refraction, or no period: still.
+        assert_eq!(fire_period(1 << 15, Some(10)), 0.0);
+        assert_eq!(fire_period(0x8201_8101, Some(0)), 0.0);
+        assert_eq!(fire_period(0x8201_8101, None), 0.0);
+        // A negative period scrolls the other way.
+        assert!((fire_period(0x8201_8101, Some(-5)) + 0.5).abs() < 1e-6);
+    }
 
     #[test]
     fn blend_modes() {

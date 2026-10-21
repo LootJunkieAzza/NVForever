@@ -6804,6 +6804,30 @@ rest, so these are my choices:
 *Check:* `prid` a walking Goodsprings settler, `setactorsai 0`: he should walk on; walk
 him into a wall and see whether the original's actor also stops dead there.
 
+## Blood on the screen when the player is hurt, and the splatter's flare (2026-10-20, queue item 16, branch claude/q16-hurt-splatter)
+
+Nothing documents when or how much blood the original puts on the screen after a hit (the
+wiki has only ClearScreenBlood's one line), and no capture has an NPC shoot the player.
+Everything below is my choice, tagged [hypothesis] in screen-splatter.md §4:
+
+- **When**: every hit that takes Health from the player (weapons, blows, explosions). Not
+  DamageActorValue (the capture showed none), not falls, nothing in god mode.
+- **How much**: `ceil(lost / max Health x iBloodSplatterMaxCount)` splats, at least one:
+  a tenth of the health is 3 splats, a near-kill most of 25. Plain splats (size and
+  opacity factors 1), 20 s (`fBloodSplatterDuration`), fading from the start as the
+  scripts' splats do.
+- **Cap**: hurt blood stops adding once 25 splats (`iBloodSplatterMaxCount`) are on the
+  screen; script calls stay uncapped (the capture showed 100 > 25).
+- **The flare**: a small red glow (`screenblooddot02.dds`) near each splat's core,
+  0.065 of the screen width x the size factor, offset up to 0.45 of the half-side, as
+  strong as the splat's opacity beyond 0.95. So hurt blood (factor 1) shows no glints and
+  the scripts' factor-2 calls do, as in the original's pictures; the glints are red, not
+  the original's red-white.
+- ClearScreenBlood / TriggerScreenBlood are not added: no opcode is known.
+
+*Check:* take a few hits from a Goodsprings gecko or a shot in the original and compare
+the amount of blood, how long it stays, and whether small hits leave any; smoke
+`screen-splatter-hurt`'s hurt_splatter.png and hurt_flares.png show ours.
 ## Depth of field (2026-10-20, session "q14", branch claude/q14-depth-of-field)
 
 docs/spec-notes/image-modifiers.md §8. The GECK wiki describes the three values in a few
@@ -6856,3 +6880,65 @@ screen while moving", 0 none to 10 the most; these are my choices:
 there a visible smear, by about as much as smoke `imagespace-motion-blur`'s
 motion_turning.png? Does walking forward smear the ground? Does the gun stay sharp?
 `rimod VATScamNoDOF` afterwards.
+
+## Vertex morphs (2026-10-20, session "q17", branch claude/q17-vertex-morphs)
+
+docs/spec-notes/vertex-morphs.md. nif.xml gives the blocks' fields only; my choices:
+- **Formula**: the shape is morph 0 (always equal to the stored vertices) plus each later
+  morph times its weight. Normals stay as stored (no base-game file asks to update them).
+- **Clamped flags loop**: the NCR, Nevada and Followers flags' controllers are clamped
+  (-2 s to 22.8 / 34.7 s) but every weight ends where it started, so they are played
+  looping. Other clamped morphs (tripwire, dart gun band, the vault chamber shock) are not
+  played on world objects.
+- **In step**: every placed copy of a model shares its mesh, so all copies of a flag wave
+  together (The Fort's 27 Legion flags move as one).
+- **Wires**: the morphing wire poles (`utilitypole…nv.nif`) are not placed in the Mojave;
+  the placed poles' models have no morphs, so wires still do not swing.
+- **Sequence morphs**: only the model's Idle (else SpecialIdle) sequence feeds them.
+*Check:* in the game, stand in Goodsprings near the Nevada flag (smoke `vertex-morphs`'s
+spot) and at The Fort: do the flags ripple as in vertex_morphs_0/1.png, and do The Fort's
+flags move in step with each other?
+
+## Ash piles (2026-10-21, session "q20", branch claude/q20-ash-piles)
+
+docs/spec-notes/ash-piles.md. The wiki gives the Crit Effect / On Death rule and
+AttachAshPile's two pile types; the shipped effect scripts do the rest. My choices:
+- **Critical effects in general**: every weapon's Crit Effect is now applied on its critical
+  hits (On Death ones only on a killing critical), not only the energy weapons': the
+  flamer's FlamerCritEffect02 and the Fat Man's NukeCritEffect now play too.
+- **Not on the player**: an NPC's critical kill does not disintegrate the player (our death
+  camera has no culled body to show). The original probably does.
+- **The pile**: at the actor reference's position (where it stood when it died; the
+  ragdoll's drift in the second before is not followed), upright, with the actor's heading.
+  Any type other than 2 gives the ash pile; a second AttachAshPile on the same actor adds
+  nothing; ResurrectActor removes the pile.
+- **Looting**: the pile says Search and opens the dead actor's own inventory (items are not
+  moved into the pile); the culled body can no longer be targeted.
+- **Disintegrations** (Pip-Boy statistic) counts a pile from an actor the player killed.
+- **Not built**: the ragdoll changes of GooStart/DisintegrateStart, the pile's looping sound,
+  the effect shaders' holes (PR #540).
+*Check:* in the game, kill someone with a laser critical (`player.AddPerk` Better Criticals
+helps) and compare with smoke `ash-pile-chet`'s ash_pile_burning.png / ash_pile_after.png:
+does the pile lie where the body fell, facing the same way? Does Search on it show the
+body's items?
+## Refraction: fire refraction and the Stealth Boy's shimmer (2026-10-21, queue item 18, branch claude/q18-refraction)
+
+Spec: [refraction](spec-notes/refraction.md). Shapes with the Refraction flag were already
+drawn as a bend of what lies behind them (2026-10-20, explosion-effects.md §7).
+1. *Decision:* **Fire Refraction** (66 of the 75 refracting models in the base archives)
+   scrolls the normal map up its texture once every `fire period × 0.1` s and adds that
+   tilt to the bend; a negative period scrolls down, 0 stays still. The unit (tenths of
+   a second) and the direction are guessed.
+2. *Decision:* the **Stealth Boy** draws the player's body and arms refracting (strength
+   0.03, normal map scrolling every 2 s) instead of the faint blue copy at 30 %. The
+   Stealth Field's record names no shader, so the look is the engine's; strength and
+   period are guesses near the game's own effects (Mister Handy's jet 0.04). Hair and
+   other blended parts are cut at alpha 0.5.
+3. Not built: Nightkin and other actors under Chameleon still draw normally;
+   `SetActorRefraction` (console only, no script uses it, opcode unknown);
+   `BSRefractionFirePeriodController` (only the Novac windows have it, and they lack the
+   Refraction flag so they never refract).
+*Check:* in the game, use a Stealth Boy in third person by a wall with detail: how strong
+is the bend and how fast does it move, compared with smoke `stealth-boy-refraction`'s
+stealth_refraction.png? Fire the Incinerator at the ground: does the heat haze move
+upwards, about once a second?

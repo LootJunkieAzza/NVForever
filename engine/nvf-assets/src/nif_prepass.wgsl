@@ -26,6 +26,7 @@ struct NifSurface {
     alpha_cut: f32,
     add_whole: f32,
     refraction: f32,
+    fire_period: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;

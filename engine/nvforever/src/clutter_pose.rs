@@ -86,7 +86,7 @@ mod tests {
     use super::*;
 
     fn node(name: &str, parent: Option<usize>, t: Vec3) -> ModelNode {
-        ModelNode { name: Some(name.into()), parent, local: Affine3A::from_translation(t), billboard: None, addon: None }
+        ModelNode { name: Some(name.into()), parent, local: Affine3A::from_translation(t), billboard: None, addon: None, damage_stages: None }
     }
 
     #[test]

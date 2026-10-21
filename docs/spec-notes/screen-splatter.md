@@ -1,6 +1,7 @@
 # Screen splatter (TriggerScreenSplatter, SetScreenSplatterFade, ClearScreenSplatter)
 
-Built 2026-10-18 (branch claude/screen-video; outstanding.md §1 row 18). Code:
+Built 2026-10-18 (branch claude/screen-video; outstanding.md §1 row 18); the hurt
+blood and the flare 2026-10-20 (queue item 16, branch claude/q16-hurt-splatter, §4). Code:
 `crates/fnv-game/src/functions/misc.rs`, `functions/ui.rs` (`SplatterRequests`),
 `engine/nvf-play/src/screen_splatter.rs`.
 
@@ -46,8 +47,8 @@ variant's int `fade`]. Its real effect cannot be observed: the call quits the or
 | fBloodSplatterMinOpacity2 / MaxOpacity2 | 0.3 / 0.6 | the second opacity range [hypothesis] |
 | fBloodSplatterDuration | 20 | seconds, when the call gives none [hypothesis; a call's own duration observed, §5] |
 | fBloodSplatterFadeStart | 0.4 | not used: the original's splats fade from their start [observed, §5] |
-| iBloodSplatterMaxCount | 25 | not a cap on a call: 100 darkens far more than 25 would [observed, §5]; its use not known |
-| fBloodSplatterFlareSize / FlareMult / FlareOffsetScale | 0.065 / 0.95 / 0.45 | the flare: not built |
+| iBloodSplatterMaxCount | 25 | not a cap on a call: 100 darkens far more than 25 would [observed, §5]; here the hurt blood's count and cap (§4) [hypothesis] |
+| fBloodSplatterFlareSize / FlareMult / FlareOffsetScale | 0.065 / 0.95 / 0.45 | the flare's side, strength threshold and offset (§4) [hypothesis] |
 
 `[ScreenSplatter] bScreenSplatterEnabled=1` is the INI's only splatter key.
 
@@ -61,22 +62,69 @@ shape cell's alpha [hypothesis: the "opt" atlases are the ones drawn].
 Placement: uniform over the screen; no rotation [hypothesis]. The splats lie under the
 HUD and every menu [hypothesis].
 
-## 4. Not built
+## 4. Blood when the player is hurt, and the flare (built 2026-10-20, queue item 16)
 
-- The flare (its settings above; texture and drawing unknown; the small bright glints at
-  the cores of the original's splats may be it).
-- **Blood the engine puts on the screen.** ClearScreenBlood's page: a console command
-  that "clears blood overlaying the screen after the player took damage" [documented:
-  the catalogue summary]. So the original puts blood on the screen when the player is
-  hurt, but nothing says when (close hits only? every hit?) or how much, so it is not
-  built. `player.DamageActorValue Health 40` put no blood on the screen (pictures 0.2 s
-  and 1.2 s after) [observed, §5]; a weapon's hit is not captured.
+What is known [documented: GECK wiki, owner export]: ClearScreenBlood (console only)
+"clears all blood present on the screen after taking damage", so the original does put
+blood there when the player is hurt; Fallout 3's TriggerScreenBlood shows "the blood
+effect on screen which will slowly fade away", its count 1 to 100; ApplyImageSpaceModifier's
+page says the BloodISFX modifier is unused, renamed, and that TriggerScreenBlood plays "the
+actual blood effect". No game setting names the hurt blood: the masters' settings with
+`blood` or `splat` in their names are the `fBloodSplatter*`/`iBloodSplatterMaxCount` of
+§3 and `sBloodParticleDefault` (an impact model) [observed: GMST dump of the ten
+masters 2026-10-20]; the INI has only `bScreenSplatterEnabled` (and `bUseThreadedBlood`).
+So the hurt blood is taken to be the same splats [hypothesis], and `player.DamageActorValue
+Health 40` putting none there [observed, §5] makes it a hit's, not a Health loss's.
+
+The rule built [hypothesis throughout; nothing captured]:
+
+- **When**: a hit that takes Health from the player (a weapon's, a blow's, an explosion's,
+  the hit test aid's: everything `combat::hit_player` sees), not DamageActorValue, not
+  falls, not god mode (no Health lost).
+- **How much**: `ceil(lost / maximum Health × iBloodSplatterMaxCount)` splats, at least
+  one, counting a loss beyond the maximum as all of it: a tenth of the health is 3
+  splats, a near-kill most of 25. The splats are a call's with the factors 1 (size
+  0.12–0.18 of the width, opacity from the two ranges) and the duration
+  `fBloodSplatterDuration` (20 s), fading from their start as the scripts' do.
+- **Cap**: a hurt adds splats only while the screen holds fewer than
+  `iBloodSplatterMaxCount` (25), up to it. That is the setting's use here: §5 showed it
+  does not cap a script's call. The scripts' calls are not capped by it.
+- ClearScreenSplatter clears them too (they are the same splats). ClearScreenBlood and
+  TriggerScreenBlood are not in the function table: no opcode is known for either, and
+  no shipped script calls them [observed: the catalogue has no opcode or calls].
+
+**The flare** [hypothesis, fitted where said]: the JohnnyGuitar page's flare texture is
+"the lens flare when vision is blocked/blurred by the splatter" (§2), and the original's
+splats showed bright red-white glints at their cores only with the opacity factor 2
+(§5). Built: each splat carries a flare, the dot `textures\gore\screenblooddot02.dds`
+(128², DXT1: a red glow peaking at its centre on black [observed]; the other dot,
+`screenblooddot01`, a dark red with soft alpha, is not a glow);
+
+- side `fBloodSplatterFlareSize` (0.065) of the screen's width times the call's size
+  factor;
+- centre off the splat's by a random direction and a random length up to
+  `fBloodSplatterFlareOffsetScale` (0.45) of the splat's half-side (near the core);
+- strength the splat's opacity now beyond `fBloodSplatterFlareMult` (0.95), at most 1:
+  nothing at the factor 1 (opacity at most 1, so at most 0.05), up to full at factor 2
+  [fitted to "glints only at factor 2"]; it fades with its splat and is gone before it.
+- drawn over all splats as the dot's red with the glow as alpha (over the dark splat
+  that is about the dot added) [engineering choice: the UI draws by alpha]. The white in
+  the original's glints is not reproduced.
+
+Log: `screen splatter: <n> splats on the screen (hurt: <lost> of <max> health)`. Smoke
+`screen-splatter-hurt`: the hit aid hurts the player for 30 and 8 of the starting 105
+(or whatever the save has) Health.
+
+### Not built
+
+- A hurt splat's real look and count: no weapon hit on the player has been captured
+  (no capture job has an NPC shoot the player).
 
 ## 5. Checks
 
 Unit tests: `nvf_play::screen_splatter` (ranges, no cap, fade, alpha gain, settings, atlas cells),
-`fnv-game` `functions.rs` `films_splatter_and_cell_image_space`. Smoke
-`screen-splatter`. Capture job `tools/capture/jobs/fx_screen_splatter_look.steps.json`
+`fnv-game` `functions.rs` `films_splatter_and_cell_image_space`; hurt counts and the
+flare's strength, size and offset. Smokes `screen-splatter`, `screen-splatter-hurt`. Capture job `tools/capture/jobs/fx_screen_splatter_look.steps.json`
 (save nvfstrip), one call per step with a picture after each: counts 1 and 10, stage
 36's call (50 25 2 2), count 100, stage 50's call (100 20 2 2) through its 20 s, the size
 and opacity factors, ClearScreenSplatter, the screen after `player.DamageActorValue

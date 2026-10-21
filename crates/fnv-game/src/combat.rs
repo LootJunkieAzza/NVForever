@@ -577,6 +577,17 @@ impl Game<'_> {
         base_of(self, r).is_some_and(|b| self.data.destructibles.contains_key(&b))
     }
 
+    /// The model damage stage the reference is drawn at: the DSTD damage stage of the
+    /// destruction stage it has reached, the number its model's `BSDamageStage` nodes are
+    /// shown for; 0 undamaged, back to 0 after ClearDestruction, and always 0 without
+    /// destruction data [documented: xEdit wbDEST field; hypothesis: the meaning,
+    /// docs/spec-notes/destruction-stages.md].
+    pub fn model_damage_stage(&self, r: FormId) -> u8 {
+        let stage = crate::functions::objects_destruction_stage(self, r);
+        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b));
+        def.and_then(|d| d.stages.iter().find(|s| s.index as i32 == stage)).map_or(0, |s| s.damage_stage)
+    }
+
     /// Object damage on a destructible reference (as `DamageObject`, step C7)
     /// [documented: GECK wiki Destructible Object Stage]:
     /// - damage adds up to the object's health; each stage applies once its health

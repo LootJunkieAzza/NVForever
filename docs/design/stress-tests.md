@@ -84,17 +84,19 @@ Every run writes `target/stress/<test>/<run>/results.json` (everything) and `rep
 
 ## 3. cells
 
-Every cell of the ten masters (tools/smoke's `masters` list, the engine's load order) is
-visited, so a crash anywhere in loading shows up.
+Every interior cell of the ten masters (tools/smoke's `masters` list, the engine's load
+order) is visited, so a crash anywhere in loading shows up. Exteriors are left to the tour,
+which streams them on its way (owner, 2026-10-21); `--kinds all` or `--kinds exterior` takes
+them in again.
 
 - **Where the cells come from.** fnvtool's `world list`, then `world cells` for each
   worldspace and for the interiors. Persistent cells (no grid) are left out.
 - **Batches.** `--batch` cells per launch, 100 by default. A crash or a hang ends its
   batch. The next batch starts after the cell it was on, so one bad cell costs one
   launch, not the sweep.
-- **Choosing cells.** `--kinds interior|exterior`, `--worlds`, `--stride N` (exteriors
+- **Choosing cells.** `--kinds interior|exterior|all` (interior by default), `--worlds`, `--stride N` (exteriors
   on every N-th grid line both ways) and `--limit` pick a sample.
-- **Long sweeps.** All 44,517 cells take about 30 hours at 50 a launch; batches of 200
+- **Long sweeps.** All 44,517 cells (`--kinds all`) take about 30 hours at 50 a launch; batches of 200
   are fine. After every batch the runner saves `state.json` and rewrites
   `results.json` and `report.md`, so a sweep can be read while it runs.
   `--resume <run>` goes on with a stopped sweep in the same folder: cells it already has

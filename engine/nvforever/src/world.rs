@@ -652,9 +652,9 @@ pub fn spawn_model(
         if model.particles {
             commands.entity(root).insert(crate::particles::ModelEmitter::new(path.clone()));
         }
-        for n in &model.nodes {
+        for (i, n) in model.nodes.iter().enumerate() {
             if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
-                commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
+                crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
             }
         }
         if !rig.groups.is_empty() {
@@ -721,10 +721,10 @@ fn spawn_emitters(commands: &mut Commands, parent: Entity, r: u32, model: &Prepa
         return;
     }
     let nodes: Vec<Entity> = model.nodes.iter().map(|n| commands.spawn((Transform::from_matrix(Mat4::from(n.local)), Visibility::Inherited)).id()).collect();
-    for (n, &e) in model.nodes.iter().zip(&nodes) {
+    for (i, (n, &e)) in model.nodes.iter().zip(&nodes).enumerate() {
         commands.entity(n.parent.map_or(holder, |p| nodes[p])).add_child(e);
         if let Some(index) = n.addon {
-            commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
+            crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
         }
     }
 }

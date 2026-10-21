@@ -9,7 +9,9 @@
 //! health damage, with that weapon (its OnHit block runs, as the boxing gloves' does), on
 //! the limb of that condition actor value (`limb=RightAttackCondition`: the damage is
 //! also limb damage on a part holding 1 % of the actor's health, so a hit of a few
-//! points cripples it; docs/spec-notes/crippled-limbs.md) [test aid].
+//! points cripples it; docs/spec-notes/crippled-limbs.md), and with `:crit` as a critical
+//! hit, which gives the weapon's critical effect (an energy weapon's disintegration:
+//! docs/spec-notes/ash-piles.md) [test aid].
 
 use crate::activate::HudMessage;
 use crate::combat::{apply_hit, ActorHit, CombatStats, HitFeedback};
@@ -58,6 +60,8 @@ pub struct TestHit {
     pub weapon: Option<String>,
     /// The limb hit: its condition actor value's name.
     pub limb: Option<String>,
+    /// `:crit`: a critical hit, which gives the weapon's critical effect.
+    pub critical: bool,
 }
 
 /// The aid's hits still to come, soonest first.
@@ -73,14 +77,15 @@ pub fn parse_hits(v: &str) -> Result<Vec<TestHit>, String> {
         .map(|item| {
             let mut parts: Vec<&str> = item.split(':').map(str::trim).collect();
             let limb = parts.iter().position(|p| p.starts_with("limb=")).map(|i| parts.remove(i)["limb=".len()..].to_string());
+            let critical = parts.iter().position(|p| p.eq_ignore_ascii_case("crit")).map(|i| parts.remove(i)).is_some();
             let (t, target, damage, weapon) = match parts.as_slice() {
                 [t, r, d] => (t, r, d, None),
                 [t, r, d, w] => (t, r, d, Some(w.to_string())),
-                _ => return Err(format!("{item:?}: expected <seconds>:<reference>:<damage>[:<weapon>][:limb=<condition>]")),
+                _ => return Err(format!("{item:?}: expected <seconds>:<reference>:<damage>[:<weapon>][:limb=<condition>][:crit]")),
             };
             let at = t.parse::<f32>().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
             let damage = damage.parse::<f32>().map_err(|_| format!("{item:?}: bad damage {damage:?}"))?;
-            Ok(TestHit { at, target: target.to_string(), damage, weapon, limb })
+            Ok(TestHit { at, target: target.to_string(), damage, weapon, limb, critical })
         })
         .collect::<Result<Vec<_>, String>>()?;
     out.sort_by(|a, b| a.at.total_cmp(&b.at));
@@ -128,8 +133,9 @@ fn test_hits(
             }
             None => None,
         };
-        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: 0, critical: false, limb };
-        let r = apply_hit(script.as_deref_mut(), &mut sim, target, h.damage, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false);
+        let crit = combat.as_deref().filter(|_| h.critical).and_then(|c| crate::combat::crit_effect(c, weapon));
+        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: 0, critical: h.critical, limb };
+        let r = apply_hit(script.as_deref_mut(), &mut sim, target, h.damage, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &[], false, crit);
         // A hit on a limb that kills, or lands on the corpse, may dismember it as a shot
         // there would (docs/spec-notes/dismemberment.md §4).
         if let (Some(r), Some(l), Some(c), Some(parts), Some(dm)) = (r.as_ref(), limb, combat.as_deref(), parts.as_deref(), dm.as_deref_mut()) {
@@ -192,11 +198,13 @@ mod tests {
     #[test]
     fn hits_parse_in_time_order() {
         let h = parse_hits("6:GSSunnySmilesREF:30:WeapNVBoxingGloves, 4:0x00104E87:500").unwrap();
-        assert_eq!(h[0], TestHit { at: 4.0, target: "0x00104E87".into(), damage: 500.0, weapon: None, limb: None });
+        assert_eq!(h[0], TestHit { at: 4.0, target: "0x00104E87".into(), damage: 500.0, weapon: None, limb: None, critical: false });
         assert_eq!(h[1].weapon.as_deref(), Some("WeapNVBoxingGloves"));
         let h = parse_hits("5:GSChetRef:1000:limb=RightAttackCondition,6:GSChetRef:1:Weap10mmPistol:limb=LeftMobilityCondition").unwrap();
         assert_eq!((h[0].weapon.as_deref(), h[0].limb.as_deref()), (None, Some("RightAttackCondition")));
         assert_eq!((h[1].weapon.as_deref(), h[1].limb.as_deref()), (Some("Weap10mmPistol"), Some("LeftMobilityCondition")));
+        let h = parse_hits("5:GSChetRef:500:WeapLaserRifle:crit").unwrap();
+        assert!(h[0].critical && h[0].weapon.as_deref() == Some("WeapLaserRifle"));
         assert!(parse_hits("4:x").is_err());
         assert!(parse_hits("a:x:1").is_err());
     }

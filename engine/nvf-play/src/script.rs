@@ -693,6 +693,14 @@ impl Runtime {
         let r = if has_block {
             info!("script: activating {target} runs its OnActivate block instead of the default action");
             g.activate(player, target, ActMode::Hand).map(|_| ByHand::Script)
+        } else if let Some(body) = g.ash_pile_source(target) {
+            // An ash or goo pile opens the inventory of the actor it came from
+            // (`fnv_game::ash_piles`, docs/spec-notes/ash-piles.md §3).
+            let a = fnv_sim::world::Activation { outcome: Outcome::OpenedContainer { container: body }, unlocked_with: None, script: None };
+            self.skip.insert(g.events.len());
+            g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
+            info!("activate: the pile {target} opens the inventory of {body}");
+            Ok(ByHand::Default(a))
         } else if g.is_dead(target) {
             // A dead actor opens its inventory (the loot menu), `fnv_game`'s default
             // activation rule (combat C5).

@@ -1753,12 +1753,12 @@ expect = [
 [[scenario]]
 name = "semi-auto-rate"
 source = "owner playtest 2026-10-19: the 9mm pistol and varmint rifle fire slower than in the original"
-note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later"
+note = "The 9mm pistol's next shot may leave at its attack clip's a:R key, 0.400 s ÷ attack multiplier 1.25 = 0.32 s (the record's Attack Shots/Sec, 3.125), not at the clip's end (0.40 s): 10 fresh pulls 0.36 s apart all fire; at the clip's end every other pull fell in the cooldown. The fire aid toggles the trigger, so each pull is a press and a release 0.1 s later. The pulls start at 14 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded; until 12.1 s on the world aids' clock when the scripts start at 6.5 s or later): while one is open the player is held in a menu (script::hold_player) and the attack cycle stands still, so boxes open 0.18 s after the second shot kept its cooldown past the third pull [observed: smoke log of 2026-10-20, scripts ready in 12.36 s, 9 shots]"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,11.1:fire,11.36:fire,11.46:fire,11.72:fire,11.82:fire,12.08:fire,12.18:fire,12.44:fire,12.54:fire,12.8:fire,12.9:fire,13.16:fire,13.26:fire,13.52:fire,13.62:fire,13.88:fire,13.98:fire,14.24:fire,14.34:fire" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONTROL = "8:weapon,14:fire,14.1:fire,14.36:fire,14.46:fire,14.72:fire,14.82:fire,15.08:fire,15.18:fire,15.44:fire,15.54:fire,15.8:fire,15.9:fire,16.16:fire,16.26:fire,16.52:fire,16.62:fire,16.88:fire,16.98:fire,17.24:fire,17.34:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
-run_seconds = 18
+run_seconds = 21
 expect = [
   { re = 'combat: (?P<n>\d+) shots \(', range = [10, 10], label = "every pull 0.36 s apart fires" },
 ]
@@ -2591,7 +2591,22 @@ order = [[
   "aid: the player used StealthBoy (potency 1.00): Chameleon +75.0 while it lasts (120 s), Sneak +100.0 while it lasts (120 s)",
   { re = 'detection: GSSettlerAM 00104F0A → the player: (noticed|detected) → hidden \(value -?[\d.]+: sound [\d.]+, visual 0\.0, .*sneaking' },
 ]]
-manual = "a shot after 22 s shows the player's body faint and bluish (third person)"
+manual = "a shot after 22 s shows the player's body refracting what lies behind it (third person)"
+
+[[scenario]]
+name = "stealth-boy-refraction"
+source = "queue item 18 (docs/spec-notes/refraction.md §5): the Stealth Boy's field draws the player's body refracting, what lies behind it bent by the body's normals with a scrolling normal map (the shimmer), instead of a faint blended copy"
+note = "aid-stealth-boy's set-up without the sneaking settler: third person from 6 s, the Stealth Boy used at 12 s; one frame at 14 s for the eye"
+areas = ["aid"]
+paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/refraction.rs", "engine/nvf-assets/src/nif_material.wgsl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_CONTROL = "6:view", NVF_PLAY_TEST_DROP = "12:00043E94:use", NVF_PLAY_TEST_SHOTS = "14:stealth_refraction.png" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'stealth field: on \(Chameleon 75\): [1-9]\d* meshes see-through \(refracting, strength 0\.030\)', label = "the field makes the body's meshes refract" },
+  { re = 'refraction: drawn: [1-9]\d* refracting meshes in view \([1-9]\d* with a moving bend\)', label = "the camera draws refracting meshes that shimmer" },
+]
+manual = "the frame at 14 s shows the player's body as a clear, slightly bent outline of what lies behind it"
 
 [[scenario]]
 name = "no-messages"
@@ -2958,10 +2973,10 @@ order = [[
 [[scenario]]
 name = "npc-muzzle-flash-flamer"
 source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
-note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer) is set on the player at 3 s (scripts' clock), god mode, and at 8 s the player is put 100 units in front of him, inside his flame's reach, and from 9 s the camera is in third person 400 units out, circled 90 degrees round to the side: his flashes go under his flamer's muzzle marker (weapons::Muzzle), its +y along the barrel, and the log measures the first one against where the shot left. Frames npc_flash_flamer_00..12.png in target/smoke (10 to 13 s, every 0.25 s) show from the side the flash at the flamer's nozzle and the flame along the flight. He draws his Incinerator by the weapon choice (actors.md §9.3), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat", "shot-fx"]
 paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/weapons.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player", NVF_PLAY_TEST_FACE = "8:000F5704", NVF_PLAY_TEST_CONTROL = "9:view,9.2:zoom=400,9.4:orbit=90:10", NVF_PLAY_TEST_SHOTS = "10:npc_flash_flamer_00.png,10.25:npc_flash_flamer_01.png,10.5:npc_flash_flamer_02.png,10.75:npc_flash_flamer_03.png,11:npc_flash_flamer_04.png,11.25:npc_flash_flamer_05.png,11.5:npc_flash_flamer_06.png,11.75:npc_flash_flamer_07.png,12:npc_flash_flamer_08.png,12.25:npc_flash_flamer_09.png,12.5:npc_flash_flamer_10.png,12.75:npc_flash_flamer_11.png,13:npc_flash_flamer_12.png" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer,3:combat:0x000F5704:player", NVF_PLAY_TEST_FACE = "8:000F5704", NVF_PLAY_TEST_CONTROL = "9:view,9.2:zoom=400,9.4:orbit=90:10", NVF_PLAY_TEST_SHOTS = "10:npc_flash_flamer_00.png,10.25:npc_flash_flamer_01.png,10.5:npc_flash_flamer_02.png,10.75:npc_flash_flamer_03.png,11:npc_flash_flamer_04.png,11.25:npc_flash_flamer_05.png,11.5:npc_flash_flamer_06.png,11.75:npc_flash_flamer_07.png,12:npc_flash_flamer_08.png,12.25:npc_flash_flamer_09.png,12.5:npc_flash_flamer_10.png,12.75:npc_flash_flamer_11.png,13:npc_flash_flamer_12.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
 run_seconds = 20
 expect = [
@@ -4017,7 +4032,7 @@ name = "incinerator-heat-haze"
 source = "owner 2026-10-20: the Incinerator's fire burst showed an untextured dome growing instead of fire (docs/spec-notes/explosion-effects.md §7): its EXPL model dlc03flamerexplosion.nif has a refracting heat-haze shell (Refract:0), a glow (Core:0) and add-on nodes 00 (MPSFireMed01) and 35 (MPSSmokeSmall01); the shell bends what lies behind it and its refraction strength keys play"
 note = "Incinerator (000906DA) with flamer fuel (00029371) fired at the ground by the Prospector Saloon, as missile-explosion does; steps from 9 s so a slow start does not run the draw and the shots in one frame; frames at 0.3-2 s after the shots for the eye (the shell shows only for its first 0.3 s)"
 areas = ["combat", "particles"]
-paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/refraction.rs"]
 env = { NVF_PLAY_TEST_EQUIP = "000906DA", NVF_PLAY_TEST_GIVE = "00029371:60", NVF_PLAY_TEST_LOOK = "9:46:-8", NVF_PLAY_TEST_CONTROL = "9:weapon,12:fire,12.2:fire", NVF_PLAY_TEST_SHOTS = "12.5:incinerator_0.png,12.7:incinerator_1.png,12.9:incinerator_2.png,13.3:incinerator_3.png,14:incinerator_4.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 20
@@ -4025,6 +4040,7 @@ expect = [
   { re = 'combat: explosion \S*IncineratorFireBurst at', label = "the Incinerator's fire burst goes off" },
   { re = 'shot fx: explosion meshes.dlc03.effects.dlc03flamerexplosion.nif: .*, 1 refracting; plays SpecialIdle_AreaEffect \(.*, [1-9]\d* material\)', label = "its model: one refracting shell, material tracks played" },
   { re = 'particles: add-on node 0 meshes.mps.mpsfiremed01.nif: [1-9]\d* system', label = "the fire add-on (MPSFireMed01) has systems to emit" },
+  { re = 'refraction: drawn: [1-9]\d* refracting meshes in view \([1-9]\d* with a moving bend\)', label = "its shell is drawn refracting, with fire refraction's moving bend (refraction.md §3)" },
 ]
 
 [[scenario]]
@@ -4207,10 +4223,10 @@ expect = [
 [[scenario]]
 name = "flamer-burns-player"
 source = "owner's playtest 2026-10-16: a flamer's hit sets its target on fire (the WEAP's object effect EnchFlamerEffect: FlamerFireDamage drains 2 health a second for 5 s, its effect shader Flames01 burns on the body; docs/spec-notes/hit-effects.md)"
-note = "Cook-Cook (FiendCookCookRef 000F5704) fires his flamer at the player, put 100 units in front of him at 9 s; no god mode, the player's health raised to 5000 by the console at 8 s (once the scripts run) so the burn can be watched; third person from 10 s"
+note = "Cook-Cook (FiendCookCookRef 000F5704) fires his flamer at the player, put 100 units in front of him at 9 s; no god mode, the player's health raised to 5000 by the console at 8 s (once the scripts run) so the burn can be watched; third person from 10 s. He draws his Incinerator by the weapon choice (actors.md §9.3, as the original's Cook-Cook did), so EquipItem gives him the Flamer he also carries at 2 s"
 areas = ["combat", "effects"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:000F5704", NVF_PLAY_TEST_CONTROL = "10:view,10.5:zoom=250", NVF_PLAY_TEST_SHOTS = "14:player_burning.png,17:player_burning2.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:FiendCookCookRef:EquipItem:WeapFlamer", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:000F5704", NVF_PLAY_TEST_CONTROL = "10:view,10.5:zoom=250", NVF_PLAY_TEST_SHOTS = "14:player_burning.png,17:player_burning2.png" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
@@ -5704,6 +5720,28 @@ expect = [
 manual = "splatter_t0_5.png to splatter_t15_5.png against the original's fx_screen_splatter_look s100_20_2_2_t0.5 to _t15.5 (C:/fnv-private/capture/shots): the view nearly black under dark soft blobs with red cores, lighter at each step; splatter_small.png ten blobs like the original's before_fade; splatter_gone.png the clean view"
 
 [[scenario]]
+name = "screen-splatter-hurt"
+source = "Blood on the screen when the player is hurt (docs/spec-notes/screen-splatter.md §4, all a hypothesis): a hit that takes Health from the player adds ceil(lost / max x iBloodSplatterMaxCount) splats, at least one, up to 25 on the screen; DamageActorValue adds none (the original's capture). The hit aid hurts the player twice; the console's DamageAV must not add blood. Then ClearScreenSplatter takes the hurt blood away too, and TriggerScreenSplatter 10 20 2 2 brings flares (the flare texture is read)"
+areas = ["imagespace", "combat"]
+paths = ["engine/nvf-play/src/screen_splatter.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_HIT = "10:player:30,12:player:8", NVF_PLAY_TEST_CONSOLE = "14:player.DamageAV Health 5;14.2:clearscreensplatter;14.4:triggerscreensplatter 10 20 2 2;14.6:close", NVF_PLAY_TEST_SHOTS = "10.5:hurt_splatter.png,15:hurt_flares.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'combat: \S.* hits the player for 30\.0, health \d+/\d+', label = "the first hit hurts the player for 30" },
+  { re = 'screen splatter: ([4-9]|1\d|2[0-5]) splats on the screen \(hurt: 30\.0 of \d+ health\)$', label = "the 30-point hurt puts blood on the screen (ceil(30 / max x 25) splats)" },
+  { re = 'screen splatter: ([5-9]|1\d|2[0-5]) splats on the screen \(hurt: 8\.0 of \d+ health\)$', label = "the 8-point hurt adds more" },
+  "console: > player.DamageAV Health 5",
+  "screen splatter: cleared",
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 20 2 2)",
+]]
+expect = [
+  { re = 'screen splatter: \S+: ', count = 0, label = "the gore textures and the flare dot are read" },
+  { re = 'splats on the screen \(hurt: ', count = 2, label = "only the two hits add blood, not DamageAV" },
+]
+manual = "hurt_splatter.png: a few dark soft blobs with red cores over Doc Mitchell's house, no glints (opacity factor 1); hurt_flares.png: larger, darker blobs with small red glints near their cores (the flare)"
+
+[[scenario]]
 name = "cell-image-space"
 source = "SetCellImageSpace (GECK wiki: a loaded cell shows the new image space only once it loads again): Old World Blues' Think Tank turns to its red image space (NVDLC03ThinkTankImageSpaceRed, as quest stage 50 does) after coc back into it (the save keeps the change: fnv-game unit test)"
 areas = ["imagespace", "scripts"]
@@ -6223,3 +6261,64 @@ expect = [
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
+
+[[scenario]]
+name = "ash-pile-chet"
+source = "ash piles (docs/spec-notes/ash-piles.md): a laser's critical kill applies its On Death critical effect Disintegration [documented: GECK wiki Weapons, Crit Effect / On Death; observed: WeapLaserRifle CRDT 000BDA30], whose script (LaserDisintegrationEffectScript) calls AttachAshPile and SetCriticalStage DisintegrateEnd [observed: FalloutNV.esm SCPT 000BDA2E]: an ash pile (DefaultAshPile1, AshPile01.NIF) replaces Chet's body"
+note = "the hit aid kills Chet with a critical laser rifle hit (500 damage, :crit) at 8 s; the script places the pile 1.3 s later and culls the body 0.5 s after that; frames before and after for a look"
+areas = ["combat", "effects"]
+paths = ["crates/fnv-game/src/ash_piles.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapLaserRifle:crit", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:ash_pile_before.png,8.8:ash_pile_burning.png,12:ash_pile_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 16
+expect = [
+  { re = 'combat: critical effect LaserDisintegrationFXSpell \(0x000BDA30\) on .*0x00104C79 \(on death\)', label = "the laser's critical kill applies its Disintegration" },
+  { re = 'ash pile: \S+ \(DefaultAshPile1\) replaces the body of 0x00104C79', count = 1, label = "one ash pile replaces Chet's body" },
+  { re = '(?i)dropped reference 0x[0-9A-F]{8} drawn: .*ashpile01\.nif', label = "the pile is drawn" },
+  { re = 'script: GSChetRef culled by its critical stage', label = "the body is culled (DisintegrateEnd)" },
+]
+manual = "ash_pile_burning.png: Chet glowing (the disintegration shaders); ash_pile_after.png: an ash pile where he fell, no body"
+
+[[scenario]]
+name = "bike-smoke-intact"
+source = "docs/spec-notes/destruction-stages.md §3 (owner report 2026-10-20): the three Motorcycle01Static bikes in front of the Prospector Saloon (00106341, 00106342, 0010750C; STAT, no DEST) never smoke: motorcycle01.nif's smoke (AddOnNode2, ADDN MPSSmokeMed01) sits under DamageStage1-3 and waits for a damage stage they never reach; frame bike_smoke_intact.png in target/smoke shows them without smoke"
+areas = ["particles", "effects", "destruction"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-game/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:bike_smoke_intact.png" }
+args = ["--cell", "Goodsprings", "--pos=-67900,2650,8420", "--heading", "0", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'damage stage: 00106341 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the first bike's smoke waits for stages 1-3" },
+  { re = 'damage stage: 00106342 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the second bike's smoke waits" },
+  { re = 'damage stage: 0010750C add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the third bike's smoke waits" },
+  "Screenshot saved to bike_smoke_intact.png",
+]
+forbid = [{ re = 'damage stage: 0010(6341|6342|750C) add-on node \d+ on', label = "a saloon bike starts smoking" }]
+
+[[scenario]]
+name = "bike-smoke-damaged"
+source = "docs/spec-notes/destruction-stages.md §1-2: a destructible Motorcycle01 (MSTT 00077B40, 200 health; ref 00157C97) smokes only from damage stage 1 (89 %) to 3; 30 damage takes it to stage 1, its self-damage and stage explosions take it on to the destroying stage 4 (65 %) and 5, where the intact model's smoke stops (the hulk model is not swapped in yet); god mode against its stage explosions; frames bike_smoke_0..2.png in target/smoke from the west of the wreck pile (bike_smoke_1 mostly shows its stage-2 explosion; the log is the check)"
+areas = ["particles", "effects", "destruction", "combat"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:prid 00157C97;8.2:damageobject 30;8.4:close", NVF_PLAY_TEST_SHOTS = "7:bike_smoke_0.png,11:bike_smoke_1.png,24:bike_smoke_2.png" }
+args = ["--cell", "Goodsprings", "--pos=32550,16717,4700", "--heading", "90", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = 'damage stage: 00157C97 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the intact bike's smoke waits" },
+  { re = 'damage stage: 00157C97 add-on node 2 on at model stage 1', label = "30 damage (stage 1) starts the smoke" },
+  { re = 'damage stage: 00157C97 add-on node 2 off at model stage [45]', label = "the destroying stage stops the intact model's smoke (its stage explosions can take it from 2 through 4 to 5 in one frame)" },
+]]
+expect = ["Screenshot saved to bike_smoke_2.png"]
+
+[[scenario]]
+name = "vertex-morphs"
+source = "docs/spec-notes/vertex-morphs.md §3-§4: the Nevada flag in Goodsprings (ref 0010A18D, meshes/clutter/flags/nv_nevadaflag.nif, a skinned shape with 7 morphs on its own NiGeomMorpherController) waves: the model is read with its morphs and the mesh is rewritten as the weights change; two frames 0.6 s apart in target/smoke (vertex_morphs_N.png)"
+areas = ["models", "effects"]
+paths = ["engine/nvf-assets/src/morph.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-nif/src/anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "5:-72668:357:9100", NVF_PLAY_TEST_LOOK = "5.5:0:12", NVF_PLAY_TEST_SHOTS = "8:vertex_morphs_0.png,8.6:vertex_morphs_1.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-72668,357,9100", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'nv_nevadaflag\.nif .*: vertex morphs, 7 morph\(s\) over a \S+ s cycle \(own controller\)', label = "the Nevada flag is read with its 7 morphs" },
+  { re = 'vertex morphs: \S*nv_nevadaflag\.nif .* running', label = "its mesh is rewritten as the weights change" },
+]
