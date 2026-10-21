@@ -7073,3 +7073,19 @@ menu (ShowSlotMachineMenuParams), as roulette's and blackjack's tables do.
 rows say, how does the payout list look, does one cherry on the left reel pay, does a
 cherry on another reel pay, and does a win of "x 2" leave you 1 or 2 bets up? A screenshot
 of the menu, of a win and of the payout list would settle most of these.
+
+## A film's `muteAudio 0` (2026-10-21, session "q28 film mute audio")
+
+Queue item 28; spec in docs/spec-notes/bink-films.md §2.
+
+- **What keeps sounding.** Under a `PlayBink … 0` film (muteAudio 0) the game stays held
+  (the page says game time stops either way) but the placed and background loops, random
+  sounds and the world's radios are not paused [hypothesis: which sounds the original
+  counts as "world sounds" is not documented]. Random sounds keep being rolled by the
+  wall clock while the world stands still [hypothesis].
+- **Lines being said stay held** under every film, since their timers stand still with
+  the scripts; otherwise a line's sound would run on while its timer did not [hypothesis].
+- The shipped game never shows this here: the only shipped calls with muteAudio 0 (the
+  opening's logo films, `vb01.bik`) name files not in the install.
+*Check:* none needed in game; if a mod plays a film with muteAudio 0, the world's ambience
+should be heard under it.

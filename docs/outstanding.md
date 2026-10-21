@@ -73,7 +73,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
   the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
   2026-10-19.)
-- **Audio and video**: reverb, spatial sinks; a film's `muteAudio 0` (world sounds under a film).
+- **Audio and video**: reverb, spatial sinks; ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
 - **Saves**: loading into another load order, AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1).
 - **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
   pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in
