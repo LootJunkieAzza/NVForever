@@ -465,6 +465,10 @@ pub struct ActorDef {
     /// CREA ACBS flag "Immobile": PushActorAway does not work on it [documented: GECK
     /// wiki PushActorAway notes, "flagged as immobile"].
     pub immobile: bool,
+    /// CREA ACBS flag "Can't Open Doors" (bit 22; on NPC_ the bit is "Can Be All Races")
+    /// [documented: GECK wiki GetActorBaseFlagsHigh, the flag table's Creature column]:
+    /// the creature's paths use no door (`fnv_ai`'s path parameters).
+    pub cant_open_doors: bool,
     /// ACBS flag "No Low Level Processing": the actor's AI is not updated outside the
     /// loaded area [documented: GECK wiki Category:NPC]. With the template flag "Base
     /// Data" the template's counts, as for Essential and Invulnerable (`Game::base_data_def`).
@@ -702,6 +706,9 @@ pub struct GameData {
     pub goodbye: Option<FormId>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
+    /// Patrol points' result scripts (REFR, after XPPA), run when a patrolling actor
+    /// arrives (docs/spec-notes/packages.md §7.4).
+    pub patrol_scripts: HashMap<FormId, UnitId>,
     /// Every PACK as typed data ([`crate::package`]).
     pub package_defs: HashMap<FormId, PackageDef>,
     pub messages: HashMap<FormId, MessageDef>,
@@ -1224,6 +1231,7 @@ impl GameData {
             greeting: None,
             goodbye: None,
             packages: HashMap::new(),
+            patrol_scripts: HashMap::new(),
             package_defs: HashMap::new(),
             messages: HashMap::new(),
             terminals: HashMap::new(),
@@ -1345,6 +1353,11 @@ impl GameData {
                     info.begin = unit(false);
                     info.end = unit(true);
                     d.infos.insert(id, info);
+                }
+                b"REFR" => {
+                    if let Some(&u) = unit_of.get(&label(UnitOwner::Patrol { form: id.0 })).filter(|&&u| d.units[u].unit.has_scda) {
+                        d.patrol_scripts.insert(id, u);
+                    }
                 }
                 b"PACK" => {
                     use fnv_script::unit::PackageEvent as P;
@@ -1922,7 +1935,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         }
         _ => {}
     }
-    if UNIT_SIGS.contains(&&sig) {
+    // A patrol point's result script (REFR with XPPA) is a unit too.
+    if UNIT_SIGS.contains(&&sig) || (&sig == b"REFR" && subs.iter().any(|s| &s.sig == b"XPPA")) {
         let plugin = &lo.plugins[pi].name;
         let to_global = |l: u32| lo.to_global(pi, l);
         out.units = read_record(r, plugin, &to_global, schema, &mut out.read_issues);
@@ -2389,6 +2403,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.invulnerable = has_flag(f, "Invulnerable");
                         a.no_knockdowns = has_flag(f, "No Knockdowns");
                         a.immobile = &sig == b"CREA" && has_flag(f, "Immobile");
+                        a.cant_open_doors = &sig == b"CREA" && has_flag(f, "Can't Open Doors");
                         a.no_low_level = has_flag(f, "No Low Level Processing");
                         a.respawn = has_flag(f, "Respawn");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");

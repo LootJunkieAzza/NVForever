@@ -280,6 +280,7 @@ fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
             enable_parent: None,
             linked: None,
             patrol_idle: None,
+            patrol_topic: None,
             merchant_container: None,
             open_by_default: false,
             primitive: None,

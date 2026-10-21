@@ -109,6 +109,9 @@ pub struct PlacedRef {
     /// XPRD: seconds an actor waits at this patrol point before going on to the next
     /// linked one [documented: xEdit patrol data; GECK wiki, Idle Markers "Idle Time"].
     pub patrol_idle: Option<f32>,
+    /// TNAM of a patrol point (4 bytes, after XPPA): the topic an actor says on arriving
+    /// [documented: xEdit patrol data; GECK wiki, Idle Markers "Topic"].
+    pub patrol_topic: Option<FormId>,
     /// XMRC on an actor reference: the container holding the actor's merchant stock.
     pub merchant_container: Option<FormId>,
     /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
@@ -453,6 +456,8 @@ fn load_ref(
         enable_parent,
         linked: fid(first(&d, b"XLKR"), "XLKR", issues),
         patrol_idle: first(&d, b"XPRD").and_then(|v| v.as_f64()).map(|x| x as f32),
+        // The map marker's TNAM decodes as a struct, the patrol topic as a FormID.
+        patrol_topic: if d.iter().any(|x| &x.sig == b"XPPA") { all(&d, b"TNAM").find(|v| v.is_string()).and_then(|v| fid(Some(v), "TNAM", issues)) } else { None },
         merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
         open_by_default: first(&d, b"ONAM").is_some(),
         primitive: first(&d, b"XPRM").and_then(|v| {

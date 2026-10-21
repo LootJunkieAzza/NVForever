@@ -262,6 +262,8 @@ fn doors_join_spaces_into_legs() {
     assert_eq!(p.legs[1].points[0], [5050.0, 5030.0, 50.0]);
     // Without doors there is no way in.
     assert!(g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: inside, pos: [5250.0, 5250.0, 50.0] }, &PathParams { doors: false, ..Default::default() }).is_err());
+    // Nor for an actor that opens no doors ("Can't Open Doors").
+    assert!(g.find_path(Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: inside, pos: [5250.0, 5250.0, 50.0] }, &PathParams { opens_doors: false, ..Default::default() }).is_err());
 
     // A walker goes all the way through the door.
     let mut w = Walker::new(W, [50.0, 50.0, 0.0], 0.0, 100.0);

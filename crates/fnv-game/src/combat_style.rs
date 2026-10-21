@@ -2,7 +2,10 @@
 //! (docs/design/combat-ai.md §10.4–§10.5).
 //!
 //! - **Combat style** [documented: GECK wiki Combat Style; layout xEdit CSTY]: an actor's
-//!   CSTY is the one SetCombatStyle gave the reference, else its record's ZNAM, from the template that supplies its AI data
+//!   CSTY is the one its current package names (PACK CNAM, "the Combat Style the actor
+//!   will use when the package is being run" [documented: GECK wiki Category:Packages];
+//!   that it wins over SetCombatStyle's [hypothesis], docs/spec-notes/packages.md §7.3),
+//!   else the one SetCombatStyle gave the reference, else its record's ZNAM, from the template that supplies its AI data
 //!   [hypothesis: the style is set beside the AI data], else `DefaultCombatstyle`
 //!   [hypothesis: the masters' style of that name, FormID 0x3D, is the default].
 //! - **Melee decision** [documented: Combat Style, Advanced]: the chance to attack is the
@@ -37,9 +40,11 @@ impl<'a> Game<'a> {
     /// The combat style `actor` fights with (module notes).
     pub fn combat_style(&self, actor: FormId) -> Option<&'a CombatStyleDef> {
         let data = self.data;
-        // SetCombatStyle's, else the record's (module notes).
-        let set = self.extra.get(&actor).and_then(|e| e.combat_style);
-        let own = set.or_else(|| self.def_following(actor, |d| d.template_ai).and_then(|d| d.combat_style));
+        // The current package's, else SetCombatStyle's, else the record's (module notes).
+        let extra = self.extra.get(&actor);
+        let package = extra.and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).and_then(|d| d.combat_style).filter(|id| data.combat_styles.contains_key(id));
+        let set = extra.and_then(|e| e.combat_style);
+        let own = package.or(set).or_else(|| self.def_following(actor, |d| d.template_ai).and_then(|d| d.combat_style));
         let id = own.filter(|id| data.combat_styles.contains_key(id)).or_else(|| data.by_edid("DefaultCombatstyle"))?;
         data.combat_styles.get(&id)
     }

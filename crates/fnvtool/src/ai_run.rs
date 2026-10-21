@@ -390,6 +390,8 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
     let mut game = Game::new(data, World::new(&forms, refs, SimConfig::default()), GameConfig::default());
     let open = PathParams::default();
     let any_key = PathParams { open_locked: true, ..PathParams::default() };
+    // A creature flagged "Can't Open Doors" uses no door (docs/spec-notes/packages.md §7.1).
+    let shy = PathParams { opens_doors: false, ..PathParams::default() };
     let mut verdicts: BTreeMap<String, u64> = BTreeMap::new();
     let mut by_type: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     let mut examples: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -472,8 +474,10 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
                     let mut worst = 0u8;
                     let mut why = String::new();
                     let mut most_doors = 0usize;
+                    let cant_open = game.cant_open_doors(actor);
                     for to in &targets {
                         let (rank, text) = match nav.door_route(from, *to, &open) {
+                            Ok(_) if cant_open && nav.door_route(from, *to, &shy).is_err() => (2, "only through a door the creature cannot open (Can't Open Doors)".to_string()),
                             Ok(doors) => {
                                 most_doors = most_doors.max(doors.len());
                                 (0, String::new())

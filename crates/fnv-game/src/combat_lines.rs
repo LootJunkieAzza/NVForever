@@ -244,6 +244,13 @@ impl Game<'_> {
         if health_topic.is_some_and(|t| self.combat_line(target, attacker, t).is_some()) {
             return;
         }
+        // Friendly fire (a hit from an ally or friend) gets its Hit line only while the
+        // victim's package allows "Friendly Fire Comments" [documented: GECK wiki
+        // Category:Packages; docs/spec-notes/packages.md §7.6].
+        let friendly = attacker.is_some_and(|a| a != target && matches!(self.reaction_to(target, a), crate::provocation::ALLY | crate::provocation::FRIEND));
+        if friendly && !self.package_allows(target, crate::package::fallout::FRIENDLY_FIRE_COMMENTS) {
+            return;
+        }
         let t = self.combat_timing();
         let roll = self.combat_lines.unit();
         if says_hit(before - after, max, roll, &t, target != FormId::PLAYER_REF) {

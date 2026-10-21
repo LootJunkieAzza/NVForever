@@ -181,6 +181,13 @@ impl<'a> Game<'a> {
         self.def_following(r, |d| d.template_base)
     }
 
+    /// Whether `r` is a creature flagged "Can't Open Doors" (ACBS), from the definition
+    /// supplying its base data [hypothesis: the flag is not among those the wiki says
+    /// Base Data leaves out, so the template's counts].
+    pub fn cant_open_doors(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF && self.base_data_def(r).is_some_and(|d| d.cant_open_doors)
+    }
+
     /// The current value of an actor value as the formulas read it: within its range, 0
     /// when it cannot be read.
     fn formula_input(&mut self, r: FormId, code: u16) -> f64 {
