@@ -689,11 +689,13 @@ pub fn actor_health(g: &mut Game, actor: FormId) -> Result<f64, String> {
 }
 
 /// The base form of a reference (moved or created ones included; the player's base for
-/// the player).
+/// the player). A weapon's base form is its own base: a perk entry's Weapon tab runs its
+/// conditions (IsWeaponSkillType, IsInList) on the weapon itself, not on a reference
+/// (docs/spec-notes/perk-entry-points.md §3) [hypothesis].
 pub fn base_of(g: &Game, r: FormId) -> Option<FormId> {
     match g.world.peek(r) {
         Some(s) => Some(s.base),
         None if r == FormId::PLAYER_REF => Some(FormId::PLAYER_BASE),
-        None => g.world.placed.get(r).map(|p| p.base),
+        None => g.world.placed.get(r).map(|p| p.base).or_else(|| (g.data.sig(r) == Some(*b"WEAP")).then_some(r)),
     }
 }

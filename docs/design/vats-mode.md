@@ -377,24 +377,27 @@ keeps. The VATS clock scale is not part of the save.
 | SetVatsTarget | 0x11EB | — | stays a stub (no effect) [design] |
 
 GetVATSValue's queries [documented: GECK wiki GetVATSValue lists the queries; the
-query codes are the page's order from 0 [hypothesis]]. The player's current VATS shot is
-the one firing now (set before the shot leaves, cleared when the mode is off), so the
-conditions of camera paths and perk entry points evaluated while a shot leaves see it:
+query codes are the page's order from 0 with Weapon Type Is moved last [hypothesis;
+observed: the parameter kinds the masters' conditions give each code, and Center of
+Mass's and Sniper's Targeted Part conditions on code 5, perk-entry-points.md §4]]. The
+player's current VATS shot is the one firing now (set before the shot leaves, cleared
+when the mode is off), so the conditions of camera paths and perk entry points evaluated
+while a shot leaves see it:
 
 | Code | Query | Returns |
 |---|---|---|
 | 0 | WeaponIs (a WEAP) | 1 if the shot's weapon is it |
 | 1 | Weapon In List (a FLST) | 1 if the weapon is in the list |
-| 2 | Weapon Type Is (an animation type) | 1 if the weapon's DNAM animation type is it |
-| 3 | Target Is (an NPC_/CREA) | 1 if the target's base (or the reference itself) is it |
-| 4 | Target In List (a FLST) | 1 if the target's base or reference is in the list |
-| 5 | Target Distance | the distance from the player to the target, units |
-| 6 | Targeted Part (a body part's condition actor value) | 1 if the mark's part names that condition: the BPTD part's own Actor Value, as combat's limb hits read it (`fnv_game::combat::limb_condition`, 25–31) |
-| 7 | VATS Action | 1 for the code of the attack action (0) [hypothesis: Attack is the first] |
-| 8 | Is Success | 1 (owner: no shot misses) [design] |
-| 9–15 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design] |
+| 2 | Target Is (an NPC_/CREA) | 1 if the target's base (or the reference itself) is it |
+| 3 | Target In List (a FLST) | 1 if the target's base or reference is in the list |
+| 4 | Target Distance | the distance from the player to the target, units |
+| 5 | Targeted Part (a body part's condition actor value) | 1 if the mark's part names that condition: the BPTD part's own Actor Value, as combat's limb hits read it (`fnv_game::combat::limb_condition`, 25–31) |
+| 6 | VATS Action | 1 for the code of the attack action (0) [hypothesis: Attack is the first] |
+| 7 | Is Success | 1 (owner: no shot misses) [design] |
+| 8–14 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design] |
+| 15 | Weapon Type Is (an animation type) | 1 if the weapon's DNAM animation type is it |
 
-The parameter of codes 0, 1, 3 and 4 arrives as a raw FormID (`ptVATSValueParam` is
+The parameter of codes 0, 1, 2 and 3 arrives as a raw FormID (`ptVATSValueParam` is
 read as an integer, `fnv_game::cond`): it is taken as a load-order FormID, right for
 records of FalloutNV.esm, whose local and load-order FormIDs agree [hypothesis: the
 masters' conditions name FalloutNV.esm records].

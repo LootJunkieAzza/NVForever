@@ -8,7 +8,9 @@
 //!   shots are fired [design: the nearest of the original's views; 2 and 3 never].
 //! - **GetVATSValue** [documented: GECK wiki GetVATSValue, its list of queries]: about the
 //!   shot leaving now while firing, 0 otherwise. The query codes are the page's order
-//!   from 0 [hypothesis]; what each returns is in [`get_vats_value`].
+//!   from 0 with Weapon Type Is moved last [hypothesis; observed: the parameters the
+//!   masters' conditions give each code, docs/spec-notes/perk-entry-points.md §4]; what
+//!   each returns is in [`get_vats_value`].
 //!
 //! Not part of the saved state: the mode is never saved (vats-mode.md §11.7).
 
@@ -80,14 +82,21 @@ fn param_num(a: &Args) -> Option<i64> {
 /// |---|---|---|
 /// | 0 | WeaponIs | 1 if the shot's weapon is the parameter |
 /// | 1 | Weapon In List | 1 if the weapon is in the list |
-/// | 2 | Weapon Type Is | 1 if the weapon's DNAM animation type is the parameter |
-/// | 3 | Target Is | 1 if the target, or its base, is the parameter |
-/// | 4 | Target In List | 1 if the target or its base is in the list |
-/// | 5 | Target Distance | units from the player to the target |
-/// | 6 | Targeted Part | 1 if the marked part's condition actor value is the parameter |
-/// | 7 | VATS Action | 1 for action 0 [hypothesis: Attack is the first action] |
-/// | 8 | Is Success | 1: VATS mode's shots never miss (owner) [design] |
-/// | 9–15 | critical, fatal, dismemberment, crippling | 0: not known before the shot lands [design] |
+/// | 2 | Target Is | 1 if the target, or its base, is the parameter |
+/// | 3 | Target In List | 1 if the target or its base is in the list |
+/// | 4 | Target Distance | units from the player to the target |
+/// | 5 | Targeted Part | 1 if the marked part's condition actor value is the parameter |
+/// | 6 | VATS Action | 1 for action 0 [hypothesis: Attack is the first action] |
+/// | 7 | Is Success | 1: VATS mode's shots never miss (owner) [design] |
+/// | 8–14 | critical, crit effect, fatal, explode, dismember, cripple | 0: not known before the shot lands [design] |
+/// | 15 | Weapon Type Is | 1 if the weapon's DNAM animation type is the parameter |
+///
+/// The codes [hypothesis] from the parameters FalloutNV.esm's 248 GetVATSValue conditions
+/// give them [observed: 0, 2 and 3 a form; 4, 7, 12–14, 16 and 17 none, 11 none on the
+/// camera paths (three idles keep a form there); 6 the numbers 15 or 18; 5 a condition actor
+/// value, 25 and 31 on Sniper's head entry and 26 on Center of Mass's torso one; 15 a
+/// small number 1–13, an animation type], so Weapon Type Is, third on the wiki page, is
+/// not code 2.
 pub fn get_vats_value(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let Some(s) = g.vats.shot else { return Ok(Value::ZERO) };
     let query = a.code(0)?;
@@ -96,13 +105,13 @@ pub fn get_vats_value(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     let b = match query {
         0 => param_form(a) == Some(s.weapon),
         1 => in_list(g, param_form(a), &[s.weapon]),
-        2 => param_num(a).is_some_and(|t| g.data.weapon_anim_types.get(&s.weapon) == Some(&t)),
-        3 => param_form(a).is_some_and(|f| target.contains(&f)),
-        4 => in_list(g, param_form(a), &target),
-        5 => return Ok(Value::Num(s.distance)),
-        6 => param_num(a).is_some_and(|c| s.condition.map(i64::from) == Some(c)),
-        7 => param_num(a).unwrap_or(0) == 0,
-        8 => true,
+        2 => param_form(a).is_some_and(|f| target.contains(&f)),
+        3 => in_list(g, param_form(a), &target),
+        4 => return Ok(Value::Num(s.distance)),
+        5 => param_num(a).is_some_and(|c| s.condition.map(i64::from) == Some(c)),
+        6 => param_num(a).unwrap_or(0) == 0,
+        7 => true,
+        15 => param_num(a).is_some_and(|t| g.data.weapon_anim_types.get(&s.weapon) == Some(&t)),
         _ => false,
     };
     Ok(Value::bool(b))

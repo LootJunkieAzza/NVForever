@@ -529,8 +529,8 @@ fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, d
 
 /// V: start marking if the weapon and the AP allow (§3).
 #[allow(clippy::too_many_arguments)]
-fn try_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, gravity: f32, allowed: bool, hud: &mut HudMessage, sounds: &mut Sounds) {
-    let ap = player_ap(script, sim);
+fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, gravity: f32, allowed: bool, hud: &mut HudMessage, sounds: &mut Sounds) {
+    let ap = player_ap(script.as_deref_mut(), sim);
     let refused = |v: &mut VatsMode, why: &str, hud: &mut HudMessage, sounds: &mut Sounds| {
         info!("vats mode: refused: {why}");
         hud.show(why.to_string());
@@ -540,10 +540,16 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>
     if !allowed {
         return refused(v, "Fighting is not possible now.", hud, sounds);
     }
-    let w = match combat.vats_weapon(sim, gravity) {
+    let mut w = match combat.vats_weapon(sim, gravity) {
         Ok(w) => w,
         Err(why) => return refused(v, why, hud, sounds),
     };
+    // The Action Point Cost perks (docs/spec-notes/perk-entry-points.md §2).
+    let (cost, by) = crate::combat::player_weapon_perk(script, sim, fnv_game::perks::ACTION_POINT_COST, w.id, w.cost);
+    if !by.is_empty() {
+        info!("vats mode: perks change the AP cost {:.1} -> {:.1} ({})", w.cost, cost.max(0.0), by.join(", "));
+        w.cost = cost.max(0.0);
+    }
     let ap_now = ap.map_or(f32::INFINITY, |a| a.0);
     v.queue = MarkQueue::new(w.cost, w.rounds_per_shot, w.rounds);
     // Not even one mark: no AP for it, or (a burst) not a whole burst loaded.
