@@ -107,6 +107,14 @@ pub struct PlacedRef {
     /// stays as it was).
     #[serde(skip)]
     pub primitive: Option<Primitive>,
+    /// XRAD: the radiation a radiation marker gives, rads a second, and XRDS, the radius
+    /// it reaches (game units) [documented: xEdit wbDefinitionsFNV.pas REFR; GECK wiki
+    /// GetRadiationExtraData, "the amount of rads gained while standing in the marker's
+    /// radius"]. docs/spec-notes/radiation.md §2. Not written to JSON.
+    #[serde(skip)]
+    pub radiation: Option<f32>,
+    #[serde(skip)]
+    pub radius: Option<f32>,
 }
 
 impl PlacedRef {
@@ -385,5 +393,7 @@ fn load_ref(
             };
             Some(Primitive { sphere, bounds: vec3(v.get("bounds"))?.map(f32::abs) })
         }),
+        radiation: first(&d, b"XRAD").and_then(serde_json::Value::as_f64).map(|x| x as f32),
+        radius: first(&d, b"XRDS").and_then(serde_json::Value::as_f64).map(|x| x as f32),
     })
 }

@@ -19,7 +19,7 @@ left of knockdowns), used items and the remaining package types and flags (#400)
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
 (#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413), race and sex
 changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking activators
-(claude/actor-changes), Caravan, and IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (script-stubs.md §3.19), IsLimbGone (dismemberment), AttachAshPile (ash-piles.md) and IsPlayerGrabbedRef with the grab (2026-10-21, [grab](spec-notes/grab.md)), ShowSlotMachineMenuParams with the slot machines (2026-10-21, [slots](spec-notes/slots.md)). 7 functions are still stubs. Saves from scripts and PlaceAtReticle
+(claude/actor-changes), Caravan, and IsSwimming, PickIdle, SetAllVisible, SetNoAvoidance and EnableLoadingMenu (script-stubs.md §3.19), IsLimbGone (dismemberment), AttachAshPile (ash-piles.md) and IsPlayerGrabbedRef with the grab (2026-10-21, [grab](spec-notes/grab.md)), ShowSlotMachineMenuParams with the slot machines (2026-10-21, [slots](spec-notes/slots.md)) and GetRadiationLevel (environment radiation, [radiation](spec-notes/radiation.md)). 6 functions are still stubs. Saves from scripts and PlaceAtReticle
 are built (rows 2 and 12, 2026-10-18,
 [script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)).
 
@@ -73,7 +73,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
   the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
   2026-10-19.)
-- **Audio and video**: reverb, spatial sinks; a film's `muteAudio 0` (world sounds under a film).
+- **Audio and video**: reverb, spatial sinks; ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
 - **Saves**: loading into another load order, AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1).
 - **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
   pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in
