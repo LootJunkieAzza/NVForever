@@ -7251,3 +7251,24 @@ outside zones, changed by the reference's level modifier. Spec:
 - *Check:* start a new character at level 1 and go into Vault 3 (minimum 12): the Fiends
   should be the zone's tier, not the weakest. Compare with the original if you have a
   level-1 save near Vault 3 or Vault 11 (minimum 6, giant rats).
+
+## Death items (2026-10-21, ESM gap audit item 5, branch claude/e5-death-items)
+
+An actor's death item (NPC_/CREA INAM, a leveled item list: hides, meat, glands, dog tags)
+now goes into the body when it dies, so it can be looted. Spec:
+[death-items](spec-notes/death-items.md). Decisions and guesses:
+
+- *Guess:* the list is rolled as the actor dies (not when it spawns), before its OnDeath
+  scripts run, and without OnAdd.
+- *Guess:* it is read at the same level as the actor's carried items (its encounter zone's
+  level, else the player's).
+- *Decision:* it comes from the actor that supplies the Traits (xEdit hides INAM with the
+  Traits flag); in the 14 creatures whose own INAM differs from their template's, the
+  template's wins (e.g. the Vault 19 fire gecko: DeathItemGeckoFire100, not its own DeathItemGeckoFire50).
+- *Guess:* a resurrected actor that dies again gets a second roll; a reload adds nothing.
+- *Guess:* corpses placed dead (the tribal village's Fiends) hold their death item too,
+  rolled when their inventory is first looked at.
+- *Built too:* the perk entry point "Add Leveled List On Death" (player kills only; no
+  FalloutNV.esm perk uses it, Them's Good Eating and Certified Tech in the add-ons do).
+- *Check:* kill a radroach and search it: Radroach Meat. Kill a few geckos: hides, meat and
+  sometimes an egg, not every time. Search a raider: sometimes extra items (DeathItemRaider15).

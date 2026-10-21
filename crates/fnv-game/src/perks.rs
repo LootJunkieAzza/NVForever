@@ -61,6 +61,10 @@ pub const MODIFY_POSITIVE_CHEM_DURATION: u8 = 25;
 /// "Modify Radiation Consumed" [observed: Lead Belly; documented: GECK wiki Entry
 /// Point, "Modifies the radiation from ingestibles"].
 pub const MODIFY_RADIATION_CONSUMED: u8 = 44;
+/// "Add Leveled List On Death": "Adds a leveled list to the target's inventory when the
+/// player kills someone" [documented: GECK wiki Perk, the list of entry points; code 21,
+/// GetNthPerkEntryFunction; tab 1 Target, GetPerkModifier] (`crate::death_items`).
+pub const ADD_LEVELED_LIST_ON_DEATH: u8 = 21;
 
 /// Entry point functions [observed: see `EntryPointDef::function`; hypothesis for the
 /// names]. The masters use only 1–3 on numbers, 8 (EPFT 3, a leveled list) and 9 (EPFT
@@ -283,7 +287,7 @@ impl Game<'_> {
     /// The entries of `point` that apply to `actor` now, in the order they apply. `tabs`:
     /// the forms of the entry point's argument tabs 1 and 2 (`None`: none known here);
     /// `other`: the actor the owner's conditions take as their target.
-    fn entry_point_entries(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>) -> Vec<(FormId, PerkEntry)> {
+    pub(crate) fn entry_point_entries(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>) -> Vec<(FormId, PerkEntry)> {
         // Perks are the player's only (`AddPerk` on another actor is refused).
         if actor != FormId::PLAYER_REF || self.player.perks.is_empty() {
             return Vec::new();

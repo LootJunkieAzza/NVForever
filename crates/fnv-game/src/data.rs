@@ -426,6 +426,11 @@ pub struct ActorDef {
     pub template_script: bool,
     /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
     pub combat_style: Option<FormId>,
+    /// INAM "Death item": the leveled item list added to the actor's inventory when it
+    /// dies, from the actor that supplies its traits (template flag "Traits")
+    /// [documented: xEdit NPC_ and CREA INAM, hidden with the Traits flag;
+    /// docs/spec-notes/death-items.md].
+    pub death_item: Option<FormId>,
     /// NPC_ ACBS "Auto-calc stats".
     pub autocalc: bool,
     /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
@@ -971,6 +976,10 @@ pub struct EntryPointDef {
     pub run_immediately: bool,
     /// The entry's script (EPFT 4, SCHR/SCDA after it).
     pub unit: Option<UnitId>,
+    /// EPFD as a FormID when EPFT is 3, a leveled item list [observed: the add-ons'
+    /// Add Leveled List On Death entries, Them's Good Eating and Certified Tech, name
+    /// LVLI records; docs/spec-notes/death-items.md §3].
+    pub leveled_list: Option<FormId>,
 }
 
 impl PerkDef {
@@ -2262,6 +2271,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"EITM" => a.unarmed_effect = fid(v).filter(|f| f.0 != 0),
                     b"EAMT" => a.unarmed_anim = v.as_ref().and_then(Json::as_str).map(str::to_string),
                     b"ZNAM" => a.combat_style = fid(v).filter(|f| f.0 != 0),
+                    b"INAM" => a.death_item = fid(v).filter(|f| f.0 != 0),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
@@ -2549,6 +2559,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                             ep.raw = s.data.clone();
                             if epft == Some(1) {
                                 ep.value = <[u8; 4]>::try_from(s.data.as_slice()).ok().map(f32::from_le_bytes);
+                            }
+                            if epft == Some(3) {
+                                ep.leveled_list = <[u8; 4]>::try_from(s.data.as_slice()).ok().map(u32::from_le_bytes).filter(|&l| l != 0).and_then(map).map(FormId);
                             }
                         }
                     }
