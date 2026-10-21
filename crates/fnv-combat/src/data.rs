@@ -279,6 +279,13 @@ impl WeaponStats {
         w
     }
 
+    /// A Silence or Suppressor mod is among the mods `flags` names on: the weapon then
+    /// shoots with its mod sounds (`WMS1`, `WMS2`) [documented: GECK wiki Weapons, mod
+    /// effects] (docs/spec-notes/weapon-mods.md §7).
+    pub fn sound_mod_on(&self, flags: u8) -> bool {
+        self.mods.iter().any(|m| flags & mod_flag(m.slot) != 0 && matches!(m.effect.as_deref(), Some("Silence" | "Suppressor")))
+    }
+
     /// Held in two hands: its DNAM animation type is one of the "(2 Hand)" types
     /// (rifles, automatic rifles, launchers, handles, two-handed melee) [observed: the
     /// schema's names].
@@ -1149,6 +1156,8 @@ mod tests {
         assert!((all.min_spread - 0.4).abs() < 1e-6);
         assert_eq!(all.sound_level.as_deref(), Some("Silent"));
         // Only the slots named: the silencer alone.
+        assert!(w.sound_mod_on(4) && w.sound_mod_on(7));
+        assert!(!w.sound_mod_on(0) && !w.sound_mod_on(3));
         let quiet = w.modded(4);
         assert_eq!((quiet.clip_size, quiet.sound_level.as_deref()), (12, Some("Silent")));
     }
