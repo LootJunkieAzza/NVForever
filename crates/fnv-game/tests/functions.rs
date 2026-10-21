@@ -1046,6 +1046,15 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
     g.set_first_person(false);
     assert_eq!(call(&mut g, 0x1188, None, &[]), 0.0);
 
+    // The grab: IsPlayerGrabbedRef answers what the engine says the player holds; a
+    // reference without OnGrab / OnRelease blocks runs none.
+    assert_eq!(call(&mut g, 0x11D0, None, &[r(CHILD_REF)]), 0.0);
+    assert_eq!(g.set_player_grab(Some(child)), (false, false));
+    assert_eq!(call(&mut g, 0x11D0, None, &[r(CHILD_REF)]), 1.0);
+    assert_eq!(call(&mut g, 0x11D0, None, &[r(ADULT_REF)]), 0.0);
+    g.set_player_grab(None);
+    assert_eq!(call(&mut g, 0x11D0, None, &[r(CHILD_REF)]), 0.0);
+
     // Subtitles shown out of hearing too.
     call(&mut g, 0x1277, Some(ADULT_REF), &[n(1.0)]);
     assert!(g.always_subtitles(adult));

@@ -67,6 +67,8 @@ pub mod event {
     pub const SCRIPT_EFFECT_UPDATE: u16 = 0x13;
     pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
     pub const ON_FIRE: u16 = 0x24;
+    pub const ON_GRAB: u16 = 0x21;
+    pub const ON_RELEASE: u16 = 0x22;
     pub const ON_TRIGGER: u16 = 0x18;
     pub const ON_START_COMBAT: u16 = 0x19;
     pub const ON_RESET: u16 = 0x1E;

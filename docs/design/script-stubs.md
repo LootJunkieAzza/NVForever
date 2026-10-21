@@ -491,7 +491,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | StartCannibal | 0x107E | 4 | 0 | implemented 2026-10-18 (§3.17) | perks: docs/spec-notes/perk-activation.md |
 | GetVATSMode | 0x10E0 | 2 | 2 | implemented 2026-10-18 for VATS mode (docs/design/vats-mode.md §12) | combat (VATS) |
 | PlayBink | 0x1114 | 4 | 0 | implemented 2026-10-18 (§3.18) | films: docs/spec-notes/bink-films.md |
-| IsPlayerGrabbedRef | 0x11D0 | 3 | 1 | needs a system not built yet | physics (grab) |
+| IsPlayerGrabbedRef | 0x11D0 | 3 | 1 | implemented 2026-10-21 (claude/q24-grab) | physics (grab): docs/spec-notes/grab.md §4; the grab also runs OnGrab / OnRelease |
 | ShowBarberMenu | 0x11F1 | 4 | 0 | implemented 2026-10-18 (the barber, #414) | menus (appearance) |
 | ResetPipboyManager | 0x1201 | 4 | 0 | implemented 2026-10-18 (claude/menu-hooks, §3.15) | Pip-Boy: default page and tabs, the light off |
 | AttachAshPile | 0x1211 | 4 | 0 | needs a system not built yet | rendering (death effects) |

@@ -15,6 +15,7 @@
 //! - [`placed`]: the collision objects of a placed reference (shared by the tools and the
 //!   game)
 //! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
+//! - [`grab`]: a body held by the player's grab
 //! - [`water`]: water areas (cell water surfaces) the character swims in
 //! - [`swim`]: swimming speeds (the stroke cycle)
 //!
@@ -29,6 +30,7 @@ pub mod arrival;
 pub mod character;
 pub mod convert;
 pub mod gore;
+pub mod grab;
 pub mod layers;
 pub mod placed;
 pub mod primitive;
@@ -42,6 +44,7 @@ pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
+pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;
 pub use ragdoll::{RagdollReport, RagdollStart};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};

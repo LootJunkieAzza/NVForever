@@ -15,6 +15,9 @@
 //! - `PlaySet::Sync`: `RefVisual` entities are hidden while the simulation says their
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
 //!
+//! - E on something the player can hold (`crate::grab`): the activation waits for E to
+//!   come up; held longer, the grab picks it up instead.
+//!
 //! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
 //! on the world aids' clock (`crate::pause::WorldAidClock`; unattended in-game checks).
 //!
@@ -169,7 +172,7 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
 /// view ray; in third person the camera's, through the crosshair over the shoulder
 /// (`control::Crosshair`; playtest list 4, item 11).
 #[allow(clippy::too_many_arguments)]
-fn find_target(
+pub(crate) fn find_target(
     player: Option<Res<Player>>,
     phys: Option<ResMut<PhysState>>,
     mut sim: ResMut<SimState>,
@@ -315,7 +318,7 @@ fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, a
 /// Test aid: times (seconds on the world aids' clock, `crate::pause::WorldAidClock`) at
 /// which E counts as pressed.
 #[derive(Resource, Default)]
-struct AutoActivate {
+pub(crate) struct AutoActivate {
     times: Vec<f32>,
 }
 
@@ -337,15 +340,15 @@ impl AutoActivate {
 
 /// The clocks of the activate aid: time, the stopped-clock time and the world aids' clock
 /// (each absent in tests that build without them).
-type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
+pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
 
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
-fn activate(
+pub(crate) fn activate(
     input: crate::bindings::ControlInput,
     (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
-    (target, next, vats): (Res<Target>, Option<ResMut<ActivateNext>>, Option<Res<crate::vats_mode::VatsMode>>),
+    (target, next, vats, mut grab): (Res<Target>, Option<ResMut<ActivateNext>>, Option<Res<crate::vats_mode::VatsMode>>, Option<ResMut<crate::grab::GrabState>>),
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
@@ -372,6 +375,10 @@ fn activate(
         info!("activate 0x{id:08X} {name}: {why}");
         Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
     });
+    // A press held off because the target can be held (`crate::grab`): activated now
+    // that E came up before the hold picked it up.
+    let tapped = grab.as_mut().and_then(|g| g.released_tap(input.pressed(crate::bindings::Control::Activate)));
+    let queued = queued.or(tapped);
     let fired = match (auto, time) {
         // The aids' clock goes on while a menu holds the picture (`crate::pause`); a world
         // aid, it waits for the scripts with NVF_PLAY_AIDS_FROM_SCRIPTS (`WorldAidClock`).
@@ -403,6 +410,15 @@ fn activate(
         seat.leave |= seat.hold.is_some();
         return;
     };
+    // E pressed on something the player can hold: a tap activates it when E comes up,
+    // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
+    if queued.is_none() && !fired {
+        if let Some(g) = grab.as_mut().filter(|g| g.holdable(t.form_id) && g.tap.is_none()) {
+            let candidate = g.candidate.expect("holdable has a candidate");
+            g.tap = Some(crate::grab::Tap { target: Some(t.clone()), candidate, held: 0.0 });
+            return;
+        }
+    }
     // An actor shown by name only (hostile, or a creature with nothing to say): E does
     // nothing (playtest list 4, item 19).
     if t.action == Action::Name {
