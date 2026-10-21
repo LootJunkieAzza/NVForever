@@ -7089,3 +7089,26 @@ Queue item 28; spec in docs/spec-notes/bink-films.md §2.
   opening's logo films, `vb01.bik`) name files not in the install.
 *Check:* none needed in game; if a mod plays a film with muteAudio 0, the world's ambience
 should be heard under it.
+
+## Exterior lighting and clouds (2026-10-21, queue item 31, branch claude/q31-exterior-lighting)
+
+Findings and the one change in docs/spec-notes/world.md §6 ("Fog colour by day", "What
+holds the exterior frames under the threshold", "Cloud texture placement") and
+docs/design/layer3.md §5 item 5.
+
+1. *Decision:* distant fog takes on half of the sunlight colour's hue in full daylight
+   (`FOG_SUN` 0.5) [hypothesis, fitted]. The game's distant haze is warm where the
+   weather's fog colour is light blue; full hue fitted the colours best but tipped
+   black_mountain_north just under the threshold, so half.
+2. *Not changed:* the sky's horizon colour (also too blue-white): the same treatment made
+   the colours worse. The FNAM fog powers stay unused (not needed by these frames).
+3. *Found:* the frames fail on the clouds, not on the light's strength: with the game's sky
+   pasted in, all eight exterior frames pass. Matching the clouds needs two things from you:
+   - each reference frame's seconds since the save was loaded in `frames/manifest.json`
+     (known: noon 22 s, dusk 41 s, hill_lod 59 s, lake 79 s), passed on by the scenarios
+     (parity-lab/AGENT.md keeps scenario edits with you);
+   - a still-sky capture: one camera twice a known number of seconds apart, and one
+     looking straight up, so the game's cloud texture mapping can be read (the renderer's
+     does not match by any shift of its texture coordinates).
+*Check:* in the game at noon, looking at the far hills: is the haze warm (yellow-tan) as in
+the reference frames, and does nvforever's now look closer?
