@@ -55,6 +55,7 @@ tabs, below]. Tab 0 is always the perk owner. "Perks" are FalloutNV.esm's entrie
 | 40 | Action Point Cost | Weapon | Fast Shot × 0.8, Loose Cannon × 0.7, Math Wrath × 0.9, Plasma Spaz × 0.8, Trigger Discipline × 1.2, Beautiful Beatdown × 0.9 | VATS mode's AP a mark, set on entering it (logged `vats mode: perks change the AP cost`) |
 | 56 | Modify Damage Threshold (defender) | Attacker, Attacker's weapon | Toughness + 3/+ 6, Sub-Dermal Armor + 4, Kamikaze − 2, Hit the Deck + 25 (Explosives on tab 2), Stonewall + 5 (melee/unarmed on tab 2), Bonds of Steel + 4 | the player's own DT when hit |
 | 58 | Modify Damage Threshold (attacker) | Weapon, Target | Shotgun Surgeon Set 10, Piercing Strike Set 15, Companion Suite Set 10 | the DT the player's hit ignores: from 0, taken off the target's DT, never below 0 [documented: GECK wiki Entry Point, "read as 'How much DT to subtract from the targeted actor'"] |
+| 57 | Modify Chance for Ammo Item | Weapon | Hand Loader × 2 (IsWeaponSkillType Guns on tab 1), Vigilant Recycler × 2 (Energy Weapons) | the chance of a shot's spent item, the ammo's DAT2 percentage (claude/e13-spent-casings, [spent-ammo-items](spent-ammo-items.md)) |
 | 68 | Modify Item Damage | — | Regular Maintenance × 0.5, Full Maintenance × 0.25, Built to Destroy × 1.15 | the wear of the player's weapon by its own shots and blows and by hits on it [hypothesis: armour wear too? not applied] |
 
 Order on a hit [hypothesis where the formula pages are silent]: weapon damage after the
@@ -72,7 +73,7 @@ Not wired yet, with why:
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
 | 59, 72 | Modify Throwing Velocity, Adjust Explosion Radius | Heave Ho!, Loose Cannon, Splash Damage | not asked for yet; easy follow-ups at the throw and the explosion |
-| 35, 39, 57, 61–66 | Player Kill AP Reward, Action Point Regen, Modify Chance for Ammo Item, the unarmed power attacks' Has … | Grim Reaper's Sprint, Nerves of Steel, Hand Loader, Vigilant Recycler, the unarmed moves | the systems they change are not built or are NVForever's own |
+| 35, 39, 61–66 | Player Kill AP Reward, Action Point Regen, the unarmed power attacks' Has … | Grim Reaper's Sprint, Nerves of Steel, the unarmed moves | the systems they change are not built or are NVForever's own |
 
 ## 3. Conditions by tab
 
