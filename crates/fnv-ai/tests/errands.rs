@@ -203,7 +203,8 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_IDLE_FINDER, "IdleFinder", &[P_FIND_NONE]),
         npc(N_POACHER, "Poacher", &[P_HUNT]),
         npc(N_BUYER, "Buyer", &[P_BUY]),
-        npc(N_VENDOR, "Vendor", &[]),
+        // A vendor of Miscellaneous items (AIDT services, bit 10): the tonic is a MISC.
+        record(b"NPC_", N_VENDOR, &[sub(b"EDID", z("Vendor")), sub(b"AIDT", [&[0u8; 8][..], &(1u32 << 10).to_le_bytes(), &[0u8; 8]].concat())]),
     ]
     .concat();
     let furn = record(b"FURN", CHAIR, &[sub(b"EDID", z("Chair")), sub(b"MNAM", 0x4000_0001u32.to_le_bytes().to_vec())]);

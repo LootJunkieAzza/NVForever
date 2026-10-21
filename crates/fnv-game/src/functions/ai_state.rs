@@ -125,6 +125,13 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
     Ok(Value::Num(code as f64))
 }
 
+/// `actor.GetOffersServicesNow`: 1 while the actor's current package offers its
+/// services (`crate::services`, docs/spec-notes/vendor-services.md §3).
+pub fn get_offers_services_now(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(if g.offers_services_now(r) { 1.0 } else { 0.0 }))
+}
+
 /// `actor.GetCurrentAIProcedure`: what the actor is doing within its package, by the
 /// codes of the GECK wiki's table [documented: GECK wiki GetCurrentAIProcedure: 0
 /// TRAVEL, 2 ACQUIRE, 3 WAIT, 4 DIALOGUE, 7 WANDER, 8 SLEEP, 10 EAT, 11 FOLLOW, 12

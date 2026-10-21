@@ -5461,6 +5461,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "vendor-services"
+source = "Vendor services (fnv-game services.rs; docs/spec-notes/vendor-services.md): the AIDT service flags limit what a vendor sells in the barter menu, and GetOffersServicesNow follows the package's Offers Services flag"
+note = "in the Prospector Saloon at noon: VFreeformGoodsprings.TrudyToBar is set to 1 (the condition of her bar package) and TrudyRef enabled (she is disabled at the start of a new game); a 9mm Pistol is put in her merchant container (00104DF3). Her bar package GSTrudyAtBarPackage8x12 has Offers Services: GetOffersServicesNow reads 1 once she is at the bar (the first run, 2026-10-21, asked at 12 s and read 0: she was still walking the 650 units to it, which the function counts as not offering, GECK wiki note; asked at 28 s since); AddScriptPackage GSTrudyEveningPackage20x2 (no flag) makes it 0. Then the barter menu opens on her: she sells Alcohol and Food, so the pistol (Weapons) is held back (seen in the first run)"
+areas = ["barter", "menus", "ai", "packages"]
+paths = ["crates/fnv-game/src/services.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GIVE = "0000000F:100", NVF_PLAY_TEST_BARTER = "00104C6D", NVF_PLAY_TEST_BARTER_DELAY = "38", NVF_PLAY_TEST_SCRIPT = "2:var:VFreeformGoodsprings:TrudyToBar:1,2.5:enable:TrudyRef,3:call:0x00104DF3:AddItem:WeapNV9mmPistol:1,28:call:TrudyRef:GetOffersServicesNow,29:call:TrudyRef:AddScriptPackage:GSTrudyEveningPackage20x2,33:call:TrudyRef:GetOffersServicesNow" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 50
+order = [[
+  "test aid calls GetOffersServicesNow on TrudyRef = 1",
+  "test aid calls AddScriptPackage on TrudyRef",
+  "test aid calls GetOffersServicesNow on TrudyRef = 0",
+  "barter: TrudyRef sells Alcohol, Food (its services)",
+  "barter: 0x00104C6D holds back 1 item(s) outside its services: 9mm Pistol (Weapons)",
+  "menu: close",
+]]
+
+[[scenario]]
 name = "package-use-item-at"
 source = "Use Item At packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): DefaultUseNearbyFurniturePackage given to a Goodsprings settler"
 note = "GoodspringsSettler04Ref, in the saloon at noon, is given DefaultUseNearbyFurniturePackage (furniture within 100 of his editor location): the stool 00106192, 46 units from it (TrudyRef and GoodspringsSettler02Ref are disabled at this point of the game)"

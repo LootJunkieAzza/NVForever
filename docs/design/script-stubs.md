@@ -577,6 +577,8 @@ Notes on the most used:
 | GetIsObjectType | 0x11B1 | 0 | 1 | a form type by code (xEdit `ptFormType`); the Form Type IDs table is not in the local GECK wiki export |
 
 AddItemToLeveledList, IsDLCInstalled and GetXPForNextLevel were registered in §3.2.
+GetOffersServicesNow (0x10FF; no use in the masters, for mods' vendor conditions) was
+registered 2026-10-21 ([vendor-services](../spec-notes/vendor-services.md) §3).
 
 ## 7. Checks
 

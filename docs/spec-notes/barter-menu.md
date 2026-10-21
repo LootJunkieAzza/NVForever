@@ -142,6 +142,9 @@ screen's height):
   lists of 300; his own inventory holds a few items and pocket change]. The merchant's
   own inventory is not offered [hypothesis]. Without a merchant container, the actor's
   own inventory is used [design].
+- **What the merchant sells** is limited to its service categories (AIDT "Buys/Sells",
+  or its class's): the other items of its stock are held back; it buys anything
+  [documented: GECK wiki Class; the categories: vendor-services.md §2].
 - **The total** is the sum of each line's rounded price times its count [hypothesis].
   Accept is refused when the side that pays has too few caps [hypothesis; the wording is
   ours: "You don't have enough caps." / "<merchant> doesn't have enough caps."].
