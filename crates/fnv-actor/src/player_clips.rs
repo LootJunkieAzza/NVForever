@@ -396,6 +396,11 @@ pub struct ClipKeys {
     /// NiTextKeyExtraData; observed: `a:L` on the melee `AttackRight` clips, `a:R` on the
     /// `AttackLeft` ones; `fnv_combat::melee`].
     pub next_attack: Option<(f32, String)>,
+    /// `Eject`: when the spent casing leaves the weapon [observed: on the attack clips of
+    /// the lever, bolt and pump actions (`2hrattack3/5/7/8/9`), well after `Hit`, as the
+    /// action is worked: `_1stpersonhrattack8.kf` (the varmint rifle's) has `Hit` at
+    /// 0.033 s and `Eject` at 0.800 s; nif-node-audit.md row 2].
+    pub eject: Option<f32>,
 }
 
 impl ClipKeys {
@@ -420,6 +425,8 @@ impl ClipKeys {
                     out.hit.get_or_insert(*t);
                 } else if lower == "loop" {
                     out.loop_end.get_or_insert(*t);
+                } else if lower == "eject" {
+                    out.eject.get_or_insert(*t);
                 } else if let Some(v) = lower.strip_prefix("a:") {
                     out.next_attack.get_or_insert((*t, v.trim().to_string()));
                 }
@@ -561,6 +568,9 @@ mod tests {
         // h2hattackright_a.kf's keys [observed].
         let k = ClipKeys::parse(&[(0.0, "start".into()), (0.3, "Hit".into()), (0.3, "Decal: 0".into()), (0.633, "a:L".into()), (1.433, "end".into())]);
         assert_eq!((k.hit, k.next_attack), (Some(0.3), Some((0.633, "l".to_string()))));
+        // _1stpersonhrattack8.kf's keys [observed].
+        let k = ClipKeys::parse(&[(0.0, "start".into()), (0.033, "Hit".into()), (0.6, "Sound: WPNRifleHuntingReloadChamber".into()), (0.8, "Eject".into()), (1.267, "a:8".into())]);
+        assert_eq!((k.hit, k.eject), (Some(0.033), Some(0.8)));
     }
 
     #[test]

@@ -420,8 +420,9 @@ struct Rig {
     muzzle: Option<Vec<(Option<usize>, Transform)>>,
     /// That node's entity (muzzle flashes are spawned under it; `shot_fx.rs`).
     muzzle_entity: Option<Entity>,
-    /// The way down to the weapon model's `ShellCasingNode`, as `muzzle`.
+    /// The way down to the weapon model's `ShellCasingNode`, as `muzzle`, and its entity.
     casing: Option<Vec<(Option<usize>, Transform)>>,
+    casing_entity: Option<Entity>,
     /// The way down to the weapon model's `##SightingNode`, as `muzzle`
     /// (`iron_sights.rs`).
     sighting: Option<Vec<(Option<usize>, Transform)>>,
@@ -437,6 +438,10 @@ struct Rig {
     /// has one: from and to, seconds into the clip.
     since_attack: f32,
     attack_loop: Option<(f32, f32)>,
+    /// The attack clip last started and its `Eject` key, seconds into the clip, when it
+    /// has one; and whether its layer passed the key in the last pose.
+    attack_eject: Option<(Arc<Clip>, f32)>,
+    ejected: bool,
 }
 
 /// The node of a weapon model that shots are drawn from, by either of its names
@@ -682,6 +687,8 @@ pub struct PlayerBody {
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
+    /// Its `ShellCasingNode`, likewise.
+    casing_entity: Option<Entity>,
     /// The third-person head's eye this frame, game space, while the view is from
     /// outside; `None` in first person or without a body.
     head_eye: Option<[f32; 3]>,
@@ -730,6 +737,12 @@ impl PlayerBody {
     /// rig in view; `None` without a body, a weapon in hand or such a node.
     pub fn muzzle_entity(&self) -> Option<Entity> {
         self.muzzle_entity
+    }
+
+    /// The entity of the `ShellCasingNode` of the weapon in hand, in the rig in view, as
+    /// [`Self::muzzle_entity`]: where a casing is seen to leave (`shot_fx.rs`).
+    pub fn casing_entity(&self) -> Option<Entity> {
+        self.casing_entity
     }
 
     /// The armour the drawn body wears (none before it is built).
@@ -924,6 +937,7 @@ fn ensure_body(
         rig.muzzle = None;
         rig.muzzle_entity = None;
         rig.casing = None;
+        rig.casing_entity = None;
         rig.sighting = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
@@ -966,7 +980,9 @@ fn ensure_body(
                 let muzzle = nvf_assets::model::node_path(&pm.nodes, &MUZZLE_NODES);
                 rig.muzzle_entity = muzzle.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.muzzle = muzzle.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
-                rig.casing = nvf_assets::model::node_path(&pm.nodes, &["ShellCasingNode", "##ShellCasingNode"]).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                let casing = nvf_assets::model::node_path(&pm.nodes, &["ShellCasingNode", "##ShellCasingNode"]);
+                rig.casing_entity = casing.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
+                rig.casing = casing.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
@@ -1151,6 +1167,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         muzzle: None,
         muzzle_entity: None,
         casing: None,
+        casing_entity: None,
         sighting: None,
         drawn,
         shown: None,
@@ -1158,6 +1175,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         furniture: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
+        attack_eject: None,
+        ejected: false,
     })
 }
 
@@ -1350,6 +1369,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             // animation.md §9.8]. A spin-up starts it from the beginning, so the first
             // shot, which combat holds back until then, meets the `Fire` key.
             rig.attack_loop = c.keys.hit.zip(c.keys.loop_end).filter(|(from, to)| from < to).map(|(from, to)| (from - c.clip.start, to - c.clip.start));
+            rig.attack_eject = c.keys.eject.map(|e| (c.clip.clone(), e - c.clip.start));
             let going = !f.spin_now && rig.attack_loop.is_some() && rig.animator.layers.iter().any(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c.clip) && !l.finished());
             if !going {
                 rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
@@ -1440,7 +1460,17 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     // Movement clips play at the speed the character actually moves [hypothesis: the
     // game matches the clip's root motion to the ground speed].
     let rate = if expected_speed > 1.0 { (f.speed / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
+    let attack_time = |a: &Animator| {
+        let (clip, _) = rig.attack_eject.as_ref()?;
+        a.layers.iter().find(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, clip)).map(|l| l.time)
+    };
+    let before = attack_time(a);
     a.advance(f.dt, rate);
+    // The attack clip passing its `Eject` key: the casing leaves now (combat throws it).
+    rig.ejected = match (before, attack_time(a), &rig.attack_eject) {
+        (Some(from), Some(to), Some((_, key))) => from < *key && to >= *key,
+        _ => false,
+    };
     // While the shots keep coming, an attack clip with a repeated part goes round it;
     // after the last it plays out from where it is.
     rig.since_attack += f.dt;
@@ -1760,6 +1790,7 @@ fn drive_body(
         anim.muzzle = None;
         anim.casing = None;
         state.muzzle_entity = None;
+        state.casing_entity = None;
         return;
     };
     if death.down() || knock.ragdolled() {
@@ -1770,6 +1801,7 @@ fn drive_body(
         anim.muzzle = None;
         anim.casing = None;
         state.muzzle_entity = None;
+        state.casing_entity = None;
         show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.ragdolled(), arms: true, weapon: true }, false);
         return;
     }
@@ -1885,6 +1917,7 @@ fn drive_body(
         anim.muzzle = None;
         anim.casing = None;
         state.muzzle_entity = None;
+        state.casing_entity = None;
         show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false);
         return;
     }
@@ -1927,6 +1960,7 @@ fn drive_body(
         attack_clip.as_ref().and_then(|c| c.keys.attach),
     );
     anim.timing.jam_len = jam_len;
+    anim.ejects_on_key = attack_clip.as_ref().is_some_and(|c| c.keys.eject.is_some());
     anim.timed = Some(attack.to_string());
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     anim.drawing = m.hands.phase == WeaponPhase::Drawing;
@@ -2166,7 +2200,11 @@ fn drive_body(
     };
     anim.muzzle = if m.hands.in_hand { seen.muzzle_at(root).map(|p| p.to_array()) } else { None };
     state.muzzle_entity = seen.muzzle_entity.filter(|_| m.hands.in_hand);
+    state.casing_entity = seen.casing_entity.filter(|_| m.hands.in_hand);
     anim.casing = if m.hands.in_hand { seen.casing_at(root).map(|(p, d)| (p.to_array(), d.to_array())) } else { None };
+    if seen.ejected && m.hands.in_hand {
+        anim.ejects = anim.ejects.wrapping_add(1);
+    }
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let seen = if frame.upright {
         Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }

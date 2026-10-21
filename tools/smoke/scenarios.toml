@@ -1696,6 +1696,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "varmint-casing-eject"
+source = "owner report 2026-10-20: the varmint rifle's casing showed at the shot; in the original it leaves when the bolt is pulled back. The attack clip's Eject key (0.80 s into the first-person 2hrattack8.kf, Hit at 0.033 s) now times it; one shot, a picture just after it (no casing yet) and one as the casing leaves the receiver beside the bolt hand"
+areas = ["combat", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-actor/src/player_clips.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_GIVE = "00004240:20", NVF_PLAY_TEST_LOOK = "9:46:-4", NVF_PLAY_TEST_CONTROL = "9:weapon,13:fire", NVF_PLAY_TEST_SHOTS = "13.15:varmint_eject_shot.png,13.87:varmint_eject_bolt.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+expect = [
+  { re = 'combat: WeapNVVarmintRifle ejects its casing at the clip.s Eject key, 0\.[3-9]\d s after the shot', label = "the casing thrown at the Eject key, 0.3 to 0.99 s after the shot" },
+]
+
+[[scenario]]
 name = "varmint-after-fists"
 source = "owner report 2026-10-20: the varmint rifle not drawn in first person at Sunny's bottles (shoot-bottles), when the test aid drew the fists before VCG02 gave the rifle"
 note = "The fists' draw clip hangs the Weapon node from Bip01 R ForeTwist; before 2026-10-20 a weapon equipped while the fists were out kept that bone, and the rifle hung from the forearm below the view (its shapes culled). Here the console equips the rifle after the fists are drawn, as the quest's EquipItem did"

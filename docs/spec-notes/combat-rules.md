@@ -1188,13 +1188,31 @@ docs/spec-notes/particles.md.
     debris (particles.md).
 - **Shell casings.** The player body gives the weapon model's `ShellCasingNode` place
   and its +z axis to combat (`WeaponAnim::casing`). Each shot of a weapon with a casing
-  model throws one from there along that axis at `fGunShellEjectSpeed`; it falls under
+  model throws one along that axis at `fGunShellEjectSpeed`: at the shot, or, when the
+  attack clip has an `Eject` text key, when the clip reaches it (the body counts it,
+  `WeaponAnim::ejects`). The renderer starts it at the node as drawn
+  (`PlayerBody::casing_entity`): in first person the arms are drawn through a narrower
+  view (`place_lens`), so the posed node is not where the weapon is seen. It falls under
   the world's gravity, bounces (keeping 0.35 of its speed [design]) and is removed
   after `fGunShellLifetime`.
   - For +z as the way out [observed: `muzzle_node_survey --list`]: in the 59 models
     whose node is turned by no right angle, its z axis points to the side the node sits
     on and up (9mm (−0.38, 0.36, 0.85), service rifle (0.17, 0.59, 0.79)); the cowboy
     repeater's points up (lever actions throw up).
+  - The `Eject` key [observed: `fnvtool nif decode` of the base archive's clips]: on
+    the attack clips of the lever, bolt and pump actions (`2hrattack3/5/7/8/9` and
+    their forms, 87 files), after `Hit`. `_1stpersonhrattack8.kf` (the varmint rifle,
+    WEAP attack animation `Attack8`): `Hit` 0.033 s, `Sound:
+    WPNRifleHuntingReloadChamber` 0.600 s, `Eject` 0.800 s, `a:8` 1.267 s, end 1.333 s;
+    `2hrattack8is.kf` ejects at 0.767 s. In the original the varmint rifle's casing is
+    first seen as the bolt comes back [observed: owner's screenshot, 2026-10-20]. Clips
+    without the key throw at the shot [hypothesis].
+  - Checked [observed 2026-10-21, smoke `varmint-casing-eject`]: the casing left 0.80 to
+    0.82 s after the shot; at the eject the varmint rifle's node +z pointed (0.99 right,
+    −0.03 up, 0.14 ahead) of the view (the clip pitches the rifle up and turns it left,
+    it does not roll it), so the casing goes right off the receiver beside the bolt
+    hand and falls, as in the owner's screenshot of the original. Ours shows lower on
+    the screen because the arms rig holds the rifle lower in the view.
 - **Checked** [observed 2026-10-11, `--play` at Goodsprings, exit 0, "run finished"]:
   - 10mm pistol: "sfx: 4 sounds played": `WPNPistol0Equip`, `WPN10mmFire2D` (gain
     0.218), `FXBulletImpactEarth` at 656 units (gain 0.276, `BalisticDirtImpact` on
