@@ -101,7 +101,9 @@ Code: `crates/fnv-game/src/respawn.rs` (from `Game::set_loaded`),
 - In the masters the village's seven Fiends and the burned bodies around it have the flag
   and come back, and so do killed creatures of leveled spawns (`VSpawnTier3CazadorSmall50`
   …) [observed: `corpse-respawn` run, 2026-10-12].
-- Not done [documented, not built]: the encounter zone flag "Never Resets"; the bodies of
+- An encounter zone with "Never Resets" keeps its cells from resetting (2026-10-21,
+  [encounter-zones](encounter-zones.md) §4).
+- Not done [documented, not built]: the bodies of
   killed actors that do not respawn being removed at the reset ("Quest Item: Dead body
   isn't removed when the cell regenerates", Category:NPC); ResetInterior, IsCellExpired.
 

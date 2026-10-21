@@ -26,8 +26,10 @@
 //! - The cell's scripted references run their OnReset blocks (`Game::cell_reset_blocks`).
 //! - Respawning containers in the cell go back to their authored contents
 //!   (`fnv_sim::World::attach_cell`, docs/spec-notes/simulation.md §3).
-//! - Not done: the encounter zone flag "Never Resets" [documented: GECK wiki, containers in
-//!   such a zone do not respawn]; removing the bodies of killed actors that do not respawn
+//! - A cell whose encounter zone has "Never Resets" is not reset: no actor comes back and
+//!   no container refills (docs/spec-notes/encounter-zones.md §4).
+//! - A recreated actor's leveled level is fixed again (`crate::zones`).
+//! - Not done: removing the bodies of killed actors that do not respawn
 //!   ("Quest Item: Dead body isn't removed when the cell regenerates", Category:NPC);
 //!   ResetInterior.
 
@@ -52,7 +54,7 @@ impl Game<'_> {
     /// Whether the actor reference `r` respawns: its base has the flag Respawn, or its
     /// template does with the template flag "Base Data" (module notes).
     pub fn respawns(&self, r: FormId) -> bool {
-        base_of(self, r).and_then(|b| self.data.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
+        base_of(self, r).and_then(|b| self.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
     }
 
     /// The cells `left` are no longer in the loaded area: their reset clock starts.
@@ -72,6 +74,11 @@ impl Game<'_> {
         let hours_away = (now? as f64 - since? as f64) * 24.0;
         // The same slack as `World::attach_cell` (GameDaysPassed is an f32).
         if hours_away + 1e-3 < self.world.respawn_hours() as f64 {
+            return None;
+        }
+        // An encounter zone with "Never Resets" is never reset (docs/spec-notes/
+        // encounter-zones.md §4).
+        if self.world.cell_never_resets(cell) {
             return None;
         }
         let placed = self.world.placed;
@@ -100,6 +107,8 @@ impl Game<'_> {
                 (s.cell, s.pos, s.rot) = (cell, pos, rot);
             }
         }
+        // Made anew: at its level now, its leveled pick and carried items with it.
+        self.refix_level(r);
         let _ = self.world.reset_inventory(r);
         // The layer that moves actors starts it again from its authored place.
         self.teleported.insert(r);

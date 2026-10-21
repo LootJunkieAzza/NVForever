@@ -133,6 +133,15 @@ pub struct PlacedRef {
     pub radiation: Option<f32>,
     #[serde(skip)]
     pub radius: Option<f32>,
+    /// XEZN: the reference's own encounter zone, over its cell's
+    /// (docs/spec-notes/encounter-zones.md §1). Not written to JSON.
+    #[serde(skip)]
+    pub encounter_zone: Option<FormId>,
+    /// XLCM on a placed leveled actor: 0 Easy, 1 Medium, 2 Hard, 3 Very Hard (Boss);
+    /// `None` for the GECK's "None" (docs/spec-notes/encounter-zones.md §3). Not written
+    /// to JSON.
+    #[serde(skip)]
+    pub level_modifier: Option<i32>,
 }
 
 impl PlacedRef {
@@ -161,6 +170,10 @@ pub struct RefTable {
     /// Activate parents -> their activate children with each child's delay (XAPR read
     /// backwards).
     pub activate_children: BTreeMap<FormId, Vec<(FormId, f32)>>,
+    /// Cells and worldspaces with an encounter zone (CELL and WRLD XEZN,
+    /// docs/spec-notes/encounter-zones.md §1).
+    pub cell_zones: HashMap<FormId, FormId>,
+    pub world_zones: HashMap<FormId, FormId>,
     /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
@@ -214,9 +227,15 @@ impl RefTable {
             if let Some(w) = c.world {
                 t.cell_world.insert(FormId(c.form_id), FormId(w));
             }
+            if let Some(z) = c.encounter_zone {
+                t.cell_zones.insert(FormId(c.form_id), FormId(z));
+            }
         }
         let mut persistent_cells = HashSet::new();
         for (w, ws) in &ix.worldspaces {
+            if let Some(z) = ws.encounter_zone {
+                t.world_zones.insert(FormId(*w), FormId(z));
+            }
             t.world_grid.insert(FormId(*w), ws.grid.iter().map(|(g, c)| (*g, FormId(*c))).collect());
             persistent_cells.extend(ws.persistent_cell.map(FormId));
         }
@@ -260,6 +279,22 @@ impl RefTable {
         let world = self.cell_world.get(&cell)?;
         let (gx, gy) = fnv_world::cell_of(pos[0], pos[1]);
         self.world_grid.get(world)?.get(&(gx, gy)).copied()
+    }
+
+    /// The encounter zone of a cell: its own (CELL XEZN), else its worldspace's (WRLD
+    /// XEZN) [hypothesis: the worldspace's zone covers its cells that name none;
+    /// docs/spec-notes/encounter-zones.md §1].
+    pub fn cell_zone(&self, cell: FormId) -> Option<FormId> {
+        self.cell_zones.get(&cell).or_else(|| self.world_of(cell).and_then(|w| self.world_zones.get(&w))).copied()
+    }
+
+    /// The encounter zone of a placed reference: its own XEZN, else its cell's
+    /// ([`RefTable::cell_zone`]) [documented: GECK wiki Reference, "Encounter Zone: What
+    /// Encounter Zone is this reference attached to?"; hypothesis: the reference's own
+    /// zone wins over its cell's].
+    pub fn zone_of(&self, id: FormId) -> Option<FormId> {
+        let p = self.get(id)?;
+        p.encounter_zone.or_else(|| self.cell_zone(p.cell?))
     }
 
     /// The worldspace a cell belongs to (`None`: an interior, or a cell not indexed).
@@ -434,5 +469,7 @@ fn load_ref(
         parent_activate_only: first(&d, b"XAPD").is_some_and(truthy),
         radiation: first(&d, b"XRAD").and_then(serde_json::Value::as_f64).map(|x| x as f32),
         radius: first(&d, b"XRDS").and_then(serde_json::Value::as_f64).map(|x| x as f32),
+        encounter_zone: fid(first(&d, b"XEZN"), "XEZN", issues),
+        level_modifier: first(&d, b"XLCM").and_then(serde_json::Value::as_i64).map(|x| x as i32),
     })
 }

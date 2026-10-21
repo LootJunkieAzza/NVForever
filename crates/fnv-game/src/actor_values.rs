@@ -157,7 +157,7 @@ impl<'a> Game<'a> {
     /// list on the way standing for one of its entries
     /// ([`crate::GameData::template_source`]) [documented: xEdit template flags].
     pub(crate) fn def_following(&self, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<&'a ActorDef> {
-        self.data.template_source(base_of(self, r)?, r, from_template).map(|(_, d)| d)
+        self.template_source(base_of(self, r)?, r, from_template).map(|(_, d)| d)
     }
 
     /// The definition supplying `r`'s stats (template flag "Stats").

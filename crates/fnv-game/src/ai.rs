@@ -65,7 +65,7 @@ impl Game<'_> {
     /// [`GameData::base_package_list`]: crate::data::GameData::base_package_list
     pub fn package_list(&self, actor: FormId) -> Vec<FormId> {
         match functions::base_of(self, actor) {
-            Some(base) => self.data.base_package_list(base, actor),
+            Some(base) => self.data.base_package_list_at(base, actor, self.leveled_at(actor)),
             None => Vec::new(),
         }
     }

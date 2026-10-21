@@ -255,6 +255,12 @@ pub struct Snapshot {
     /// absent when none (and in older snapshots).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub leveled_added: BTreeMap<FormId, Vec<LeveledEntry>>,
+    /// Encounter zones entered and their levels (`crate::zones`); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub zone_levels: BTreeMap<FormId, u16>,
+    /// The level fixed for each reference whose cell was loaded (`crate::zones`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ref_levels: BTreeMap<FormId, crate::zones::LevelAt>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
@@ -285,6 +291,10 @@ pub struct World<'a> {
     /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
     /// flag and sets it here, [`World::set_power_armor_training`]).
     power_armor_training: bool,
+    /// Encounter zones entered and their levels (`crate::zones`).
+    pub(crate) zone_levels: BTreeMap<FormId, u16>,
+    /// The leveled-list level fixed per reference (`crate::zones`).
+    pub(crate) ref_levels: BTreeMap<FormId, crate::zones::LevelAt>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -304,6 +314,8 @@ impl<'a> World<'a> {
             inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
+            zone_levels: BTreeMap::new(),
+            ref_levels: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -355,7 +367,7 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let mut inventory = self.roll_inventory(self.inventory_base(id, base))?;
+        let mut inventory = self.roll_inventory(self.inventory_base(id, base), self.item_level(id))?;
         if id == FormId::PLAYER_REF {
             // The player wears the non-playable armour it carries: the Pip-Boy Glove and
             // the Pip-Boy 3000 that the base form NPC_ 0x7 lists. [observed in game,
@@ -422,15 +434,16 @@ impl<'a> World<'a> {
     }
 
     /// A fresh inventory for a container or actor base: its carried items with leveled
-    /// lists resolved. `None` for bases without carried items.
-    fn roll_inventory(&mut self, base: FormId) -> Result<Option<Inventory>, SimError> {
+    /// lists resolved at `level` (the reference's, `crate::zones`). `None` for bases
+    /// without carried items.
+    fn roll_inventory(&mut self, base: FormId, level: u16) -> Result<Option<Inventory>, SimError> {
         let Some(entries) = self.forms.entries(base) else { return Ok(None) };
         let mut inv = Inventory::new();
         let mut out = Vec::new();
         for e in entries {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
-            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, level, &mut self.rng, &mut out)?;
             // COED on an entry applies to whatever it resolves to [hypothesis]; without
             // one an item keeps the condition a script's leveled entry gave it.
             if !e.extra.is_plain() {
@@ -573,7 +586,7 @@ impl<'a> World<'a> {
             .map(|(&id, s)| (id, s.base))
             .collect();
         for (id, base) in due {
-            let inv = self.roll_inventory(base)?;
+            let inv = self.roll_inventory(base, self.item_level(id))?;
             let s = self.get(id)?;
             s.inventory = inv;
             s.last_restock = Some(day as f32);
@@ -1197,6 +1210,11 @@ impl<'a> World<'a> {
         if elapsed_hours + 1e-3 < self.respawn_hours() as f64 {
             return Ok(Vec::new());
         }
+        // An encounter zone with "Never Resets" keeps its containers as they are
+        // (docs/spec-notes/encounter-zones.md §4).
+        if self.cell_never_resets(cell) {
+            return Ok(Vec::new());
+        }
         let forms = self.forms;
         let respawns = |base: FormId| matches!(forms.get(base).map(|b| &b.data), Some(BaseData::Container(c)) if c.respawns);
         let reset: Vec<FormId> = self
@@ -1210,6 +1228,8 @@ impl<'a> World<'a> {
             .collect();
         for id in &reset {
             self.refs.remove(id);
+            // Made anew: its level is fixed again when the cell is entered.
+            self.ref_levels.remove(id);
         }
         Ok(reset)
     }
@@ -1260,7 +1280,7 @@ impl<'a> World<'a> {
         if self.forms.sig(base).is_none() {
             return Err(SimError::UnknownForm(base));
         }
-        let mut inventory = self.roll_inventory(base)?;
+        let mut inventory = self.roll_inventory(base, self.cfg.player_level)?;
         // A created actor appears where the player is: it is outfitted at once.
         let outfitted = self.equip_default(base, &mut inventory);
         let id = FormId(self.next_dynamic);
@@ -1314,7 +1334,7 @@ impl<'a> World<'a> {
     pub fn give_items_of(&mut self, id: FormId, source: FormId) -> Result<(), SimError> {
         self.get(id)?;
         self.set_inventory_source(id, Some(source));
-        let mut inv = self.roll_inventory(source)?;
+        let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
         s.inventory = inv;
@@ -1327,7 +1347,7 @@ impl<'a> World<'a> {
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         let base = self.get(id)?.base;
         let source = self.inventory_base(id, base);
-        let mut inv = self.roll_inventory(source)?;
+        let mut inv = self.roll_inventory(source, self.item_level(id))?;
         if self.get(id)?.outfitted {
             self.equip_default(source, &mut inv);
         }
@@ -1499,6 +1519,8 @@ impl<'a> World<'a> {
             detached_cells: self.detached_cells.clone(),
             quest_objects: self.quest_objects.clone(),
             leveled_added: self.leveled_added.clone(),
+            zone_levels: self.zone_levels.clone(),
+            ref_levels: self.ref_levels.clone(),
         }
     }
 
@@ -1515,6 +1537,8 @@ impl<'a> World<'a> {
         w.detached_cells = s.detached_cells.clone();
         w.quest_objects = s.quest_objects.clone();
         w.leveled_added = s.leveled_added.clone();
+        w.zone_levels = s.zone_levels.clone();
+        w.ref_levels = s.ref_levels.clone();
         Ok(w)
     }
 }

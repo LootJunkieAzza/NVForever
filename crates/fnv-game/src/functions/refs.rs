@@ -221,6 +221,17 @@ pub fn get_in_worldspace(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     yes(cell.and_then(|c| g.world.placed.world_of(c)) == Some(ws))
 }
 
+/// `ref.GetInZone zone`: 1 when the calling reference is in a cell attached to the
+/// encounter zone [documented: GECK wiki GetInZone, "Returns 1 if FredRef is currently in
+/// a cell attached to the ParadiseFallsZone"]: its current cell's zone (CELL XEZN, else
+/// the worldspace's; docs/spec-notes/encounter-zones.md §1) [hypothesis: a reference's
+/// own XEZN does not count; the wiki speaks of cells].
+pub fn get_in_zone(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let zone = a.form(0)?;
+    yes(g.cell_of(r).and_then(|c| g.world.placed.cell_zone(c)) == Some(zone))
+}
+
 pub fn get_in_same_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let t = a.form(0)?;

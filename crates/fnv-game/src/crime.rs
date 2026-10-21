@@ -307,7 +307,7 @@ impl Game<'_> {
     pub fn alignment(&mut self, r: FormId) -> Alignment {
         let b = self.crime_settings().bounds;
         let karma = if self.data.actors.contains_key(&r) {
-            self.data.template_source(r, r, |d| d.template_traits).map_or(self.data.actors[&r].karma, |(_, d)| d.karma)
+            self.template_source(r, r, |d| d.template_traits).map_or(self.data.actors[&r].karma, |(_, d)| d.karma)
         } else {
             actor_value(self, r, KARMA).unwrap_or(0.0)
         };

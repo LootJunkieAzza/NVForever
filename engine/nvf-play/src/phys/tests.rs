@@ -287,6 +287,8 @@ fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
             parent_activate_only: false,
             radiation: None,
             radius: None,
+            encounter_zone: None,
+            level_modifier: None,
         },
     );
     let forms: &'static FormStore = Box::leak(Box::default());

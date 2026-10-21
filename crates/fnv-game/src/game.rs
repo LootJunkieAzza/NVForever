@@ -1054,6 +1054,8 @@ pub struct Game<'a> {
     /// Cell resets since the engine last took them ([`Game::take_cell_resets`],
     /// `crate::respawn`). Not saved.
     pub cell_resets: Vec<crate::respawn::CellReset>,
+    /// Zone levels set and leveled actors fixed, not yet taken (`crate::zones`).
+    pub(crate) level_news: Vec<crate::zones::LevelNews>,
     /// Actors ResurrectActor brought back since the engine last took them
     /// ([`Game::take_resurrections`], `crate::resurrect`). Not saved.
     pub resurrections: Vec<crate::resurrect::Resurrection>,
@@ -1316,7 +1318,10 @@ pub struct RunCtx {
 impl<'a> Game<'a> {
     pub fn new(data: &'a GameData, mut world: World<'a>, cfg: GameConfig) -> Game<'a> {
         // Placed actors carry their template's items (template flag "Inventory").
-        world.set_inventory_sources(data.inventory_sources(world.placed));
+        // Each at the level it would be fixed at now (`crate::zones`); a cell load fixes it.
+        let player_level = world.config().player_level;
+        let sources = data.inventory_sources_at(world.placed, |r| world.level_at(r, player_level));
+        world.set_inventory_sources(sources);
         Game {
             data,
             toggles: Default::default(),
@@ -1373,6 +1378,7 @@ impl<'a> Game<'a> {
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
             cell_resets: Vec::new(),
+            level_news: Vec::new(),
             resurrections: Vec::new(),
             appearance_changes: Vec::new(),
             activate_menu: None,
@@ -1601,7 +1607,7 @@ impl<'a> Game<'a> {
         // An actor with the template flag "Script" runs its template's script [documented:
         // GECK wiki GetActorTemplateFlag, "Use Script"].
         let base = if self.data.actors.contains_key(&base) || self.data.leveled_actors.contains_key(&base) {
-            self.data.template_source(base, r, |d| d.template_script).map_or(base, |(id, _)| id)
+            self.template_source(base, r, |d| d.template_script).map_or(base, |(id, _)| id)
         } else {
             base
         };
@@ -2501,6 +2507,11 @@ impl<'a> Game<'a> {
         // before anything in them runs (`crate::respawn`).
         self.cells_left(&left);
         let reset: Vec<FormId> = new.iter().copied().filter(|&c| self.cell_entered(c).is_some()).collect();
+        // Their encounter zones get a level, their actors and containers theirs, before
+        // anything rolls their carried items (`crate::zones`).
+        for &c in &new {
+            self.fix_cell_levels(c);
+        }
         self.loaded_cells = cells;
         // The references of a reset cell run their OnReset blocks, before OnLoad
         // (`crate::respawn`).

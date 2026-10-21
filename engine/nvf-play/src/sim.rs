@@ -55,7 +55,7 @@ impl SimState {
     /// reference of the base [documented: GECK wiki SetActorFullName].
     pub fn ref_name<'s>(&'s self, game: Option<&'s fnv_game::Game<'_>>, form_id: u32) -> Option<&'s str> {
         let base = self.base_of(form_id)?;
-        let shown = game.map_or(base, |g| g.data.display_base(base, FormId(form_id)));
+        let shown = game.map_or(base, |g| g.display_base(base, FormId(form_id)));
         let renamed = game.and_then(|g| g.script_name(base).or_else(|| g.script_name(shown)));
         renamed.or_else(|| self.name(shown)).or_else(|| self.name(base))
     }
