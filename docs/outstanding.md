@@ -227,8 +227,10 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
 ## 5. Process
 
 - **Smoke scenarios on main** (2026-10-18): the failures #403 found are fixed (#411,
-  #415, #416) except `death-cam-first`'s rest check, marked `known_failing` (the player's
-  ragdoll sometimes never settles; cause open, new diagnostics log it). Several scenarios
+  #415, #416). `death-cam-first`'s and `death-cam-third`'s rest checks, long marked
+  `known_failing`, pass again (2026-10-21): the rest rule read the bodies' velocities, which
+  a limb shivering between the ground and a joint limit kept high while it went nowhere; it
+  now reads the bones' net motion ([ragdoll](spec-notes/ragdoll.md) §4 "Rest"). Several scenarios
   failed only because the scripts started late on a loaded machine and a test aid fired
   first; scenarios now put console and script steps at 14 s or later and use
   `--no-messages` where the add-on packs' start-up boxes could get in the way. The

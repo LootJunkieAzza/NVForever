@@ -156,9 +156,34 @@ without a body (fingers, clavicles, twist bones, the weapon node) keep the pose 
 died in under their parent. The actor's own transform stays where it died.
 
 **Rest.** A ragdoll is at rest when the physics engine puts its bodies to sleep, or when
-they all stay under 12 units per second and 0.6 radians per second for 1.5 seconds
-(joints resting on their limits can keep a corpse creeping below what the eye sees). At
-rest it is **held** (`PhysWorld::set_ragdoll_at_rest`): its bodies become fixed, so it
+its bones all stay under 12 units per second and 0.6 radians per second for 1.5 seconds
+(joints resting on their limits can keep a corpse creeping below what the eye sees). The
+speeds are each bone's net motion over windows of 0.25 s (how far it moved and how far it
+turned from the window's start to its end, over the window's length), not the bodies'
+velocities [design, 2026-10-21]:
+
+- [observed 2026-10-21] Dropping the human skeleton's ragdoll (`_male\skeleton.nif`, 18
+  bodies) 100 times on flat ground from random heights, tilts, headings and starting
+  velocities (a scratch program on `fnv_phys` with the shipped skeleton, not kept), the
+  velocity rule set 77 of them at rest within 20 s; the other 23 had a body (most often
+  a forearm, hand, upper arm or the neck) whose velocity flipped from step to step at up
+  to 8 radians per second, while over the next whole second no bone moved more than
+  1.4 units or turned more than 0.14 radians. Read as net motion over 0.25 s windows all
+  100 came to rest, in 3.2 s on average and 8.5 s at most. Neither turning off the
+  self-collision pairs nor doubling the solver's iterations nor changing the joint
+  damping stopped the shiver [observed, the same program].
+  [hypothesis] The shiver is the solver alternating between a ground contact and a
+  joint limit (or the damping motor) on a light body; the hold at rest ends it.
+- The dead player's ragdoll (smoke `death-cam-first`, `death-cam-third`) was one of
+  these: on main it failed to rest in 2 of 2 runs, its left forearm and upper arm
+  breaking each calm spell at up to 9.7 rad/s while the trunk lay still; with the window
+  rule it rested 4.4 to 7.7 s of game time after the death in 6 of 6 runs (3 of each
+  scenario) [observed 2026-10-21].
+- A ragdoll still moving at exit logs its fastest bone's speed and spin over the last
+  window, the longest it stayed calm, and the bones that ended its calm spells (how
+  often, and how fast).
+
+At rest it is **held** (`PhysWorld::set_ragdoll_at_rest`): its bodies become fixed, so it
 lies still, costs nothing, and still stops rays and loose objects. A hit's shove or a
 blast within reach makes it a ragdoll again. Walking into it or rolling a barrel onto it
 does not.

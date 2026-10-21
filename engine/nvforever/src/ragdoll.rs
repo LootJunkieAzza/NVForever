@@ -42,14 +42,21 @@ use std::sync::Arc;
 
 /// A corpse this far under the terrain has fallen through it, game units; it is put back
 /// this far above it, at most [`MAX_LIFTS`] times.
-/// A ragdoll whose bodies all move slower than [`CALM_SPEED`] (game units per second)
+/// A ragdoll whose bones all move slower than [`CALM_SPEED`] (game units per second)
 /// and turn slower than [`CALM_SPIN`] (radians per second) for [`CALM_TIME`] seconds is
 /// set at rest (`PhysWorld::set_ragdoll_at_rest`: held where it lies until a hit or a
 /// blast): joints resting against their limits can keep a corpse creeping below what the
 /// eye sees but above what the physics engine calls rest.
+///
+/// The speeds are the bones' net motion over windows of [`CALM_WINDOW`] seconds, not the
+/// bodies' velocities: a limb pressed between the ground and a joint limit shivers, its
+/// velocity flipping from step to step at up to several radians per second while it goes
+/// nowhere, and read from the velocities such a corpse never came to rest
+/// (docs/spec-notes/ragdoll.md §4 "Rest").
 pub const CALM_SPEED: f32 = 12.0;
 pub const CALM_SPIN: f32 = 0.6;
 pub const CALM_TIME: f32 = 1.5;
+pub const CALM_WINDOW: f32 = 0.25;
 
 pub const FELL_THROUGH: f32 = 150.0;
 pub const LIFT_ABOVE: f32 = 20.0;
@@ -73,17 +80,20 @@ pub struct Ragdolls {
     /// whose stored pose did not fit their skeleton.
     pub authored: usize,
     pub authored_skipped: usize,
-    /// Per live ragdoll: its fastest body's speed and spin at the last update, and the
+    /// Per live ragdoll: its fastest bone's speed and spin over the last calm window, and the
     /// longest it has been calm ([`CALM_TIME`] sets it at rest), for the exit report of
     /// ragdolls that never came to rest.
     calm: HashMap<u32, Calm>,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Calm {
     speed: f32,
     spin: f32,
     longest: f32,
+    /// The bodies (by bone name) that ended a calm spell by moving or turning faster than
+    /// the limits: how often, and the fastest speed and spin they had then.
+    breakers: HashMap<String, (u32, f32, f32)>,
 }
 
 impl Ragdolls {
@@ -168,7 +178,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0 })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0 })
     }
 }
 
@@ -214,6 +224,10 @@ pub struct Corpse {
     lifts: u8,
     /// Seconds it has been nearly still.
     calm: f32,
+    /// The bones' poses at the start of the current calm window ([`CALM_WINDOW`]), and
+    /// the seconds since.
+    since: Vec<Option<Iso>>,
+    window: f32,
 }
 
 impl Corpse {
@@ -319,6 +333,8 @@ fn start(
         c.live = true;
         c.settled = false;
         c.calm = 0.0;
+        c.since.clear();
+        c.window = 0.0;
         if asleep {
             ragdolls.restored += 1;
         } else {
@@ -334,6 +350,24 @@ fn start(
             ragdolls.pushes += 1;
         }
     }
+}
+
+/// Per body, how fast its bone moved and turned on average between the poses `a` and `b`
+/// taken `seconds` apart: game units per second and radians per second (0 for a body
+/// missing from either).
+fn net_motion(a: &[Option<Iso>], b: &[Option<Iso>], seconds: f32) -> Vec<(f32, f32)> {
+    let t = seconds.max(1e-6);
+    a.iter()
+        .zip(b)
+        .map(|(a, b)| {
+            let (Some(a), Some(b)) = (a, b) else { return (0.0, 0.0) };
+            let d = (0..3).map(|i| (a.translation[i] - b.translation[i]).powi(2)).sum::<f32>().sqrt();
+            // The angle of the turn from a to b: trace(aᵀ b) = 1 + 2 cos θ.
+            let trace: f32 = a.rotation.iter().zip(&b.rotation).map(|(x, y)| x * y).sum();
+            let angle = ((trace - 1.0) / 2.0).clamp(-1.0, 1.0).acos();
+            (d / t, angle / t)
+        })
+        .collect()
 }
 
 /// Write the ragdolls' bodies to their bones, and take out of the world the ragdolls
@@ -396,15 +430,34 @@ pub(crate) fn pose(
             continue;
         }
         seen.insert(id);
-        let speed = phys.world.ragdoll_speed(id);
-        let calm = speed.is_some_and(|(v, w)| v < CALM_SPEED && w < CALM_SPIN);
-        c.calm = if calm { c.calm + time.delta_secs() } else { 0.0 };
-        let seen_calm = ragdolls.calm.entry(id).or_default();
-        if let Some((v, w)) = speed {
-            (seen_calm.speed, seen_calm.spin) = (v, w);
+        let now = rest();
+        if c.settled && !phys.world.ragdoll_asleep(id) {
+            // Roused by a hit or a blast: calm from scratch.
+            c.calm = 0.0;
+            c.since.clear();
         }
-        seen_calm.longest = seen_calm.longest.max(c.calm);
-        if c.calm > CALM_TIME || phys.world.ragdoll_asleep(id) {
+        c.window += time.delta_secs();
+        if c.since.len() != now.len() {
+            (c.since, c.window) = (now, 0.0);
+        } else if c.window >= CALM_WINDOW {
+            let moved = net_motion(&c.since, &now, c.window);
+            let (v, w) = moved.iter().fold((0.0f32, 0.0f32), |m, &(v, w)| (m.0.max(v), m.1.max(w)));
+            let calm = v < CALM_SPEED && w < CALM_SPIN;
+            let seen_calm = ragdolls.calm.entry(id).or_default();
+            if !calm && c.calm > 0.0 {
+                // Which bodies ended the calm spell, for the exit report.
+                for (i, &(v, w)) in moved.iter().enumerate().filter(|(_, &(v, w))| v >= CALM_SPEED || w >= CALM_SPIN) {
+                    let name = c.data.bodies.get(i).and_then(|b| b.object.node.clone()).unwrap_or_else(|| format!("body {i}"));
+                    let e = seen_calm.breakers.entry(name).or_default();
+                    *e = (e.0 + 1, e.1.max(v), e.2.max(w));
+                }
+            }
+            c.calm = if calm { c.calm + c.window } else { 0.0 };
+            (seen_calm.speed, seen_calm.spin) = (v, w);
+            seen_calm.longest = seen_calm.longest.max(c.calm);
+            (c.since, c.window) = (now, 0.0);
+        }
+        if c.calm >= CALM_TIME || phys.world.ragdoll_asleep(id) {
             phys.world.set_ragdoll_at_rest(id);
         }
         let asleep = phys.world.ragdoll_asleep(id);
@@ -473,12 +526,16 @@ fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Optio
     // Those still moving: how fast, and how near they came to resting.
     if let Some(p) = phys.as_deref() {
         for id in p.world.ragdolls().filter(|&id| !p.world.ragdoll_asleep(id)) {
-            let c = ragdolls.calm.get(&id).copied().unwrap_or_default();
+            let c = ragdolls.calm.get(&id).cloned().unwrap_or_default();
             let at = p.world.ragdoll_center(id).map_or_else(|| "unknown".to_string(), |a| format!("({:.0}, {:.0}, {:.0})", a[0], a[1], a[2]));
             info!(
-                "ragdoll: actor {id:08X} not at rest at exit: its fastest body moves {:.1} units/s (calm below {CALM_SPEED}) and turns {:.2} rad/s (below {CALM_SPIN}); calm for {:.2} s at most ({CALM_TIME} s sets it at rest); trunk at {at}",
+                "ragdoll: actor {id:08X} not at rest at exit: its fastest bone moved {:.1} units/s (calm below {CALM_SPEED}) and turned {:.2} rad/s (below {CALM_SPIN}) over the last {CALM_WINDOW} s; calm for {:.2} s at most ({CALM_TIME} s sets it at rest); trunk at {at}",
                 c.speed, c.spin, c.longest
             );
+            let mut breakers: Vec<_> = c.breakers.iter().collect();
+            breakers.sort_by_key(|b| std::cmp::Reverse(b.1 .0));
+            let list: Vec<String> = breakers.iter().take(6).map(|(n, (k, v, w))| format!("{n} {k}x (up to {v:.1} units/s, {w:.2} rad/s)")).collect();
+            info!("ragdoll: actor {id:08X}: calm spells ended by {}", if list.is_empty() { "nothing (never calm)".to_string() } else { list.join(", ") });
         }
     }
 }
