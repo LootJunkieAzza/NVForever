@@ -7309,6 +7309,27 @@ its skill rises, Books Read counts one and a corner line says so. Spec:
 - *Check:* read Guns and Bullets with Guns at 15 in the original: is it 18, what line shows,
   and does Books Read in the Pip-Boy's General stats rise? With Comprehension, 4?
 
+## Death items (2026-10-21, ESM gap audit item 5, branch claude/e5-death-items)
+
+An actor's death item (NPC_/CREA INAM, a leveled item list: hides, meat, glands, dog tags)
+now goes into the body when it dies, so it can be looted. Spec:
+[death-items](spec-notes/death-items.md). Decisions and guesses:
+
+- *Guess:* the list is rolled as the actor dies (not when it spawns), before its OnDeath
+  scripts run, and without OnAdd.
+- *Guess:* it is read at the same level as the actor's carried items (its encounter zone's
+  level, else the player's).
+- *Decision:* it comes from the actor that supplies the Traits (xEdit hides INAM with the
+  Traits flag); in the 14 creatures whose own INAM differs from their template's, the
+  template's wins (e.g. the Vault 19 fire gecko: DeathItemGeckoFire100, not its own DeathItemGeckoFire50).
+- *Guess:* a resurrected actor that dies again gets a second roll; a reload adds nothing.
+- *Guess:* corpses placed dead (the tribal village's Fiends) hold their death item too,
+  rolled when their inventory is first looked at.
+- *Built too:* the perk entry point "Add Leveled List On Death" (player kills only; no
+  FalloutNV.esm perk uses it, Them's Good Eating and Certified Tech in the add-ons do).
+- *Check:* kill a radroach and search it: Radroach Meat. Kill a few geckos: hides, meat and
+  sometimes an egg, not every time. Search a raider: sometimes extra items (DeathItemRaider15).
+
 ## Vendor services (2026-10-21, ESM gap audit item 6, branch claude/e6-vendor-services)
 
 Vendors now sell only the item categories their AI data's "Buys/Sells" flags name (Weapons,

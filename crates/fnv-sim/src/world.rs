@@ -261,7 +261,15 @@ pub struct Snapshot {
     /// The level fixed for each reference whose cell was loaded (`crate::zones`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub ref_levels: BTreeMap<FormId, crate::zones::LevelAt>,
+    /// Death items owed to dead actors whose inventory was not read yet
+    /// ([`World::add_death_item`]); absent when none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub death_items: BTreeMap<FormId, FormId>,
 }
+
+/// A death item rolled into a body ([`World::add_death_item`]): the level the list was
+/// read at and the items added.
+pub type DeathItemRoll = (u16, Vec<(FormId, i32)>);
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
 
@@ -295,6 +303,9 @@ pub struct World<'a> {
     pub(crate) zone_levels: BTreeMap<FormId, u16>,
     /// The leveled-list level fixed per reference (`crate::zones`).
     pub(crate) ref_levels: BTreeMap<FormId, crate::zones::LevelAt>,
+    /// Death items owed to dead actors not read yet, rolled into the inventory when it is
+    /// first made ([`World::add_death_item`]).
+    death_items: BTreeMap<FormId, FormId>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -316,6 +327,7 @@ impl<'a> World<'a> {
             power_armor_training: false,
             zone_levels: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
+            death_items: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -368,6 +380,13 @@ impl<'a> World<'a> {
             None => return Err(SimError::UnknownRef(id)),
         };
         let mut inventory = self.roll_inventory(self.inventory_base(id, base), self.item_level(id))?;
+        if let Some(list) = self.death_items.remove(&id) {
+            let level = self.item_level(id);
+            let inv = inventory.get_or_insert_with(Inventory::new);
+            for e in self.roll_death_item(list, level)? {
+                inv.add_extra(e.item, e.count, e.extra);
+            }
+        }
         if id == FormId::PLAYER_REF {
             // The player wears the non-playable armour it carries: the Pip-Boy Glove and
             // the Pip-Boy 3000 that the base form NPC_ 0x7 lists. [observed in game,
@@ -650,6 +669,48 @@ impl<'a> World<'a> {
                 (e.item, e.count)
             })
             .collect())
+    }
+
+    /// The dead actor `id` gets its death item `list` (a leveled item list, or an item),
+    /// resolved at the level its carried items are rolled at (`crate::zones`), without
+    /// OnAdd (docs/spec-notes/death-items.md). An actor whose inventory was not made yet
+    /// (a placed corpse never read) is owed it until then, so that the list is read at
+    /// the level fixed when its cell loads; `Ok(None)` then. Otherwise the level read at and
+    /// the items added.
+    pub fn add_death_item(&mut self, id: FormId, list: FormId) -> Result<Option<DeathItemRoll>, SimError> {
+        if self.forms.leveled(list).is_none() {
+            self.check_item(list)?;
+        }
+        if !self.refs.contains_key(&id) {
+            if self.placed.get(id).is_none() {
+                return Err(SimError::UnknownRef(id));
+            }
+            self.death_items.insert(id, list);
+            return Ok(None);
+        }
+        let level = self.item_level(id);
+        let rolled = self.roll_death_item(list, level)?;
+        let inv = self.inventory(id)?;
+        let added = rolled
+            .into_iter()
+            .map(|e| {
+                inv.add_extra(e.item, e.count, e.extra);
+                (e.item, e.count)
+            })
+            .collect();
+        Ok(Some((level, added)))
+    }
+
+    /// The death items owed to actors whose inventory is not made yet.
+    pub fn owed_death_items(&self) -> &BTreeMap<FormId, FormId> {
+        &self.death_items
+    }
+
+    fn roll_death_item(&mut self, list: FormId, level: u16) -> Result<Vec<crate::forms::Entry>, SimError> {
+        let mut out = Vec::new();
+        leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, list, 1, level, &mut self.rng, &mut out)?;
+        out.retain(|e| e.count > 0);
+        Ok(out)
     }
 
     /// Remove up to `count`; returns how many were removed.
@@ -1345,8 +1406,10 @@ impl<'a> World<'a> {
     }
 
     /// A fresh roll of the base's carried items replaces the reference's inventory
-    /// (ResetInventory, Layer 5). `false` when the base carries no items.
+    /// (ResetInventory, Layer 5). `false` when the base carries no items. A death item
+    /// still owed is dropped: the actor starts again.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
+        self.death_items.remove(&id);
         let base = self.get(id)?.base;
         let source = self.inventory_base(id, base);
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
@@ -1529,6 +1592,7 @@ impl<'a> World<'a> {
             leveled_added: self.leveled_added.clone(),
             zone_levels: self.zone_levels.clone(),
             ref_levels: self.ref_levels.clone(),
+            death_items: self.death_items.clone(),
         }
     }
 
@@ -1547,6 +1611,7 @@ impl<'a> World<'a> {
         w.leveled_added = s.leveled_added.clone();
         w.zone_levels = s.zone_levels.clone();
         w.ref_levels = s.ref_levels.clone();
+        w.death_items = s.death_items.clone();
         Ok(w)
     }
 }
