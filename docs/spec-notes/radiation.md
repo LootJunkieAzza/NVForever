@@ -5,7 +5,8 @@ cut by Rad Resistance, the Geiger counter's clicks, the HUD's radiation meter an
 GetRadiationLevel. Rads from food, drink and chems, RadAway, Rad-X and the radiation
 sickness stages were built before (aid-items.md §3, §11) and are only used here.
 Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiation.rs`
-(water, Geiger counter, meter, log). Queue item 26, 2026-10-21.
+(water, Geiger counter, meter, log). Queue item 26, 2026-10-21; explosions' radiation and
+damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
 
 ## 1. Sources
 
@@ -19,7 +20,18 @@ Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiat
   Radiation Marker pages are not in the export.
 - xEdit wbDefinitionsFNV.pas: REFR XRAD "Radiation" (f32), XRDS "Radius" (f32); WATR XNAM
   "Actor Effect".
-- FalloutNV.esm [observed, read with a private script over the plugin]: the records below.
+- GECK wiki export, Special-Effect "Explosion Dialog": "Radiation: RAD Level: Amount of
+  RADs per second. Radius: Size of radiation effect. Dissipation Time: Duration of
+  radiation effect." WaterType: "Causes *n* damage per second: … the number of health
+  points lost per second while in this water type. Vanilla water types do not use this
+  option, but cause rad damage instead", with the damage taken "every second they are
+  submerged". IsInDangerousWater: "Returns 1 if a calling actor reference is in water
+  that causes damage." JIP's GetWaterTrait: trait 1 is the flags, "1 - Causes damage".
+- xEdit wbDefinitionsFNV.pas: EXPL DATA ends with the radiation struct (level,
+  dissipation time, radius) before the sound level; WATR FNAM bit 0 "Causes Damage",
+  DATA "Damage" u16 (the whole 2-byte DATA, or the last field of the old 186-byte form).
+- FalloutNV.esm and the add-ons [observed, read with a private script over the plugins]:
+  the records below.
 
 ## 2. Radiation markers
 
@@ -40,6 +52,35 @@ Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiat
   the interior); every marker of the player's space is measured each frame (119 in all,
   no culling by loaded cells).
 
+## 2.1 Explosions' radiation zones
+
+- **The data** [observed]: 24 FalloutNV.esm explosions carry a radiation level, 5 in
+  OldWorldBlues, 7 in LonesomeRoad, 5 in GunRunnersArsenal (one, GrenadeNukaFireBurst,
+  overrides the base game's). Level (rads/s) / dissipation time / radiation radius:
+  FatManNukeExplosion 10 / 12 / 616 (its blast radius 1700); SmallNukeExplosion
+  10 / 10 / 900; BusNukeExplosion and VertibirdExplosion 10 / 12 / 616;
+  SatcomNukeExplosion 100 / 24 / 1232; HVBunkerExplosion 5 / 30 / 2000; FFE08Explosion
+  2 / 30 / 3000; GlowingOneBurstExplode 50 / 1 / 640; GrenadeNukaFireBurst 50 / 2 / 200;
+  NVDLC05FatManBigKidExplosion 30 / 20 / 2500; NVDLC04WarheadNukeExplosion 20 / 18 / 1024.
+  The dissipation times (1 to 30) read as seconds; every radiation radius is set (100 to
+  3000).
+- **The rule** [hypothesis]: an explosion with a radiation level above 0 and a
+  dissipation time above 0 leaves a zone where it went off. Its level starts at the
+  EXPL's and falls linearly to nothing over the dissipation time, counted in seconds of
+  play (game-mode time, as the rads are; the hours of a wait or sleep count at the
+  TimeScale, an hour = 120 s at 30, so they end every zone). Its radius is the radiation
+  radius (the blast's own radius if that were under 1 unit; no master needs it). A zone
+  counts like a marker: whole within its radius (3-D distance), and the strongest of all
+  markers and zones counts, not their sum. Reasons: the wiki calls the time a
+  "duration", which a fade over it reads naturally (a flat level ending at once is the
+  other reading); markers do not add (§2).
+- So a Fat Man's blast gives up to 10 rads a second within 616 units for 12 s, about 60
+  rads before Rad Resistance to one who stays at its centre.
+- The zone lies in the space the player is in when it goes off (explosions happen in the
+  loaded world around the player) [design]. Zones are not saved [design: they last
+  seconds].
+- The explosion's log line no longer says radiation is not built.
+
 ## 3. Irradiated water
 
 - **The data** [observed]: no FalloutNV.esm water has a non-zero WATR damage (DATA's u16,
@@ -57,9 +98,24 @@ Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiat
   volume is taken as its cell's water type; interiors have physics water only through
   their placed volumes].
 
+## 3.1 Damaging water
+
+- **The rule** [documented: §1 WaterType]: a water type with "Causes Damage" (FNAM bit 0)
+  takes its DATA damage of health from the player once a second while the player is in it
+  [hypothesis: "in it" is swimming or wading, as for its rads (§3); the first hit comes a
+  second after going in; the hit is an effect's health damage (essential actors fall
+  unconscious, others die at 0) with no attacker]. The wiki's camera shake and hurt
+  sound are not played [not built].
+- **The data** [observed]: no water of FalloutNV.esm or the add-ons has the flag or a
+  damage above 0, so the vanilla game never uses it; only plugins can.
+- IsInDangerousWater (opcode 0x114C) is 1 for the player in such a water, 0 otherwise and
+  on any other actor [documented: §1; observed: 0 in the Mojave's water (physics.md
+  `sw_trial`), whose types lack the flag].
+
 ## 4. The level and the rads taken
 
-- **Level** = the markers' level (§2) + the water's (§3): rads a second before
+- **Level** = the place's level (the strongest marker or explosion zone, §2, §2.1) + the
+  water's (§3): rads a second before
   resistance. GetRadiationLevel returns it for the player and 0 for anyone else
   [documented: §1].
 - **Rads taken a second** = level × `fRadiationAccumulationRate` (1.0 [observed]) ×
@@ -76,6 +132,13 @@ Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiat
   nothing: what they do is not documented [observed: the values; hypothesis: the second is
   for the AI packages' Avoid Radiation flag, which is not built].
 - Only the player takes environment radiation [design]; NPCs and creatures do not.
+  Revisited for audit row 7 (2026-10-21) and kept: an NPC's Rads value drives nothing (the
+  RADS sickness stages are the player's, GetRadiationLevel answers 0 for anyone else
+  [documented: §1]), and the one visible NPC use, feral ghouls healing in radiation, is not
+  documented. Building it would be guesswork with no effect to check.
+- **Waiting and sleeping** are refused while rads are taken (the rate after Rad
+  Resistance above 0) [owner request 2026-10-17; wait-menu.md §9], which the world's
+  radiation now drives.
 
 ## 5. Geiger counter
 
@@ -107,10 +170,15 @@ Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiat
 - `radiation: level <l> rads/s (marker <ref> <l>, swimming in <water> <w>), taking <r>/s
   (Rad Resistance <rr> %), rads <n>` when the source or the level (to a tenth) changes;
   `radiation: out of radiation, rads <n>`.
-- `radiation: the player is swimming|wading in water <name>`, `… out of the water`.
+- `radiation: the player is swimming|wading in water <name>` (with `(it causes <n> damage a
+  second)` for a damaging water), `… out of the water`;
+  `radiation: water <name> takes <n> health (<k> hit(s) in all)`.
+- `radiation: explosion <EXPL> leaves a radiation zone (#<serial>): <l> rads/s within <r>
+  units, fading over <t> s`; the level line's source reads `zone of <EXPL> <l>`;
+  `radiation: the zone of <EXPL> (#<serial>) has faded`. Smoke `explosion-radiation`.
 - `geiger: UIPipBoyRadiation<A|B|C> (level <l>)`, `geiger: quiet` when the band changes.
 - At exit: `radiation summary: <s> s in radiation, highest level <l> rads/s, rads <a> -> <b>
-  (+<d>), <k> Geiger bursts`.
+  (+<d>), <k> Geiger bursts, <z> explosion zone(s), <h> water hit(s)`.
 - The sickness stage: `needs: Rad Level <n>: Radiation200` (aid.rs); the game's own CGTutorialRadiation box follows.
 
 ## 8. Not built
@@ -120,3 +188,5 @@ Code: `crates/fnv-game/src/radiation.rs` (the rule), `engine/nvf-play/src/radiat
 - Rads from a radioactive actor's aura (Glowing Ones' `vGlowingOneRadAura` is an
   ability with an area effect; area effects are not built).
 - The Pip-Boy's own radiation readout beyond the Rads value it lists.
+- Damaging water's camera shake and hurt sound; damaging water for NPCs.
+- Explosions' radiation zones in saves.

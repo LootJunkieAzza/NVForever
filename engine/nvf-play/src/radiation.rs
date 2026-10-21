@@ -17,8 +17,11 @@
 //!   237) and "RADS" (`radiation_text`, font 7, from x 245), in the HUD's alternative
 //!   colour (`&hudalt;`) [documented: the menu file; hypothesis: the texts, the word, and
 //!   the place: the file leaves it to the code, set here just above the health piece].
+//! - **Explosion zones**: `crate::combat` leaves them when an explosion with radiation
+//!   goes off (`Game::add_radiation_zone`); here they are logged as they fade away.
 //! - Logged: `radiation: level <l> rads/s (<source>), taking <r>/s (Rad Resistance
 //!   <rr> %), rads <n>` when the source or the rounded level changes,
+//!   `radiation: the zone of <explosion> has faded`, the water's damage hits,
 //!   `radiation: out of radiation, rads <n>`, `geiger: <sound> (level <l>)` when the
 //!   band changes, and at exit `radiation summary: …`.
 
@@ -84,10 +87,18 @@ const BOTTOM: f32 = 160.0;
 /// text, the font's base about 28 below it).
 const BASE: f32 = TEXT_TOP - 10.0;
 
+/// What the last level line named: the marker, the zone's explosion, the water, and
+/// the level in tenths.
+type Shown = (Option<FormId>, Option<FormId>, Option<FormId>, i64);
+
 /// What the log and the exit summary keep.
 #[derive(Resource, Default, Debug)]
 pub struct RadLog {
-    shown: Option<(Option<FormId>, Option<FormId>, i64)>,
+    shown: Option<Shown>,
+    /// The explosion zones seen: serial and explosion.
+    zones: Vec<(u32, FormId)>,
+    pub zones_left: u32,
+    water_hits: u32,
     band: usize,
     pub max_level: f64,
     pub seconds: f64,
@@ -128,7 +139,12 @@ fn tell_water(phys: Option<Res<PhysState>>, d: Option<Res<PlayWorld>>, mut scrip
     });
     if *last != contact {
         match contact {
-            Some(w) => info!("radiation: the player is {} in water {}", if w.swimming { "swimming" } else { "wading" }, rt.game.data.name(w.water)),
+            Some(w) => info!(
+                "radiation: the player is {} in water {}{}",
+                if w.swimming { "swimming" } else { "wading" },
+                rt.game.data.name(w.water),
+                rt.game.data.water_damage.get(&w.water).map(|d| format!(" (it causes {d:.0} damage a second)")).unwrap_or_default()
+            ),
             None if last.is_some() => info!("radiation: the player is out of the water"),
             None => {}
         }
@@ -147,7 +163,22 @@ fn watch(time: Res<Time>, state: Res<State<PlayState>>, mut script: Option<ResMu
     if *state.get() != PlayState::Playing {
         return;
     }
-    let key = (e.level > 0.0).then(|| (e.marker, e.water.filter(|_| e.from_water > 0.0).map(|w| w.water), (e.level * 10.0).round() as i64));
+    // Explosion zones that faded since the last frame.
+    let now: Vec<(u32, FormId)> = rt.game.radiation_zones().iter().map(|z| (z.serial, z.explosion)).collect();
+    for &(serial, explosion) in log.zones.iter().filter(|(s, _)| !now.iter().any(|(n, _)| n == s)) {
+        info!("radiation: the zone of {} (#{serial}) has faded", rt.game.data.name(explosion));
+    }
+    log.zones_left += now.iter().filter(|(s, _)| !log.zones.iter().any(|(o, _)| o == s)).count() as u32;
+    log.zones = now;
+    if e.water_hits > log.water_hits {
+        if let Some(w) = e.water {
+            info!("radiation: water {} takes {:.0} health ({} hit(s) in all)", rt.game.data.name(w.water), e.water_damage, e.water_hits);
+        }
+        log.water_hits = e.water_hits;
+    }
+    // A fading zone is logged by whole rads (a tenth would be a line every few frames).
+    let step = if e.zone.is_some() { (e.level.round() * 10.0) as i64 } else { (e.level * 10.0).round() as i64 };
+    let key = (e.level > 0.0).then(|| (e.marker, e.zone, e.water.filter(|_| e.from_water > 0.0).map(|w| w.water), step));
     if key != log.shown {
         match key {
             Some(_) => info!("radiation: level {:.1} rads/s ({}), taking {:.2}/s (Rad Resistance {:.0} %), rads {rads:.1}", e.level, source(&e, rt.game.data), e.rate, e.resist),
@@ -165,6 +196,9 @@ fn source(e: &Exposure, data: &fnv_game::GameData) -> String {
     let mut parts = Vec::new();
     if let Some(m) = e.marker {
         parts.push(format!("marker {m} {:.1}", e.markers));
+    }
+    if let Some(z) = e.zone {
+        parts.push(format!("zone of {} {:.1}", data.name(z), e.markers));
     }
     if let Some(w) = e.water.filter(|_| e.from_water > 0.0) {
         parts.push(format!("{} {} {:.2}", if w.swimming { "swimming in" } else { "wading in" }, data.name(w.water), e.from_water));
@@ -303,12 +337,14 @@ fn summary(mut exit: MessageReader<AppExit>, log: Res<RadLog>) {
     }
     let start = log.rads_start.unwrap_or(0.0);
     info!(
-        "radiation summary: {:.1} s in radiation, highest level {:.1} rads/s, rads {start:.1} -> {:.1} (+{:.1}), {} Geiger bursts",
+        "radiation summary: {:.1} s in radiation, highest level {:.1} rads/s, rads {start:.1} -> {:.1} (+{:.1}), {} Geiger bursts, {} explosion zone(s), {} water hit(s)",
         log.seconds,
         log.max_level,
         log.rads,
         log.rads - start,
-        log.bursts
+        log.bursts,
+        log.zones_left,
+        log.water_hits
     );
 }
 

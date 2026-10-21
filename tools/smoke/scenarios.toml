@@ -6756,6 +6756,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "explosion-radiation"
+source = "docs/spec-notes/radiation.md §2.1: a Fat Man fired at the ground by the Prospector Saloon (as fatman-explosion-particles, aimed steeper) leaves FatManNukeExplosion's radiation zone (EXPL: 10 rads a second within 616 units, dissipation 12 s): the player in it takes rads, its level fades, waiting is refused while it irradiates, and it fades away"
+note = "NVF_PLAY_TEST_GOD keeps the player alive at the blast (it lands about 100 units ahead, about 6 s in); the wait opens at 9 s, inside the zone's 12 s"
+areas = ["radiation", "combat", "wait"]
+paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "engine/nvf-play/src/wait.rs", "crates/fnv-game/src/needs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0000432C", NVF_PLAY_TEST_GIVE = "00020799:2", NVF_PLAY_TEST_LOOK = "2:46:-35", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire", NVF_PLAY_TEST_WAIT = "9:open" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 26
+order = [[
+  { re = 'combat: explosion FatManNukeExplosion at' },
+  { re = 'radiation: explosion FatManNukeExplosion leaves a radiation zone \(#1\): 10\.0 rads/s within 616 units, fading over 12 s', label = "the blast leaves its EXPL's radiation" },
+  { re = 'radiation: level (10|9)\.\d rads/s \(zone of FatManNukeExplosion (10|9)\.\d\), taking \d+\.\d\d/s', label = "the player in the zone takes its rads" },
+  { re = 'radiation: level [4-6]\.\d rads/s \(zone of FatManNukeExplosion', label = "the zone's level fades" },
+  { re = 'radiation: the zone of FatManNukeExplosion \(#1\) has faded', label = "and ends" },
+  { re = 'radiation: out of radiation' },
+]]
+expect = [
+  { re = 'wait menu: refused \(wait\): the player is taking radiation damage', label = "no waiting while it irradiates" },
+  { re = 'radiation summary: .*\(\+(?P<n>[\d.]+)\).*, 1 explosion zone\(s\)', range = [20, 70], label = "rads taken in the zone (at most 60 before Rad Resistance)" },
+]
+
+[[scenario]]
 name = "grab-skull"
 source = "docs/spec-notes/grab.md §5: the tutorial's brahmin skull in Doc Mitchell's house picked up with Grab (Z) and put back, then held with Activate (E) and carried while the view turns 90°, dropped; its OnGrab and OnRelease blocks run"
 areas = ["grab", "physics"]

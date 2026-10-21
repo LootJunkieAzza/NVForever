@@ -7634,3 +7634,26 @@ means; the rest is listed there (§7.7) with the reason. Decisions and guesses:
 - *Decision:* a hit from an ally or friend of the victim (its faction combat reaction) is
   friendly fire; with "Skip Fallout Behavior" and no "Friendly Fire Comments" the victim
   says no Hit line for it (Crippled and the health lines stay).
+## Explosion radiation and damaging water (2026-10-21, ESM gap audit item 7, branch claude/e7-explosion-water-radiation)
+
+Explosions with a radiation level (the Fat Man's, and 23 more in FalloutNV.esm: nuclear cars and
+buses, the Big Kid, the glowing ones' bursts) now leave a radiation zone that gives the player rads and fades away; a water type
+with "Causes Damage" takes its damage a second; IsInDangerousWater answers; waiting and
+sleeping are refused while the world irradiates the player. Spec:
+[radiation](spec-notes/radiation.md) §2.1, §3.1, §4. Decisions and guesses:
+
+- *Guess:* the zone's level falls linearly from the EXPL's level to nothing over its
+  dissipation time, counted in seconds of play (Fat Man: 10 rads/s within 616 units, over
+  12 s); hours waited count at the TimeScale (an hour = 120 s), so a wait ends every zone.
+  The other reading, a flat level that stops at the end, is as possible.
+- *Guess:* a zone counts whole within its radius, and the strongest of markers and zones
+  counts (they do not add), as for markers.
+- *Decided:* NPCs and creatures still take no rads: nothing about an NPC changes with them
+  (no sickness stages, GetRadiationLevel 0 on them per the wiki), and feral ghouls' healing
+  in radiation is not documented.
+- *Guess:* damaging water hits once a second, the first a second after going in, swimming or
+  wading; no shake or hurt sound. No vanilla water uses it, so only plugins see it.
+- Not built: zones in saves (a save drops them).
+- *Check:* fire a Fat Man at the ground nearby (tgm on): does the Geiger counter click near
+  the blast, how strong (10 rads/s before Rad Resistance here), how far out (616 units here),
+  and how long until it stops (12 s here)? Does the level fade or stop at once?

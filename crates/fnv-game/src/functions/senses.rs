@@ -62,6 +62,9 @@ pub struct Senses {
     /// The player's exposure to radiation, measured each frame (`crate::radiation`); the
     /// water the player is in is told by the engine.
     pub radiation: crate::radiation::Exposure,
+    /// The radiation zones explosions left (`crate::radiation`; not saved [design]).
+    pub rad_zones: Vec<crate::radiation::RadZone>,
+    pub rad_serial: u32,
 }
 
 /// The ray under the crosshair, game space: where it starts (about the player's eye,
@@ -88,7 +91,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0 }
     }
 }
 
@@ -342,6 +345,15 @@ impl Game<'_> {
         }
         self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))
     }
+}
+
+/// IsInDangerousWater: 1 when the player is in a water with "Causes Damage"
+/// (`crate::radiation`); 0 on anyone else [documented: GECK wiki IsInDangerousWater;
+/// observed: 0 in the Mojave's water, whose types lack the flag (physics.md); hypothesis:
+/// only the player's water is known].
+pub fn is_in_dangerous_water(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject_or_player();
+    yes(r == FormId::PLAYER_REF && g.in_dangerous_water())
 }
 
 /// GetRadiationLevel: the radiation level of the player's surroundings, rads a second
