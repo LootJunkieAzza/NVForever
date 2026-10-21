@@ -73,7 +73,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   dropping a row, GetMenuTargetRef 1061. (The ITEMS page's DPS, ammo badge and Mod hint,
   the clickable Pip-Boy repair list, the +10 XP line and Locations Discovered are built,
   2026-10-19.)
-- **Audio and video**: reverb, spatial sinks; ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
+- **Audio and video**: spatial sinks; reverb's SOUN `GNAM` attenuation and voices in rooms (audio.md §14.6); ~~a film's `muteAudio 0` (world sounds under a film)~~ (done 2026-10-21, [bink-films](spec-notes/bink-films.md) §2).
 - **Saves**: AI progress (deleting saves from the load page built 2026-10-19, save-load.md §6.1; loading into another load order built 2026-10-21, save-load.md §4.1).
 - **World** (done 2026-10-20): clutter skeletons' collision lies in their stored `XRGD`
   pose with their drawing (playtest list 5 item 71, dead-on-spawn.md §5.1); not checked in
@@ -227,8 +227,10 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
 ## 5. Process
 
 - **Smoke scenarios on main** (2026-10-18): the failures #403 found are fixed (#411,
-  #415, #416) except `death-cam-first`'s rest check, marked `known_failing` (the player's
-  ragdoll sometimes never settles; cause open, new diagnostics log it). Several scenarios
+  #415, #416). `death-cam-first`'s and `death-cam-third`'s rest checks, long marked
+  `known_failing`, pass again (2026-10-21): the rest rule read the bodies' velocities, which
+  a limb shivering between the ground and a joint limit kept high while it went nowhere; it
+  now reads the bones' net motion ([ragdoll](spec-notes/ragdoll.md) §4 "Rest"). Several scenarios
   failed only because the scripts started late on a loaded machine and a test aid fired
   first; scenarios now put console and script steps at 14 s or later and use
   `--no-messages` where the add-on packs' start-up boxes could get in the way. The

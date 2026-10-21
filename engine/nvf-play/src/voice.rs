@@ -502,7 +502,7 @@ fn play(
                         let playback = PlaybackSettings::DESPAWN.with_volume(volume);
                         match (&pan, panned.as_mut()) {
                             (Some(pan), Some(panned)) => {
-                                let handle = panned.add(Panned { inner: source, pan: pan.clone() });
+                                let handle = panned.add(Panned::new(source, pan.clone()));
                                 Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
                             }
                             _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound, SoundCategory::Voice)).id()),
