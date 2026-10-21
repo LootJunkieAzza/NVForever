@@ -951,6 +951,15 @@ pub struct EntryPointDef {
     pub function: u8,
     /// EPFD as one float when EPFT is 1 [observed: Chem Resistant `0000003F` = 0.5].
     pub value: Option<f32>,
+    /// EPFT, the kind of EPFD [documented: xEdit wbDefinitionsFNV.pas PERK, EPFT
+    /// "Entry Point Function Parameter Type"; observed: 1 with one float on every Set,
+    /// Add and Multiply entry of the masters, 3 with a leveled list on the functions 8, 4
+    /// with a script on the functions 9].
+    pub param_type: Option<u8>,
+    /// EPFD as read, for the functions whose parameters are not one float (Add Range To
+    /// Value, the actor value functions; `crate::perks::resolve`) [hypothesis: their
+    /// layout; no entry of the masters has one].
+    pub raw: Vec<u8>,
     /// The CTDA with the PRKC tab before them (0 the perk owner); `None` when one could
     /// not be read.
     pub conditions: Option<Vec<(i8, Condition)>>,
@@ -2529,8 +2538,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         }
                     }
                     b"EPFD" => {
-                        if let (Some(PerkEffect::EntryPoint(ep)), Some(1)) = (entry.as_mut().map(|e| &mut e.effect), epft) {
-                            ep.value = <[u8; 4]>::try_from(s.data.as_slice()).ok().map(f32::from_le_bytes);
+                        if let Some(PerkEffect::EntryPoint(ep)) = entry.as_mut().map(|e| &mut e.effect) {
+                            ep.param_type = epft;
+                            ep.raw = s.data.clone();
+                            if epft == Some(1) {
+                                ep.value = <[u8; 4]>::try_from(s.data.as_slice()).ok().map(f32::from_le_bytes);
+                            }
                         }
                     }
                     b"PRKF" => p.entries.extend(entry.take()),

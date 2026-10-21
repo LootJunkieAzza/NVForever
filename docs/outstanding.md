@@ -51,7 +51,7 @@ six functions still waiting for an in-game capture to settle their answers.
 
 From [status.md](status.md); the playthrough blockers above are not repeated.
 
-- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines, perk AP changes); ~~melee
+- **Gameplay**: VATS mode built for guns, bursts, melee (teleport and swing within 5 m) and thrown weapons (2026-10-20; the new kinds not yet seen in a game run, their smoke scenarios vats-mode-burst, -melee, -thrown not yet run; left: mines; perk AP changes built in claude/e2-perk-combat-entry-points); ~~melee
   weapon use through UseWeapon~~ (built 2026-10-20, use-weapon.md §3.1) (the companion wheel, aggressive/passive, sneaking with the
   player and a melee-only companion drawing its melee weapon are built,
   [companion-wheel](spec-notes/companion-wheel.md)); ~~perks that change skill points~~ (built 2026-10-20, levelup.md §9; reading skill books, which Comprehension changes, is not built); ~~traps~~ (built 2026-10-21, [traps](spec-notes/traps.md): model trigger volumes, activate parents, rigged shotguns firing; left: the swinging traps' bodies and `trapUpdate`, §4); ~~grab~~ (built 2026-10-21, [grab](spec-notes/grab.md): Z held or E held picks up loose objects and corpses, carries, drops, throws; OnGrab, OnRelease, IsPlayerGrabbedRef; every constant guessed, the settings' values are not in the plugins); ~~slot machines~~ (built 2026-10-21, [slots](spec-notes/slots.md); the payout rules are guesses); reputation disguises and resets.

@@ -1538,6 +1538,90 @@ fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Ru
     }
 }
 
+/// A perk entry's resolved function as combat applies it.
+fn perk_op(op: fnv_game::perks::Op) -> damage::PerkOp {
+    use fnv_game::perks::Op;
+    match op {
+        Op::Set(x) => damage::PerkOp::Set(x as f32),
+        Op::Add(x) => damage::PerkOp::Add(x as f32),
+        Op::Mul(x) => damage::PerkOp::Mul(x as f32),
+        Op::Abs => damage::PerkOp::Abs,
+        Op::NegAbs => damage::PerkOp::NegAbs,
+    }
+}
+
+/// `owner`'s perk entries of the entry points `points`, each with the argument tabs
+/// `tabs` and `other` as the owner's target (`fnv_game::Game::entry_ops`).
+fn entry_ops(g: &mut fnv_game::Game, owner: FormId, points: &[u8], tabs: &[Option<FormId>], other: Option<FormId>) -> damage::EntryOps {
+    let mut out = damage::EntryOps::default();
+    for &point in points {
+        for (perk, op) in g.entry_ops(owner, point, tabs, other) {
+            let name = g.data.name(perk);
+            out.0.push((point, perk_op(op), name));
+        }
+    }
+    out
+}
+
+/// The perk entries of one hit (docs/spec-notes/perk-entry-points.md §2): the
+/// attacker's weapon damage, critical chance and damage and the DT its hit ignores, with
+/// the tabs Weapon and Target; the target's change to the attacker's critical chance
+/// (Weapon, then the attacker [hypothesis: the second tab]) and its own DT (Attacker,
+/// Attacker's weapon) [documented: GECK wiki GetPerkModifier, the entry functions'
+/// arguments]. Only the player has perks; without a script runtime, none.
+fn hit_perks(script: Option<&mut ScriptState>, sim: &mut SimState, attacker: FormId, weapon: FormId, target: Option<FormId>) -> (damage::EntryOps, damage::EntryOps) {
+    use fnv_game::perks as p;
+    if attacker != FormId::PLAYER_REF && target != Some(FormId::PLAYER_REF) {
+        return Default::default();
+    }
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Default::default() };
+    with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        let mine = [p::CALCULATE_WEAPON_DAMAGE, p::CALCULATE_MY_CRITICAL_HIT_CHANCE, p::CALCULATE_MY_CRITICAL_HIT_DAMAGE, p::MODIFY_DAMAGE_THRESHOLD_ATTACKER];
+        let a = entry_ops(g, attacker, &mine, &[Some(weapon), target], target);
+        let t = match target {
+            Some(t) => {
+                let mut ops = entry_ops(g, t, &[p::MODIFY_ENEMY_CRITICAL_HIT_CHANCE], &[Some(weapon), Some(attacker)], Some(attacker));
+                ops.0.extend(entry_ops(g, t, &[p::MODIFY_DAMAGE_THRESHOLD_DEFENDER], &[Some(attacker), Some(weapon)], Some(attacker)).0);
+                ops
+            }
+            None => damage::EntryOps::default(),
+        };
+        (a, t)
+    })
+}
+
+/// The player's value of entry point `point` with weapon `weapon` (the one argument tab
+/// of spread, AP cost and the weapon's other figures) [documented: GECK wiki
+/// GetPerkModifier], and the perks that changed it.
+pub(crate) fn player_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimState, point: u8, weapon: FormId, v: f32) -> (f32, Vec<String>) {
+    use damage::PerkHooks;
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return (v, Vec::new()) };
+    let ops = with_world(rt, sim, |rt| entry_ops(&mut rt.game, FormId::PLAYER_REF, &[point], &[Some(weapon)], None));
+    (ops.entry(point, v), ops.names().into_iter().map(str::to_string).collect())
+}
+
+/// Logs what the perks of a hit changed, when they changed anything.
+fn log_hit_perks(attacker: FormId, target: Option<FormId>, a: &damage::EntryOps, t: &damage::EntryOps, d: &damage::Damage) {
+    if a.is_empty() && t.is_empty() {
+        return;
+    }
+    let names = |o: &damage::EntryOps| o.names().join(", ");
+    info!(
+        "combat: perks on {attacker}'s hit{}: attacker [{}], target [{}]: weapon damage {:.2} -> {:.2}, crit chance {:.1} %{}, crit damage {:.1}, DT {:.1}, dealt {:.2}",
+        target.map_or(String::new(), |t| format!(" on {t}")),
+        names(a),
+        names(t),
+        d.base,
+        d.modified,
+        d.crit_chance,
+        if d.critical { " (critical)" } else { "" },
+        d.crit_bonus,
+        d.dt,
+        d.dealt
+    );
+}
+
 /// The weapon's Equip sound when the player starts to draw it and its Unequip sound
 /// when they start to put it away [hypothesis: when the game plays them].
 fn weapon_sounds(c: Res<Combat>, control: Res<PlayerControl>, sfx: Option<Res<Sfx>>, mut sounds: MessageWriter<PlaySound>, mut was_out: Local<bool>) {
@@ -1644,7 +1728,9 @@ pub(crate) fn fire(
         let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
         let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
-        let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, &w, &stance), c.kick.bloom, &w, &effects);
+        let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
+        let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
+        let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
     }
     let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
@@ -1709,7 +1795,14 @@ pub(crate) fn fire(
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
                 let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
-                let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
+                // The Calculate Gun Spread perks change the actor spread, not the weapon's
+                // minimum (docs/spec-notes/perk-entry-points.md §2).
+                let formula = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
+                let (actor_spread, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, formula);
+                let actor_spread = actor_spread.max(0.0);
+                if !by.is_empty() {
+                    debug!("combat: perks on the player's spread: {formula:.2} -> {actor_spread:.2} ({})", by.join(", "));
+                }
                 // A VATS mode shot has no spread but its crippled limbs' (crippled-limbs.md §3).
                 let cone = if c.no_spread {
                     0.0
@@ -1933,12 +2026,19 @@ pub fn wear_weapon(
     stats: &mut CombatStats,
     hud: Option<&mut HudMessage>,
     broken: Option<&mut MessageWriter<WeaponBroken>>,
-    script: Option<&mut ScriptState>,
+    mut script: Option<&mut ScriptState>,
     actor: FormId,
     item: FormId,
     points: f32,
     at: Option<V3>,
 ) -> Option<Wear> {
+    // The player's Modify Item Damage perks (Regular Maintenance × 0.5, Built to
+    // Destroy × 1.15) (docs/spec-notes/perk-entry-points.md §2).
+    let points = if actor == FormId::PLAYER_REF {
+        player_weapon_perk(script.as_deref_mut(), sim, fnv_game::perks::MODIFY_ITEM_DAMAGE, item, points).0.max(0.0)
+    } else {
+        points
+    };
     let health = forms.item_health(item);
     let w = condition::wear_item(sim.world.inventory_mut(actor).ok()?, item, points, health)?;
     if actor == FormId::PLAYER_REF {
@@ -2346,12 +2446,14 @@ fn melee(
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
             let roll = c.rng.next_f32();
+            let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, Some(target));
             if hit.part == Some(WEAPON_PART) {
-                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
                 strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
                 continue;
             }
-            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &ap, &tp, roll);
+            log_hit_perks(FormId::PLAYER_REF, Some(target), &ap, &tp, &d);
             // A person blocking it from the front stops part of it (combat-ai.md §14.3); a
             // power attack breaks through and staggers it (combat-rules.md §12).
             let mut guard_broken = false;
@@ -2565,7 +2667,9 @@ fn actor_attacks(
         }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
-        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+        let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, b.attacker, id, Some(b.target));
+        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &ap, &tp, roll);
+        log_hit_perks(b.attacker, Some(b.target), &ap, &tp, &d);
         // A blocker facing the blow stops part of it (docs/design/combat-ai.md §14.3); a
         // power attack (a creature's, `ActorStrike::anim`) breaks through (combat-rules.md
         // §12): an NPC staggers, the player cannot block for a while.
@@ -2940,7 +3044,8 @@ fn fly(
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
                 // A destructible object takes the hit's damage (no armour) (step C7).
-                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+                let (ap, _) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, None);
+                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
                 damage_destructible(c, &mut sim, script.as_deref_mut(), r, d.dealt, Some(Cause::of(&p.by)));
                 // A loose object is knocked away.
                 let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
@@ -2961,8 +3066,9 @@ fn fly(
         stats.actor_hits += 1;
         let target = if actor == PLAYER { FormId::PLAYER_REF } else { FormId(actor as u32) };
         // A shot on the weapon the actor holds wears the weapon, not the actor (§17).
+        let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, Some(target));
         if p.part == Some(WEAPON_PART) {
-            let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+            let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);
             strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
             continue;
         }
@@ -2971,7 +3077,8 @@ fn fly(
             continue;
         }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &ap, &tp, roll);
+        log_hit_perks(shooter, Some(target), &ap, &tp, &d);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);
         let limb = limb_hit(bp.as_ref(), d.dealt, &w);

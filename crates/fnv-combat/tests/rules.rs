@@ -800,3 +800,56 @@ fn shots_are_aimed_from_the_eye_and_seen_from_the_muzzle() {
     let l = shot::leaving(&wall, eye, aim, Some([820.0, 10.0, 60.0]), 5000.0, Some(1), true);
     assert_eq!((l.origin, l.seen, l.covered), (eye, Seen::ON_PATH, false));
 }
+
+/// The combat perk entry points on one hit (docs/spec-notes/perk-entry-points.md §2),
+/// with the numbers of FalloutNV.esm's perks: Bloody Mess's weapon damage × 1.05, Laser
+/// Commander's crit chance + 10, Better Criticals' crit damage × 1.5, Dream Crusher's
+/// enemy crit chance × 0.5, Toughness's own DT + 3 and Shotgun Surgeon's 10 DT ignored
+/// (Set 10 from 0).
+#[test]
+fn perk_entry_points_change_the_hit() {
+    use damage::{entry, EntryOps, PerkHooks, PerkOp};
+    let ops = |v: &[(u8, PerkOp)]| EntryOps(v.iter().map(|(c, o)| (*c, *o, "perk".to_string())).collect());
+    let w = gun(20);
+    let h = HitInput { weapon: &w, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
+    let r = Rules::defaults();
+    let t = CombatTuning::default();
+    let run = |a: &EntryOps, d: &EntryOps, dt: f32, roll: f32| damage::hit(&r, &t, &h, &skilled(), &Target { dt, ..Target::default() }, a, d, roll);
+    let none = EntryOps::default();
+
+    // Weapon damage: before DT and not on the critical damage.
+    let bloody = ops(&[(entry::CALCULATE_WEAPON_DAMAGE, PerkOp::Mul(1.05))]);
+    let d = run(&bloody, &none, 0.0, 0.99);
+    assert!(close(d.base, 20.0) && close(d.modified, 21.0) && close(d.dealt, 21.0), "{d:?}");
+    let c = run(&bloody, &none, 0.0, 0.0);
+    assert!(c.critical && close(c.crit_bonus, 10.0) && close(c.dealt, 31.0), "{c:?}");
+
+    // Crit chance: Luck 5 gives 5 %, + 10.
+    let base = run(&none, &none, 0.0, 0.99).crit_chance;
+    let laser = ops(&[(entry::CALCULATE_MY_CRITICAL_HIT_CHANCE, PerkOp::Add(10.0))]);
+    assert!(close(run(&laser, &none, 0.0, 0.99).crit_chance, base + 10.0));
+    // A roll of 0.12 crits only with it.
+    assert!(!run(&none, &none, 0.0, 0.12).critical && run(&laser, &none, 0.0, 0.12).critical);
+
+    // Crit damage.
+    let better = ops(&[(entry::CALCULATE_MY_CRITICAL_HIT_DAMAGE, PerkOp::Mul(1.5))]);
+    assert!(close(run(&better, &none, 0.0, 0.0).crit_bonus, 15.0));
+
+    // The target's perk halves the attacker's crit chance.
+    let dream = ops(&[(entry::MODIFY_ENEMY_CRITICAL_HIT_CHANCE, PerkOp::Mul(0.5))]);
+    assert!(close(run(&none, &dream, 0.0, 0.99).crit_chance, base * 0.5));
+
+    // DT: the defender's own + 3, the attacker's 10 ignored, never below 0.
+    let tough = ops(&[(entry::MODIFY_DAMAGE_THRESHOLD_DEFENDER, PerkOp::Add(3.0))]);
+    assert!(close(run(&none, &tough, 5.0, 0.99).dt, 8.0) && close(run(&none, &tough, 5.0, 0.99).dealt, 12.0));
+    let surgeon = ops(&[(entry::MODIFY_DAMAGE_THRESHOLD_ATTACKER, PerkOp::Set(10.0))]);
+    assert!(close(run(&surgeon, &tough, 12.0, 0.99).dt, 5.0));
+    assert!(close(run(&surgeon, &none, 4.0, 0.99).dt, 0.0));
+
+    // Entries of other entry points leave the hit alone; several of one apply in order.
+    let spread = ops(&[(entry::CALCULATE_GUN_SPREAD, PerkOp::Set(0.0))]);
+    assert!(close(run(&spread, &none, 0.0, 0.99).dealt, 20.0));
+    let two = ops(&[(entry::CALCULATE_WEAPON_DAMAGE, PerkOp::Add(2.0)), (entry::CALCULATE_WEAPON_DAMAGE, PerkOp::Mul(2.0))]);
+    assert!(close(two.weapon_damage(20.0), 44.0));
+    assert!(close(PerkOp::Abs.apply(-3.0), 3.0) && close(PerkOp::NegAbs.apply(3.0), -3.0));
+}
