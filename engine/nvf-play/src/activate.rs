@@ -135,6 +135,8 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         // No prompt for a non-playable weapon; non-playable ammo shows one but cannot be
         // taken (`fnv_sim::World::activate`) [documented: GECK wiki "Unplayable Items"].
         BaseData::Item(it) if it.non_playable && it.kind == ItemKind::Weapon => return None,
+        // Nor for a book that can't be taken (docs/spec-notes/skill-books.md §4).
+        BaseData::Item(it) if it.cant_be_taken => return None,
         BaseData::Item(_) => Action::Take { count: state.map_or_else(|| sim.forms.placed_count(base.id, placed.and_then(|p| p.count)), |s| s.count) },
         BaseData::Container(_) => locked(Action::Open),
         BaseData::Door(_) => locked(match placed.and_then(|p| p.teleport) {

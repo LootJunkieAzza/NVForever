@@ -1155,6 +1155,12 @@ impl EffectCtx for PlayCtx<'_> {
         (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), m.display_seconds.map(|s| s as f32))
     }
 
+    fn skill_look(&self, code: u16) -> (String, Option<String>) {
+        let info = self.data.actor_value_info(code);
+        let name = info.map(|i| i.name.clone()).filter(|n| !n.trim().is_empty());
+        (name.unwrap_or_else(|| fnv_game::functions::AV_NAMES.get(code as usize).copied().unwrap_or("?").to_string()), info.and_then(|i| i.icon.clone()))
+    }
+
     fn pops_in(&self, r: FormId) -> bool {
         self.sim.refs.refs.get(&r).and_then(|p| p.enable_parent).is_some_and(|ep| ep.pop_in)
     }
@@ -1534,6 +1540,10 @@ pub(crate) fn run_scripts(
         rt.observe_inventory();
         let aid_from = rt.game.events.len();
         for &item in &used {
+            // A skill book is read (`fnv_game::books`); anything else is an aid item.
+            if crate::aid::read_book(rt, item) {
+                continue;
+            }
             let r = crate::aid::use_item(rt, item);
             info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }

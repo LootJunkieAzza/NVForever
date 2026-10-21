@@ -49,8 +49,8 @@ pub const ADJUST_EXPERIENCE_POINTS: u8 = 9;
 pub const ADJUST_GAINED_SKILL_POINTS: u8 = 10;
 /// "Adjust Book Skill Points" [documented: GECK wiki Entry Point, "Run when the actor
 /// reads a book; Modifies the skill points gained", the example Comprehension; observed:
-/// Comprehension's one entry has code 11, Add 1]. Not asked for yet: reading skill
-/// books is not built (docs/spec-notes/levelup.md §9).
+/// Comprehension's one entry has code 11, Add 1]. Read when a skill book is
+/// (`crate::books`, docs/spec-notes/skill-books.md §3).
 pub const ADJUST_BOOK_SKILL_POINTS: u8 = 11;
 /// "Modify Addiction Chance" [observed: Chem Resistant; documented: GECK wiki Entry
 /// Point, "Run when the actor takes a drug"].
