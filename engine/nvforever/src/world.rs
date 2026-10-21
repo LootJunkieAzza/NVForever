@@ -650,7 +650,7 @@ pub fn spawn_model(
         }
         // Its particle systems and add-on nodes emit from its own nodes.
         if model.particles {
-            commands.entity(root).insert(crate::particles::ModelEmitter::new(path.clone()));
+            commands.entity(root).insert(crate::particles::ModelEmitter::placed(path.clone(), r));
         }
         for (i, n) in model.nodes.iter().enumerate() {
             if let Some((index, &e)) = n.addon.zip(n.name.as_ref().and_then(|k| nodes.get(k))) {
@@ -708,14 +708,14 @@ pub fn spawn_model(
 /// them): emitted from a holder at the reference with its nodes below it, which a
 /// static model's baked shapes do not have. Under `RefVisual(r)`, so a disabled
 /// reference does not burn (`particles::emit`).
-fn spawn_emitters(commands: &mut Commands, parent: Entity, r: u32, model: &PreparedModel, path: &str, rt: Affine3A) {
+pub(crate) fn spawn_emitters(commands: &mut Commands, parent: Entity, r: u32, model: &PreparedModel, path: &str, rt: Affine3A) {
     let addons = model.nodes.iter().any(|n| n.addon.is_some());
     if !model.particles && !addons {
         return;
     }
     let holder = commands.spawn((Transform::from_matrix(Mat4::from(rt)), Visibility::Inherited, RefVisual(r), ChildOf(parent))).id();
     if model.particles {
-        commands.entity(holder).insert(crate::particles::ModelEmitter::new(path));
+        commands.entity(holder).insert(crate::particles::ModelEmitter::placed(path, r));
     }
     if !addons {
         return;

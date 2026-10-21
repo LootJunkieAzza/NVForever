@@ -6998,3 +6998,25 @@ records of the shipped plugins, so their values are not known.
 nothing and holding E pick it up? Does Z pick it up? How far in front is it held, does
 it swing or keep its turn, how fast does it follow a quick turn, and does attacking
 throw it? Can you drag a corpse, and does carrying something heavy slow you to a walk?
+
+## Placed particle smokes (2026-10-21, queue item 21, branch claude/q21-particle-smokes)
+
+Spec: [particles](spec-notes/particles.md) §7. The survey of the base archives found 1,920
+placed references (106 model files) with particle systems or add-on nodes; since
+2026-10-20 they all had emitters, but most drew little.
+1. *Decision:* a placed model's own particle systems are **each reference's own** (they
+   were one pool per file: Gomorrah's 43 sconces shared 14 flames). Shot-effect models keep
+   one pool per file.
+2. *Decision:* an add-on master system (barrel fires: 10 emitters at once) serves the
+   emitters **nearest the camera** first; which ones the game serves is not known.
+3. *Decision:* spherical colliders keep particles on the side they started (the snow
+   globes' flakes stay in the globe), bouncing or dying as the planar ones do.
+4. References a script enables now emit too (11 of the 16 tyre-smoke columns start
+   disabled).
+5. Left as they were: placed dynamite's fuse sparks lying in the world, the 89 small
+   boulders' rock-slide dust emitting from the start, the Lucky 38 reactor's
+   reset-on-loop controller.
+*Check:* in the game, stand in Gomorrah's casino floor (smoke `placed-particle-smokes`'s
+spot): does every wall sconce burn, as in placed_particles.png? In the Old Vegas sewers
+with many barrel fires in view, do all of them burn at once? Does a stick of dynamite on a
+shelf show fuse sparks?
