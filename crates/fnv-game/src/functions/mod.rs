@@ -565,7 +565,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1104, "SetWeather", Impl(crate::weather::set_weather)),
         (0x103E, "IsRaining", Impl(crate::weather::is_raining)),
         (0x1095, "GetIsCurrentWeather", Impl(crate::weather::get_is_current_weather)),
-        (0x11F7, "GetRadiationLevel", Stub("radiation (environment)")),
+        (0x11F7, "GetRadiationLevel", Impl(senses::get_radiation_level)),
         (0x11D6, "StartRadioConversation", Impl(crate::radio::start_radio_conversation)),
         (0x1224, "PipBoyRadioOff", Impl(crate::radio::pipboy_radio_off)),
         (0x11A7, "PipBoyRadio", Impl(crate::radio::pipboy_radio)),

@@ -64,6 +64,8 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         primitive: None,
         activate_parents: Vec::new(),
         parent_activate_only: false,
+        radiation: None,
+        radius: None,
     }
 }
 
