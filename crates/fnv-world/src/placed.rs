@@ -102,6 +102,9 @@ pub struct BaseObject {
     /// The item's own world model as stored, when its record names one: ARMO MOD2, WEAP
     /// MOD4 ([`world_model_sub`]).
     pub world_model: Option<String>,
+    /// Alternate textures of the model [`Self::world_model_path`] names: MODS for MODL,
+    /// MO2S for ARMO MOD2, MO4S for WEAP MOD4 (`crate::alt_textures`).
+    pub world_alt_textures: Vec<crate::alt_textures::AltTexture>,
 }
 
 /// The subrecord naming the model an item shows lying in the world, for the record types
@@ -128,7 +131,7 @@ pub fn world_model_sub(sig: &[u8; 4]) -> Option<&'static [u8; 4]> {
 /// SpeedTree models (`.spt`, used by TREE), which live under `trees\` [observed: all ten
 /// `.spt` files in the archives are in `trees\`, and TREE MODL values name them without a
 /// folder].
-fn archive_path(stored: &str) -> Option<String> {
+pub fn archive_path(stored: &str) -> Option<String> {
     let m = stored.trim();
     if m.is_empty() {
         return None;
@@ -162,8 +165,10 @@ impl BaseObject {
 pub fn base_object(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<BaseObject> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
-    let world_model = world_model_sub(&r.header.sig).and_then(|s| f.string(s));
-    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model })
+    let world_sub = world_model_sub(&r.header.sig).filter(|s| f.string(s).as_deref().and_then(archive_path).is_some());
+    let world_model = world_sub.and_then(|s| f.string(s));
+    let world_alt_textures = crate::alt_textures::alt_textures(lo, schema, &f, world_sub.unwrap_or(b"MODL"));
+    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model, world_alt_textures })
 }
 
 /// A TREE's billboard: its size (TREE BNAM width, height) and texture,
@@ -261,7 +266,7 @@ mod tests {
 
     #[test]
     fn model_paths() {
-        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None };
+        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None, world_alt_textures: Vec::new() };
         assert_eq!(b("Clutter\\Junk\\Can.NIF").model_path().unwrap(), "meshes\\clutter\\junk\\can.nif");
         assert_eq!(b("meshes/a.nif").model_path().unwrap(), "meshes\\a.nif");
         assert_eq!(b("  ").model_path(), None);
@@ -278,6 +283,7 @@ mod tests {
             edid: None,
             model: model.map(Into::into),
             world_model: world.map(Into::into),
+            world_alt_textures: Vec::new(),
         };
         // Armour: the ground object, not the worn suit; MODL stays what `model_path` gives.
         let leather = b(b"ARMO", Some("Armor\\LeatherArmor\\M\\OutfitM.NIF"), Some("Armor\\LeatherArmor\\M\\GO.NIF"));

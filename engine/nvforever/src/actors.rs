@@ -335,7 +335,9 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
     }
     let pipboy = a.parts.iter().any(|p| world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & fnv_actor::resolve::slot::PIPBOY != 0));
     for (pi, p) in a.parts.iter().enumerate() {
-        let Some(part) = ctx.part(&p.model) else {
+        // A worn item's or head part's alternate textures (texture-swaps.md §4) are in
+        // the part's own shapes and materials from here on.
+        let Some(part) = ctx.part_swapped(&p.model, world.actors.part_alt_textures(p, a.female)) else {
             stats.parts_missing += 1;
             continue;
         };
@@ -690,7 +692,9 @@ fn arm_weapon(
     // A modded weapon's own model (weapon-mods.md §3 "In the world").
     let model = w.model_for(false, a.weapon_mods)?;
     let stance = stance_for(world, ctx, &a.skeleton, skel, prefix);
-    let (Some(stance), Some(part)) = (stance, ctx.part(&fnv_actor::resolve::mesh_path(model))) else {
+    // With the weapon's alternate textures (texture-swaps.md §4).
+    let swaps = a.weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, false, a.weapon_mods));
+    let (Some(stance), Some(part)) = (stance, ctx.part_swapped(&fnv_actor::resolve::mesh_path(model), swaps)) else {
         stats.weapon_missing += 1;
         return None;
     };

@@ -87,6 +87,10 @@ fn read_prim(p: Prim, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<Value, Stri
             Value::Array(body.split(|&b| b == 0).map(|s| Value::from(cp1252::decode(s))).collect())
         }
         Prim::String => Value::from(cp1252::decode(c.bytes(c.remaining()).unwrap())),
+        Prim::LString => {
+            let n = c.u32().map_err(e)? as usize;
+            Value::from(cp1252::decode(c.bytes(n).map_err(e)?))
+        }
         Prim::Bytes => Value::from(to_hex(c.bytes(c.remaining()).unwrap())),
     })
 }
@@ -131,11 +135,22 @@ pub fn decode_type(t: &TypeDef, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<V
             }
             Ok(Value::Object(obj))
         }
-        TypeDef::Array { elem, count } => {
+        TypeDef::Array { elem, count, prefix } => {
             let mut out = Vec::new();
+            let count = match prefix {
+                Some(p) => {
+                    let n = read_int(*p, c)?;
+                    // Every element takes at least a byte: a count past the data is wrong.
+                    if n < 0 || n as usize > c.remaining() {
+                        return Err(format!("array count {n} with {} bytes left", c.remaining()));
+                    }
+                    Some(n as usize)
+                }
+                None => *count,
+            };
             match count {
                 Some(n) => {
-                    for i in 0..*n {
+                    for i in 0..n {
                         let before = c.pos;
                         out.push(decode_type(elem, c, ctx).map_err(|e| format!("[{i}]: {e}"))?);
                         if c.pos == before {
@@ -424,5 +439,42 @@ impl Coverage {
             q.push(o);
         }
         json!({"summary": summary, "work_queue": q, "record_errors": self.record_errors})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_util::Cursor;
+
+    #[test]
+    fn counted_arrays_of_length_prefixed_strings() {
+        // MODS: count, then per entry a u32-length name, a FormID and an index.
+        let mut s = Schema::default();
+        let t = r#"{"format":"fnv.schema/1","types":{"Alt":{"struct":[{"name":"shape_name","type":"lstring"},
+          {"name":"texture_set","type":"formid"},{"name":"shape_index","type":"i32"}]}},
+          "common":{"MODS":{"name":"Alternate Textures","type":{"array":"Alt","count":"u32"}}}}"#;
+        s.merge_str(t, "t").unwrap();
+        s.validate().unwrap();
+        let mut b = vec![2, 0, 0, 0];
+        for (name, fid, idx) in [("GO:1", 0x53363u32, 1i32), ("arms", 0x6bcf3, 0)] {
+            b.extend((name.len() as u32).to_le_bytes());
+            b.extend(name.as_bytes());
+            b.extend(fid.to_le_bytes());
+            b.extend(idx.to_le_bytes());
+        }
+        let ty = s.lookup(b"STAT", b"MODS").unwrap().ty.clone();
+        let mut ctx = DecodeCtx { schema: &s, on_formid: None };
+        let mut c = Cursor::new(&b);
+        let v = decode_type(&ty, &mut c, &mut ctx).unwrap();
+        assert!(c.is_empty());
+        assert_eq!(v[0]["shape_name"], "GO:1");
+        assert_eq!(v[0]["texture_set"], "0x00053363");
+        assert_eq!(v[1]["shape_index"], 0);
+        // A count past the data is an error, not a long loop.
+        let mut c = Cursor::new(&[0xFF, 0xFF, 0, 0, 1, 2]);
+        assert!(decode_type(&ty, &mut c, &mut ctx).is_err());
+        let bad = r#"{"format":"fnv.schema/1","common":{"MODS":{"type":{"array":"u8","count":"f32"}}}}"#;
+        assert!(Schema::default().merge_str(bad, "x").is_err());
     }
 }

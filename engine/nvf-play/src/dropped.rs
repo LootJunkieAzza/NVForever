@@ -152,6 +152,16 @@ pub fn model_path(d: &crate::PlayData, base: FormId, mods: u8) -> Option<String>
     b.world_model_path().filter(|m| !m.ends_with(".spt"))
 }
 
+/// The alternate textures of the model [`model_path`] gives: the base's world-model
+/// list (`BaseObject::world_alt_textures`), none for a modded weapon's own model
+/// (docs/spec-notes/texture-swaps.md §4).
+pub fn model_swaps(d: &crate::PlayData, base: FormId, mods: u8) -> Vec<fnv_world::alt_textures::AltTexture> {
+    if mods != 0 && modded_model(fnv_actor::records::ActorForms::weapon_record(d.lo, d.schema, base).as_ref(), mods).is_some() {
+        return Vec::new();
+    }
+    fnv_world::placed::base_object(d.lo, d.schema, base.0).map(|b| b.world_alt_textures).unwrap_or_default()
+}
+
 /// The archive path of the third-person model of weapon `w` with the mod flags `mods` on
 /// (`Weapon::model_for`: the combination's `MWD` model, else the plain MODL); `None` with
 /// no mods or no weapon, for the plain world model.
@@ -239,7 +249,8 @@ fn sync_drawn(
             warn_once!("dropped reference 0x{id:08X}: base {base} has no model to draw");
             continue;
         };
-        let Some(model) = models.model(&path) else {
+        let swaps = model_swaps(&d, base, mods);
+        let Some(model) = models.model_swapped(&path, false, &swaps) else {
             warn_once!("dropped reference 0x{id:08X}: model {path} could not be loaded");
             continue;
         };

@@ -1,6 +1,7 @@
 //! World data for Layer 3: worldspaces, cells, placed references and landscape,
 //! resolved across a load order. No engine dependencies; the renderer consumes this.
 //!
+//! - [`alt_textures`]: records' alternate textures (MODS…): texture sets on named shapes
 //! - [`audio`]: music types, media sets, acoustic spaces, audio markers and sound markers
 //! - [`fields`]: schema-decoded access to one record's subrecords
 //! - [`image_modifier`]: image space modifiers as animated screen effects
@@ -17,6 +18,7 @@
 //!
 //! Format facts and confidence tags: `docs/spec-notes/world.md`.
 
+pub mod alt_textures;
 pub mod audio;
 pub mod effect_shader;
 pub mod fields;

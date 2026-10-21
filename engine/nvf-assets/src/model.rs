@@ -30,6 +30,8 @@ use fnv_nif::{NifFile, Struct};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+pub use fnv_world::alt_textures::AltTexture;
+
 #[derive(Debug, Clone)]
 pub struct PreparedShape {
     pub mesh: Handle<Mesh>,
@@ -728,21 +730,35 @@ impl ModelCtx<'_> {
     /// Like [`Self::model`], drawn with the first-person form of each texture that has
     /// one (`crate::texture::first_person_texture`): the weapon in the arms rig's hands.
     pub fn model_first_person(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
-        self.load_as(path, false, true)
+        self.load_as(path, false, true, &[])
+    }
+
+    /// Like [`Self::model`] (or [`Self::model_first_person`]), with a record's alternate
+    /// textures on the shapes they name (`fnv_world::alt_textures`; texture-swaps.md):
+    /// a copy of the model of its own, cached by the list. No list: the plain model.
+    pub fn model_swapped(&mut self, path: &str, first_person: bool, swaps: &[AltTexture]) -> Option<Arc<PreparedModel>> {
+        self.load_as(path, false, first_person, swaps)
     }
 
     fn load(&mut self, path: &str, keep_cpu: bool) -> Option<Arc<PreparedModel>> {
-        self.load_as(path, keep_cpu, false)
+        self.load_as(path, keep_cpu, false, &[])
     }
 
-    fn load_as(&mut self, path: &str, keep_cpu: bool, first_person: bool) -> Option<Arc<PreparedModel>> {
+    fn load_as(&mut self, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Option<Arc<PreparedModel>> {
         let path = fnv_vfs::normalize(path);
-        // The first-person copy is kept apart from the model's own.
-        let key = if first_person { format!("{path}|1stperson") } else { path.clone() };
+        // The first-person copy is kept apart from the model's own, and so is each
+        // retextured copy (by its list's hash).
+        let mut key = if first_person { format!("{path}|1stperson") } else { path.clone() };
+        if !swaps.is_empty() {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            swaps.hash(&mut h);
+            key = format!("{key}|swap{:016x}", h.finish());
+        }
         if let Some(m) = self.cache.map.get(&key) {
             return m.clone();
         }
-        let m = match self.prepare(&path, keep_cpu, first_person) {
+        let m = match self.prepare(&path, keep_cpu, first_person, swaps) {
             Ok(m) => Some(Arc::new(m)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
@@ -753,7 +769,7 @@ impl ModelCtx<'_> {
         m
     }
 
-    fn prepare(&mut self, path: &str, keep_cpu: bool, first_person: bool) -> Result<PreparedModel, String> {
+    fn prepare(&mut self, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Result<PreparedModel, String> {
         let bytes = self.data.read(path).ok_or("not in any archive")?;
         let schema = self.data.schema.clone();
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
@@ -890,6 +906,25 @@ impl ModelCtx<'_> {
             })
             .flatten();
 
+        // Alternate textures: the texture set each shape (by block) takes, entries later in
+        // the list winning (texture-swaps.md §2).
+        let mut swap_of: HashMap<usize, &[Option<String>; 6]> = HashMap::new();
+        if !swaps.is_empty() {
+            let order = fnv_nif::scene::geometry_order(&objects);
+            let shapes: Vec<(usize, Option<&str>, usize)> =
+                objects.iter().filter(|o| !o.is_node).filter_map(|o| Some((o.block, o.name.as_deref(), *order.get(&o.block)?))).collect();
+            let named: Vec<(Option<&str>, usize)> = shapes.iter().map(|s| (s.1, s.2)).collect();
+            for e in swaps {
+                let to = fnv_world::alt_textures::targets(e, &named);
+                if to.is_empty() {
+                    info!("{path}: texture swap: no shape {:?} (index {}) for texture set {:08X}", e.shape, e.index, e.texture_set);
+                }
+                for i in to {
+                    swap_of.insert(shapes[i].0, &e.textures);
+                }
+            }
+        }
+        let mut swapped: Vec<String> = Vec::new();
         let mut first_textures = 0;
         for o in objects.iter().filter(|o| !o.is_node) {
             // Walk to the root: accumulate the transform below the root's own and look
@@ -928,6 +963,11 @@ impl ModelCtx<'_> {
             props.animated_alpha = alpha_shapes.contains(&shape_name);
             if props.is_helper() {
                 continue;
+            }
+            if let Some(set) = swap_of.get(&o.block) {
+                if props.use_texture_set(set) > 0 {
+                    swapped.push(format!("{shape_name} → {}", props.textures.first().map_or("-", String::as_str)));
+                }
             }
             if first_person {
                 first_textures += props.use_first_person_textures(|p| self.data.vfs.exists(p));
@@ -1031,6 +1071,9 @@ impl ModelCtx<'_> {
         }
         if first_person {
             info!("{path}: first person, {first_textures} texture(s) in their 1stperson form");
+        }
+        if !swaps.is_empty() {
+            info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));
         }
         out.rig = rig.map(|(r, _)| r);
         Ok(out)

@@ -87,6 +87,27 @@ impl Props {
         }
         n
     }
+
+    /// Put in a texture set's files (a record's alternate textures, `fnv_world::alt_textures`;
+    /// docs/spec-notes/texture-swaps.md §3), given in NIF texture-set slot order as the
+    /// TXST stores them: each given slot replaces the shape's own, an empty one keeps it
+    /// [hypothesis]. The glow map follows slot 2 unless the shape uses slot 2 for skin or
+    /// hair, as when the file names it (`glow_map`). The number of slots replaced.
+    pub(crate) fn use_texture_set(&mut self, set: &[Option<String>; 6]) -> usize {
+        let mut n = 0;
+        for (slot, t) in set.iter().enumerate() {
+            let Some(t) = t.as_deref().filter(|t| !t.is_empty()) else { continue };
+            if self.textures.len() <= slot {
+                self.textures.resize(slot + 1, String::new());
+            }
+            self.textures[slot] = fnv_vfs::texture_path(t);
+            if slot == 2 && !self.hair && !self.skin && !self.unlit {
+                self.glow = Some(self.textures[2].clone());
+            }
+            n += 1;
+        }
+        n
+    }
 }
 
 /// Rendering-relevant properties accumulated from an object and its ancestors.

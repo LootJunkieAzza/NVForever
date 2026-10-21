@@ -84,6 +84,10 @@ pub struct PartShape {
     /// (outermost first) times the shape's own transform, `own`.
     pub ancestors: Vec<(Option<String>, Affine3A)>,
     pub own: Affine3A,
+    /// Its position among the file's geometry blocks in depth-first order
+    /// (`fnv_nif::scene::geometry_order`): what a record's alternate textures name it by
+    /// besides its name (docs/spec-notes/texture-swaps.md §2).
+    pub geometry_index: usize,
 }
 
 impl PartShape {
@@ -383,6 +387,49 @@ impl ActorCtx<'_, '_> {
         p
     }
 
+    /// The part at `path` with a record's alternate textures on the shapes they name
+    /// (`fnv_world::alt_textures`, docs/spec-notes/texture-swaps.md): a copy whose shapes'
+    /// properties and materials carry the texture sets, cached by the list. No list: the
+    /// plain part.
+    pub fn part_swapped(&mut self, path: &str, swaps: &[fnv_world::alt_textures::AltTexture]) -> Option<Arc<PreparedPart>> {
+        let plain = self.part(path)?;
+        if swaps.is_empty() {
+            return Some(plain);
+        }
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            swaps.hash(&mut h);
+            format!("{}|swap{:016x}", fnv_vfs::normalize(path), h.finish())
+        };
+        if let Some(p) = self.cache.parts.get(&key) {
+            return p.clone();
+        }
+        let named: Vec<(Option<&str>, usize)> = plain.shapes.iter().map(|s| (s.name.as_deref(), s.geometry_index)).collect();
+        let mut set_of: Vec<Option<&[Option<String>; 6]>> = vec![None; plain.shapes.len()];
+        for e in swaps {
+            let to = fnv_world::alt_textures::targets(e, &named);
+            if to.is_empty() {
+                info!("{path}: texture swap: no shape {:?} (index {}) for texture set {:08X}", e.shape, e.index, e.texture_set);
+            }
+            for i in to {
+                set_of[i] = Some(&e.textures);
+            }
+        }
+        let mut part = (*plain).clone();
+        let mut done = Vec::new();
+        for (i, set) in set_of.iter().enumerate() {
+            let Some(set) = set else { continue };
+            part.shapes[i].material = self.material_with_texture_set(path, &plain, i, set);
+            part.shapes[i].props.use_texture_set(set);
+            done.push(format!("{} → {}", part.shapes[i].name.as_deref().unwrap_or("-"), part.shapes[i].base_texture().unwrap_or("-")));
+        }
+        info!("{}: texture swap: {} entr(ies), {} shape(s) retextured: {}", fnv_vfs::normalize(path), swaps.len(), done.len(), done.join(", "));
+        let part = Some(Arc::new(part));
+        self.cache.parts.insert(key, part.clone());
+        part
+    }
+
     /// The first controller sequence of the KF file at `path` (loaded on first use).
     pub fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
         let key = fnv_vfs::normalize(path);
@@ -438,6 +485,31 @@ impl ActorCtx<'_, '_> {
         handle
     }
 
+    /// The material of shape `i` of the part at `path` with a texture set's files put in
+    /// (a record's alternate textures, texture-swaps.md §3; cached).
+    pub fn material_with_texture_set(&mut self, path: &str, part: &PreparedPart, i: usize, set: &[Option<String>; 6]) -> Handle<NifMaterial> {
+        let joined: Vec<&str> = set.iter().map(|t| t.as_deref().unwrap_or("")).collect();
+        let key = (fnv_vfs::normalize(path), i, format!("txst:{}", joined.join("|").to_ascii_lowercase()));
+        if let Some(m) = self.cache.materials.get(&key) {
+            return m.clone();
+        }
+        let s = &part.shapes[i];
+        let mut props = s.props.clone();
+        props.use_texture_set(set);
+        let mut mesh = (*s.cpu).clone();
+        let m = &mut *self.models;
+        let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
+        let handle = match missing {
+            Some(t) => {
+                self.cache.failures.push(format!("{}: texture {t} not loaded", key.0));
+                s.material.clone()
+            }
+            None => self.models.materials.add(material),
+        };
+        self.cache.materials.insert(key, handle.clone());
+        handle
+    }
+
     /// A material derived from shape `i`'s, changed by `f` (not cached: per actor).
     pub fn material_variant(&mut self, part: &PreparedPart, i: usize, f: impl FnOnce(&mut NifMaterial)) -> Handle<NifMaterial> {
         let Some(mut m) = self.models.materials.get(&part.shapes[i].material).cloned() else { return part.shapes[i].material.clone() };
@@ -466,6 +538,7 @@ impl ActorCtx<'_, '_> {
                 }
             }
         }
+        let order = fnv_nif::scene::geometry_order(&objects);
         for o in objects.iter().filter(|o| !o.is_node) {
             // Below the root; the root's own transform is `out.root` (see `rigid_local`).
             let own = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
@@ -537,6 +610,7 @@ impl ActorCtx<'_, '_> {
                 partitions,
                 ancestors,
                 own,
+                geometry_index: order.get(&o.block).copied().unwrap_or(usize::MAX),
             });
         }
         Ok(out)
@@ -823,6 +897,7 @@ mod tests {
             partitions: Arc::default(),
             ancestors,
             own,
+            geometry_index: 0,
         };
         let mut part = PreparedPart::default();
         // Screen01 (not a bone) under the part's copy of Bip01 Head: hangs from the head
@@ -874,6 +949,7 @@ mod tests {
             partitions: Arc::default(),
             ancestors: Vec::new(),
             own: Affine3A::IDENTITY,
+            geometry_index: 0,
         };
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 1);

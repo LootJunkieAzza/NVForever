@@ -979,6 +979,40 @@ args = ["--cell", "Goodsprings", "--npc-sit", "EasyPeteRef=0010634A:8", "--follo
 run_seconds = 45
 expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 
+# ------------------------------------------------------------------ texture swaps
+
+[[scenario]]
+name = "alt-textures"
+kind = "tool"
+source = "ESM gap audit row 18 (docs/spec-notes/texture-swaps.md): records' alternate textures (MODS/MO2S/MO3S/MO4S) and the shapes they go to"
+areas = ["texture-swaps", "world"]
+paths = ["crates/fnv-world/src/alt_textures.rs", "crates/fnvtool/src/world_alt_textures.rs", "crates/fnv-nif/src/scene.rs", "schemas/fnv/common.json", "crates/fnv-esm/src/decode.rs", "crates/fnv-esm/src/schema.rs"]
+commands = [["world", "alt-textures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--edid", "BillboardAtomicWranglerNV", "--edid", "CSArmorRadiationSuit"]]
+# texture-swaps.md §1, §2: FalloutNV.esm's 433 records, 1,838 entries, 1,679 with their
+# named shape at the 3D Index; the Atomic Wrangler billboard's one shape; the radiation
+# suit's female model has two UpperBody shapes, each listed with its own index.
+expect = [
+  { json = "summary.records", equals = 433 },
+  { json = "summary.entries", equals = 1838 },
+  { json = "summary.matched.name_and_index", equals = 1679 },
+  { json = "summary.models_missing", equals = 0 },
+  { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.diffuse", equals = 'textures\clutter\billboards\atomicwrangler_billboard.dds' },
+  { json = "records.?edid=BillboardAtomicWranglerNV.models.*.entries.*.match", equals = "name_and_index" },
+  { json = "records.?edid=CSArmorRadiationSuit.models.?sub=MOD3.entries.?shape=UpperBody.match", equals = "name_and_index", count = 2 },
+]
+
+[[scenario]]
+name = "texture-swaps"
+source = "ESM gap audit row 18 (docs/spec-notes/texture-swaps.md §4): placed statics drawn with their records' alternate textures; BisonSteve01's hotel corridor piece takes its TXST's floor texture"
+areas = ["texture-swaps", "world"]
+paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/nif_spawn.rs", "crates/fnv-world/src/alt_textures.rs", "crates/fnv-world/src/placed.rs"]
+args = ["--cell", "BisonSteve01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  'meshes\dungeons\hotel lowend\htlrmcorout01.nif: texture swap: 1 entr(ies), 1 shape(s) retextured: OffRmCorOut01:1:0 → textures\dungeons\hotel lowend\presmetrofloor02.dds',
+  { text = "offdoormetalsml01.nif: texture swap: 2 entr(ies), 0 shape(s) retextured", label = "NullTextureSet names no file: the door keeps its own textures (§3, hypothesis)" },
+]
+
 # ------------------------------------------------------------------ audio
 
 [[scenario]]

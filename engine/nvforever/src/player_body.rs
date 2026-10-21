@@ -946,7 +946,9 @@ fn ensure_body(
         let (Some(path), Some(node)) = (model.map(fnv_actor::resolve::mesh_path), rig.weapon_node) else { continue };
         // In the arms rig's hands the weapon wears its `1stperson` textures where it has
         // them (`nvf_assets::texture::first_person_texture`).
-        let pm = if rig.view == View::First { models.model_first_person(&path) } else { models.model(&path) };
+        // With the weapon's alternate textures for the view (texture-swaps.md §4).
+        let swaps = weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, rig.view == View::First, weapon_mods));
+        let pm = models.model_swapped(&path, rig.view == View::First, swaps);
         match pm {
             Some(pm) => {
                 let holder = commands.spawn((Name::new(format!("Player weapon {path}")), Transform::IDENTITY, Visibility::Inherited)).id();

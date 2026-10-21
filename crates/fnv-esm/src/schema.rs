@@ -13,8 +13,10 @@
 //! ```
 //!
 //! Type expressions: a primitive name (`u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 formid
-//! zstring zstring_array string bytes`), a named type from `types`, or an object:
-//! `{"struct": [fields]}`, `{"array": T, "count": N}` (no count = fill the rest),
+//! zstring zstring_array string lstring bytes`), a named type from `types`, or an object:
+//! `{"struct": [fields]}`, `{"array": T, "count": N}` (no count = fill the rest; a count
+//! naming an integer type, `"count": "u32"`, reads the number of elements from a prefix
+//! of that type first),
 //! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`,
 //! `{"union": [{"size": N, "type": T}, ..., {"type": T}]}` (the first variant whose
 //! `size` equals the bytes left, else the first variant without `size`; the value is
@@ -60,6 +62,8 @@ pub enum Prim {
     ZStringArray,
     /// Windows-1252 string without terminator occupying the rest of the field.
     String,
+    /// Windows-1252 string after a u32 byte length, no terminator (xEdit `wbLenString`).
+    LString,
     /// Opaque bytes occupying the rest of the field (hex in output).
     Bytes,
 }
@@ -81,6 +85,7 @@ impl Prim {
             "zstring" => Prim::ZString,
             "zstring_array" => Prim::ZStringArray,
             "string" => Prim::String,
+            "lstring" => Prim::LString,
             "bytes" => Prim::Bytes,
             _ => return None,
         })
@@ -92,7 +97,7 @@ impl Prim {
             Prim::U16 | Prim::I16 => Some(2),
             Prim::U32 | Prim::I32 | Prim::F32 | Prim::FormId => Some(4),
             Prim::U64 | Prim::I64 | Prim::F64 => Some(8),
-            Prim::ZString | Prim::ZStringArray | Prim::String | Prim::Bytes => None,
+            Prim::ZString | Prim::ZStringArray | Prim::String | Prim::LString | Prim::Bytes => None,
         }
     }
     pub fn is_integer(self) -> bool {
@@ -112,7 +117,9 @@ pub enum TypeDef {
     Prim(Prim),
     Named(String),
     Struct(Vec<Field>),
-    Array { elem: Box<TypeDef>, count: Option<usize> },
+    /// `count`: a fixed number of elements; `prefix`: the number is read first, as this
+    /// integer type; neither: elements fill the rest of the data.
+    Array { elem: Box<TypeDef>, count: Option<usize>, prefix: Option<Prim> },
     Enum { base: Prim, values: Vec<(i64, String)> },
     Flags { base: Prim, bits: Vec<(u32, String)> },
     /// Layout chosen by the number of bytes left: `(Some(n), T)` applies when exactly `n`
@@ -201,11 +208,15 @@ fn parse_type(v: &Value, ctx: &str) -> Result<TypeDef, SchemaError> {
                 }
                 Ok(TypeDef::Struct(out))
             } else if let Some(elem) = v.get("array") {
-                let count = match v.get("count") {
-                    None => None,
-                    Some(c) => Some(c.as_u64().ok_or_else(|| SchemaError(format!("{ctx}: bad count")))? as usize),
+                let (count, prefix) = match v.get("count") {
+                    None => (None, None),
+                    Some(Value::String(p)) => {
+                        let p = Prim::parse(p).filter(|p| p.is_integer()).ok_or_else(|| SchemaError(format!("{ctx}: count prefix must be an integer type")))?;
+                        (None, Some(p))
+                    }
+                    Some(c) => (Some(c.as_u64().ok_or_else(|| SchemaError(format!("{ctx}: bad count")))? as usize), None),
                 };
-                Ok(TypeDef::Array { elem: Box::new(parse_type(elem, ctx)?), count })
+                Ok(TypeDef::Array { elem: Box::new(parse_type(elem, ctx)?), count, prefix })
             } else if let Some(base) = v.get("enum") {
                 let base = base
                     .as_str()
@@ -426,7 +437,7 @@ impl Schema {
                 }
                 Some(n)
             }
-            TypeDef::Array { elem, count: Some(c) } => Some(self.fixed_size(elem)? * c),
+            TypeDef::Array { elem, count: Some(c), .. } => Some(self.fixed_size(elem)? * c),
             TypeDef::Array { count: None, .. } => None,
             TypeDef::Named(_) | TypeDef::Union(_) => None,
         }

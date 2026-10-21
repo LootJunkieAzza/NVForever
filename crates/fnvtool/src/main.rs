@@ -40,6 +40,7 @@ mod script_cmd;
 mod sim_cmd;
 mod source;
 mod voice_cmd;
+mod world_alt_textures;
 mod world_audio;
 mod world_radio;
 mod world_terminals;
@@ -714,6 +715,19 @@ pub enum WorldCmd {
         /// Function catalogue (default: ../script/functions.json next to --schema).
         #[arg(long)]
         functions: Option<PathBuf>,
+    },
+    /// Records' alternate textures (fnv.world.alt_textures/1): per MODS/MO2S/MO3S/MO4S
+    /// entry the texture set, the model shapes it goes to and whether its files exist
+    /// (docs/spec-notes/texture-swaps.md).
+    AltTextures {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// List only these records (Editor IDs); the summary counts every record.
+        #[arg(long)]
+        edid: Vec<String>,
     },
     /// Terminals (fnv.world.terminals/1): hacking difficulty, flags, menu items, scripts,
     /// password notes and placed references (docs/spec-notes/hacking.md).
