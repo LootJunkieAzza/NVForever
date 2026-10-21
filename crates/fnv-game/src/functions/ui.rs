@@ -171,26 +171,14 @@ pub fn exit_game(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// non-recurring one stays at its threshold [documented: GECK wiki GetChallengeProgress
 /// (a ShowOff function), "will return the max Threshold value" / "will return to 0"].
 /// A challenge flagged Start Disabled does not move until UnlockChallenge [hypothesis:
-/// what "Start Disabled" means for progress]. The XP reward and the "challenge
-/// completed" message of the original are not given yet.
+/// what "Start Disabled" means for progress]. The step, the completion, the reward
+/// script and the notices are `Game::challenge_step` (`crate::challenges`).
 pub fn increment_scripted_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let c = a.form(0)?;
-    let Some(&flags) = g.data.challenges.get(&c) else {
+    if !g.data.challenges.contains_key(&c) {
         return Err(format!("{} is not a challenge", g.data.name(c)));
-    };
-    let threshold = g.data.challenge_thresholds.get(&c).copied().unwrap_or(1).max(1);
-    let s = g.player.challenges.entry(c).or_default();
-    let recurring = flags & 2 != 0 && !s.not_recurring;
-    if (flags & 1 != 0 && !s.unlocked) || (s.completed && !recurring) {
-        return none();
     }
-    s.progress += 1;
-    if s.progress >= threshold {
-        s.completed = true;
-        s.progress = if recurring { 0 } else { threshold };
-        g.count_stat(crate::misc_stats::CHALLENGES_COMPLETED, 1.0);
-        tracing::info!(challenge = %g.data.name(c), "challenge completed");
-    }
+    g.challenge_step(c, 1.0);
     none()
 }
 
