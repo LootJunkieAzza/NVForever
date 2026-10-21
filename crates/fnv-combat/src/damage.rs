@@ -12,43 +12,119 @@ use serde::Serialize;
 use crate::data::{AmmoEffect, WeaponStats};
 use crate::tuning::{CombatTuning, Rules};
 
+/// The perk entry points combat asks for, by the codes of the GECK's list [documented:
+/// GECK wiki GetNthPerkEntryFunction, "Entry Function Codes"; Entry Point, what each
+/// modifies]. `fnv_game::perks` has the same codes; docs/spec-notes/perk-entry-points.md
+/// §2 has which tabs each is evaluated with.
+pub mod entry {
+    pub const CALCULATE_WEAPON_DAMAGE: u8 = 0;
+    pub const CALCULATE_MY_CRITICAL_HIT_CHANCE: u8 = 1;
+    pub const CALCULATE_MY_CRITICAL_HIT_DAMAGE: u8 = 2;
+    pub const CALCULATE_GUN_SPREAD: u8 = 34;
+    pub const MODIFY_ENEMY_CRITICAL_HIT_CHANCE: u8 = 36;
+    pub const ACTION_POINT_COST: u8 = 40;
+    pub const MODIFY_DAMAGE_THRESHOLD_DEFENDER: u8 = 56;
+    pub const MODIFY_DAMAGE_THRESHOLD_ATTACKER: u8 = 58;
+}
+
 /// Perk entry points that change combat values (combat.md §4.2, "Entry Point"). Each
 /// takes the value the formula has reached and returns the modified one; the default
-/// leaves it unchanged. Evaluating real PERK records is a later step.
+/// leaves it unchanged. [`EntryOps`] holds an actor's entries, evaluated for one hit by
+/// `fnv_game::Game::entry_ops`.
 pub trait PerkHooks {
-    /// "Calculate Weapon Damage" (attacker).
-    fn weapon_damage(&self, v: f32) -> f32 {
+    /// The value after the entries of entry point `code`.
+    fn entry(&self, code: u8, v: f32) -> f32 {
+        let _ = code;
         v
+    }
+    /// "Calculate Weapon Damage" (attacker): the damage before critical damage
+    /// [documented: GECK wiki Entry Point, "No effect on critical damage"].
+    fn weapon_damage(&self, v: f32) -> f32 {
+        self.entry(entry::CALCULATE_WEAPON_DAMAGE, v)
     }
     /// "Calculate My Critical Hit Chance" (attacker), percent.
     fn crit_chance(&self, v: f32) -> f32 {
-        v
+        self.entry(entry::CALCULATE_MY_CRITICAL_HIT_CHANCE, v)
     }
     /// "Modify Enemy Critical Hit Chance" (target), percent.
     fn enemy_crit_chance(&self, v: f32) -> f32 {
-        v
+        self.entry(entry::MODIFY_ENEMY_CRITICAL_HIT_CHANCE, v)
     }
     /// "Calculate My Critical Hit Damage" (attacker).
     fn crit_damage(&self, v: f32) -> f32 {
-        v
+        self.entry(entry::CALCULATE_MY_CRITICAL_HIT_DAMAGE, v)
     }
-    /// "Modify Damage Threshold (attacker)".
+    /// "Modify Damage Threshold (attacker)": the DT taken off the target's, from 0
+    /// [documented: GECK wiki Entry Point, "read as 'How much DT to subtract from the
+    /// targeted actor'"; observed: Shotgun Surgeon, "ignore an additional 10 points of a
+    /// target's Damage Threshold", Set 10].
     fn dt_attacker(&self, v: f32) -> f32 {
-        v
+        self.entry(entry::MODIFY_DAMAGE_THRESHOLD_ATTACKER, v)
     }
-    /// "Modify Damage Threshold (defender)".
+    /// "Modify Damage Threshold (defender)": the DT of the actor that has the perk.
     fn dt_defender(&self, v: f32) -> f32 {
-        v
+        self.entry(entry::MODIFY_DAMAGE_THRESHOLD_DEFENDER, v)
     }
-    /// "Calculate Gun Spread" (attacker): the actor spread, after the formula.
+    /// "Calculate Gun Spread" (attacker): the actor spread, after the formula, not the
+    /// weapon's minimum spread [documented: GECK wiki Entry Point, "Has no effect on a
+    /// Weapon's Min Spread in New Vegas"].
     fn gun_spread(&self, v: f32) -> f32 {
-        v
+        self.entry(entry::CALCULATE_GUN_SPREAD, v)
     }
 }
 
 /// No perks.
 pub struct NoPerks;
 impl PerkHooks for NoPerks {}
+
+/// What one perk entry does to a value (`fnv_game::perks::Op`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub enum PerkOp {
+    Set(f32),
+    Add(f32),
+    Mul(f32),
+    Abs,
+    NegAbs,
+}
+
+impl PerkOp {
+    pub fn apply(self, v: f32) -> f32 {
+        match self {
+            PerkOp::Set(x) => x,
+            PerkOp::Add(x) => v + x,
+            PerkOp::Mul(x) => v * x,
+            PerkOp::Abs => v.abs(),
+            PerkOp::NegAbs => -v.abs(),
+        }
+    }
+}
+
+/// One actor's perk entries for one hit: per entry point, in the order they apply, with
+/// the perk's name for the log.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct EntryOps(pub Vec<(u8, PerkOp, String)>);
+
+impl EntryOps {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    /// The perks' names, each once, in order.
+    pub fn names(&self) -> Vec<&str> {
+        let mut out: Vec<&str> = Vec::new();
+        for (_, _, n) in &self.0 {
+            if !out.contains(&n.as_str()) {
+                out.push(n);
+            }
+        }
+        out
+    }
+}
+
+impl PerkHooks for EntryOps {
+    fn entry(&self, code: u8, v: f32) -> f32 {
+        self.0.iter().filter(|(c, _, _)| *c == code).fold(v, |v, (_, op, _)| op.apply(v))
+    }
+}
 
 /// How the attack is made, from the weapon's animation type [documented: the three forms
 /// of the Weapon Damage Formula].
@@ -270,7 +346,9 @@ pub fn hit(
     let dt = if ignores_armour {
         0.0
     } else {
-        target_perks.dt_defender(attacker_perks.dt_attacker(apply_effects(target.dt, h.ammo_effects, "DT Mod"))).max(0.0)
+        // The target's own DT with its perks, less what the attacker's perks ignore
+        // [hypothesis: in this order].
+        (target_perks.dt_defender(apply_effects(target.dt, h.ammo_effects, "DT Mod")) - attacker_perks.dt_attacker(0.0)).max(0.0)
     };
     let dr = if ignores_armour { 0.0 } else { apply_effects(target.dr, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating) };
     // DT subtracts, but never more than (1 − floor) of the hit [design]; DR scales the rest.

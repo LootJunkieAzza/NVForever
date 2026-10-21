@@ -1,23 +1,31 @@
 //! Perk entry points: a perk the player has changes a number the game is about to use
-//! (docs/spec-notes/aid-items.md §10). Only the entry points of aid items and of
-//! experience (docs/spec-notes/experience.md §2) are asked for here; the others (combat's, `fnv_combat::damage::PerkHooks`) are not yet read from the
-//! records.
+//! (docs/spec-notes/perk-entry-points.md; aid items' in docs/spec-notes/aid-items.md §10,
+//! experience's in docs/spec-notes/experience.md §2, combat's through
+//! `fnv_combat::damage::PerkHooks`).
 //!
 //! An entry point effect of a PERK names the entry point, a function (Set, Add,
-//! Multiply) and a number; the function is applied to the value the game has calculated
-//! [documented: GECK wiki Entry Point, "the Add Value function … modify the current
-//! value"]. Which code is which entry point [observed: the one perk of the masters with
-//! code 23 is Chem Resistant, "50% less likely to develop an addiction", Multiply 0.5;
-//! code 25 is Chemist, "chems … last twice as long", Multiply 2, and the chem challenge
-//! perk, Multiply 1.33; code 44 is Lead Belly, "50% less radiation when consuming",
-//! Multiply 0.5].
+//! Multiply …) and its parameters; the function is applied to the value the game has
+//! calculated [documented: GECK wiki Entry Point, "the Add Value function … modify the
+//! current value"]. Which code is which entry point [documented: GECK wiki
+//! GetNthPerkEntryFunction, "Entry Function Codes" 0–73; observed: the one perk of the
+//! masters with code 23 is Chem Resistant, "50% less likely to develop an addiction",
+//! Multiply 0.5; code 25 is Chemist, "chems … last twice as long", Multiply 2; code 44
+//! is Lead Belly, "50% less radiation when consuming", Multiply 0.5].
+//!
+//! Each entry point has up to two argument tabs besides the perk owner's: the weapon and
+//! the target for weapon damage, the attacker and its weapon for the defender's DT and so
+//! on [documented: GECK wiki GetPerkModifier, each entry function's additional arguments;
+//! observed: Cowboy's weapon damage entry tests IsInList on tab 1 and Animal Control's
+//! GetIsCreatureType on tab 2; Hit the Deck's DT entry tests IsWeaponSkillType Explosives
+//! on tab 2]. The conditions of each tab run on that tab's form with the owner as their
+//! target, the owner's on the owner with the other actor as their target
+//! ([`Game::entry_ops`]) [hypothesis: the targets].
 //!
 //! Rules that are ours [hypothesis]: of a perk with several ranks only the entries of the
 //! highest rank owned apply (the masters' ranked entries each hold the whole bonus,
 //! Demolition Expert 1.2, 1.4, 1.6); entries apply in ascending priority, then perk
-//! FormID; the perk owner's conditions (tab 0) are evaluated on the owner; an entry with
-//! conditions on another tab (the item, the weapon, the target) is not applied, as no
-//! aid entry point of the masters has any.
+//! FormID; an entry with conditions on a tab the caller has no form for is not applied;
+//! every tab's conditions must pass.
 
 use crate::data::{PerkEffect, PerkEntry};
 use crate::game::Game;
@@ -55,10 +63,106 @@ pub const MODIFY_POSITIVE_CHEM_DURATION: u8 = 25;
 pub const MODIFY_RADIATION_CONSUMED: u8 = 44;
 
 /// Entry point functions [observed: see `EntryPointDef::function`; hypothesis for the
-/// names].
+/// names]. The masters use only 1–3 on numbers, 8 (EPFT 3, a leveled list) and 9 (EPFT
+/// 4, a script: the activate choices) [observed: every PERK of FalloutNV.esm and the
+/// five add-ons].
 pub const SET_VALUE: u8 = 1;
 pub const ADD_VALUE: u8 = 2;
 pub const MULTIPLY_VALUE: u8 = 3;
+/// The other number functions the GECK offers, numbered by its Function list's order
+/// [hypothesis: that order gives 8 Add Leveled List and 9 Add Activate Choice, as the
+/// masters' entries show; no entry of the masters or the add-ons uses 4–7 or 12–14, so
+/// their codes and parameter layouts are not checked against data].
+pub const ADD_RANGE_TO_VALUE: u8 = 4;
+pub const ADD_ACTOR_VALUE_MULT: u8 = 5;
+pub const ABSOLUTE_VALUE: u8 = 6;
+pub const NEGATIVE_ABSOLUTE_VALUE: u8 = 7;
+pub const SET_TO_ACTOR_VALUE_MULT: u8 = 12;
+pub const MULTIPLY_ACTOR_VALUE_MULT: u8 = 13;
+pub const MULTIPLY_1_PLUS_ACTOR_VALUE_MULT: u8 = 14;
+
+/// The combat entry points (`fnv_combat::damage::PerkHooks` and the engine's weapon
+/// figures) [documented: GECK wiki GetNthPerkEntryFunction, the codes; Entry Point, what
+/// each modifies]. Which the engine asks for, with which tabs:
+/// docs/spec-notes/perk-entry-points.md §2.
+pub const CALCULATE_WEAPON_DAMAGE: u8 = 0;
+pub const CALCULATE_MY_CRITICAL_HIT_CHANCE: u8 = 1;
+pub const CALCULATE_MY_CRITICAL_HIT_DAMAGE: u8 = 2;
+pub const CALCULATE_TO_HIT_CHANCE: u8 = 8;
+pub const CALCULATE_GUN_SPREAD: u8 = 34;
+pub const MODIFY_ENEMY_CRITICAL_HIT_CHANCE: u8 = 36;
+pub const RELOAD_SPEED: u8 = 37;
+pub const EQUIP_SPEED: u8 = 38;
+pub const ACTION_POINT_COST: u8 = 40;
+pub const MODIFY_ATTACK_SPEED: u8 = 43;
+pub const KNOCKDOWN_CHANCE: u8 = 52;
+pub const MODIFY_WEAPON_STRENGTH_REQ: u8 = 53;
+pub const MODIFY_AIMING_MOVE_SPEED: u8 = 54;
+pub const MODIFY_DAMAGE_THRESHOLD_DEFENDER: u8 = 56;
+pub const MODIFY_DAMAGE_THRESHOLD_ATTACKER: u8 = 58;
+pub const MODIFY_THROWING_VELOCITY: u8 = 59;
+pub const MODIFY_ITEM_DAMAGE: u8 = 68;
+
+/// What one entry does to the value, its parameters resolved for this use (an actor
+/// value read, a range rolled).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Op {
+    Set(f64),
+    Add(f64),
+    Mul(f64),
+    Abs,
+    NegAbs,
+}
+
+impl Op {
+    pub fn apply(self, v: f64) -> f64 {
+        match self {
+            Op::Set(x) => x,
+            Op::Add(x) => v + x,
+            Op::Mul(x) => v * x,
+            Op::Abs => v.abs(),
+            Op::NegAbs => -v.abs(),
+        }
+    }
+}
+
+/// The EPFD of Add Range To Value (low, high) and of the actor value functions (the
+/// actor value's code as an integer, the factor) [hypothesis: two 4-byte fields].
+fn two_fields(raw: &[u8]) -> Option<([u8; 4], [u8; 4])> {
+    Some((<[u8; 4]>::try_from(raw.get(0..4)?).ok()?, <[u8; 4]>::try_from(raw.get(4..8)?).ok()?))
+}
+
+/// One entry's function as an [`Op`]: `av` reads the owner's actor value, `roll` gives a
+/// number uniform in [0, 1). `None`: not a number function, or its parameters are
+/// missing. Add Range To Value adds a number rolled between its two; the actor value
+/// functions take the actor value × the factor and add it, set the value to it,
+/// multiply by it, or multiply by 1 + it [hypothesis: as their names say].
+pub fn resolve(ep: &crate::data::EntryPointDef, av: &mut dyn FnMut(u16) -> f64, roll: &mut dyn FnMut() -> f64) -> Option<Op> {
+    let value = ep.value.map(f64::from);
+    Some(match ep.function {
+        SET_VALUE => Op::Set(value?),
+        ADD_VALUE => Op::Add(value?),
+        MULTIPLY_VALUE => Op::Mul(value?),
+        ADD_RANGE_TO_VALUE => {
+            let (lo, hi) = two_fields(&ep.raw)?;
+            let (lo, hi) = (f32::from_le_bytes(lo) as f64, f32::from_le_bytes(hi) as f64);
+            Op::Add(lo + roll() * (hi - lo))
+        }
+        ABSOLUTE_VALUE => Op::Abs,
+        NEGATIVE_ABSOLUTE_VALUE => Op::NegAbs,
+        ADD_ACTOR_VALUE_MULT | SET_TO_ACTOR_VALUE_MULT | MULTIPLY_ACTOR_VALUE_MULT | MULTIPLY_1_PLUS_ACTOR_VALUE_MULT => {
+            let (code, k) = two_fields(&ep.raw)?;
+            let x = av(u32::from_le_bytes(code) as u16) * f32::from_le_bytes(k) as f64;
+            match ep.function {
+                ADD_ACTOR_VALUE_MULT => Op::Add(x),
+                SET_TO_ACTOR_VALUE_MULT => Op::Set(x),
+                MULTIPLY_ACTOR_VALUE_MULT => Op::Mul(x),
+                _ => Op::Mul(1.0 + x),
+            }
+        }
+        _ => return None,
+    })
+}
 
 /// One entry that applied: the perk, and the value after it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -176,10 +280,12 @@ impl Game<'_> {
         }
     }
 
-    /// The entries of `point` that apply to `actor` now, in the order they apply.
-    fn entry_point_entries(&mut self, actor: FormId, point: u8) -> Vec<(FormId, PerkEntry)> {
+    /// The entries of `point` that apply to `actor` now, in the order they apply. `tabs`:
+    /// the forms of the entry point's argument tabs 1 and 2 (`None`: none known here);
+    /// `other`: the actor the owner's conditions take as their target.
+    fn entry_point_entries(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>) -> Vec<(FormId, PerkEntry)> {
         // Perks are the player's only (`AddPerk` on another actor is refused).
-        if actor != FormId::PLAYER_REF {
+        if actor != FormId::PLAYER_REF || self.player.perks.is_empty() {
             return Vec::new();
         }
         let data = self.data;
@@ -189,38 +295,77 @@ impl Game<'_> {
             let Some(def) = data.perks.get(&perk) else { continue };
             let at = |e: &&PerkEntry| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1);
             let Some(top) = def.entries.iter().filter(at).map(|e| e.rank).max() else { continue };
-            for e in def.entries.iter().filter(at).filter(|e| e.rank == top) {
+            'entry: for e in def.entries.iter().filter(at).filter(|e| e.rank == top) {
                 let PerkEffect::EntryPoint(ep) = &e.effect else { continue };
                 let Some(conds) = ep.conditions.as_ref() else { continue };
-                if conds.iter().any(|(tab, _)| *tab != 0) {
-                    continue;
-                }
-                let owner: Vec<_> = conds.iter().map(|(_, c)| c.clone()).collect();
                 let label = format!("{} entry point {point}", data.name(perk));
-                if self.conditions_pass(&owner, Some(actor), None, &label) {
-                    found.push((perk, e.clone()));
+                for tab in tab_order(conds) {
+                    let list: Vec<_> = conds.iter().filter(|(t, _)| *t == tab).map(|(_, c)| c.clone()).collect();
+                    let (subject, target) = match tab {
+                        0 => (Some(actor), other),
+                        t if t > 0 => match tabs.get(t as usize - 1).copied().flatten() {
+                            Some(f) => (Some(f), Some(actor)),
+                            None => continue 'entry,
+                        },
+                        _ => continue 'entry,
+                    };
+                    if !self.conditions_pass(&list, subject, target, &label) {
+                        continue 'entry;
+                    }
                 }
+                found.push((perk, e.clone()));
             }
         }
         found.sort_by_key(|(p, e)| (e.priority, *p));
         found
     }
 
-    /// The value after the perk entries of `point` the actor has; the perks that changed
-    /// it, in order.
+    /// The number entries of `point` that apply to `actor` with the argument tabs `tabs`
+    /// and the other actor `other` ([`Self::entry_point_entries`]), in the order they
+    /// apply, with their perks.
+    pub fn entry_ops(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>) -> Vec<(FormId, Op)> {
+        let mut out = Vec::new();
+        for (perk, e) in self.entry_point_entries(actor, point, tabs, other) {
+            let PerkEffect::EntryPoint(ep) = &e.effect else { continue };
+            // Only Add Range To Value rolls; only the actor value functions read a value.
+            let op = if ep.function == ADD_RANGE_TO_VALUE {
+                let rng = &mut self.rng;
+                resolve(ep, &mut |_| 0.0, &mut || {
+                    use rand_core::RngCore;
+                    (rng.next_u32() >> 8) as f64 / (1u32 << 24) as f64
+                })
+            } else {
+                resolve(ep, &mut |code| crate::functions::actor_value_capped(self, actor, code), &mut || 0.0)
+            };
+            if let Some(op) = op {
+                out.push((perk, op));
+            }
+        }
+        out
+    }
+
+    /// The value after the perk entries of `point` the actor has (no argument tabs); the
+    /// perks that changed it, in order.
     pub fn entry_point(&mut self, actor: FormId, point: u8, value: f64) -> (f64, Vec<Applied>) {
         let mut v = value;
         let mut applied = Vec::new();
-        for (perk, e) in self.entry_point_entries(actor, point) {
-            let PerkEffect::EntryPoint(ep) = &e.effect else { continue };
-            let Some(number) = ep.value else { continue };
-            if let Some(next) = apply_function(ep.function, number as f64, v) {
-                v = next;
-                applied.push(Applied { perk, value: v });
-            }
+        for (perk, op) in self.entry_ops(actor, point, &[], None) {
+            v = op.apply(v);
+            applied.push(Applied { perk, value: v });
         }
         (v, applied)
     }
+}
+
+/// The tabs an entry's conditions name, in the order they first appear.
+fn tab_order(conds: &[(i8, crate::cond::Condition)]) -> Vec<i8> {
+    let mut tabs: Vec<i8> = Vec::new();
+    for (t, _) in conds {
+        if !tabs.contains(t) {
+            tabs.push(*t);
+        }
+    }
+    tabs
 }
 
 #[cfg(test)]

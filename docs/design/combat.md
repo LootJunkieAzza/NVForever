@@ -700,7 +700,7 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C6 | Melee and unarmed, block, power attacks, knockback (documented formula, §4.2) | C5 |
 | C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
 | C8 | Limb hits (§5.9): a hit volume per body part, part multipliers, limb condition and crippling, their effects on spread, movement and the HUD | C5; skeleton bones posed per frame |
-| later | perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
+| later | perk entry points (the combat ones listed in §4.2; built in claude/e2-perk-combat-entry-points, spec-notes/perk-entry-points.md); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
 | Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY). Detection states: docs/design/alert.md; CA1 (actors in Combat shoot and strike, the player can die): docs/design/combat-ai.md, 2026-10-11 | C5; actor-behaviour.md |
 
 ## 9. Owner questions

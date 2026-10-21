@@ -7201,6 +7201,31 @@ man's house): does the shotgun fire the moment the wire springs, and does lookin
 tripwire (without disarming) leave the shotgun quiet? Step on a bear trap south of
 Goodsprings: does it close when the foot is about a third of a metre from its centre?
 
+## Perks in combat: entry points with tabs (2026-10-21, ESM gap audit row 2, branch claude/e2-perk-combat-entry-points)
+
+Spec: [perk-entry-points](spec-notes/perk-entry-points.md). The player's perks now change
+the player's hits (weapon damage, critical chance and damage, DT ignored), the hits the
+player takes (the enemy's critical chance, the player's DT), the player's gun spread,
+VATS mode's AP cost and the player's weapon wear.
+1. *Decision:* each condition tab runs on its own form (owner: the player, with the other
+   actor as Target; the weapon's base form; the target or attacker reference), and every
+   tab must pass; an entry whose tab has no form here (a shot on an object) is skipped.
+2. *Decision:* the **functions other than Set/Add/Multiply** (Add Range To Value, the
+   actor value functions, Absolute Value) are numbered by the GECK's Function list order
+   (4–7, 12–14). No record of the masters or add-ons uses them, so their codes and
+   parameter layouts are unchecked guesses.
+3. *Decision:* the **attacker's DT entry** (Shotgun Surgeon, Piercing Strike) is the DT
+   taken off the target's, applied after the target's own DT perks, never below 0.
+4. *Changed:* **GetVATSValue's query codes** were the wiki page's order; the masters'
+   data shows Targeted Part is code 5 (Center of Mass, Sniper) and Weapon Type Is is last
+   (15). Camera path conditions now read with the new codes.
+5. Not wired yet: To Hit Chance (VATS mode never misses), reload / equip / attack speed
+   (the body's clips play at their own speed; changing only the timing would desync),
+   knockdown (Super Slam), Strength requirement, Run 'n Gun, throwing velocity, explosion
+   radius.
+*Check:* with Bloody Mess, does a 10mm shot on a raider take about 5 % more? With
+Toughness, do raiders' shots take 3 less? With Math Wrath, does VATS mode's AP a shot
+drop by a tenth? Center of Mass applies only to VATS mode's shots at the torso.
 ## Encounter zones (2026-10-21, ESM gap audit item 1, branch claude/e1-encounter-zones)
 
 Leveled actors, and the carried items of placed actors and containers, are now read at each
