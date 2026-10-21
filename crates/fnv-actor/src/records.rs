@@ -274,6 +274,11 @@ pub struct ActorForms {
     pub sigs: HashMap<FormId, [u8; 4]>,
     pub edids: HashMap<String, FormId>,
     pub issues: Issues,
+    /// Alternate textures by (form, model subrecord): ARMO MODL/MOD3 (worn), HDPT MODL,
+    /// WEAP MODL and the STATs weapons name as first-person models (MODL)
+    /// (`fnv_world::alt_textures`, docs/spec-notes/texture-swaps.md). Only lists that
+    /// have entries are kept.
+    pub alt_textures: HashMap<(FormId, [u8; 4]), Vec<fnv_world::alt_textures::AltTexture>>,
 }
 
 const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"WEAP", b"LVLN", b"CREA", b"LVLC"];
@@ -387,6 +392,18 @@ impl ActorForms {
             }
             extract::decode(r, schema).ok().and_then(|dec| path(first(&dec, b"MODL")))
         };
+        // Alternate textures of the models drawn on actors (texture-swaps.md §4).
+        let mut alt = Vec::new();
+        alt.extend(out.armors.keys().flat_map(|&id| [(id, *b"MODL"), (id, *b"MOD3")]));
+        alt.extend(out.head_parts.keys().map(|&id| (id, *b"MODL")));
+        alt.extend(out.weapons.iter().flat_map(|(&id, w)| std::iter::once(id).chain(w.first_person)).map(|id| (id, *b"MODL")));
+        out.alt_textures = alt
+            .into_par_iter()
+            .filter_map(|(id, sub)| {
+                let list = fnv_world::alt_textures::alt_textures_of(lo, schema, id.0, &sub);
+                (!list.is_empty()).then_some(((id, sub), list))
+            })
+            .collect();
         for w in out.weapons.values_mut() {
             w.first_person_model = w.first_person.and_then(model_of);
             w.mod_first_person_models = w.mod_first_person.map(|f| f.and_then(model_of));
@@ -394,6 +411,43 @@ impl ActorForms {
             w.explosion_damage = w.projectile.map_or(0.0, |p| fnv_sim::forms::explosion_damage(lo, schema, p));
         }
         out
+    }
+
+    /// The alternate textures of `form`'s model in `sub` (empty when it has none).
+    pub fn alt_textures(&self, form: FormId, sub: &[u8; 4]) -> &[fnv_world::alt_textures::AltTexture] {
+        self.alt_textures.get(&(form, *sub)).map_or(&[], Vec::as_slice)
+    }
+
+    /// The alternate textures of a resolved actor part's model: a worn item's MODL list,
+    /// or its MOD3 list when a female wears the female model; a head part's MODL list.
+    /// Race parts and hair have none [observed: no RACE or HAIR record carries one].
+    pub fn part_alt_textures(&self, part: &crate::resolve::Part, female: bool) -> &[fnv_world::alt_textures::AltTexture] {
+        match part.role.as_str() {
+            "armor" => {
+                let female_model = female && self.armors.get(&part.form).is_some_and(|a| a.worn[1].is_some());
+                self.alt_textures(part.form, if female_model { b"MOD3" } else { b"MODL" })
+            }
+            "head_part" => self.alt_textures(part.form, b"MODL"),
+            _ => &[],
+        }
+    }
+
+    /// The alternate textures of a weapon's model for the view with the mods `flags` on
+    /// (the model [`Weapon::model_for`] gives): the first-person form's MODS in first
+    /// person, the weapon's own MODS otherwise; none for a modded model, which no
+    /// alternate-texture list pairs with [documented: xEdit WEAP has MODS only beside
+    /// MODL, MO2S–MO4S beside the casing, scope and world models].
+    pub fn weapon_alt_textures(&self, id: FormId, first_person: bool, flags: u8) -> &[fnv_world::alt_textures::AltTexture] {
+        let Some(w) = self.weapons.get(&id) else { return &[] };
+        let i = (flags & 7) as usize;
+        let modded = if first_person { w.mod_first_person_models.get(i.wrapping_sub(1)) } else { w.mod_models.get(i.wrapping_sub(1)) };
+        if i != 0 && modded.is_some_and(Option::is_some) {
+            return &[];
+        }
+        match (first_person, w.first_person.filter(|_| w.first_person_model.is_some())) {
+            (true, Some(fp)) => self.alt_textures(fp, b"MODL"),
+            _ => self.alt_textures(id, b"MODL"),
+        }
     }
 
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {

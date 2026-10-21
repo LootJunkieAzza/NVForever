@@ -72,6 +72,29 @@ pub struct SceneObject {
 pub const SHAPE_TYPES: [&str; 3] = ["NiTriShape", "NiTriStrips", "BSSegmentedTriShape"];
 pub const SHAPE_DATA_TYPES: [&str; 2] = ["NiTriShapeData", "NiTriStripsData"];
 
+/// The geometry blocks of a model ([`scene_objects`]) in depth-first order from its
+/// root, children in stored order: the order the 3D Index of a record's alternate
+/// textures counts in [observed: docs/spec-notes/texture-swaps.md §2]. Returns, per
+/// geometry block, its position.
+pub fn geometry_order(objects: &[SceneObject]) -> std::collections::HashMap<usize, usize> {
+    let by_block: std::collections::HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let mut out = std::collections::HashMap::new();
+    let mut stack: Vec<usize> = objects.iter().filter(|o| o.parent.is_none()).map(|o| o.block).rev().collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some(b) = stack.pop() {
+        if !seen.insert(b) {
+            continue;
+        }
+        let Some(o) = by_block.get(&b) else { continue };
+        if !o.is_node {
+            let n = out.len();
+            out.insert(b, n);
+        }
+        stack.extend(o.children.iter().rev().copied());
+    }
+    out
+}
+
 /// Nodes (NiNode and derived types) and triangle shapes, in block order, with each
 /// object's parent = the lowest-index node listing it as a child.
 pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
@@ -266,6 +289,39 @@ pub fn segment_triangles(shape: &Struct, triangles: usize) -> Option<Vec<std::op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn geometry_is_counted_depth_first_for_alternate_textures() {
+        // terminal01.nif: root 0 > [79 > 81 > [86 > 88, 105 > [107 > [109 > [111, 117], 123], 127], 136]]
+        let o = |block, parent, is_node, children: Vec<usize>| SceneObject {
+            block,
+            type_name: String::new(),
+            name: None,
+            parent,
+            transform: Transform::IDENTITY,
+            is_node,
+            children,
+        };
+        let objects = vec![
+            (0, None, true, vec![79]),
+            (79, Some(0), true, vec![81]),
+            (81, Some(79), true, vec![86, 105, 136]),
+            (86, Some(81), true, vec![88]),
+            (88, Some(86), false, vec![]),
+            (105, Some(81), true, vec![107, 127]),
+            (107, Some(105), true, vec![109, 123]),
+            (109, Some(107), true, vec![111, 117]),
+            (111, Some(109), false, vec![]),
+            (117, Some(109), false, vec![]),
+            (123, Some(107), false, vec![]),
+            (127, Some(105), false, vec![]),
+            (136, Some(81), false, vec![]),
+        ];
+        let objects: Vec<SceneObject> = objects.into_iter().map(|(b, p, n, c)| o(b, p, n, c)).collect();
+        let order = geometry_order(&objects);
+        let got: Vec<usize> = [88, 111, 117, 123, 127, 136].iter().map(|b| order[b]).collect();
+        assert_eq!(got, vec![0, 1, 2, 3, 4, 5]);
+    }
     use crate::Value;
 
     fn shape(segments: &[(i64, i64)]) -> Struct {

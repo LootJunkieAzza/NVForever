@@ -4255,6 +4255,7 @@ dependencies = [
  "fnv-dds",
  "fnv-nif",
  "fnv-vfs",
+ "fnv-world",
 ]
 
 [[package]]

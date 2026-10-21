@@ -7555,3 +7555,28 @@ guesses:
   Pip-Boy, DATA > Misc, click "Deputy Beagle's Journal": the deputy reads six
   responses. Compare: does the original start it on selection or on a click, does picking it
   again stop it, does it go on with the Pip-Boy closed, and what the right side shows.
+
+
+## Model texture swaps (2026-10-21, ESM gap audit item 18, branch claude/e18-texture-swaps)
+
+Records' alternate textures (MODS, MO2S, MO3S, MO4S) now put a texture set's files on the
+model shapes they name: billboards, rusted terminals, re-skinned outfits, grey beards, the
+dirty first-person weapons. Spec: [texture-swaps](spec-notes/texture-swaps.md). Decisions
+and guesses:
+
+- *Guess:* which shape an entry means. The 3D Index is the shape's depth-first position
+  among the model's shapes in 1,679 of FalloutNV.esm's 1,838 entries; 70 name a shape that
+  sits elsewhere (the dynamite, a vault gear door) and 89 a shape the model lacks. NVForever
+  goes by the name, uses the index only among shapes of that name, and changes nothing for
+  a missing name (never the index alone).
+- *Guess:* a texture-set slot with no file keeps the shape's own texture. `NullTextureSet`
+  (no files) on 29 doors therefore changes nothing; the alternative would be untextured or
+  hidden shapes.
+- *Guess:* the TXST "No Specular Map" flag is not applied.
+- *Decision:* armour worn by a female who falls back to the male model uses the male
+  list; a modded weapon's own model takes no list.
+- *Check:* the Atomic Wrangler billboard on the Strip's north side (BillboardAtomicWranglerNV)
+  and a hotel corridor in Bison Steve (BisonSteve01, floor of `htlrmcorout01`): the swapped
+  texture against the original; Ranger Battle Armor (MS18RangerBattlearmor) whose `Arms1`
+  entry names no shape: does the original retexture the arms anyway?
+

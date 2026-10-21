@@ -318,6 +318,22 @@
     }
    ]
   },
+  "AlternateTexture": {
+   "struct": [
+    {
+     "name": "shape_name",
+     "type": "lstring"
+    },
+    {
+     "name": "texture_set",
+     "type": "formid"
+    },
+    {
+     "name": "shape_index",
+     "type": "i32"
+    }
+   ]
+  },
   "BoolU8": {
    "enum": "u8",
    "values": {
@@ -583,6 +599,15 @@
    },
    "confidence": "documented",
    "note": "xEdit wbDefinitionsCommon.pas wbModelInfo; pre-TES5 branch: array of 24-byte texture hash structs (CSNO overrides MODT as a string)"
+  },
+  "MODS": {
+   "name": "Model Alternate Textures",
+   "type": {
+    "array": "AlternateTexture",
+    "count": "u32"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbMODS (Alternate Textures: count, then per entry 3D Name (wbLenString), New Texture (TXST), 3D Index); pairs with MODL. Layout observed: all 2,594 entries in the ten masters parse exactly; the 3D Index is the shape's position among the model's geometry blocks in depth-first order (docs/spec-notes/texture-swaps.md)"
   },
   "MODD": {
    "name": "FaceGen Model Flags",
@@ -1049,6 +1074,33 @@
    "type": "zstring",
    "confidence": "documented",
    "note": "xEdit wbDefinitionsFNV.pas ARMO/WEAP wbTexturedModel, CSNO record; zstring in every FNV use"
+  },
+  "MO2S": {
+   "name": "Model 2 Alternate Textures",
+   "type": {
+    "array": "AlternateTexture",
+    "count": "u32"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbMODS (Alternate Textures: count, then per entry 3D Name (wbLenString), New Texture (TXST), 3D Index); pairs with MOD2. Layout observed: all 2,594 entries in the ten masters parse exactly; the 3D Index is the shape's position among the model's geometry blocks in depth-first order (docs/spec-notes/texture-swaps.md)"
+  },
+  "MO3S": {
+   "name": "Model 3 Alternate Textures",
+   "type": {
+    "array": "AlternateTexture",
+    "count": "u32"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbMODS (Alternate Textures: count, then per entry 3D Name (wbLenString), New Texture (TXST), 3D Index); pairs with MOD3. Layout observed: all 2,594 entries in the ten masters parse exactly; the 3D Index is the shape's position among the model's geometry blocks in depth-first order (docs/spec-notes/texture-swaps.md)"
+  },
+  "MO4S": {
+   "name": "Model 4 Alternate Textures",
+   "type": {
+    "array": "AlternateTexture",
+    "count": "u32"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbMODS (Alternate Textures: count, then per entry 3D Name (wbLenString), New Texture (TXST), 3D Index); pairs with MOD4. Layout observed: all 2,594 entries in the ten masters parse exactly; the 3D Index is the shape's position among the model's geometry blocks in depth-first order (docs/spec-notes/texture-swaps.md)"
   },
   "MO2T": {
    "name": "Model 2 Texture Hashes",

@@ -614,7 +614,8 @@ pub fn spawn_model(
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
         return;
     }
-    let Some(model) = models.model(&path) else {
+    // With the base's alternate textures on the shapes they name (texture-swaps.md §4).
+    let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else {
         stats.refs_no_model += 1;
         return;
     };
