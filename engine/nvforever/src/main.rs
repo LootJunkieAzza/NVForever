@@ -125,6 +125,7 @@ mod window_icon;
 mod window_mode;
 mod world;
 mod worldspace;
+mod zones;
 
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
 use bevy::prelude::*;
@@ -1267,7 +1268,7 @@ fn main() -> AppExit {
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
-            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin));
+            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin, zones::ZonesPlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {

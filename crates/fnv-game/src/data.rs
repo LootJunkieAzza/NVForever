@@ -1540,7 +1540,13 @@ impl GameData {
     /// ([`GameData::template_source`]; [`crate::game::Game::package_list`]). For a base
     /// alone, pass the base as the reference.
     pub fn base_package_list(&self, base: FormId, reference: FormId) -> Vec<FormId> {
-        self.template_source(base, reference, |d| d.template_packages).map(|(_, d)| d.packages.clone()).unwrap_or_default()
+        self.base_package_list_at(base, reference, fnv_sim::zones::LevelAt::plain(crate::templates::LEVELED_ACTOR_LEVEL))
+    }
+
+    /// [`GameData::base_package_list`] with leveled lists read at `at` (the reference's
+    /// level in a game).
+    pub fn base_package_list_at(&self, base: FormId, reference: FormId, at: fnv_sim::zones::LevelAt) -> Vec<FormId> {
+        self.template_source_at(base, reference, at, |d| d.template_packages).map(|(_, d)| d.packages.clone()).unwrap_or_default()
     }
 
     /// The priority of the quest a line belongs to (0 without a quest).

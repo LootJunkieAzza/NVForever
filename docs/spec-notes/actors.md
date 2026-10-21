@@ -161,7 +161,9 @@ paths**: trimmed, `/` → `\`, lower case, leading `\` removed, prefixed with `m
 ### 2.1 Actor base and leveled NPCs
 
 - The placed ACHR's `NAME` is the base. An LVLN is resolved to one of its entries like a
-  leveled item (simulation.md §4): entries with level ≤ the display level 1; the pool is
+  leveled item (simulation.md §4): entries with level ≤ the display level 1 (in a game, the
+  reference's level instead: its encounter zone's or the player's, with its level modifier,
+  [encounter-zones](encounter-zones.md) §3); the pool is
   all of them with "Calculate from all levels", else those of the highest eligible
   level; nested LVLN are followed. Chance none is not applied: a static display always
   shows an actor (a display choice, not a claim about the game).

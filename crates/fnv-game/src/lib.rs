@@ -25,6 +25,7 @@
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
 //! - [`respawn`]: cell resets: respawning actors back alive after `iHoursToRespawnCell`
+//! - [`zones`]: encounter zones' levels and each placed actor's leveled level
 //! - [`voice`]: the hook that gives a dialogue response the length of its voice file
 //! - [`weather`]: the weather scripts ask for and the one the sky shows
 //!
@@ -94,6 +95,7 @@ pub mod use_weapon;
 pub mod vats;
 pub mod voice;
 pub mod weather;
+pub mod zones;
 
 pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};

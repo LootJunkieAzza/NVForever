@@ -1337,6 +1337,51 @@
      "note": "xEdit wbDefinitionsFNV.pas PGRE record; wbVec3PosRot(DATA)"
     }
    }
+  },
+  "ECZN": {
+   "name": "Encounter Zone",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "owner",
+        "type": "formid"
+       },
+       {
+        "name": "rank",
+        "type": "i8"
+       },
+       {
+        "name": "minimum_level",
+        "type": "i8"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Never Resets",
+          "1": "Match PC Below Minimum Level"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 1
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ECZN record; observed: all 17 FalloutNV.esm ECZN DATA are 8 bytes, flags bit 0 only (docs/spec-notes/encounter-zones.md)"
+    }
+   }
   }
  }
 }

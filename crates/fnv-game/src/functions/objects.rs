@@ -23,7 +23,7 @@ pub fn note_created(g: &mut Game, r: FormId) {
     // An actor whose base stands for another's carried items (a leveled actor list, a
     // template's Inventory source) carries that actor's, as a placed one does
     // (`GameData::inventory_sources`): the pick follows the reference as the engine draws it.
-    if let Some(source) = g.data.template_source(base, r, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base) {
+    if let Some(source) = g.template_source(base, r, |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base) {
         if let Err(e) = g.world.give_items_of(r, source) {
             tracing::warn!("created {r}: the items of {source}: {e}");
         }

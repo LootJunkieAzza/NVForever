@@ -89,6 +89,10 @@ pub struct ActorWorld {
     /// The race and sex scripts gave a reference (AgeRace, SexChange;
     /// `fnv_game::appearance`, told by `appearance.rs`): drawn in place of the record's.
     pub changes: Mutex<HashMap<u32, fnv_actor::Change>>,
+    /// The level each placed actor reads its leveled lists at in the game
+    /// (`fnv_game::Game::leveled_at`, told by `zones.rs`); absent: the display level 1
+    /// (docs/spec-notes/encounter-zones.md §5).
+    pub levels: Mutex<HashMap<u32, fnv_sim::zones::LevelAt>>,
 }
 
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
@@ -112,6 +116,7 @@ impl ActorWorld {
             stances: Mutex::new(HashMap::new()),
             rolls: Mutex::new(HashMap::new()),
             changes: Mutex::new(HashMap::new()),
+            levels: Mutex::new(HashMap::new()),
         }
     }
 
@@ -120,6 +125,12 @@ impl ActorWorld {
     fn seed(&self, reference: u32) -> FormId {
         let rolls = self.rolls.lock().map_or(0, |r| r.get(&reference).copied().unwrap_or(0));
         fnv_sim::leveled::roll_seed(FormId(reference), rolls)
+    }
+
+    /// The level `reference` reads leveled lists at (`Self::levels`).
+    pub fn level(&self, reference: u32) -> fnv_sim::zones::LevelAt {
+        let display = fnv_sim::zones::LevelAt::plain(fnv_actor::resolve::DISPLAY_LEVEL);
+        self.levels.lock().map_or(display, |l| l.get(&reference).copied().unwrap_or(display))
     }
 
     pub fn resolve(&self, base: u32, reference: u32) -> Result<Appearance, String> {
@@ -141,11 +152,11 @@ impl ActorWorld {
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
         let change = self.change(reference);
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_changed(FormId(base), self.seed(reference), wearing, look, change).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_changed_at(FormId(base), self.seed(reference), wearing, look, change, self.level(reference)).map_err(|e| e.to_string())
     }
 
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), self.seed(reference)).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature_at(FormId(base), self.seed(reference), self.level(reference)).map_err(|e| e.to_string())
     }
 
     /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.

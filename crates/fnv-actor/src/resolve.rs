@@ -15,6 +15,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use fnv_sim::forms::{BaseData, ItemKind};
+use fnv_sim::zones::LevelAt;
 use fnv_sim::{leveled, FormId, FormStore};
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
@@ -293,6 +294,9 @@ pub fn rng_for(reference: FormId) -> ChaCha8Rng {
 /// name it see the same actor), and whether any choice could have gone another way.
 struct Choices {
     rng: ChaCha8Rng,
+    /// The level leveled lists are read at (fnv_sim::zones; [`DISPLAY_LEVEL`] for a
+    /// static display).
+    at: LevelAt,
     picks: HashMap<FormId, FormId>,
     random: bool,
 }
@@ -371,7 +375,14 @@ impl<'a> Resolver<'a> {
     /// SexChange and AgeRace notes, "invalid hair falls back to default"; hypothesis: what
     /// makes a hair invalid]. A chosen look (the player's) keeps its hair.
     pub fn resolve_changed(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>, look: Option<&Look>, change: Change) -> Result<Appearance, ResolveError> {
-        let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
+        self.resolve_changed_at(base, reference, wearing, look, change, LevelAt::plain(DISPLAY_LEVEL))
+    }
+
+    /// [`Self::resolve_changed`] with leveled lists read at `at` (the reference's level in
+    /// the game, `fnv_sim::zones`; docs/spec-notes/encounter-zones.md §3) instead of the
+    /// display level.
+    pub fn resolve_changed_at(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>, look: Option<&Look>, change: Change, at: LevelAt) -> Result<Appearance, ResolveError> {
+        let mut ch = Choices { rng: rng_for(reference), at, picks: HashMap::new(), random: false };
         let npc = self.actor_base(base, &mut ch, 0)?;
         let traits = self.template_source(npc, template::TRAITS, &mut ch)?;
         let model = self.template_source(npc, template::MODEL_ANIMATION, &mut ch)?;
@@ -521,7 +532,12 @@ impl<'a> Resolver<'a> {
     /// For checks that other code reading the list picks the same entry
     /// (`fnv_game::templates`).
     pub fn first_pick(&self, list: FormId, reference: FormId) -> Option<FormId> {
-        let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
+        self.first_pick_at(list, reference, LevelAt::plain(DISPLAY_LEVEL))
+    }
+
+    /// [`Self::first_pick`] at the level `at`.
+    pub fn first_pick_at(&self, list: FormId, reference: FormId, at: LevelAt) -> Option<FormId> {
+        let mut ch = Choices { rng: rng_for(reference), at, picks: HashMap::new(), random: false };
         if self.actors.leveled.contains_key(&list) {
             self.actor_base(list, &mut ch, 0).ok().map(|n| n.id)
         } else if self.actors.leveled_creatures.contains_key(&list) {
@@ -543,9 +559,9 @@ impl<'a> Resolver<'a> {
             let next = match ch.picks.get(&id) {
                 Some(&p) => p,
                 None => {
-                    let (pool, _) = leveled_pool(&l.entries, l.all_levels, DISPLAY_LEVEL);
+                    let (pool, _) = leveled_pool(&l.entries, ch.at.all(l.all_levels), ch.at.level);
                     ch.random |= distinct(pool.iter().map(|e| e.1)) > 1;
-                    let p = pick_leveled(&l.entries, l.all_levels, DISPLAY_LEVEL, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
+                    let p = pick_leveled(&l.entries, ch.at.all(l.all_levels), ch.at.level, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
                     ch.picks.insert(id, p);
                     p
                 }
@@ -576,7 +592,12 @@ impl<'a> Resolver<'a> {
     /// Model/Animation source of the template chain, the base scale from the Stats
     /// source.
     pub fn resolve_creature(&self, base: FormId, reference: FormId) -> Result<CreatureAppearance, ResolveError> {
-        let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
+        self.resolve_creature_at(base, reference, LevelAt::plain(DISPLAY_LEVEL))
+    }
+
+    /// [`Self::resolve_creature`] with leveled lists read at `at`.
+    pub fn resolve_creature_at(&self, base: FormId, reference: FormId, at: LevelAt) -> Result<CreatureAppearance, ResolveError> {
+        let mut ch = Choices { rng: rng_for(reference), at, picks: HashMap::new(), random: false };
         let crea = self.creature_base(base, &mut ch, 0)?;
         let model = self.creature_source(crea, template::MODEL_ANIMATION, &mut ch)?;
         let stats = self.creature_source(crea, template::STATS, &mut ch)?;
@@ -611,9 +632,9 @@ impl<'a> Resolver<'a> {
             let next = match ch.picks.get(&id) {
                 Some(&p) => p,
                 None => {
-                    let (pool, _) = leveled_pool(&l.entries, l.all_levels, DISPLAY_LEVEL);
+                    let (pool, _) = leveled_pool(&l.entries, ch.at.all(l.all_levels), ch.at.level);
                     ch.random |= distinct(pool.iter().map(|e| e.1)) > 1;
-                    let p = pick_leveled(&l.entries, l.all_levels, DISPLAY_LEVEL, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
+                    let p = pick_leveled(&l.entries, ch.at.all(l.all_levels), ch.at.level, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
                     ch.picks.insert(id, p);
                     p
                 }
@@ -647,7 +668,7 @@ impl<'a> Resolver<'a> {
             ch.random |= e.count > 0 && leveled_item_random(self.forms, e.item, 0);
             // A leveled list that fails to resolve contributes nothing; the store
             // reports cycles when it loads.
-            let _ = leveled::resolve(self.forms, e.item, e.count, DISPLAY_LEVEL, &mut ch.rng, &mut carried);
+            let _ = leveled::resolve(self.forms, e.item, e.count, ch.at.level, &mut ch.rng, &mut carried);
         }
         carried.iter().map(|e| e.item).collect()
     }
