@@ -247,6 +247,8 @@ impl Game<'_> {
         let dead: Vec<FormId> = placed.refs.keys().copied().filter(|&r| self.starts_dead(r)).collect();
         for &r in &dead {
             self.extra.entry(r).or_default().dead = true;
+            // Its death item, read when its inventory is first made (`crate::death_items`).
+            self.owe_death_item(r);
         }
         dead.len()
     }
@@ -293,6 +295,9 @@ impl Game<'_> {
         if let Some(b) = base_of(self, r) {
             *self.player.dead_count.entry(b).or_default() += 1;
         }
+        // The body gets its death item before OnDeath runs [hypothesis: the order]
+        // (`crate::death_items`).
+        self.give_death_items(r, killer);
         self.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
         // "Teammate state is cleared on death of the actor" [documented: GECK wiki
         // SetPlayerTeammate]; after OnDeath, which may still ask [hypothesis: the order].

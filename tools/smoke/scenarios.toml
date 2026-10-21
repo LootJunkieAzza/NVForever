@@ -2351,6 +2351,24 @@ expect = [
   { re = 'zones: leveled actor \S+ \(\w+\) at level (?P<n>\d+)(?: \(all levels\))? in zone Vault3Zone stands for \w+', range = [6, 24], min = 5, label = "the Fiends of Vault3a read at the zone's level (with their modifiers)" },
 ]
 
+[[scenario]]
+name = "death-item-radroach"
+source = "ESM gap audit 2026-10-21 priority 5: death items, docs/spec-notes/death-items.md"
+note = "VERT1GSRoachHuntedREF (0x00168D1A, VSpawnSpecialTier1RadroachMedHunted, south of Goodsprings) carries one Radroach Meat (0x0009C957) and names DeathItemRadroach100 (Radroach Meat, chance none 0) by INAM, its template giving the same through Traits; killed, its body holds two, and RemoveAllItems hands both to the player"
+areas = ["combat", "deaths", "leveled"]
+paths = ["crates/fnv-game/src/death_items.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:00168D1A.getitemcount 0009C957;8.5:00168D1A.killactor;10:00168D1A.getdead;10.3:00168D1A.getitemcount 0009C957;10.6:00168D1A.removeallitems player;11:player.getitemcount 0009C957;11.5:close" }
+args = ["--play", "--pos=-58300,-38400,5900", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'console: GetItemCount on .*>> 1\.00', label = "alive, the roach carries its one meat" },
+  { re = 'death item: 0x00168D1A \(VSpawnSpecialTier1RadroachMedHunted\) DeathItemRadroach100 at level \d+: RadroachMeat x1', label = "killed, its death item adds a meat" },
+  { re = 'console: GetDead on .*>> 1\.00', label = "the roach is dead" },
+  { re = 'console: GetItemCount on .*>> 2\.00', label = "the body holds two meats" },
+  { re = 'console: GetItemCount on player >> [2-9]\.', label = "looted: the player has them" },
+]
+order = [[{ re = 'GetItemCount on .*>> 1\.00' }, { re = 'death item: 0x00168D1A' }, { re = 'GetItemCount on .*>> 2\.00' }, { re = 'GetItemCount on player >> [2-9]\.' }]]
+
 # ------------------------------------------------------------------ script stubs
 
 [[scenario]]
