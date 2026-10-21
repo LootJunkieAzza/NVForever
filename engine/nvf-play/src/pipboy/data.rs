@@ -321,7 +321,8 @@ enum Right {
     Objectives(Vec<Row>),
     Text { text: String, first: f32 },
     Image(String),
-    Audio,
+    /// A Sound or Voice note: the wave panel, moving while it plays.
+    Audio { playing: bool },
     Wave { on: bool },
 }
 
@@ -396,6 +397,7 @@ pub struct Game<'w> {
     radio: Option<Res<'w, Radio>>,
     places: Option<Res<'w, RadioPlaces>>,
     phys: Option<ResMut<'w, crate::phys::PhysState>>,
+    holotape: Option<ResMut<'w, crate::holotape::Holotape>>,
 }
 
 /// What the player presses.
@@ -681,6 +683,17 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             _ => {}
         }
     }
+    // The test aid's `note=`: that note selected and used, as a click on its row.
+    if let Some(f) = input.aid.note.take() {
+        match l.notes.iter().position(|n| n.form == f).filter(|_| tab == NOTES && l.challenges.is_none()) {
+            Some(i) => {
+                st.sel[NOTES] = i;
+                st.boxed = true;
+                use_row(st, tab, i, l, game);
+            }
+            None => info!("pipboy data: note {} is not in the Notes list shown", FormId(f)),
+        }
+    }
     for by in moves {
         if len > 0 {
             st.sel[tab] = model::step(st.sel[tab], by, len);
@@ -819,6 +832,15 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
                 info!("pipboy data: radio tuned to {name}");
             }
         }
+        NOTES if l.challenges.is_none() => {
+            // A Sound or Voice note plays, or stops when it is the one playing
+            // (`crate::holotape`, holotapes.md §3).
+            let Some(n) = l.notes.get(i).filter(|n| n.kind == 0 || n.kind == 3) else { return };
+            info!("pipboy data: note {} ({}) picked", n.name, FormId(n.form));
+            if let Some(h) = game.holotape.as_mut() {
+                h.picks.push(FormId(n.form));
+            }
+        }
         _ => {}
     }
 }
@@ -949,7 +971,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let right = match l.notes.get(st.sel[NOTES]) {
                 Some(n) if n.kind == 1 => Right::Text { text: n.text.clone().unwrap_or_default(), first: st.text_first },
                 Some(n) if n.kind == 2 => n.image.clone().map_or(Right::None, Right::Image),
-                Some(_) => Right::Audio,
+                Some(n) => Right::Audio { playing: game.holotape.as_ref().is_some_and(|h| h.playing == Some(FormId(n.form))) },
                 None => Right::None,
             };
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
@@ -1347,10 +1369,8 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
                 Right::Image(path) => {
                     c.image(p, path, at(data.x + DATA_W - IMAGE, data.y + TEXT_AT.y, IMAGE, IMAGE), amber(TEXT));
                 }
-                Right::Audio => {
-                    let y = data.y + TEXT_AT.y + c.line_height(2) + 30.0;
-                    c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(data.x, y - TICKS + 2.0, DATA_W, TICKS), amber(LINE));
-                }
+                // The Radio tab's wave panel [design: holotapes.md §3].
+                Right::Audio { playing } => wave(p, c, *playing),
                 Right::Wave { on } => wave(p, c, *on),
             }
         }

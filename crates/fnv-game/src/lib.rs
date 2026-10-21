@@ -64,6 +64,7 @@ pub mod dialogue;
 pub mod experience;
 pub mod functions;
 pub mod hacking;
+pub mod holotapes;
 pub mod game;
 pub mod idles;
 pub mod intro;

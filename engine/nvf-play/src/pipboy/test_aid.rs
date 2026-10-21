@@ -20,6 +20,8 @@
 //! - `travel=<marker FormID>`: what a click on that map marker of the World Map does (the
 //!   fast-travel question, docs/spec-notes/fast-travel.md); `key=use` takes the chosen
 //!   answer (Yes at first), `key=down` moves to No.
+//! - `note=<note FormID>`: on the DATA page's Notes tab, select that note and use it as a
+//!   click on its row would (a holotape plays or stops, `crate::holotape`).
 //!
 //! Each step is logged. Screenshots are `NVF_PLAY_TEST_SHOTS`'.
 
@@ -40,6 +42,7 @@ enum Step {
     Click(AidTarget),
     Drag(Vec2),
     Travel(u32),
+    Note(u32),
     Repair(super::repair::RepairInput),
     Mod(super::item_mod::ModInput),
 }
@@ -72,6 +75,7 @@ fn step(s: &str) -> Option<Step> {
             ("point", p) => Step::Point(Some(canvas(p)?)),
             ("drag", p) => Step::Drag(canvas(p)?),
             ("travel", m) => Step::Travel(u32::from_str_radix(m.trim().trim_start_matches("0x"), 16).ok()?),
+            ("note", m) => Step::Note(u32::from_str_radix(m.trim().trim_start_matches("0x"), 16).ok()?),
             ("click", p) => Step::Click(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?),
             ("repair", r) => Step::Repair(match r.trim() {
                 "open" => super::repair::RepairInput::Open,
@@ -173,6 +177,9 @@ fn run(
             Step::Travel(m) => {
                 ask.write(FastTravelAsk(m));
             }
+            Step::Note(n) => {
+                aid.note = Some(n);
+            }
             Step::Repair(r) => {
                 repair.write(r);
             }
@@ -189,7 +196,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.97:repair=use, 8.98:mod=open");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open");
         assert_eq!(
             s,
             vec![
@@ -203,6 +210,7 @@ mod tests {
                 (8.8, Step::Point(Some(Vec2::new(1.0, 2.0)))),
                 (8.9, Step::Drag(Vec2::new(-40.0, 25.0))),
                 (8.95, Step::Travel(0x000C_DF51)),
+                (8.96, Step::Note(0x0016_18BF)),
                 (8.97, Step::Repair(super::super::repair::RepairInput::Use)),
                 (8.98, Step::Mod(super::super::item_mod::ModInput::Open)),
                 (9.0, Step::Close)
