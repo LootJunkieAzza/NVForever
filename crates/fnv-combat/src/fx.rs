@@ -54,6 +54,12 @@ pub struct WeaponFx {
     pub shoot_2d: Option<FormId>,
     /// `NAM7`: Shoot 3D Looping.
     pub shoot_loop: Option<FormId>,
+    /// `WMS1`, first and second: Mod 1 Shoot 3D and Shoot Dist; `WMS2`: Mod 1 Shoot 2D.
+    /// Played instead of the plain ones while a Silence or Suppressor mod is on
+    /// (docs/spec-notes/weapon-mods.md §7).
+    pub mod_shoot_3d: Option<FormId>,
+    pub mod_shoot_dist: Option<FormId>,
+    pub mod_shoot_2d: Option<FormId>,
     /// `TNAM`: Melee Swing / Gun No Ammo.
     pub no_ammo: Option<FormId>,
     /// `NAM9`, `NAM8`.
@@ -63,6 +69,46 @@ pub struct WeaponFx {
     pub shell_casing_model: Option<String>,
     /// `INAM`.
     pub impact_dataset: Option<FormId>,
+}
+
+/// The shoot sounds a weapon unit plays: the plain set or the mod set
+/// ([`WeaponFx::shoot_sounds`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShootSounds {
+    /// Heard by the one firing (Shoot 2D, else Shoot 3D).
+    pub own: Option<FormId>,
+    /// Heard from another actor's shot, within the 3D sound's maximum distance.
+    pub near: Option<FormId>,
+    /// Heard from another actor's shot farther off than that.
+    pub dist: Option<FormId>,
+    /// The mod set was chosen.
+    pub silenced: bool,
+}
+
+impl ShootSounds {
+    /// The sound of another actor's shot `distance` units from the listener, given the
+    /// 3D sound's maximum attenuation distance (`near_max`, 0 when unknown): the distant
+    /// sound at or beyond it [documented: GECK wiki Weapons, Attack Sound (Dist)], else
+    /// the 3D one. Beyond it with no distant sound: the 3D one, which is then inaudible.
+    pub fn heard_at(&self, distance: f32, near_max: f32) -> (Option<FormId>, bool) {
+        match self.dist {
+            Some(d) if near_max > 0.0 && distance >= near_max => (Some(d), true),
+            _ => (self.near.or(self.own), false),
+        }
+    }
+}
+
+impl WeaponFx {
+    /// The shoot sounds of a unit with (`silenced`) or without a Silence or Suppressor mod
+    /// on (docs/spec-notes/weapon-mods.md §7): the `WMS1`/`WMS2` set when silenced and
+    /// the record has one, else the plain `SNAM`/`XNAM` set. A missing 2D falls back to
+    /// the 3D and the reverse [hypothesis]; the silenced set's distant sound is only its
+    /// own (`WMS1` second), never the plain one [hypothesis].
+    pub fn shoot_sounds(&self, silenced: bool) -> ShootSounds {
+        let modded = silenced && (self.mod_shoot_3d.is_some() || self.mod_shoot_2d.is_some());
+        let (d3, dist, d2) = if modded { (self.mod_shoot_3d, self.mod_shoot_dist, self.mod_shoot_2d) } else { (self.shoot_3d, self.shoot_dist, self.shoot_2d) };
+        ShootSounds { own: d2.or(d3), near: d3.or(d2), dist, silenced: modded }
+    }
 }
 
 /// The sounds of a PROJ and of an EXPL.
@@ -359,11 +405,15 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
         }
         b"WEAP" => {
             let shoot: Vec<&Value> = all(d, b"SNAM").collect();
+            let mod_shoot: Vec<&Value> = all(d, b"WMS1").collect();
             Loaded::Weapon(WeaponFx {
                 shoot_3d: fid(shoot.first().copied()),
                 shoot_dist: fid(shoot.get(1).copied()),
                 shoot_2d: fid(first(d, b"XNAM")),
                 shoot_loop: fid(first(d, b"NAM7")),
+                mod_shoot_3d: fid(mod_shoot.first().copied()),
+                mod_shoot_dist: fid(mod_shoot.get(1).copied()),
+                mod_shoot_2d: fid(first(d, b"WMS2")),
                 no_ammo: fid(first(d, b"TNAM")),
                 equip: fid(first(d, b"NAM9")),
                 unequip: fid(first(d, b"NAM8")),
@@ -468,6 +518,25 @@ mod tests {
         for code in 0..128 {
             assert!(IMPACT_MATERIALS.contains(&impact_material(Some(code))));
         }
+    }
+
+    #[test]
+    fn silenced_units_shoot_with_the_mod_set() {
+        let f = |x: u32| Some(FormId(x));
+        // The 10mm pistol's shape: a plain pair and 2D, one WMS1 and a WMS2.
+        let w = WeaponFx { shoot_3d: f(1), shoot_dist: f(2), shoot_2d: f(3), mod_shoot_3d: f(4), mod_shoot_2d: f(5), ..WeaponFx::default() };
+        assert_eq!(w.shoot_sounds(false), ShootSounds { own: f(3), near: f(1), dist: f(2), silenced: false });
+        assert_eq!(w.shoot_sounds(true), ShootSounds { own: f(5), near: f(4), dist: None, silenced: true });
+        // Far off: the plain shot's distant boom, the silenced shot's own 3D (unheard).
+        assert_eq!(w.shoot_sounds(false).heard_at(5000.0, 4000.0), (f(2), true));
+        assert_eq!(w.shoot_sounds(false).heard_at(3000.0, 4000.0), (f(1), false));
+        assert_eq!(w.shoot_sounds(true).heard_at(5000.0, 4000.0), (f(4), false));
+        // No mod set (the silenced .22 pistol carries its quiet sound in SNAM): plain.
+        let plain = WeaponFx { shoot_3d: f(1), ..WeaponFx::default() };
+        assert_eq!(plain.shoot_sounds(true), ShootSounds { own: f(1), near: f(1), dist: None, silenced: false });
+        // Only a mod 3D: the player hears that too.
+        let only_3d = WeaponFx { shoot_3d: f(1), mod_shoot_3d: f(4), ..WeaponFx::default() };
+        assert_eq!(only_3d.shoot_sounds(true).own, f(4));
     }
 
     #[test]

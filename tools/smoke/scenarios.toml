@@ -4042,6 +4042,20 @@ expect = [
 order = [["pipboy mod: open", "pipboy mod: 10mm Pistol +", "combat: weapon Weap10mmPistol mods 1 on"]]
 
 [[scenario]]
+name = "combat-silenced-sound"
+source = "ESM gap audit row 12 (docs/spec-notes/weapon-mods.md §7): a weapon with a Silence or Suppressor mod on shoots with its WEAP WMS1/WMS2 sounds [documented: GECK wiki Weapons]; the 10mm Pistol (Weap10mmPistol) gets its silencer (ModNV10mmPistolSilencer, slot 3, flags 4) through the Pip-Boy mod menu, is drawn and fired twice, and the player's shot plays the mod 2D sound WPNPistolSilenced22Fire2D instead of WPN10mmFire2D"
+areas = ["combat", "pipboy"]
+paths = ["crates/fnv-combat/src/fx.rs"]
+env = { NVFOREVER_HOME = "combat-silenced-sound-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.2:call:player:AddItem:Ammo10mm:24,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolSilencer:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,20:close", NVF_PLAY_TEST_CONTROL = "21:weapon,23:fire,23.3:fire,24.5:fire,24.8:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 27
+expect = [
+  { re = 'pipboy mod: 10mm Pistol \+ .+ \(slot 3, flags 4\)', label = "attaching the silencer sets flag 4" },
+  { text = "combat: Weap10mmPistol shoots its silenced sound WPNPistolSilenced22Fire2D", label = "the shot plays the mod 2D sound (WMS2)" },
+]
+order = [["pipboy mod: 10mm Pistol +", "combat: Weap10mmPistol shoots its silenced sound"]]
+
+[[scenario]]
 name = "item-stacks"
 source = "owner 2026-10-15: the two 9mm stacks on the Goodsprings gas station counter hold 20 rounds each (AMMO Clip Rounds, GECK wiki Ammo; fnv-sim Item::placed_count); a stack of more than 5 asks \"How many?\" (menu::model::Quantity) and a dropped stack is one reference holding the count"
 areas = ["menu", "items"]

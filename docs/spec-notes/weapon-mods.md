@@ -201,6 +201,54 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
 ## 6. Not built
 
 - A modded weapon's value; an NPC's modded figures in combat.
-- Projectile speed, ammo regeneration, equip time, VATS bonus, the mod shoot sounds.
+- Projectile speed, ammo regeneration, equip time, VATS bonus.
 - Scripts' view: GetWeaponHasMod-style functions are NVSE/JIP (not vanilla) and not
   built; GetMenuTargetRef 1061 is not answered.
+
+## 7. The mod shoot sounds (ESM gap audit row 12)
+
+- **The records** [documented: xEdit wbDefinitionsFNV WEAP; schemas/fnv `objects.json`]:
+  `WMS1` "Sound - Mod 1 - Shoot 3D / Shoot Dist" (one or two form IDs in a row, as the
+  plain `SNAM` pair) and `WMS2` "Sound - Mod 1 - Shoot 2D". The GECK's Mod Info tab names
+  them "Attack Sound(s): third-person attack sounds (close and distant) used when either
+  a Suppressor or a Silencer weapon mod is equipped" and "Attack Sound (2D): first-person
+  attack sound used when either a Suppressor or a Silencer weapon mod is equipped"; the
+  Silence effect "sets the weapon's Sound Detection Level to Silent and switches to a new
+  set of firing sounds specified on the Mod Info tab", Suppressor the same with Normal
+  [documented: GECK wiki Weapons, Mod Info tab and mod effects]. JIP's GetWeaponSound
+  numbers them 9 "Attack Sound 3D (Mod)", 10 "Attack Sound Dist. (Mod)", 11 "Attack
+  Sound 2D (Mod)" [documented: GECK wiki GetWeaponSound].
+- **The masters** [observed, FalloutNV.esm and the add-ons, 2026-10-21]: `WMS1` carries
+  one form ID only (no distant mod sound anywhere); e.g. `Weap10mmPistol` WMS1
+  `WPNPistolSilenced22Fire3D`, WMS2 `WPNPistolSilenced22Fire2D`; the varmint rifle,
+  sniper rifle, 12.7mm pistol and SMG `WPNRifleVarmintMod*`; Honest Hearts' .45 pistol
+  `WPNPistol45Silenced*`. The grenade rifles also carry WMS1/WMS2 (the silenced 10mm's),
+  a weapon whose mods are not Silence or Suppressor, so the sounds are not switched by
+  any mod. No weapon has a mod looping sound. The weapons silenced from the start (the
+  silenced .22 pistol `WeapNVSilenced22Pistol`, the silenced .22 SMG
+  `WeapNVSilenced22SMG`) carry their quiet sounds in the plain `SNAM`/`XNAM` and no
+  `WMS1`/`WMS2`, so they need nothing more.
+- **The rule** (`fnv_combat::fx::WeaponFx::shoot_sounds`): a weapon unit with a mod on
+  whose effect is Silence or Suppressor (`WeaponStats::sound_mod_on`) shoots with the mod
+  set, when the record has one: 3D `WMS1` first, distant `WMS1` second, 2D `WMS2`; any
+  other unit with the plain set (`SNAM` first, `SNAM` second, `XNAM`) [documented, as
+  above]. With the mod set, a missing 2D falls back to the mod 3D and the reverse
+  [hypothesis, as the plain set's 2D-else-3D]; a silenced weapon whose record has no
+  `WMS1`/`WMS2` at all keeps its plain sounds [hypothesis: nothing else to play]; a
+  silenced weapon has no distant sound when `WMS1` has no second entry (all the masters')
+  [hypothesis: a silenced shot is not heard from afar; the plain distant boom would give
+  it away]. The looping sound (`NAM7`) is the same with or without the mod
+  [hypothesis: no mod loop field exists].
+- **Who hears which**: the player's own shot plays the 2D sound (else the 3D), as before
+  (combat-rules.md §16); another actor's shot plays the 3D sound at the muzzle, or its
+  distant sound when the player's eye is at or beyond the 3D sound's maximum
+  attenuation distance [documented: GECK wiki Weapons, "Attack Sound (Dist): the sound
+  form played when the player is outside the Maximum Attenuation Distance of the 3D
+  sound"] (the medium list's "WEAP Shoot Dist", built with this row). An NPC's mods are
+  those of the unit it has equipped, else the one it would take
+  (`Inventory::mods_in_use`), so an NPC with a silenced pistol sounds silenced
+  [hypothesis: the same rule as the player's; its other figures stay plain, §3].
+- **Log**: `combat: <weapon> shoots its silenced sound <SOUN>` once each time the
+  player's sound changes to a mod sound [design], and at debug level each NPC
+  shot's choice (`combat: npc <ref> shot sound <SOUN> (silenced|plain, 3D|distant)`).
+
