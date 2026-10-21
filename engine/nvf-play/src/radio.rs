@@ -670,7 +670,7 @@ fn play(
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
     (loc, state, paused, pw, table): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>, Res<TableStation>),
-    player: Option<Res<Player>>,
+    (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
@@ -679,7 +679,9 @@ fn play(
     let Some(bank) = voice.bank.clone() else { return };
     let Some(rt) = script.rt.as_mut() else { return };
     let radio = &mut *radio;
-    let held = paused.0 || *state.get() == PlayState::Loading;
+    // A film with `muteAudio 0` leaves the world's radios playing (`crate::intro`).
+    let film_keeps = intro.as_deref().and_then(|i| i.film_keeps_world_sound());
+    let held = crate::intro::world_sound_held(paused.0, film_keeps) || *state.get() == PlayState::Loading;
     if !held {
         radio.clock += time.delta_secs_f64();
     }

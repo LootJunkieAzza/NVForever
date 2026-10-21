@@ -788,6 +788,11 @@ pub struct GameData {
     /// RADS, DEHY, HUNG, SLPD: the stages of rads and of Hardcore's needs by actor value
     /// code, lowest threshold first (`crate::needs`).
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
+    /// WATR XNAM: each water type's actor effect (`crate::radiation`).
+    pub water_effects: HashMap<FormId, FormId>,
+    /// The radiation markers (placed references with XRAD) by the space they are in: a
+    /// worldspace, or an interior cell (`crate::radiation`).
+    pub radiation_markers: HashMap<FormId, Vec<crate::radiation::RadMarker>>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -1122,6 +1127,7 @@ struct Read {
     caravan_card: Option<crate::caravan::CardDef>,
     caravan_deck: Option<crate::caravan::DeckDef>,
     need_stage: Option<(u16, u32, FormId)>,
+    water_effect: Option<FormId>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -1214,6 +1220,8 @@ impl GameData {
             caravan_cards: HashMap::new(),
             caravan_decks: HashMap::new(),
             need_stages: HashMap::new(),
+            water_effects: HashMap::new(),
+            radiation_markers: crate::radiation::markers(refs),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -1441,6 +1449,9 @@ impl GameData {
             }
             if let Some((code, threshold, spell)) = r.need_stage {
                 d.need_stages.entry(code).or_default().push(NeedStage { stage: id, threshold, spell });
+            }
+            if let Some(spell) = r.water_effect {
+                d.water_effects.insert(id, spell);
             }
         }
         for stages in d.need_stages.values_mut() {
@@ -1748,6 +1759,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         if let (Some(threshold), Some(spell)) = (word(0), word(4).and_then(map)) {
             out.need_stage = Some((code, threshold, FormId(spell)));
         }
+    }
+    // A water type's actor effect: XNAM, a SPEL [documented: xEdit wbDefinitionsFNV.pas
+    // WATR "Actor Effect"; observed: FalloutNV.esm's waters name WaterHeal1Purified …
+    // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
+    if &sig == b"WATR" {
+        out.water_effect = subs.iter().find(|s| &s.sig == b"XNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
     }
     // Recipes and their categories (`crate::crafting`): the raw layout; a recipe's
     // conditions are the common CTDA, read as any record's.

@@ -111,6 +111,10 @@ pub struct Ambient {
     pub source_loops_started: u32,
     pub source_random_played: u32,
     sources_heard: std::collections::HashSet<u64>,
+    /// Why the loops are held now (`None`: they play), for the log.
+    held_why: Option<&'static str>,
+    /// A scripted film with `muteAudio 0` plays and the loops go on under it.
+    under_film: bool,
 }
 
 /// A marker or a source in earshot, this frame.
@@ -178,7 +182,7 @@ fn play(
     sfx: Option<ResMut<Sfx>>,
     (d, loc, sim): (Res<PlayWorld>, Res<Location>, Res<SimState>),
     (state, paused, poker): (Res<State<PlayState>>, Res<Paused>, Option<Res<crate::poker::PokerScreen>>),
-    player: Option<Res<Player>>,
+    (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
     data: Option<Res<nvf_assets::GameData>>,
     mut pcm: ResMut<Assets<PcmSound>>,
     mut streams: Streams,
@@ -190,8 +194,33 @@ fn play(
         return;
     };
     let (amb, sfx) = (&mut *amb, &mut *sfx);
-    // The poker table holds them too: it plays its casino's sounds (`crate::poker`).
-    let held = paused.0 || *state.get() == PlayState::Loading || poker.is_some_and(|p| p.0.is_some());
+    // The poker table holds them too: it plays its casino's sounds (`crate::poker`). A
+    // film holds them unless its PlayBink said `muteAudio 0` (`crate::intro`).
+    let film_keeps = intro.as_deref().and_then(|i| i.film_keeps_world_sound());
+    let held_why = if *state.get() == PlayState::Loading {
+        Some("loading")
+    } else if poker.is_some_and(|p| p.0.is_some()) {
+        Some("the poker table")
+    } else if crate::intro::world_sound_held(paused.0, film_keeps) {
+        Some(if film_keeps.is_some() { "a film, PlayBink muteAudio 1" } else { "the game is held" })
+    } else {
+        None
+    };
+    if amb.held_why != held_why {
+        match held_why {
+            Some(why) => info!("ambient: world sounds held ({why}, {} loops)", amb.loops.len()),
+            None => info!("ambient: world sounds go on ({} loops)", amb.loops.len()),
+        }
+        amb.held_why = held_why;
+    }
+    let under_film = film_keeps == Some(true) && held_why.is_none();
+    if under_film != amb.under_film {
+        if under_film {
+            info!("ambient: world sounds go on under the film (PlayBink muteAudio 0, {} loops)", amb.loops.len());
+        }
+        amb.under_film = under_film;
+    }
+    let held = held_why.is_some();
     let now = time.elapsed_secs_f64();
     let eye = player.eye();
     let hour = game_hour(&sim);
