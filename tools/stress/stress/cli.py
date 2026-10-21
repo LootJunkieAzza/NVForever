@@ -13,7 +13,7 @@ from pathlib import Path
 from . import battle, cells, lib, tour
 
 TESTS = {
-    "cells": "every interior and exterior cell of the masters loads without crashing",
+    "cells": "every interior cell of the masters loads without crashing (exteriors: tour)",
     "tour": "laps of the Mojave, the engine's counts and the process's memory sampled for leaks",
     "battle": "NCR against the Legion in Goodsprings: frame time, memory, combat measures",
 }
@@ -36,7 +36,8 @@ def parser() -> argparse.ArgumentParser:
 
     c = tests.add_parser("cells", help=TESTS["cells"])
     common(c)
-    c.add_argument("--kinds", choices=["all", "interior", "exterior"], default="all")
+    c.add_argument("--kinds", choices=["all", "interior", "exterior"], default="interior",
+                   help="interior by default: the tour streams the exteriors (owner, 2026-10-21)")
     c.add_argument("--worlds", nargs="*", default=None, help="only these worldspaces (Editor IDs or FormIDs)")
     c.add_argument("--stride", type=int, default=1, help="exteriors on every N-th grid line both ways (1: every cell)")
     c.add_argument("--limit", type=int, default=None, help="at most this many cells")
