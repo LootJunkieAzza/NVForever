@@ -7310,3 +7310,28 @@ Decisions and guesses:
 - *Check:* kill a few geckos with a pistol and open the Pip-Boy's Notes, R: Animal Control
   and A Fistful of Hollars (unarmed only) should match what the original shows for the same
   kills; pick a lock and see Low Tech move.
+
+## Skill books (2026-10-21, ESM gap audit item 4, branch claude/e4-skill-books)
+
+The 14 skill books can now be read: use one in the inventory or Pip-Boy and it is used up,
+its skill rises, Books Read counts one and a corner line says so. Spec:
+[skill-books](spec-notes/skill-books.md). Decisions and guesses:
+
+- *Guess:* a book is worth 3 points, the masters' only book setting `fBookPerkBonus`
+  (3.0), with Comprehension's entry point (Add 1) making 4. The setting's name speaks of a
+  perk bonus; if the original reads it differently, the points change.
+- *Guess:* the points go into the skill's permanent pool (the GECK wiki names skill books
+  for it), whole points, never past 100; a book read at 100 is still used up and gives
+  nothing.
+- *Guess:* a skill book lying in the world is picked up into the inventory like any item,
+  and read from there (quests hand skill books over, vendors sell them). If the original
+  reads it on the spot when you pick it up, say so.
+- *Guess:* the books stay on the MISC tab.
+- *Guess:* the corner line is "Guns increased to 18" with the skill's Pip-Boy icon; the
+  original's wording is not in the game files.
+- *Decision:* "Can't be Taken" (the wiki calls it unused) is honoured: such a placed book
+  shows no prompt and stays; only You're SPECIAL! (BabyBookStatic) and the MS03 manuscript
+  carry it, no skill book.
+- *Not built:* books that teach nothing (their OnEquip scripts), NPCs reading.
+- *Check:* read Guns and Bullets with Guns at 15 in the original: is it 18, what line shows,
+  and does Books Read in the Pip-Boy's General stats rise? With Comprehension, 4?

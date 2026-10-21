@@ -148,6 +148,19 @@ pub struct Item {
     /// of `fnv.sim.items/1`.
     #[serde(skip)]
     pub placed_count: Option<i32>,
+    /// A skill book's skill: BOOK DATA "Skill" (the "Teaches" field of the editor) as
+    /// an actor value code, Barter 32 … Unarmed 45; `None` for "None" and other items
+    /// [documented: xEdit wbDefinitionsFNV.pas BOOK DATA, wbSkillEnum -1 None, 0 Barter
+    /// … 13 Unarmed, `schemas/fnv`; GECK wiki Book, "Teaches: The Actor Value that is
+    /// increased"]. Reading it is `fnv_game::books` (docs/spec-notes/skill-books.md). Not
+    /// part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub teaches: Option<u16>,
+    /// BOOK DATA flag "Can't be Taken" (bit 1) [documented: xEdit; GECK wiki
+    /// GetBookFlags]. A placed reference of such a book is not picked up by hand
+    /// ([`crate::World::activate`]; skill-books.md §4). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub cant_be_taken: bool,
 }
 
 impl Item {
@@ -513,6 +526,8 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         quest_item: quest_flag(schema, r),
                         icon: None,
                         placed_count: None,
+                        teaches: None,
+                        cant_be_taken: false,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -732,7 +747,29 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             ItemKind::Ammo => data.and_then(|v| int(v, "clip_rounds")).map(|n| n as i32).filter(|&n| n > 0),
             _ => None,
         },
+        teaches: match kind {
+            ItemKind::Book => data.and_then(|v| v.get("skill")).and_then(skill_code),
+            _ => None,
+        },
+        cant_be_taken: kind == ItemKind::Book && data.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Can't be Taken")),
     })
+}
+
+/// The skills of BOOK DATA "Skill" in the record's order, 0 Barter … 13 Unarmed
+/// [documented: xEdit wbSkillEnum, `schemas/fnv/common.json` Skill].
+const BOOK_SKILLS: [&str; 14] = [
+    "Barter", "Big Guns", "Energy Weapons", "Explosives", "Lockpick", "Medicine", "Melee Weapons", "Repair", "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed",
+];
+
+/// The actor value code of a decoded skill (its name, or its number when the schema
+/// names none): the skills' codes run from Barter 32 in the same order [documented:
+/// xEdit ActorValue enum]. `None` for "None" (-1).
+fn skill_code(v: &Value) -> Option<u16> {
+    let i = match v {
+        Value::String(s) => BOOK_SKILLS.iter().position(|n| n == s)? as i64,
+        v => v.as_i64()?,
+    };
+    (0..14).contains(&i).then(|| 32 + i as u16)
 }
 
 /// Animation types of weapons that are thrown or laid rather than held and fired
