@@ -10,7 +10,7 @@
 //! `test aids: clock starts when the scripts first run, at <N> s`). These are: here
 //! SHOTS, LOOK, MOVE, CONTROL, KEYS; `NVF_PLAY_TEST_CONSOLE`, `_SCRIPT`, `_ACTIVATE`,
 //! `_TALK`, `_WAIT`, `_HIT`, `_MENU`, `_BARTER`, `_DROP`, `_PIPBOY`, `_PIPBOY_STATS`,
-//! `_LOCKPICK`, `_TERMINAL`, `_POKER`, `_ROULETTE`, `_BLACKJACK`, `_RECIPE`, `_REPAIR`,
+//! `_LOCKPICK`, `_TERMINAL`, `_POKER`, `_ROULETTE`, `_SLOTS`, `_BLACKJACK`, `_RECIPE`, `_REPAIR`,
 //! `_LEVELUP`, `_CHARGEN`, `_CREATOR` (the character menus open in the world, from a
 //! script or the console) and `_BATTLE`. Seconds after the start in every run: GOTO and
 //! FACE (they set the stage for the scripts' first frame), `NVF_PLAY_TEST_MAIN_MENU`,
