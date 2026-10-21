@@ -7226,3 +7226,28 @@ VATS mode's AP cost and the player's weapon wear.
 *Check:* with Bloody Mess, does a 10mm shot on a raider take about 5 % more? With
 Toughness, do raiders' shots take 3 less? With Math Wrath, does VATS mode's AP a shot
 drop by a tenth? Center of Mass applies only to VATS mode's shots at the torso.
+## Encounter zones (2026-10-21, ESM gap audit item 1, branch claude/e1-encounter-zones)
+
+Leveled actors, and the carried items of placed actors and containers, are now read at each
+reference's level instead of a fixed level 1: its encounter zone's level (set the first time
+the zone's cell loads: the player's level raised to the zone's minimum), or the player's level
+outside zones, changed by the reference's level modifier. Spec:
+[encounter-zones](spec-notes/encounter-zones.md). Decisions and guesses:
+
+- *Guess:* "entering" a zone is its cell coming into the game's loaded cells (the 5 × 5
+  outdoors), so a zone next door is set when you are near it, not only when you step in.
+- *Guess:* a reference's level is fixed when its cell first loads and kept until its cell is
+  reset; a wasteland actor seen at level 3 stays that actor after you reach level 10.
+- *Guess:* the modifiers' percentages (Easy 50, Medium 75, Hard 125, Boss 200, from the GECK
+  wiki) are rounded down, never below 1; Easy picks from every entry at or under its level,
+  the others keep the list's own "Calculate from all levels" flag.
+- *Guess:* "Match PC Below Minimum Level" gives a lower player the zone at their own level
+  (no zone in the masters sets it).
+- *Guess:* the carried items of an actor are read at its reference's (modified) level, not at
+  the actor's own level (the wiki says the actor's level for actors).
+- *Decision:* "Never Resets" stops the 72-hour cell reset in that zone's cells: Respawn actors
+  stay dead, respawning containers keep their contents.
+- *Not built:* leveled locks (the GECK calls the checkbox deprecated and gives no rule).
+- *Check:* start a new character at level 1 and go into Vault 3 (minimum 12): the Fiends
+  should be the zone's tier, not the weakest. Compare with the original if you have a
+  level-1 save near Vault 3 or Vault 11 (minimum 6, giant rats).

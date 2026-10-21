@@ -287,8 +287,21 @@ pub(crate) fn ser_sig<S: serde::Serializer>(sig: &[u8; 4], s: S) -> Result<S::Ok
     s.serialize_str(&String::from_utf8_lossy(sig))
 }
 
-/// Other record types the simulation reads: globals and game settings.
-pub const OTHER_SIGS: &[&[u8; 4]] = &[b"GLOB", b"GMST"];
+/// Other record types the simulation reads: globals, game settings and encounter zones.
+pub const OTHER_SIGS: &[&[u8; 4]] = &[b"GLOB", b"GMST", b"ECZN"];
+
+/// An encounter zone (ECZN DATA) [documented: xEdit wbDefinitionsFNV.pas ECZN; GECK wiki
+/// GetZoneFlag bits]: docs/spec-notes/encounter-zones.md §1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ZoneDef {
+    pub owner: Option<FormId>,
+    pub rank: i8,
+    pub min_level: i8,
+    /// Flag bit 0: the zone's cells are never reset (no respawn, no container refill).
+    pub never_resets: bool,
+    /// Flag bit 1: a player below the minimum level gets the zone at their own level.
+    pub match_pc_below_min: bool,
+}
 
 /// Record types interpreted as base forms.
 pub const BASE_SIGS: &[&[u8; 4]] = &[
@@ -307,6 +320,8 @@ pub struct FormStore {
     pub globals: HashMap<FormId, f32>,
     /// GMST values by lower-case Editor ID.
     pub settings: HashMap<String, Setting>,
+    /// Encounter zones (ECZN) by FormID.
+    pub zones: HashMap<FormId, ZoneDef>,
     pub issues: Issues,
 }
 
@@ -359,6 +374,12 @@ impl FormStore {
                         store.issues.note("GMST with unknown prefix or size", || edid.clone());
                     }
                     store.settings.insert(edid.to_ascii_lowercase(), v);
+                }
+                Loaded::Zone(edid, z) => {
+                    if let Some(e) = edid {
+                        store.edids.insert(e.to_ascii_lowercase(), id);
+                    }
+                    store.zones.insert(id, z);
                 }
                 Loaded::Skip => {}
             }
@@ -453,6 +474,7 @@ enum Loaded {
     Base(Box<BaseForm>),
     Global(Option<String>, f32),
     Setting(String, Setting),
+    Zone(Option<String>, ZoneDef),
     Skip,
 }
 
@@ -519,6 +541,25 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                 Loaded::Skip
             }
         };
+    }
+    if &sig == b"ECZN" {
+        let Some(v) = first(&d, b"DATA") else {
+            issues.note("ECZN without DATA", || format!("{id}"));
+            return Loaded::Skip;
+        };
+        let owner = local_fid(v.get("owner").unwrap_or(&Value::Null)).and_then(|l| global(lo, pi, l).ok().flatten());
+        let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0) as i8;
+        let flags = v.get("flags").cloned().unwrap_or(Value::Null);
+        return Loaded::Zone(
+            edid,
+            ZoneDef {
+                owner,
+                rank: n("rank"),
+                min_level: n("minimum_level"),
+                never_resets: crate::extract::has_flag(&flags, "Never Resets"),
+                match_pc_below_min: crate::extract::has_flag(&flags, "Match PC Below Minimum Level"),
+            },
+        );
     }
     let mut fid = |v: Option<&Value>, what: &str| -> Option<FormId> {
         let local = local_fid(v?)?;

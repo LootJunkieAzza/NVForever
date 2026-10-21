@@ -202,6 +202,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1043, "GetInCell", Impl(refs::get_in_cell)),
         (0x1136, "GetInWorldspace", Impl(refs::get_in_worldspace)),
         (0x1020, "GetInSameCell", Impl(refs::get_in_same_cell)),
+        (0x11BE, "GetInZone", Impl(refs::get_in_zone)),
         (0x112C, "IsInInterior", Impl(refs::is_in_interior)),
         (0x1001, "GetDistance", Impl(refs::get_distance)),
         (0x1006, "GetPos", Impl(refs::get_pos)),

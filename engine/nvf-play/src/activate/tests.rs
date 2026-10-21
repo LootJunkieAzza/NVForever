@@ -66,6 +66,8 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         parent_activate_only: false,
         radiation: None,
         radius: None,
+        encounter_zone: None,
+        level_modifier: None,
     }
 }
 

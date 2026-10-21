@@ -102,7 +102,7 @@ impl Game<'_> {
         if self.data.template_sources_any_pick(base, |d| d.template_inventory).len() < 2 {
             return;
         }
-        let source = self.data.template_source(base, roll_seed(r, rolls), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
+        let source = self.data.template_source_at(base, roll_seed(r, rolls), self.leveled_at(r), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
         self.world.set_inventory_source(r, source);
         // A source with no carried items: it carries nothing.
         if !self.world.reset_inventory(r).unwrap_or(true) {

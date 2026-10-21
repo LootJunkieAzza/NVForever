@@ -645,6 +645,38 @@ impl Runtime {
             self.player_cell = cell;
             self.game.player_entered(cell);
             debug!("script: player in cell {:?}; {} cells loaded for scripts", cell, self.game.loaded_cells.len());
+            self.log_level_news();
+        }
+    }
+
+    /// Encounter zones entered and leveled actors fixed by the cell load
+    /// (`fnv_game::zones`; the smoke test `encounter-zone-level` reads these lines).
+    fn log_level_news(&mut self) {
+        let g = &mut self.game;
+        let edid = |g: &fnv_game::Game, id: FormId| g.data.edid_of.get(&id).cloned().unwrap_or_else(|| id.to_string());
+        for n in g.take_level_news() {
+            match n {
+                fnv_game::zones::LevelNews::Zone { zone, level, min_level, player_level } => {
+                    info!("zones: encounter zone {} ({zone}) entered: level {level} (minimum {min_level}, player level {player_level})", edid(g, zone));
+                }
+                fnv_game::zones::LevelNews::Actor { actor, list, at, base, at_display, zone } => {
+                    let name = |b: Option<FormId>| b.map_or_else(|| "nothing".to_string(), |b| edid(g, b));
+                    let line = format!(
+                        "zones: leveled actor {actor} ({}) at level {}{} in zone {} stands for {} ({} at level 1)",
+                        edid(g, list),
+                        at.level,
+                        if at.all_levels { " (all levels)" } else { "" },
+                        zone.map_or_else(|| "none".to_string(), |z| edid(g, z)),
+                        name(base),
+                        if base == at_display { "the same".to_string() } else { name(at_display) },
+                    );
+                    if zone.is_some() {
+                        info!("{line}");
+                    } else {
+                        debug!("{line}");
+                    }
+                }
+            }
         }
     }
 

@@ -2335,6 +2335,22 @@ expect = [
   { re = 'cell reset: GNDeadTribalVillage after 7\d\.\d h away: (?P<n>\d+) actors back alive: .*TCFiend01DEAD', range = [7, 100], label = "cell reset: the village's seven Fiends or more back alive" },
 ]
 
+[[scenario]]
+name = "encounter-zone-level"
+source = "ESM gap audit 2026-10-21 priority 1: encounter zones, docs/spec-notes/encounter-zones.md"
+areas = ["zones", "leveled"]
+paths = ["crates/fnv-sim/src/zones.rs", "crates/fnv-game/src/zones.rs", "crates/fnv-game/src/templates.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/zones.rs"]
+# A level-1 player starts in Vault 3 (Vault3Zone, minimum level 12): the zone takes level
+# 12, and the Fiends placed there as leveled lists are read at 12 (6 with Easy, 9 Medium,
+# 15 Hard, 24 Very Hard).
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Vault3a", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  "zones: encounter zone Vault3Zone (0x000EC778) entered: level 12 (minimum 12, player level 1)",
+  { re = 'zones: leveled actor \S+ \(\w+\) at level (?P<n>\d+)(?: \(all levels\))? in zone Vault3Zone stands for \w+', range = [6, 24], min = 5, label = "the Fiends of Vault3a read at the zone's level (with their modifiers)" },
+]
+
 # ------------------------------------------------------------------ script stubs
 
 [[scenario]]
