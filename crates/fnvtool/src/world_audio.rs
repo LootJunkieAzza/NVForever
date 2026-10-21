@@ -68,6 +68,8 @@ pub fn audio(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, cell: Option<&str
             "acoustic_spaces": forms.spaces.len(),
         },
         "music_types": forms.music.values().map(|m| music(Some(m.form_id))).collect::<Vec<_>>(),
+        "acoustic_spaces": forms.spaces.values().map(|s| json!({"form_id": fid(s.form_id), "edid": s.edid, "environment": s.environment,
+            "is_interior": s.interior, "region": opt_fid(s.region)})).collect::<Vec<_>>(),
     });
     let Some(name) = cell else {
         out["world"] = survey(lo, schema, ix, &sounds, &sound);

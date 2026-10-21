@@ -71,6 +71,7 @@ pub mod player;
 pub mod quest_messages;
 pub mod radiation;
 pub mod radio;
+pub mod reverb;
 pub mod repair;
 pub mod reputation;
 pub mod reticle;

@@ -533,6 +533,10 @@ struct Args {
     /// sounds and the cells' background loops).
     #[arg(long)]
     no_sound: bool,
+    /// With --play: play world sounds dry, without the acoustic space's reverb (the
+    /// settings page's Sound tab switch `reverb`, kept in the INI, wins).
+    #[arg(long)]
+    no_reverb: bool,
     /// With --play: dialogue voice volume, 1 = as recorded.
     #[arg(long, default_value_t = 1.0)]
     voice_volume: f32,
@@ -1180,7 +1184,7 @@ fn main() -> AppExit {
         app.insert_resource(nvf_play::script::NoMessages);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
-    app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
+    app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, reverb: !args.no_reverb, ..Default::default() });
     app.insert_resource(nvf_play::combat::HitMarks { show: args.hit_markers });
     if args.god {
         nvf_play::combat::set_god_mode(true);

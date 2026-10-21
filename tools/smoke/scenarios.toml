@@ -4203,6 +4203,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "reverb-cave-exit"
+source = "no-owner queue item 27 (docs/spec-notes/audio.md §14.6): the acoustic space's reverb environment; the Goodsprings cave is Cave, two shots ring through it, then out through the cave door to the desert, whose Medium Room plays dry (2026-10-21)"
+areas = ["audio"]
+paths = ["engine/nvf-play/src/reverb.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/ambient.rs", "crates/fnv-world/src/audio.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "6:weapon,8:fire,8.4:fire", NVF_PLAY_TEST_SCRIPT = "11:activate:0x0015315F" }
+args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "reverb: interior 00153159: acoustic space INTCave (001445CA) environment Cave -> Cave", label = "the cave rings as a Cave" },
+  { re = 'reverb: exterior cell [0-9A-F]{8}: acoustic space \S+ \([0-9A-F]{8}\) environment Medium Room -> no reverb \(a room.s environment outside\)', label = "out of the door: the desert plays dry" },
+  { re = 'reverb summary: 2 changes of space, environments Cave, (?P<n>\d+) sounds through a reverb', range = [2, 400], label = "the shots went through the cave's reverb" },
+]
+
+[[scenario]]
 name = "cave-skeletons"
 source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose, their collision posed with them (2026-10-20)"
 areas = ["world", "ragdoll", "physics"]
@@ -4766,7 +4780,7 @@ order = [[
 expect = [
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
-  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest", known_failing = "flaky, cause open: the player's ragdoll came to rest 9.0 s of game time after the death on 2026-10-16 and 1.5 s on #405 merged with main (2026-10-17 22:30Z), but never in the 15 s after it on main d2637b64 (31 fps) or the poker branch on #399 (65 fps) ('ragdolls: ... 0 came to rest'); #405 changed no physics, so the drop itself varies. The exit line 'ragdoll: actor 00000014 not at rest at exit' says how fast its fastest body moves and how long it stayed calm when it fails" },
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
   "death camera: 1 death(s) shown, the player dead at exit",
 ]
 
@@ -4795,7 +4809,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 22
 expect = [
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays on it",
-  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest", known_failing = "flaky, the same cause as death-cam-first's: on 2026-10-18 the desktop ran it on f161b419 (before #432: PASS, then FAIL), 94f94ffc (#432 merged: PASS) and main bc13755b (FAIL twice), and the laptop failed it twice on b4e8fea4 (main 94f94ffc with #433 and #434); when it fails the player's ragdoll is still turning about 1.4 rad/s at exit and stayed calm 0.86 s of the 1.5 s that sets it ('ragdoll: actor 00000014 not at rest at exit')" },
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
 ]
 
 [[scenario]]
