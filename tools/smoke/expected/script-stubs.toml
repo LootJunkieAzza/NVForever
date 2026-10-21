@@ -10,15 +10,15 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 8
-stub_calls = 16
+stubs = 7
+stub_calls = 11
 stub_condition_uses = 18
 unhandled_used = 1
 
 [summary.by_status]  # every status, 0 when no stub has it
 assigned = 0
 implementable = 0
-needs_system = 8
+needs_system = 7
 no_op = 4
 
 # History (moved from scenarios.toml, 2026-10-19; the newest last):
@@ -99,3 +99,5 @@ no_op = 4
 # claude/q24-grab implemented IsPlayerGrabbedRef (3 calls, 1 condition use,
 # docs/spec-notes/grab.md): 9 -> 8 stubs, 19 -> 16 calls, 19 -> 18 condition uses [observed:
 # the branch's fnvtool script stubs on the ten masters, merged with main a8d53551, 2026-10-21].
+# claude/q22-slot-machines implemented ShowSlotMachineMenuParams (5 calls,
+# docs/spec-notes/slots.md): after the ash piles and the grab: 8 -> 7 stubs, 16 -> 11 calls.
