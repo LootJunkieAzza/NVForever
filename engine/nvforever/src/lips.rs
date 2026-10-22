@@ -513,6 +513,10 @@ pub struct LipState {
     /// Responses whose head channels turned the head, and the largest turn (degrees).
     pub head_turned: u64,
     pub largest_turn: f32,
+    /// Frames a head bone was turned by its `.lip`, and those where something posed the
+    /// bone again before it was drawn (the turn was lost).
+    head_frames: u64,
+    head_lost: u64,
     /// Responses that showed an emotion, by expression.
     pub emotions: BTreeMap<&'static str, u64>,
     /// Actors given an idle face, those whose eyes followed a head-tracking target, and
@@ -544,6 +548,8 @@ impl LipState {
             cut: 0,
             head_turned: 0,
             largest_turn: 0.0,
+            head_frames: 0,
+            head_lost: 0,
             emotions: BTreeMap::new(),
             idle_actors: HashSet::new(),
             followed: HashSet::new(),
@@ -988,6 +994,18 @@ fn turn_heads(mut state: ResMut<LipState>, mut transforms: Query<&mut Transform>
     }
 }
 
+/// Before transforms are propagated: whether the head turns written this frame are still
+/// on the bones, so that a system posing the head after `turn_heads` shows in the summary.
+fn check_heads(mut state: ResMut<LipState>, transforms: Query<&Transform>) {
+    let st = &mut *state;
+    for (node, _, written) in &st.written_heads {
+        st.head_frames += 1;
+        if transforms.get(*node).is_ok_and(|t| !t.rotation.abs_diff_eq(*written, 1e-6)) {
+            st.head_lost += 1;
+        }
+    }
+}
+
 /// At the start of a frame: take last frame's head turns off again where nothing posed
 /// the bone since, so the systems that turn heads never take them for animation.
 fn untouch(mut state: ResMut<LipState>, mut transforms: Query<&mut Transform>) {
@@ -1008,12 +1026,14 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<LipState>) {
     let st = &*state;
     let emotions: Vec<String> = st.emotions.iter().map(|(k, v)| format!("{k} {v}")).collect();
     info!(
-        "lip summary: {} responses animated, {} skipped, {} cut; head turned on {} (largest {:.1}°); emotions shown on {} ({})",
+        "lip summary: {} responses animated, {} skipped, {} cut; head turned on {} (largest {:.1}°, lost on {} of {} frames); emotions shown on {} ({})",
         st.animated,
         st.skipped,
         st.cut,
         st.head_turned,
         st.largest_turn,
+        st.head_lost,
+        st.head_frames,
         st.emotions.values().sum::<u64>(),
         if emotions.is_empty() { "none".to_string() } else { emotions.join(", ") },
     );
@@ -1100,6 +1120,7 @@ impl Plugin for LipsPlugin {
                     .after(crate::dialogue_look::turn_speaker)
                     .after(crate::speech_look::face),
             )
+            .add_systems(PostUpdate, check_heads.before(bevy::transform::TransformSystems::Propagate))
             .add_systems(Last, report);
         match std::env::var("NVF_FACE_TEST_MORPHS").map(|v| parse_face_test(&v)) {
             Ok(Ok(m)) => {

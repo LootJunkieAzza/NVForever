@@ -6071,6 +6071,7 @@ expect = [
   { re = 'lip: animating \S+ \(\d+ tracks, \d+ applied; .*\) speaker \S+: \d+ shapes, \d+ morphs; head turn up to (?P<n>\d+\.\d)° \(pitch', range = [0.5, 15], min = 3, label = "Chet's responses animate with a head turn of a few degrees" },
   { re = 'lip summary: (?P<n>\d+) responses animated', range = [3, 60], label = "responses counted" },
   { re = 'lip summary: .* head turned on (?P<n>\d+) ', range = [3, 60], label = "the head turned on each" },
+  { re = 'lip summary: .* lost on 0 of [1-9]\d* frames\)', label = "nothing posed the head again after the .lip turn (an idle, head tracking)" },
 ]
 
 [[scenario]]
