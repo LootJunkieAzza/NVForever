@@ -134,4 +134,42 @@ uGridsToLoad=5).
 - Cell assets: prepare models and textures of the next ring on a worker thread; spread a
   cell's spawning over frames; limit GPU uploads per frame
   (`RenderAssetBytesPerFrameLimiter`).
-- `lodgen` should leave cores free for the frame.
+- ~~`lodgen` should leave cores free for the frame.~~ Done (branch claude/lodgen-throttle,
+  2026-10-22):
+  - **Why the frame stalled.** Not core starvation: Bevy's async compute pool has 4
+    threads here (25 % of 32, at most 4), and the machine had cores to spare. The frame
+    *waited* for the bakes. Bevy 0.19 compiles render pipelines as tasks on that same pool
+    (`PipelineCache`, `create_pipeline_task`), and the upscaling pass `block_on`s its
+    pipeline when a view first needs one ("ensure the pipeline is loaded before
+    continuing the frame") [documented: bevy_render 0.19.1 `render_resource/
+    pipeline_cache.rs`, bevy_core_pipeline 0.19.1 `upscaling/mod.rs`]. With every pool
+    thread on a 200–600 ms bake, such a compile queues behind all of them [hypothesis:
+    the blocked compile was not caught in a profile]; what was seen is that a 4.8 s frame
+    on a full lap began as eight bakes were queued and ended 0.15 s after the last of
+    them finished [observed: per-bake timing in a build of f28edbaa,
+    target/stress/tour/diag-52, private]. The archive lock (`fnv_vfs::Vfs::read` holds an
+    archive's mutex while it inflates) was ruled out: 12 waits over 5 ms in that lap
+    [observed].
+  - **What changed.** Bakes run on two threads of their own at the lowest thread priority
+    (`lodgen::Baker`, `lod.rs` `BAKE_THREADS`), off the async compute pool, so pipeline
+    compiles, FaceGen tints and actor part reads never queue behind them, and they only
+    take cores nothing else wants. The queue is still nearest first and is replaced when
+    the camera's cell changes; a chunk being baked finishes. Finished bakes are taken two
+    a frame (`BAKES_PER_FRAME`) [engineering choices].
+  - **Result** (`tools/stress` tour, the waypoint 52–60 and 26–31 routes of §1, b5333ddb
+    with and without the change, fresh cache each run) [observed: target/stress/tour
+    before-* and after-*, private]:
+
+    | stretch | worst frame before | after | 1 % low before | after |
+    |---|---|---|---|---|
+    | 52–60 | 1214 ms (t 6.2 s) | 210 ms | 62 ms | 60 ms |
+    | 26–31 | 1041 ms (t 5.5 s) | 995 ms (t 5.1 s) | 72 ms | 80 ms |
+
+    The 26–31 frame left is the jump itself, under the loading screen: with `--no-lodgen`
+    the same frame is 1005 ms [observed: nolod-26-31]. On the full lap the worst frame
+    went from 4844 ms to 1243 ms (that one with no bake waited on). Generated terrain
+    still fills in after a jump: `--screenshot` (which waits until nothing is baking)
+    from two high views with a cold cache drew 56 generated chunks, the same picture as
+    before the change [observed].
+- The jump's own ~1 s frame (26–31 above, with or without generated terrain), and the
+  1.2 s frame entering cell -16,-13 on the full lap: not looked into yet.
