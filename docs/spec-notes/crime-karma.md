@@ -133,7 +133,9 @@ Picking or forcing the lock of an owned door or container (the lockpicking menu'
 hook, lockpicking.md §4): the owner's witnesses attack at once [documented: HelpCrime],
 with no line of their own (their NormalToCombat line is said). Karma as for theft
 [design: the owner asked for breaking in to cost karma]. Hacking an owned terminal is
-the same crime in the help; it is not hooked yet.
+the same crime [documented: HelpCrime, "computer"]: winning the hacking game sends the
+same hook (`terminal.rs`), with the same karma and witnesses [the owner, 2026-10-22];
+a terminal that opens at its menu (unlocked, hacked before, password held) is no crime.
 
 ### 3.3 Trespassing in a cell
 
@@ -246,7 +248,8 @@ highway patrol station; "should be good"). AI observer campaigns `functions_roun
 - Theft: an item reference that leaves the world as the player picks it up, and items
   taken in the container menu; the lock hook; trespass checked four times a second.
 - The crosshair and its prompt are drawn in the crime colour over an owned item,
-  container or lock, and an owned item's action reads **Steal** [documented: IsCrimeOrEnemy,
+  container or lock (a terminal still to hack among them), and an owned item's action
+  reads **Steal** [documented: IsCrimeOrEnemy,
   "red color of the crosshair or the activation prompt"; HudBarSetSystemColor, the
   "Crime" system colour of the prompt; hypothesis: the colour is the HUD's alternative
   one, 255, 67, 42 (Fallout_default.ini), and the word "Steal"].

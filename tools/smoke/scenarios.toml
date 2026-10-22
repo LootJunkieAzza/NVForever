@@ -2160,6 +2160,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-owned"
+source = "the owner 2026-10-22: a terminal still to hack shows its difficulty on the activate prompt as a lock does, an owned one in the crime colour, and hacking it is the crime of picking an owned lock (karma, the owner's side that sees it hostile): the Easy terminal in the Prospector Saloon (0010872F, cell owned)"
+areas = ["hacking", "terminal", "crime"]
+paths = ["crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/crime.rs", "crates/fnv-game/src/crime.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010872F", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_TERMINAL = "1:science:25,15:right,19:exit" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 24
+order = [[
+  "target 0x0010872F Terminal (Locked (Easy), owned)",
+  "hacking, Easy (Science 25)",
+  "Exact match! access granted",
+  "crime: the player opened the lock of 0x0010872F (hacked), owned by",
+  "target 0x0010872F Terminal (Access)",
+]]
+
+[[scenario]]
 name = "lockpick"
 source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks; the help message the first time"
 areas = ["lockpick"]
