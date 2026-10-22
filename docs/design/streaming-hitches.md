@@ -56,8 +56,10 @@ uGridsToLoad=5).
   ring between the loaded 5 × 5 cells and 7 × 7: placed NPCs and creatures enabled there,
   and residents not drawn whose walkers stand there) are listed. Within 4 ms a frame
   (`PREPARE_BUDGET`) they are resolved, the reads above started for them, and what has
-  been read prepared on the main thread (`ActorCtx::part`, `ActorCtx::skeleton`); their
-  FaceGen `.egm` files are read (`FaceGenCache::egm`). Once an actor's skeleton is
+  been read prepared on the main thread (`ActorCtx::part`, `ActorCtx::skeleton`). An
+  NPC's FaceGen files (the `.egm` beside each part, the head's `.egt`, the race's body
+  and hand `.egt`) are read on a worker thread and offered to `FaceGenCache`
+  (`facegen::read_file`, `FaceGenCache::offer`). Once an actor's skeleton is
   prepared, the clip sets and weapon stance it is drawn with (standing, sneaking,
   swimming, limping, a creature's alert set; `actors::Anims::warm`) are loaded from their
   KF files on a worker thread through `ClipReader` (`nvf_assets::actor::ClipSource`: the
@@ -82,6 +84,25 @@ uGridsToLoad=5).
   NVF_PLAY_TEST_NO_READ_AHEAD=1`). Smoke: `actor-read-ahead` (residents),
   `actor-read-ahead-placed` (cells' placed actors).
 
+  Tour slices 52:60 and 26:31 of the towns route, one build (this branch, on the
+  FaceGen shader tint), read-ahead on and off [observed, 2026-10-22,
+  target/stress/tour/final-{on,off}-*, private]:
+
+  | slice | read-ahead | actors drawn | their time | most in a frame | ready at once | worst frame drawing actors | 1 % low |
+  |---|---|---|---|---|---|---|---|
+  | 52:60 | on | 140 | 476 ms | 60 ms | 129 | 89 ms | 59.1 ms |
+  | 52:60 | off | 140 | 1205 ms | 123 ms | 79 | 91 ms | 63.8 ms |
+  | 26:31 | on | 133 | 420 ms | 63 ms | 127 | 92 ms | 68.8 ms |
+  | 26:31 | off | 133 | 1208 ms | 125 ms | 64 | 126 ms | 74.4 ms |
+
+  The read-ahead itself took 854 ms over 279 frames (52:60) and 870 ms over 208 frames
+  (26:31), at most 19 and 26 ms in a frame (one part's preparation runs over the
+  budget); it read 78 and 83 FaceGen files and 16 and 22 skeletons' clip sets ahead. Since PR #587 no frame over 250 ms comes from drawing actors in either slice,
+  with or without the read-ahead; the one left in each is `lodgen` at the start (§1).
+  With the read-ahead on, the actors that still waited for their parts had not stood in
+  a ring before they came into range (a resident walking in from beyond it)
+  [hypothesis: not traced per actor].
+
 ## 3. Left to do
 
 - Done: the FaceGen tint is added in the face and skin shader (`nvf-assets`
@@ -104,9 +125,9 @@ uGridsToLoad=5).
   5.1 ms for 3 face and 5 skin offsets (about 1.6 ms per face; the sum is per colour
   plane so it vectorises), and 27 ms reading the `.egt` files once per file (the head
   file is about 10 MB; the exit line's "FaceGen:" figures).
-- Read the `.egt` files on a worker thread ahead of need (e.g. the races' head, body
-  and hand files at start): today the first NPC with a given head model reads its file
-  on the main thread, a one-off hitch of up to about 20 ms per file.
+- The `.egt` files of actors in the read-ahead's ring are read on a worker thread (§2);
+  the NPCs of the start's cells, and any not read ahead, still read theirs on the main
+  thread the first time (up to about 20 ms per file, once).
 - Actors re-dressed (`outfits.rs`) still prepare a newly worn part on first use; the
   read-ahead resolves an actor's appearance from its record, not its inventory. Interiors
   and doors' destinations are not read ahead.
