@@ -576,6 +576,11 @@ pub struct PlayerState {
     /// Infamy (index 0) and fame (index 1) per reputation, as GetReputation's axis.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub reputation: BTreeMap<FormId, [f64; 2]>,
+    /// What the player's OnEquip / OnUnequip blocks moved out of [`Self::reputation`]
+    /// (faction armour's disguise, `functions::reputation::real`); added to it, the
+    /// reputation the player really has.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub reputation_hidden: BTreeMap<FormId, [f64; 2]>,
     /// `SexChange`: true = female.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub female: Option<bool>,
@@ -2690,7 +2695,12 @@ impl<'a> Game<'a> {
             return false;
         }
         let key = InstKey::Item { holder, item };
+        let disguise = holder == FormId::PLAYER_REF && matches!(ev, event::ON_EQUIP | event::ON_UNEQUIP);
+        let before = disguise.then(|| self.player.reputation.clone());
         let ran = self.run_event(key, script, ev, subject, RunCtx { self_ref: None, action_ref: Some(holder), quest: None });
+        if let Some(before) = before {
+            functions::reputation_hide(self, &before);
+        }
         if ran {
             let block = self.data.table.block_name(ev).unwrap_or("?").to_string();
             let unit = self.data.script(script).map(|u| u.key()).unwrap_or_default();
