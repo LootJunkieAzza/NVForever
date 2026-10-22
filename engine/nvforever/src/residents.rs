@@ -835,6 +835,17 @@ impl Residents {
         self.core.list.iter().map(|r| r.actor.0)
     }
 
+    /// The residents present and not drawn whose walkers stand in exterior `cells` of
+    /// worldspace `world`: (reference, base, creature), for reading their parts ahead
+    /// (`readahead.rs`).
+    pub fn undrawn_in(&self, world: u32, cells: &HashSet<(i32, i32)>) -> Vec<(u32, u32, bool)> {
+        let at = |r: &Resident| {
+            let w = &self.core.ai.agents.get(&r.actor)?.walker;
+            (w.space == Space::World(world) && cells.contains(&fnv_world::cell_of(w.feet[0], w.feet[1]))).then_some((r.actor.0, r.base, r.creature))
+        };
+        self.core.list.iter().filter(|r| r.present && !r.spawned && !r.failed).filter_map(at).collect()
+    }
+
     /// Draw `actor` anew (a resurrected corpse, `resurrect.rs`): its body is taken away and
     /// [`drive`] spawns a fresh one where its walker stands. Whether it is a resident.
     pub fn redraw(&mut self, commands: &mut Commands, actor: u32) -> bool {

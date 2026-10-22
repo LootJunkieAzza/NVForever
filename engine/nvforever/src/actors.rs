@@ -301,18 +301,6 @@ pub struct ActorStats {
     pub fists: usize,
 }
 
-/// Whether the parts of actor `reference` (base `base`) can be prepared without reading a
-/// file on this thread, starting reads on a worker thread for the rest
-/// (`ActorCtx::parts_ready`). An actor that cannot be resolved counts as ready: spawning
-/// it says why.
-pub fn parts_ready(world: &ActorWorld, ctx: &mut ActorCtx, reference: u32, base: u32, creature: bool) -> bool {
-    if creature {
-        world.resolve_creature(base, reference).map_or(true, |c| ctx.parts_ready(c.parts.iter().map(|p| p.model.as_str())))
-    } else {
-        world.resolve(base, reference).map_or(true, |a| ctx.parts_ready(a.parts.iter().map(|p| p.model.as_str())))
-    }
-}
-
 /// Take back what worker threads made for actors: parts read ahead
 /// (`ActorParts::take_fetched`).
 pub fn take_background_work(parts: Option<ResMut<nvf_assets::actor::ActorParts>>, textures: Option<ResMut<nvf_assets::TextureCache>>, time: Res<Time>) {

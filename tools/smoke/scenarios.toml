@@ -6158,6 +6158,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "actor-read-ahead"
+source = "docs/design/streaming-hitches.md §2: the actors of the ring of cells just outside the loaded grid are read and prepared ahead, so they are drawn at once when they come into range"
+note = "the camera flies north into Goodsprings from four cells south; the town's residents are listed in the ring before their cells load"
+areas = ["actors", "residents"]
+paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/nav.rs", "engine/nvf-assets/src/actor.rs"]
+args = ["--cell", "Goodsprings", "--pos=-67900,-14984,9000", "--npc-packages", "all", "--hour", "12", "--auto-fly", "700"]
+run_seconds = 35
+expect = [
+  { re = 'actor read-ahead summary: (?P<n>\d+) rings', range = [3, 100], label = "rings listed as the loaded grid moved" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "residents drawn at once when they came into range" },
+]
+
+[[scenario]]
+name = "actor-read-ahead-placed"
+source = "docs/design/streaming-hitches.md §2: cells loaded after the start draw their placed actors once their parts are read (world::draw_waiting_actors), most of them read ahead"
+note = "as actor-read-ahead, without residents: the cells draw their actors"
+areas = ["actors", "renderer"]
+paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/actor.rs"]
+args = ["--cell", "Goodsprings", "--pos=-67900,-14984,9000", "--hour", "12", "--auto-fly", "700"]
+run_seconds = 35
+expect = [
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "placed actors drawn at once when their cells loaded" },
+]
+
+[[scenario]]
 name = "lip-face-held"
 source = "docs/spec-notes/lipsync.md §5 (test aid NVF_LIP_TEST_HOLD): held head channels nod the head, Look moves the eyes, an expression shows; frames lip_face_rest.png (nothing held, idle face off) and lip_face_held.png in target/smoke, Sunny Smiles from 100 units"
 areas = ["lip"]

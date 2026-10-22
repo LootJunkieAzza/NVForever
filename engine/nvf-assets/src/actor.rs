@@ -238,6 +238,30 @@ impl ActorParts {
         self.fetched.retain(|_, (_, at)| now - *at < FETCHED_KEEP_SECS);
         n
     }
+
+    /// Where the part (or skeleton) at `path` stands: prepared (or failed to be), read on
+    /// a worker thread and waiting to be prepared, being read, or none of these.
+    pub fn part_state(&self, path: &str) -> PartState {
+        let key = fnv_vfs::normalize(path);
+        if self.parts.contains_key(&key) || self.skeletons.contains_key(&key) {
+            PartState::Prepared
+        } else if self.fetched.contains_key(&key) {
+            PartState::Read
+        } else if self.fetching.contains_key(&key) {
+            PartState::Reading
+        } else {
+            PartState::Unknown
+        }
+    }
+}
+
+/// Where a part stands in [`ActorParts`] ([`ActorParts::part_state`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartState {
+    Prepared,
+    Read,
+    Reading,
+    Unknown,
 }
 
 /// The asset stores actors are prepared into: the static models' ([`ModelCtx`]), so a
@@ -423,7 +447,8 @@ impl ActorCtx<'_, '_> {
         if let Some(s) = self.cache.skeletons.get(&key) {
             return s.clone();
         }
-        let s = match prepare_skeleton(&self.models.data, &key) {
+        let ahead = self.cache.fetched.remove(&key).map(|(nif, _)| nif);
+        let s = match prepare_skeleton(ahead.unwrap_or_else(|| decode(&self.models.data, &key))) {
             Ok(s) => Some(Arc::new(s)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
@@ -443,7 +468,7 @@ impl ActorCtx<'_, '_> {
         let mut ready = true;
         for path in paths {
             let key = fnv_vfs::normalize(path);
-            if self.cache.parts.contains_key(&key) || self.cache.fetched.contains_key(&key) {
+            if self.cache.parts.contains_key(&key) || self.cache.skeletons.contains_key(&key) || self.cache.fetched.contains_key(&key) {
                 continue;
             }
             ready = false;
@@ -705,8 +730,8 @@ impl ActorCtx<'_, '_> {
     }
 }
 
-fn prepare_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, String> {
-    let (file, _bytes, dec) = decode(data, path)?;
+fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
+    let (file, _bytes, dec) = nif?;
     let objects = scene_objects(&file, &dec);
     let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
     let order = hierarchy(&objects);

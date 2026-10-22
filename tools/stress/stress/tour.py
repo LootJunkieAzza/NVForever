@@ -23,8 +23,11 @@ FIELD = re.compile(r"^(?P<name>[a-z %]+?) (?P<value>-?[\d.]+(?:/[\d.]+)*)(?: ms)
 LAP_START = re.compile(r"stress tour: lap (\d+) starts")
 WAYPOINT = re.compile(r"stress tour: lap (\d+) at waypoint (\d+)/(\d+)")
 FRAMES = re.compile(r"stress frames: (\d+) frames, mean ([\d.]+) ms, 1% low ([\d.]+) ms \(([\d.]+) fps\), worst ([\d.]+) ms")
+ACTORS = re.compile(r"stress actors: (\d+) drawn in (\d+) frames \(([\d.]+) ms, most in a frame ([\d.]+) ms\); "
+                    r"those frames mean ([\d.]+) ms, worst ([\d.]+) ms, (\d+) over 100 ms")
 STARTUP = re.compile(r"stress start-up: (\d+) frames, ([\d.]+) ms, slowest ([\d.]+) ms")
-HITCH = re.compile(r"stress hitch: ([\d.]+) ms at t ([\d.]+) s, (\d+) cells loaded in it \(([\d.]+) ms\), at (.*)$")
+HITCH = re.compile(r"stress hitch: ([\d.]+) ms at t ([\d.]+) s, (\d+) cells loaded in it \(([\d.]+) ms\),"
+                   r"(?: (\d+) actors drawn in it \(([\d.]+) ms\),)? at (.*)$")
 PROGRESS = re.compile(r"stress (tour|sample)")
 # Counts a leak would show in (the engine's sample fields, and the process's memory).
 WATCHED = ["entities", "refs drawn", "meshes", "images", "materials", "models cached", "textures cached", "audio",
@@ -289,7 +292,8 @@ def startup_and_hitches(lines: list[str], top: int = 10) -> tuple[dict | None, l
             startup = {"frames": int(m.group(1)), "ms": float(m.group(2)), "slowest_ms": float(m.group(3))}
         elif m := HITCH.search(ln):
             hitches.append({"ms": float(m.group(1)), "t": float(m.group(2)), "cells": int(m.group(3)),
-                            "cell_ms": float(m.group(4)), "at": m.group(5)})
+                            "cell_ms": float(m.group(4)), "actors": int(m.group(5) or 0),
+                            "actor_ms": float(m.group(6) or 0), "at": m.group(7)})
     hitches.sort(key=lambda h: -h["ms"])
     return startup, hitches[:top]
 
@@ -340,6 +344,7 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
     add_memory(samples, r.memory, max(offset, 0.0))
     write_csv(ctx.out / "samples.csv", samples)
     frames = next((FRAMES.search(ln) for ln in reversed(r.lines) if FRAMES.search(ln)), None)
+    actors = next((ACTORS.search(ln) for ln in reversed(r.lines) if ACTORS.search(ln)), None)
     startup, hitches = startup_and_hitches(r.lines)
     laps_done = max((int(m.group(1)) for ln in r.lines if (m := re.search(r"stress tour: lap (\d+) done", ln))), default=0)
     return {
@@ -351,6 +356,10 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
         "frames": None if not frames else {"count": int(frames.group(1)), "mean_ms": float(frames.group(2)),
                                            "low1_ms": float(frames.group(3)), "low1_fps": float(frames.group(4)),
                                            "worst_ms": float(frames.group(5))},
+        "actors": None if not actors else {"drawn": int(actors.group(1)), "frames": int(actors.group(2)),
+                                           "ms": float(actors.group(3)), "most_ms": float(actors.group(4)),
+                                           "frame_mean_ms": float(actors.group(5)), "frame_worst_ms": float(actors.group(6)),
+                                           "over_100": int(actors.group(7))},
         "peak": {f: max((s[f] for s in samples if f in s), default=None) for f in WATCHED},
         "possible_leaks": growth(samples),
         "not_released": not_released(samples),
@@ -370,12 +379,17 @@ def report(res: dict) -> list[str]:
         f = res["frames"]
         out += ["", f"Frames: {f['count']}, mean {f['mean_ms']} ms, 1% low {f['low1_ms']} ms ({f['low1_fps']} fps), worst {f['worst_ms']} ms"
                 " (after start-up)"]
+    if res.get("actors"):
+        a = res["actors"]
+        out.append(f"Actors drawn: {a['drawn']} in {a['frames']} frames, {a['ms']:g} ms (most in a frame {a['most_ms']:g} ms); "
+                   f"those frames mean {a['frame_mean_ms']:g} ms, worst {a['frame_worst_ms']:g} ms, {a['over_100']} over 100 ms")
     if res.get("startup"):
         st = res["startup"]
         out.append(f"Start-up: {st['frames']} frames, {st['ms']:g} ms, slowest {st['slowest_ms']:g} ms (left out of the frames above)")
     if res.get("hitches"):
-        out += ["", "## Slowest hitches", "", "| ms | t | cells loaded in it | at |", "|---|---|---|---|"]
-        out += [f"| {h['ms']:g} | {h['t']:g} | {h['cells']} ({h['cell_ms']:g} ms) | {h['at']} |" for h in res["hitches"]]
+        out += ["", "## Slowest hitches", "", "| ms | t | cells loaded in it | actors drawn in it | at |", "|---|---|---|---|---|"]
+        out += [f"| {h['ms']:g} | {h['t']:g} | {h['cells']} ({h['cell_ms']:g} ms) | {h.get('actors', 0)} ({h.get('actor_ms', 0):g} ms) "
+                f"| {h['at']} |" for h in res["hitches"]]
     out += ["", "## Peaks", "", "| count | peak |", "|---|---|"]
     for k, v in res["peak"].items():
         if v is not None:

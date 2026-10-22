@@ -450,17 +450,19 @@ pub(crate) fn show_actor(
         let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
         let mut ctx = ActorCtx { cache: parts, models };
         // Drawn once its parts are read, on a worker thread, rather than reading them in
-        // the frame it comes into view (`actors::parts_ready`) [engineering choice: it
+        // the frame it comes into view (`readahead::ready_to_draw`) [engineering choice: it
         // appears a few frames later, out at the edge of the loaded cells].
-        if !crate::actors::parts_ready(aw, &mut ctx, reference, base, creature) {
+        if !crate::readahead::ready_to_draw(aw, &mut ctx, reference, base, creature) {
             return Ok(());
         }
         let mut stats = Default::default();
-        let drawn = if creature {
-            crate::actors::spawn_creature(commands, world_root, rt, reference, base, aw, &mut ctx, &mut stats, false)
-        } else {
-            crate::actors::spawn(commands, world_root, rt, at, reference, base, aw, &mut ctx, &mut stats, false)
-        };
+        let drawn = crate::readahead::clocked(|| {
+            if creature {
+                crate::actors::spawn_creature(commands, world_root, rt, reference, base, aw, &mut ctx, &mut stats, false)
+            } else {
+                crate::actors::spawn(commands, world_root, rt, at, reference, base, aw, &mut ctx, &mut stats, false)
+            }
+        });
         if !drawn {
             return Err("not drawn");
         }
