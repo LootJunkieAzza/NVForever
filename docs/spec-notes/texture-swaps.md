@@ -79,7 +79,7 @@ textures come from a Texture Set (TXST) the record names per shape. ESM gap audi
 - Weapons in the hand: the weapon's MODS in third person (NPCs and the player); in first
   person the MODS of the STAT WNAM names (its MODL is the model shown). A modded weapon's
   own model (MWD*/WNM*) takes no list [documented: xEdit has none beside them].
-- The `1stperson` texture fallback (first-person-textures.md) runs after the swap, on the
+- The `1stperson` texture fallback (first-person-textures.md §3) runs after the swap, on the
   swapped files.
 - Each retextured model or part is a copy of its own, cached by the list; the log says
   `<model>: texture swap: N entr(ies), M shape(s) retextured: <shape> → <texture>, …`.

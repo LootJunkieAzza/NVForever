@@ -1215,7 +1215,10 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
         }
     }
     let mut swapped: Vec<String> = Vec::new();
+    // First person: textures the name rule turned to their 1stperson form, and all the
+    // shapes wear in that form after it and the texture swap (first-person-textures.md).
     let mut first_textures = 0;
+    let mut first_worn = 0;
     for o in objects.iter().filter(|o| !o.is_node) {
         // Walk to the root: accumulate the transform below the root's own and look
         // for hidden ancestors.
@@ -1261,6 +1264,7 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
         }
         if first_person {
             first_textures += props.use_first_person_textures(|p| game.vfs.exists(p));
+            first_worn += props.first_person_texture_count();
         }
         let Some((mut mesh, tris)) = build_mesh(data) else { continue };
         // A morphing shape: its mesh stays readable in the main world so that
@@ -1353,7 +1357,7 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
         out.triangles += tris;
     }
     if first_person {
-        info!("{path}: first person, {first_textures} texture(s) in their 1stperson form");
+        info!("{path}: first person, {first_worn} texture(s) in their 1stperson form ({first_textures} by the name rule, the rest named by its texture swap or the model)");
     }
     if !swaps.is_empty() {
         info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));

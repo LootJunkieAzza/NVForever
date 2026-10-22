@@ -88,6 +88,11 @@ impl Props {
         n
     }
 
+    /// How many of the shape's textures (glow map included) are in their first-person form.
+    pub(crate) fn first_person_texture_count(&self) -> usize {
+        self.textures.iter().chain(self.glow.as_ref()).filter(|t| crate::texture::is_first_person_texture(t)).count()
+    }
+
     /// Put in a texture set's files (a record's alternate textures, `fnv_world::alt_textures`;
     /// docs/spec-notes/texture-swaps.md §3), given in NIF texture-set slot order as the
     /// TXST stores them: each given slot replaces the shape's own, an empty one keeps it
