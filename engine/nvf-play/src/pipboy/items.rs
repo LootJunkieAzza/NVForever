@@ -297,7 +297,12 @@ pub fn keys(
     }
 }
 
-fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RowButton>, active: Res<ActiveMenu>, mut out: MessageWriter<MenuInput>) {
+/// The row the pointer comes onto takes the selection, unless the wheel holds it
+/// (`crate::menu::WheelHold`: a list redrawn under a resting pointer would undo the wheel).
+fn on_row_over(over: On<Pointer<Over>>, rows: Query<&RowButton>, active: Res<ActiveMenu>, hold: Option<Res<crate::menu::WheelHold>>, mut out: MessageWriter<MenuInput>) {
+    if hold.is_some_and(|h| h.held()) {
+        return;
+    }
     let (Ok(r), Some(m)) = (rows.get(over.entity), active.0.as_ref()) else { return };
     if m.selected[Side::Player as usize] != r.0 {
         out.write(MenuInput(Command::Hover(Side::Player, r.0)));

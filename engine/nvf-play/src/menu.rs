@@ -167,6 +167,7 @@ impl Plugin for MenuPlugin {
         app.init_resource::<ActiveMenu>()
             .init_resource::<FreshMenu>()
             .init_resource::<PromptKeys>()
+            .init_resource::<WheelHold>()
             .add_message::<MenuInput>()
             .add_message::<OpenInventory>()
             .add_message::<OpenNearestContainer>()
@@ -182,6 +183,7 @@ impl Plugin for MenuPlugin {
                     scripts_open_teammate_containers,
                     open_menus,
                     keep_menu_state,
+                    wheel_hold,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
                 )
@@ -454,15 +456,51 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh
     }
 }
 
+/// How far (pixels) the pointer travels after a wheel step before its row takes the
+/// selection again [design: owner 2026-10-22, the wheel wins over the row under a
+/// resting pointer, else a redrawn list hands the selection back and the wheel sticks].
+const WHEEL_HOLD_TRAVEL: f32 = 8.0;
+
+/// Whether the wheel holds the selection against the pointer's row: set by a wheel
+/// step, let go once the pointer travels [`WHEEL_HOLD_TRAVEL`]. The item menus and the
+/// Pip-Boy's ITEMS list read it.
+#[derive(Resource, Default)]
+pub struct WheelHold {
+    held: bool,
+    travel: f32,
+}
+
+impl WheelHold {
+    pub fn held(&self) -> bool {
+        self.held
+    }
+}
+
+/// Keep [`WheelHold`]: a wheel step holds (moves in the same frame do not count), the
+/// pointer's travel lets go.
+fn wheel_hold(mut wheel: MessageReader<MouseWheel>, mut moved: MessageReader<CursorMoved>, mut hold: ResMut<WheelHold>) {
+    let travel: f32 = moved.read().map(|m| m.delta.map_or(0.0, |d| d.length())).sum();
+    if wheel.read().count() > 0 {
+        *hold = WheelHold { held: true, travel: 0.0 };
+    } else if hold.held {
+        hold.travel += travel;
+        if hold.travel >= WHEEL_HOLD_TRAVEL {
+            hold.held = false;
+        }
+    }
+}
+
 /// The pointer selects the row it comes onto (the list's highlight follows it
-/// [documented: list_box.xml, the template's rows take the pointer]); a click acts on
-/// it, Shift+click on its whole stack.
+/// [documented: list_box.xml, the template's rows take the pointer]), unless the wheel
+/// holds the selection ([`WheelHold`]); a click acts on it, Shift+click on its whole
+/// stack.
 #[allow(clippy::too_many_arguments)]
 fn menu_mouse(
     rows: Query<(&Interaction, &RowButton), Changed<Interaction>>,
     buttons: Query<(&Interaction, &CmdButton), Changed<Interaction>>,
     keys: Res<ButtonInput<KeyCode>>,
     active: Res<ActiveMenu>,
+    hold: Res<WheelHold>,
     mut moved: MessageReader<CursorMoved>,
     mut wheel: MessageReader<MouseWheel>,
     mut lines: Local<f32>,
@@ -480,7 +518,7 @@ fn menu_mouse(
     for (i, r) in &rows {
         let on_it = m.focus == r.0 && m.selected[r.0 as usize] == r.1;
         match *i {
-            Interaction::Hovered if hover && !on_it && pointer_moved => {
+            Interaction::Hovered if hover && !on_it && pointer_moved && !hold.held() => {
                 out.write(MenuInput(Command::Hover(r.0, r.1)));
             }
             Interaction::Pressed if hover && on_it && shift => {
@@ -715,5 +753,32 @@ fn draw(
         commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
             look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
         });
+    }
+}
+
+#[cfg(test)]
+mod wheel_hold_tests {
+    use super::*;
+    use bevy::input::touch::TouchPhase;
+
+    fn step(app: &mut App, wheel: bool, travel: f32) {
+        let window = app.world_mut().spawn_empty().id();
+        if wheel {
+            app.world_mut().write_message(MouseWheel { unit: MouseScrollUnit::Line, x: 0.0, y: -1.0, window, phase: TouchPhase::Moved });
+        }
+        app.world_mut().write_message(CursorMoved { window, position: Vec2::ZERO, delta: Some(Vec2::new(travel, 0.0)) });
+        app.update();
+    }
+
+    #[test]
+    fn the_wheel_holds_until_the_pointer_travels() {
+        let mut app = App::new();
+        app.init_resource::<WheelHold>().add_message::<MouseWheel>().add_message::<CursorMoved>().add_systems(Update, wheel_hold);
+        step(&mut app, true, 50.0);
+        assert!(app.world().resource::<WheelHold>().held(), "moves in the wheel's frame do not let go");
+        step(&mut app, false, 3.0);
+        assert!(app.world().resource::<WheelHold>().held(), "a jitter keeps the hold");
+        step(&mut app, false, WHEEL_HOLD_TRAVEL);
+        assert!(!app.world().resource::<WheelHold>().held());
     }
 }
