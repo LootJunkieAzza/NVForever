@@ -314,30 +314,19 @@ pub fn parts_ready(world: &ActorWorld, ctx: &mut ActorCtx, reference: u32, base:
 }
 
 /// Take back what worker threads made for actors: parts read ahead
-/// (`ActorParts::take_fetched`) and tinted FaceGen textures, put into their materials
-/// (`FaceGenCache::finish`).
-pub fn take_background_work(
-    world: Option<Res<ActorWorld>>,
-    parts: Option<ResMut<nvf_assets::actor::ActorParts>>,
-    textures: Option<ResMut<nvf_assets::TextureCache>>,
-    mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<nvf_assets::NifMaterial>>,
-    time: Res<Time>,
-) {
+/// (`ActorParts::take_fetched`).
+pub fn take_background_work(parts: Option<ResMut<nvf_assets::actor::ActorParts>>, textures: Option<ResMut<nvf_assets::TextureCache>>, time: Res<Time>) {
     if let (Some(mut parts), Some(mut textures)) = (parts, textures) {
         parts.take_fetched(&mut textures, time.elapsed_secs_f64());
     }
-    if let Some(w) = world {
-        w.facegen.lock().expect("facegen cache").finish(&mut images, &mut materials);
-    }
 }
 
-/// A race skin texture and the `.egt` that tints it; `image` is made on first use.
+/// A race skin texture and the `.egt` that tints it; `offset` is made on first use.
 struct SkinTint {
     hand: bool,
     texture: String,
     egt: String,
-    image: Option<Option<crate::facegen::Tint>>,
+    offset: Option<Option<Handle<Image>>>,
 }
 
 /// The parts of a resolved actor ready to assemble, each with its index in `a.parts`:
@@ -360,7 +349,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         let hand_egt = fnv_actor::resolve::hand_egt(body_egt, true);
         for (hand, texture, egt) in [(false, &a.body_texture, Some(body_egt.to_string())), (true, &a.hand_texture, hand_egt)] {
             if let (Some(texture), Some(egt)) = (texture.as_deref().map(fnv_vfs::texture_path), egt) {
-                skins.push(SkinTint { hand, texture, egt, image: None });
+                skins.push(SkinTint { hand, texture, egt, offset: None });
             }
         }
     }
@@ -398,11 +387,12 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         if let Some(shape) = &shape {
             let mut cache = world.facegen.lock().expect("facegen cache");
             meshes = cache.morph(ctx, &part, &p.model, shape);
+            // The face: the head's texture (the race's, on its skin shapes) takes the
+            // offset of the `.egt` beside the head model.
             if p.role == "head:head" {
-                let base = p.texture.clone().or_else(|| part.shapes.first().and_then(|s| s.base_texture()).map(str::to_string));
-                if let Some(tint) = base.zip(fgts).and_then(|(t, fgts)| cache.face_texture(ctx, &p.model, &t, fgts)) {
+                if let Some(offset) = fgts.and_then(|fgts| cache.face_offset(ctx, &p.model, fgts)) {
                     for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
-                        if let Some(m) = cache.tinted(&mut ctx.models.materials, &materials[i], &tint) {
+                        if let Some(m) = cache.tinted(&mut ctx.models.materials, &materials[i], &offset) {
                             materials[i] = m;
                         }
                     }
@@ -410,7 +400,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             }
         }
         // Skin: every shape whose diffuse is one of the race's skin textures (the race
-        // body and hands, and skin inside outfits and gloves) gets the tinted copy
+        // body and hands, and skin inside outfits and gloves) takes the skin's offset
         // [hypothesis, actors.md §4.1].
         if let Some(fg) = fgts {
             for (i, s) in part.shapes.iter().enumerate() {
@@ -419,15 +409,15 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 let Some(tex) = tex.map(fnv_vfs::texture_path) else { continue };
                 let Some(skin) = skins.iter_mut().find(|k| k.texture == tex) else { continue };
                 let mut cache = world.facegen.lock().expect("facegen cache");
-                let tint = skin
-                    .image
+                let offset = skin
+                    .offset
                     .get_or_insert_with(|| {
-                        let tint = cache.skin_texture(ctx, &skin.egt, &skin.texture, fg);
-                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(tint.is_some());
-                        tint
+                        let offset = cache.skin_offset(ctx, &skin.egt, fg);
+                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(offset.is_some());
+                        offset
                     })
                     .clone();
-                if let Some(m) = tint.and_then(|tint| cache.tinted(&mut ctx.models.materials, &materials[i], &tint)) {
+                if let Some(m) = offset.and_then(|offset| cache.tinted(&mut ctx.models.materials, &materials[i], &offset)) {
                     materials[i] = m;
                 }
             }
