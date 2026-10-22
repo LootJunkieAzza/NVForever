@@ -6,7 +6,8 @@
 //!   with the reference deleted, as `crate::world_sounds` hears pick-ups) and items taken
 //!   out of a container in the container menu ([`ItemsTaken`]); a dead actor's inventory
 //!   is not owned through its cell [hypothesis].
-//! - **Locks**: the lockpicking menu's crime hook (`crate::lockpick::LockOpened`).
+//! - **Locks**: the lockpicking menu's crime hook (`crate::lockpick::LockOpened`), and a
+//!   terminal hacked, the same crime as a lock picked (the owner, 2026-10-22).
 //! - **Trespass**: [`fnv_game::Game::crime_tick`] four times a second of game time.
 //! - **Karma**: each change shows a corner message with the game's own strings and icons
 //!   (`sKarmaMinorGained` … and their `…Image` settings) and plays `UIKarmaUp` or
@@ -17,8 +18,9 @@
 //! - **Log**: `crime:` lines for each crime, warning and karma change, and a
 //!   `crime summary` at exit.
 //!
-//! The crosshair's prompt for an owned item, container or lock is drawn in the crime
-//! colour, and an item's action reads "Steal" (`crate::activate`, `crate::reticle`).
+//! The crosshair's prompt for an owned item, container or lock (a terminal still to hack
+//! among them) is drawn in the crime colour, and an item's action reads "Steal"
+//! (`crate::activate`, `crate::reticle`).
 
 use crate::corner_messages::CornerMessages;
 use crate::lockpick::LockOpened;
@@ -118,7 +120,7 @@ fn report_deeds(
         }
         for l in locks {
             if let Some(o) = g.player_opened_lock(FormId(l.reference)) {
-                info!("crime: the player opened the lock of {} ({}), owned by {}", FormId(l.reference), if l.forced { "forced" } else { "picked" }, g.data.name(o.owner));
+                info!("crime: the player opened the lock of {} ({}), owned by {}", FormId(l.reference), l.how.word(), g.data.name(o.owner));
             }
         }
     });

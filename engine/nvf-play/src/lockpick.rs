@@ -89,13 +89,33 @@ pub struct OpenLockpick {
     pub reference: u32,
 }
 
-/// A lock was picked or forced open: the crime hook (`crate::crime` reads it). `owner`:
-/// the door's or container's owner, or its cell's (`fnv_game::lockpick::owner`).
+/// A lock was picked or forced open, or a terminal hacked (`crate::terminal`): the crime
+/// hook (`crate::crime` reads it). `owner`: the door's or container's owner, or its
+/// cell's (`fnv_game::lockpick::owner`); None from a terminal (the crime rules find it).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct LockOpened {
     pub reference: u32,
     pub owner: Option<u32>,
-    pub forced: bool,
+    pub how: OpenedBy,
+}
+
+/// How a lock was opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenedBy {
+    Picked,
+    Forced,
+    /// A terminal's hacking game won.
+    Hacked,
+}
+
+impl OpenedBy {
+    pub fn word(self) -> &'static str {
+        match self {
+            OpenedBy::Picked => "picked",
+            OpenedBy::Forced => "forced",
+            OpenedBy::Hacked => "hacked",
+        }
+    }
 }
 
 /// The lock's picture, drawn by the engine (nvforever `lockpick_view.rs`) while the menu
@@ -599,7 +619,7 @@ fn crime_hook(out: &mut MessageWriter<LockOpened>, reference: FormId, owner: Opt
         Some(o) => info!("lockpick: crime hook: {reference} is owned by {o} ({}; judged by `crate::crime`)", if forced { "forced" } else { "picked" }),
         None => info!("lockpick: crime hook: {reference} has no owner"),
     }
-    out.write(LockOpened { reference: reference.0, owner: owner.map(|o| o.0), forced });
+    out.write(LockOpened { reference: reference.0, owner: owner.map(|o| o.0), how: if forced { OpenedBy::Forced } else { OpenedBy::Picked } });
 }
 
 /// The game's frame: torque, the lock turning, wear, breaks, the end.
