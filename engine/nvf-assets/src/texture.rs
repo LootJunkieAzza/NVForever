@@ -127,12 +127,19 @@ pub fn pc_texture(path: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
 /// docs/spec-notes/first-person-textures.md §3]
 pub fn first_person_texture(path: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
     let path = fnv_vfs::texture_path(path);
-    let file = path.rfind('\\').map_or(0, |i| i + 1);
-    if path[file..].starts_with("1stperson") {
+    if is_first_person_texture(&path) {
         return None;
     }
+    let file = path.rfind('\\').map_or(0, |i| i + 1);
     let first = format!("{}1stperson{}", &path[..file], &path[file..]);
     exists(&first).then_some(first)
+}
+
+/// Whether a texture's file name is in its first-person form (starts `1stperson`).
+pub fn is_first_person_texture(path: &str) -> bool {
+    let path = fnv_vfs::texture_path(path);
+    let file = path.rfind('\\').map_or(0, |i| i + 1);
+    path[file..].starts_with("1stperson")
 }
 
 impl TextureCache {

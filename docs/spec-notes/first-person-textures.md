@@ -42,3 +42,16 @@ kept. The third-person body and the world keep the model's own textures.
 Not known: whether the game applies the rule to other first-person models (the arms, the
 Pip-Boy); no `1stperson` textures exist outside the weapons folders, so it makes no
 difference with the shipped data.
+
+## 4. The texture swap names them too
+
+- The laser rifle's first-person STAT (the one its WNAM names) carries a MODS list that puts
+  `1stpersonlaserrifle01.dds` on six of its shapes and `1stpersonlaserrifle02.dds` on
+  `LaserRifle:1` [observed: smoke `first-person-weapon-textures` log, 2026-10-22, the
+  `texture swap:` line]. Since texture swaps were read (texture-swaps.md §4), they reach the
+  first-person rifle that way, and the §3 rule runs after them and finds nothing left to
+  turn (it keeps names already starting `1stperson`). So §1's last point (no model names
+  the twin) holds for the NIF files only: for the laser rifle, the records name them.
+- The log line `<model>: first person, N texture(s) in their 1stperson form (M by the name
+  rule, …)` counts every texture the drawn shapes end up wearing in that form, whichever
+  route put it there; M is the §3 rule's share.
