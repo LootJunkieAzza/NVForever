@@ -36,6 +36,10 @@
 //! - **Shell casings.** [`CasingFx`]: the WEAP's casing model, falling and bouncing; a
 //!   bounce from at least [`CASING_KNOCK`] units/s plays the casing's PHY sound
 //!   ([`casing_sound`]) where it lands, up to [`CASING_SOUNDS`] times a casing [design].
+//!   A casing is drawn only: it has no collider, and its path is traced against the
+//!   still world alone ([`casing_filter`]), so it never lands on the player or anyone
+//!   else and nothing (the camera, movement, shots) ever meets it (the owner,
+//!   2026-10-22).
 //! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, upright, emitting
 //!   its own particle systems (flash, sparks, smoke, shrapnel: `crate::particles::
 //!   ModelEmitter`) for as long as its sequence runs (else [`EXPLOSION_SECS`]), and the
@@ -66,6 +70,7 @@ use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_nif::anim::BoolTrack;
+use fnv_phys::{layers, Filter};
 use nvf_assets::anim_play::{MaterialTarget, Playing};
 use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::{ModelCtx, PreparedModel};
@@ -124,6 +129,14 @@ pub fn casing_sound(model: &str) -> &'static str {
 /// stays down, units per second [design].
 const CASING_BOUNCE: f32 = 0.35;
 const CASING_REST: f32 = 25.0;
+
+/// What a casing falls onto: terrain and the still collision of references, never an
+/// actor (capsules, hit volumes, ragdolls), a moving body or a layer the character
+/// passes through. A casing thrown from the weapon starts inside the shooter's hit
+/// volume, and came to rest on it in the air where the player had stood.
+pub fn casing_filter() -> Filter {
+    Filter { no_actors: true, no_dynamic: true, exclude_layers: layers::character_ignores(), ..Default::default() }
+}
 
 /// A muzzle flash or an impact effect and how long it has left.
 #[derive(Component)]
@@ -566,6 +579,7 @@ fn casings(
 ) {
     let dt = time.delta_secs();
     let gravity = phys.world.params.gravity;
+    let world_only = casing_filter();
     for (e, mut c, mut t) in &mut live {
         c.left -= dt;
         if c.left <= 0.0 {
@@ -578,7 +592,7 @@ fn casings(
         c.velocity.z -= gravity * dt;
         let step = c.velocity * dt;
         let len = step.length();
-        let hit = (len > 1e-4).then(|| phys.ray(t.translation.to_array(), step.to_array(), len, Default::default())).flatten();
+        let hit = (len > 1e-4).then(|| phys.ray(t.translation.to_array(), step.to_array(), len, world_only.clone())).flatten();
         match hit {
             Some(h) => {
                 let n = Vec3::from_array(h.normal);

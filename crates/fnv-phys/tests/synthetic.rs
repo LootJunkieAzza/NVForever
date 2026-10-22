@@ -521,6 +521,23 @@ fn actor_volumes_take_shots() {
 }
 
 #[test]
+fn a_filter_can_skip_every_actor() {
+    // Shell casings see only the world: no hit volume, no character's capsule, yet the
+    // ground under them.
+    let mut w = ground();
+    w.set_actor_volume(0x10, person([200.0, 0.0, 0.0], false));
+    let c = w.add_character(1, CharacterParams::default(), [400.0, 0.0, 3.5]);
+    w.update_queries();
+    let along = |w: &mut PhysWorld, f: &Filter| w.queries().ray([0.0, 0.0, 40.0], [1.0, 0.0, 0.0], 1000.0, f).map(|h| h.owner.key());
+    assert_eq!(along(&mut w, &Filter::default()), Some(Key::Actor(0x10)));
+    assert_eq!(along(&mut w, &Filter { exclude_layers: layers::actor_volumes(), ..Default::default() }), Some(c.key()));
+    let world_only = Filter { no_actors: true, ..Default::default() };
+    assert_eq!(along(&mut w, &world_only), None);
+    let down = w.queries().ray([200.0, 0.0, 100.0], [0.0, 0.0, -1.0], 200.0, &world_only).unwrap();
+    assert!(matches!(down.owner, Owner::Terrain { .. }), "{:?}", down.owner);
+}
+
+#[test]
 fn characters_walk_through_actor_volumes_and_clutter_ignores_them() {
     let mut w = ground();
     w.set_actor_volume(0x10, person([60.0, 0.0, 0.0], false));
