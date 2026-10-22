@@ -37,13 +37,9 @@ uGridsToLoad=5).
 
 ## 2. What runs off the main thread now
 
-- **FaceGen textures** (`nvforever/src/facegen.rs`). The tinted texture is made on a
-  worker thread (Bevy's async compute pool). The NPC's material starts with the model's
-  own (untinted) texture and is given the tinted one when it is made
-  (`FaceGenCache::finish`, PreUpdate) [engineering choice: the NPC is never drawn without
-  a face; its skin tone settles a few frames later]. Made textures are reused by what they
-  are made of (face or skin, `.egt`, texture, coefficients) while anything draws them, so
-  re-dressing an NPC (`outfits.rs`) does not make them again.
+- **FaceGen textures**: no longer made (§3). Between PR #587 and the shader tint the
+  tinted copies were made on a worker thread and put into the materials a few frames
+  after the NPC appeared.
 - **Actor parts** (`nvf-assets/src/actor.rs`). Before `nav::show_actor` draws an actor
   for the first time it asks `ActorCtx::parts_ready` for the actor's part models; parts
   not prepared or read yet are read, inflated and parsed on a worker thread, with the
@@ -54,10 +50,29 @@ uGridsToLoad=5).
 
 ## 3. Left to do
 
-- Do the FaceGen tint in the face/skin shader (a small per-NPC offset texture added at
-  draw time) instead of a per-NPC full texture: no CPU pass and less memory. The add is
-  done on stored sRGB bytes with rounding and clamping today, so the shader has to match
-  that to keep the look.
+- Done: the FaceGen tint is added in the face and skin shader (`nvf-assets`
+  `nif_material.rs`, "FaceGen tint"; `nvforever/src/facegen.rs`). Per NPC only the
+  `.egt` offset image is made, on the main thread when the NPC's parts are put together:
+  the face's 256 × 256 and the body's and hands' 32 × 32, as 16-bit floats (512 KB and
+  8 KB), in place of a 1024² face and a 512² body copy with mipmaps (about 5.6 MB and
+  1.4 MB). The shader adds the offset, upsampled bilinearly and flipped vertically, to the
+  texel's stored sRGB value and holds it to 0–255, as the CPU add did; it no longer
+  rounds to whole units, and it holds after the texture is filtered rather than per
+  texel. A unit test checks the shader's formula against `add_offset` texel by texel
+  (within the CPU's rounding). Close frames of Sunny Smiles from the dialogue camera
+  (actors.md §4.3), 1280 × 720, shader against the CPU version, in display units: on
+  her face a mean difference of 0.29 (99th percentile 2, largest 7), on her hands 0.09
+  (largest 2); the tint itself (the same frames against `--no-facegen`) moves the face
+  by 10.45 on average and the hands by 2.75 [observed, 2026-10-22]. The body skin is now
+  drawn from the full 1024² texture (the CPU copy was halved to 512²), so it is
+  slightly sharper up close. The NPC is drawn tinted from its first frame.
+  Main-thread cost, measured in the Prospector Saloon (`facegen-tint-shader` smoke):
+  5.1 ms for 3 face and 5 skin offsets (about 1.6 ms per face; the sum is per colour
+  plane so it vectorises), and 27 ms reading the `.egt` files once per file (the head
+  file is about 10 MB; the exit line's "FaceGen:" figures).
+- Read the `.egt` files on a worker thread ahead of need (e.g. the races' head, body
+  and hand files at start): today the first NPC with a given head model reads its file
+  on the main thread, a one-off hitch of up to about 20 ms per file.
 - Read ahead the actors of the next ring of cells (7 × 7) so they are ready before they
   are needed; actors drawn by other paths (`world::load_cell`, `outfits.rs`) still prepare
   parts on first use.

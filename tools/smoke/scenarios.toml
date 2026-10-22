@@ -6143,16 +6143,18 @@ expect = [
 ]
 
 [[scenario]]
-name = "facegen-tints-in-background"
-source = "docs/design/streaming-hitches.md §2: NPC face and skin tints are made on a worker thread and put into the NPCs' materials when made (the CPU profile of 2026-10-22 found them most of the streaming hitches)"
-note = "the saloon's NPCs (Sunny Smiles, Easy Pete, Trudy) are drawn at the start; every tint started is put in well before the exit"
+name = "facegen-tint-shader"
+source = "docs/design/streaming-hitches.md §3: the FaceGen face and skin tint is added in the material shader from a small per-NPC offset texture (nvf-assets nif_material.rs \"FaceGen tint\"); no tinted texture copies are made"
+note = "the saloon's NPCs (Sunny Smiles, Easy Pete, Trudy) are drawn at the start: faces and skins get offset images and their materials the FACEGEN_TINT shader, which must compile"
 areas = ["actors"]
-paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs"]
+paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl"]
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [
-  { re = 'FaceGen: .* (?P<n>\d+) faces textured', range = [2, 200], label = "the NPCs' faces were tinted" },
-  { re = 'FaceGen: .* (?P<n>\d+) tinted textures put in', range = [4, 400], label = "the tints made on a worker thread were put into their materials" },
+  { re = 'FaceGen: .* (?P<n>\d+) faces textured', range = [2, 200], label = "face offset images were made for the NPCs" },
+  { re = 'FaceGen: .* (?P<n>\d+) skins textured', range = [2, 400], label = "body and hand skin offset images were made" },
+  { re = 'FaceGen: .* (?P<n>\d+) shapes tinted in the shader', range = [6, 2000], label = "face and skin materials carry the offset" },
+  { re = '(?i)(shader|pipeline).*(error|failed)|(error|failed).*(nif_material|shader)', count = 0, label = "the material shader compiles with FACEGEN_TINT" },
 ]
 
 [[scenario]]
