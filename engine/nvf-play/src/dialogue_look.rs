@@ -183,6 +183,8 @@ pub enum FaceFrom {
     Volume,
     /// The reference's position ([`FACE_ABOVE_REFERENCE`]).
     Reference,
+    /// A talking activator's own position (an intercom on a wall, not a face).
+    Activator,
 }
 
 /// The face of `actor`: the drawn head when the renderer gave one for this actor, else a
@@ -307,7 +309,11 @@ fn face_speaker(
     let choosing = conv.line.is_none() && !conv.choices.is_empty() && !crate::dialogue::held(game);
     let volume = phys.world.actor_volume(actor.0).map(|v| (v.feet, v.height));
     let reference = sim.world.peek(actor).map(|s| s.pos).or_else(|| sim.refs.get(actor).map(|p| p.pos));
-    let Some((point, from)) = face_point(actor.0, face.0, volume, reference) else {
+    let found = match conv.through {
+        Some(_) => reference.map(|p| (p, FaceFrom::Activator)),
+        None => face_point(actor.0, face.0, volume, reference),
+    };
+    let Some((point, from)) = found else {
         if !talk.opened {
             talk.opened = true;
             info!("dialogue look: {} is nowhere to be found: the view stays", talk.name);
@@ -327,6 +333,7 @@ fn face_speaker(
                 FaceFrom::Head => "its head as drawn",
                 FaceFrom::Volume => "the top of its hit volume: it has no drawn head",
                 FaceFrom::Reference => "above its reference: it is not drawn",
+                FaceFrom::Activator => "the talking activator itself",
             },
             deg(now.0),
             deg(target.0),

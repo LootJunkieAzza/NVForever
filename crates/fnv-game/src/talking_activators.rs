@@ -25,6 +25,13 @@
 //!   script" does not hold: it read 1 after SetTalkingActivatorActor [observed: ac6].
 //! - The engine looks at the activator, not at the far-away actor, while the
 //!   conversation runs (`Conversation::through`).
+//! - **A Goodbye greeting** through one opens a conversation, as a force greet's does
+//!   (docs/spec-notes/dialogue.md §5), and the line ends it [owner statement 2026-10-22,
+//!   of Chris Haversam's "I'm letting you in" from the REPCONN intercom (INFO 000CD87E):
+//!   "even if the line has a goodbye it still draws into dialogue"]. Said at the player
+//!   without one, it was said where Chris is, upstairs in another cell, out of hearing;
+//!   the player tried again, and the new conversation cut the silent line before its end
+//!   script unlocked the door beside the intercom.
 
 use crate::functions::{base_of, yes, Args, Ctx};
 use crate::game::Game;

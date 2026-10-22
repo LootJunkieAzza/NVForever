@@ -1324,6 +1324,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "intercom-goodbye-line"
+source = "docs/spec-notes/talking-activators.md §2 (fnv_game::talking_activators): a Goodbye greeting through a talking activator opens a conversation that the line ends [owner statement 2026-10-22]; owner playtest 2026-10-22, Come Fly With Me: Chris Haversam's \"I'm letting you in\" from the REPCONN intercom was never heard, the next try said \"Stop messing around with the intercom\" and the door stayed locked"
+note = "The first activation is the Say Once \"Hey! Over here!\" conversation (left); the second sets the intercom's UsingUpstairsIntercom and Chris (upstairs, in RocketLabTop) says the Goodbye greeting through it in a conversation; its end script unlocks the door beside it, which the third activation then opens. intercom_goodbye.png is the dialogue screen while the line is said"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "crates/fnv-game/src/dialogue.rs", "engine/nvf-play/src/dialogue_look.rs", "engine/nvf-play/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "000CD684", NVF_PLAY_TEST_TALK = "8:REPCONMidToTopDoorIntercom=leave;24:REPCONMidToTopDoorIntercom;40:0x00082FF9", NVF_PLAY_TEST_SHOTS = "27:intercom_goodbye.png" }
+args = ["--cell", "RocketLabMid", "--play", "--hour", "12"]
+run_seconds = 50
+expect = [
+  { re = 'dialogue: .* says \[GREETING\] .*000CD87D', label = "first: Chris's \"Hey! Over here!\" through the intercom" },
+  { re = 'dialogue: ChrisHaversamREF says \[GREETING\] 0x000CD87E', label = "second: the Goodbye greeting \"I'm letting you in\", said in a conversation" },
+  { re = 'a Goodbye line: no conversation', count = 0, label = "not said at the player outside the dialogue" },
+  { re = 'voice: .*000CD87E .*out of hearing', count = 0, label = "its voice is not out of hearing" },
+  { re = 'script: .* ended line .*000CD87E', label = "the line ends, not cut" },
+  { re = 'dialogue: conversation with ChrisHaversamREF ended \(goodbye, 1 lines\)', label = "its Goodbye flag ends the conversation" },
+  { re = 'dialogue look: the view turns to REPCONMidToTopDoorIntercom \(the talking activator itself\)', min = 2, label = "the view turns to the intercom, not above it, in both conversations" },
+  { re = '000CECFA', count = 0, label = "no \"Stop messing around with the intercom\"" },
+  { re = 'script: REPCONMidToTopDoor activated by .*"result":"teleported".*"cell":"0x00081CFA"', label = "third: the door is unlocked and leads up to RocketLabTop" },
+]
+
+[[scenario]]
 name = "talk-gestures-npcs"
 source = "docs/spec-notes/idles.md §12: two NPCs in a conversation between actors (Joe Cobb and Trudy, started by the test aid) play the tree's NPC-to-NPC gestures"
 note = "Trudy, Joe Cobb and the quest are enabled and started by the aid (in a game they come from INFO 0015F8B6 and the saloon trigger, dialogue.md §5.1)"
