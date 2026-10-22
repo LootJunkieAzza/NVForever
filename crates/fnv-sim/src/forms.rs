@@ -297,6 +297,10 @@ pub struct BaseForm {
     pub edid: Option<String>,
     pub name: Option<String>,
     pub script: Option<FormId>,
+    /// ACTI XATO Activation Prompt (docs/spec-notes/cells-refs.md §3); a reference's own
+    /// XATO comes first. Not written to JSON.
+    #[serde(skip)]
+    pub prompt: Option<String>,
     #[serde(flatten)]
     pub data: BaseData,
 }
@@ -512,6 +516,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     edid: None,
                     name: None,
                     script: None,
+                    prompt: None,
                     data: BaseData::Item(Item {
                         kind,
                         value: None,
@@ -643,7 +648,8 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
             _ => return Loaded::Skip,
         }
     };
-    Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, data }))
+    let prompt = if &sig == b"ACTI" { first(&d, b"XATO").and_then(text).filter(|t| !t.trim().is_empty()) } else { None };
+    Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, prompt, data }))
 }
 
 /// Whether the record's header carries the flag the schema names "Quest Item" for its

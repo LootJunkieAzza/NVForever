@@ -67,6 +67,9 @@ pub const CELL_INTERIOR: u8 = 0x01;
 /// The record header flag "Off limits" of an interior cell [documented: GECK wiki
 /// GetFormFlag, bit 17].
 pub const FORM_OFF_LIMITS: u32 = 0x0002_0000;
+/// The record header flag "Can't wait" of a cell [documented: GECK wiki GetFormFlag,
+/// bit 19] (docs/spec-notes/cells-refs.md §1).
+pub const FORM_CANT_WAIT: u32 = 0x0008_0000;
 
 /// What a cell's record says about who owns it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -76,6 +79,8 @@ pub struct CellDef {
     pub public: bool,
     pub interior: bool,
     pub off_limits: bool,
+    /// "Can't wait": the Wait menu refuses in it.
+    pub cant_wait: bool,
 }
 
 impl CellDef {
@@ -89,12 +94,13 @@ impl CellDef {
             public: flags & CELL_PUBLIC != 0,
             interior: flags & CELL_INTERIOR != 0,
             off_limits: header_flags & FORM_OFF_LIMITS != 0,
+            cant_wait: header_flags & FORM_CANT_WAIT != 0,
         }
     }
 
     /// Whether the cell is worth keeping: it has an owner or one of the flags.
     pub fn matters(&self) -> bool {
-        self.owner.is_some() || self.public || self.off_limits
+        self.owner.is_some() || self.public || self.off_limits || self.cant_wait
     }
 }
 
@@ -346,6 +352,11 @@ impl Game<'_> {
     }
 
     /// Whether a cell is public: SetCellPublicFlag's, else its record's flag.
+    /// Whether the player's cell is flagged "Can't wait" (cells-refs.md §1).
+    pub fn cant_wait_here(&self) -> Option<FormId> {
+        self.cell_of(FormId::PLAYER_REF).filter(|c| self.data.cells.get(c).is_some_and(|d| d.cant_wait))
+    }
+
     pub fn cell_public(&self, cell: FormId) -> bool {
         self.forms.public_cells.get(&cell).copied().unwrap_or_else(|| self.data.cells.get(&cell).is_some_and(|c| c.public))
     }
@@ -818,8 +829,11 @@ mod tests {
         let sub = |sig: &[u8; 4], data: Vec<u8>| fnv_esm::Subrecord { sig: *sig, data, extended: false };
         let subs = vec![sub(b"DATA", vec![0x21]), sub(b"XOWN", 0x0010_4C78u32.to_le_bytes().to_vec()), sub(b"XRNK", 2i32.to_le_bytes().to_vec())];
         let c = CellDef::from_raw(&subs, FORM_OFF_LIMITS, &Some);
-        assert_eq!(c, CellDef { owner: Some(FormId(0x0010_4C78)), rank: Some(2), public: true, interior: true, off_limits: true });
+        assert_eq!(c, CellDef { owner: Some(FormId(0x0010_4C78)), rank: Some(2), public: true, interior: true, off_limits: true, cant_wait: false });
         assert!(c.matters());
+        // Can't wait (bit 19) alone is kept (Gomorrah00 and eight more in FalloutNV.esm).
+        let gomorrah = CellDef::from_raw(&[sub(b"DATA", vec![0x01])], FORM_CANT_WAIT, &Some);
+        assert!(gomorrah.cant_wait && !gomorrah.off_limits && gomorrah.matters());
         assert!(!CellDef::from_raw(&[sub(b"DATA", vec![0x01])], 0, &Some).matters());
     }
 }
