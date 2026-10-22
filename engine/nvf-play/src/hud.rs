@@ -381,7 +381,7 @@ fn gather(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
-    vats: Option<Res<crate::vats_mode::VatsMode>>,
+    (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     driven: Option<Res<crate::player::ViewDriven>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
@@ -392,9 +392,11 @@ fn gather(
     // dialogue"].
     let creating = control.as_ref().is_some_and(|c| c.portrait.is_some());
     // Nor while an idle holds the camera (the opening's wake-up, `ViewDriven`), whatever
-    // the scripts' locks: only subtitles then [owner 2026-10-24].
+    // the scripts' locks: only subtitles then [owner 2026-10-24]; nor while the weapon
+    // wheel is open (docs/design/weapon-wheel.md §7) [design].
     let posed = driven.is_some_and(|d| d.0);
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed, ..view.clone() };
+    let wheel_open = wheel.is_some_and(|w| w.is_open());
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open, ..view.clone() };
     if let Some(p) = &player {
         now.heading = p.heading.to_degrees();
     }

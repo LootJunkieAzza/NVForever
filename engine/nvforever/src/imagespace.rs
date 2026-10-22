@@ -502,7 +502,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>),
+    (sim, aim, wheel): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<&mut ImageSpaceGrade>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -585,8 +585,9 @@ fn update_grade(
         contrast_avg_lum: c.contrast_avg_lum,
         brightness: c.brightness,
         // The world behind the wait menu is blurred (docs/spec-notes/wait-menu.md §2).
-        // The dying player's view blurs (`death_cam.rs`).
-        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur).max(death.map_or(0.0, |d| d.blur())),
+        // The dying player's view blurs (`death_cam.rs`), and the world behind the weapon
+        // wheel (docs/design/weapon-wheel.md §5).
+        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur).max(death.map_or(0.0, |d| d.blur())).max(wheel.map_or(0.0, |w| w.blur())),
         time: now,
         sharp,
         vats: Vec4::from_array(vats_look),
