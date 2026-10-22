@@ -7658,6 +7658,33 @@ sleeping are refused while the world irradiates the player. Spec:
   the blast, how strong (10 rads/s before Rad Resistance here), how far out (616 units here),
   and how long until it stops (12 s here)? Does the level fade or stop at once?
 
+## Weapon and ammo fields: NPC weapon choice, damage type, mods (2026-10-21, ESM gap audit medium group 2, branch claude/em3-npc-weapon-choice)
+
+NPCs no longer choose Player Only or Not Used In Normal Combat weapons (the Van Graff
+rifles, the MS22 camera); weapons with a damage type (59 in FalloutNV.esm: lasers and
+plasma, flamers, pulse weapons, poison) are cut by the target's resistance of that kind;
+the flamers' Range - Fixed drops the combat style's range multiplier; Aim Arc sets the
+firing angle; projectile speed and ammo regeneration mods work. Spec:
+[weapon-data-fields](spec-notes/weapon-data-fields.md). Decisions and guesses:
+
+- *Guess:* a damage type other than None / Damage Resistance replaces DR by that
+  resistance (as a percent, capped at 85 like DR); DT still comes first. The wiki says
+  only that the setting "determines the Damage Type". Poison Resistance comes from
+  Endurance ((END − 1) × 5), so poison weapons now hit most actors 20–45 % softer;
+  Energy, Fire, EMP and Electric are 0 unless something raises them.
+- *Guess:* scripts (EquipItem, UseWeapon) may still arm an NPC with a Player Only weapon;
+  only the NPC's own choice skips it.
+- *Guess:* Aim Arc 0 (every master weapon) keeps the engine's 30° firing angle.
+- *Guess:* Regenerate Ammo (seconds) changes only a weapon that already recharges.
+- *Decision:* the WEAP flag Ignores Normal Weapon Resistance keeps ignoring DT and DR (the
+  Rippers, Chainsaw, Thermic Lance, Deathclaw Gauntlet), although the wiki says it did not
+  work in the original without JIP LN NVSE. Say if the original's (broken) behaviour is
+  wanted instead.
+- Not built: Kill Impulse / Impulse Dist (the wiki only guesses their meaning), Decrease
+  Equip Time (no master mod).
+- *Check:* does a laser pistol hit on a target with Energy Resistance 50
+  (`setav EnergyResist 50`) do about half damage in the original? Does a Van Graff
+  rifle given to a settler stay unused?
 ## The combat style's other fields (2026-10-21, ESM gap audit medium group 1, branch claude/em2-combat-style)
 
 Melee fighters now dodge (left, right, back, forward) or idle by their combat style's

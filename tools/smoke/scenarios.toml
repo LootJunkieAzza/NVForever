@@ -3600,6 +3600,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "npc-weapon-player-only"
+source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §1): no NPC's own weapon choice takes a weapon flagged Player Only (the Van Graff laser rifle)"
+note = "a Goodsprings settler is given the Van Graff laser rifle (001251CD, damage 40) and a 9mm pistol (000E3778) with ammunition, and loses his varmint rifle, then set on the player (GOD): his empty hand makes the combat style's weapon choice takes up the pistol"
+areas = ["combat", "actors"]
+paths = ["crates/fnv-sim/src/forms.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-game/src/style_weapon.rs", "crates/fnv-actor/src/weapon.rs", "crates/fnv-actor/src/records.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:600:0:0,3.5:call:GoodspringsSettler03Ref:AddItem:VFSWeapLaserRifleVanGraff:1,3.6:call:GoodspringsSettler03Ref:AddItem:WeapNV9mmPistol:1,3.7:call:GoodspringsSettler03Ref:AddItem:Ammo9mm:50,3.8:call:GoodspringsSettler03Ref:RemoveItem:WeapNVVarmintRifle:1,5:combat:GoodspringsSettler03Ref:player" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 30
+expect = [
+  { re = 'style weapon: .* takes up .*(9mm|000E3778)', label = "the settler takes up the 9mm pistol" },
+]
+forbid = [{ re = 'style weapon: .* takes up .*(Van Graff|001251CD)', label = "an NPC takes up a Player Only weapon" }]
+
+[[scenario]]
+name = "energy-resist-hit"
+source = "ESM gap audit medium group 2 (docs/spec-notes/weapon-data-fields.md §3): a weapon's damage type (WEAP Resist) takes the target's resistance of that kind in place of DR"
+note = "GSGeneralStore: Chet is given Energy Resistance 50 at the console; the player (GOD) shoots him with a laser pistol (00004335, Energy Resistance)"
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_CONSOLE = "8:GSChetRef.setav EnergyResist 50;8.3:close", NVF_PLAY_TEST_EQUIP = "00004335", NVF_PLAY_TEST_GIVE = "00004335:1,00020772:50", NVF_PLAY_TEST_CONTROL = "10:weapon,14:aimnpc=0.2,14.1:fire,15:aimnpc=0.2,15.1:fire,16:aimnpc=0.2,16.1:fire" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+expect = [
+  { re = 'combat: \S+ takes WeapLaserPistol damage less 50 % \(Energy Resistance\) in place of DR', label = "the laser hit is cut by Chet's Energy Resistance" },
+]
+
+[[scenario]]
 name = "placed-smoke-scroll"
 source = "playtest list 4 item 16 (docs/spec-notes/nif.md §6 \"Controllers outside sequences\"): the ground smoke at the camp fire south of Goodsprings scrolls its texture by a controller of its own (no sequence); the model is read with that track"
 note = "looks (fainter smoke from unlit vertex colours as display values, item 16; grass atlas clamped, item 17) are checked by frames, not here"

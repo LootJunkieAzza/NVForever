@@ -142,6 +142,14 @@ pub struct WeaponStats {
     #[serde(skip)]
     pub reload_anim_mod: Option<String>,
     pub mods: Vec<WeaponMod>,
+    /// From the mods on ([`WeaponStats::modded`]): the projectile's speed multiplier
+    /// ("Increase Projectile Speed", `None` for 1) and every fourth shot using no ammunition
+    /// ("Regenerate Ammo (shots)") (docs/spec-notes/weapon-data-fields.md §5). Not part of
+    /// any report.
+    #[serde(skip)]
+    pub projectile_speed_mult: Option<f32>,
+    #[serde(skip)]
+    pub free_fourth_shot: bool,
     /// DNAM ended before `resist_type`: the short form xEdit allows (fields from the 37th
     /// on absent); the later fields then read as zero.
     pub short_dnam: bool,
@@ -250,8 +258,9 @@ impl WeaponStats {
 
     /// The weapon with the mods `flags` names on: each slot's effect applied by its
     /// values as the GECK wiki's "Weapon Mod Effects" describes them
-    /// (docs/spec-notes/weapon-mods.md §2). Effects NVForever does not apply (projectile
-    /// speed, ammo regeneration, equip time, VATS bonus) leave the figures as they are.
+    /// (docs/spec-notes/weapon-mods.md §2, weapon-data-fields.md §5). Effects NVForever
+    /// does not apply (equip time; VATS bonus, unused in the game) leave the figures as
+    /// they are.
     pub fn modded(&self, flags: u8) -> WeaponStats {
         let mut w = self.clone();
         for m in self.mods.iter().filter(|m| flags & mod_flag(m.slot) != 0) {
@@ -287,6 +296,14 @@ impl WeaponStats {
                 }
                 // [hypothesis: the weapon's own noise]
                 Some("Silence" | "Suppressor") => w.sound_level = Some("Silent".into()),
+                // "Value #1 is the multiplier of the projectile speed" [documented].
+                Some("Increase Projectile Speed") if a > 0.0 => w.projectile_speed_mult = Some(w.projectile_speed_mult.unwrap_or(1.0) * a),
+                // "After 3 shots, the weapon's 4th shot then ignores the next use of
+                // ammunition" [documented]; the values do nothing.
+                Some("Regenerate Ammo (shots)") => w.free_fourth_shot = true,
+                // Seconds added to the recharge time, on a weapon that recharges
+                // [documented; hypothesis: only then], never below 0.1 s [design].
+                Some("Regenerate Ammo (seconds)") if w.regen_rate > 0.0 => w.regen_rate = (w.regen_rate + a).max(0.1),
                 _ => {}
             }
         }
@@ -927,6 +944,8 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         attack_anim: label(dn.and_then(|v| v.get("attack_animation"))),
         reload_anim_mod: label(dn.and_then(|v| v.get("reload_animation_mod"))),
         mods,
+        projectile_speed_mult: None,
+        free_fourth_shot: false,
         short_dnam: dn.is_some_and(|v| v.get("resist_type").is_none()),
         crit_damage: u(crdt, "critical_damage"),
         crit_mult: f(crdt, "crit_percent_mult"),
@@ -1236,7 +1255,19 @@ mod tests {
         // Value B 0 keeps the spread; fewer beams never go below one.
         assert!((with("Split Beam", -4.0, 0.0).min_spread - 2.0).abs() < 1e-6);
         assert_eq!(with("Split Beam", -4.0, 0.0).projectile_count, 1);
-        // Not applied: the figures stay.
-        assert_eq!(with("Increase Projectile Speed", 2.0, 0.0).base_damage, 10);
+        // Increase Projectile Speed: value A is the multiplier; the figures stay.
+        let fast = with("Increase Projectile Speed", 1.5, 0.0);
+        assert_eq!((fast.base_damage, fast.projectile_speed_mult), (10, Some(1.5)));
+        assert_eq!(base.projectile_speed_mult, None);
+        // Regenerate Ammo (shots): every fourth shot free; (seconds): on a recharging
+        // weapon, added to its Regen Rate, never below 0.1 s.
+        assert!(with("Regenerate Ammo (shots)", 0.0, 0.0).free_fourth_shot && !base.free_fourth_shot);
+        let recharger = WeaponStats { regen_rate: 2.0, ..base.clone() };
+        let mut r = recharger.clone();
+        r.mods = vec![slot(1, 1, "Regenerate Ammo (seconds)", -0.5, 0.0)];
+        assert!((r.modded(1).regen_rate - 1.5).abs() < 1e-6);
+        r.mods = vec![slot(1, 1, "Regenerate Ammo (seconds)", -5.0, 0.0)];
+        assert!((r.modded(1).regen_rate - 0.1).abs() < 1e-6);
+        assert_eq!(with("Regenerate Ammo (seconds)", 3.0, 0.0).regen_rate, 0.0);
     }
 }

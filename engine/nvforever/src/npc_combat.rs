@@ -269,6 +269,17 @@ pub(crate) const CHEST: f32 = 0.75;
 /// before shooting"].
 pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
 
+/// How far off its heading a gunman may have its target and fire (radians): its weapon's
+/// Aim Arc (WEAP DNAM, degrees) when above 0, else [`FIRE_FACING`]
+/// (docs/spec-notes/weapon-data-fields.md §4) [hypothesis: 0 is no arc of its own].
+pub fn fire_facing(aim_arc: f32) -> f32 {
+    if aim_arc > 0.0 {
+        aim_arc.to_radians()
+    } else {
+        FIRE_FACING
+    }
+}
+
 /// How far (radians, 0 to π) the target at `to` lies off the heading of the actor whose
 /// root is at `global`, standing at `feet` (game space).
 pub(crate) fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
@@ -1326,8 +1337,10 @@ pub(crate) fn fight(
                 }
             }
             // How near it wants to be.
-            // The style's Ranged Weapon Max Range Mult scales the weapon's range.
-            let range_mult = style.map_or(1.0, |s| if s.range_mult.1 > 0.0 { s.range_mult.1 } else { 1.0 });
+            // The style's Ranged Weapon Max Range Mult scales the weapon's range, not that of
+            // a weapon flagged Range - Fixed (docs/spec-notes/weapon-data-fields.md §2).
+            let fixed = matches!(&arm, Arm::Gun(w) if c.forms.weapons.get(w).is_some_and(|ws| ws.has_flag("Range - Fixed")));
+            let range_mult = style.filter(|_| !fixed).map_or(1.0, |s| if s.range_mult.1 > 0.0 { s.range_mult.1 } else { 1.0 });
             let gun = match &arm {
                 Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| gun_reach_of(c, *w, ws, range_mult)),
                 _ => None,
@@ -1789,7 +1802,11 @@ pub(crate) fn fight(
             let off = facing_off(global, feet, tfeet);
             // Who the AI does not turn (no `--npc-packages`) fires as it stands; blows and
             // bites at close quarters are not held back (the item is about shooting).
-            let facing = off <= FIRE_FACING || !matches!(arm, Arm::Gun(_)) || residents.as_deref().is_none_or(|r| !r.runs(id));
+            let arc = match &arm {
+                Arm::Gun(w) => fire_facing(c.forms.weapons.get(w).map_or(0.0, |ws| ws.aim_arc)),
+                _ => FIRE_FACING,
+            };
+            let facing = off <= arc || !matches!(arm, Arm::Gun(_)) || residents.as_deref().is_none_or(|r| !r.runs(id));
             if !facing && sees && fighter.seen_for >= REACTION_SECONDS {
                 f.stats.unfaced += 1;
             }
@@ -2582,6 +2599,12 @@ mod tests {
         assert_eq!(shotgun, (480.0, 540.0));
         assert_eq!(sniper, (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE));
         assert!(sniper.1 <= 3548.0);
+    }
+
+    #[test]
+    fn an_aim_arc_sets_the_firing_angle() {
+        assert_eq!(fire_facing(0.0), FIRE_FACING);
+        assert!((fire_facing(90.0) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
     }
 
     #[test]

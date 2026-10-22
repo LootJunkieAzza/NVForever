@@ -194,6 +194,19 @@ pub struct Target {
     pub child: bool,
     /// Not aware of the attacker (for the headshot critical, [design]).
     pub unaware: bool,
+    /// Its value, in percent, of the resistance the weapon's damage type names (WEAP DNAM
+    /// Resist, [`resistance_of`]); used in place of DR when the weapon has one
+    /// (docs/spec-notes/weapon-data-fields.md §3). Not part of any report.
+    #[serde(skip)]
+    pub resist: f32,
+}
+
+/// The resistance a weapon's damage type names, when it is one other than DR: "Energy
+/// Resistance", "Fire Resistance", "EMP Resistance" … (the actor value's name); `None`
+/// for None and Damage Resistance, which keep the DR rule
+/// (docs/spec-notes/weapon-data-fields.md §3) [hypothesis].
+pub fn resistance_of(w: &WeaponStats) -> Option<&str> {
+    w.resist.as_deref().filter(|r| !matches!(*r, "None" | "Damage Resistance" | "DamageResist"))
 }
 
 /// Where the hit landed.
@@ -350,7 +363,15 @@ pub fn hit(
         // [hypothesis: in this order].
         (target_perks.dt_defender(apply_effects(target.dt, h.ammo_effects, "DT Mod")) - attacker_perks.dt_attacker(0.0)).max(0.0)
     };
-    let dr = if ignores_armour { 0.0 } else { apply_effects(target.dr, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating) };
+    // A damage type other than DR: the target's value of that resistance instead of DR,
+    // under the same cap (docs/spec-notes/weapon-data-fields.md §3) [hypothesis].
+    let dr = if ignores_armour {
+        0.0
+    } else if resistance_of(w).is_some() {
+        target.resist.clamp(0.0, r.max_armor_rating)
+    } else {
+        apply_effects(target.dr, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating)
+    };
     // DT subtracts, but never more than (1 − floor) of the hit [design]; DR scales the rest.
     let after_dt = (raw - dt).max(raw * t.dt_floor);
     let dealt = if target.child || miss { 0.0 } else { after_dt * (1.0 - dr / 100.0) };

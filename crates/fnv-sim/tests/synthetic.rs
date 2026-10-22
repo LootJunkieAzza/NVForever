@@ -174,6 +174,7 @@ const GATE_IN: u32 = 0x30F; // persistent door in WORLD2_PERSISTENT -> GATE_OUT,
 const ROUNDS_REF: u32 = 0x3F0; // BULLETS without XCNT: the AMMO's Clip Rounds (10)
 const GUARD: u32 = 0x181; // NPC_ carrying PISTOL, RIFLE, HELMET, HAT, SUIT, MINE
 const LONG_GUN: u32 = 0x182; // WEAP with a model and an animation type (drawable), damage 10
+const PLAYER_GUN: u32 = 0x183; // drawable WEAP, damage 30, DNAM flags 2 Player Only (the Van Graff rifles)
 const COMPANION_GUN: u32 = 0x17E; // WEAP, DNAM flags 1 Can't Drop | Non-Playable (Boone's rifle)
 const COMPANION_AMMO: u32 = 0x17F; // AMMO, DATA flags Non-Playable (AmmoCompanion)
 
@@ -260,6 +261,13 @@ fn plugin_bytes() -> Vec<u8> {
         m.extend(extra);
         m
     };
+    let player_gun = {
+        let data = cat(&[&300i32.to_le_bytes(), &100i32.to_le_bytes(), &8f32.to_le_bytes(), &30i16.to_le_bytes(), &[12u8]]);
+        let mut dnam = vec![0u8; 120];
+        dnam[0..4].copy_from_slice(&7u32.to_le_bytes()); // Rifle - Energy (2 Hand)
+        dnam[56..60].copy_from_slice(&1u32.to_le_bytes()); // flags 2: Player Only (bit 0)
+        record(b"WEAP", 0, PLAYER_GUN, &[sub(b"EDID", z("TestPlayerGun")), sub(b"DATA", data), sub(b"MODL", z("weapons/2handrifle/test2.nif")), sub(b"DNAM", dnam)])
+    };
     let companion_gun = {
         let mut m = weap(COMPANION_GUN, "TestCompanionGun", 0, 8.0);
         let mut dnam = vec![0u8; 120];
@@ -270,7 +278,7 @@ fn plugin_bytes() -> Vec<u8> {
         m.extend(extra);
         m
     };
-    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine, &long_gun, &companion_gun]);
+    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine, &long_gun, &player_gun, &companion_gun]);
     let guard = record(
         b"NPC_",
         0,
@@ -284,6 +292,7 @@ fn plugin_bytes() -> Vec<u8> {
             cnto(SUIT, 1),
             cnto(MINE, 2),
             cnto(LONG_GUN, 1),
+            cnto(PLAYER_GUN, 1),
             sub(b"DATA", cat(&[&50i32.to_le_bytes(), &[5u8, 5, 5, 5, 5, 5, 5]])),
         ],
     );
@@ -1497,7 +1506,10 @@ fn an_npc_starts_with_its_outfit_and_weapon_equipped() {
     let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
     assert!(w.get(g).unwrap().outfitted);
     let inv = w.inventory_mut(g).unwrap();
-    for (item, worn) in [(HELMET, true), (HAT, false), (SUIT, true), (LONG_GUN, true), (PISTOL, false), (RIFLE, false), (MINE, false)] {
+    // The Player Only gun hits harder but is no NPC's choice (weapon-data-fields.md §1).
+    assert!(f.forms.item(id(PLAYER_GUN)).is_some_and(|it| it.drawable && it.not_for_npcs));
+    assert!(!f.forms.item(id(LONG_GUN)).unwrap().not_for_npcs);
+    for (item, worn) in [(HELMET, true), (HAT, false), (SUIT, true), (LONG_GUN, true), (PISTOL, false), (RIFLE, false), (MINE, false), (PLAYER_GUN, false)] {
         assert_eq!(inv.is_equipped(id(item)), worn, "{item:#X}");
     }
     assert_eq!(inv.count(id(MINE)), 2);

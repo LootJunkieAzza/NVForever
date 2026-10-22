@@ -281,6 +281,7 @@ fn a_dropped_modded_weapon_draws_its_mods_model() {
         explosion_damage: 0.0,
         embedded: false,
         non_playable: false,
+        not_for_npcs: false,
         first_person: None,
         first_person_model: Some("1st.nif".into()),
         mod_models: Default::default(),

@@ -113,6 +113,16 @@ const NUDGE: f32 = 0.5;
 const MAX_AGE: f32 = 60.0;
 
 impl Projectile {
+    /// Its speed times `mult` (a mod's "Increase Projectile Speed"); a hitscan projectile is
+    /// unaffected ("Requires a Projectile with the Hitscan box unticked" [documented: GECK
+    /// wiki Weapons], docs/spec-notes/weapon-data-fields.md §5).
+    pub fn speed_up(&mut self, mult: f32) {
+        if !self.hitscan && mult > 0.0 && mult != 1.0 {
+            self.speed *= mult;
+            self.vel = vec::scale(self.vel, mult);
+        }
+    }
+
     /// A projectile leaving `origin` along `dir`. `explosion` is the chain's (the PROJ's
     /// explosion when its Explosion flag is set); `world_gravity` is units/s².
     pub fn spawn(p: &ProjectileStats, explosion: Option<FormId>, origin: V3, dir: V3, shooter: Option<ActorId>, world_gravity: f32, t: &CombatTuning) -> Projectile {

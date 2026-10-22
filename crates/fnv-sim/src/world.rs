@@ -526,7 +526,7 @@ impl<'a> World<'a> {
         }
         let mut weapon: Option<(f32, FormId)> = None;
         for &i in &carried {
-            let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable) else { continue };
+            let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable && !it.not_for_npcs) else { continue };
             let d = it.weapon_damage.unwrap_or(0.0);
             if weapon.is_none_or(|(best, _)| d > best) {
                 weapon = Some((d, i));
