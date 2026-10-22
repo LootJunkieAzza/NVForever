@@ -238,8 +238,9 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        // A voice type without Allow Default Dialog says only lines conditioned on it.
-        if says == Says::Actor && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
+        // A voice type without Allow Default Dialog says only lines conditioned on it; not
+        // the player's own lines (its voice types lack the flag, observed).
+        if says == Says::Actor && speaker != FormId::PLAYER_REF && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
             return false;
         }
         self.conditions_pass(&def.conditions, Some(speaker), listener, &format!("INFO {info}"))
