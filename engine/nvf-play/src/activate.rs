@@ -139,6 +139,9 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         BaseData::Item(it) if it.cant_be_taken => return None,
         BaseData::Item(_) => Action::Take { count: state.map_or_else(|| sim.forms.placed_count(base.id, placed.and_then(|p| p.count)), |s| s.count) },
         BaseData::Container(_) => locked(Action::Open),
+        // A door flagged Inaccessible (REFR header bit 8 [documented: GECK wiki
+        // GetFormFlag]) leads nowhere the player may go (cells-refs.md §2).
+        BaseData::Door(_) if placed.is_some_and(|p| p.flags & fnv_sim::refs::INACCESSIBLE != 0) => Action::Inaccessible,
         BaseData::Door(_) => locked(match placed.and_then(|p| p.teleport) {
             Some(tp) => Action::Travel { to: destination_name(sim, index, tp.door, tp.pos) },
             None if state.is_some_and(|s| s.open) => Action::Close,
@@ -432,6 +435,10 @@ pub(crate) fn activate(
     // nothing (playtest list 4, item 19).
     if t.action == Action::Name {
         info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);
+        return;
+    }
+    if t.action == Action::Inaccessible {
+        info!("activate 0x{:08X} {}: nothing to do (an inaccessible door)", t.form_id, t.name);
         return;
     }
     // The actor's place before, to put back if a teleport cannot be followed.

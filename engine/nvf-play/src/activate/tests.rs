@@ -30,7 +30,7 @@ const TRIGGER_REF: u32 = 0x306; // unnamed activator
 const CHAIR_REF: u32 = 0x307;
 
 fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
-    BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, data }
+    BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, prompt: None, data }
 }
 
 fn item(kind: ItemKind) -> BaseData {
@@ -65,6 +65,7 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         primitive: None,
         activate_parents: Vec::new(),
         parent_activate_only: false,
+        prompt: None,
         radiation: None,
         radius: None,
         encounter_zone: None,
@@ -91,7 +92,10 @@ fn sim() -> SimState {
     let safe = PlacedRef { lock: Some(Lock { level: 50, key: Some(FormId(KEY)), leveled: false }), ..placed(SAFE_REF, CHEST, CELL_EXT) };
     let tp = Teleport { door: FormId(DOOR_DEST), pos: [10.0, 20.0, 30.0], rot: [0.0, 0.0, std::f32::consts::FRAC_PI_2] };
     let door = PlacedRef { teleport: Some(tp), ..placed(DOOR_REF, DOOR, CELL_EXT) };
-    for r in [stim, safe, door, placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
+    // An inaccessible door (header bit 8) and a chest with an Activation Prompt (XATO).
+    let sealed = PlacedRef { flags: fnv_sim::refs::INACCESSIBLE, ..placed(0x7777, DOOR, CELL_EXT) };
+    let prompted = PlacedRef { prompt: Some("Search Footlocker".into()), ..placed(0x7778, CHEST, CELL_EXT) };
+    for r in [stim, safe, door, sealed, prompted, placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
         refs.refs.insert(r.id, r);
     }
     let forms: &'static FormStore = Box::leak(Box::new(forms));
@@ -195,6 +199,17 @@ fn describe_by_type_lock_and_destination() {
     assert_eq!(describe(&sim, ix, DOOR_REF), Some(("Door".into(), Action::Travel { to: Some("Doc Mitchell's House".into()) })));
     assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
     assert_eq!(describe(&sim, ix, 0x999), None);
+}
+
+#[test]
+fn inaccessible_doors_and_activation_prompts() {
+    // docs/spec-notes/cells-refs.md §2, §3.
+    let sim = sim();
+    let ix = index();
+    assert_eq!(describe(&sim, ix, 0x7777), Some(("Door".into(), Action::Inaccessible)));
+    assert_eq!(Action::Inaccessible.label(), "Inaccessible");
+    assert_eq!(crate::reticle::activation_prompt(&sim, 0x7778).as_deref(), Some("Search Footlocker"));
+    assert_eq!(crate::reticle::activation_prompt(&sim, CHEST_REF), None);
 }
 
 #[test]

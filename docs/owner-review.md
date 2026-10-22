@@ -7724,3 +7724,21 @@ saying their AvoidThreat line (unless Ignore Threats). Spec:
 - *Check:* in a fist fight (Goodsprings, the NCR troopers and Fiends), how often do the
   fighters step aside or back between blows, and how far? Do NPCs run from a frag grenade
   landing near them, and say "Grenade!" or the like?
+
+## Cells and references (2026-10-22, ESM gap audit medium group 4, branch claude/em5-cells-refs)
+
+The Wait menu refuses in cells flagged Can't Wait (Gomorrah, Hoover Dam, the Atomic
+Wrangler's upstairs and six more); doors flagged Inaccessible show "Inaccessible" and do
+nothing; references' and activators' Activation Prompts replace the crosshair's action word
+("Enter Goodsprings Cave", "Play Slots", "Pick Banana Yucca"). Spec:
+[cells-refs](spec-notes/cells-refs.md). Decisions and guesses:
+
+- *Guess:* the Can't Wait refusal uses the "You cannot wait here" line of a script's ban.
+- *Guess:* an inaccessible door's action reads "Inaccessible" and E does nothing at all
+  (no script); scripts can still activate it.
+- *Guess:* an Activation Prompt replaces only the action line; the name (or a door's
+  destination) stays below it, and a lock's line is not replaced.
+- *Decision:* Off Limits (only the Ultra-Luxe penthouse), Behave Like Exterior and XCCM
+  (unused), Leveled Lock (unused) and TERM Leveled (no rule) change nothing.
+- *Check:* what does the crosshair show on the Goodsprings Cave door outside (two lines?),
+  and on the Prospector Saloon's back door? What does the Wait menu say in Gomorrah?

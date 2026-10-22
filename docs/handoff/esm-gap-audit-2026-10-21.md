@@ -92,11 +92,16 @@ under active work.
   fnv-game. CLAS is never decoded (tag skills, attributes, the Guard flag); the effect on
   auto-calculated NPCs is a hypothesis. FACT "Special Combat" and the XNAM modifier are
   unused. VTYP "Allow Default Dialog" is not parsed.
-- **Cells and references.** CELL "Can't Wait" is ignored by the Wait menu. "Off Limits"
+- ~~**Cells and references.** CELL "Can't Wait" is ignored by the Wait menu. "Off Limits"
   is stored only. "Behave Like Exterior" and XCCM are ignored. REFR "Inaccessible" (header
   bit 8) is ignored. Activate parents (XAPD/XAPR: buttons that drive doors and traps) and
   activation prompts are ignored, both the base ACTI XATO and the REFR XATO. "Leveled Lock"
-  is stored only. TERM "Leveled" is stored only.
+  is stored only. TERM "Leveled" is stored only.~~ Built in claude/em5-cells-refs
+  ([cells-refs](../spec-notes/cells-refs.md)): Can't Wait (9 cells), Inaccessible doors (85),
+  activation prompts (156 references, 59 activators). Activate parents were built in #547.
+  Nothing to build: Behave Like Exterior and XCCM (no master cell uses them), Leveled Lock
+  (none of 426 locks), Off Limits (one cell; no documented effect), TERM Leveled (no rule
+  documented).
 - **Sound.** Several sounds never play: MSTT SNAM, STAT RNAM and BRUS (bush rustle), LIGH
   SNAM hum, TERM SNAM, ADDN SNAM, the PROJ in-flight sound, ~~WEAP Shoot Dist~~ (built in claude/e12-silencer-sounds), NAM6 Block and
   UNAM Idle, WATR SNAM, and MGEF effect sounds. SOUN ignores its attenuation curve, loop

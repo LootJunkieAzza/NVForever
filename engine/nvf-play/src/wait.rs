@@ -357,6 +357,11 @@ fn refusal(
         if let Some(a) = hunter {
             return Some((Refusal::InCombat, format!("{} is in a combat state and hunts the player", g.data.name(a))));
         }
+        // A cell flagged "Can't wait" (CELL header bit 19, docs/spec-notes/cells-refs.md §1)
+        // [hypothesis: the line is the one a script's ban gives, "You cannot wait here"].
+        if let Some(cell) = g.cant_wait_here() {
+            return Some((Refusal::Forbidden, format!("{} is flagged Can't Wait", g.data.name(cell))));
+        }
         // Trespassing: an owned cell, not public, that is not the player's, the cell
         // `fnv_game::crime` warns the player in [owner request 2026-10-17].
         if let Some((cell, _)) = g.trespass_cell() {

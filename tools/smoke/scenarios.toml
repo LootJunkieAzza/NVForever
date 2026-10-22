@@ -3674,6 +3674,32 @@ order = [[
 ]]
 
 [[scenario]]
+name = "wait-cant-wait"
+source = "ESM gap audit medium group 4 (docs/spec-notes/cells-refs.md §1): the Wait menu refuses in a cell flagged Can't Wait (CELL header bit 19)"
+note = "Gomorrah's casino floor (Gomorrah00, one of nine such cells in FalloutNV.esm); T at 10 s"
+areas = ["wait", "world"]
+paths = ["engine/nvf-play/src/wait.rs", "crates/fnv-game/src/crime.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_WAIT = "10:open" }
+args = ["--cell", "Gomorrah00", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'wait menu: refused \(wait\): .* is flagged Can.t Wait', label = "the wait refused in Gomorrah" },
+]
+
+[[scenario]]
+name = "activation-prompt-door"
+source = "ESM gap audit medium group 4 (docs/spec-notes/cells-refs.md §3): a reference's Activation Prompt (XATO) is the crosshair's action line"
+note = "the Goodsprings Cave door outside (0x001531FC, XATO 'Enter Goodsprings Cave'); the player put 170 units south of it, facing it"
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-sim/src/forms.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:001531FC" }
+args = ["--play", "--pos=-58185,-5600,8300", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'reticle: prompt "Enter Goodsprings Cave"', label = "the door's prompt reads its XATO" },
+]
+
+[[scenario]]
 name = "creature-names"
 source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature shows only its name, a dead one Search"
 note = "VERGSGecko2REF 0x00157B3D (base VSpawnTier2GeckoMed, no FULL; template list VEncTier2GeckoMed -> VCrTier2GeckoMed 'Gecko'), Very Aggressive (as its neighbour 0x00157B3E): name only while alive; both killed by the script aid at 16 s; the menu test aid opens the dead one's inventory at 24 s"

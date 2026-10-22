@@ -76,6 +76,10 @@ pub struct Primitive {
     pub bounds: [f32; 3],
 }
 
+/// Record header flag of a placed reference: "Inaccessible" (bit 8) [documented: GECK
+/// wiki GetFormFlag] (docs/spec-notes/cells-refs.md §2).
+pub const INACCESSIBLE: u32 = 0x100;
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlacedRef {
     pub id: FormId,
@@ -128,6 +132,10 @@ pub struct PlacedRef {
     /// traps.md §2] (not written to JSON).
     #[serde(skip)]
     pub parent_activate_only: bool,
+    /// XATO Activation Prompt: the text under the crosshair in place of the action
+    /// (docs/spec-notes/cells-refs.md §3) (not written to JSON).
+    #[serde(skip)]
+    pub prompt: Option<String>,
     /// XRAD: the radiation a radiation marker gives, rads a second, and XRDS, the radius
     /// it reaches (game units) [documented: xEdit wbDefinitionsFNV.pas REFR; GECK wiki
     /// GetRadiationExtraData, "the amount of rads gained while standing in the marker's
@@ -472,6 +480,7 @@ fn load_ref(
             .filter_map(|v| Some(ActivateParent { reference: fid(v.get("reference"), "XAPR", issues)?, delay: num(v, "delay").unwrap_or(0.0) as f32 }))
             .collect(),
         parent_activate_only: first(&d, b"XAPD").is_some_and(truthy),
+        prompt: first(&d, b"XATO").and_then(text).filter(|t| !t.trim().is_empty()),
         radiation: first(&d, b"XRAD").and_then(serde_json::Value::as_f64).map(|x| x as f32),
         radius: first(&d, b"XRDS").and_then(serde_json::Value::as_f64).map(|x| x as f32),
         encounter_zone: fid(first(&d, b"XEZN"), "XEZN", issues),
