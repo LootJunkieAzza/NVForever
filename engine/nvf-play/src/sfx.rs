@@ -100,6 +100,8 @@ pub struct SoundSource {
     pub key: u64,
     pub sound: FormId,
     pub at: [f32; 3],
+    /// Go round whatever the sound's flags say (a weapon's idle sound, audio.md §15.2).
+    pub looping: bool,
 }
 
 impl SoundSource {
@@ -429,6 +431,12 @@ pub struct Sfx {
     /// and how many sounds were played through one.
     pub room_reverb: Option<&'static Preset>,
     pub reverbed: u32,
+    /// The listener is under a water surface (set by nvforever's under-water fog, with the
+    /// camera), and how many sounds that silenced (Mute When Submerged, audio.md §15.2).
+    pub submerged: bool,
+    pub muted_submerged: u32,
+    /// Sounds with the 2D flag played at a place, not panned.
+    pub flat_2d: u32,
 }
 
 #[derive(Component)]
@@ -445,7 +453,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         forms.addons.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0 });
+    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, submerged: false, muted_submerged: 0, flat_2d: 0 });
 }
 
 /// The archive path of the file a SOUN plays this time: the file it names, or the Ogg
@@ -624,6 +632,19 @@ fn one_shot_at(
     let speed = speed.clamp(0.25, 4.0);
     let seconds = assets.get(&handle).map_or(0.0, |p| p.seconds() as f32) / speed;
     debug!("sfx: {name} {path} gain {gain:.3}{} speed {speed:.2}", distance.map_or(String::new(), |d| format!(" at {d:.0} units")));
+    // Under water a sound so flagged is not heard; a 2D one is not panned (audio.md §15.2).
+    if sfx.submerged && s.has("Mute When Submerged") {
+        sfx.muted_submerged += 1;
+        sfx.silent += 1;
+        return Some(seconds);
+    }
+    let placed = match placed {
+        Some(_) if s.has("2D") => {
+            sfx.flat_2d += 1;
+            None
+        }
+        p => p,
+    };
     if !settings.play || gain < 0.001 {
         sfx.silent += 1;
         return Some(seconds);
@@ -659,7 +680,10 @@ pub(crate) fn is_interface(edid: Option<&str>) -> bool {
 fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
     if let (Some(_), Some(s)) = (exit.read().last(), sfx) {
         if s.played + s.silent + s.failed > 0 {
-            info!("sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play", s.played, s.silent, s.failed);
+            info!(
+                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water, {} 2D sounds not panned",
+                s.played, s.silent, s.failed, s.muted_submerged, s.flat_2d
+            );
         }
     }
 }

@@ -1730,6 +1730,35 @@ order = [["flashlight: on", "flashlight: off"]]
 # ------------------------------------------------------------------ sounds
 
 [[scenario]]
+name = "own-sounds-goodsprings"
+source = "ESM audit group 5 (docs/spec-notes/audio.md §15): placed objects' own sounds, water, projectiles, weapons' and magic effects' sounds in Goodsprings"
+areas = ["audio", "own-sounds"]
+paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/effect_sounds.rs", "engine/nvforever/src/own_sounds.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/sfx.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'world sounds: \d+ placed objects with a sound of their own', label = "placed objects with a sound of their own found" },
+  { re = '''world sounds summary:.*objects' own sounds in reach \(.*statics \d+''', label = "statics' own sounds in reach" },
+  { re = '''world sounds summary:.*objects' own sounds in reach \(.*moveable statics \d+''', label = "moveable statics' own sounds in reach (3 seen 2026-10-22)" },
+  { re = 'ambient summary:.*things that sound \([^)]*\): (?P<n>\d+) heard, \d+ loops started, (?P<r>\d+) random sounds played', range = [3, 200], label = "several sources heard (8 seen 2026-10-22, 17 random sounds)" },
+  { re = "own sounds summary:", label = "the own sounds summary" },
+  { re = "effect sounds summary:", label = "the effect sounds summary" },
+]
+
+[[scenario]]
+name = "own-sounds-lake"
+source = "ESM audit group 5 (docs/spec-notes/audio.md §15.2): wading from the Boulder Beach shore into Lake Mead, the lake's water type sounds its WATR sound at the surface nearest the player"
+areas = ["audio", "own-sounds"]
+paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvforever/src/own_sounds.rs", "engine/nvf-play/src/sfx.rs", "engine/nvforever/src/underwater.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'world sounds summary:.* (?P<n>\d+) water sounds in reach', range = [1, 3], label = "the lake's water sound in reach" },
+  { re = 'sfx: .* (?P<n>\d+) silenced under water', range = [0, 0], label = "swimming at the surface mutes nothing (the camera stays above the water)" },
+]
+
+[[scenario]]
 name = "anim-sounds"
 source = "CLAUDE.md: after changes to the sounds animations and doors name (docs/spec-notes/audio.md §10): footsteps, reload and doors"
 areas = ["anim-sounds", "audio"]

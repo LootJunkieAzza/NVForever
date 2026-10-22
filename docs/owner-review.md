@@ -7764,3 +7764,27 @@ nothing; references' and activators' Activation Prompts replace the crosshair's 
   (unused), Leveled Lock (unused) and TERM Leveled (no rule) change nothing.
 - *Check:* what does the crosshair show on the Goodsprings Cave door outside (two lines?),
   and on the Prospector Saloon's back door? What does the Wait menu say in Gomorrah?
+
+## Sounds the records name (2026-10-22, ESM gap audit medium group 5, branch claude/em6-sound)
+
+Placed moveable statics, statics, lights and terminals now sound their own sounds (flies,
+creaking stairs, the fire barrels' crackle, terminals' hum), as activators and containers
+already did; fire add-on nodes crackle; water near the listener laps; missiles loop and
+bullets whiz by; weapons sound their Block and Idle sounds; magic effects play their Hit
+sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
+
+- *Guess:* MSTT/STAT/LIGH/TERM sounds behave as ACTI/CONT ones (Loop goes round, Play At
+  Random rolls once a second, neither flag: not played).
+- *Guess:* a projectile sound with neither flag (the bullet whiz) is a fly-by played once
+  when the shot first comes within the sound's maximum distance; the player's own shots
+  never whiz.
+- *Guess:* the Block sound is the blocker's weapon's; the Idle sound goes round while the
+  weapon is out, even where the sound lacks the Loop flag (12 of 16).
+- *Guess:* water sounds at the nearest point of each water type's surface; a placed water
+  volume sounds from its middle unless the listener is over it.
+- *Guess:* 2D sounds are not panned but still fall with distance; Mute When Submerged
+  silences while the player's eye is under water.
+- *Decision:* not built: BRUS bush sounds, the attenuation curve, loop points, walla, ALOC
+  delays, Modulates Voice and the voice filter (audio.md §15.3 gives the reasons).
+- *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
+  bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?

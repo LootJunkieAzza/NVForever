@@ -49,9 +49,18 @@ pub fn underwater_fog(
     mut cam: Query<(&GlobalTransform, &mut DistanceFog, Option<&Exposure>), (With<Camera3d>, Without<ReflectionCamera>)>,
     mut types: Local<WaterTypes>,
     mut was_under: Local<bool>,
+    sfx: Option<ResMut<nvf_play::sfx::Sfx>>,
 ) {
     let Ok((gt, mut fog, exposure)) = cam.single_mut() else { return };
     let under = water_above(&world, &streamer, &mut dw, bevy_to_game(gt.translation()));
+    // The listener is under water with the camera: Mute When Submerged sounds go silent
+    // (docs/spec-notes/audio.md §15.2).
+    if let Some(mut sfx) = sfx {
+        if sfx.submerged != under.is_some() {
+            sfx.submerged = under.is_some();
+            debug!("underwater: sounds that mute when submerged are {}", if sfx.submerged { "silent" } else { "heard again" });
+        }
+    }
     let water = under.and_then(|(_, wid)| {
         types.0.entry(wid).or_insert_with(|| fnv_world::sky::water(world.lo, world.schema, wid)).clone()
     });

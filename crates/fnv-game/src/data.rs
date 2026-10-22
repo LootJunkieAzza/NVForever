@@ -564,6 +564,10 @@ pub struct MagicEffectDef {
     /// Stats Tab - Creatures, "Poison Resist: the percentage of poison damage that is
     /// ignored"; docs/spec-notes/hit-effects.md §3].
     pub resistance: Option<u16>,
+    /// DATA "Effect Sound" and "Hit Sound" (SOUN) [documented: xEdit MGEF]: played at the
+    /// target while the effect lasts and as it starts (docs/spec-notes/audio.md §15.2).
+    pub effect_sound: Option<FormId>,
+    pub hit_sound: Option<FormId>,
 }
 
 impl MagicEffectDef {
@@ -2599,6 +2603,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     actor_value: actor_value.and_then(|c| u16::try_from(c).ok()),
                     shader: v.get("effect_shader").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
                     resistance: resistance.and_then(|c| u16::try_from(c).ok()),
+                    effect_sound: v.get("effect_sound").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
+                    hit_sound: v.get("hit_sound").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
                 });
             }
         }

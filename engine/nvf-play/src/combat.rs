@@ -1709,16 +1709,34 @@ fn log_hit_perks(attacker: FormId, target: Option<FormId>, a: &damage::EntryOps,
 }
 
 /// The weapon's Equip sound when the player starts to draw it and its Unequip sound
-/// when they start to put it away [hypothesis: when the game plays them].
-fn weapon_sounds(c: Res<Combat>, control: Res<PlayerControl>, sfx: Option<Res<Sfx>>, mut sounds: MessageWriter<PlaySound>, mut was_out: Local<bool>) {
+/// when they start to put it away [hypothesis: when the game plays them]; its Idle sound
+/// (`UNAM`) going round while it is out (docs/spec-notes/audio.md §15.2).
+fn weapon_sounds(
+    c: Res<Combat>,
+    control: Res<PlayerControl>,
+    sfx: Option<Res<Sfx>>,
+    (mut sounds, mut loops): (MessageWriter<PlaySound>, MessageWriter<LoopSound>),
+    mut was_out: Local<bool>,
+    mut idle: Local<Option<FormId>>,
+) {
     let out = control.weapon_out;
-    if out == *was_out {
-        return;
-    }
-    *was_out = out;
     let fx = c.weapon.zip(sfx.as_deref()).and_then(|(w, s)| s.forms.weapons.get(&w));
-    if let Some(sound) = fx.and_then(|f| if out { f.equip } else { f.unequip }) {
-        sounds.write(PlaySound { sound, at: None });
+    if out != *was_out {
+        *was_out = out;
+        if let Some(sound) = fx.and_then(|f| if out { f.equip } else { f.unequip }) {
+            sounds.write(PlaySound { sound, at: None });
+        }
+    }
+    let wanted = fx.filter(|_| out).and_then(|f| f.idle);
+    if *idle != wanted {
+        if let Some(old) = *idle {
+            loops.write(LoopSound { sound: old, on: false });
+        }
+        if let Some(sound) = wanted {
+            debug!("combat: the player's weapon idles: {}", sound_edid(sfx.as_deref(), sound));
+            loops.write(LoopSound { sound, on: true });
+        }
+        *idle = wanted;
     }
 }
 
@@ -2581,6 +2599,9 @@ fn melee(
                     stats.blows_blocked += 1;
                     info!("combat: {target} blocks the player's blow: {:.1} of {before:.1} stopped", before - d.dealt);
                     c.blocked_blows.push(BlockedBlow { attacker: FormId::PLAYER_REF, blocker: target, damage: before, dealt: d.dealt });
+                    if let Some(b) = block_sound(c, &sim, sfx.as_deref(), target) {
+                        sounds.write(b);
+                    }
                 }
             }
             let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
@@ -2624,6 +2645,21 @@ const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
 /// its data set there, game units [design].
 const EXPLOSION_GROUND_UP: f32 = 32.0;
 const EXPLOSION_GROUND_REACH: f32 = 160.0;
+
+/// The block sound of a blocked blow: the blocker's weapon's `NAM6`, at the blocker (at
+/// the listener for the player) [hypothesis: whose weapon; docs/spec-notes/audio.md §15.2].
+fn block_sound(c: &Combat, sim: &SimState, sfx: Option<&Sfx>, blocker: FormId) -> Option<PlaySound> {
+    let sfx = sfx?;
+    let weapon = if blocker == FormId::PLAYER_REF {
+        c.weapon?
+    } else {
+        let inventory = sim.world.peek(blocker)?.inventory.as_ref()?;
+        inventory.equipped().into_iter().find(|w| sfx.forms.weapons.contains_key(w))?
+    };
+    let sound = sfx.forms.weapons.get(&weapon)?.block?;
+    debug!("combat: {blocker} blocks: {}", sound_edid(Some(sfx), sound));
+    Some(PlaySound { sound, at: if blocker == FormId::PLAYER_REF { None } else { Some(ref_pos(sim, blocker)?) } })
+}
 
 /// Where a reference stands (its simulation state, else its placement).
 fn ref_pos(sim: &SimState, r: FormId) -> Option<V3> {
@@ -2820,6 +2856,9 @@ fn actor_attacks(
                 stats.blows_blocked += 1;
                 info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
                 c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
+                if let Some(sound) = block_sound(c, &sim, sfx.as_deref(), b.target) {
+                    sounds.write(sound);
+                }
             }
         }
         let info = HitInfo { attacker: Some(b.attacker), weapon: b.weapon, location: 0, critical: d.critical, limb: None };

@@ -910,3 +910,106 @@ sound with `RUST_LOG=info,nvforever::anim_sounds=debug,nvf_play::ambient=debug`.
 Foot` (12 in 25 s), their conscious sound now and then, 4 hits and a death of
 00109A39 with its Hit and Death sounds, the player's jump and landing on dirt, 10
 casing knocks of 5 10mm casings. Smoke test in CLAUDE.md.
+
+## 15. Sounds the records name that were not played (ESM audit group 5)
+
+From the ESM gap audit (docs/handoff/esm-gap-audit-2026-10-21.md, "Sound"). Counts are
+FalloutNV.esm alone, from a private survey script (not committed) [observed 2026-10-22].
+"Loop", "Random" and "neither" are the named SOUN's Loop / Play At Random flags.
+
+### 15.1 What the records say
+
+| Field | Records naming one | Placed | Kinds | Most named |
+|---|---|---|---|---|
+| MSTT `SNAM` Sound | 45 of 241 | 1,033 refs | Loop 40, Random 3, neither 2 | `EMTFlies`, `AMBWaterSpoutLP`, `OBJConsole03LP` |
+| STAT `RNAM` Sound - Looping/Random | 740 of 6,785 | 30,959 refs | Random 526, Loop 175, both 9, neither 30 | `EMTFlies`, `EMTUtilityPoleMetal`, `EMTMetalStairsCreak` |
+| LIGH `SNAM` Sound | 13 of 501 | 276 refs | Loop 13 | `FXFireBarrelLP` (all) |
+| TERM `SNAM` Sound - Looping | 268 of 344 | 184 refs | Loop 268 | `OBJComputerTerminalLP` 267 |
+| ADDN `SNAM` Sound | 5 of 37 | (in models) | Loop 3, neither 2 | `FXFireLP`; the bullet-impact add-ons name impact sounds |
+| WATR `SNAM` Sound | 32 of 78 | — | Loop 32 | `AMBWaterUtilityLP`, `AMBWaterMurkySewerLP`, `AMBWaterLakeLP` |
+| PROJ DATA Sound | 37 of 95 | — | neither 32, Loop 4, 2D 1 | `FXBulletWhiz` 25, `FXMissileFlyBy` 4 (Loop) |
+| WEAP `NAM6` Sound - Block | 49 of 261 | — | neither 49 | `WPNBlockKnife`, `WPNBlockWood`, `WPNBlockHand` |
+| WEAP `UNAM` Sound - Idle | 16 of 261 | — | neither 12, Loop 4 | `WPNRiflePlasmaIdleLPM`, `WPNFlamerIdleLPM`, `WPNChainSawIdleLP` |
+| MGEF DATA Effect / Bolt / Hit / Area Sound | 0 / 1 / 19 / 0 of 289 | — | Hit: neither 13, Loop 4 | `FXFireImmolationLP`, `FXMeleePowerFistMetal`, `FXDisintegration` |
+
+[documented: xEdit wbDefinitionsFNV.pas for every field name; `schemas/fnv/*.json`.]
+The SOUN flags over the 3,190 sounds [observed]: 2D 440, 2D Radius 102, Mute When
+Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
+(100, 50, 20, 5, 0); 32 set loop points. STAT `BRUS` Passthrough Sound: 255 (none) on
+3,384 statics, 0 on 14, 11 on 5, 1 on 1. ARMO `DNAM` bit 0 Modulates Voice: 38 armours.
+
+### 15.2 As built
+
+- **Placed objects' own sounds** (`nvf_play::world_sounds`): MSTT `SNAM`, STAT `RNAM`,
+  LIGH `SNAM` and TERM `SNAM` join ACTI `SNAM`, CONT `RNAM` and DOOR `BNAM` (§14.3): each
+  placed reference of such a base, while it is enabled, is a source where it stands,
+  played as a sound marker of that sound (a Loop sound goes round within its reach, a
+  Play At Random one rolls its chance once a second) [hypothesis: the fields mean the
+  same as the ACTI and CONT ones; the names say so]. Sounds with neither flag are not
+  played, as in §14.3. A static never moves, so its place is read once [design].
+- **Add-on nodes** (nvforever `own_sounds.rs`): an add-on node in the world whose ADDN
+  names a sound is a source at the node while its emitter shows [hypothesis: the fire
+  add-ons' `FXFireLP` is the fire's crackle]. The two bullet-impact add-ons' sounds have
+  neither flag and are not played (the impact already plays its IPCT sound, §11.1).
+- **Projectiles in flight** (nvforever `own_sounds.rs`): a projectile whose PROJ sound has
+  the Loop flag sounds it where it flies, as a source that follows it [hypothesis: a
+  missile's fly-by loop]. One whose sound has neither flag (the bullet whiz) plays it
+  once, where it is, when it first comes within the sound's maximum distance of the
+  listener having been farther [hypothesis: a fly-by; design: when]; a shot that starts
+  within reach (the player's own) never whizzes.
+- **Block** (`nvf_play::combat`): a blocked blow plays the blocker's weapon's `NAM6`, at
+  the blocker [hypothesis: whose weapon; `WPNBlockHand` is on the unarmed weapons].
+- **Idle** (`nvf_play::combat`, nvforever `own_sounds.rs`): while a weapon whose `UNAM`
+  names a sound is out, that sound goes round: the player's at the listener, an
+  actor's at the actor [hypothesis: an idle hum. 12 of the 16 have neither flag, but
+  their names end `LP`/`LPM`, so it is played as a loop whatever its flags].
+- **Magic effects** (`nvf_play::effect_sounds`): an effect starting on an actor plays
+  its MGEF Hit Sound at the actor once; a Hit Sound with the Loop flag goes round
+  instead, at the actor, while the effect lasts [hypothesis]. The Effect Sound (none in
+  the master) goes round at the actor while the effect lasts [hypothesis: by the name].
+  The Bolt Sound (one MGEF, no spell projectile drawn) and Area Sound (none) are not
+  played.
+- **Water** (`nvf_play::world_sounds`): the water types of the water near the listener
+  sound their `SNAM` at the nearest point of its surface: an exterior cell's water over
+  its grid square, a placed water volume over its top [hypothesis: the water's own
+  lapping]. The type is the cell's `XCWT`, else the worldspace's, as for radiation
+  (`radiation.rs`); a placed water volume's is its PWAT's.
+- **SOUN 2D** (`nvf_play::sfx`, `nvf_play::ambient`): a sound with the 2D flag played at
+  a place is not panned; its loudness still falls with distance [hypothesis: 2D means
+  "not positioned", and 2D Radius (102 sounds) is the flag for a distance rule].
+- **Start at Random Position**: a loop with the flag starts at a random point of its
+  file instead of its start [documented: the flag's name].
+- **Mute When Submerged**: while the camera is under a water surface (when the
+  under-water fog is drawn, nvforever `underwater.rs`), sounds with the flag are silent:
+  one-shots are not started, loops are held at no gain [documented: the flag's name;
+  hypothesis: the listener is the camera]. Not the player's eye: in the swimming pose the
+  head sinks 20–40 units under the surface while the camera stays above it [observed:
+  `own-sounds-lake`, where the eye rule muted 18 sounds while swimming at the surface].
+
+### 15.3 Not built, and why
+
+- **BRUS** Passthrough Sound: an index (0–11, `BushA`…) with no record linking it to a
+  SOUN, and the 20 statics that set it are too few to infer the table from names.
+- **The attenuation curve** (five points) and **loop points**: what distances the
+  points stand at, and in what unit the loop points count, is not documented. The
+  §14 loudness rule stays.
+- **ASPC walla** (a crowd loop with a trigger count) and **ALOC location / retrigger
+  delays**: how the count and the delays act is not documented; music.md keeps the
+  delays "not built".
+- **ARMO Modulates Voice** and **TACT No Voice Filter**: no voice filter exists, and
+  what it sounds like is a capture question.
+- **The Bolt and Area Sounds** of MGEF: one bolt sound, no area sound in the master,
+  and no spell projectile is drawn.
+
+### 15.4 Checks
+
+- `world sounds summary`: objects' own sounds in reach, by kind, and the water types
+  heard.
+- `own sounds summary` (nvforever): add-on nodes with a sound, projectiles with a loop,
+  whizzes, actors' weapons idling.
+- `effect sounds summary`: hit sounds played, effects with a looping hit or effect sound.
+- `ambient summary`: loops started at a random position; `sfx:` sounds silenced under
+  water and 2D sounds not panned.
+- Block sounds per blow with `RUST_LOG=nvf_play::combat=debug` ("blocks: WPNBlock…").
+
+Smoke scenario `own-sounds-goodsprings`.

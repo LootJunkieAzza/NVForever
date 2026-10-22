@@ -65,6 +65,10 @@ pub struct WeaponFx {
     /// `NAM9`, `NAM8`.
     pub equip: Option<FormId>,
     pub unequip: Option<FormId>,
+    /// `NAM6` Sound - Block and `UNAM` Sound - Idle [documented: xEdit
+    /// wbDefinitionsFNV.pas WEAP] (docs/spec-notes/audio.md §15).
+    pub block: Option<FormId>,
+    pub idle: Option<FormId>,
     /// `MOD2`: the shell casing model.
     pub shell_casing_model: Option<String>,
     /// `INAM`.
@@ -417,6 +421,8 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 no_ammo: fid(first(d, b"TNAM")),
                 equip: fid(first(d, b"NAM9")),
                 unequip: fid(first(d, b"NAM8")),
+                block: fid(first(d, b"NAM6")),
+                idle: fid(first(d, b"UNAM")),
                 shell_casing_model: path(first(d, b"MOD2")).or_else(|| raw_string(r, b"MOD2")),
                 impact_dataset: fid(first(d, b"INAM")),
             })

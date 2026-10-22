@@ -165,6 +165,8 @@ pub fn run(cmd: CombatCmd) -> Result<Value> {
                 "mod_shoot_2d": sound(w.and_then(|w| w.mod_shoot_2d)),
                 "no_ammo": sound(w.and_then(|w| w.no_ammo)),
                 "equip": sound(w.and_then(|w| w.equip)),
+                "block": sound(w.and_then(|w| w.block)),
+                "idle": sound(w.and_then(|w| w.idle)),
                 "projectile_sound": sound(proj.and_then(|p| fx.projectiles.get(&p)).and_then(|p| p.sound)),
                 "explosion": expl.and_then(|e| fx.explosions.get(&e)),
                 "impacts": impacts,

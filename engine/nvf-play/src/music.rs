@@ -139,6 +139,9 @@ pub struct LayeredMusic {
     rate: SampleRate,
     /// Start again when the first file ends.
     looping: bool,
+    /// Where the first playing starts, as a part of the first file's length (a SOUN's
+    /// Start at Random Position, audio.md §15.2); later rounds start at the start.
+    start: f32,
 }
 
 impl LayeredMusic {
@@ -147,7 +150,12 @@ impl LayeredMusic {
     pub(crate) fn single(bytes: Arc<[u8]>, looping: bool) -> Option<(LayeredMusic, Arc<[AtomicU32; 3]>)> {
         let d = open(&bytes)?;
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
-        Some((LayeredMusic { stems: vec![(0, bytes)], levels: levels.clone(), channels: d.channels(), rate: d.sample_rate(), looping }, levels))
+        Some((LayeredMusic { stems: vec![(0, bytes)], levels: levels.clone(), channels: d.channels(), rate: d.sample_rate(), looping, start: 0.0 }, levels))
+    }
+
+    /// Start the first playing `part` (0 to 1) of the way into the first file.
+    pub(crate) fn starting_at(self, part: f32) -> LayeredMusic {
+        LayeredMusic { start: part.clamp(0.0, 1.0), ..self }
     }
 }
 
@@ -210,7 +218,15 @@ impl Decodable for LayeredMusic {
     type Decoder = LayeredDecoder;
 
     fn decoder(&self) -> LayeredDecoder {
-        LayeredDecoder { music: self.clone(), stems: LayeredDecoder::open(self) }
+        let mut stems = LayeredDecoder::open(self);
+        // A file whose length is not known starts at its start [design].
+        let length = stems.first().and_then(|(_, s)| s.as_ref()).and_then(Source::total_duration);
+        if let Some(at) = length.filter(|_| self.start > 0.0).map(|l| l.mul_f32(self.start)) {
+            for stem in stems.iter_mut().filter_map(|(_, s)| s.as_mut()) {
+                let _ = stem.try_seek(at);
+            }
+        }
+        LayeredDecoder { music: self.clone(), stems }
     }
 }
 
@@ -632,7 +648,7 @@ impl Music {
             stems.push((k, bytes));
         }
         let entity = format.map(|(channels, rate)| {
-            let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping });
+            let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping, start: 0.0 });
             commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
         });
         self.started += 1;
@@ -1134,7 +1150,7 @@ mod tests {
         let (a, b) = (wav(&[8192, 16384, -8192, 0]), wav(&[16384, 16384, 16384, 16384]));
         let first = open(&a).expect("the test's WAV decodes");
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(1f32.to_bits()), AtomicU32::new(0), AtomicU32::new(0.5f32.to_bits())]);
-        let music = LayeredMusic { stems: vec![(0, a), (2, b)], levels: levels.clone(), channels: first.channels(), rate: first.sample_rate(), looping: true };
+        let music = LayeredMusic { stems: vec![(0, a), (2, b)], levels: levels.clone(), channels: first.channels(), rate: first.sample_rate(), looping: true, start: 0.0 };
         let mut d = music.decoder();
         let got: Vec<f32> = (0..6).map(|_| d.next().unwrap()).collect();
         // The first file at full level and the third at half; then both from the start.
