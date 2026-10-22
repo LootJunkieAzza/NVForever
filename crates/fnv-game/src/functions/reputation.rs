@@ -12,6 +12,7 @@ use crate::game::Game;
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Points per deed size 1–5 for AddReputation / RemoveReputation: the game settings
 /// fReputationBumpVeryMinor … fReputationBumpVeryMajor when a plugin defines them,
@@ -58,6 +59,45 @@ pub fn scale(g: &Game, r: FormId) -> f64 {
 /// Infamy and fame.
 pub fn values(g: &Game, r: FormId) -> [f64; 2] {
     g.player.reputation.get(&r).copied().unwrap_or([0.0; 2])
+}
+
+/// Infamy and fame the player really has: [`values`] plus what a disguise hid.
+///
+/// FalloutNV.esm's faction armour scripts keep the player's reputations in quest
+/// variables and SetReputation every one to 0 in OnEquip, then in OnUnequip set each to
+/// the kept value plus what was earned meanwhile [observed: the decompiled scripts
+/// SCPT 00163116, 00134B6F–00134B71, 0012B03C, 001264EB and quest 001411A8's
+/// `bFactionArmorEquipped`]. Those changes are a disguise, not the player's standing:
+/// [`hide`] keeps them out of this value, so the reputation boxes follow it.
+pub fn real(g: &Game, r: FormId) -> [f64; 2] {
+    let [i, f] = values(g, r);
+    let [hi, hf] = g.player.reputation_hidden.get(&r).copied().unwrap_or([0.0; 2]);
+    [i + hi, f + hf]
+}
+
+/// After the player's OnEquip or OnUnequip block ran: whatever it changed in the
+/// reputations, from `before`, moves into the hidden part, so [`real`] stays as it was
+/// [hypothesis: an equip block changes reputations only for a disguise; the only ones in
+/// FalloutNV.esm are the faction armour's].
+pub fn hide(g: &mut Game, before: &BTreeMap<FormId, [f64; 2]>) {
+    let keys: BTreeSet<FormId> = before.keys().chain(g.player.reputation.keys()).copied().collect();
+    for r in keys {
+        let (b, a) = (before.get(&r).copied().unwrap_or([0.0; 2]), values(g, r));
+        if b == a {
+            continue;
+        }
+        let h = g.player.reputation_hidden.entry(r).or_default();
+        for axis in 0..2 {
+            h[axis] += b[axis] - a[axis];
+            // The disguise's end gives back what it took: no hidden part is left.
+            if h[axis].abs() < 1e-9 {
+                h[axis] = 0.0;
+            }
+        }
+        if *h == [0.0; 2] {
+            g.player.reputation_hidden.remove(&r);
+        }
+    }
 }
 
 /// Store one axis as given (SetReputation keeps any value, negative or above the scale

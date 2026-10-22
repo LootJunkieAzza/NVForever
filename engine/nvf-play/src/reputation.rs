@@ -18,6 +18,10 @@
 //!   [owner request 2026-10-19]. In combat is the wait menu's test (`crate::wait`): a
 //!   drawn, living actor in a combat state hunts the player, as IsInCombat reads it.
 //! - A save keeps the titles last shown, so a load shows no box for what it restores.
+//! - **Disguises**: the titles are those of the player's real reputation
+//!   (`fnv_game::functions::reputation::real`), so faction armour, whose scripts set
+//!   every reputation to 0 while it is worn and back after, shows no box when put on or
+//!   taken off; fame or infamy earned while it is worn shows by the real title.
 
 use crate::message_menu::PanelView;
 use crate::save::SaveHook;
@@ -105,10 +109,10 @@ pub fn face(fame: usize, infamy: usize) -> &'static str {
     }
 }
 
-/// The fame and infamy levels of a reputation now.
+/// The fame and infamy levels of the player's real reputation now.
 pub fn levels(g: &fnv_game::Game, rep: FormId) -> (usize, usize) {
     let scale = g.data.reputations.get(&rep).copied().unwrap_or(0.0) as f64;
-    let [infamy, fame] = g.player.reputation.get(&rep).copied().unwrap_or([0.0; 2]);
+    let [infamy, fame] = gf::reputation_real(g, rep);
     (gf::reputation_level(fame, scale), gf::reputation_level(infamy, scale))
 }
 
@@ -193,7 +197,7 @@ fn watch(
     if shown.0.is_some() && actors.is_some_and(|a| player_in_combat(g, &a.living)) {
         return;
     }
-    let now: BTreeMap<u32, (usize, usize)> = g.player.reputation.keys().map(|&r| (r.0, levels(g, r))).collect();
+    let now: BTreeMap<u32, (usize, usize)> = g.player.reputation.keys().chain(g.player.reputation_hidden.keys()).map(|&r| (r.0, levels(g, r))).collect();
     let Some(before) = shown.0.as_ref() else {
         shown.0 = Some(now);
         return;
@@ -207,7 +211,7 @@ fn watch(
             continue;
         }
         let rep = FormId(r);
-        let [inf, fam] = g.player.reputation.get(&rep).copied().unwrap_or([0.0; 2]);
+        let [inf, fam] = gf::reputation_real(g, rep);
         let name = name(g, rep);
         info!("reputation: {name} {} -> {} (fame {fam}, infamy {inf})", title(f0, i0), title(fame, infamy));
         g.show_box(rep);

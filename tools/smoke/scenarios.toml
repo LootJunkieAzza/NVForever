@@ -4557,6 +4557,20 @@ expect = [
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
 ]
 
+[[scenario]]
+name = "reputation-disguise"
+source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/reputation.rs", "crates/fnv-game/src/functions/reputation.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 001558E6 1 5;12.3:close;17:player.additem 000A472F 1;17.2:player.equipitem 000A472F;17.6:player.getreputation 001558E6 1;17.8:close;24:player.unequipitem 000A472F;24.4:player.getreputation 001558E6 1;24.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+expect = [
+  { re = 'reputation: Powder Gangers Neutral -> \S', count = 1, label = "one box: the fame, none for the outfit" },
+  { re = 'console: GetReputation on player >> 0\.00', label = "the outfit's script hid the fame" },
+  { re = 'console: GetReputation on player >> 12\.00', label = "taking it off gave the fame back" },
+]
+
 # ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
 
 [[scenario]]
