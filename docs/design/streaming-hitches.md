@@ -35,26 +35,27 @@ uGridsToLoad=5).
   PROC_THREAD+LOADER+PROFILE -stackwalk Profile` and `xperf -d`, elevated, then `xperf -a
   dumper -symbols` with `_NT_SYMBOL_PATH` at `engine/target/release`.
 
-- **Cells read ahead and spawned over frames** (§2 "Cells"), against origin/main
-  f28edbaa, `python tools/stress run tour`, one after the other on the same machine
-  (other sessions' builds and games ran beside them, so single numbers are noisy)
-  [observed: target/stress/tour/{main,br}-*, private]:
+- **Cells read ahead and spawned over frames** (§2 "Cells"), `python tools/stress run
+  tour`, one run after another on the same machine (other sessions' builds and games
+  ran beside them, so single numbers are noisy) [observed: target/stress/tour/*,
+  private]. "Main" is origin/main with the FaceGen and actor-part work below (b5333ddb,
+  PR #587); "before #587" is f28edbaa.
 
   | run | build | mean | 1 % low | worst | frames over 33 ms (`physics streaming:` line) |
   |---|---|---|---|---|---|
-  | towns lap | origin/main | 17.46 ms | 96.8 ms | 560 ms | 430 of 46,734 |
+  | towns lap | before #587 | 17.46 ms | 96.8 ms | 560 ms | 430 of 46,734 |
+  | towns lap | main | 17.15 ms | 52.6 ms | 236 ms | 635 of 47,535 |
   | towns lap | this branch | 16.86 ms | 34.1 ms | 249 ms | 155 of 48,305 |
-  | slice 52:60 | origin/main | 25.72 ms | 279.6 ms | 1,404 ms | 742 of 6,731 |
+  | slice 52:60 | main | 16.93 ms | 57.8 ms | 1,137 ms | 78 of 9,766 |
   | slice 52:60 | this branch | 16.94 ms | 50.0 ms | 1,168 ms | 28 of 9,809 |
-  | slice 26:31 | origin/main | 19.87 ms | 227.4 ms | 1,051 ms | 97 of 5,020 |
+  | slice 26:31 | main | 17.78 ms | 81.6 ms | 1,005 ms | 73 of 5,519 |
   | slice 26:31 | this branch | 17.13 ms | 65.9 ms | 1,073 ms | 34 of 5,716 |
 
-  The branch includes the FaceGen and actor-part work below (PR #587). The slices'
-  worst frames are the start's `lodgen` burst (§3). On the lap, 1,190 cells loaded with
-  1,060 ms of main-thread time, over 1,201 frames; 9 waited for their read-ahead and
-  none was drawn before it was done (`streaming summary:` at the exit). No count rose
-  in "Possible leaks"; the caches end the lap higher by design (§2 "Caches",
-  docs/design/stress-tests.md §4).
+  The slices' worst frames are the start's `lodgen` burst (§3). On the lap, 1,190 cells
+  loaded with 1,060 ms of main-thread time, over 1,201 frames; 9 waited for their
+  read-ahead and none was drawn before it was done (`streaming summary:` at the exit).
+  No count rose in "Possible leaks"; the caches end the lap higher by design (§2
+  "Caches", docs/design/stress-tests.md §4).
 
 ## 2. What runs off the main thread now
 
