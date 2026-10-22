@@ -30,6 +30,10 @@
 // texture's alpha (0-255) at or above it leaves a hole and the band of `surface.holes.y`
 // below it is drawn in `surface.holes_edge`; at 255 or more there are none.
 //
+// FACEGEN_TINT (an NPC's face and skin shapes, main pass; nif_material.rs "FaceGen tint"):
+// the `.egt` colour offset is added to the diffuse texture's stored sRGB value (0-255)
+// and held to 0-255, as fnv_actor::facegen::add_offset does to the texture's bytes.
+//
 // SOFT_EDGES (alpha-tested shapes in the main pass of a multisampled view): instead of
 // the alpha test, the fragment's alpha is the share of the pixel's samples it covers
 // (nif_material.rs `soft_edges`).
@@ -51,7 +55,7 @@
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD},
+    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler},
     pbr_bindings,
@@ -91,6 +95,41 @@ struct NifSurface {
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var holes_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var holes_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(103) var facegen_offset: texture_2d<f32>;
+
+#ifdef FACEGEN_TINT
+// The FaceGen offset at texture coordinate `uv` (CPU: fnv_actor::facegen::add_offset):
+// the offset image stretched over the texture, flipped vertically (its first row is the
+// texture's bottom row) and read bilinearly between texel centres, held at its edges. A
+// coordinate outside 0..1 reads the offset where the repeated texture is read.
+fn facegen_offset_at(uv: vec2<f32>) -> vec3<f32> {
+    let size = vec2<f32>(textureDimensions(facegen_offset));
+    let t = fract(uv);
+    let p = clamp(vec2(t.x, 1.0 - t.y) * size - 0.5, vec2(0.0), size - 1.0);
+    let p0 = vec2<i32>(floor(p));
+    let p1 = min(p0 + 1, vec2<i32>(size) - 1);
+    let f = p - floor(p);
+    let top = mix(textureLoad(facegen_offset, p0, 0).rgb, textureLoad(facegen_offset, vec2(p1.x, p0.y), 0).rgb, f.x);
+    let bottom = mix(textureLoad(facegen_offset, vec2(p0.x, p1.y), 0).rgb, textureLoad(facegen_offset, p1, 0).rgb, f.x);
+    return mix(top, bottom, f.y);
+}
+
+// sRGB transfer functions (IEC 61966-2-1), as the GPU applies them to an sRGB texture.
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    return select(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3(0.0031308));
+}
+
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    return select(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, c <= vec3(0.04045));
+}
+
+// A texel `texel` (linear, as sampled) with the offset `offset` (colour units) added to
+// its stored value and held to 0..255 (CPU mirror: nvforever facegen.rs tests, `tint_texel`).
+fn facegen_tint(texel: vec3<f32>, offset: vec3<f32>) -> vec3<f32> {
+    let stored = linear_to_srgb(saturate(texel)) * 255.0;
+    return srgb_to_linear(clamp(stored + offset, vec3(0.0), vec3(255.0)) / 255.0);
+}
+#endif
 
 // View-angle falloff of BSShaderNoLightingProperty (docs/spec-notes/nif.md §6): linear in
 // the cosine from the start opacity at the start angle to the stop opacity at the stop
@@ -205,6 +244,25 @@ fn fragment(
     }
 #endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+#ifdef FACEGEN_TINT
+#ifdef VERTEX_UVS_A
+#ifndef BINDLESS
+    if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
+        // base_color is material colour × vertex colour × texel: the texel is read again
+        // as pbr_input_from_standard_material reads it, and its tinted value takes its
+        // place in that product.
+        let uv = (pbr_bindings::material.uv_transform * vec3(in.uv, 1.0)).xy;
+        let texel = textureSampleBias(pbr_bindings::base_color_texture, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb;
+        var factor = pbr_bindings::material.base_color.rgb;
+#ifdef VERTEX_COLORS
+        factor *= in.color.rgb;
+#endif
+        let tinted = facegen_tint(texel, facegen_offset_at(uv));
+        pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb + factor * (tinted - texel), pbr_input.material.base_color.a);
+    }
+#endif
+#endif
+#endif
 #ifdef REFRACT
     var tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
 #ifdef STANDARD_MATERIAL_NORMAL_MAP

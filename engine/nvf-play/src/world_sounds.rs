@@ -171,15 +171,36 @@ pub struct SoundForms {
     pub containers: HashMap<FormId, (Option<FormId>, Option<FormId>)>,
     /// Activators without a radio station: their activation sound.
     pub activators: HashMap<FormId, FormId>,
-    /// Activators' (SNAM), containers' (RNAM) and doors' (BNAM) own sounds.
-    pub object_sounds: HashMap<FormId, FormId>,
+    /// The own sounds of the bases in [`OWN_SOUNDS`]: the sound and the kind (its index
+    /// there).
+    pub object_sounds: HashMap<FormId, (FormId, usize)>,
     /// … how many records of each kind name one.
-    pub object_sound_counts: [u32; 3],
+    pub object_sound_counts: [u32; OWN_SOUNDS.len()],
     /// Doors' open sounds (SNAM), for load doors.
     pub door_open: HashMap<FormId, FormId>,
+    /// Water types' sounds (WATR `SNAM` Sound [documented: xEdit]).
+    pub waters: HashMap<FormId, FormId>,
 }
 
-const ITEM_SIGS: [&[u8; 4]; 12] = [b"MISC", b"KEYM", b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"NOTE", b"IMOD", b"CHIP", b"CCRD", b"CMNY"];
+/// The records whose placed references sound a sound of their own, the subrecord naming
+/// it and what the log calls them [documented: xEdit wbDefinitionsFNV.pas ACTI `SNAM`
+/// Sound - Looping, CONT `RNAM` Sound - Random/Looping, DOOR `BNAM` Sound - Looping, MSTT
+/// `SNAM` Sound, STAT `RNAM` Sound - Looping/Random, LIGH `SNAM` Sound, TERM `SNAM` Sound -
+/// Looping] (audio.md §14.3, §15).
+pub const OWN_SOUNDS: [(&[u8; 4], &[u8; 4], &str); 7] = [
+    (b"ACTI", b"SNAM", "activators"),
+    (b"CONT", b"RNAM", "containers"),
+    (b"DOOR", b"BNAM", "doors"),
+    (b"MSTT", b"SNAM", "moveable statics"),
+    (b"STAT", b"RNAM", "statics"),
+    (b"LIGH", b"SNAM", "lights"),
+    (b"TERM", b"SNAM", "terminals"),
+];
+
+/// The kind in [`OWN_SOUNDS`] of statics: they never move, so their place is read once.
+const STATIC_KIND: usize = 4;
+
+const ITEM_SIGS: [&[u8; 4]; 12] =[b"MISC", b"KEYM", b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"NOTE", b"IMOD", b"CHIP", b"CCRD", b"CMNY"];
 
 /// A FormID subrecord of a record (plugin `pi`) as a global FormID; null and unresolved:
 /// `None`. The subrecords read here are all `formid` [documented: xEdit].
@@ -205,6 +226,12 @@ impl SoundForms {
             }
             let sig = &r.header.sig;
             let id = FormId(g);
+            if let Some(kind) = OWN_SOUNDS.iter().position(|(s, _, _)| *s == sig) {
+                if let Some(l) = raw_fid(lo, pi, r, OWN_SOUNDS[kind].1) {
+                    out.object_sounds.insert(id, (l, kind));
+                    out.object_sound_counts[kind] += 1;
+                }
+            }
             if ITEM_SIGS.contains(&sig) {
                 let (up, down) = (raw_fid(lo, pi, r, b"YNAM"), raw_fid(lo, pi, r, b"ZNAM"));
                 let c = out.counts.entry(String::from_utf8_lossy(sig).into_owned()).or_default();
@@ -217,26 +244,18 @@ impl SoundForms {
                 if open.is_some() || close.is_some() {
                     out.containers.insert(id, (open, close));
                 }
-                if let Some(l) = raw_fid(lo, pi, r, b"RNAM") {
-                    out.object_sounds.insert(id, l);
-                    out.object_sound_counts[1] += 1;
-                }
             } else if sig == b"ACTI" {
-                if let Some(l) = raw_fid(lo, pi, r, b"SNAM") {
-                    out.object_sounds.insert(id, l);
-                    out.object_sound_counts[0] += 1;
-                }
                 if raw_fid(lo, pi, r, b"RNAM").is_some() {
                     continue;
                 }
                 if let Some(v) = raw_fid(lo, pi, r, b"VNAM") {
                     out.activators.insert(id, v);
                 }
-            } else if sig == b"DOOR" {
-                if let Some(l) = raw_fid(lo, pi, r, b"BNAM") {
-                    out.object_sounds.insert(id, l);
-                    out.object_sound_counts[2] += 1;
+            } else if sig == b"WATR" {
+                if let Some(l) = raw_fid(lo, pi, r, b"SNAM") {
+                    out.waters.insert(id, l);
                 }
+            } else if sig == b"DOOR" {
                 if let Some(o) = raw_fid(lo, pi, r, b"SNAM") {
                     out.door_open.insert(id, o);
                 }
@@ -287,14 +306,20 @@ pub struct WorldSoundStats {
     pub load_doors: u32,
     /// … by other actors (each side counted).
     pub actor_doors: u32,
-    /// Placed objects with a sound of their own, and those in reach (sent to the ambient).
+    /// Placed objects with a sound of their own, and those in reach (sent to the ambient),
+    /// with how many of each kind of [`OWN_SOUNDS`] were.
     pub object_sources: usize,
     pub object_sources_sent: HashSet<u32>,
+    pub object_sources_by_kind: [u32; OWN_SOUNDS.len()],
+    /// Water types whose sound was sent to the ambient.
+    pub water_sources: HashSet<u32>,
     pub script_2d: u32,
     pub script_3d: u32,
     /// Script sounds held while a menu was open.
     pub script_held: u32,
 }
+
+type ObjectSource = (u32, FormId, usize, Option<[f32; 3]>);
 
 /// A loose body being followed for knocks.
 struct Tracked {
@@ -320,8 +345,8 @@ pub struct WorldSounds {
     container: Option<u32>,
     held: Vec<SoundRequest>,
     /// Placed objects with a sound of their own, by the space they are in: (reference,
-    /// sound); found the first frame.
-    sources: Option<HashMap<crate::music::Space, Vec<(u32, FormId)>>>,
+    /// sound, kind, the place of one that never moves); found the first frame.
+    sources: Option<HashMap<crate::music::Space, Vec<ObjectSource>>>,
     pub stats: WorldSoundStats,
 }
 
@@ -354,13 +379,11 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
     let forms = SoundForms::build(d.lo);
     info!(
-        "world sounds: items (records, with a pick-up sound, with a drop sound): {}; {} containers with open or close sounds, {} activators with an activation sound; sounds of their own: {} activators (SNAM), {} containers (RNAM), {} doors (BNAM); read in {:.0} ms",
+        "world sounds: items (records, with a pick-up sound, with a drop sound): {}; {} containers with open or close sounds, {} activators with an activation sound; sounds of their own: {}; read in {:.0} ms",
         forms.counts.iter().map(|(s, c)| format!("{s} {} {} {}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", "),
         forms.containers.len(),
         forms.activators.len(),
-        forms.object_sound_counts[0],
-        forms.object_sound_counts[1],
-        forms.object_sound_counts[2],
+        OWN_SOUNDS.iter().zip(forms.object_sound_counts).map(|((_, sub, what), n)| format!("{n} {what} ({})", String::from_utf8_lossy(*sub))).collect::<Vec<_>>().join(", "),
         t.elapsed().as_secs_f64() * 1000.0
     );
     commands.insert_resource(WorldSounds { forms, ..Default::default() });
@@ -680,37 +703,107 @@ fn object_sources(mut ws: ResMut<WorldSounds>, sim: Res<SimState>, loc: Res<crat
     let (Some(player), Some(sfx)) = (player, sfx) else { return };
     let ws = &mut *ws;
     if ws.sources.is_none() {
-        let mut by: HashMap<crate::music::Space, Vec<(u32, FormId)>> = HashMap::new();
+        let mut by: HashMap<crate::music::Space, Vec<ObjectSource>> = HashMap::new();
         for p in sim.refs.refs.values() {
-            let (Some(&sound), Some(cell)) = (ws.forms.object_sounds.get(&p.base), p.cell) else { continue };
+            let (Some(&(sound, kind)), Some(cell)) = (ws.forms.object_sounds.get(&p.base), p.cell) else { continue };
             let space = sim.refs.cell_world.get(&cell).map_or(crate::music::Space::Interior(cell.0), |w| crate::music::Space::World(w.0));
-            by.entry(space).or_default().push((p.id.0, sound));
+            by.entry(space).or_default().push((p.id.0, sound, kind, (kind == STATIC_KIND).then_some(p.pos)));
         }
         ws.stats.object_sources = by.values().map(Vec::len).sum();
-        info!("world sounds: {} placed activators, containers and doors with a sound of their own", ws.stats.object_sources);
+        info!("world sounds: {} placed objects with a sound of their own", ws.stats.object_sources);
         ws.sources = Some(by);
     }
     let eye = player.eye();
     let space = crate::music::Space::of(&loc);
     let Some(list) = ws.sources.as_ref().and_then(|s| s.get(&space)) else { return };
-    for &(id, sound) in list {
+    for &(id, sound, kind, fixed) in list {
         let Some(reach) = sfx.forms.sounds.get(&sound).map(|s| s.max_distance * 1.1) else { continue };
-        let Some(at) = ref_pos(&sim, id) else { continue };
+        let Some(at) = fixed.or_else(|| ref_pos(&sim, id)) else { continue };
         let d2 = (at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2);
         if d2 > reach * reach || !sim.world.is_enabled(FormId(id)).unwrap_or(false) {
             continue;
         }
-        ws.stats.object_sources_sent.insert(id);
-        out.write(SoundSource { key: SoundSource::key(1, id), sound, at });
+        if ws.stats.object_sources_sent.insert(id) {
+            ws.stats.object_sources_by_kind[kind] += 1;
+        }
+        out.write(SoundSource { key: SoundSource::key(1, id), sound, at, looping: false });
     }
 }
+
+/// The water near the listener sounds its type's sound (audio.md §15.2): per water type,
+/// one source at the nearest point of the surfaces of that type, while it is in reach.
+#[allow(clippy::too_many_arguments)]
+fn water_sources(
+    mut ws: ResMut<WorldSounds>,
+    phys: Option<Res<PhysState>>,
+    d: Res<PlayWorld>,
+    sim: Res<SimState>,
+    player: Option<Res<Player>>,
+    sfx: Option<Res<Sfx>>,
+    mut placed_types: Local<HashMap<u32, Option<u32>>>,
+    mut out: MessageWriter<SoundSource>,
+) {
+    let (Some(phys), Some(player), Some(sfx)) = (phys, player, sfx) else { return };
+    let ws = &mut *ws;
+    if ws.forms.waters.is_empty() {
+        return;
+    }
+    let eye = player.eye();
+    let world = d.index.worldspaces.get(&phys.worldspace);
+    // The nearest surface point of each water type and its distance².
+    let mut nearest: HashMap<u32, ([f32; 3], f32)> = HashMap::new();
+    let mut offer = |water: Option<u32>, at: [f32; 3]| {
+        let Some(water) = water else { return };
+        let d2 = (at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2);
+        if nearest.get(&water).is_none_or(|n| d2 < n.1) {
+            nearest.insert(water, (at, d2));
+        }
+    };
+    for (area, surface) in phys.world.water() {
+        let water = match (area, phys.space) {
+            (fnv_phys::WaterArea::Exterior(gx, gy), _) => {
+                let cell = world.and_then(|w| w.grid.get(&(gx, gy))).and_then(|id| d.index.cells.get(id));
+                cell.and_then(|c| c.water_type).or(world.and_then(|w| w.water))
+            }
+            (fnv_phys::WaterArea::Interior, crate::phys::cells::Space::Interior(id)) => d.index.cells.get(&id).and_then(|c| c.water_type),
+            _ => None,
+        };
+        // The point of the area's surface under or over the listener, else its nearest.
+        let at = match area.bounds() {
+            Some((sw, size)) => [eye[0].clamp(sw[0], sw[0] + size), eye[1].clamp(sw[1], sw[1] + size), surface],
+            None => [eye[0], eye[1], surface],
+        };
+        offer(water, at);
+    }
+    for w in phys.world.placed_water() {
+        let water = *placed_types.entry(w.form_id).or_insert_with(|| {
+            let base = sim.refs.get(FormId(w.form_id))?.base;
+            fnv_world::sky::placeable_water_type(d.lo, d.schema, base.0)
+        });
+        // Over the box: the surface above or below the listener; else its middle [design].
+        let at = if w.covers(eye[0], eye[1]) { [eye[0], eye[1], w.surface] } else { [w.centre[0], w.centre[1], w.surface] };
+        offer(water, at);
+    }
+    for (water, (at, d2)) in nearest {
+        let Some(&sound) = ws.forms.waters.get(&FormId(water)) else { continue };
+        let Some(reach) = sfx.forms.sounds.get(&sound).map(|s| s.max_distance * 1.1) else { continue };
+        if d2 > reach * reach {
+            continue;
+        }
+        ws.stats.water_sources.insert(water);
+        out.write(SoundSource { key: SoundSource::key(WATER_KIND, water), sound, at, looping: false });
+    }
+}
+
+/// The [`SoundSource::key`] kind of a water type's sound.
+const WATER_KIND: u8 = 5;
 
 fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     let (Some(_), Some(ws)) = (exit.read().last(), ws) else { return };
     let s = &ws.stats;
     let impacts: Vec<String> = s.impacts.iter().map(|(m, n)| format!("{m} {n}")).collect();
     info!(
-        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed; {} load doors ({} sides passed by other actors); {} objects' own sounds in reach",
+        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed; {} load doors ({} sides passed by other actors); {} objects' own sounds in reach ({}); {} water sounds in reach",
         if impacts.is_empty() { "none".to_string() } else { impacts.join(", ") },
         s.impacts_no_material,
         s.knocks,
@@ -729,7 +822,9 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
         s.script_3d,
         s.load_doors,
         s.actor_doors,
-        s.object_sources_sent.len()
+        s.object_sources_sent.len(),
+        OWN_SOUNDS.iter().zip(s.object_sources_by_kind).filter(|(_, n)| *n > 0).map(|((_, _, what), n)| format!("{what} {n}")).collect::<Vec<_>>().join(", "),
+        s.water_sources.len()
     );
 }
 
@@ -738,7 +833,7 @@ pub struct WorldSoundsPlugin;
 impl Plugin for WorldSoundsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init)
-            .add_systems(Update, (knocks, objects, object_sources).in_set(PlaySet::Sync))
+            .add_systems(Update, (knocks, objects, object_sources, water_sources).in_set(PlaySet::Sync))
             .add_systems(Last, report);
     }
 }
@@ -759,6 +854,13 @@ mod tests {
         for c in [2, 4, 8, 18] {
             assert_eq!(phy_sound(c, true), None);
         }
+    }
+
+    #[test]
+    fn own_sounds_one_kind_per_record() {
+        let sigs: HashSet<&[u8; 4]> = OWN_SOUNDS.iter().map(|k| k.0).collect();
+        assert_eq!(sigs.len(), OWN_SOUNDS.len());
+        assert_eq!(OWN_SOUNDS[STATIC_KIND].0, b"STAT");
     }
 
     #[test]

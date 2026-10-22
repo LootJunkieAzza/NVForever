@@ -18,7 +18,7 @@ use fnv_actor::locomotion::{Blend, Body, Move};
 use fnv_actor::{ActorForms, Appearance, CreatureAppearance, Resolver};
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore};
-use nvf_assets::actor::{blend_player, spawn_actor, ActorCtx, PartUse, PreparedSkeleton};
+use nvf_assets::actor::{blend_player, spawn_actor, ActorCtx, ClipSource, PartUse, PreparedSkeleton};
 use nvf_play::RefVisual;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -79,10 +79,8 @@ pub struct ActorWorld {
     /// period (`--actor-weapon-test`).
     pub weapon_mode: WeaponMode,
     pub weapon_test: Option<f32>,
-    /// Locomotion clip sets by (skeleton, body); `None` when no idle was found.
-    sets: Mutex<ClipSets>,
-    /// Weapon stances by (skeleton, prefix); `None` when they could not be loaded.
-    stances: Mutex<Stances>,
+    /// Clip sets and weapon stances, loaded once each.
+    pub anims: Anims,
     /// How many times ResurrectActor rolled a reference's random choices again
     /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
     pub rolls: Mutex<HashMap<u32, u32>>,
@@ -98,6 +96,17 @@ pub struct ActorWorld {
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
 type Stances = HashMap<(String, String), Option<Arc<Stance>>>;
 
+/// Locomotion clip sets by (skeleton, body, stance; `None` when no idle was found) and
+/// weapon stances by (skeleton, prefix; `None` when they could not be loaded), loaded
+/// once each: when an actor is drawn, or ahead of it on a worker thread
+/// (`readahead.rs`, [`Anims::warm`]). Loading does not hold the lock, so drawing an
+/// actor never waits for a worker; both may load the same set, and the first kept wins.
+#[derive(Clone, Default)]
+pub struct Anims {
+    sets: Arc<Mutex<ClipSets>>,
+    stances: Arc<Mutex<Stances>>,
+}
+
 impl ActorWorld {
     pub fn build(lo: &LoadOrder, schema: &Schema) -> ActorWorld {
         ActorWorld {
@@ -112,8 +121,7 @@ impl ActorWorld {
             walk_test: None,
             weapon_mode: WeaponMode::None,
             weapon_test: None,
-            sets: Mutex::new(HashMap::new()),
-            stances: Mutex::new(HashMap::new()),
+            anims: Anims::default(),
             rolls: Mutex::new(HashMap::new()),
             changes: Mutex::new(HashMap::new()),
             levels: Mutex::new(HashMap::new()),
@@ -158,92 +166,128 @@ impl ActorWorld {
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
         Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature_at(FormId(base), self.seed(reference), self.level(reference)).map_err(|e| e.to_string())
     }
+}
+
+impl Anims {
+    /// The set at `key`, loaded with `load` (the lock not held) if it is not there yet.
+    fn set_or_load(&self, key: (String, Body, &'static str), load: impl FnOnce() -> Option<Arc<ClipSet>>) -> Option<Arc<ClipSet>> {
+        if let Some(set) = self.sets.lock().expect("clip sets").get(&key) {
+            return set.clone();
+        }
+        let set = load();
+        self.sets.lock().expect("clip sets").entry(key).or_insert(set).clone()
+    }
 
     /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.
-    fn clip_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body) -> Option<Arc<ClipSet>> {
+    pub fn clip_set(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, body: Body) -> Option<Arc<ClipSet>> {
         self.clip_set_stance(ctx, skeleton, skel, body, crate::locomotion::STANCE)
     }
 
     /// [`Self::clip_set`] of a stance prefix (`locomotion::SNEAK_STANCE`).
-    fn clip_set_stance(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, stance: &'static str) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body, stance);
-        self.sets
-            .lock()
-            .expect("clip sets")
-            .entry(key)
-            .or_insert_with(|| {
-                let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, stance);
-                info!("actor locomotion: {line}");
-                set.clips.contains_key(&Move::Idle).then(|| Arc::new(set))
-            })
-            .clone()
+    pub fn clip_set_stance(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, body: Body, stance: &'static str) -> Option<Arc<ClipSet>> {
+        self.set_or_load((fnv_vfs::normalize(skeleton), body, stance), || {
+            let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, stance);
+            info!("actor locomotion: {line}");
+            set.clips.contains_key(&Move::Idle).then(|| Arc::new(set))
+        })
     }
 
     /// The limping set (`locomotion::ClipSet::load_hurt`) built on `base`, the standing
     /// set of the skeleton and body, or with `alert` on a creature's alert set with the
     /// alert stance's limping clips too (loaded once each).
-    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet, alert: bool) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body, if alert { "hurt-alert" } else { "hurt" });
+    pub fn clip_set_hurt(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet, alert: bool) -> Option<Arc<ClipSet>> {
         let stances: &[&str] = if alert { &[crate::locomotion::STANCE, crate::locomotion::ALERT_STANCE] } else { &[crate::locomotion::STANCE] };
-        self.sets
-            .lock()
-            .expect("clip sets")
-            .entry(key)
-            .or_insert_with(|| {
-                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base, stances)?;
-                info!("actor locomotion: {line}");
-                Some(Arc::new(set))
-            })
-            .clone()
+        self.set_or_load((fnv_vfs::normalize(skeleton), body, if alert { "hurt-alert" } else { "hurt" }), || {
+            let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base, stances)?;
+            info!("actor locomotion: {line}");
+            Some(Arc::new(set))
+        })
+    }
+
+    /// The swimming set of a skeleton and body (`ClipSet::swim_from` over
+    /// `locomotion::SWIM_STANCES`, the standing set `calm` filling the moves it lacks),
+    /// loaded once; `None` when the folder has no swimming movement clip.
+    pub fn swim_set(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, body: Body, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        self.set_or_load((fnv_vfs::normalize(skeleton), body, "swim+"), || {
+            let mut lines = Vec::new();
+            let stances = crate::locomotion::SWIM_STANCES
+                .iter()
+                .map(|st| {
+                    let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, st);
+                    if !set.clips.is_empty() {
+                        lines.push(line);
+                    }
+                    set
+                })
+                .collect();
+            let set = ClipSet::swim_from(stances, calm);
+            if set.is_some() {
+                info!("actor locomotion (swimming): {}", lines.join(" | "));
+            }
+            set.map(Arc::new)
+        })
     }
 
     /// A creature's alert-stance set (`ClipSet::alert_from`: its `h2h` movement clips over
     /// `calm`), loaded once per skeleton.
-    /// The swimming set of a skeleton and body (`ClipSet::swim_from` over
-    /// `locomotion::SWIM_STANCES`, the standing set `calm` filling the moves it lacks),
-    /// loaded once; `None` when the folder has no swimming movement clip.
-    fn swim_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, calm: &ClipSet) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body, "swim+");
-        self.sets
-            .lock()
-            .expect("clip sets")
-            .entry(key)
-            .or_insert_with(|| {
-                let mut lines = Vec::new();
-                let stances = crate::locomotion::SWIM_STANCES
-                    .iter()
-                    .map(|st| {
-                        let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, st);
-                        if !set.clips.is_empty() {
-                            lines.push(line);
-                        }
-                        set
-                    })
-                    .collect();
-                let set = ClipSet::swim_from(stances, calm);
-                if set.is_some() {
-                    info!("actor locomotion (swimming): {}", lines.join(" | "));
-                }
-                set.map(Arc::new)
-            })
-            .clone()
+    pub fn alert_set(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        self.set_or_load((fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE), || {
+            let (stance, line) = ClipSet::load_stance(ctx, skeleton, skel, Body::Male, crate::locomotion::ALERT_STANCE);
+            let set = ClipSet::alert_from(stance, calm);
+            if set.is_some() {
+                info!("actor locomotion (alert stance): {line}");
+            }
+            set.map(Arc::new)
+        })
     }
 
-    fn alert_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE);
-        self.sets
-            .lock()
-            .expect("clip sets")
-            .entry(key)
-            .or_insert_with(|| {
-                let (stance, line) = ClipSet::load_stance(ctx, skeleton, skel, Body::Male, crate::locomotion::ALERT_STANCE);
-                let set = ClipSet::alert_from(stance, calm);
-                if set.is_some() {
-                    info!("actor locomotion (alert stance): {line}");
+    /// The stance `prefix` bound to the skeleton at `skeleton`, loaded once.
+    pub fn stance(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> Option<Arc<Stance>> {
+        let key = (fnv_vfs::normalize(skeleton), prefix.to_string());
+        if let Some(s) = self.stances.lock().expect("stances").get(&key) {
+            return s.clone();
+        }
+        let s = match Stance::load(ctx, skeleton, skel, prefix) {
+            Ok((s, line)) => {
+                info!("actor weapons: {line}");
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                warn!("actor weapons: {prefix}: {e}");
+                None
+            }
+        };
+        self.stances.lock().expect("stances").entry(key).or_insert(s).clone()
+    }
+
+    /// Whether the standing set of `skeleton` and `body` and the stance `prefix` (if any)
+    /// are loaded (or known not to load).
+    pub fn loaded(&self, skeleton: &str, body: Body, prefix: Option<&str>) -> bool {
+        let skeleton = fnv_vfs::normalize(skeleton);
+        self.sets.lock().expect("clip sets").contains_key(&(skeleton.clone(), body, crate::locomotion::STANCE))
+            && prefix.is_none_or(|p| self.stances.lock().expect("stances").contains_key(&(skeleton, p.to_string())))
+    }
+
+    /// Load what drawing an actor of `skeleton` and `body` takes (as [`spawn`] and
+    /// [`spawn_creature`] ask for it), and the stance `prefix` it holds its weapon in: run
+    /// on a worker thread ahead of the actor (`readahead.rs`).
+    pub fn warm(&self, ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, body: Body, creature: bool, prefix: Option<&str>) {
+        if let Some(set) = self.clip_set(ctx, skeleton, skel, body) {
+            if creature {
+                self.clip_set_hurt(ctx, skeleton, skel, body, &set, false);
+                self.swim_set(ctx, skeleton, skel, body, &set);
+                if let Some(alert) = self.alert_set(ctx, skeleton, skel, &set) {
+                    self.clip_set_hurt(ctx, skeleton, skel, body, &alert, true);
                 }
-                set.map(Arc::new)
-            })
-            .clone()
+            } else {
+                self.clip_set_stance(ctx, skeleton, skel, body, crate::locomotion::SNEAK_STANCE);
+                self.swim_set(ctx, skeleton, skel, body, &set);
+                self.clip_set_hurt(ctx, skeleton, skel, body, &set, false);
+            }
+        }
+        if let Some(prefix) = prefix {
+            self.stance(ctx, skeleton, skel, prefix);
+        }
     }
 }
 
@@ -301,43 +345,20 @@ pub struct ActorStats {
     pub fists: usize,
 }
 
-/// Whether the parts of actor `reference` (base `base`) can be prepared without reading a
-/// file on this thread, starting reads on a worker thread for the rest
-/// (`ActorCtx::parts_ready`). An actor that cannot be resolved counts as ready: spawning
-/// it says why.
-pub fn parts_ready(world: &ActorWorld, ctx: &mut ActorCtx, reference: u32, base: u32, creature: bool) -> bool {
-    if creature {
-        world.resolve_creature(base, reference).map_or(true, |c| ctx.parts_ready(c.parts.iter().map(|p| p.model.as_str())))
-    } else {
-        world.resolve(base, reference).map_or(true, |a| ctx.parts_ready(a.parts.iter().map(|p| p.model.as_str())))
-    }
-}
-
 /// Take back what worker threads made for actors: parts read ahead
-/// (`ActorParts::take_fetched`) and tinted FaceGen textures, put into their materials
-/// (`FaceGenCache::finish`).
-pub fn take_background_work(
-    world: Option<Res<ActorWorld>>,
-    parts: Option<ResMut<nvf_assets::actor::ActorParts>>,
-    textures: Option<ResMut<nvf_assets::TextureCache>>,
-    mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<nvf_assets::NifMaterial>>,
-    time: Res<Time>,
-) {
+/// (`ActorParts::take_fetched`).
+pub fn take_background_work(parts: Option<ResMut<nvf_assets::actor::ActorParts>>, textures: Option<ResMut<nvf_assets::TextureCache>>, time: Res<Time>) {
     if let (Some(mut parts), Some(mut textures)) = (parts, textures) {
         parts.take_fetched(&mut textures, time.elapsed_secs_f64());
     }
-    if let Some(w) = world {
-        w.facegen.lock().expect("facegen cache").finish(&mut images, &mut materials);
-    }
 }
 
-/// A race skin texture and the `.egt` that tints it; `image` is made on first use.
+/// A race skin texture and the `.egt` that tints it; `offset` is made on first use.
 struct SkinTint {
     hand: bool,
     texture: String,
     egt: String,
-    image: Option<Option<crate::facegen::Tint>>,
+    offset: Option<Option<Handle<Image>>>,
 }
 
 /// The parts of a resolved actor ready to assemble, each with its index in `a.parts`:
@@ -360,7 +381,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         let hand_egt = fnv_actor::resolve::hand_egt(body_egt, true);
         for (hand, texture, egt) in [(false, &a.body_texture, Some(body_egt.to_string())), (true, &a.hand_texture, hand_egt)] {
             if let (Some(texture), Some(egt)) = (texture.as_deref().map(fnv_vfs::texture_path), egt) {
-                skins.push(SkinTint { hand, texture, egt, image: None });
+                skins.push(SkinTint { hand, texture, egt, offset: None });
             }
         }
     }
@@ -398,11 +419,12 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         if let Some(shape) = &shape {
             let mut cache = world.facegen.lock().expect("facegen cache");
             meshes = cache.morph(ctx, &part, &p.model, shape);
+            // The face: the head's texture (the race's, on its skin shapes) takes the
+            // offset of the `.egt` beside the head model.
             if p.role == "head:head" {
-                let base = p.texture.clone().or_else(|| part.shapes.first().and_then(|s| s.base_texture()).map(str::to_string));
-                if let Some(tint) = base.zip(fgts).and_then(|(t, fgts)| cache.face_texture(ctx, &p.model, &t, fgts)) {
+                if let Some(offset) = fgts.and_then(|fgts| cache.face_offset(ctx, &p.model, fgts)) {
                     for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
-                        if let Some(m) = cache.tinted(&mut ctx.models.materials, &materials[i], &tint) {
+                        if let Some(m) = cache.tinted(&mut ctx.models.materials, &materials[i], &offset) {
                             materials[i] = m;
                         }
                     }
@@ -410,7 +432,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             }
         }
         // Skin: every shape whose diffuse is one of the race's skin textures (the race
-        // body and hands, and skin inside outfits and gloves) gets the tinted copy
+        // body and hands, and skin inside outfits and gloves) takes the skin's offset
         // [hypothesis, actors.md §4.1].
         if let Some(fg) = fgts {
             for (i, s) in part.shapes.iter().enumerate() {
@@ -419,15 +441,15 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 let Some(tex) = tex.map(fnv_vfs::texture_path) else { continue };
                 let Some(skin) = skins.iter_mut().find(|k| k.texture == tex) else { continue };
                 let mut cache = world.facegen.lock().expect("facegen cache");
-                let tint = skin
-                    .image
+                let offset = skin
+                    .offset
                     .get_or_insert_with(|| {
-                        let tint = cache.skin_texture(ctx, &skin.egt, &skin.texture, fg);
-                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(tint.is_some());
-                        tint
+                        let offset = cache.skin_offset(ctx, &skin.egt, fg);
+                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(offset.is_some());
+                        offset
                     })
                     .clone();
-                if let Some(m) = tint.and_then(|tint| cache.tinted(&mut ctx.models.materials, &materials[i], &tint)) {
+                if let Some(m) = offset.and_then(|offset| cache.tinted(&mut ctx.models.materials, &materials[i], &offset)) {
                     materials[i] = m;
                 }
             }
@@ -517,15 +539,15 @@ pub fn spawn(
     }
     if world.pose == ActorPose::Idle {
         let body = if a.female { Body::Female } else { Body::Male };
-        match world.clip_set(ctx, &a.skeleton, &skel, body) {
+        match world.anims.clip_set(ctx, &a.skeleton, &skel, body) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 // People crouch to sneak (`sneaking.rs`).
-                lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
+                lo.sneak = world.anims.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
                 // In water they swim (`swimming.rs`).
-                lo.swim = world.swim_set(ctx, &a.skeleton, &skel, body, &set);
+                lo.swim = world.anims.swim_set(ctx, &a.skeleton, &skel, body, &set);
                 // A crippled leg limps (`limping.rs`).
-                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
+                lo.hurt = world.anims.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
                 if let Some(w) = walk {
@@ -618,16 +640,16 @@ pub fn spawn_creature(
         stats.spawned_hidden += 1;
     }
     if world.pose == ActorPose::Idle {
-        match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
+        match world.anims.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
-                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
-                lo.swim = world.swim_set(ctx, &c.skeleton, &skel, Body::Male, &set);
+                lo.hurt = world.anims.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
+                lo.swim = world.anims.swim_set(ctx, &c.skeleton, &skel, Body::Male, &set);
                 // Some creatures move otherwise when alert (`creature_pace.rs`), and limp
                 // otherwise when alert too (`limping.rs`).
-                lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);
+                lo.alert = world.anims.alert_set(ctx, &c.skeleton, &skel, &set);
                 if let Some(alert) = lo.alert.clone() {
-                    lo.hurt_alert = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &alert, true);
+                    lo.hurt_alert = world.anims.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &alert, true);
                 }
                 if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
@@ -669,7 +691,7 @@ pub(crate) fn arm(
 ) -> Option<WeaponHold> {
     let held = if world.weapon_mode == WeaponMode::None { None } else { arm_weapon(commands, spawned, skel, a, reference, world, ctx, player, stats) };
     held.or_else(|| {
-        let stance = stance_for(world, ctx, &a.skeleton, skel, AnimType::HandToHand.prefix())?;
+        let stance = world.anims.stance(ctx, &a.skeleton, skel, AnimType::HandToHand.prefix())?;
         let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
         let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
         if let Some(period) = world.weapon_test {
@@ -679,27 +701,6 @@ pub(crate) fn arm(
         stats.fists += 1;
         Some(hold)
     })
-}
-
-/// The stance `prefix` bound to the skeleton at `skeleton`, loaded once.
-fn stance_for(world: &ActorWorld, ctx: &mut ActorCtx, skeleton: &str, skel: &nvf_assets::actor::PreparedSkeleton, prefix: &str) -> Option<Arc<Stance>> {
-    let key = (fnv_vfs::normalize(skeleton), prefix.to_string());
-    world
-        .stances
-        .lock()
-        .expect("stances")
-        .entry(key)
-        .or_insert_with(|| match Stance::load(ctx, skeleton, skel, prefix) {
-            Ok((s, line)) => {
-                info!("actor weapons: {line}");
-                Some(Arc::new(s))
-            }
-            Err(e) => {
-                warn!("actor weapons: {prefix}: {e}");
-                None
-            }
-        })
-        .clone()
 }
 
 /// [`arm`] with the actor's weapon model, or nothing when it has none to draw.
@@ -719,7 +720,7 @@ fn arm_weapon(
     let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
     // A modded weapon's own model (weapon-mods.md §3 "In the world").
     let model = w.model_for(false, a.weapon_mods)?;
-    let stance = stance_for(world, ctx, &a.skeleton, skel, prefix);
+    let stance = world.anims.stance(ctx, &a.skeleton, skel, prefix);
     // With the weapon's alternate textures (texture-swaps.md §4).
     let swaps = a.weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, false, a.weapon_mods));
     let (Some(stance), Some(part)) = (stance, ctx.part_swapped(&fnv_actor::resolve::mesh_path(model), swaps)) else {

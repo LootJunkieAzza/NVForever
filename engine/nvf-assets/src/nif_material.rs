@@ -75,6 +75,19 @@
 //! first-person arms, which the unseen body that casts the player's shadow stands in the
 //! middle of [engineering choice, nvforever `player_body.rs`]. Every other shape is lit
 //! by Bevy's lighting alone.
+//!
+//! FaceGen tint: an NPC's face and skin shapes carry the `.egt` colour offset of its
+//! texture coefficients ([`NifSurface::facegen_offset`], made by nvforever `facegen.rs`)
+//! and the shader adds it to the diffuse texture as the CPU rule does
+//! (`fnv_actor::facegen::add_offset`, docs/spec-notes/actors.md §4): the offset image,
+//! upsampled bilinearly over the texture and flipped vertically (its first row is the
+//! texture's bottom row), is added to the texel's stored sRGB value (0–255) and held to
+//! 0–255, then the sum goes back to linear [hypothesis, as the CPU rule]. It differs from
+//! adding to the stored bytes only in that the texture is filtered first: no rounding to
+//! whole units, and the hold to 0–255 comes after filtering, not per texel
+//! [engineering choice: a small per-NPC offset image in place of a full-size texture per
+//! NPC, docs/design/streaming-hitches.md §3]. Every other shape has no offset and the
+//! shader is unchanged (the `FACEGEN_TINT` shader def).
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -202,6 +215,12 @@ pub struct NifSurface {
     #[texture(101)]
     #[sampler(102)]
     pub holes_texture: Option<Handle<Image>>,
+    /// FaceGen tint (module notes, "FaceGen tint"): the colour offset in colour units
+    /// (0–255 scale), one texel per `.egt` image texel, in the file's row order (first row
+    /// at the texture's bottom); read with `textureLoad`, so it is not filtered. `None` on
+    /// every shape but an NPC's face and skin.
+    #[texture(103, sample_type = "float", filterable = false)]
+    pub facegen_offset: Option<Handle<Image>>,
 }
 
 /// [`NifSurface::holes`] of a shape with no holes.
@@ -222,6 +241,7 @@ impl Default for NifSurface {
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
             holes_texture: None,
+            facegen_offset: None,
         }
     }
 }
@@ -233,11 +253,19 @@ pub struct NifSurfaceKey {
     pub refract: bool,
     pub hard_edges: bool,
     pub shade_light: bool,
+    /// The shape has a FaceGen offset ([`NifSurface::facegen_offset`]).
+    pub facegen: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
     fn from(surface: &NifSurface) -> Self {
-        NifSurfaceKey { decal: surface.decal, refract: surface.refract, hard_edges: surface.hard_edges, shade_light: surface.shade_light }
+        NifSurfaceKey {
+            decal: surface.decal,
+            refract: surface.refract,
+            hard_edges: surface.hard_edges,
+            shade_light: surface.shade_light,
+            facegen: surface.facegen_offset.is_some(),
+        }
     }
 }
 
@@ -263,6 +291,11 @@ impl MaterialExtension for NifSurface {
         if key.bind_group_data.shade_light && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.push("SHADE_LIGHT".into());
+            }
+        }
+        if key.bind_group_data.facegen && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("FACEGEN_TINT".into());
             }
         }
         if key.bind_group_data.refract {
@@ -551,25 +584,28 @@ mod tests {
         let lod = decal_bias(DepthBiasState { constant: -50, ..default() });
         assert_eq!(lod.constant, DECAL_BIAS - 50);
         assert_eq!(raster_bias(decal.constant), decal.constant);
-        // Only the decal, refraction, hard-edge and shade-light switches select the pipeline; the falloff and the
+        // Only the decal, refraction, hard-edge, shade-light and FaceGen switches select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false });
         assert_eq!(surface.alpha_cut, 0.0);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         surface.alpha_cut = 0.5;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false });
+        // A FaceGen offset selects the tinting shader.
+        surface.facegen_offset = Some(Handle::default());
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true });
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).

@@ -59,20 +59,71 @@ uGridsToLoad=5).
 
 ## 2. What runs off the main thread now
 
-- **FaceGen textures** (`nvforever/src/facegen.rs`). The tinted texture is made on a
-  worker thread (Bevy's async compute pool). The NPC's material starts with the model's
-  own (untinted) texture and is given the tinted one when it is made
-  (`FaceGenCache::finish`, PreUpdate) [engineering choice: the NPC is never drawn without
-  a face; its skin tone settles a few frames later]. Made textures are reused by what they
-  are made of (face or skin, `.egt`, texture, coefficients) while anything draws them, so
-  re-dressing an NPC (`outfits.rs`) does not make them again.
-- **Actor parts** (`nvf-assets/src/actor.rs`). Before `nav::show_actor` draws an actor
-  for the first time it asks `ActorCtx::parts_ready` for the actor's part models; parts
-  not prepared or read yet are read, inflated and parsed on a worker thread, with the
-  texture files their texture sets name (`TextureCache::offer`). The actor is drawn once
-  they are in [engineering choice: a few frames later, at the edge of the loaded cells].
-  Preparing the part (meshes, materials, GPU textures) stays on the main thread; it needs
-  the asset stores.
+- **FaceGen textures**: no longer made (§3). Between PR #587 and the shader tint the
+  tinted copies were made on a worker thread and put into the materials a few frames
+  after the NPC appeared.
+- **Actor parts** (`nvf-assets/src/actor.rs`). Before an actor is drawn for the first
+  time, `readahead::ready_to_draw` asks `ActorCtx::parts_ready` for its part models, its
+  weapon's model and its skeleton; those not prepared or read yet are read, inflated and
+  parsed on a worker thread, with the texture files their texture sets name
+  (`TextureCache::offer`). The actor is drawn once they are in [engineering choice: a few
+  frames later, at the edge of the loaded cells]. Residents and travellers
+  (`nav::show_actor`) wait so; so do the placed actors of a cell loaded after the start
+  (`world::load_cell` puts them in `Streamer::waiting`, `world::draw_waiting_actors`
+  draws them); before the start's cells are in, behind the loading screen, they are drawn
+  at once. Preparing a part (meshes, materials, GPU textures) needs the asset stores and
+  stays on the main thread.
+- **Read-ahead** (`nvforever/src/readahead.rs`). When the cell the loaded grid is around
+  changes (outdoors, after the start), the actors of the band just outside the grid (the
+  ring between the loaded 5 × 5 cells and 7 × 7: placed NPCs and creatures enabled there,
+  and residents not drawn whose walkers stand there) are listed. Within 4 ms a frame
+  (`PREPARE_BUDGET`) they are resolved, the reads above started for them, and what has
+  been read prepared on the main thread (`ActorCtx::part`, `ActorCtx::skeleton`). An
+  NPC's FaceGen files (the `.egm` beside each part, the head's `.egt`, the race's body
+  and hand `.egt`) are read on a worker thread and offered to `FaceGenCache`
+  (`facegen::read_file`, `FaceGenCache::offer`). Once an actor's skeleton is
+  prepared, the clip sets and weapon stance it is drawn with (standing, sneaking,
+  swimming, limping, a creature's alert set; `actors::Anims::warm`) are loaded from their
+  KF files on a worker thread through `ClipReader` (`nvf_assets::actor::ClipSource`: the
+  loaders in `locomotion.rs` and `weapons.rs` read clips through it). `Anims` does not
+  hold its lock while loading, so drawing an actor never waits for a worker; both may
+  load a set once and the first kept wins [engineering choice]. A weapon's `UPB` node
+  strings are cached (`ModelCtx::node_strings`) instead of reading the model again for
+  every NPC holding it.
+
+  An actor walking into the loaded cells, or a cell of them loading, then finds its
+  parts, skeleton and clips ready: what is left on the frame it is drawn is resolving it,
+  the per-NPC FaceGen shape (`FaceGenCache::morph`) and tint offsets (§3), retextured
+  materials (`ActorCtx::material_with_texture`) and the entities. Parts prepared ahead and
+  not used go after the caches' minute (`nvf_assets::release`): a player standing still at
+  the edge of a ring has its actors read again when they come.
+
+  Measuring: `stress hitch:` lines say how many actors a slow frame drew and their time
+  (`readahead::clocked`); a run ends with `stress actors: …` (the frames that drew actors)
+  and `actor read-ahead summary: …` (actors listed, parts read and prepared ahead, clip
+  sets loaded ahead, actors ready at once and after waiting). `NVF_PLAY_TEST_NO_READ_AHEAD=1`
+  turns the read-ahead off for a comparison (`python tools/stress run tour … --aid
+  NVF_PLAY_TEST_NO_READ_AHEAD=1`). Smoke: `actor-read-ahead` (residents),
+  `actor-read-ahead-placed` (cells' placed actors).
+
+  Tour slices 52:60 and 26:31 of the towns route, one build (this branch, on the
+  FaceGen shader tint), read-ahead on and off [observed, 2026-10-22,
+  target/stress/tour/final-{on,off}-*, private]:
+
+  | slice | read-ahead | actors drawn | their time | most in a frame | ready at once | worst frame drawing actors | 1 % low |
+  |---|---|---|---|---|---|---|---|
+  | 52:60 | on | 140 | 476 ms | 60 ms | 129 | 89 ms | 59.1 ms |
+  | 52:60 | off | 140 | 1205 ms | 123 ms | 79 | 91 ms | 63.8 ms |
+  | 26:31 | on | 133 | 420 ms | 63 ms | 127 | 92 ms | 68.8 ms |
+  | 26:31 | off | 133 | 1208 ms | 125 ms | 64 | 126 ms | 74.4 ms |
+
+  The read-ahead itself took 854 ms over 279 frames (52:60) and 870 ms over 208 frames
+  (26:31), at most 19 and 26 ms in a frame (one part's preparation runs over the
+  budget); it read 78 and 83 FaceGen files and 16 and 22 skeletons' clip sets ahead. Since PR #587 no frame over 250 ms comes from drawing actors in either slice,
+  with or without the read-ahead; the one left in each is `lodgen` at the start (§1).
+  With the read-ahead on, the actors that still waited for their parts had not stood in
+  a ring before they came into range (a resident walking in from beyond it)
+  [hypothesis: not traced per actor].
 
 - **Cells** (`nvforever/src/world.rs`, `nvf-assets/src/model.rs`, `texture.rs`;
   `CellSpawn`, `ReadAhead`). Before the start square is in, and behind a loading screen,
@@ -105,15 +156,72 @@ uGridsToLoad=5).
 
 ## 3. Left to do
 
-- Do the FaceGen tint in the face/skin shader (a small per-NPC offset texture added at
-  draw time) instead of a per-NPC full texture: no CPU pass and less memory. The add is
-  done on stored sRGB bytes with rounding and clamping today, so the shader has to match
-  that to keep the look.
-- Read ahead the actors of the next ring of cells (7 × 7) so they are ready before they
-  are needed; actors drawn by other paths (`world::load_cell`, `outfits.rs`) still prepare
-  parts on first use.
+- Done: the FaceGen tint is added in the face and skin shader (`nvf-assets`
+  `nif_material.rs`, "FaceGen tint"; `nvforever/src/facegen.rs`). Per NPC only the
+  `.egt` offset image is made, on the main thread when the NPC's parts are put together:
+  the face's 256 × 256 and the body's and hands' 32 × 32, as 16-bit floats (512 KB and
+  8 KB), in place of a 1024² face and a 512² body copy with mipmaps (about 5.6 MB and
+  1.4 MB). The shader adds the offset, upsampled bilinearly and flipped vertically, to the
+  texel's stored sRGB value and holds it to 0–255, as the CPU add did; it no longer
+  rounds to whole units, and it holds after the texture is filtered rather than per
+  texel. A unit test checks the shader's formula against `add_offset` texel by texel
+  (within the CPU's rounding). Close frames of Sunny Smiles from the dialogue camera
+  (actors.md §4.3), 1280 × 720, shader against the CPU version, in display units: on
+  her face a mean difference of 0.29 (99th percentile 2, largest 7), on her hands 0.09
+  (largest 2); the tint itself (the same frames against `--no-facegen`) moves the face
+  by 10.45 on average and the hands by 2.75 [observed, 2026-10-22]. The body skin is now
+  drawn from the full 1024² texture (the CPU copy was halved to 512²), so it is
+  slightly sharper up close. The NPC is drawn tinted from its first frame.
+  Main-thread cost, measured in the Prospector Saloon (`facegen-tint-shader` smoke):
+  5.1 ms for 3 face and 5 skin offsets (about 1.6 ms per face; the sum is per colour
+  plane so it vectorises), and 27 ms reading the `.egt` files once per file (the head
+  file is about 10 MB; the exit line's "FaceGen:" figures).
+- The `.egt` files of actors in the read-ahead's ring are read on a worker thread (§2);
+  the NPCs of the start's cells, and any not read ahead, still read theirs on the main
+  thread the first time (up to about 20 ms per file, once).
+- Actors re-dressed (`outfits.rs`) still prepare a newly worn part on first use; the
+  read-ahead resolves an actor's appearance from its record, not its inventory. Interiors
+  and doors' destinations are not read ahead.
 - Cells: grass (`grass.rs` `place` and the merged meshes), SpeedTree trees, light and
   placeable-water models and actors' parts in `world::load_cell` are still made on the
   main thread when the cell is spawned (within the spawning budget, but one large piece
   can overrun it).
-- `lodgen` should leave cores free for the frame.
+- ~~`lodgen` should leave cores free for the frame.~~ Done (branch claude/lodgen-throttle,
+  2026-10-22):
+  - **Why the frame stalled.** Not core starvation: Bevy's async compute pool has 4
+    threads here (25 % of 32, at most 4), and the machine had cores to spare. The frame
+    *waited* for the bakes. Bevy 0.19 compiles render pipelines as tasks on that same pool
+    (`PipelineCache`, `create_pipeline_task`), and the upscaling pass `block_on`s its
+    pipeline when a view first needs one ("ensure the pipeline is loaded before
+    continuing the frame") [documented: bevy_render 0.19.1 `render_resource/
+    pipeline_cache.rs`, bevy_core_pipeline 0.19.1 `upscaling/mod.rs`]. With every pool
+    thread on a 200–600 ms bake, such a compile queues behind all of them [hypothesis:
+    the blocked compile was not caught in a profile]; what was seen is that a 4.8 s frame
+    on a full lap began as eight bakes were queued and ended 0.15 s after the last of
+    them finished [observed: per-bake timing in a build of f28edbaa,
+    target/stress/tour/diag-52, private]. The archive lock (`fnv_vfs::Vfs::read` holds an
+    archive's mutex while it inflates) was ruled out: 12 waits over 5 ms in that lap
+    [observed].
+  - **What changed.** Bakes run on two threads of their own at the lowest thread priority
+    (`lodgen::Baker`, `lod.rs` `BAKE_THREADS`), off the async compute pool, so pipeline
+    compiles, FaceGen tints and actor part reads never queue behind them, and they only
+    take cores nothing else wants. The queue is still nearest first and is replaced when
+    the camera's cell changes; a chunk being baked finishes. Finished bakes are taken two
+    a frame (`BAKES_PER_FRAME`) [engineering choices].
+  - **Result** (`tools/stress` tour, the waypoint 52–60 and 26–31 routes of §1, b5333ddb
+    with and without the change, fresh cache each run) [observed: target/stress/tour
+    before-* and after-*, private]:
+
+    | stretch | worst frame before | after | 1 % low before | after |
+    |---|---|---|---|---|
+    | 52–60 | 1214 ms (t 6.2 s) | 210 ms | 62 ms | 60 ms |
+    | 26–31 | 1041 ms (t 5.5 s) | 995 ms (t 5.1 s) | 72 ms | 80 ms |
+
+    The 26–31 frame left is the jump itself, under the loading screen: with `--no-lodgen`
+    the same frame is 1005 ms [observed: nolod-26-31]. On the full lap the worst frame
+    went from 4844 ms to 1243 ms (that one with no bake waited on). Generated terrain
+    still fills in after a jump: `--screenshot` (which waits until nothing is baking)
+    from two high views with a cold cache drew 56 generated chunks, the same picture as
+    before the change [observed].
+- The jump's own ~1 s frame (26–31 above, with or without generated terrain), and the
+  1.2 s frame entering cell -16,-13 on the full lap: not looked into yet.

@@ -158,6 +158,22 @@ pub struct Streamer {
     pub stats: StreamStats,
     /// The cells drawn most recently, for the AI's process levels (`cell_buffer.rs`).
     pub buffer: crate::cell_buffer::CellBuffer,
+    /// The exterior cell the loaded grid is around (the camera's, or a travel's arrival).
+    pub centre: Option<(i32, i32)>,
+    /// Placed actors of loaded cells whose parts are still being read on a worker thread
+    /// (`readahead::ready_to_draw`), drawn by [`draw_waiting_actors`] once they are in.
+    pub waiting: Vec<WaitingActor>,
+}
+
+/// A placed actor or creature of a loaded cell, drawn once its parts are read.
+pub struct WaitingActor {
+    cell: Entity,
+    rt: Affine3A,
+    at: Vec3,
+    reference: u32,
+    base: u32,
+    creature: bool,
+    hidden: bool,
 }
 
 impl Streamer {
@@ -269,6 +285,7 @@ pub fn stream(
     }
     let g = bevy_to_game(cam.translation());
     let centre = streamer.arrival.unwrap_or_else(|| cell_of(g.x, g.y));
+    streamer.centre = Some(centre);
     let r = streamer.radius;
     let want: HashSet<(i32, i32)> =
         (-r..=r).flat_map(|dx| (-r..=r).map(move |dy| (centre.0 + dx, centre.1 + dy))).collect();
@@ -814,7 +831,10 @@ fn spawn_ref(
     actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts)>,
     streamer: &mut Streamer,
 ) {
-    let (hide, light_scale, managed, stats) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats);
+    // Once the start's cells are in, an actor whose parts are not read yet is drawn when
+    // they are (`draw_waiting_actors`); before, behind the loading screen, at once.
+    let waits = streamer.settled;
+    let (hide, light_scale, managed, stats, waiting) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats, &mut streamer.waiting);
     let manage_actors = streamer.manage_actors;
     let to_cell = Affine3A::from_translation(-origin);
     if managed.contains(&r) {
@@ -835,22 +855,16 @@ fn spawn_ref(
         // Enable can show them (actors.rs `SpawnedDisabled`); other models are
         // nvf-play's (`script_draw.rs`).
         if !p.deleted() {
-            spawn_dormant(commands, cell_e, world, &p, r, to_cell, models, actors, light_scale, emittance, stats);
+            spawn_dormant(commands, cell_e, world, &p, r, to_cell, models, actors, light_scale, emittance, stats, waits.then_some(&mut *waiting));
         }
         stats.refs_skipped_disabled += 1;
         return;
     }
     let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
-    if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"NPC_")) {
-        let mut ctx = ActorCtx { cache: parts, models };
-        if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), Vec3::from_array(p.position), r, b.form_id, aw, &mut ctx, &mut stats.actors, false) {
-            return;
-        }
-    }
-    // Placed creatures (actors.rs `spawn_creature`, actors.md §10).
-    if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"CREA")) {
-        let mut ctx = ActorCtx { cache: parts, models };
-        if crate::actors::spawn_creature(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors, false) {
+    // Placed NPCs and creatures (actors.rs `spawn`, `spawn_creature`, actors.md §10).
+    if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| matches!(&b.sig, b"NPC_" | b"CREA"))) {
+        let w = WaitingActor { cell: cell_e, rt: to_cell * ref_affine(&p), at: Vec3::from_array(p.position), reference: r, base: b.form_id, creature: &b.sig == b"CREA", hidden: false };
+        if spawn_or_wait(commands, w, aw, &mut ActorCtx { cache: parts, models }, waits.then_some(&mut *waiting), &mut stats.actors) {
             return;
         }
     }
@@ -1117,17 +1131,14 @@ fn spawn_dormant(
     light_scale: f32,
     emittance: &mut crate::emittance::EmittanceState,
     stats: &mut StreamStats,
+    waiting: Option<&mut Vec<WaitingActor>>,
 ) {
     let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { return };
     let rt = to_cell * ref_affine(p);
     match (&base.sig, actors.as_mut()) {
-        (b"NPC_", Some((aw, parts))) => {
-            let mut ctx = ActorCtx { cache: parts, models };
-            crate::actors::spawn(commands, cell_e, rt, Vec3::from_array(p.position), r, base.form_id, aw, &mut ctx, &mut stats.actors, true);
-        }
-        (b"CREA", Some((aw, parts))) => {
-            let mut ctx = ActorCtx { cache: parts, models };
-            crate::actors::spawn_creature(commands, cell_e, rt, r, base.form_id, aw, &mut ctx, &mut stats.actors, true);
+        (b"NPC_" | b"CREA", Some((aw, parts))) => {
+            let w = WaitingActor { cell: cell_e, rt, at: Vec3::from_array(p.position), reference: r, base: base.form_id, creature: &base.sig == b"CREA", hidden: true };
+            spawn_or_wait(commands, w, aw, &mut ActorCtx { cache: parts, models }, waiting, &mut stats.actors);
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
@@ -1139,6 +1150,61 @@ fn spawn_dormant(
             }
         }
         _ => {}
+    }
+}
+
+/// Draw a placed actor or creature of a loaded cell (`actors::spawn`, `spawn_creature`),
+/// or with `waiting` put it there when its parts are still to be read on a worker thread
+/// (`readahead::ready_to_draw`) [engineering choice: it appears a few frames after its cell,
+/// at the edge of the loaded cells, instead of stalling the frame]. Whether it was drawn
+/// or put to wait.
+fn spawn_or_wait(
+    commands: &mut Commands,
+    w: WaitingActor,
+    aw: &crate::actors::ActorWorld,
+    ctx: &mut ActorCtx,
+    waiting: Option<&mut Vec<WaitingActor>>,
+    stats: &mut crate::actors::ActorStats,
+) -> bool {
+    if let Some(waiting) = waiting {
+        if !crate::readahead::ready_to_draw(aw, ctx, w.reference, w.base, w.creature) {
+            waiting.push(w);
+            return true;
+        }
+    }
+    crate::readahead::clocked(|| {
+        if w.creature {
+            crate::actors::spawn_creature(commands, w.cell, w.rt, w.reference, w.base, aw, ctx, stats, w.hidden)
+        } else {
+            crate::actors::spawn(commands, w.cell, w.rt, w.at, w.reference, w.base, aw, ctx, stats, w.hidden)
+        }
+    })
+}
+
+/// Draw the placed actors waiting for their parts ([`Streamer::waiting`]) whose parts
+/// are in; those of cells gone since are dropped.
+pub fn draw_waiting_actors(
+    mut commands: Commands,
+    mut streamer: ResMut<Streamer>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+) {
+    if streamer.waiting.is_empty() {
+        return;
+    }
+    let Some(aw) = actor_world.as_deref() else { return };
+    let s = &mut *streamer;
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    for w in std::mem::take(&mut s.waiting) {
+        if !s.loaded.values().any(|&e| e == w.cell) {
+            continue;
+        }
+        if !crate::readahead::ready_to_draw(aw, &mut ctx, w.reference, w.base, w.creature) {
+            s.waiting.push(w);
+            continue;
+        }
+        spawn_or_wait(&mut commands, w, aw, &mut ctx, None, &mut s.stats.actors);
     }
 }
 

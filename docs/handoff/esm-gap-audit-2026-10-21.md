@@ -108,10 +108,15 @@ under active work.
   Nothing to build: Behave Like Exterior and XCCM (no master cell uses them), Leveled Lock
   (none of 426 locks), Off Limits (one cell; no documented effect), TERM Leveled (no rule
   documented).
-- **Sound.** Several sounds never play: MSTT SNAM, STAT RNAM and BRUS (bush rustle), LIGH
-  SNAM hum, TERM SNAM, ADDN SNAM, the PROJ in-flight sound, ~~WEAP Shoot Dist~~ (built in claude/e12-silencer-sounds), NAM6 Block and
+- ~~**Sound.** Several sounds never play: MSTT SNAM, STAT RNAM and BRUS (bush rustle), LIGH
+  SNAM hum, TERM SNAM, ADDN SNAM, the PROJ in-flight sound, WEAP Shoot Dist, NAM6 Block and
   UNAM Idle, WATR SNAM, and MGEF effect sounds. SOUN ignores its attenuation curve, loop
-  points, the 2D flag, Mute When Submerged and Start at Random Position. ASPC has no crowd walla
+  points, the 2D flag, Mute When Submerged and Start at Random Position.~~ Built in
+  claude/em6-sound ([audio](../spec-notes/audio.md) §15): MSTT, STAT RNAM, LIGH, TERM, ADDN,
+  WATR, PROJ, NAM6, UNAM, the MGEF Hit and Effect sounds, the 2D flag, Start at Random
+  Position, Mute When Submerged. Left, with reasons in §15.3: BRUS (no index → sound table),
+  the attenuation curve and loop points (units undocumented), the MGEF Bolt and Area sounds,
+  and the rest of this item: ASPC has no crowd walla
   (its reverb environment is played since claude/q27-reverb). ALOC location and retrigger delays are stored
   only. ARMO "Modulates Voice" is ignored. TACT "No Voice Filter" (header bit 13) is not
   in the schema, and no radio or intercom voice filter exists.

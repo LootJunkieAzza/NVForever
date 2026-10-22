@@ -625,6 +625,8 @@ pub struct ModelCache {
     pub(crate) light_colours: HashMap<String, Option<[f32; 3]>>,
     /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
     billboards: HashMap<u32, Option<MeshAndMaterial>>,
+    /// [`ModelCtx::node_strings`] by (archive path, key).
+    node_strings: HashMap<(String, String), Arc<HashMap<String, String>>>,
     pub failures: Vec<String>,
     /// Models prepared on worker threads ([`ModelCtx::models_ready`]) by cache key: the
     /// work under way, and the work done that waits for [`ModelCtx::take_fetched`].
@@ -841,9 +843,20 @@ pub struct ModelCtx<'w> {
 
 impl ModelCtx<'_> {
     /// The string extra data named `key` (`UPB`, `Prn`) of the model's named nodes, by
-    /// node name. Reads the file again: for the few models that need it (a weapon whose
-    /// parts hang from different bones).
-    pub fn node_strings(&mut self, path: &str, key: &str) -> HashMap<String, String> {
+    /// node name. Reads the file again the first time: for the few models that need it (a
+    /// weapon whose parts hang from different bones); cached, as every NPC holding the
+    /// weapon asks (a weapon's file read and parsed again per NPC drawn).
+    pub fn node_strings(&mut self, path: &str, key: &str) -> Arc<HashMap<String, String>> {
+        let k = (fnv_vfs::normalize(path), key.to_ascii_lowercase());
+        if let Some(out) = self.cache.node_strings.get(&k) {
+            return out.clone();
+        }
+        let out = Arc::new(self.read_node_strings(path, key));
+        self.cache.node_strings.insert(k, out.clone());
+        out
+    }
+
+    fn read_node_strings(&mut self, path: &str, key: &str) -> HashMap<String, String> {
         let mut out = HashMap::new();
         let Some(bytes) = self.data.read(path) else { return out };
         let schema = self.data.schema.clone();

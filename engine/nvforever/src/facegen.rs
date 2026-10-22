@@ -5,111 +5,53 @@
 //! textures. The combination rules are [hypothesis] (fnv_actor::facegen,
 //! docs/spec-notes/actors.md §4.2, §4.3).
 //!
-//! The tinted face and skin textures are made on a worker thread: a full-size pass per
-//! texture, two per NPC, was most of the hitch when NPCs came into view [observed: CPU
-//! profile of the towns tour, 2026-10-22, docs/design/streaming-hitches.md]. Until one is
-//! made, the NPC's material keeps the model's own texture; [`FaceGenCache::finish`] then
-//! puts the tinted one in [engineering choice: the NPC is drawn throughout, its skin tone
-//! settling a few frames later]. Made textures are reused by what they are made of while
-//! anything draws them.
+//! The tint is added in the material's shader (nvf-assets `nif_material.rs`, "FaceGen
+//! tint"): per NPC only the `.egt` offset image is made (the face's 256 × 256, the body's
+//! and hands' 32 × 32) and given to its face and skin materials; the shader adds it to
+//! the diffuse texture as `fnv_actor::facegen::add_offset` adds it to the texture's bytes.
+//! Making a tinted copy of each texture per NPC on the CPU was most of the hitch when NPCs
+//! came into view [observed: CPU profile of the towns tour, 2026-10-22,
+//! docs/design/streaming-hitches.md]; an offset image takes well under a millisecond.
+//! Offset images are reused by what they are made of while anything draws them.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
-use fnv_actor::facegen::{add_offset, Egm, Egt};
+use fnv_actor::facegen::{Egm, Egt};
 use fnv_actor::records::FaceGen;
-use fnv_dds::{to_rgba8, Dds, Format};
 use nvf_assets::actor::{ActorCtx, PreparedPart};
 use nvf_assets::{GameData, NifMaterial};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
-/// Decoded top mip of a texture: width, height, RGBA8.
-type Rgba = (usize, usize, Vec<u8>);
-
-/// A file read once, by whichever thread asks first; `None` remembers that it is absent
-/// or unreadable.
-type Slot<T> = Arc<OnceLock<Option<Arc<T>>>>;
-
-/// Parsed `.egt` files and decoded base textures by archive path, shared with the worker
-/// threads that make tinted textures.
-#[derive(Default)]
-struct Files {
-    egt: Mutex<HashMap<String, Slot<Egt>>>,
-    base: Mutex<HashMap<String, Slot<Rgba>>>,
-}
-
-impl Files {
-    fn egt(&self, data: &GameData, path: &str) -> Option<Arc<Egt>> {
-        let slot = self.egt.lock().expect("egt files").entry(path.to_string()).or_default().clone();
-        slot.get_or_init(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new)).clone()
-    }
-
-    fn base(&self, data: &GameData, path: &str) -> Option<Arc<Rgba>> {
-        let slot = self.base.lock().expect("base textures").entry(path.to_string()).or_default().clone();
-        slot.get_or_init(|| data.read(path).and_then(|b| decode_top(&b)).map(Arc::new)).clone()
-    }
-
-    /// The tinted texture `key` names, for the texture coefficients `fgts` (on a worker
-    /// thread).
-    fn make(&self, data: &GameData, key: &TintKey, fgts: &[f64]) -> Option<Image> {
-        let egt = self.egt(data, &key.egt)?;
-        let base = self.base(data, &key.texture)?;
-        let (mut w, mut h, ref px) = *base;
-        let mut rgba = px.clone();
-        let offset = egt.offset(fgts, &[]);
-        add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
-        if key.skin {
-            while w > SKIN_MAX && h > 1 {
-                (w, h, rgba) = halve(w, h, &rgba);
-            }
-        }
-        Some(image_with_mips(w, h, rgba))
-    }
-}
-
-/// What a tinted texture is made of: face or body skin, the `.egt` and the base texture
-/// (archive paths), and the texture coefficients' bits.
+/// What an offset image is made of: the `.egt` (archive path) and the texture
+/// coefficients' bits.
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct TintKey {
-    skin: bool,
+struct OffsetKey {
     egt: String,
-    texture: String,
     fgts: Vec<u64>,
 }
 
-/// A tinted texture being made, and the materials to draw with it once it is.
-struct Bake {
-    key: TintKey,
-    image: Handle<Image>,
-    task: Task<Option<Image>>,
-    materials: Vec<Handle<NifMaterial>>,
-}
-
-/// A tinted face or skin texture ([`FaceGenCache::face_texture`]): made, or being made.
-#[derive(Clone)]
-pub enum Tint {
-    Ready(Handle<Image>),
-    Pending(Handle<Image>),
-}
-
-/// Parsed FaceGen files, decoded base textures and the tinted textures made from them;
-/// `None` remembers that a file is absent or unreadable.
+/// Parsed FaceGen files and the offset images made from them; `None` remembers that a
+/// file is absent or unreadable.
 #[derive(Default)]
 pub struct FaceGenCache {
     egm: HashMap<String, Option<Arc<Egm>>>,
-    files: Arc<Files>,
-    /// Tinted textures made, while something holds them.
-    made: HashMap<TintKey, AssetId<Image>>,
-    bakes: Vec<Bake>,
+    egt: HashMap<String, Option<Arc<Egt>>>,
+    /// Offset images made, while something holds them.
+    made: HashMap<OffsetKey, AssetId<Image>>,
     pub morphed_shapes: usize,
-    pub faces_textured: usize,
-    /// Body skin textures tinted with the race's body `.egt`.
-    pub skins_textured: usize,
-    /// Tinted textures made on a worker thread and put into their materials.
-    pub tints_put_in: usize,
+    /// Face offset images made.
+    pub faces_tinted: usize,
+    /// Body and hand skin offset images made (the race's body and hand `.egt`).
+    pub skins_tinted: usize,
+    /// Materials given an offset image.
+    pub shapes_tinted: usize,
+    /// Time spent making offset images (on the main thread).
+    pub offset_time: std::time::Duration,
+    /// Time spent reading and parsing `.egt` files (on the main thread).
+    pub egt_time: std::time::Duration,
     /// EGMs whose vertex count does not cover the shape they sit beside.
     pub mismatched: usize,
 }
@@ -129,12 +71,53 @@ pub fn shape_sibling(model: &str, shape: &str, ext: &str) -> String {
     format!("{stem}{}.{ext}", shape.to_ascii_lowercase())
 }
 
+/// A FaceGen file read and parsed, for [`FaceGenCache::offer`].
+pub enum FaceGenFile {
+    Egm(Option<Arc<Egm>>),
+    Egt(Option<Arc<Egt>>),
+}
+
+/// Read and parse the `.egm` at `path`; `None` when it is absent or unreadable.
+fn read_egm(data: &GameData, path: &str) -> Option<Arc<Egm>> {
+    data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new)
+}
+
+/// Read and parse the `.egt` at `path`; `None` when it is absent or unreadable.
+fn read_egt(data: &GameData, path: &str) -> Option<Arc<Egt>> {
+    data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new)
+}
+
+/// Read and parse the FaceGen file at `path` (an `.egm` or `.egt`), on a worker thread
+/// (`readahead.rs`).
+pub fn read_file(data: &GameData, path: &str) -> FaceGenFile {
+    if path.ends_with(".egt") {
+        FaceGenFile::Egt(read_egt(data, path))
+    } else {
+        FaceGenFile::Egm(read_egm(data, path))
+    }
+}
+
 impl FaceGenCache {
     pub(crate) fn egm(&mut self, data: &GameData, path: &str) -> Option<Arc<Egm>> {
-        self.egm
-            .entry(path.to_string())
-            .or_insert_with(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new))
-            .clone()
+        self.egm.entry(path.to_string()).or_insert_with(|| read_egm(data, path)).clone()
+    }
+
+    /// Whether the FaceGen file at `path` has been read (or found absent).
+    pub fn has(&self, path: &str) -> bool {
+        self.egm.contains_key(path) || self.egt.contains_key(path)
+    }
+
+    /// A FaceGen file read ahead on a worker thread ([`read_file`]); kept unless it has
+    /// been read here meanwhile.
+    pub fn offer(&mut self, path: String, file: FaceGenFile) {
+        match file {
+            FaceGenFile::Egm(f) => {
+                self.egm.entry(path).or_insert(f);
+            }
+            FaceGenFile::Egt(f) => {
+                self.egt.entry(path).or_insert(f);
+            }
+        }
     }
 
     /// Per shape of `part` (model `model`), a mesh morphed by `fg`'s FGGS and FGGA
@@ -168,164 +151,98 @@ impl FaceGenCache {
         out
     }
 
-    /// The face texture of an NPC: `texture` (or the shape's own diffuse) plus the
-    /// `.egt` offset beside `model` for the texture coefficients `fgts`
-    /// (`Appearance::skin_fgts`). Put on a material with [`Self::tinted`].
-    pub fn face_texture(&mut self, ctx: &mut ActorCtx, model: &str, texture: &str, fgts: &[f64]) -> Option<Tint> {
-        self.tint(ctx, false, sibling(model, "egt"), fnv_vfs::texture_path(texture), fgts)
+    fn egt(&mut self, data: &GameData, path: &str) -> Option<Arc<Egt>> {
+        let time = &mut self.egt_time;
+        self.egt
+            .entry(path.to_string())
+            .or_insert_with(|| {
+                let start = std::time::Instant::now();
+                let egt = read_egt(data, path);
+                *time += start.elapsed();
+                egt
+            })
+            .clone()
     }
 
-    /// An NPC's body skin texture: `texture` plus the race's "Upper Body Texture" `.egt`
-    /// (`egt`, archive path) for the texture coefficients `fgts`, combined as for the face
-    /// [hypothesis, actors.md §4.1]. The result is halved until at most
-    /// [`SKIN_MAX`] wide (the body texture is 1024² [observed], the EGT 32×32), so one
-    /// per actor stays small.
-    pub fn skin_texture(&mut self, ctx: &mut ActorCtx, egt: &str, texture: &str, fgts: &[f64]) -> Option<Tint> {
-        self.tint(ctx, true, egt.to_string(), fnv_vfs::texture_path(texture), fgts)
+    /// The face offset of an NPC: the `.egt` beside `model` for the texture coefficients
+    /// `fgts` (`Appearance::skin_fgts`), added to the head's texture in the shader. Put on
+    /// a material with [`Self::tinted`].
+    pub fn face_offset(&mut self, ctx: &mut ActorCtx, model: &str, fgts: &[f64]) -> Option<Handle<Image>> {
+        self.offset(ctx, false, sibling(model, "egt"), fgts)
     }
 
-    /// The tinted texture made of `egt` and `texture` for `fgts`: the one made already,
-    /// else one a worker thread makes. `None`: either file is missing.
-    fn tint(&mut self, ctx: &mut ActorCtx, skin: bool, egt: String, texture: String, fgts: &[f64]) -> Option<Tint> {
-        let data = &ctx.models.data;
-        if !data.vfs.exists(&egt) || !data.vfs.exists(&texture) {
-            return None;
-        }
-        let key = TintKey { skin, egt, texture, fgts: fgts.iter().map(|v| v.to_bits()).collect() };
+    /// An NPC's body skin offset: the race's "Upper Body Texture" `.egt` (`egt`, archive
+    /// path) for the texture coefficients `fgts`, combined as for the face [hypothesis,
+    /// actors.md §4.1]; the hands' likewise.
+    pub fn skin_offset(&mut self, ctx: &mut ActorCtx, egt: &str, fgts: &[f64]) -> Option<Handle<Image>> {
+        self.offset(ctx, true, egt.to_string(), fgts)
+    }
+
+    /// The offset image of `egt` for `fgts`: the one made already, else a new one.
+    /// `None`: the `.egt` is missing or unreadable.
+    fn offset(&mut self, ctx: &mut ActorCtx, skin: bool, egt: String, fgts: &[f64]) -> Option<Handle<Image>> {
+        let key = OffsetKey { egt, fgts: fgts.iter().map(|v| v.to_bits()).collect() };
         if let Some(image) = self.made.get(&key).and_then(|id| ctx.models.images.get_strong_handle(*id)) {
-            return Some(Tint::Ready(image));
+            return Some(image);
         }
-        if let Some(b) = self.bakes.iter().find(|b| b.key == key) {
-            return Some(Tint::Pending(b.image.clone()));
-        }
-        let image = ctx.models.images.reserve_handle();
-        let (files, data, job, fgts) = (self.files.clone(), (*ctx.models.data).clone(), key.clone(), fgts.to_vec());
-        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { files.make(&data, &job, &fgts) });
-        *(if skin { &mut self.skins_textured } else { &mut self.faces_textured }) += 1;
-        self.bakes.push(Bake { key, image: image.clone(), task, materials: Vec::new() });
-        Some(Tint::Pending(image))
+        let file = self.egt(&ctx.models.data, &key.egt)?;
+        let start = std::time::Instant::now();
+        let image = offset_image(file.columns, file.rows, &offset_planes(&file, fgts));
+        self.offset_time += start.elapsed();
+        let images = &mut ctx.models.images;
+        let image = images.add(image);
+        self.made.retain(|_, id| images.contains(*id));
+        self.made.insert(key, image.id());
+        *(if skin { &mut self.skins_tinted } else { &mut self.faces_tinted }) += 1;
+        Some(image)
     }
 
-    /// A copy of `material` drawn with `tint`: with it now when it is made, else with the
-    /// material's own texture until [`Self::finish`] puts it in.
-    pub fn tinted(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>, tint: &Tint) -> Option<Handle<NifMaterial>> {
+    /// A copy of `material` whose shader adds the FaceGen offset `offset` to its texture.
+    pub fn tinted(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>, offset: &Handle<Image>) -> Option<Handle<NifMaterial>> {
         let mut m = materials.get(material)?.clone();
-        let (Tint::Ready(image) | Tint::Pending(image)) = tint;
-        let bake = self.bakes.iter_mut().find(|b| b.image.id() == image.id());
-        if bake.is_none() {
-            m.base.base_color_texture = Some(image.clone());
-        }
-        let copy = materials.add(m);
-        if let Some(b) = bake {
-            b.materials.push(copy.clone());
-        }
-        Some(copy)
-    }
-
-    /// Put the tinted textures made since the last call into their materials; the number
-    /// put in. One that could not be made (an unreadable file) leaves its materials with
-    /// their own texture.
-    pub fn finish(&mut self, images: &mut Assets<Image>, materials: &mut Assets<NifMaterial>) -> usize {
-        let mut done = 0;
-        let mut i = 0;
-        while i < self.bakes.len() {
-            let Some(result) = check_ready(&mut self.bakes[i].task) else {
-                i += 1;
-                continue;
-            };
-            let b = self.bakes.swap_remove(i);
-            let Some(image) = result else { continue };
-            if images.insert(b.image.id(), image).is_err() {
-                continue;
-            }
-            for m in &b.materials {
-                if let Some(mut m) = materials.get_mut(m) {
-                    m.base.base_color_texture = Some(b.image.clone());
-                }
-            }
-            self.made.insert(b.key, b.image.id());
-            self.tints_put_in += 1;
-            done += 1;
-        }
-        if done > 0 {
-            self.made.retain(|_, id| images.contains(*id));
-        }
-        done
+        m.extension.facegen_offset = Some(offset.clone());
+        self.shapes_tinted += 1;
+        Some(materials.add(m))
     }
 }
 
-/// Widest body skin texture made per actor ([`FaceGenCache::skin_texture`]).
-pub const SKIN_MAX: usize = 512;
-
-/// Box-filter an RGBA8 image to half size.
-fn halve(w: usize, h: usize, px: &[u8]) -> (usize, usize, Vec<u8>) {
-    let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
-    let mut next = vec![0u8; nw * nh * 4];
-    for y in 0..nh {
-        for x in 0..nw {
-            for k in 0..4 {
-                let at = |xx: usize, yy: usize| u32::from(px[(yy.min(h - 1) * w + xx.min(w - 1)) * 4 + k]);
-                let sum = at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1);
-                next[(y * nw + x) * 4 + k] = ((sum + 2) / 4) as u8;
+/// `Egt::offset` for the symmetric coefficients `fgts`, one plane per colour: the same
+/// sums, in an order the compiler can vectorise (a 256 × 256 face file has 50 modes).
+fn offset_planes(egt: &Egt, fgts: &[f64]) -> [Vec<f32>; 3] {
+    let n = egt.rows * egt.columns;
+    let mut planes = [vec![0.0f32; n], vec![0.0f32; n], vec![0.0f32; n]];
+    for (m, (scale, img)) in egt.modes.iter().enumerate().take(egt.symmetric) {
+        let w = fgts.get(m).copied().unwrap_or(0.0) as f32 * scale;
+        if w == 0.0 {
+            continue;
+        }
+        for (plane, channel) in planes.iter_mut().zip(img) {
+            for (o, &v) in plane.iter_mut().zip(channel) {
+                *o += w * f32::from(v);
             }
         }
     }
-    (nw, nh, next)
+    planes
 }
 
-/// Decode the top mip of a DDS texture to RGBA8.
-fn decode_top(bytes: &[u8]) -> Option<Rgba> {
-    let dds = Dds::parse(bytes).ok()?;
-    let level = dds.levels.first()?.first()?;
-    let (w, h) = (dds.header.width as usize, dds.header.height as usize);
-    let bc = match dds.format {
-        Format::Dxt1 => Some(texpresso::Format::Bc1),
-        Format::Dxt3 => Some(texpresso::Format::Bc2),
-        Format::Dxt5 => Some(texpresso::Format::Bc3),
-        _ => None,
-    };
-    let rgba = match bc {
-        Some(f) => {
-            let mut out = vec![0u8; w * h * 4];
-            f.decompress(level, w, h, &mut out);
-            out
+/// The texture holding a FaceGen offset (`rows` × `columns` colour offsets per plane, the
+/// file's first row first) for the shader, which reads it unfiltered: 16-bit floats,
+/// which keep an offset of the observed −60…+20 units (actors.md §4) to 1/32 of a unit.
+fn offset_image(columns: usize, rows: usize, planes: &[Vec<f32>; 3]) -> Image {
+    let n = rows * columns;
+    let mut data = Vec::with_capacity(n * 8);
+    for ((&r, &g), &b) in planes[0].iter().zip(&planes[1]).zip(&planes[2]).take(n) {
+        for v in [r, g, b, 0.0] {
+            data.extend_from_slice(&half::f16::from_f32(v).to_le_bytes());
         }
-        None => to_rgba8(dds.format, level)?,
-    };
-    Some((w, h, rgba))
-}
-
-/// An sRGB RGBA8 image with a box-filtered mip chain.
-fn image_with_mips(w: usize, h: usize, top: Vec<u8>) -> Image {
-    let mut data = top.clone();
-    let (mut cw, mut ch, mut cur) = (w, h, top);
-    let mut levels = 1;
-    while cw > 1 || ch > 1 {
-        let (nw, nh) = ((cw / 2).max(1), (ch / 2).max(1));
-        let mut next = vec![0u8; nw * nh * 4];
-        for y in 0..nh {
-            for x in 0..nw {
-                for k in 0..4 {
-                    let at = |xx: usize, yy: usize| u32::from(cur[(yy.min(ch - 1) * cw + xx.min(cw - 1)) * 4 + k]);
-                    let sum = at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1);
-                    next[(y * nw + x) * 4 + k] = ((sum + 2) / 4) as u8;
-                }
-            }
-        }
-        data.extend_from_slice(&next);
-        (cw, ch, cur) = (nw, nh, next);
-        levels += 1;
     }
-    let mut img = Image::new(
-        Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+    Image::new(
+        Extent3d { width: columns as u32, height: rows as u32, depth_or_array_layers: 1 },
         TextureDimension::D2,
         data,
-        TextureFormat::Rgba8UnormSrgb,
+        TextureFormat::Rgba16Float,
         RenderAssetUsages::RENDER_WORLD,
-    );
-    img.texture_descriptor.mip_level_count = levels;
-    img.sampler = nvf_assets::texture::sampler();
-    img
+    )
 }
 
 #[cfg(test)]
@@ -340,18 +257,96 @@ mod tests {
         assert_eq!(shape_sibling("x", "Hat", "egm"), "xhat.egm");
     }
 
+    /// CPU mirror of the shader's `facegen_offset_at` (nif_material.wgsl).
+    fn offset_at(offset: &[[f32; 3]], rows: usize, columns: usize, u: f32, v: f32) -> [f32; 3] {
+        let (u, v) = (u.rem_euclid(1.0), v.rem_euclid(1.0));
+        let x = (u * columns as f32 - 0.5).clamp(0.0, (columns - 1) as f32);
+        let y = ((1.0 - v) * rows as f32 - 0.5).clamp(0.0, (rows - 1) as f32);
+        let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(columns - 1), (y0 + 1).min(rows - 1));
+        let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+        let at = |xx: usize, yy: usize| offset[yy * columns + xx];
+        std::array::from_fn(|k| {
+            let top = at(x0, y0)[k] + (at(x1, y0)[k] - at(x0, y0)[k]) * fx;
+            let bottom = at(x0, y1)[k] + (at(x1, y1)[k] - at(x0, y1)[k]) * fx;
+            top + (bottom - top) * fy
+        })
+    }
+
+    fn srgb_to_linear(c: f32) -> f32 {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn linear_to_srgb(c: f32) -> f32 {
+        if c <= 0.0031308 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        }
+    }
+
+    /// CPU mirror of the shader's `facegen_tint`: a texel as sampled (linear) plus an
+    /// offset in stored units, held to 0..255, linear again.
+    fn tint_texel(texel: f32, offset: f32) -> f32 {
+        let stored = linear_to_srgb(texel.clamp(0.0, 1.0)) * 255.0;
+        srgb_to_linear((stored + offset).clamp(0.0, 255.0) / 255.0)
+    }
+
+    /// The shader's add, read at each texel's centre, gives what `add_offset` stores in
+    /// that texel, to its rounding: same flip, same upsampling, same hold to 0..255.
     #[test]
-    fn halving_averages_blocks() {
-        let px: Vec<u8> = [0u8, 0, 0, 255, 100, 100, 100, 255].repeat(4);
-        let (w, h, out) = halve(4, 2, &px);
-        assert_eq!((w, h), (2, 1));
-        assert_eq!(&out[..4], &[50, 50, 50, 255]);
+    fn shader_add_matches_the_cpu_add() {
+        let (w, h, rows, columns) = (64usize, 48usize, 8usize, 6usize);
+        let px: Vec<u8> = (0..w * h * 4).map(|i| ((i * 37 + i / 7) % 256) as u8).collect();
+        // Up to about ±90 units, rows and columns different, so a flip or a transpose shows.
+        let offset: Vec<[f32; 3]> = (0..rows * columns)
+            .map(|i| {
+                let (r, c) = ((i / columns) as f32, (i % columns) as f32);
+                [r * 12.0 - 40.0, c * 15.0 - 30.0, (r - c) * 9.0]
+            })
+            .collect();
+        let mut cpu = px.clone();
+        fnv_actor::facegen::add_offset(&mut cpu, w, h, &offset, rows, columns);
+        let mut worst = 0.0f32;
+        for y in 0..h {
+            for x in 0..w {
+                let (u, v) = ((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+                let o = offset_at(&offset, rows, columns, u, v);
+                for k in 0..3 {
+                    let texel = srgb_to_linear(f32::from(px[(y * w + x) * 4 + k]) / 255.0);
+                    let shader = linear_to_srgb(tint_texel(texel, o[k])) * 255.0;
+                    worst = worst.max((shader - f32::from(cpu[(y * w + x) * 4 + k])).abs());
+                }
+            }
+        }
+        assert!(worst <= 0.5 + 1e-3, "worst difference {worst} units");
+    }
+
+    /// The planes hold `Egt::offset`'s sums.
+    #[test]
+    fn planes_match_egt_offset() {
+        let n = 12;
+        let image = |seed: i32| -> [Vec<i8>; 3] { std::array::from_fn(|k| (0..n).map(|i| ((i * 7 + seed * 13 + k as i32 * 29) % 255 - 127) as i8).collect()) };
+        let egt = Egt { rows: 3, columns: 4, symmetric: 3, asymmetric: 0, basis_version: 0, modes: vec![(0.5, image(1)), (0.25, image(2)), (1.5, image(3))] };
+        let fgts = [1.0, -2.0, 0.75];
+        let planes = offset_planes(&egt, &fgts);
+        for (i, o) in egt.offset(&fgts, &[]).iter().enumerate() {
+            for k in 0..3 {
+                assert!((planes[k][i] - o[k]).abs() < 1e-4);
+            }
+        }
     }
 
     #[test]
-    fn mip_chain() {
-        let img = image_with_mips(4, 2, vec![100; 4 * 2 * 4]);
-        assert_eq!(img.texture_descriptor.mip_level_count, 3);
-        assert_eq!(img.data.as_ref().unwrap().len(), (8 + 2 + 1) * 4);
+    fn offset_texture_layout() {
+        let img = offset_image(2, 3, &[vec![1.0; 6], vec![-2.0; 6], vec![0.5; 6]]);
+        assert_eq!(img.texture_descriptor.size, Extent3d { width: 2, height: 3, depth_or_array_layers: 1 });
+        let data = img.data.as_ref().unwrap();
+        assert_eq!(data.len(), 2 * 3 * 8);
+        assert_eq!(half::f16::from_le_bytes([data[2], data[3]]).to_f32(), -2.0);
     }
 }

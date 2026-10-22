@@ -10,7 +10,7 @@
 use bevy::prelude::*;
 use fnv_actor::locomotion::{choose, direction, hurt_move_in, wrap01, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, Slot, HURT_FOLDER, RATE_MAX, RATE_MIN};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
-use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
+use nvf_assets::actor::{bind_clip, clip_binding, ClipSource, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
 use std::collections::BTreeMap;
 use std::f32::consts::{FRAC_PI_2, PI};
@@ -71,12 +71,12 @@ pub struct JumpClips {
 
 impl JumpClips {
     /// The clips of `stance` in `folder` (the skeleton's), bound to `skel`.
-    pub fn load(ctx: &mut ActorCtx, folder: &str, skel: &PreparedSkeleton, stance: &str) -> JumpClips {
+    pub fn load(ctx: &mut impl ClipSource, folder: &str, skel: &PreparedSkeleton, stance: &str) -> JumpClips {
         let mut out = JumpClips::default();
         for (k, land) in [false, true].into_iter().enumerate() {
             for (i, name) in fnv_actor::jump::clip_names(stance, land).iter().enumerate() {
                 let path = format!("{folder}\\{name}");
-                out.clips[k][i] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+                out.clips[k][i] = ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
             }
         }
         out
@@ -198,10 +198,10 @@ impl ClipSet {
     /// by `LocomotionSet::find` in the skeleton's folder, each loaded and bound to `skel`.
     /// Also returns a report line.
     /// `stance` is the clips' prefix ([`STANCE`], [`SNEAK_STANCE`]).
-    pub fn load_stance(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, stance: &str) -> (ClipSet, String) {
+    pub fn load_stance(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, body: Body, stance: &str) -> (ClipSet, String) {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
-        let found = LocomotionSet::find(&folder, body, stance, |p| ctx.models.data.vfs.exists(p));
+        let found = LocomotionSet::find(&folder, body, stance, |p| ctx.data().vfs.exists(p));
         let (mut set, report) = ClipSet::bind_moves(ctx, skel, found);
         set.jump = JumpClips::load(ctx, &folder, skel, stance);
         if stance == SNEAK_STANCE {
@@ -211,18 +211,18 @@ impl ClipSet {
         }
         for p in DEATH_POSES {
             let path = format!("{folder}\\{p}");
-            if let Some(clip) = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten() {
+            if let Some(clip) = ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten() {
                 set.death.push(Arc::new(bind_clip(skel, clip)));
             }
         }
         for (k, f) in FLINCHES.iter().enumerate() {
             let path = format!("{folder}\\{f}");
-            set.flinch[k] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+            set.flinch[k] = ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
         }
         for (k, names) in GET_UPS.iter().enumerate() {
             set.getup[k] = names.iter().find_map(|f| {
                 let path = format!("{folder}\\{f}");
-                ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)))
+                ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)))
             });
         }
         let missing: Vec<&str> = Move::ALL.iter().filter(|m| !set.clips.contains_key(m)).map(|m| m.group()).collect();
@@ -231,7 +231,7 @@ impl ClipSet {
     }
 
     /// The clips of `found` loaded and bound to `skel`, with a report entry per move.
-    fn bind_moves(ctx: &mut ActorCtx, skel: &PreparedSkeleton, found: LocomotionSet) -> (ClipSet, Vec<String>) {
+    fn bind_moves(ctx: &mut impl ClipSource, skel: &PreparedSkeleton, found: LocomotionSet) -> (ClipSet, Vec<String>) {
         let mut set = ClipSet::default();
         let mut report = Vec::new();
         for (m, path) in found.clips {
@@ -276,11 +276,11 @@ impl ClipSet {
     /// returns a report line. The calm set takes `["mt"]`; a creature's alert set
     /// (`h2h` moves over the calm ones, [`ClipSet::alert_from`]) takes `["mt", "h2h"]`,
     /// so that a dog in a fight limps on its `h2hfastforward_hurt.kf` [design].
-    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet, stances: &[&str]) -> Option<(ClipSet, String)> {
+    pub fn load_hurt(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet, stances: &[&str]) -> Option<(ClipSet, String)> {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let dir = format!("{folder}\\{HURT_FOLDER}\\");
-        let files = ctx.models.data.vfs.paths(|p| p.strip_prefix(&dir).is_some_and(|f| f.ends_with(".kf") && !f.contains('\\')));
+        let files = ctx.data().vfs.paths(|p| p.strip_prefix(&dir).is_some_and(|f| f.ends_with(".kf") && !f.contains('\\')));
         let mut set = base.clone();
         let mut found: Vec<(Move, String)> = Vec::new();
         for stance in stances {
@@ -324,11 +324,11 @@ pub struct WeaponMoves {
 impl WeaponMoves {
     /// The moves of stance `prefix` in the folder of the skeleton at `skeleton` (archive
     /// path), bound to `skel`; also a report line.
-    pub fn load(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> (WeaponMoves, String) {
+    pub fn load(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> (WeaponMoves, String) {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let mut find = |stance: &str| {
-            let found = fnv_actor::locomotion::weapon_moves(&folder, stance, |p| ctx.models.data.vfs.exists(p));
+            let found = fnv_actor::locomotion::weapon_moves(&folder, stance, |p| ctx.data().vfs.exists(p));
             ClipSet::bind_moves(ctx, skel, found).0
         };
         let mut stand = find(prefix);

@@ -475,9 +475,9 @@ and 34 faces textured, with no EGM mismatching its shape.
   modeᵢ (cᵢ as for the face: the NPC's FGTS plus its race's, §4.2; the hands likewise),
   upsampled bilinearly and flipped vertically. The engine gives it to every shape
   whose diffuse is that texture — the race's upper body and the body skin shapes inside
-  outfits, which take that texture (§3.1, worn models) — and halves it to 512 × 512 to
-  keep one copy per actor small
-  (`FaceGenCache::skin_texture`). `--no-facegen` turns it off. Only the skin shape of
+  outfits, which take that texture (§3.1, worn models) — by adding the offset in the
+  shader (`FaceGenCache::skin_offset`, nvf-assets `nif_material.rs` "FaceGen tint"; the
+  face the same way, `FaceGenCache::face_offset`). `--no-facegen` turns it off. Only the skin shape of
   the race's upper body takes it; the underwear shape keeps its own texture (§3.1).
 - The body file holds one colour per mode [observed, 2026-10-10]: within a mode of
   `upperbodyhumanmale.egt` all 1,024 texels are equal (spread below 0.001 colour units

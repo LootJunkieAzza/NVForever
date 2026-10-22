@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 use fnv_actor::weapon::{clip_path, mount_bones, sneak_clip_path, EquipClip, StanceFacts, WeaponAnim};
-use nvf_assets::actor::{bind_clip, ActorCtx, PreparedPart, PreparedSkeleton, SpawnedActor};
+use nvf_assets::actor::{bind_clip, ClipSource, PreparedPart, PreparedSkeleton, SpawnedActor};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
 use nvf_play::combat::WeaponBroken;
 use std::collections::{BTreeMap, HashMap};
@@ -66,7 +66,7 @@ pub struct Stance {
 impl Stance {
     /// The stance `prefix` for the skeleton at `skeleton` (archive path), or why not; also
     /// a report line.
-    pub fn load(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> Result<(Stance, String), String> {
+    pub fn load(ctx: &mut impl ClipSource, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> Result<(Stance, String), String> {
         let weapon_node = *skel.by_name.get(WEAPON_NODE).ok_or("the skeleton has no Weapon node")?;
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();

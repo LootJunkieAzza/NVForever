@@ -182,6 +182,54 @@ pub struct ActorParts {
     pub failures: Vec<String>,
 }
 
+/// The first controller sequence of the KF file at `path`.
+fn read_clip(data: &GameData, path: &str) -> Result<Clip, String> {
+    decode(data, path).and_then(|(file, _, dec)| fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence".into()))
+}
+
+/// Where KF clips come from: the actor part cache on the main thread ([`ActorCtx`]), or a
+/// [`ClipReader`] on a worker thread (clip sets loaded ahead of the actors that use them).
+pub trait ClipSource {
+    /// The game's files.
+    fn data(&self) -> &GameData;
+    /// The first controller sequence of the KF file at `path` (loaded on first use).
+    fn clip(&mut self, path: &str) -> Option<Arc<Clip>>;
+}
+
+impl ClipSource for ActorCtx<'_, '_> {
+    fn data(&self) -> &GameData {
+        &self.models.data
+    }
+
+    fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+        ActorCtx::clip(self, path)
+    }
+}
+
+/// Clips read off the main thread, kept for the reader's life.
+pub struct ClipReader {
+    data: GameData,
+    clips: HashMap<String, Option<Arc<Clip>>>,
+}
+
+impl ClipReader {
+    pub fn new(data: GameData) -> ClipReader {
+        ClipReader { data, clips: HashMap::new() }
+    }
+}
+
+impl ClipSource for ClipReader {
+    fn data(&self) -> &GameData {
+        &self.data
+    }
+
+    fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+        let key = fnv_vfs::normalize(path);
+        let data = &self.data;
+        self.clips.entry(key).or_insert_with_key(|key| read_clip(data, key).ok().map(Arc::new)).clone()
+    }
+}
+
 /// A NIF file read and parsed: the file, its bytes and its decoded blocks.
 type Nif = Result<(NifFile, Vec<u8>, Decoded), String>;
 
@@ -238,6 +286,30 @@ impl ActorParts {
         self.fetched.retain(|_, (_, at)| now - *at < FETCHED_KEEP_SECS);
         n
     }
+
+    /// Where the part (or skeleton) at `path` stands: prepared (or failed to be), read on
+    /// a worker thread and waiting to be prepared, being read, or none of these.
+    pub fn part_state(&self, path: &str) -> PartState {
+        let key = fnv_vfs::normalize(path);
+        if self.parts.contains_key(&key) || self.skeletons.contains_key(&key) {
+            PartState::Prepared
+        } else if self.fetched.contains_key(&key) {
+            PartState::Read
+        } else if self.fetching.contains_key(&key) {
+            PartState::Reading
+        } else {
+            PartState::Unknown
+        }
+    }
+}
+
+/// Where a part stands in [`ActorParts`] ([`ActorParts::part_state`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartState {
+    Prepared,
+    Read,
+    Reading,
+    Unknown,
 }
 
 /// The asset stores actors are prepared into: the static models' ([`ModelCtx`]), so a
@@ -423,7 +495,8 @@ impl ActorCtx<'_, '_> {
         if let Some(s) = self.cache.skeletons.get(&key) {
             return s.clone();
         }
-        let s = match prepare_skeleton(&self.models.data, &key) {
+        let ahead = self.cache.fetched.remove(&key).map(|(nif, _)| nif);
+        let s = match prepare_skeleton(ahead.unwrap_or_else(|| decode(&self.models.data, &key))) {
             Ok(s) => Some(Arc::new(s)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
@@ -443,7 +516,7 @@ impl ActorCtx<'_, '_> {
         let mut ready = true;
         for path in paths {
             let key = fnv_vfs::normalize(path);
-            if self.cache.parts.contains_key(&key) || self.cache.fetched.contains_key(&key) {
+            if self.cache.parts.contains_key(&key) || self.cache.skeletons.contains_key(&key) || self.cache.fetched.contains_key(&key) {
                 continue;
             }
             ready = false;
@@ -523,9 +596,7 @@ impl ActorCtx<'_, '_> {
         if let Some(c) = self.cache.clips.get(&key) {
             return c.clone();
         }
-        let c = match decode(&self.models.data, &key)
-            .and_then(|(file, _, dec)| fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence".into()))
-        {
+        let c = match read_clip(&self.models.data, &key) {
             Ok(c) => Some(Arc::new(c)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
@@ -705,8 +776,8 @@ impl ActorCtx<'_, '_> {
     }
 }
 
-fn prepare_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, String> {
-    let (file, _bytes, dec) = decode(data, path)?;
+fn prepare_skeleton(nif: Nif) -> Result<PreparedSkeleton, String> {
+    let (file, _bytes, dec) = nif?;
     let objects = scene_objects(&file, &dec);
     let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
     let order = hierarchy(&objects);

@@ -83,6 +83,7 @@ mod lodgen;
 mod nav;
 mod object_anims;
 mod outfits;
+mod own_sounds;
 mod pipboy_arm;
 mod player_body;
 mod stealth_field;
@@ -91,6 +92,7 @@ mod post;
 mod particles;
 mod shot_fx;
 mod ragdoll;
+mod readahead;
 mod reflection;
 mod refraction;
 mod residents;
@@ -1155,6 +1157,8 @@ fn main() -> AppExit {
         manage_actors: residents.as_ref().is_some_and(|r| r.all),
         stats: Default::default(),
         buffer: Default::default(),
+        centre: None,
+        waiting: Vec::new(),
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -1174,6 +1178,11 @@ fn main() -> AppExit {
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, cell_buffer::remember.after(world::stream))
+    .add_systems(Update, world::draw_waiting_actors.after(world::stream))
+    // Actors of the next ring of cells read and prepared before they come into range.
+    .insert_resource(readahead::ReadAhead::from_env())
+    .add_systems(Update, readahead::read_ahead.after(world::stream).after(world::draw_waiting_actors))
+    .add_systems(Last, readahead::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
@@ -1296,6 +1305,8 @@ fn main() -> AppExit {
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip, idle: !args.no_face_idle });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
+            // Add-on nodes', projectiles' and actors' weapons' sounds (own_sounds.rs).
+            app.add_plugins(own_sounds::OwnSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
             // Who says a line to someone turns to them (speech_look.rs).
@@ -1449,8 +1460,14 @@ fn main() -> AppExit {
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!(
-                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured, {} tinted textures put in, {} EGMs not matching their shape",
-                        fg.morphed_shapes, fg.faces_textured, fg.skins_textured, fg.tints_put_in, fg.mismatched
+                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured, {} shapes tinted in the shader ({:.1} ms making offsets, {:.1} ms reading .egt files), {} EGMs not matching their shape",
+                        fg.morphed_shapes,
+                        fg.faces_tinted,
+                        fg.skins_tinted,
+                        fg.shapes_tinted,
+                        fg.offset_time.as_secs_f64() * 1e3,
+                        fg.egt_time.as_secs_f64() * 1e3,
+                        fg.mismatched
                     );
                 }
                 commands.write_message(AppExit::Success);

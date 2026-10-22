@@ -1761,6 +1761,48 @@ order = [["flashlight: on", "flashlight: off"]]
 # ------------------------------------------------------------------ sounds
 
 [[scenario]]
+name = "own-sounds-goodsprings"
+source = "ESM audit group 5 (docs/spec-notes/audio.md §15): placed objects' own sounds, water, projectiles, weapons' and magic effects' sounds in Goodsprings"
+areas = ["audio", "own-sounds"]
+paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/effect_sounds.rs", "engine/nvforever/src/own_sounds.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/sfx.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'world sounds: \d+ placed objects with a sound of their own', label = "placed objects with a sound of their own found" },
+  { re = '''world sounds summary:.*objects' own sounds in reach \(.*statics \d+''', label = "statics' own sounds in reach" },
+  { re = '''world sounds summary:.*objects' own sounds in reach \(.*moveable statics \d+''', label = "moveable statics' own sounds in reach (3 seen 2026-10-22)" },
+  { re = 'ambient summary:.*things that sound \([^)]*\): (?P<n>\d+) heard, \d+ loops started, (?P<r>\d+) random sounds played', range = [3, 200], label = "several sources heard (8 seen 2026-10-22, 17 random sounds)" },
+  { re = "own sounds summary:", label = "the own sounds summary" },
+  { re = "effect sounds summary:", label = "the effect sounds summary" },
+]
+
+[[scenario]]
+name = "own-sounds-lake"
+source = "ESM audit group 5 (docs/spec-notes/audio.md §15.2): wading from the Boulder Beach shore into Lake Mead, the lake's water type sounds its WATR sound at the surface nearest the player, and under the surface Mute When Submerged sounds are silent"
+areas = ["audio", "own-sounds"]
+paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvforever/src/own_sounds.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'world sounds summary:.* (?P<n>\d+) water sounds in reach', range = [1, 3], label = "the lake's water sound in reach" },
+  { re = 'sfx: .* (?P<n>\d+) silenced under water', range = [1, 200], label = "the swimmer below the floating height has its eye under the surface (feet about 200 under, physics.md §6.6): sounds that mute when submerged are silent (13-21 seen 2026-10-22)" },
+]
+
+[[scenario]]
+name = "own-sounds-whiz"
+source = "ESM audit group 5 (docs/spec-notes/audio.md §15.2): Violet's hunting rifle shots that miss the player (god mode) whiz by: PROJ DATA Sound FXBulletWhiz once where each passes the listener"
+note = "the combat-sights setup (Violet 0x000F570B, at 38 s the player put about 1,000 units from her); 4 whizzes 139-223 units from the listener seen 2026-10-22"
+areas = ["audio", "own-sounds", "combat"]
+paths = ["engine/nvforever/src/own_sounds.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-45600:64896:4400" }
+args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 55
+expect = [
+  { re = 'own sounds summary:.* (?P<n>\d+) whizzed by', range = [1, 100], label = "a missed shot whizzes by" },
+]
+
+[[scenario]]
 name = "anim-sounds"
 source = "CLAUDE.md: after changes to the sounds animations and doors name (docs/spec-notes/audio.md §10): footsteps, reload and doors"
 areas = ["anim-sounds", "audio"]
@@ -6174,16 +6216,46 @@ expect = [
 ]
 
 [[scenario]]
-name = "facegen-tints-in-background"
-source = "docs/design/streaming-hitches.md §2: NPC face and skin tints are made on a worker thread and put into the NPCs' materials when made (the CPU profile of 2026-10-22 found them most of the streaming hitches)"
-note = "the saloon's NPCs (Sunny Smiles, Easy Pete, Trudy) are drawn at the start; every tint started is put in well before the exit"
+name = "facegen-tint-shader"
+source = "docs/design/streaming-hitches.md §3: the FaceGen face and skin tint is added in the material shader from a small per-NPC offset texture (nvf-assets nif_material.rs \"FaceGen tint\"); no tinted texture copies are made"
+note = "the saloon's NPCs (Sunny Smiles, Easy Pete, Trudy) are drawn at the start: faces and skins get offset images and their materials the FACEGEN_TINT shader, which must compile"
 areas = ["actors"]
-paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs"]
+paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl"]
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [
-  { re = 'FaceGen: .* (?P<n>\d+) faces textured', range = [2, 200], label = "the NPCs' faces were tinted" },
-  { re = 'FaceGen: .* (?P<n>\d+) tinted textures put in', range = [4, 400], label = "the tints made on a worker thread were put into their materials" },
+  { re = 'FaceGen: .* (?P<n>\d+) faces textured', range = [2, 200], label = "face offset images were made for the NPCs" },
+  { re = 'FaceGen: .* (?P<n>\d+) skins textured', range = [2, 400], label = "body and hand skin offset images were made" },
+  { re = 'FaceGen: .* (?P<n>\d+) shapes tinted in the shader', range = [6, 2000], label = "face and skin materials carry the offset" },
+  { re = '(?i)(shader|pipeline).*(error|failed)|(error|failed).*(nif_material|shader)', count = 0, label = "the material shader compiles with FACEGEN_TINT" },
+]
+
+[[scenario]]
+name = "actor-read-ahead"
+source = "docs/design/streaming-hitches.md §2: the actors of the ring of cells just outside the loaded grid are read and prepared ahead, so they are drawn at once when they come into range"
+note = "the camera flies north into Goodsprings from four cells south; the town's residents are listed in the ring before their cells load"
+areas = ["actors", "residents"]
+paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/nav.rs", "engine/nvf-assets/src/actor.rs"]
+args = ["--cell", "Goodsprings", "--pos=-67900,-14984,9000", "--npc-packages", "all", "--hour", "12", "--auto-fly", "700"]
+run_seconds = 35
+expect = [
+  { re = 'actor read-ahead summary: (?P<n>\d+) rings', range = [3, 100], label = "rings listed as the loaded grid moved" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "residents drawn at once when they came into range" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) skeletons. clip sets loaded ahead', range = [1, 1000], label = "clip sets loaded ahead on a worker thread" },
+]
+
+[[scenario]]
+name = "actor-read-ahead-placed"
+source = "docs/design/streaming-hitches.md §2: cells loaded after the start draw their placed actors once their parts are read (world::draw_waiting_actors), most of them read ahead"
+note = "as actor-read-ahead, without residents: the cells draw their actors"
+areas = ["actors", "renderer"]
+paths = ["engine/nvforever/src/readahead.rs", "engine/nvforever/src/world.rs", "engine/nvf-assets/src/actor.rs"]
+args = ["--cell", "Goodsprings", "--pos=-67900,-14984,9000", "--hour", "12", "--auto-fly", "700"]
+run_seconds = 35
+expect = [
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "placed actors drawn at once when their cells loaded" },
 ]
 
 [[scenario]]

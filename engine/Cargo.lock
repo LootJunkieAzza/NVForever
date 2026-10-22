@@ -4325,6 +4325,7 @@ dependencies = [
  "fnv-vfs",
  "fnv-voice",
  "fnv-world",
+ "half",
  "nvf-assets",
  "nvf-play",
  "rfd",

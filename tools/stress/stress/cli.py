@@ -70,6 +70,9 @@ def parser() -> argparse.ArgumentParser:
                    help="only waypoints START to END (1-based) of the ring, to go over one stretch again "
                         "(the waypoint numbers are the tour log's `at waypoint i/n`)")
     t.add_argument("--hang", type=float, default=180.0)
+    t.add_argument("--aid", action="append", default=[], metavar="NAME=VALUE",
+                   help="a further test aid for the game, e.g. NVF_PLAY_TEST_NO_READ_AHEAD=1 to compare a run without "
+                        "the actor read-ahead (repeatable)")
 
     b = tests.add_parser("battle", help=TESTS["battle"])
     common(b)
@@ -147,7 +150,8 @@ def main(argv=None) -> int:
         # Start outdoors in the tour's worldspace; the first step goes to the first waypoint.
         start = ["--cell", "Goodsprings", "--hour", "12"]
         print(f"tour: {npts} waypoints, about {steps:.0f} steps a lap, {a.laps} laps; run limit {est:.0f} s")
-        res = tour.run(ctx, route, a.laps, a.every, a.hang, start, est)
+        aids = dict(kv.split("=", 1) for kv in a.aid)
+        res = tour.run(ctx, route, a.laps, a.every, a.hang, start, est, aids)
         lines = tour.report(res)
         bad = 0 if res["status"] == "ok" else 1
     else:
