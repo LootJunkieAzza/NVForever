@@ -2160,6 +2160,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-owned"
+source = "the owner 2026-10-22: a terminal still to hack shows its difficulty on the activate prompt as a lock does, an owned one in the crime colour, and hacking it is the crime of picking an owned lock (karma, the owner's side that sees it hostile): the Easy terminal in the Prospector Saloon (0010872F, cell owned)"
+areas = ["hacking", "terminal", "crime"]
+paths = ["crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/crime.rs", "crates/fnv-game/src/crime.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010872F", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_TERMINAL = "1:science:25,15:right,19:exit" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 24
+order = [[
+  "target 0x0010872F Terminal (Locked (Easy), owned)",
+  "hacking, Easy (Science 25)",
+  "Exact match! access granted",
+  "crime: the player opened the lock of 0x0010872F (hacked), owned by",
+  "target 0x0010872F Terminal (Access)",
+]]
+
+[[scenario]]
 name = "lockpick"
 source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks; the help message the first time"
 areas = ["lockpick"]
@@ -4583,6 +4599,20 @@ expect = [
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
 ]
 
+[[scenario]]
+name = "reputation-disguise"
+source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/reputation.rs", "crates/fnv-game/src/functions/reputation.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 001558E6 1 5;12.3:close;17:player.additem 000A472F 1;17.2:player.equipitem 000A472F;17.6:player.getreputation 001558E6 1;17.8:close;24:player.unequipitem 000A472F;24.4:player.getreputation 001558E6 1;24.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+expect = [
+  { re = 'reputation: Powder Gangers Neutral -> \S', count = 1, label = "one box: the fame, none for the outfit" },
+  { re = 'console: GetReputation on player >> 0\.00', label = "the outfit's script hid the fame" },
+  { re = 'console: GetReputation on player >> 12\.00', label = "taking it off gave the fame back" },
+]
+
 # ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
 
 [[scenario]]
@@ -5949,6 +5979,34 @@ order = [[
 ]]
 
 [[scenario]]
+name = "vats-no-melee-turret"
+source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §1): no VATS melee mark on an actor flagged No VATS Melee (the ceiling turrets)"
+note = "a ceiling turret (CrTurretCeiling01) placed at the player (GOD) at 3 s (PlaceAtMe puts it at the player); with a machete drawn, V and a click on it: the mark is refused"
+areas = ["vats", "combat"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/actor_values.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrTurretCeiling01:1:200:0", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONTROL = "4:weapon,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,11:v" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'vats mode: [0-9A-F]{8} is flagged No VATS Melee: not marked with a melee weapon', label = "the melee mark on the turret is refused" },
+]
+forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
+
+[[scenario]]
+name = "blood-none-tumbleweed"
+source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §2): hits on an actor flagged No Blood Spray and No Blood Decal (a tumbleweed) show no impact model and leave no decal"
+note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots it with a 10mm pistol"
+areas = ["combat", "rendering"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/decals.rs", "crates/fnv-game/src/actor_values.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCRTumbleweed:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'shot fx: (?P<n>\d+) impacts on actors flagged No Blood Spray not shown', range = [1, 1000], label = "no spray on the tumbleweed" },
+  { re = 'decals: (?P<n>\d+) hits on actors flagged No Blood Decal left none', range = [1, 1000], label = "no decal on the tumbleweed" },
+]
+
+[[scenario]]
 name = "vats-mode-thrown"
 source = "owner's todo 6 follow-up: grenades and thrown weapons are thrown at each mark (docs/design/vats-mode.md §16.3)"
 note = "three frag grenades (WeapGrenadeFrag 00004330: 24 AP a throw) among the Goodsprings dogs (god mode). One mark, E: one throw on the low arc onto the dog. Written 2026-10-20 by a worker session that does not run the game: not yet run"
@@ -6780,6 +6838,25 @@ expect = [
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
+
+[[scenario]]
+name = "sever-chet"
+source = "dismemberment (docs/spec-notes/dismemberment.md §5, owner report 2026-10-22): a severed part leaves cleanly: shapes skinned to bones on both sides of the cut are cut apart, each side weighted to its own bones, so no strip of neck or collar stretches from the body to the piece; a blade severs a corpse's head and leg (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit]"
+note = "the hit aid kills Chet with a knife in the head (500 damage; the head may come off as he falls), then knifes his corpse's head and right leg six times each (50 % each, seeded rolls); frames after each for a look"
+areas = ["combat"]
+paths = ["engine/nvforever/src/dismember.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-play/src/dismember.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=PerceptionCondition,10:GSChetRef:30:WeapKnife:limb=PerceptionCondition,10.5:GSChetRef:30:WeapKnife:limb=PerceptionCondition,11:GSChetRef:30:WeapKnife:limb=PerceptionCondition,11.5:GSChetRef:30:WeapKnife:limb=PerceptionCondition,12:GSChetRef:30:WeapKnife:limb=PerceptionCondition,12.5:GSChetRef:30:WeapKnife:limb=PerceptionCondition,13:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,13.5:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,14:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,14.5:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,15:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,15.5:GSChetRef:30:WeapKnife:limb=RightMobilityCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700,9.2:-551:540:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35,9.4:0:-50", NVF_PLAY_TEST_SHOTS = "7:sever_before.png,9.8:sever_kill.png,12.9:sever_head.png,18:sever_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'dismember: .* 0x00104C79: Head severed', label = "a knife severs the corpse's head" },
+  { re = 'dismember: 00104C79 part at location 1 cut from its ragdoll', label = "the head leaves the ragdoll" },
+  { re = 'dismember: 00104C79 cut apart for severed \[1(, 2)?\]: [1-9][0-9]* shapes, [1-9][0-9]* triangles leave', label = "the shapes reaching across the neck are cut apart" },
+  { re = 'dismember: .* 0x00104C79: Right Leg[^:]* severed', label = "a knife severs the corpse's right leg" },
+  { re = 'dismember: 00104C79 cut apart for severed \[1(, [0-9]+)+\]: [1-9][0-9]* shapes', label = "and across the hip" },
+  { re = 'dismember: .* 0x00104C79: Head exploded', count = 0, label = "the knife never explodes" },
+]
+manual = "sever_head.png and sever_after.png: Chet's head lying apart with a cap on its neck and one on the body's, no strip of skin or collar between them; his right leg apart with caps at both ends"
 
 [[scenario]]
 name = "ash-pile-chet"

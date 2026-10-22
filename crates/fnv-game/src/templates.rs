@@ -54,6 +54,8 @@ pub struct Picks {
     /// Seeded at the first list: most chains meet none.
     rng: Option<ChaCha8Rng>,
     picked: Vec<(FormId, FormId)>,
+    /// Lists whose Chance none came up: they stand for no actor.
+    none: Vec<FormId>,
 }
 
 impl Picks {
@@ -63,7 +65,7 @@ impl Picks {
 
     /// Picks read at the level `at` (the reference's, `fnv_sim::zones`).
     pub fn at(reference: FormId, at: LevelAt) -> Self {
-        Picks { reference, at, rng: None, picked: Vec::new() }
+        Picks { reference, at, rng: None, picked: Vec::new(), none: Vec::new() }
     }
 
     /// The lists picked so far and their picks, in order.
@@ -75,11 +77,22 @@ impl Picks {
         if let Some(&(_, p)) = self.picked.iter().find(|p| p.0 == id) {
             return Some(p);
         }
+        if self.none.contains(&id) {
+            return None;
+        }
         let pool = leveled_pool_at(list, self.at);
         if pool.is_empty() {
             return None;
         }
         let rng = self.rng.get_or_insert_with(|| ChaCha8Rng::seed_from_u64(u64::from(self.reference.0)));
+        // Chance none, rolled only when above 0, so lists without one pick as before, and
+        // before the entry, as `fnv_actor::resolve` does (docs/spec-notes/actor-flags.md
+        // §6) [documented: GECK wiki LeveledItem, "The chance that the leveled list will
+        // not generate an item"; hypothesis: actor lists alike].
+        if fnv_sim::leveled::rolls_none(rng, list.chance_none) {
+            self.none.push(id);
+            return None;
+        }
         let p = pool[leveled::below(rng, pool.len() as u32) as usize];
         self.picked.push((id, p));
         Some(p)
@@ -122,6 +135,18 @@ impl GameData {
             }
         }
         Some((id, def))
+    }
+
+    /// Whether `reference`, placed with `base`, is flagged No VATS Melee on its own record
+    /// (docs/spec-notes/actor-flags.md §1; `Game::no_vats_melee`).
+    pub fn no_vats_melee(&self, base: FormId, reference: FormId) -> bool {
+        self.template_source(base, reference, |_| false).is_some_and(|(_, d)| d.no_vats_melee)
+    }
+
+    /// Whether hits on `reference`, placed with `base`, leave no blood spray and no blood
+    /// decal (actor-flags.md §2; `Game::no_blood`).
+    pub fn no_blood(&self, base: FormId, reference: FormId) -> (bool, bool) {
+        self.template_source(base, reference, |d| d.template_model).map_or((false, false), |(_, d)| (d.no_blood_spray, d.no_blood_decal))
     }
 
     /// The factions and ranks of `reference`, placed with `base`, as the records give

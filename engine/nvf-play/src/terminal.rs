@@ -4,9 +4,10 @@
 //! lock it for good; leaving the game before then and coming back gives a new game
 //! with the attempts back [the owner, 2026-10-11]. A terminal that is unlocked, hacked
 //! before, or whose password note the player holds opens at its menu
-//! (`fnv_game::terminal::opening`). The menu lists the items whose conditions hold;
-//! choosing one runs its result script, shows its result text at the bottom, shows its
-//! note or opens its sub menu.
+//! (`fnv_game::terminal::opening`). Winning the hacking game is the lock picking's
+//! crime when someone else owns the terminal (`crate::lockpick::LockOpened`). The menu
+//! lists the items whose conditions hold; choosing one runs its result script, shows its
+//! result text at the bottom, shows its note or opens its sub menu.
 //!
 //! The screen is drawn into a picture ([`TerminalImage`]) that the engine puts on the
 //! screen of the game's monitor model (nvforever `terminal_view.rs`), as the original
@@ -641,7 +642,7 @@ fn apply(
     time: AidTime,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
-    mut sounds: MessageWriter<UiSound>,
+    (mut sounds, mut opened): (MessageWriter<UiSound>, MessageWriter<crate::lockpick::LockOpened>),
 ) {
     let now = time.elapsed_secs();
     // The hacking menu's sounds (list 5 item 47; `crate::ui_sounds`).
@@ -712,6 +713,10 @@ fn apply(
                         stats.hacked += 1;
                         info!("terminal: >{entered}: Exact match! access granted");
                         rules::hacked(&mut rt.game, reference, true);
+                        // Hacking an owned terminal is the crime of picking an owned lock:
+                        // karma, and the owner's side that sees it turns hostile
+                        // (`crate::crime`; the owner, 2026-10-22).
+                        opened.write(crate::lockpick::LockOpened { reference: reference.0, owner: None, how: crate::lockpick::OpenedBy::Hacked });
                         h.ended = Some(now);
                     }
                     Outcome::LockedOut => {

@@ -242,6 +242,7 @@ pub(crate) fn find_target(
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
                     }
+                    Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),
                     a => (n, a),
                 })
             })
@@ -298,7 +299,9 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     let talks = match talkers.get(&id) {
         Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
         _ => {
-            let t = g.has_greeting(r);
+            // A creature is talked to when it is flagged Allow PC Dialogue and has a
+            // greeting to say (docs/spec-notes/actor-flags.md §4) [hypothesis: both].
+            let t = g.allows_pc_dialogue(r) && g.has_greeting(r);
             talkers.insert(id, (t, now));
             t
         }
@@ -310,9 +313,19 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     }
 }
 
+/// What E does to a terminal: one that must still be hacked (or refuses, or is locked
+/// out) is prompted as a lock of its difficulty, "Locked (Easy)" (the owner,
+/// 2026-10-22; `fnv_game::terminal::still_locked`); one that opens at its menu is
+/// accessed. Without the scripts: Access.
+fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32) -> Action {
+    let (Some(rt), Some(base)) = (rt, sim.base_of(id)) else { return Action::Access };
+    let lock = crate::script::with_world(rt, sim, |rt| fnv_game::terminal::still_locked(&mut rt.game, FormId(id), base));
+    lock.map_or(Action::Access, |d| Action::Locked { level: outcome::terminal_lock_level(d.code()) })
+}
+
 /// Whether acting on the target is a crime: an item to take, a container to open or a
-/// lock to pick that someone other than the player owns (`fnv_game::crime`). A dead
-/// actor's inventory is not [hypothesis].
+/// lock to pick (a terminal to hack among them) that someone other than the player owns
+/// (`fnv_game::crime`). A dead actor's inventory is not [hypothesis].
 fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
     let Some(g) = game else { return false };
     let container = sim.base_of(form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Container(_)));

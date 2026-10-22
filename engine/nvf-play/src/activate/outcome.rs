@@ -60,6 +60,16 @@ pub fn lock_text(level: u8) -> String {
     }
 }
 
+/// A terminal's hacking difficulty (0 Very Easy … 4 Very Hard, 5 Requires Key,
+/// `fnv_game::hacking::Difficulty`) as the lock level of the same name, so a terminal
+/// still to hack is prompted as a lock is (the owner, 2026-10-22).
+pub fn terminal_lock_level(code: u8) -> u8 {
+    match code {
+        0..=4 => code * 25,
+        _ => KEY_ONLY_LEVEL,
+    }
+}
+
 impl Action {
     pub fn label(&self) -> String {
         match self {
@@ -302,6 +312,10 @@ mod tests {
         assert_eq!(prompt("Door", &Action::Travel { to: None }), p("Open", "Door"));
         assert_eq!(prompt("Safe", &Action::Locked { level: 50 }), p("Locked (Average)", "Safe"));
         assert_eq!(Action::Locked { level: 255 }.label(), "Locked (Requires Key)");
+        // A terminal still to hack reads as a lock of its difficulty's name.
+        assert_eq!(Action::Locked { level: terminal_lock_level(1) }.label(), "Locked (Easy)");
+        assert_eq!(Action::Locked { level: terminal_lock_level(4) }.label(), "Locked (Very Hard)");
+        assert_eq!(Action::Locked { level: terminal_lock_level(5) }.label(), "Locked (Requires Key)");
     }
 
     #[test]

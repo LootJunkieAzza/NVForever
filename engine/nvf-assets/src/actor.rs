@@ -36,7 +36,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::math::Affine3A;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
 use fnv_nif::{NifFile, Value};
@@ -742,6 +742,53 @@ pub fn dismember_mesh(cpu: &Mesh, partitions: &[Partition], keep: impl Fn(u16) -
     m
 }
 
+/// Per vertex: four joint indices and their weights.
+pub type SkinWeights<'a> = (&'a [[u16; 4]], &'a [[f32; 4]]);
+
+/// The skin weights of a skinned mesh's vertices.
+pub fn skin_weights(m: &Mesh) -> Option<SkinWeights<'_>> {
+    match (m.attribute(Mesh::ATTRIBUTE_JOINT_INDEX), m.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)) {
+        (Some(VertexAttributeValues::Uint16x4(j)), Some(VertexAttributeValues::Float32x4(w))) if j.len() == w.len() => Some((j, w)),
+        _ => None,
+    }
+}
+
+/// `cpu` cut apart where severed pieces leave the body (docs/spec-notes/dismemberment.md
+/// §5): `groups` are triangles (3 indices each) with the side they go with, 0 the body
+/// and k > 0 a severed piece, and `side[j]` is the side joint j lies on. Every triangle
+/// gets vertices of its own whose weights on joints of other sides are dropped and the
+/// rest scaled back up to 1; a vertex left with no weight on its side is carried whole by
+/// `fallback[k]`, or keeps its weights when there is none. So no triangle is stretched
+/// between a piece and the body.
+pub fn sever_mesh(cpu: &Mesh, groups: &[(u8, Vec<u32>)], side: &[u8], fallback: &[Option<u16>]) -> Mesh {
+    let mut m = cpu.clone();
+    let corner_side: Vec<u8> = groups.iter().flat_map(|(k, t)| std::iter::repeat_n(*k, t.len())).collect();
+    m.insert_indices(Indices::U32(groups.iter().flat_map(|(_, t)| t.iter().copied()).collect()));
+    m.duplicate_vertices();
+    let Some((joints, weights)) = skin_weights(&m) else { return m };
+    let (mut joints, mut weights) = (joints.to_vec(), weights.to_vec());
+    for ((&k, j), w) in corner_side.iter().zip(&mut joints).zip(&mut weights) {
+        let mut kept = *w;
+        for c in 0..4 {
+            if side.get(j[c] as usize) != Some(&k) {
+                kept[c] = 0.0;
+            }
+        }
+        let sum: f32 = kept.iter().sum();
+        if sum > 1e-4 {
+            *w = kept.map(|x| x / sum);
+        } else if let Some(f) = fallback.get(k as usize).copied().flatten() {
+            *j = [f, 0, 0, 0];
+            *w = [1.0, 0.0, 0.0, 0.0];
+        }
+    }
+    m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(joints));
+    m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, VertexAttributeValues::Float32x4(weights));
+    // Vertices moved to other joints: the per-joint bounds are measured again.
+    let _ = m.generate_skinned_mesh_bounds();
+    m
+}
+
 /// A drawn actor shape, for dismemberment (docs/spec-notes/dismemberment.md §5): what it
 /// is drawn from and which bones carry it.
 #[derive(Component, Clone)]
@@ -849,6 +896,25 @@ pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlaye
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_severed_piece_takes_its_own_vertices_weighted_to_its_side_only() {
+        // Two triangles sharing vertices 1 and 2, which are weighted half to joint 0 (the
+        // body) and half to joint 1 (the piece); vertex 3 only to the body.
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 4]);
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0]]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]);
+        let out = sever_mesh(&m, &[(0, vec![0, 1, 2]), (1, vec![1, 2, 3])], &[0, 1], &[None, Some(1)]);
+        let (j, w) = skin_weights(&out).unwrap();
+        assert_eq!(out.count_vertices(), 6);
+        // The body's copies: all on joint 0.
+        assert!(j[..3].iter().zip(&w[..3]).all(|(j, w)| j[0] == 0 && w[0] == 1.0));
+        // The piece's copies of 1 and 2: all on joint 1; vertex 3 had nothing there, so
+        // the fallback carries it.
+        assert_eq!((j[3], w[3]), ([0, 1, 0, 0], [0.0, 1.0, 0.0, 0.0]));
+        assert_eq!((j[5], w[5]), ([1, 0, 0, 0], [1.0, 0.0, 0.0, 0.0]));
+    }
 
     #[test]
     fn a_part_texture_goes_on_the_skin_shapes_when_there_are_any() {

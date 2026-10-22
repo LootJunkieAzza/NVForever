@@ -460,6 +460,10 @@ fn notes(mut script: Option<ResMut<ScriptState>>, mut battle: ResMut<Battle>) {
                 battle.no_alarms += 1;
                 info!("combat group: {} sends no alarm about {}: group threat ratio {ratio:.2} at or above its alarm confidence {alarm_confidence:.2}", name(sender), name(about));
             }
+            GroupNote::SpecialCombat { sender, about, faction } => {
+                battle.no_alarms += 1;
+                info!("combat group: {} sends no alarm about {}: both in {}, a Special Combat faction", name(sender), name(about), name(faction));
+            }
             GroupNote::Searched { actor, about, count, needed } => {
                 battle.searches += 1;
                 info!("combat group: {} has searched its share for {} ({count} of {needed} complete searches)", name(actor), name(about));

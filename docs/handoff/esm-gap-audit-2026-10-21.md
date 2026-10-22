@@ -86,12 +86,18 @@ under active work.
   build: AMMO "Ignores…" ("no longer used"), VATS Bonus ("unused in game"), Min Range.
   Left: Decrease Equip Time (no master mod), Kill Impulse / Impulse Dist (meaning not
   documented).
-- **Actor flags (ACBS).** "No VATS Melee", "No Blood Spray/Decal", CREA "Is Ghost" and
+- ~~**Actor flags (ACBS).** "No VATS Melee", "No Blood Spray/Decal", CREA "Is Ghost" and
   "Allow PC Dialogue" (the engine guesses from greetings) are ignored. NPC_ NAM6 Height
   is stored but never applied to the drawn scale. LVLN/LVLC chance-none is not applied in
   fnv-game. CLAS is never decoded (tag skills, attributes, the Guard flag); the effect on
   auto-calculated NPCs is a hypothesis. FACT "Special Combat" and the XNAM modifier are
-  unused. VTYP "Allow Default Dialog" is not parsed.
+  unused. VTYP "Allow Default Dialog" is not parsed.~~ Built in claude/em4-actor-flags
+  ([actor-flags](../spec-notes/actor-flags.md)): No VATS Melee, No Blood Spray/Decal,
+  Allow PC Dialogue, NAM6 Height, chance none in both actor resolvers (all 0 in the
+  master), Special Combat (no alarm), Allow Default Dialog. Not applied: "Is Ghost" (124
+  creatures, wild dogs among them, that are killed in normal play). Nothing to build:
+  CLAS (auto-calc values are stored). XNAM was already used (faction reactions). Left:
+  Special Combat's fSneakSeenMin / iCombatTargetPlayerSoftCap part.
 - ~~**Cells and references.** CELL "Can't Wait" is ignored by the Wait menu. "Off Limits"
   is stored only. "Behave Like Exterior" and XCCM are ignored. REFR "Inaccessible" (header
   bit 8) is ignored. Activate parents (XAPD/XAPR: buttons that drive doors and traps) and

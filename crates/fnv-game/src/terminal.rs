@@ -67,25 +67,24 @@ pub fn has_password(g: &mut Game, t: &TerminalDef) -> bool {
     g.player.notes.contains(&note) || g.world.item_count(FormId::PLAYER_REF, note).is_ok_and(|n| n > 0)
 }
 
-/// What activating the terminal reference `reference` of base `base` does, for a player
-/// of Science skill `sci` ([`science`]).
-pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Option<Opening> {
+/// The lock of terminal reference `reference` of base `base` when it does not open at
+/// its menu (it must be hacked, is refused, or is locked out): its difficulty; None for
+/// a terminal that opens at its menu, or a base that is not a terminal. The activate
+/// prompt shows it as a lock's (the owner, 2026-10-22).
+pub fn still_locked(g: &mut Game, reference: FormId, base: FormId) -> Option<Difficulty> {
     let t = g.data.terminals.get(&base)?;
     let script = g.terminals.script_locks.get(&reference).copied();
     // Unlock gives access "regardless of lock level or previously being locked out"
     // [documented: GECK wiki Unlock]; Lock overrides the Unlocked flag and an earlier
     // Unlock [documented: GECK wiki Lock].
     if script.is_some_and(|l| !l.locked) {
-        return Some(Opening::Menu);
+        return None;
     }
     let unlocked = script.is_none() && t.has(terminal_flag::UNLOCKED);
     // [hypothesis, hacking.md §6] The password note opens a terminal without hacking,
     // even one locked out (GECK wiki Lock: the note keeps access); it is checked first.
     if unlocked || g.terminals.access.get(&reference) == Some(&Access::Hacked) || has_password(g, t) {
-        return Some(Opening::Menu);
-    }
-    if g.terminals.access.get(&reference) == Some(&Access::LockedOut) {
-        return Some(Opening::LockedOut);
+        return None;
     }
     // The Leveled flag is not applied: how the level would change with the player's
     // level is not documented [hacking.md §6].
@@ -93,7 +92,17 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
         Some(l) if l.level >= 0 => l.level.min(5) as u8,
         _ => t.difficulty,
     };
-    let difficulty = Difficulty::from_code(code);
+    Some(Difficulty::from_code(code))
+}
+
+/// What activating the terminal reference `reference` of base `base` does, for a player
+/// of Science skill `sci` ([`science`]).
+pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Option<Opening> {
+    g.data.terminals.get(&base)?;
+    let Some(difficulty) = still_locked(g, reference, base) else { return Some(Opening::Menu) };
+    if g.terminals.access.get(&reference) == Some(&Access::LockedOut) {
+        return Some(Opening::LockedOut);
+    }
     let s = Settings::default();
     Some(match hacking::may_hack(sci, difficulty, &s) {
         Err(r) => Opening::Refused(r),

@@ -129,6 +129,11 @@ in the data looks like a word list.
   wiki Lock], or one whose password note the player holds (among the notes or carried)
   [hypothesis: the note skips hacking, even after a lockout] opens at its menu; one locked
   out shows the lockout screen; otherwise the hacking game, or a refusal (§4).
+- The activate prompt of a terminal that does not open at its menu reads as a lock's,
+  "Locked (Easy)" (Very Easy … Very Hard, Requires Key, by its difficulty) [the owner,
+  2026-10-22]; one that opens at its menu reads "Access" (§8). When someone else owns the
+  terminal (its own owner, else its cell's) the prompt is in the crime colour, and
+  winning the hacking game is the crime of opening an owned lock (crime-karma.md §3.2).
 - The menu [documented: computers_menu.xml; observed: the owner's screenshot]: centred
   "ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM", "COPYRIGHT 2075-2077 ROBCO INDUSTRIES", the
   server line ("-Server 6-" for server type 5); the welcome text (DESC) at x 100, wrapped

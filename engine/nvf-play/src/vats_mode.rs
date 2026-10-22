@@ -655,6 +655,16 @@ fn mark(
         info!("vats mode: {actor:08X} is dead: not marked");
         return;
     }
+    // "The player cannot go into VATS with this NPC if he has a melee weapon equipped"
+    // [documented: GECK wiki Category:NPC, No VATS Melee] (actor-flags.md §1).
+    let melee = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Melee);
+    // The base from the simulation: the game's world is not attached outside its turn.
+    let flagged = sim.base_of(actor).is_some_and(|b| script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.no_vats_melee(b, FormId(actor))));
+    if melee && flagged {
+        v.stats.refused += 1;
+        info!("vats mode: {actor:08X} is flagged No VATS Melee: not marked with a melee weapon");
+        return;
+    }
     let ap_now = player_ap(script, sim).map_or(f32::INFINITY, |a| a.0);
     match v.queue.push(FormId(actor), part, ap_now) {
         Ok(k) => {
