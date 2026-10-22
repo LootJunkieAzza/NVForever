@@ -6756,6 +6756,25 @@ expect = [
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
 
 [[scenario]]
+name = "sever-chet"
+source = "dismemberment (docs/spec-notes/dismemberment.md §5, owner report 2026-10-22): a severed part leaves cleanly: shapes skinned to bones on both sides of the cut are cut apart, each side weighted to its own bones, so no strip of neck or collar stretches from the body to the piece; a blade severs a corpse's head and leg (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit]"
+note = "the hit aid kills Chet with a knife in the head (500 damage; the head may come off as he falls), then knifes his corpse's head and right leg six times each (50 % each, seeded rolls); frames after each for a look"
+areas = ["combat"]
+paths = ["engine/nvforever/src/dismember.rs", "engine/nvf-assets/src/actor.rs", "engine/nvf-play/src/dismember.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapKnife:limb=PerceptionCondition,10:GSChetRef:30:WeapKnife:limb=PerceptionCondition,10.5:GSChetRef:30:WeapKnife:limb=PerceptionCondition,11:GSChetRef:30:WeapKnife:limb=PerceptionCondition,11.5:GSChetRef:30:WeapKnife:limb=PerceptionCondition,12:GSChetRef:30:WeapKnife:limb=PerceptionCondition,12.5:GSChetRef:30:WeapKnife:limb=PerceptionCondition,13:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,13.5:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,14:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,14.5:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,15:GSChetRef:30:WeapKnife:limb=RightMobilityCondition,15.5:GSChetRef:30:WeapKnife:limb=RightMobilityCondition", NVF_PLAY_TEST_GOTO = "5:-583:440:700,9.2:-551:540:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35,9.4:0:-50", NVF_PLAY_TEST_SHOTS = "7:sever_before.png,9.8:sever_kill.png,12.9:sever_head.png,18:sever_after.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'dismember: .* 0x00104C79: Head severed', label = "a knife severs the corpse's head" },
+  { re = 'dismember: 00104C79 part at location 1 cut from its ragdoll', label = "the head leaves the ragdoll" },
+  { re = 'dismember: 00104C79 cut apart for severed \[1(, 2)?\]: [1-9][0-9]* shapes, [1-9][0-9]* triangles leave', label = "the shapes reaching across the neck are cut apart" },
+  { re = 'dismember: .* 0x00104C79: Right Leg[^:]* severed', label = "a knife severs the corpse's right leg" },
+  { re = 'dismember: 00104C79 cut apart for severed \[1(, [0-9]+)+\]: [1-9][0-9]* shapes', label = "and across the hip" },
+  { re = 'dismember: .* 0x00104C79: Head exploded', count = 0, label = "the knife never explodes" },
+]
+manual = "sever_head.png and sever_after.png: Chet's head lying apart with a cap on its neck and one on the body's, no strip of skin or collar between them; his right leg apart with caps at both ends"
+
+[[scenario]]
 name = "ash-pile-chet"
 source = "ash piles (docs/spec-notes/ash-piles.md): a laser's critical kill applies its On Death critical effect Disintegration [documented: GECK wiki Weapons, Crit Effect / On Death; observed: WeapLaserRifle CRDT 000BDA30], whose script (LaserDisintegrationEffectScript) calls AttachAshPile and SetCriticalStage DisintegrateEnd [observed: FalloutNV.esm SCPT 000BDA2E]: an ash pile (DefaultAshPile1, AshPile01.NIF) replaces Chet's body"
 note = "the hit aid kills Chet with a critical laser rifle hit (500 damage, :crit) at 8 s; the script places the pile 1.3 s later and culls the body 0.5 s after that; frames before and after for a look"
