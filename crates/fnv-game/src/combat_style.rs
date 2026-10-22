@@ -18,7 +18,14 @@
 //!   attack, an actor power-attacks by Power Attack % Chance plus the recoil/stagger and
 //!   unconscious bonuses to it ([`power_attack_chance`]); which one by the five shares
 //!   ([`power_dir_by_chance`]) when the style says "Choose Attack using % Chance", else
-//!   by how it moves (the engine's; docs/spec-notes/combat-rules.md §10.1).
+//!   by how it moves (the engine's; docs/spec-notes/combat-rules.md §10.1). The Power
+//!   Attack Fatigue Modifier adds to the chance ([`power_attack_fatigue`]).
+//! - **Maneuver decision, rushes, radius, targeting FOV, explosives**
+//!   (docs/design/combat-ai.md §17): [`maneuver`] dodges or idles by the dodge chance,
+//!   multipliers and timers; [`rush_distance`] is where a melee fighter rolls for a rushing
+//!   attack; [`beyond_combat_radius`], [`outside_targeting_fov`] and
+//!   [`Game::spares_spectators`] are the Combat Radius, Max Targeting FOV and Ignore
+//!   Damaging Spectators rules.
 //! - **Confidence** [documented: GECK wiki Confidence]: the rating (0 Cowardly …
 //!   4 Foolhardy) gives a threshold (fConfidenceCowardly 1000, Cautious 0.375, Average
 //!   0.1875, Brave 0.0375, Foolhardy 0); the threat ratio is my combat strength (health
@@ -72,6 +79,133 @@ impl<'a> Game<'a> {
     pub fn threat_ratio_update_time(&self) -> f64 {
         crate::combat::setting(self, "fCombatThreatRatioUpdateTime", 7.5)
     }
+
+    /// `actor`'s fatigue percent (docs/design/combat-ai.md §17.1): 1 − Fatigue / base
+    /// Fatigue, 0 rested to 1 spent; 0 without a base.
+    pub fn fatigue_share(&mut self, actor: FormId) -> f32 {
+        let full = crate::functions::actor::actor_value_base(self, actor, crate::actor_values::FATIGUE);
+        if full <= 0.0 {
+            return 0.0;
+        }
+        let now = actor_value(self, actor, crate::actor_values::FATIGUE).unwrap_or(full);
+        (1.0 - now / full).clamp(0.0, 1.0) as f32
+    }
+
+    /// Whether `actor`, fighting with `cs`, holds an explosive shot that would catch a
+    /// bystander (§17.6): not with Ignore Damaging Spectators, nor when its Responsibility
+    /// is below iAvoidHurtingNonTargetsResponsibility [documented; the setting is in no
+    /// master: [`AVOID_HURTING_RESPONSIBILITY`], hypothesis].
+    pub fn spares_spectators(&mut self, actor: FormId, cs: &CombatStyleDef) -> bool {
+        if cs.ignore_damaging_spectators {
+            return false;
+        }
+        let least = crate::combat::setting(self, "iAvoidHurtingNonTargetsResponsibility", AVOID_HURTING_RESPONSIBILITY);
+        actor_value(self, actor, crate::actor_values::RESPONSIBILITY).unwrap_or(50.0) >= least
+    }
+}
+
+/// iAvoidHurtingNonTargetsResponsibility where the load order has none (§17.6)
+/// [hypothesis: no master carries it].
+pub const AVOID_HURTING_RESPONSIBILITY: f64 = 30.0;
+
+/// A number 1–100 from a roll in [0, 1), for "a random number from 1-100" [documented:
+/// Combat Style].
+fn one_to_hundred(roll: f32) -> f32 {
+    ((roll * 100.0).floor() + 1.0).clamp(1.0, 100.0)
+}
+
+/// A random time within `(min, max)` from a roll in [0, 1).
+fn within((lo, hi): (f32, f32), roll: f32) -> f32 {
+    lo + (hi - lo).max(0.0) * roll
+}
+
+/// Which way a dodge goes, against the line to the opponent (§17.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DodgeDir {
+    Left,
+    Right,
+    Forward,
+    Back,
+}
+
+impl DodgeDir {
+    pub fn name(self) -> &'static str {
+        match self {
+            DodgeDir::Left => "left",
+            DodgeDir::Right => "right",
+            DodgeDir::Forward => "forward",
+            DodgeDir::Back => "back",
+        }
+    }
+}
+
+/// What the maneuver decision made (§17.1): stay idle, or dodge one way, for so many
+/// seconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Maneuver {
+    Idle(f32),
+    Dodge(DodgeDir, f32),
+}
+
+/// The maneuver decision's chance to dodge, 0 and up (§17.1): Dodge % + the fatigue
+/// modifier (`fatigue`, 0–1) + the encumbered speed modifier (`walk_speed`, units/s), times
+/// the under-attack multiplier or not [documented: GECK wiki Combat Style].
+pub fn dodge_chance(cs: &CombatStyleDef, fatigue: f32, walk_speed: f32, under_attack: bool) -> f32 {
+    let base = cs.dodge_chance + cs.dodge_fatigue_mod.0 + cs.dodge_fatigue_mod.1 * fatigue + cs.encumbered_speed_mod.0 + cs.encumbered_speed_mod.1 * walk_speed;
+    (base * if under_attack { cs.dodge_mult.0 } else { cs.dodge_mult.1 }).max(0.0)
+}
+
+/// The maneuver decision (§17.1): a dodge by [`dodge_chance`] against a roll of 1–100,
+/// back / forward / sideways by their multipliers (sideways weighs 1), sideways only when a
+/// second roll is within Left/Right %, left or right at even odds; otherwise idle for the
+/// Idle Timer. `attacking`: its own blow is on the way. `rolls` in [0, 1): dodge, way,
+/// left/right %, left or right, time.
+pub fn maneuver(cs: &CombatStyleDef, fatigue: f32, walk_speed: f32, under_attack: bool, attacking: bool, rolls: [f32; 5]) -> Maneuver {
+    let idle = Maneuver::Idle(within(cs.idle_timer, rolls[4]));
+    if one_to_hundred(rolls[0]) > dodge_chance(cs, fatigue, walk_speed, under_attack) {
+        return idle;
+    }
+    let back = (if under_attack { cs.dodge_back_mult.0 } else { cs.dodge_back_mult.1 }).max(0.0);
+    let forward = (if attacking { cs.dodge_forward_mult.0 } else { cs.dodge_forward_mult.1 }).max(0.0);
+    let x = rolls[1] * (back + forward + 1.0);
+    let (dir, timer) = if x < back {
+        (DodgeDir::Back, cs.dodge_back_timer)
+    } else if x < back + forward {
+        (DodgeDir::Forward, cs.dodge_forward_timer)
+    } else if one_to_hundred(rolls[2]) <= cs.left_right_chance {
+        (if rolls[3] < 0.5 { DodgeDir::Left } else { DodgeDir::Right }, cs.dodge_lr_timer)
+    } else {
+        return idle;
+    };
+    match within(timer, rolls[4]) {
+        t if t > 0.0 => Maneuver::Dodge(dir, t),
+        _ => idle,
+    }
+}
+
+/// How far from its target a melee fighter with `reach` rolls for a rushing attack
+/// (§17.2): reach × (1 + Rushing Attack Distance Mult) [hypothesis]; `None` when the
+/// style never rushes.
+pub fn rush_distance(cs: &CombatStyleDef, reach: f32) -> Option<f32> {
+    (cs.rushing_attack_chance > 0.0).then(|| reach * (1.0 + cs.rushing_attack_distance_mult.max(0.0)))
+}
+
+/// The Power Attack Fatigue Modifier: base + mult × `fatigue` (0–1) [documented: Combat
+/// Style, Advanced; §17.3].
+pub fn power_attack_fatigue(cs: &CombatStyleDef, fatigue: f32) -> f32 {
+    cs.power_attack_fatigue_mod.0 + cs.power_attack_fatigue_mod.1 * fatigue
+}
+
+/// Whether a target `from_anchor` units from where the fighter's fight began or it was last
+/// hit is beyond its Combat Radius (§17.4); 0 is no limit [hypothesis].
+pub fn beyond_combat_radius(cs: &CombatStyleDef, from_anchor: f32) -> bool {
+    cs.combat_radius > 0.0 && from_anchor > cs.combat_radius
+}
+
+/// Whether a target `off` radians off the fighter's heading is outside its Max Targeting
+/// FOV (§17.5); 0 is no limit [hypothesis].
+pub fn outside_targeting_fov(cs: &CombatStyleDef, off: f32) -> bool {
+    cs.max_targeting_fov > 0.0 && off.to_degrees() > cs.max_targeting_fov * 0.5
 }
 
 /// The threshold of a Confidence rating (0 Cowardly … 4 Foolhardy) [documented: GECK
@@ -140,10 +274,11 @@ pub fn melee_attack_chance(cs: &CombatStyleDef, skill: f32, hand_to_hand: bool, 
 
 /// The chance, 0–100, that an attack decided by the melee decision is a power attack
 /// (module notes): Power Attack % Chance, plus Recoil/Stagger Bonus to Power Attack while
-/// the opponent recoils, plus Unconscious Bonus to Power Attack while it is unconscious
-/// [documented: GECK wiki Combat Style].
-pub fn power_attack_chance(cs: &CombatStyleDef, opp: Opponent) -> f32 {
-    (cs.power_attack_chance + if opp.recoiling { cs.recoil_stagger_power_bonus } else { 0.0 } + if opp.unconscious { cs.unconscious_power_bonus } else { 0.0 }).clamp(0.0, 100.0)
+/// the opponent recoils, plus Unconscious Bonus to Power Attack while it is unconscious,
+/// plus the Power Attack Fatigue Modifier at `fatigue` (0–1) [documented: GECK wiki
+/// Combat Style].
+pub fn power_attack_chance(cs: &CombatStyleDef, opp: Opponent, fatigue: f32) -> f32 {
+    (cs.power_attack_chance + if opp.recoiling { cs.recoil_stagger_power_bonus } else { 0.0 } + if opp.unconscious { cs.unconscious_power_bonus } else { 0.0 } + power_attack_fatigue(cs, fatigue)).clamp(0.0, 100.0)
 }
 
 /// Which power attack "Choose Attack using % Chance" picks, as an index into the shares
@@ -240,13 +375,13 @@ mod tests {
         // [observed: fnvtool esm decode, 2026-10-20].
         let cs = CombatStyleDef { power_attack_chance: 45.0, recoil_stagger_power_bonus: 15.0, unconscious_power_bonus: 25.0, unconscious_bonus: 5.0, attack_not_under_attack_mult: 1.0, ..Default::default() };
         let calm = Opponent::default();
-        assert_eq!(power_attack_chance(&cs, calm), 45.0);
-        assert_eq!(power_attack_chance(&cs, Opponent { recoiling: true, ..calm }), 60.0);
-        assert_eq!(power_attack_chance(&cs, Opponent { unconscious: true, ..calm }), 70.0);
-        assert_eq!(power_attack_chance(&cs, Opponent { recoiling: true, unconscious: true, ..calm }), 85.0);
+        assert_eq!(power_attack_chance(&cs, calm, 0.0), 45.0);
+        assert_eq!(power_attack_chance(&cs, Opponent { recoiling: true, ..calm }, 0.0), 60.0);
+        assert_eq!(power_attack_chance(&cs, Opponent { unconscious: true, ..calm }, 0.0), 70.0);
+        assert_eq!(power_attack_chance(&cs, Opponent { recoiling: true, unconscious: true, ..calm }, 0.0), 85.0);
         // Never past 100.
         let all = CombatStyleDef { power_attack_chance: 100.0, ..cs.clone() };
-        assert_eq!(power_attack_chance(&all, Opponent { recoiling: true, ..calm }), 100.0);
+        assert_eq!(power_attack_chance(&all, Opponent { recoiling: true, ..calm }, 0.0), 100.0);
         // The attack chance's own unconscious bonus.
         assert_eq!(melee_attack_chance(&cs, 0.0, false, Opponent { unconscious: true, ..calm }), 5.0);
     }
@@ -271,5 +406,83 @@ mod tests {
         assert!((0..100).all(|i| power_dir_by_chance(mutant, i as f32 / 100.0) != 2));
         // Sums past 100: the later ones never come.
         assert!((0..100).all(|i| power_dir_by_chance([60.0, 60.0, 10.0, 10.0, 10.0], i as f32 / 100.0) <= 1));
+    }
+
+    /// FalloutNV.esm's DefaultCombatstyle's maneuver values [observed: fnvtool esm decode,
+    /// 2026-10-21].
+    fn default_style() -> CombatStyleDef {
+        CombatStyleDef {
+            dodge_chance: 75.0,
+            left_right_chance: 50.0,
+            dodge_lr_timer: (0.5, 1.5),
+            dodge_forward_timer: (0.5, 1.0),
+            dodge_back_timer: (0.25, 0.75),
+            idle_timer: (0.5, 1.5),
+            dodge_fatigue_mod: (0.0, -20.0),
+            encumbered_speed_mod: (-110.0, 1.0),
+            dodge_mult: (1.0, 0.75),
+            dodge_back_mult: (1.0, 0.7),
+            dodge_forward_mult: (1.0, 0.5),
+            power_attack_chance: 25.0,
+            power_attack_fatigue_mod: (5.0, -10.0),
+            rushing_attack_chance: 25.0,
+            rushing_attack_distance_mult: 1.0,
+            combat_radius: 10000.0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_dodge_chance_and_its_modifiers() {
+        let cs = default_style();
+        // A rested person at 86.8 units/s: 75 − 23.2; not under attack × 0.75.
+        assert!((dodge_chance(&cs, 0.0, 86.8, true) - 51.8).abs() < 1e-3);
+        assert!((dodge_chance(&cs, 0.0, 86.8, false) - 38.85).abs() < 1e-3);
+        // Spent and at 110: 75 − 20.
+        assert!((dodge_chance(&cs, 1.0, 110.0, true) - 55.0).abs() < 1e-3);
+        // Never below 0; a style without dodges never dodges.
+        assert_eq!(dodge_chance(&cs, 1.0, 0.0, true), 0.0);
+        let none = CombatStyleDef { dodge_chance: 0.0, encumbered_speed_mod: (0.0, 0.0), ..cs.clone() };
+        assert!(matches!(maneuver(&none, 0.0, 86.8, true, false, [0.0; 5]), Maneuver::Idle(_)));
+    }
+
+    #[test]
+    fn the_maneuver_decision() {
+        let cs = default_style();
+        let m = |rolls| maneuver(&cs, 0.0, 86.8, true, false, rolls);
+        // 51 is within 51.8: a dodge; 53 is not: idle for 0.5 + 1.0 × 0.5 s.
+        assert_eq!(m([0.52, 0.1, 0.0, 0.0, 0.5]), Maneuver::Idle(1.0));
+        // Weights back 1, forward 0.5, sideways 1 (of 2.5).
+        assert_eq!(m([0.5, 0.1, 0.0, 0.0, 0.5]), Maneuver::Dodge(DodgeDir::Back, 0.5));
+        assert_eq!(m([0.5, 0.5, 0.0, 0.0, 0.0]), Maneuver::Dodge(DodgeDir::Forward, 0.5));
+        // Sideways: 31 within Left/Right 50, then left or right; 61 is not: idle.
+        assert_eq!(m([0.5, 0.9, 0.3, 0.2, 1.0]), Maneuver::Dodge(DodgeDir::Left, 1.5));
+        assert_eq!(m([0.5, 0.9, 0.3, 0.7, 0.0]), Maneuver::Dodge(DodgeDir::Right, 0.5));
+        assert_eq!(m([0.5, 0.9, 0.6, 0.2, 0.0]), Maneuver::Idle(0.5));
+        // Not under attack, back weighs 0.7; its own blow on the way, forward weighs 1.
+        assert_eq!(maneuver(&cs, 0.0, 120.0, false, true, [0.0, 0.6, 0.0, 0.0, 0.0]), Maneuver::Dodge(DodgeDir::Forward, 0.5));
+        // Timers of 0: no dodge.
+        let still = CombatStyleDef { dodge_back_timer: (0.0, 0.0), ..cs.clone() };
+        assert!(matches!(maneuver(&still, 0.0, 86.8, true, false, [0.0, 0.0, 0.0, 0.0, 0.5]), Maneuver::Idle(_)));
+    }
+
+    #[test]
+    fn rushes_fatigue_radius_and_fov() {
+        let cs = default_style();
+        // Reach 100, mult 1: from 200; mult 0: from reach; chance 0: never.
+        assert_eq!(rush_distance(&cs, 100.0), Some(200.0));
+        assert_eq!(rush_distance(&CombatStyleDef { rushing_attack_distance_mult: 0.0, ..cs.clone() }, 100.0), Some(100.0));
+        assert_eq!(rush_distance(&CombatStyleDef { rushing_attack_chance: 0.0, ..cs.clone() }, 100.0), None);
+        // Rested +5, spent −5.
+        assert_eq!(power_attack_fatigue(&cs, 0.0), 5.0);
+        assert_eq!(power_attack_fatigue(&cs, 1.0), -5.0);
+        assert_eq!(power_attack_chance(&cs, Opponent::default(), 0.0), 30.0);
+        // Combat radius 10000; 0 is no limit.
+        assert!(!beyond_combat_radius(&cs, 9999.0) && beyond_combat_radius(&cs, 10001.0));
+        assert!(!beyond_combat_radius(&CombatStyleDef { combat_radius: 0.0, ..cs.clone() }, 1e9));
+        // CSLibertyPrime's 140°: 70° either side; 0 is no limit.
+        let prime = CombatStyleDef { max_targeting_fov: 140.0, ..cs.clone() };
+        assert!(!outside_targeting_fov(&prime, 69f32.to_radians()) && outside_targeting_fov(&prime, 71f32.to_radians()));
+        assert!(!outside_targeting_fov(&cs, std::f32::consts::PI));
     }
 }
