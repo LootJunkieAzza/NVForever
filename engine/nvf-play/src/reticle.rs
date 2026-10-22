@@ -103,6 +103,12 @@ pub struct Prompt {
     pub key: String,
 }
 
+/// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
+pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
+    let own = sim.refs.get(fnv_sim::FormId(form_id)).and_then(|r| r.prompt.clone());
+    own.or_else(|| sim.base_of(form_id).and_then(|b| sim.forms.get(b)).and_then(|b| b.prompt.clone()))
+}
+
 impl Prompt {
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
         let (mut action, name) = outcome::prompt(&t.name, &t.action);
@@ -110,6 +116,14 @@ impl Prompt {
         // playtest list 2 of 2026-10-12].
         if t.crime && matches!(t.action, Action::Take { .. }) {
             action = "Steal".into();
+        }
+        // An Activation Prompt (XATO) of the reference, else of its activator base, in
+        // place of the action word; not over a lock or an inaccessible door
+        // (docs/spec-notes/cells-refs.md §3) [hypothesis: which states it replaces].
+        if !matches!(t.action, Action::Locked { .. } | Action::Unlock | Action::Name | Action::Inaccessible) {
+            if let Some(p) = activation_prompt(sim, t.form_id) {
+                action = p;
+            }
         }
         let item = match t.action {
             Action::Take { .. } => sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)),
@@ -406,6 +420,10 @@ fn draw(
                 spawn_texts(p, kit, prompt);
             }
         });
+        // What the prompt says, once per change (docs/spec-notes/cells-refs.md §3).
+        if let Some(p) = &want {
+            info!("reticle: prompt \"{}\" on \"{}\"", p.action, p.name);
+        }
         *shown = want;
     }
 }

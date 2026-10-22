@@ -1,0 +1,62 @@
+# Cells and references from the ESM (ESM gap audit, 2026-10-22)
+
+The ESM gap audit's medium group "Cells and references"
+([esm-gap-audit-2026-10-21](../handoff/esm-gap-audit-2026-10-21.md)) lists CELL, REFR,
+ACTI and TERM fields that were decoded but not acted on. Activate parents (XAPD/XAPR)
+were built before (#547, traps.md). Bit meanings: GECK wiki GetFormFlag (record header
+flags, adapted from FNVEdit) and GetCellFlag [documented]; layouts from xEdit (schemas
+`world.json`, `common.json`, `objects.json`). Counts are from FalloutNV.esm [observed: a
+raw read of the master, 2026-10-22]: 30,497 cells and 307,710 placed references.
+
+## 1. Can't Wait (CELL record header bit 19)
+
+Nine interior cells: `Gomorrah00`, `Gomorrah01`, `HooverDamExt`, `HiddenValleyBunker1`,
+`ULMembersOnly`, `OVWestSewers03`, `LegateCampTent`, `FreesideAtomicWrangler2`,
+`FollowersOutpostInterior`. The Wait menu (and sleeping) refuses in such a cell with the
+line a script's ban gives, "You cannot wait here" (`Refusal::Forbidden`, wait-menu.md)
+[hypothesis: which line]. It is checked after the script's ban, swimming, falling and
+radiation, and before trespass (wait-menu.md §9 order). Logged: `wait menu: refused: …
+is flagged Can't Wait`.
+
+## 2. Inaccessible doors (REFR record header bit 8)
+
+85 door references (and 47 others, where bit 8 has other meanings for other record
+types) carry it; many have an Activation Prompt such as "Inaccessible Tunnel". Such a
+door is shown with its name and the action "Inaccessible", and E does nothing: no
+teleport, no opening, no script [hypothesis: the flag's name; GetLockedOut's value 3
+"Inaccessible" (JIP) [documented] says such a door is locked out]. Scripts may still
+activate it.
+
+## 3. Activation prompts (XATO)
+
+156 references (doors mostly: "Exit to Mojave Wasteland" 24, "Climb Ladder to Mojave
+Wasteland" 11, "Call Elevator" 10 …) and 59 activators ("Play Roulette", "Play Slots",
+"Read Note", "Pick Banana Yucca" …) carry one. The JohnnyGuitar function
+GetRefActivationPromptOverride names it the reference's "Activation Prompt Override"
+[documented]. Under the crosshair the prompt's action line shows the reference's XATO,
+else its ACTI base's, in place of the action word ("Open", "Activate"); the second line
+(the name, or a door's destination) stays [hypothesis: the override replaces the verb].
+It does not replace a lock's or key's line, nor an inaccessible door's.
+
+## 4. Nothing to build
+
+- **Off Limits** (CELL header bit 17, "Dangerous / Off limits (Interior cell)"
+  [documented: GetFormFlag]): one cell, `ULPenthouse`. The wiki does not say what the
+  flag does; ownership and trespass already decide the penthouse. Stored as before.
+- **Behave Like Exterior** (CELL DATA bit 7) and **XCCM** (an interior's climate): no
+  cell in FalloutNV.esm uses either.
+- **Leveled Lock** (XLOC flag bit 2): none of the master's 426 locked references has it,
+  and no rule ties a lock's level to the player's ("deprecated", encounter-zones.md).
+- **TERM Leveled** (DNAM flags bit 0): eleven terminals. "If the terminal is leveled, the
+  actual lock level may be adjusted" [documented: GECK wiki Lock] gives no rule, and no
+  game setting does either; hacking.md §6 keeps the stored difficulty.
+
+## 5. Checks
+
+Unit tests: `crime::tests::cell_flags_from_raw` (Can't Wait), nvf-play `activate::tests`
+(an inaccessible door, a reference's and an activator's prompt). Smoke: `wait-cant-wait`
+(the Wait menu refused in Gomorrah), `activation-prompt-door` (the prompt of a Goodsprings
+door with XATO). No smoke for §2: the two flagged doors tried (the Prospector Saloon's
+0x00108BC8, the Nipton town hall's 0x00131E6B) were never under the crosshair in ours,
+likely decorative models without collision for the picker [observed, 2026-10-22]; whether
+the original lets the player target them is a capture question.

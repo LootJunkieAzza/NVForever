@@ -3690,6 +3690,32 @@ order = [[
 ]]
 
 [[scenario]]
+name = "wait-cant-wait"
+source = "ESM gap audit medium group 4 (docs/spec-notes/cells-refs.md §1): the Wait menu refuses in a cell flagged Can't Wait (CELL header bit 19)"
+note = "Gomorrah's casino floor (Gomorrah00, one of nine such cells in FalloutNV.esm); T at 10 s"
+areas = ["wait", "world"]
+paths = ["engine/nvf-play/src/wait.rs", "crates/fnv-game/src/crime.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_WAIT = "10:open" }
+args = ["--cell", "Gomorrah00", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'wait menu: refused \(wait\): .* is flagged Can.t Wait', label = "the wait refused in Gomorrah" },
+]
+
+[[scenario]]
+name = "activation-prompt-door"
+source = "ESM gap audit medium group 4 (docs/spec-notes/cells-refs.md §3): a reference's Activation Prompt (XATO) is the crosshair's action line"
+note = "the Goodsprings Cave door outside (0x001531FC, XATO 'Enter Goodsprings Cave'); the player put 170 units south of it, facing it"
+areas = ["activation", "hud"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-sim/src/refs.rs", "crates/fnv-sim/src/forms.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:001531FC" }
+args = ["--play", "--pos=-58185,-5600,8300", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'reticle: prompt "Enter Goodsprings Cave"', label = "the door's prompt reads its XATO" },
+]
+
+[[scenario]]
 name = "creature-names"
 source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature shows only its name, a dead one Search"
 note = "VERGSGecko2REF 0x00157B3D (base VSpawnTier2GeckoMed, no FULL; template list VEncTier2GeckoMed -> VCrTier2GeckoMed 'Gecko'), Very Aggressive (as its neighbour 0x00157B3E): name only while alive; both killed by the script aid at 16 s; the menu test aid opens the dead one's inventory at 24 s"
@@ -4571,6 +4597,20 @@ expect = [
   { re = 'reputation: Powder Gangers \S.* -> Vilified', label = "the Powder Gangers' last box Vilified" },
   { re = 'pipboy stats: .* 2 reputations', label = "both reputations in the Pip-Boy's list" },
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
+]
+
+[[scenario]]
+name = "reputation-disguise"
+source = "owner request 2026-10-22: faction armour's scripts set every reputation to 0 while it is worn and back after; only the player's real reputation opens boxes, so putting on and taking off a Powder Gang outfit (000A472F, script 00134B71) shows none"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/reputation.rs", "crates/fnv-game/src/functions/reputation.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 001558E6 1 5;12.3:close;17:player.additem 000A472F 1;17.2:player.equipitem 000A472F;17.6:player.getreputation 001558E6 1;17.8:close;24:player.unequipitem 000A472F;24.4:player.getreputation 001558E6 1;24.6:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+expect = [
+  { re = 'reputation: Powder Gangers Neutral -> \S', count = 1, label = "one box: the fame, none for the outfit" },
+  { re = 'console: GetReputation on player >> 0\.00', label = "the outfit's script hid the fame" },
+  { re = 'console: GetReputation on player >> 12\.00', label = "taking it off gave the fame back" },
 ]
 
 # ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
@@ -6071,6 +6111,7 @@ expect = [
   { re = 'lip: animating \S+ \(\d+ tracks, \d+ applied; .*\) speaker \S+: \d+ shapes, \d+ morphs; head turn up to (?P<n>\d+\.\d)° \(pitch', range = [0.5, 15], min = 3, label = "Chet's responses animate with a head turn of a few degrees" },
   { re = 'lip summary: (?P<n>\d+) responses animated', range = [3, 60], label = "responses counted" },
   { re = 'lip summary: .* head turned on (?P<n>\d+) ', range = [3, 60], label = "the head turned on each" },
+  { re = 'lip summary: .* lost on 0 of [1-9]\d* frames\)', label = "nothing posed the head again after the .lip turn (an idle, head tracking)" },
 ]
 
 [[scenario]]

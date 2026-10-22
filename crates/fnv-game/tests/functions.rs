@@ -335,6 +335,32 @@ fn reputation_points_tiers_and_percentages() {
     assert_eq!(t(0, 0), [1, 1, 1]);
 }
 
+/// Faction armour's disguise: its OnEquip sets the reputation to 0 and its OnUnequip
+/// sets it to what was kept plus what was earned meanwhile; the real reputation (the
+/// one the boxes show) never moves for either.
+#[test]
+fn a_disguise_leaves_the_real_reputation() {
+    use fnv_game::functions::{reputation_hide as hide, reputation_real as real};
+    let f = fixture();
+    let mut g = game(&f);
+    let rep = FormId(REP);
+    g.player.reputation.insert(rep, [2.0, 9.0]);
+    // Put on: every axis to 0.
+    let before = g.player.reputation.clone();
+    g.player.reputation.insert(rep, [0.0, 0.0]);
+    hide(&mut g, &before);
+    assert_eq!(real(&g, rep), [2.0, 9.0]);
+    // Fame earned while disguised counts.
+    call(&mut g, 0x1239, None, &[r(REP), n(1.0), n(3.0)]);
+    assert_eq!(real(&g, rep), [2.0, 13.0]);
+    // Taken off: kept plus earned; nothing is hidden any more.
+    let before = g.player.reputation.clone();
+    g.player.reputation.insert(rep, [2.0, 13.0]);
+    hide(&mut g, &before);
+    assert_eq!(real(&g, rep), [2.0, 13.0]);
+    assert!(g.player.reputation_hidden.is_empty());
+}
+
 /// The round 3 rules [observed: layer5-captures.md §9.3 a] on a scale of 20.
 #[test]
 fn reputation_limits_levels_and_ignored_sizes() {

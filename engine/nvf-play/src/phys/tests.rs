@@ -286,6 +286,7 @@ fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
             primitive: None,
             activate_parents: Vec::new(),
             parent_activate_only: false,
+            prompt: None,
             radiation: None,
             radius: None,
             encounter_zone: None,
