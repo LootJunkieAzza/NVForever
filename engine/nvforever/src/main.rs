@@ -83,6 +83,7 @@ mod lodgen;
 mod nav;
 mod object_anims;
 mod outfits;
+mod own_sounds;
 mod pipboy_arm;
 mod player_body;
 mod stealth_field;
@@ -1291,6 +1292,8 @@ fn main() -> AppExit {
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip, idle: !args.no_face_idle });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
+            // Add-on nodes', projectiles' and actors' weapons' sounds (own_sounds.rs).
+            app.add_plugins(own_sounds::OwnSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
             // Who says a line to someone turns to them (speech_look.rs).

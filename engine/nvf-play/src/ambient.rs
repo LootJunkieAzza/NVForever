@@ -21,8 +21,12 @@
 //!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
 //! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
 //!   loops; other menus do not [design].
+//! - **SOUN flags** (audio.md §15.2): a 2D sound is not panned; a loop with Start at
+//!   Random Position starts somewhere in its file; while the listener is under water a
+//!   Mute When Submerged sound is held silent. A [`SoundSource`] may ask for a loop
+//!   whatever the flags (a weapon's idle sound).
 //! - Not built: sound markers that neither loop nor play at random (played by scripts
-//!   or once), Random Location, Start at Random Position, Mute When Submerged, walla
+//!   or once), Random Location, walla
 //!   and region sounds (REGN `RDSD`). Placed loops and random markers play through the
 //!   acoustic space's reverb ([`crate::reverb`]); the background loop does not.
 //!
@@ -110,6 +114,8 @@ pub struct Ambient {
     /// Of [`SoundSource`]s: loops started, random sounds played, sources heard.
     pub source_loops_started: u32,
     pub source_random_played: u32,
+    /// Loops started at a random place in their file (Start at Random Position).
+    pub random_starts: u32,
     sources_heard: std::collections::HashSet<u64>,
     /// Why the loops are held now (`None`: they play), for the log.
     held_why: Option<&'static str>,
@@ -123,6 +129,8 @@ struct Heard {
     sound: u32,
     at: [f32; 3],
     source: bool,
+    /// Goes round whatever its flags say ([`SoundSource::looping`]).
+    looping: bool,
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -153,6 +161,13 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
         warn!("ambient: {name}: {path}: not decoded");
         amb.files.insert(path, None);
         return None;
+    };
+    // Start at Random Position: somewhere in the file (audio.md §15.2).
+    let music = if s.has("Start at Random Position") {
+        amb.random_starts += 1;
+        music.starting_at(sfx.rng.next_f32())
+    } else {
+        music
     };
     debug!("ambient: {name} {path} loops");
     let speed = (1.0 + s.frequency_adjust_percent / 100.0).clamp(0.25, 4.0);
@@ -244,11 +259,11 @@ fn play(
     let mut heard: Vec<Heard> = markers
         .iter()
         .filter(|m| sim.world.is_enabled(FormId(m.ref_id)).unwrap_or(!m.initially_disabled))
-        .map(|m| Heard { key: u64::from(m.ref_id), sound: m.sound, at: m.position, source: false })
+        .map(|m| Heard { key: u64::from(m.ref_id), sound: m.sound, at: m.position, source: false, looping: false })
         .collect();
     let mut sent: HashMap<u64, Heard> = HashMap::new();
     for s in sources.read() {
-        sent.insert(s.key, Heard { key: s.key, sound: s.sound.0, at: s.at, source: true });
+        sent.insert(s.key, Heard { key: s.key, sound: s.sound.0, at: s.at, source: true, looping: s.looping });
     }
     if settings.play {
         let mut sent: Vec<Heard> = sent.into_values().collect();
@@ -269,8 +284,10 @@ fn play(
         if m.source && amb.sources_heard.insert(m.key) {
             debug!("ambient: source {:X} sounds {} at {:?}", m.key, s.edid.as_deref().unwrap_or("?"), m.at);
         }
-        if s.has("Loop") {
-            let gain = static_gain(s) * distance_gain(s, dist) * volume;
+        if s.has("Loop") || m.looping {
+            // Under water a sound so flagged is held silent (audio.md §15.2).
+            let muted = sfx.submerged && s.has("Mute When Submerged");
+            let gain = if muted { 0.0 } else { static_gain(s) * distance_gain(s, dist) * volume };
             sounding.push(m.key);
             if let Some(p) = amb.loops.get(&m.key) {
                 p.set(gain);
@@ -278,8 +295,9 @@ fn play(
                     pan.set(pan_gains(eye, player.heading, m.at));
                 }
             } else if !held {
-                let pan = Pan::new(pan_gains(eye, player.heading, m.at));
-                let Some((p, _)) = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, m.sound, Some(pan)) else { continue };
+                // A 2D sound is not panned (audio.md §15.2).
+                let pan = (!s.has("2D")).then(|| Pan::new(pan_gains(eye, player.heading, m.at)));
+                let Some((p, _)) = start_loop(&mut commands, amb, sfx, &settings, &data.vfs, &mut streams, m.sound, pan) else { continue };
                 p.set(gain);
                 amb.loops.insert(m.key, p);
                 if m.source {
@@ -358,13 +376,14 @@ fn play(
 fn report(mut exit: MessageReader<AppExit>, amb: Res<Ambient>) {
     if exit.read().last().is_some() {
         info!(
-            "ambient summary: {} placed loops started, {} random sounds played, {} background loops started; things that sound (activators, containers, doors, creatures): {} heard, {} loops started, {} random sounds played",
+            "ambient summary: {} placed loops started, {} random sounds played, {} background loops started; things that sound (objects, creatures, water, weapons, effects): {} heard, {} loops started, {} random sounds played; {} loops started at a random position",
             amb.loops_started,
             amb.random_played,
             amb.beds_started,
             amb.sources_heard.len(),
             amb.source_loops_started,
-            amb.source_random_played
+            amb.source_random_played,
+            amb.random_starts
         );
     }
 }

@@ -448,11 +448,11 @@ fn actor_keys(
                     pick_creature_sound(list, creature_sound::CONSCIOUS_LOOP, pick, roll).map(FormId)
                 });
                 if let Some(sound) = conscious {
-                    loops.write(SoundSource { key: SoundSource::key(CONSCIOUS, r.reference), sound, at: feet.to_array() });
+                    loops.write(SoundSource { key: SoundSource::key(CONSCIOUS, r.reference), sound, at: feet.to_array(), looping: false });
                 }
                 let speed = before.map_or(0.0, |b| b.distance(feet) / dt.max(1e-3));
                 if let (true, Some(m)) = (speed > MOVING, list.iter().find(|c| c.kind == creature_sound::MOVEMENT_LOOP)) {
-                    loops.write(SoundSource { key: SoundSource::key(MOVEMENT, r.reference), sound: FormId(m.sound), at: feet.to_array() });
+                    loops.write(SoundSource { key: SoundSource::key(MOVEMENT, r.reference), sound: FormId(m.sound), at: feet.to_array(), looping: false });
                 }
             }
         }
