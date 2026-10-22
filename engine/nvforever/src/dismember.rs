@@ -4,7 +4,9 @@
 //! - **Skins** ([`apply_skins`]): every drawn shape of an actor (`LimbShape`) is drawn
 //!   from its partitions: an exploded part's partitions (and the torso sections that
 //!   go with it) leave the body, a gone part's torso cap shows, a severed part's section
-//!   cap shows (it leaves with the severed bones). A shape without partitions whose bones
+//!   cap shows (it leaves with the severed bones). A shape skinned to bones on both sides of
+//!   a severed part's cut is cut apart ([`sever_groups`]), each side's triangles weighted
+//!   to its own bones only, so none stretches from the body to the piece. A shape without partitions whose bones
 //!   all lie in an exploded part's bone tree (head, hair, eyes, hat) is not drawn. Hidden
 //!   shapes are given a mesh with no triangles, so the visibility other systems set
 //!   (`RefVisual`) does not bring them back. Done again whenever shapes are spawned
@@ -22,7 +24,7 @@ use fnv_combat::data::BodyPartData;
 use fnv_combat::rng::SplitMix;
 use fnv_phys::gore::GoreStart;
 use fnv_sim::FormId;
-use nvf_assets::actor::{dismember_mesh, LimbShape};
+use nvf_assets::actor::{dismember_mesh, sever_mesh, skin_weights, LimbShape};
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::combat::{Combat, ExplosionFx, ImpactFx};
 use nvf_play::dismember::Dismembered;
@@ -141,6 +143,109 @@ fn subtree(rig: &ActorRig, root: usize) -> Vec<usize> {
         .collect()
 }
 
+/// The node names (lower case) of the part at `location`.
+fn part_names(rig: &ActorRig, data: &BodyPartData, location: u16) -> HashSet<String> {
+    part_nodes(rig, data, location as i32).into_iter().filter_map(|n| rig.skel.names[n].as_deref().map(str::to_ascii_lowercase)).collect()
+}
+
+/// The steps from the skeleton's root to node `n`.
+fn depth(rig: &ActorRig, n: usize) -> usize {
+    let mut d = 0;
+    let mut cur = rig.skel.parents[n];
+    while let Some(c) = cur {
+        d += 1;
+        cur = rig.skel.parents[c];
+        if d > 256 {
+            break;
+        }
+    }
+    d
+}
+
+/// The severed piece (side 1, 2, …, `sides`) a partition of body part `bp` leaves with:
+/// the part itself, its torso section and its section cap.
+pub fn piece_of(bp: u16, cap: bool, sides: &[u16]) -> Option<u8> {
+    let location = match (cap, bp) {
+        (true, 101..=113) => bp - 100,
+        (false, 0..=13) => bp,
+        (false, 1000..) => bp / 1000,
+        _ => return None,
+    };
+    sides.iter().position(|&l| l == location).map(|k| k as u8 + 1)
+}
+
+/// How a skinned shape carried by bones both of the body and of a severed piece is cut
+/// apart (nvf_assets `sever_mesh`): its drawn triangles by side, the side of each of its
+/// joints and the joint carrying a vertex left with no weight on its side (for a piece,
+/// its bone nearest the cut; for the body, the nearest bone above a cut). A shape with
+/// partitions goes by them (`piece_of`, else `partition_drawn`); one without, triangle
+/// by triangle, with the side most of its corners' weight lies on. None for a shape all
+/// on one side.
+type Sever = (Vec<(u8, Vec<u32>)>, Vec<u8>, Vec<Option<u16>>);
+fn sever_groups(rig: &ActorRig, shape: &LimbShape, sides: &[(u16, HashSet<String>)], exploded: &BTreeSet<u16>, severed: &BTreeSet<u16>) -> Option<Sever> {
+    let (joints, weights) = skin_weights(&shape.cpu)?;
+    let side: Vec<u8> = shape
+        .bones
+        .iter()
+        .map(|b| {
+            let b = b.to_ascii_lowercase();
+            sides.iter().position(|(_, names)| names.contains(&b)).map_or(0, |k| k as u8 + 1)
+        })
+        .collect();
+    if !side.contains(&0) || side.iter().all(|&s| s == 0) {
+        return None;
+    }
+    let n = sides.len() + 1;
+    let joint_depth = |j: usize| node(rig, &shape.bones[j]).map(|i| depth(rig, i));
+    let mut fallback = vec![None; n];
+    for (k, f) in fallback.iter_mut().enumerate().skip(1) {
+        *f = (0..side.len()).filter(|&j| side[j] as usize == k).filter_map(|j| Some((joint_depth(j)?, j))).min().map(|(_, j)| j as u16);
+    }
+    // The body's: the bone above the first piece's top, or the one above that, …
+    let top = sides.iter().flat_map(|(_, names)| names.iter()).filter_map(|b| node(rig, b)).min_by_key(|&i| depth(rig, i));
+    let mut cur = top.and_then(|t| rig.skel.parents[t]);
+    while let Some(c) = cur {
+        if let Some(j) = shape.bones.iter().position(|b| rig.skel.names[c].as_deref().is_some_and(|n| n.eq_ignore_ascii_case(b))) {
+            fallback[0] = Some(j as u16);
+            break;
+        }
+        cur = rig.skel.parents[c];
+    }
+    let mut groups: Vec<(u8, Vec<u32>)> = (0..n as u8).map(|k| (k, Vec::new())).collect();
+    if shape.partitions.is_empty() {
+        let tris: Vec<u32> = match shape.cpu.indices() {
+            Some(i) => i.iter().map(|i| i as u32).collect(),
+            None => (0..shape.cpu.count_vertices() as u32).collect(),
+        };
+        for t in tris.as_chunks::<3>().0 {
+            let mut on = vec![0.0f32; n];
+            for &v in t {
+                let (Some(j), Some(w)) = (joints.get(v as usize), weights.get(v as usize)) else { continue };
+                for c in 0..4 {
+                    on[side.get(j[c] as usize).copied().unwrap_or(0) as usize] += w[c];
+                }
+            }
+            let k = (0..n).max_by(|&a, &b| on[a].total_cmp(&on[b])).unwrap_or(0);
+            groups[k].1.extend_from_slice(t);
+        }
+    } else {
+        let locations: Vec<u16> = sides.iter().map(|s| s.0).collect();
+        for p in shape.partitions.iter() {
+            match piece_of(p.body_part, shape.cap, &locations).filter(|&k| fallback[k as usize].is_some()) {
+                Some(k) => groups[k as usize].1.extend_from_slice(&p.indices),
+                None if partition_drawn(p.body_part, shape.cap, exploded, severed) => groups[0].1.extend_from_slice(&p.indices),
+                None => {}
+            }
+        }
+    }
+    // Nothing leaves and no body triangle reaches into a piece: drawn as before.
+    let reaches = |v: &u32| joints[*v as usize].iter().zip(weights[*v as usize]).any(|(&j, w)| w > 0.0 && side.get(j as usize) != Some(&0));
+    if groups.iter().skip(1).all(|g| g.1.is_empty()) && !groups[0].1.iter().any(reaches) {
+        return None;
+    }
+    Some((groups, side, fallback))
+}
+
 /// The nodes of the part at `location`.
 fn part_nodes(rig: &ActorRig, data: &BodyPartData, location: i32) -> Vec<usize> {
     data.parts.iter().filter(|p| p.location() == location).filter_map(|p| node(rig, p.node.as_deref()?)).flat_map(|n| subtree(rig, n)).collect()
@@ -191,15 +296,21 @@ fn apply_skins(
         let Some(data) = body_parts(&combat, rig, limb) else { continue };
         let exploded: BTreeSet<u16> = gone.iter().filter(|g| g.1).map(|g| g.0 as u16).collect();
         let severed: BTreeSet<u16> = gone.iter().filter(|g| !g.1).map(|g| g.0 as u16).collect();
-        let blown: HashSet<String> = exploded
-            .iter()
-            .flat_map(|&l| part_nodes(rig, data, l as i32))
-            .filter_map(|n| rig.skel.names[n].as_deref().map(str::to_ascii_lowercase))
-            .collect();
+        let blown: HashSet<String> = exploded.iter().flat_map(|&l| part_names(rig, data, l)).collect();
+        // The severed pieces, side 1, 2, … (0 is the body), and the bones each carries.
+        let sides: Vec<(u16, HashSet<String>)> = severed.iter().map(|&l| (l, part_names(rig, data, l))).collect();
         let torso_gone = exploded.contains(&0);
         let mut redrawn = 0;
+        let mut cut = (0, 0);
         for (r, shape, mut mesh) in &mut shapes {
             if r.0 != rig.reference {
+                continue;
+            }
+            if let Some((groups, side, fallback)) = sever_groups(rig, shape, &sides, &exploded, &severed).filter(|_| !torso_gone) {
+                cut.0 += 1;
+                cut.1 += groups.iter().filter(|g| g.0 > 0).map(|g| g.1.len() / 3).sum::<usize>();
+                mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback));
+                redrawn += 1;
                 continue;
             }
             let new = if shape.partitions.is_empty() {
@@ -217,6 +328,9 @@ fn apply_skins(
             };
             mesh.0 = meshes.add(new);
             redrawn += 1;
+        }
+        if cut.0 > 0 {
+            info!("dismember: {:08X} cut apart for severed {:?}: {} shapes, {} triangles leave with the pieces", rig.reference, severed.iter().collect::<Vec<_>>(), cut.0, cut.1);
         }
         gore.shapes_redrawn += redrawn;
         debug!("dismember: {:08X} drawn without {:?}, with stumps for {:?}: {redrawn} shapes", rig.reference, exploded, severed);
@@ -570,6 +684,12 @@ mod tests {
         assert!(partition_drawn(3, false, &none, &left_arm));
         assert!(partition_drawn(203, true, &none, &left_arm));
         assert!(partition_drawn(103, true, &none, &left_arm));
+        // What leaves with a severed head (side 1) and left arm (side 2).
+        assert_eq!(piece_of(1, false, &[1, 3]), Some(1));
+        assert_eq!(piece_of(3000, false, &[1, 3]), Some(2));
+        assert_eq!(piece_of(101, true, &[1, 3]), Some(1));
+        assert_eq!(piece_of(201, true, &[1, 3]), None);
+        assert_eq!(piece_of(0, false, &[1, 3]), None);
         // An intact actor: no caps.
         assert!(!partition_drawn(201, true, &none, &none));
         // An exploded torso takes everything.

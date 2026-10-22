@@ -202,6 +202,18 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   and section cap; they leave with the severed bones. Shapes without partitions whose bones all
   lie in an exploded part's bone tree (head, hair, eyes, hats, gloves) are hidden.
   A model with no cap for the part shows the open cut (owner: "some may not have meatcaps").
+- **Cutting a severed part's skin apart.** Vertices near a joint are weighted to bones on both
+  sides of the cut, so a triangle there stretched from the body to the flying piece (owner,
+  2026-10-22: a severed head hung on a long strip of the neck and collar). A shape skinned to
+  bones of both sides is now drawn in two: the piece's triangles (the part's partitions, its
+  torso section and its section cap [hypothesis: the torso section leaves with the part, as it
+  goes when the part explodes]) and the body's (the rest, with the torso cap). Each triangle has
+  vertices of its own, weighted only to bones on its side (the weights scaled back up to 1); a
+  vertex with no weight on its side is carried whole by the piece's bone nearest the cut, or for
+  the body by the nearest bone above the cut. A shape without partitions (head, hair, hat) is
+  split triangle by triangle, by the side most of its corners' weight lies on [design].
+  Log: `dismember: <ref> cut apart for severed [<locations>]: <n> shapes, <m> triangles leave
+  with the pieces`.
 - **Severing.** The ragdoll joints between the part's bones and the rest are cut. The limb
   falls away with its own skin. The cut survives the ragdoll's rest and rouse rebuilds.
 - **Exploding.** The part's skin goes. `fExplodeLimbRemovalDelay` (0.03 s) is not applied: the
