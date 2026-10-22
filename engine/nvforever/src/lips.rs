@@ -80,8 +80,10 @@ pub const HEAD_PITCH: usize = 30;
 pub const HEAD_ROLL: usize = 31;
 pub const HEAD_YAW: usize = 32;
 
-/// Radians the head turns per unit of a head channel: reading (a) of lipsync.md §3.3
-/// [hypothesis; capture job `lip_head_units` queued to settle it].
+/// Radians the head turns per unit of a head channel: reading (a) of lipsync.md §3.3.
+/// `mfg` HeadPitch 100 tipped Doc Mitchell's head about 60° and 50 about 30° [observed,
+/// owner's screenshots 2026-10-22]; that 100 on the console is 1 in a `.lip` is a
+/// hypothesis.
 pub const HEAD_RADIANS_PER_UNIT: f32 = 1.0;
 
 /// The expression morphs a response's emotion shows, by emotion type code 1 to 7
@@ -390,11 +392,11 @@ pub fn weights_at(lip: &Lip, t: f64, ease: f32) -> [f32; CHANNELS] {
 }
 
 /// The head channels as a turn in the head's own frame (x right, y forward, z up):
-/// yaw to the actor's right, then the nod down, then the tip to the right
-/// [hypothesis: the signs, lipsync.md §3.3].
+/// yaw to the actor's right, then the tip up, then the tip to the right (lipsync.md
+/// §3.3: yaw and pitch as `mfg` turns Doc Mitchell's head [observed]; roll a guess).
 pub fn head_quat(pitch: f32, roll: f32, yaw: f32) -> Quat {
     let k = HEAD_RADIANS_PER_UNIT;
-    Quat::from_rotation_z(-yaw * k) * Quat::from_rotation_x(-pitch * k) * Quat::from_rotation_y(roll * k)
+    Quat::from_rotation_z(-yaw * k) * Quat::from_rotation_x(pitch * k) * Quat::from_rotation_y(roll * k)
 }
 
 /// The turn of a `.lip` frame's head channels.
@@ -1276,11 +1278,11 @@ mod tests {
     }
 
     #[test]
-    fn the_head_nods_down_turns_right_and_tips_right_for_positive_channels() {
+    fn the_head_tips_up_turns_right_and_tips_right_for_positive_channels() {
         let bind = Quat::from_euler(EulerRot::XYZ, 0.3, -1.2, 2.0);
         let a = 0.1f32;
         let (fwd, _) = turned_axes(bind, head_quat(a, 0.0, 0.0));
-        assert!((fwd - Vec3::new(0.0, a.cos(), -a.sin())).length() < 1e-5, "pitch: {fwd}");
+        assert!((fwd - Vec3::new(0.0, a.cos(), a.sin())).length() < 1e-5, "pitch: {fwd}");
         let (fwd, _) = turned_axes(bind, head_quat(0.0, 0.0, a));
         assert!((fwd - Vec3::new(a.sin(), a.cos(), 0.0)).length() < 1e-5, "yaw: {fwd}");
         let (fwd, up) = turned_axes(bind, head_quat(0.0, a, 0.0));
@@ -1291,15 +1293,15 @@ mod tests {
 
     #[test]
     fn the_turn_goes_on_top_of_whatever_the_head_faces() {
-        // A head already turned 40° to the side by tracking nods in its own frame: its
-        // forward drops, its sideways direction stays.
+        // A head already turned 40° to the side by tracking tips up in its own frame: its
+        // forward rises, its sideways direction stays.
         let bind = Quat::from_rotation_x(0.7);
         let tracked = Quat::from_rotation_z(-0.7) * bind;
         let local = turned_local(tracked, bind, head_quat(0.1, 0.0, 0.0));
         let before = tracked * bind.inverse();
         let after = local * bind.inverse();
         assert!((before * Vec3::X - after * Vec3::X).length() < 1e-5);
-        assert!((after * Vec3::Y).z < -0.09);
+        assert!((after * Vec3::Y).z > 0.09);
     }
 
     #[test]
