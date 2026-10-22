@@ -954,9 +954,12 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
 - **Projectiles in flight** (nvforever `own_sounds.rs`): a projectile whose PROJ sound has
   the Loop flag sounds it where it flies, as a source that follows it [hypothesis: a
   missile's fly-by loop]. One whose sound has neither flag (the bullet whiz) plays it
-  once, where it is, when it first comes within the sound's maximum distance of the
-  listener having been farther [hypothesis: a fly-by; design: when]; a shot that starts
-  within reach (the player's own) never whizzes.
+  once, where it passes the listener: the frame it starts to draw away after coming
+  closer, when its nearest was within the sound's maximum distance [hypothesis: a
+  fly-by; design: when]. A shot that only draws away (the player's own) never whizzes,
+  nor one that ends on the listener (its impact sounds instead). A first rule (on
+  coming within reach from farther) never fired in 67 smoke runs: the shooters stood
+  within the whiz's reach.
 - **Block** (`nvf_play::combat`): a blocked blow plays the blocker's weapon's `NAM6`, at
   the blocker [hypothesis: whose weapon; `WPNBlockHand` is on the unarmed weapons].
 - **Idle** (`nvf_play::combat`, nvforever `own_sounds.rs`): while a weapon whose `UNAM`
@@ -979,12 +982,15 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
   "not positioned", and 2D Radius (102 sounds) is the flag for a distance rule].
 - **Start at Random Position**: a loop with the flag starts at a random point of its
   file instead of its start [documented: the flag's name].
-- **Mute When Submerged**: while the camera is under a water surface (when the
-  under-water fog is drawn, nvforever `underwater.rs`), sounds with the flag are silent:
-  one-shots are not started, loops are held at no gain [documented: the flag's name;
-  hypothesis: the listener is the camera]. Not the player's eye: in the swimming pose the
-  head sinks 20–40 units under the surface while the camera stays above it [observed:
-  `own-sounds-lake`, where the eye rule muted 18 sounds while swimming at the surface].
+- **Mute When Submerged**: while the listener (the player's eye) is under the surface
+  of physics' water (cells' and placed volumes'; an interior's own `XCLW` is not water,
+  physics.md §6.6), sounds with the flag are silent: one-shots are not started, loops
+  are held at no gain [documented: the flag's name; hypothesis: the listener is the
+  eye]. A swimmer floating at the surface keeps its eye above it (feet 102.5 under); one
+  that went below the floating height stays there with its eye under [observed:
+  `own-sounds-lake`, feet about 200 under, eye 81 under: 13–21 sounds muted]. The
+  under-water fog's rule was tried and dropped: it reads an interior's `XCLW` as a
+  surface, which muted the Goodsprings cave (`reverb-cave-exit`).
 
 ### 15.3 Not built, and why
 

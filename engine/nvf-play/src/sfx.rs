@@ -431,10 +431,12 @@ pub struct Sfx {
     /// and how many sounds were played through one.
     pub room_reverb: Option<&'static Preset>,
     pub reverbed: u32,
-    /// The listener is under a water surface (set by nvforever's under-water fog, with the
-    /// camera), and how many sounds that silenced (Mute When Submerged, audio.md §15.2).
+    /// The listener is under water ([`listener_submerged`]), how many sounds that
+    /// silenced (Mute When Submerged, audio.md §15.2) and the deepest the listener went
+    /// under a surface, units.
     pub submerged: bool,
     pub muted_submerged: u32,
+    pub deepest: f32,
     /// Sounds with the 2D flag played at a place, not panned.
     pub flat_2d: u32,
 }
@@ -453,7 +455,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         forms.addons.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, submerged: false, muted_submerged: 0, flat_2d: 0 });
+    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0 });
 }
 
 /// The archive path of the file a SOUN plays this time: the file it names, or the Ogg
@@ -565,6 +567,23 @@ fn play(
     }
     for r in requests.read() {
         one_shot_heard(&mut commands, sfx, &data.vfs, &mut assets, &settings, r.sound, r.at, player.as_deref());
+    }
+}
+
+/// Whether the listener (the player's eye) is under water: the surface of the water it
+/// is in or over (physics' water: cells' and placed volumes', none of an interior's
+/// own, physics.md §6.6) lies above it [hypothesis: the game's listener is the camera].
+/// A swimmer floating at the surface has its eye above it (feet `float_depth` 102.5
+/// under); one below the floating height stays there, under water (physics.md §6.6).
+pub fn listener_submerged(phys: Option<Res<crate::phys::PhysState>>, player: Option<Res<Player>>, sfx: Option<ResMut<Sfx>>) {
+    let (Some(phys), Some(player), Some(mut sfx)) = (phys, player, sfx) else { return };
+    let eye = player.eye();
+    let depth = phys.world.water_surface_for(eye).map_or(0.0, |s| s - eye[2]);
+    sfx.deepest = sfx.deepest.max(depth);
+    let under = depth > 0.0;
+    if sfx.submerged != under {
+        sfx.submerged = under;
+        debug!("sfx: the listener is {} water ({depth:.1} under the surface)", if under { "under" } else { "out of the" });
     }
 }
 
@@ -681,8 +700,8 @@ fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
     if let (Some(_), Some(s)) = (exit.read().last(), sfx) {
         if s.played + s.silent + s.failed > 0 {
             info!(
-                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water, {} 2D sounds not panned",
-                s.played, s.silent, s.failed, s.muted_submerged, s.flat_2d
+                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned",
+                s.played, s.silent, s.failed, s.muted_submerged, s.deepest, s.flat_2d
             );
         }
     }
@@ -698,7 +717,7 @@ impl Plugin for SfxPlugin {
             .add_message::<LoopSound>()
             .add_message::<SoundSource>()
             .add_systems(Startup, init)
-            .add_systems(Update, (play.after(crate::PlaySet::Activation), pan_sounds).chain())
+            .add_systems(Update, (listener_submerged, play.after(crate::PlaySet::Activation), pan_sounds).chain())
             .add_systems(Last, report);
         crate::reverb::build(app);
     }

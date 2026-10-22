@@ -8,9 +8,10 @@
 //!   the impact plays its IPCT sound).
 //! - **Projectiles** (PROJ DATA Sound): one whose sound has the Loop flag sounds it
 //!   where it flies [hypothesis: a missile's fly-by loop]; any other plays once, where
-//!   it is, when it first comes within the sound's maximum distance of the listener
-//!   having been farther [hypothesis: the bullet whiz is a fly-by; design: when], so a
-//!   shot that starts within reach (the player's own) never whizzes.
+//!   it passes the listener: the frame it starts to draw away after coming closer, when
+//!   its nearest was within the sound's maximum distance [hypothesis: the bullet whiz is
+//!   a fly-by; design: when]. A shot that only draws away (the player's own) never
+//!   whizzes, nor one that ends on the listener (its impact sounds instead).
 //! - **Idle** (WEAP `UNAM`): an actor with its weapon out sounds the weapon's idle sound
 //!   at the actor, going round whatever its flags [hypothesis: 12 of the 16 have neither
 //!   flag, their files are loops by name]. The player's is `nvf_play::combat`'s.
@@ -36,9 +37,9 @@ const IDLE_KIND: u8 = 12;
 
 #[derive(Resource, Default)]
 struct OwnSounds {
-    /// Projectiles seen, by their number: whether they may still whiz (they were out of
-    /// reach and have not whizzed yet).
-    shots: HashMap<u64, bool>,
+    /// Projectiles seen, by their number: the distance from the listener last frame and
+    /// whether it has come closer (`None` once it whizzed).
+    shots: HashMap<u64, Option<(f32, bool)>>,
     addons: HashSet<Entity>,
     projectile_loops: HashSet<u64>,
     whizzes: u32,
@@ -86,13 +87,18 @@ fn projectiles(mut st: ResMut<OwnSounds>, sfx: Option<Res<Sfx>>, visuals: Res<Sh
             out.write(SoundSource { key: SoundSource::key(PROJECTILE_KIND, v.id as u32), sound, at: v.pos, looping: false });
             continue;
         }
-        let inside = distance2(v.pos, eye) < s.max_distance * s.max_distance;
-        let may = st.shots.entry(v.id).or_insert(!inside);
-        if *may && inside {
-            *may = false;
+        let d = distance2(v.pos, eye).sqrt();
+        let Some(seen) = st.shots.entry(v.id).or_insert(Some((d, false))) else { continue };
+        let (last, closer) = *seen;
+        if d < last {
+            *seen = (d, true);
+        } else if closer && d > last && last < s.max_distance {
+            st.shots.insert(v.id, None);
             st.whizzes += 1;
-            debug!("own sounds: projectile {} whizzes by: {}", v.id, s.edid.as_deref().unwrap_or("?"));
+            debug!("own sounds: projectile {} whizzes by, {last:.0} units from the listener: {}", v.id, s.edid.as_deref().unwrap_or("?"));
             sounds.write(PlaySound { sound, at: Some(v.pos) });
+        } else {
+            *seen = (d, closer);
         }
     }
     st.shots.retain(|id, _| now.contains(id));
