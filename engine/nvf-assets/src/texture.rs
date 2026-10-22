@@ -19,7 +19,20 @@ pub struct TextureCache {
     map: HashMap<(String, bool), Option<Handle<Image>>>,
     /// Copies sampled with clamped edges ([`Self::get_clamped`]), by the same key.
     clamped: HashMap<(String, bool), Option<Handle<Image>>>,
+    /// Files read ahead on a worker thread ([`Self::offer`]), by resolved path, with when
+    /// they came in.
+    ahead: HashMap<String, (Vec<u8>, f64)>,
     pub failures: Vec<String>,
+}
+
+/// Seconds a texture read ahead waits to be loaded before it is dropped.
+const AHEAD_KEEP_SECS: f64 = 30.0;
+
+/// The archive path a NIF texture path loads from: normalised, the PC's own form of it if
+/// any ([`pc_texture`]).
+pub fn resolved_path(raw_path: &str, exists: impl Fn(&str) -> bool) -> String {
+    let path = fnv_vfs::texture_path(raw_path);
+    pc_texture(&path, exists).unwrap_or(path)
 }
 
 /// Anisotropic filtering of the game's textures made from now on (8 unless the
@@ -131,11 +144,21 @@ impl TextureCache {
             .into_iter()
             .flat_map(|(clamp, map)| map.iter().filter_map(move |((p, srgb), h)| h.as_ref().map(|h| ((p.clone(), *srgb, clamp), held_beyond(h, 1)))))
             .collect();
+        self.ahead.retain(|_, (_, at)| now - *at < AHEAD_KEEP_SECS);
         let drop = idle.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
         for (p, srgb, clamp) in &drop {
             (if *clamp { &mut self.clamped } else { &mut self.map }).remove(&(p.clone(), *srgb));
         }
         drop.len()
+    }
+
+    /// The bytes of the texture file at `path` (resolved: [`resolved_path`]), read ahead on
+    /// a worker thread, for the first load of it; kept unless it is loaded already.
+    pub fn offer(&mut self, path: String, bytes: Vec<u8>, now: f64) {
+        let loaded = [true, false].iter().any(|&srgb| self.map.contains_key(&(path.clone(), srgb)) || self.clamped.contains_key(&(path.clone(), srgb)));
+        if !loaded {
+            self.ahead.insert(path, (bytes, now));
+        }
     }
 
     /// Textures loaded and held now (failures not counted).
@@ -182,13 +205,13 @@ impl TextureCache {
         images: &mut Assets<Image>,
         formats: Option<&CompressedImageFormatSupport>,
     ) -> Option<Handle<Image>> {
-        let path = fnv_vfs::texture_path(raw_path);
-        let path = pc_texture(&path, |p| data.vfs.exists(p)).unwrap_or(path);
+        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
         if let Some(h) = (if clamp { &self.clamped } else { &self.map }).get(&(path.clone(), srgb)) {
             return h.clone();
         }
         let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
-        let result = match data.read(&path) {
+        let read = self.ahead.remove(&path).map(|(bytes, _)| bytes).or_else(|| data.read(&path));
+        let result = match read {
             None => Err("not in any archive".to_string()),
             Some(bytes) => dds_image(&bytes, srgb, bc),
         };
