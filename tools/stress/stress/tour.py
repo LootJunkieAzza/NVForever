@@ -327,10 +327,13 @@ def world_bounds(ctx: lib.Ctx, world: str):
     raise SystemExit(f"no worldspace {world} in fnvtool's world list")
 
 
-def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_args: list[str], est_seconds: float) -> dict:
+def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_args: list[str], est_seconds: float,
+        aids: dict[str, str] | None = None) -> dict:
+    """`aids`: further test aids for the game (`--aid`)."""
     path = ctx.out / "route.txt"
     path.write_text(route, encoding="utf-8")
-    launch = lib.Launch("tour", start_args, {"NVF_PLAY_TEST_TOUR": str(path), "NVF_PLAY_TEST_SAMPLE": f"{every:g}"},
+    env = {"NVF_PLAY_TEST_TOUR": str(path), "NVF_PLAY_TEST_SAMPLE": f"{every:g}", **(aids or {})}
+    launch = lib.Launch("tour", start_args, env,
                         run_seconds=est_seconds, progress=PROGRESS, hang_seconds=hang, memory_every=every)
     r = lib.run(ctx, launch)
     samples = tag_laps(r.lines)

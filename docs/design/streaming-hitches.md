@@ -40,13 +40,47 @@ uGridsToLoad=5).
 - **FaceGen textures**: no longer made (§3). Between PR #587 and the shader tint the
   tinted copies were made on a worker thread and put into the materials a few frames
   after the NPC appeared.
-- **Actor parts** (`nvf-assets/src/actor.rs`). Before `nav::show_actor` draws an actor
-  for the first time it asks `ActorCtx::parts_ready` for the actor's part models; parts
-  not prepared or read yet are read, inflated and parsed on a worker thread, with the
-  texture files their texture sets name (`TextureCache::offer`). The actor is drawn once
-  they are in [engineering choice: a few frames later, at the edge of the loaded cells].
-  Preparing the part (meshes, materials, GPU textures) stays on the main thread; it needs
-  the asset stores.
+- **Actor parts** (`nvf-assets/src/actor.rs`). Before an actor is drawn for the first
+  time, `readahead::ready_to_draw` asks `ActorCtx::parts_ready` for its part models, its
+  weapon's model and its skeleton; those not prepared or read yet are read, inflated and
+  parsed on a worker thread, with the texture files their texture sets name
+  (`TextureCache::offer`). The actor is drawn once they are in [engineering choice: a few
+  frames later, at the edge of the loaded cells]. Residents and travellers
+  (`nav::show_actor`) wait so; so do the placed actors of a cell loaded after the start
+  (`world::load_cell` puts them in `Streamer::waiting`, `world::draw_waiting_actors`
+  draws them); before the start's cells are in, behind the loading screen, they are drawn
+  at once. Preparing a part (meshes, materials, GPU textures) needs the asset stores and
+  stays on the main thread.
+- **Read-ahead** (`nvforever/src/readahead.rs`). When the cell the loaded grid is around
+  changes (outdoors, after the start), the actors of the band just outside the grid (the
+  ring between the loaded 5 × 5 cells and 7 × 7: placed NPCs and creatures enabled there,
+  and residents not drawn whose walkers stand there) are listed. Within 4 ms a frame
+  (`PREPARE_BUDGET`) they are resolved, the reads above started for them, and what has
+  been read prepared on the main thread (`ActorCtx::part`, `ActorCtx::skeleton`); their
+  FaceGen `.egm` files are read (`FaceGenCache::egm`). Once an actor's skeleton is
+  prepared, the clip sets and weapon stance it is drawn with (standing, sneaking,
+  swimming, limping, a creature's alert set; `actors::Anims::warm`) are loaded from their
+  KF files on a worker thread through `ClipReader` (`nvf_assets::actor::ClipSource`: the
+  loaders in `locomotion.rs` and `weapons.rs` read clips through it). `Anims` does not
+  hold its lock while loading, so drawing an actor never waits for a worker; both may
+  load a set once and the first kept wins [engineering choice]. A weapon's `UPB` node
+  strings are cached (`ModelCtx::node_strings`) instead of reading the model again for
+  every NPC holding it.
+
+  An actor walking into the loaded cells, or a cell of them loading, then finds its
+  parts, skeleton and clips ready: what is left on the frame it is drawn is resolving it,
+  the per-NPC FaceGen shape (`FaceGenCache::morph`) and tint offsets (§3), retextured
+  materials (`ActorCtx::material_with_texture`) and the entities. Parts prepared ahead and
+  not used go after the caches' minute (`nvf_assets::release`): a player standing still at
+  the edge of a ring has its actors read again when they come.
+
+  Measuring: `stress hitch:` lines say how many actors a slow frame drew and their time
+  (`readahead::clocked`); a run ends with `stress actors: …` (the frames that drew actors)
+  and `actor read-ahead summary: …` (actors listed, parts read and prepared ahead, clip
+  sets loaded ahead, actors ready at once and after waiting). `NVF_PLAY_TEST_NO_READ_AHEAD=1`
+  turns the read-ahead off for a comparison (`python tools/stress run tour … --aid
+  NVF_PLAY_TEST_NO_READ_AHEAD=1`). Smoke: `actor-read-ahead` (residents),
+  `actor-read-ahead-placed` (cells' placed actors).
 
 ## 3. Left to do
 
@@ -73,9 +107,9 @@ uGridsToLoad=5).
 - Read the `.egt` files on a worker thread ahead of need (e.g. the races' head, body
   and hand files at start): today the first NPC with a given head model reads its file
   on the main thread, a one-off hitch of up to about 20 ms per file.
-- Read ahead the actors of the next ring of cells (7 × 7) so they are ready before they
-  are needed; actors drawn by other paths (`world::load_cell`, `outfits.rs`) still prepare
-  parts on first use.
+- Actors re-dressed (`outfits.rs`) still prepare a newly worn part on first use; the
+  read-ahead resolves an actor's appearance from its record, not its inventory. Interiors
+  and doors' destinations are not read ahead.
 - Cell assets: prepare models and textures of the next ring on a worker thread; spread a
   cell's spawning over frames; limit GPU uploads per frame
   (`RenderAssetBytesPerFrameLimiter`).

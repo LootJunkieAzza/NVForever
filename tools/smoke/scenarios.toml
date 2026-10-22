@@ -6169,6 +6169,7 @@ expect = [
   { re = 'actor read-ahead summary: (?P<n>\d+) rings', range = [3, 100], label = "rings listed as the loaded grid moved" },
   { re = 'actor read-ahead summary: .* (?P<n>\d+) prepared ahead', range = [5, 5000], label = "parts prepared ahead" },
   { re = 'actor read-ahead summary: .* (?P<n>\d+) ready at once', range = [5, 5000], label = "residents drawn at once when they came into range" },
+  { re = 'actor read-ahead summary: .* (?P<n>\d+) skeletons. clip sets loaded ahead', range = [1, 1000], label = "clip sets loaded ahead on a worker thread" },
 ]
 
 [[scenario]]

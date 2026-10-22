@@ -182,6 +182,54 @@ pub struct ActorParts {
     pub failures: Vec<String>,
 }
 
+/// The first controller sequence of the KF file at `path`.
+fn read_clip(data: &GameData, path: &str) -> Result<Clip, String> {
+    decode(data, path).and_then(|(file, _, dec)| fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence".into()))
+}
+
+/// Where KF clips come from: the actor part cache on the main thread ([`ActorCtx`]), or a
+/// [`ClipReader`] on a worker thread (clip sets loaded ahead of the actors that use them).
+pub trait ClipSource {
+    /// The game's files.
+    fn data(&self) -> &GameData;
+    /// The first controller sequence of the KF file at `path` (loaded on first use).
+    fn clip(&mut self, path: &str) -> Option<Arc<Clip>>;
+}
+
+impl ClipSource for ActorCtx<'_, '_> {
+    fn data(&self) -> &GameData {
+        &self.models.data
+    }
+
+    fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+        ActorCtx::clip(self, path)
+    }
+}
+
+/// Clips read off the main thread, kept for the reader's life.
+pub struct ClipReader {
+    data: GameData,
+    clips: HashMap<String, Option<Arc<Clip>>>,
+}
+
+impl ClipReader {
+    pub fn new(data: GameData) -> ClipReader {
+        ClipReader { data, clips: HashMap::new() }
+    }
+}
+
+impl ClipSource for ClipReader {
+    fn data(&self) -> &GameData {
+        &self.data
+    }
+
+    fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+        let key = fnv_vfs::normalize(path);
+        let data = &self.data;
+        self.clips.entry(key).or_insert_with_key(|key| read_clip(data, key).ok().map(Arc::new)).clone()
+    }
+}
+
 /// A NIF file read and parsed: the file, its bytes and its decoded blocks.
 type Nif = Result<(NifFile, Vec<u8>, Decoded), String>;
 
@@ -548,9 +596,7 @@ impl ActorCtx<'_, '_> {
         if let Some(c) = self.cache.clips.get(&key) {
             return c.clone();
         }
-        let c = match decode(&self.models.data, &key)
-            .and_then(|(file, _, dec)| fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence".into()))
-        {
+        let c = match read_clip(&self.models.data, &key) {
             Ok(c) => Some(Arc::new(c)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
