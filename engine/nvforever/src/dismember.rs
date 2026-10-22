@@ -359,7 +359,7 @@ fn throw_gore(
             if let Some(impact) = s.forms.impact_id(set, material) {
                 for k in 0..decals.min(MAX_BLOOD) {
                     let d = (random_dir(&mut gore.rng) + Vec3::from(e.dir) * 0.5).normalize_or_zero();
-                    impacts.write(ImpactFx { impact, shooter: FormId(e.form_id), point: (at + d * 4.0).to_array(), normal: (-d).to_array(), dir: d.to_array(), actor: None });
+                    impacts.write(ImpactFx { impact, shooter: FormId(e.form_id), point: (at + d * 4.0).to_array(), normal: (-d).to_array(), dir: d.to_array(), actor: None, no_spray: false, no_decal: false });
                     if k == 0 {
                         if let Some(i) = s.forms.impacts.get(&impact) {
                             for sound in i.sound_1.into_iter().chain(i.sound_2) {

@@ -46,6 +46,12 @@ pub enum LeveledError {
 }
 
 /// Uniform integer in `0..n` (n > 0) without modulo bias.
+/// Whether a leveled actor list's Chance none (0–100) comes up: rolled only when above 0,
+/// so a list without one draws nothing from `rng` (docs/spec-notes/actor-flags.md §6).
+pub fn rolls_none(rng: &mut impl RngCore, chance_none: u8) -> bool {
+    chance_none > 0 && below(rng, 100) < u32::from(chance_none)
+}
+
 pub fn below(rng: &mut impl RngCore, n: u32) -> u32 {
     debug_assert!(n > 0);
     let zone = u32::MAX - (u32::MAX % n);
@@ -178,4 +184,23 @@ pub fn roll_seed(reference: FormId, rolls: u32) -> FormId {
     }
     // An odd multiplier: every roll number gives a different, non-zero mask.
     FormId(reference.0 ^ rolls.wrapping_mul(0x9E37_79B9).rotate_left(16))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand_chacha::ChaCha8Rng;
+    use rand_core::SeedableRng;
+
+    #[test]
+    fn a_leveled_actor_lists_chance_none() {
+        // Chance none 0 draws nothing, so such a list picks as before.
+        let (mut a, b) = (ChaCha8Rng::seed_from_u64(7), ChaCha8Rng::seed_from_u64(7));
+        assert!(!rolls_none(&mut a, 0));
+        assert_eq!(a, b);
+        // 100 always comes up; 50 about half the time.
+        assert!((0..50).all(|_| rolls_none(&mut a, 100)));
+        let n = (0..2000).filter(|_| rolls_none(&mut a, 50)).count();
+        assert!((900..1100).contains(&n), "{n}");
+    }
 }

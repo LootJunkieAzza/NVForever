@@ -167,6 +167,12 @@ pub(crate) struct Link {
     pub from: Option<FormId>,
 }
 
+/// The condition functions that let a line be said by a voice type without "Allow
+/// Default Dialog": GetIsVoiceType, GetIsID, GetInFaction, GetIsClass, GetIsRace,
+/// IsInList [documented: GECK wiki VoiceType] (function index = opcode − 0x1000, the
+/// function catalogue) (docs/spec-notes/actor-flags.md §9).
+const VOICE_GATE_FUNCTIONS: [u16; 6] = [0x1AB, 0x48, 0x47, 0x44, 0x45, 0x174];
+
 impl<'a> Game<'a> {
     // ---- which line ---------------------------------------------------------------
 
@@ -232,7 +238,17 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        // A voice type without Allow Default Dialog says only lines conditioned on it.
+        if says == Says::Actor && def.speaker.is_none() && self.voice_without_default(speaker) && !def.conditions.iter().any(|c| VOICE_GATE_FUNCTIONS.contains(&c.function)) {
+            return false;
+        }
         self.conditions_pass(&def.conditions, Some(speaker), listener, &format!("INFO {info}"))
+    }
+
+    /// Whether `speaker`'s voice type (from the definition supplying its traits) leaves
+    /// "Allow Default Dialog" off (docs/spec-notes/actor-flags.md §9).
+    fn voice_without_default(&self, speaker: FormId) -> bool {
+        self.traits_def(speaker).and_then(|d| d.voice).is_some_and(|v| self.data.voices_without_default.contains(&v))
     }
 
     /// The line of `topic` that `speaker` says to `listener` now, for greetings, chosen

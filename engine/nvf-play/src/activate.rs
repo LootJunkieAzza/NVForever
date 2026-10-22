@@ -295,7 +295,9 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     let talks = match talkers.get(&id) {
         Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
         _ => {
-            let t = g.has_greeting(r);
+            // A creature is talked to when it is flagged Allow PC Dialogue and has a
+            // greeting to say (docs/spec-notes/actor-flags.md §4) [hypothesis: both].
+            let t = g.allows_pc_dialogue(r) && g.has_greeting(r);
             talkers.insert(id, (t, now));
             t
         }

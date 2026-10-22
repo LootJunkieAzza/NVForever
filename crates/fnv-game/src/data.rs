@@ -447,6 +447,14 @@ pub struct ActorDef {
     pub death_item: Option<FormId>,
     /// NPC_ ACBS "Auto-calc stats".
     pub autocalc: bool,
+    /// ACBS "No VATS Melee", "No Blood Spray", "No Blood Decal"; CREA "Allow PC Dialogue"
+    /// (docs/spec-notes/actor-flags.md). The template's Base Data does not
+    /// carry No VATS Melee [documented: GECK wiki Category:NPC], so it is read off the
+    /// actor's own record.
+    pub no_vats_melee: bool,
+    pub no_blood_spray: bool,
+    pub no_blood_decal: bool,
+    pub allow_pc_dialogue: bool,
     /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
     /// calculated level's bounds.
     pub level_raw: i64,
@@ -505,6 +513,8 @@ pub struct ActorDef {
 /// (level, actor base or another list), in record order.
 #[derive(Debug, Clone, Default)]
 pub struct LeveledActorDef {
+    /// LVLD Chance none, 0–100 (docs/spec-notes/actor-flags.md §6).
+    pub chance_none: u8,
     pub all_levels: bool,
     pub entries: Vec<(u16, FormId)>,
 }
@@ -760,6 +770,9 @@ pub struct GameData {
     /// RACE SPLO: the race's actor effects [hypothesis: as NPC_'s; none in FalloutNV.esm,
     /// observed].
     pub race_spells: HashMap<FormId, Vec<FormId>>,
+    /// Voice types (VTYP) whose DNAM leaves "Allow Default Dialog" off: their speakers say
+    /// only lines conditioned on them (docs/spec-notes/actor-flags.md §9).
+    pub voices_without_default: std::collections::HashSet<FormId>,
     /// ARMO EITM: the object effect (ENCH) an armour piece carries.
     pub armor_enchantments: HashMap<FormId, FormId>,
     /// ENCH ENIT type: 2 Weapon (applied by a hit), 3 Apparel (applied while worn).
@@ -1161,6 +1174,8 @@ struct Read {
     spell_type: Option<i64>,
     /// RACE SPLO list; ARMO EITM; ENCH ENIT type (`GameData::race_spells` …).
     race_spells: Option<Vec<FormId>>,
+    /// VTYP DNAM bit 0, "Allow Default Dialog"; `None` without a DNAM.
+    voice_default: Option<bool>,
     object_effect: Option<FormId>,
     repair_list: Option<FormId>,
     enchantment_type: Option<u32>,
@@ -1258,6 +1273,7 @@ impl GameData {
             ingestibles: HashMap::new(),
             spell_types: HashMap::new(),
             race_spells: HashMap::new(),
+            voices_without_default: Default::default(),
             armor_enchantments: HashMap::new(),
             enchantment_types: HashMap::new(),
             child_races: HashSet::new(),
@@ -1439,6 +1455,9 @@ impl GameData {
             }
             if let Some(v) = r.race_spells.filter(|v| !v.is_empty()) {
                 d.race_spells.insert(id, v);
+            }
+            if r.voice_default == Some(false) {
+                d.voices_without_default.insert(id);
             }
             if let Some(v) = r.object_effect {
                 d.armor_enchantments.insert(id, v);
@@ -1807,6 +1826,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"PERK"
             | b"AVIF"
             | b"CSTY"
+            | b"VTYP"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
     // Abilities and worn enchantments (docs/spec-notes/aid-items.md §13), read raw: the
     // schema has no ARMO EITM or RACE SPLO. ENCH ENIT's first u32 is the type, 2 Weapon,
@@ -1820,6 +1840,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         b"RACE" => out.race_spells = Some(subs.iter().filter(|s| &s.sig == b"SPLO").filter_map(|s| word(&s.data).and_then(map)).map(FormId).collect()),
         b"ARMO" => out.object_effect = subs.iter().find(|s| &s.sig == b"EITM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId),
         b"ENCH" => out.enchantment_type = subs.iter().find(|s| &s.sig == b"ENIT").and_then(|s| word(&s.data)),
+        // VTYP DNAM flags: bit 0 Allow Default Dialog, bit 1 Female [documented: xEdit
+        // VTYP; observed: FalloutNV.esm's adult voices have bit 0, its unique and super
+        // mutant voices not, every female voice bit 1]. Read raw: the schema has no VTYP.
+        b"VTYP" => out.voice_default = subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| s.data.first()).map(|b| b & 1 != 0),
         _ => {}
     }
     if matches!(&sig, b"WEAP" | b"ARMO") {
@@ -2409,6 +2433,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         a.autocalc_service = &sig == b"NPC_" && has_flag(f, "Autocalc Service");
+                        a.no_vats_melee = has_flag(f, "No VATS Melee");
+                        a.no_blood_spray = has_flag(f, "No Blood Spray");
+                        a.no_blood_decal = has_flag(f, "No Blood Decal");
+                        a.allow_pc_dialogue = &sig == b"CREA" && has_flag(f, "Allow PC Dialogue");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
                         (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
                         (a.fatigue, a.speed_mult) = (n("fatigue"), n("speed_multiplier"));
@@ -2436,6 +2464,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             for (s, v) in &decoded {
                 match *s {
                     b"LVLF" => l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level"),
+                    b"LVLD" => l.chance_none = v.as_ref().and_then(Json::as_u64).unwrap_or(0).min(100) as u8,
                     b"LVLO" => {
                         let level = v.as_ref().and_then(|v| v.get("level")).and_then(Json::as_u64).unwrap_or(0).min(u64::from(u16::MAX)) as u16;
                         if let Some(f) = v.as_ref().and_then(|v| v.get("reference")).and_then(hexid).and_then(map) {
