@@ -196,11 +196,15 @@ impl Settings {
     /// The action sound of firing a weapon of this WEAP sound level ("Loud", "Normal",
     /// "Silent"); 0 for anything else.
     pub fn firing_sound(&self, level: &str) -> f64 {
-        match level.to_ascii_lowercase().as_str() {
-            "loud" => self.sound_loud,
-            "normal" => self.sound_normal,
-            "silent" => self.sound_silent,
-            _ => 0.0,
+        SoundLevel::parse(level).map_or(0.0, |l| self.level_sound(l))
+    }
+
+    /// What a sound level is worth (iSoundLevelLoud, Normal, Silent).
+    pub fn level_sound(&self, level: SoundLevel) -> f64 {
+        match level {
+            SoundLevel::Loud => self.sound_loud,
+            SoundLevel::Normal => self.sound_normal,
+            SoundLevel::Silent => self.sound_silent,
         }
     }
 
@@ -223,7 +227,9 @@ impl Settings {
         // Sound.
         let movement = if moving {
             let running = if s.running && !p.ignore_running { self.running_mult } else { 1.0 };
-            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * running
+            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
+            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
+            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * running * level
         } else {
             0.0
         };
@@ -286,6 +292,29 @@ pub struct Pair {
     /// The "Ignore Running During Detection" perk entry point applies to the target.
     /// Perk entry points are not modelled yet, so this is always false.
     pub ignore_running: bool,
+    /// A creature target's sound level (CREA NAM5), which scales its movement sound by
+    /// its worth ÷ Normal's [hypothesis, docs/design/detection.md §8]; `None` for people.
+    pub target_sound_level: Option<SoundLevel>,
+}
+
+/// A record's sound level [documented: xEdit `SoundLevel`: Loud, Normal, Silent].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundLevel {
+    Loud,
+    Normal,
+    Silent,
+}
+
+impl SoundLevel {
+    /// The level a record's label names ("Loud", "Normal", "Silent", any case).
+    pub fn parse(label: &str) -> Option<SoundLevel> {
+        match label.to_ascii_lowercase().as_str() {
+            "loud" => Some(SoundLevel::Loud),
+            "normal" => Some(SoundLevel::Normal),
+            "silent" => Some(SoundLevel::Silent),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Pair {
@@ -300,6 +329,7 @@ impl Default for Pair {
             target_armor_weight: 0.0,
             target_armor_class: ArmorClass::Light,
             ignore_running: false,
+            target_sound_level: None,
         }
     }
 }
@@ -441,6 +471,7 @@ impl Game<'_> {
             target_armor_weight,
             target_armor_class,
             ignore_running: false,
+            target_sound_level: self.stats_def(target).filter(|d| &d.sig == b"CREA").and_then(|d| d.sound_level.as_deref()).and_then(SoundLevel::parse),
         }
     }
 
@@ -557,6 +588,18 @@ mod tests {
         // Target skill: 15 + 5 · 0 + max(50 − 10, 0) = 55.
         assert!(near(sneaking.target_skill, 55.0));
         assert_eq!(sneaking.band, Band::Hidden);
+    }
+
+    #[test]
+    fn a_creature_moves_as_loud_as_its_sound_level() {
+        let s = Settings::default();
+        let walking = Situation { moving: true, ..outdoors(0.0) };
+        let sound = |l: Option<SoundLevel>| s.evaluate(&Pair { target_sound_level: l, ..Pair::default() }, &walking).sound;
+        let person = sound(None);
+        assert!(person > 0.0);
+        assert!(near(sound(Some(SoundLevel::Normal)), person));
+        assert!(near(sound(Some(SoundLevel::Silent)), person * 0.2));
+        assert!(near(sound(Some(SoundLevel::Loud)), person * 2.0));
     }
 
     #[test]

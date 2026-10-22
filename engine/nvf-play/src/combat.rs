@@ -293,6 +293,8 @@ pub struct ShotVisual {
     pub id: u64,
     /// Its PROJ.
     pub projectile: FormId,
+    /// Who fired it.
+    pub owner: FormId,
     /// Where it is drawn (game space) and the way it points (unit).
     pub pos: V3,
     pub dir: V3,
@@ -328,7 +330,7 @@ pub struct CasingFx {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ImpactFx {
     pub impact: FormId,
-    /// Who fired the projectile.
+    /// Who fired the projectile (or struck, or set off the explosion); `FormId(0)`: no one.
     pub shooter: FormId,
     pub point: V3,
     pub normal: V3,
@@ -347,6 +349,8 @@ pub struct ImpactFx {
 pub struct ExplosionFx {
     pub explosion: FormId,
     pub point: V3,
+    /// Who set it off, when known (nvforever `detection` raises its event as theirs).
+    pub cause: Option<FormId>,
 }
 
 /// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
@@ -683,6 +687,8 @@ struct Pending {
 struct Ghost {
     id: u64,
     proj: FormId,
+    /// Who fired it.
+    owner: FormId,
     from: V3,
     to: V3,
     /// Units per second (a bullet); a beam stays for `left` seconds instead.
@@ -2993,7 +2999,7 @@ fn fly(
             // where it ended.
             let at_once = instant(&f.p) && f.p.age == 0.0;
             let fade = c.forms.projectiles.get(&f.proj).map_or(0.0, |p| p.fade_duration);
-            let (id, proj, speed, beam) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam);
+            let (id, proj, speed, beam, owner) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam, f.by.actor);
             // What stays on show after the shot (a beam, the line along the shot) keeps
             // its start on the muzzle: the attack clip moves the gun in the frames after
             // the shot [observed: the laser rifle's muzzle is 10 units higher one frame
@@ -3002,7 +3008,7 @@ fn fly(
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
             let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
-            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
+            let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
                 match e {
@@ -3064,12 +3070,12 @@ fn fly(
         }
     });
     visuals.flying.clear();
-    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled, strength: 1.0 }));
+    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, owner: f.by.actor, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled, strength: 1.0 }));
     visuals.flying.extend(c.ghosts.iter().map(|g| {
         let d = vec::sub(g.to, g.from);
         let len = vec::len(d);
         let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
-        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled, strength: beam_strength(g.beam, g.left, g.fade) }
+        ShotVisual { id: g.id, projectile: g.proj, owner: g.owner, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled, strength: beam_strength(g.beam, g.left, g.fade) }
     }));
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
@@ -3082,7 +3088,7 @@ fn fly(
         }
         stats.explosions += 1;
         let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
-        effects.2.write(ExplosionFx { explosion: id, point: at });
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor) });
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -3094,7 +3100,8 @@ fn fly(
             let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
             let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
             if let (Some(impact), Some(g)) = (impact, ground) {
-                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
+                // The dirt is the cause's (no one's without one): detection hears it as theirs.
+                effects.1.write(ImpactFx { impact, shooter: cause.map_or(FormId(0), |c| c.actor), point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
                 if let Some(i) = sfx.as_deref().and_then(|s| s.forms.impacts.get(&impact)) {
                     for sound in i.sound_1.into_iter().chain(i.sound_2) {
                         effects.0.write(PlaySound { sound, at: Some(g.point) });

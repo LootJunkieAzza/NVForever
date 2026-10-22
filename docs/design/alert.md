@@ -93,9 +93,10 @@ crimes and the player's reputation do not yet.
   to it (for the sound's falloff), no visual term [hypothesis: an event is heard]. Above
   −20 an actor that would attack the owner and is not in Combat is alarmed at the
   event's place [documented].
-- Raised by: CreateDetectionEvent (at the calling reference) and every impact of the
-  player's shots, at the firing weapon's sound level (100 / 50 / 10) [hypothesis: the
-  impact's level is not documented]. Explosions are not raised yet.
+- Raised by: CreateDetectionEvent (at the calling reference); every impact, at its IPCT's
+  sound level, else the firing weapon's (100 / 50 / 10); every projectile in flight, once
+  a measurement where it is, at its PROJ's level; every explosion with a known cause, at
+  its EXPL's level, as an Explosion event [hypothesis for all three; detection.md §8].
 - **Hurt**: an actor the player hits (and does not kill) that would attack the player is
   alarmed at the player's position [documented: Normal → Alert when a hostile hurts the
   detector]. Only the player fires, so the player owns every impact and hit until actors

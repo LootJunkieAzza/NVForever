@@ -120,8 +120,9 @@ under active work.
   (its reverb environment is played since claude/q27-reverb). ALOC location and retrigger delays are stored
   only. ARMO "Modulates Voice" is ignored. TACT "No Voice Filter" (header bit 13) is not
   in the schema, and no radio or intercom voice filter exists.
-- **Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only
-  the weapon's sound level feeds detection.
+- ~~**Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only
+  the weapon's sound level feeds detection.~~ Built in claude/em7-detection
+  ([detection](../design/detection.md) §8), with the sun's shade in the light measure.
 - **Visuals.** Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
   objects are not spawned. Destruction-stage DEBR debris is never spawned. ACTI WNAM water
   activators draw as plain models. Negative lights are skipped instead of darkening, and

@@ -6735,6 +6735,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "detection-events-levels"
+source = "ESM audit group 6 (docs/design/detection.md §8): the player's two frag grenades in Goodsprings raise detection events in flight (PROJ VNAM) and as they go off (EXPL sound level), owned by the player"
+note = "the anim-state-throw setup: the player (GOD) draws five frag grenades (00004330) and throws two"
+areas = ["detection", "alert", "combat"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00004330:5", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,21:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'alert summary:.*\(\d+ impacts, (?P<n>\d+) projectiles in flight, \d+ explosions\)', range = [1, 1000], label = "the grenades in flight raise events (11 for one grenade seen 2026-10-23)" },
+  { re = 'alert summary:.*\(\d+ impacts, \d+ projectiles in flight, (?P<n>\d+) explosions\)', range = [1, 2], label = "each grenade's explosion raises an event (one or two thrown: the second throw at 21 s is not always reached)" },
+]
+
+[[scenario]]
+name = "detection-shade"
+source = "ESM audit group 6 (docs/design/detection.md §8): at noon in Goodsprings some of the people measured stand in the shade of a building or a porch, which takes the sunlight out of the light at them"
+areas = ["detection"]
+paths = ["engine/nvforever/src/detection.rs", "engine/nvforever/src/sky.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'detection summary: .*; (?P<n>\d+) of \d+ measured under the sun in shade', range = [1, 1000000], label = "someone is in shade" },
+  { re = 'detection summary: .*; \d+ of (?P<n>\d+) measured under the sun in shade', range = [10, 1000000], label = "the sun is measured" },
+]
+
+[[scenario]]
 name = "anim-state-throw"
 source = "docs/spec-notes/anim-state.md §1: GetAnimAction 5 while gearing up to throw, 6 once the throwable left the hand, then 4 (GECK wiki GetAnimAction, New Vegas table)"
 note = "The player (GOD) is given five frag grenades (00004330), draws them and throws two; the anim state summary at exit counts how often each code began on the player"

@@ -162,6 +162,9 @@ pub struct Impact {
     /// ImpactData].
     pub angle_threshold: f32,
     pub placement_radius: f32,
+    /// `DATA` sound level ("Loud", "Normal", "Silent") [documented: xEdit IPCT]: the
+    /// loudness of the impact for detection (docs/design/detection.md §8).
+    pub sound_level: Option<String>,
     /// `DODT`: the impact's own decal data, which "overrides the Texture Set decal
     /// data" [documented: GECK wiki ImpactData]; `None` with the `DATA` flag "No Decal
     /// Data", when the texture set's is used (docs/spec-notes/impact-decals.md §1).
@@ -464,6 +467,10 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 sound_2: fid(first(d, b"NAM1")),
                 angle_threshold: v.and_then(|v| num(v, "angle_threshold")).unwrap_or(0.0) as f32,
                 placement_radius: v.and_then(|v| num(v, "placement_radius")).unwrap_or(0.0) as f32,
+                sound_level: v.and_then(|v| v.get("sound_level")).and_then(|x| match x {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                }),
                 decal: if v.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "No Decal Data")) { None } else { first(d, b"DODT").map(decal_data) },
             })
         }
