@@ -907,6 +907,8 @@ pub struct Filter {
     pub no_terrain: bool,
     /// Ignore dynamic bodies.
     pub no_dynamic: bool,
+    /// Ignore every actor: characters' capsules, hit volumes and body parts, ragdolls.
+    pub no_actors: bool,
     /// Ignore reference colliders on these Havok layers (`crate::layers`).
     pub exclude_layers: crate::layers::LayerSet,
 }
@@ -922,6 +924,9 @@ impl Filter {
             return false;
         }
         if self.no_dynamic && c.parent().is_some_and(|b| bodies[b].is_dynamic()) {
+            return false;
+        }
+        if self.no_actors && matches!(owner, Owner::Character { .. } | Owner::Actor { .. }) {
             return false;
         }
         if let Owner::Ref { layer, .. } | Owner::Actor { layer, .. } = owner {
