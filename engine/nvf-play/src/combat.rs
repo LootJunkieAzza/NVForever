@@ -899,6 +899,11 @@ impl Combat {
         self.weapon
     }
 
+    /// The ammunition the player's weapon loads now (`None`: none, or melee).
+    pub fn player_ammo(&self) -> Option<FormId> {
+        self.ammo
+    }
+
     /// The figures of the player's weapon `id`: the equipped one's with its mods on
     /// (`WeaponStats::modded`), any other's as the record has them.
     pub fn player_stats(&self, id: FormId) -> Option<WeaponStats> {

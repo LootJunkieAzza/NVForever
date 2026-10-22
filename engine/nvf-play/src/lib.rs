@@ -48,6 +48,7 @@ pub mod holotape;
 pub mod interface;
 pub mod intro;
 pub mod levelup;
+pub mod hotkeys;
 pub mod hud;
 pub mod hud_limbs;
 pub mod hud_target;
@@ -98,6 +99,7 @@ pub mod sfx;
 pub mod ui_sounds;
 pub mod stress;
 pub mod vats_mode;
+pub mod weapon_wheel;
 pub mod voice;
 pub mod wait;
 pub mod world_sounds;
@@ -313,6 +315,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin);
         test_aid::setup(app);

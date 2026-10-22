@@ -329,7 +329,7 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    state: Res<State<PlayState>>,
+    (state, wheel): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     target: Res<Target>,
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
@@ -347,7 +347,8 @@ fn draw(
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it].
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open());
+    // Nor under the weapon wheel (docs/design/weapon-wheel.md §7).
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !wheel.is_some_and(|w| w.is_open());
     let Some(kit) = kit.as_ref() else {
         if playing {
             let loaded = Kit::load(data.as_deref(), &mut images, bc_supported(formats.as_deref()));

@@ -600,8 +600,9 @@ fn mouse_look(
     driven: Option<Res<ViewDriven>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
 ) {
-    // The console's free camera takes the mouse (`crate::free_cam`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) {
+    // The console's free camera takes the mouse (`crate::free_cam`), and so does the
+    // weapon wheel while it is open (`crate::weapon_wheel`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);

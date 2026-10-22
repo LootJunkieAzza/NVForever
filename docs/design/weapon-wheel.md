@@ -1,6 +1,9 @@
 # Weapon wheel: hold a hotkey for a slow-time wheel
 
-Status 2026-10-22: **design for review; not built.** Owner request: every hotkey (1–8)
+Status 2026-10-23: **built** on `claude/weapon-wheel` (`engine/nvf-play/src/hotkeys.rs`,
+`weapon_wheel.rs`, `weapon_wheel/draw.rs`, `weapon_wheel/slice.wgsl`; smoke scenario
+`weapon-wheel`). Not built yet: the Pip-Boy's hotkey panel picture (§3, assigning works
+without it), the sounds (§8). Owner request: every hotkey (1–8)
 works as a quick key when tapped, and opens a wheel of all eight when held, modelled on
 Red Dead Redemption 2's weapon wheel (the owner's reference picture is kept privately in
 `C:\fnv-private\references\weapon_wheel\owner-reference.webp`, never committed).
@@ -60,10 +63,11 @@ replaced by a fixed `IM_AmmoSwap` image (`interface\icons\typeicons\hot_keys_ico
   ammo choice the owner's reference has under its title (`< Regular >`) in one place.
 - **Assigning** [documented: menus\main\inventory_menu.xml `IM_HotkeyButton`,
   `&-sInventoryHotKey;`, opens `IM_HotKeyWheel`, the panel above over a compass rose
-  `interface\hotkeys\hot_keys_rose.dds`]: on the Pip-Boy's ITEMS page a "Hotkey" hint
-  opens the panel; pressing 1, 3–8 (or clicking a box) puts the selected item there; the
-  same item in another slot moves [hypothesis: the move rule]. Not built in the Pip-Boy
-  yet (`pipboy/items.rs`); it is part of this work (§9 step 1).
+  `interface\hotkeys\hot_keys_rose.dds`]: in the original a "Hotkey" hint on the ITEMS
+  page opens the panel, and a key or a box picks the slot. **Built**: on the ITEMS page a
+  hotkey's key (1, 3–8 as bound) puts the selected item in that slot at once
+  (`hotkeys::assign_from_pipboy`) [design]; the same item in another slot moves
+  [hypothesis: the move rule]. The panel's picture is not drawn yet.
 - **Empty slot**: a tap says nothing happens [design: the HUD message "Hotkey N is empty"
   replaces today's "not available yet"]; on the wheel the slice reads EMPTY.
 - **Item gone** (sold, dropped, used up): the slot keeps the item and shows it at half
@@ -79,7 +83,7 @@ The same as Enter on that item in the Pip-Boy's ITEMS page (`pipboy/items.rs`) [
 
 | item | tap / release |
 |---|---|
-| weapon not equipped | equip it (`World::equip`), drawn if a weapon was out [hypothesis: the original keeps the holstered state] |
+| weapon not equipped | equip it (`World::equip_at`) and draw it [design: RDR2's wheel readies the weapon; hypothesis: the original's hotkeys do too] |
 | the equipped weapon | nothing [design: RDR2 keeps it; no accidental unequip] |
 | apparel | put on, or take off if worn (Pip-Boy behaviour) |
 | aid item | use one (`aid::use_item`) |

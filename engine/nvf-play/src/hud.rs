@@ -372,7 +372,7 @@ fn gather(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
-    vats: Option<Res<crate::vats_mode::VatsMode>>,
+    (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -381,7 +381,9 @@ fn gather(
     // leaves the game in [owner 2026-10-17: "hide the UI so no health bar or AP or
     // dialogue"].
     let creating = control.as_ref().is_some_and(|c| c.portrait.is_some());
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating, ..view.clone() };
+    // Nor while the weapon wheel is open (docs/design/weapon-wheel.md §7) [design].
+    let wheel_open = wheel.is_some_and(|w| w.is_open());
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !wheel_open, ..view.clone() };
     if let Some(p) = &player {
         now.heading = p.heading.to_degrees();
     }

@@ -44,6 +44,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_WHEEL]
 sep = ","
+[timed.NVF_PLAY_TEST_HOTKEYS]
+sep = ","
 [timed.NVF_PLAY_TEST_MOVE]
 sep = ","
 [timed.NVF_PLAY_TEST_LOOK]
@@ -7133,4 +7135,62 @@ forbid = [
 order = [
   ["magic: Turbo on: the world runs at 0.50, the player at full speed", "magic: Turbo off"],
   ["test aid NVF_PLAY_TEST_CONSOLE: player.equipitem NVAntivenom", "magic: CazadorPoison on the player ended"],
+]
+
+# ------------------------------------------------------------------ weapon wheel
+
+[[scenario]]
+name = "weapon-wheel"
+source = "docs/design/weapon-wheel.md §9 step 4: hotkey taps, the held wheel with its slow clock, picking by pointer and key, cancel, Ammo Swap"
+note = "Written 2026-10-22 by the weapon-wheel session. The player is given a .357 Magnum Revolver (0x0008F216) with 24 rounds, a Varmint Rifle (0x0007EA24) with 40 5.56mm, 3 Stimpaks and the Merc Charmer Outfit (0x00034122). At 16 s the aid puts the revolver in slot 1, the rifle in 3, a Stimpak in 4, the outfit in 5, and tries a Stimpak in 2 (refused: Ammo Swap). Taps: 1 at 18 s (equip), 4 at 20 s (use a Stimpak). Key 1 is held at 22 s: the wheel opens 0.25 s later and the clock slows to 0.2, so the world-second steps after it come about five times later in real time; the pointer goes right at 23 s (slot 4), key 3 at 23.5 s picks slot 3, letting go at 24 s equips the rifle. Key 5 held at 26 s, cancelled at 27 s, let go at 27.5 s: nothing used. Taps: 2 at 29 s (Ammo Swap), 5 at 31 s and 33 s (outfit on, then off), 8 at 35 s (empty)"
+areas = ["hotkeys", "menus"]
+paths = ["engine/nvf-play/src/weapon_wheel.rs", "engine/nvf-play/src/weapon_wheel/**", "engine/nvf-play/src/hotkeys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24,0007EA24:1,00004240:40,00015169:3,00034122:1", NVF_PLAY_TEST_HOTKEYS = "16:assign:1:WeapNV357Revolver,16.1:assign:3:WeapNVVarmintRifle,16.2:assign:4:Stimpak,16.3:assign:5:OutfitMerc01,16.4:assign:2:Stimpak,18:tap:1,20:tap:4,22:hold:1,23:point:90,23.5:press:3,24:release,26:hold:5,27:cancel,27.5:release,29:tap:2,31:tap:5,33:tap:5,35:tap:8" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
+run_seconds = 63
+expect = [
+  { re = 'hotkeys: slot 1 holds \.357 Magnum Revolver \(0x0008F216\)', label = "the aid puts the revolver in slot 1" },
+  { re = 'NVF_PLAY_TEST_HOTKEYS: Stimpak not assigned: AmmoSwap', label = "slot 2 is Ammo Swap and takes no item" },
+  { re = 'hotkeys: slot 1: equipped \.357 Magnum Revolver', label = "a tap of 1 equips the revolver" },
+  { re = 'hotkeys: slot 4: used Stimpak', label = "a tap of 4 uses a Stimpak" },
+  { re = 'weapon wheel: open on slot 1', label = "holding 1 opens the wheel on slot 1" },
+  { re = 'weapon wheel: the clock runs at 0\.20, blur 3\.0', label = "the game clock slows to 0.2 behind the wheel" },
+  { re = 'weapon wheel: picked slot 4 \(pointer\)', label = "the pointer to the right picks slot 4" },
+  { re = 'weapon wheel: picked slot 3 \(key\)', label = "key 3 picks slot 3" },
+  { re = 'weapon wheel: closed: slot 3: equipped Varmint Rifle', label = "letting go of 1 equips what slot 3 holds" },
+  { re = 'weapon wheel: closed: nothing used', label = "a cancel closes the wheel doing nothing" },
+  { re = 'hotkeys: slot 2: Ammo Swap', label = "a tap of 2 is Ammo Swap" },
+  { re = 'hotkeys: slot 5: equipped Merc Charmer Outfit', label = "a tap of 5 puts the outfit on" },
+  { re = 'hotkeys: slot 5: took off Merc Charmer Outfit', label = "another tap takes it off" },
+  { re = 'hotkeys: slot 8: empty', label = "an empty slot does nothing" },
+  { re = 'weapon wheel summary: 6 taps, opened 2 times, used slots \[3\], 1 cancelled', label = "the summary" },
+]
+forbid = [
+  { re = 'not available yet', label = "a hotkey says it is not built" },
+]
+order = [
+  ["weapon wheel: open on slot 1", "weapon wheel: the clock runs at 0.20", "weapon wheel: picked slot 4 (pointer)", "weapon wheel: picked slot 3 (key)", "weapon wheel: closed: slot 3: equipped Varmint Rifle"],
+]
+
+[[scenario]]
+name = "weapon-wheel-keys"
+source = "docs/design/weapon-wheel.md §6: the wheel through the real keys and bindings (key 1 held, key 3 pressed, Esc), with pictures of it open"
+note = "Written 2026-10-23 by the weapon-wheel session. As weapon-wheel, but the keys are real presses through Bevy's input (NVF_PLAY_TEST_KEYS), so the bindings and the tap/hold timing are what is tested. Key 1 is held from 18 s for 2 world seconds (the clock slows to 0.2 once the wheel is open, so about 9 s of real time); key 3 at 18.8 s picks slot 3; letting go equips the rifle. Key 5 is held from 22 s; Esc at 22.6 s closes the wheel and must not open the pause menu. Pictures at 18.5 s (slot 1 lit) and 19.2 s (slot 3 lit) for judging the look"
+areas = ["hotkeys", "menus"]
+paths = ["engine/nvf-play/src/weapon_wheel.rs", "engine/nvf-play/src/weapon_wheel/**", "engine/nvf-play/src/hotkeys.rs", "engine/nvf-play/src/bindings.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24,0007EA24:1,00004240:40,00015169:3,00034122:1", NVF_PLAY_TEST_HOTKEYS = "16:assign:1:WeapNV357Revolver,16.1:assign:3:WeapNVVarmintRifle,16.2:assign:4:Stimpak,16.3:assign:5:OutfitMerc01", NVF_PLAY_TEST_KEYS = "18:1:2.0,18.8:3,22:5:1.5,22.6:esc", NVF_PLAY_TEST_SHOTS = "18.5:weapon_wheel_slot1.png,19.2:weapon_wheel_slot3.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
+run_seconds = 53
+expect = [
+  { re = 'weapon wheel: open on slot 1', label = "holding key 1 opens the wheel" },
+  { re = 'weapon wheel: the clock runs at 0\.20', label = "the clock slows behind it" },
+  { re = 'weapon wheel: picked slot 3 \(key\)', label = "key 3 picks slot 3" },
+  { re = 'weapon wheel: closed: slot 3: equipped Varmint Rifle', label = "letting go of key 1 equips the rifle" },
+  { re = 'weapon wheel: open on slot 5', label = "holding key 5 opens it again" },
+  { re = 'weapon wheel: closed: nothing used', label = "Esc closes it doing nothing" },
+  { re = 'weapon wheel summary: 0 taps, opened 2 times, used slots \[3\], 1 cancelled', label = "the summary" },
+]
+forbid = [
+  { re = 'pause menu: open', label = "Esc on the wheel opens the pause menu" },
+  { re = 'hotkeys: slot 1: equipped', label = "the held key 1 also acted as a tap" },
 ]
