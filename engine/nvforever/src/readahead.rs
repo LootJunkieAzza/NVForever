@@ -5,8 +5,8 @@
 //! creatures there, and residents whose walkers stand there) are listed, their appearance
 //! resolved and their parts, skeleton and weapon model read and parsed on a worker thread
 //! (`ActorCtx::parts_ready`). What has been read is then prepared on this thread (meshes,
-//! materials, textures) within [`PREPARE_BUDGET`] a frame, the NPCs' FaceGen `.egm` files
-//! read, and once a skeleton is prepared the clip sets and weapon stance its actor needs
+//! materials, textures) within [`PREPARE_BUDGET`] a frame, the NPCs' FaceGen `.egm` and
+//! `.egt` files read on a worker thread, and once a skeleton is prepared the clip sets and weapon stance its actor needs
 //! are loaded from their KF files on a worker thread (`actors::Anims::warm`). So an actor
 //! walking into the loaded cells, or a cell of them loading, finds what it is drawn from
 //! ready and is drawn at once without reading or preparing it in that frame [engineering
@@ -25,7 +25,7 @@ use crate::actors::{ActorPose, ActorWorld};
 use crate::world::{Streamer, WorldData};
 use bevy::prelude::*;
 use fnv_world::placed::{base_object, placement};
-use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
+use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
 use fnv_actor::locomotion::Body;
 use fnv_actor::weapon::AnimType;
 use nvf_assets::actor::{ActorCtx, ActorParts, ClipReader, PartState};
@@ -75,6 +75,10 @@ pub struct Plan {
     /// The weapon stance it holds (`actors::arm`): its weapon's, else its fists'; none for
     /// a creature.
     pub prefix: Option<&'static str>,
+    /// An NPC's FaceGen files (`facegen.rs`): the `.egm` beside each part, the head's
+    /// `.egt` and the race's body and hand `.egt` (as `FaceGenCache::morph`,
+    /// `face_offset` and `skin_offset` ask for them).
+    pub facegen: Vec<String>,
 }
 
 /// What actor `reference` (base `base`) is drawn from. `None`: it cannot be resolved
@@ -82,7 +86,7 @@ pub struct Plan {
 pub fn actor_plan(world: &ActorWorld, reference: u32, base: u32, creature: bool) -> Option<Plan> {
     if creature {
         let c = world.resolve_creature(base, reference).ok()?;
-        Some(Plan { parts: c.parts.iter().map(|p| p.model.clone()).collect(), skeleton: c.skeleton, body: Body::Male, prefix: None })
+        Some(Plan { parts: c.parts.iter().map(|p| p.model.clone()).collect(), skeleton: c.skeleton, body: Body::Male, prefix: None, facegen: Vec::new() })
     } else {
         let a = world.resolve(base, reference).ok()?;
         let w = a.weapon.and_then(|id| world.actors.weapons.get(&id)).filter(|_| world.weapon_mode != crate::weapons::WeaponMode::None);
@@ -90,7 +94,15 @@ pub fn actor_plan(world: &ActorWorld, reference: u32, base: u32, creature: bool)
         let held = w.filter(|_| model.is_some()).and_then(|w| w.anim_type.as_deref().and_then(AnimType::from_name));
         let parts = a.parts.iter().map(|p| p.model.clone()).chain(model).collect();
         let body = if a.female { Body::Female } else { Body::Male };
-        Some(Plan { parts, skeleton: a.skeleton, body, prefix: Some(held.unwrap_or(AnimType::HandToHand).prefix()) })
+        let mut facegen = Vec::new();
+        if world.facegen_enabled {
+            use crate::facegen::sibling;
+            facegen.extend(a.parts.iter().map(|p| sibling(&p.model, "egm")));
+            facegen.extend(a.parts.iter().filter(|p| p.role == "head:head").map(|p| sibling(&p.model, "egt")));
+            let body_egt = a.body_egt.clone();
+            facegen.extend(body_egt.iter().flat_map(|e| [Some(e.clone()), fnv_actor::resolve::hand_egt(e, true)]).flatten());
+        }
+        Some(Plan { parts, skeleton: a.skeleton, body, prefix: Some(held.unwrap_or(AnimType::HandToHand).prefix()), facegen })
     }
 }
 
@@ -122,8 +134,8 @@ enum Job {
     Actor { reference: u32, base: u32, creature: bool },
     /// Prepare the part (or with `true` the skeleton) at this path once it has been read.
     Prepare(String, bool),
-    /// Read the FaceGen geometry (`.egm`) at this path (`FaceGenCache::egm`).
-    Egm(String),
+    /// Read the FaceGen file (`.egm`, `.egt`) at this path on a worker thread.
+    FaceGen(String),
     /// Once the skeleton at this path is prepared, load the clip sets and stance an actor
     /// of it needs on a worker thread (`actors::Anims::warm`).
     Anims { skeleton: String, body: Body, creature: bool, prefix: Option<&'static str> },
@@ -141,6 +153,9 @@ pub struct ReadAhead {
     /// Clip sets and stances queued to load (not twice).
     anims_queued: HashSet<(String, Body, Option<&'static str>)>,
     anims_loaded: usize,
+    /// FaceGen files being read on a worker thread, and how many were read.
+    facegen: Vec<(String, Task<crate::facegen::FaceGenFile>)>,
+    facegen_read: usize,
     rings: usize,
     actors_listed: usize,
     parts_read: usize,
@@ -212,6 +227,23 @@ pub fn read_ahead(
         ahead.queued.clear();
     }
     ahead.centre = centre;
+    // FaceGen files read: into the cache (unless read here meanwhile).
+    if !ahead.facegen.is_empty() {
+        let mut cache = aw.facegen.lock().expect("facegen cache");
+        let mut done = Vec::new();
+        ahead.facegen.retain_mut(|(path, task)| match check_ready(task) {
+            Some(file) => {
+                cache.offer(path.clone(), file);
+                done.push(std::mem::take(path));
+                false
+            }
+            None => true,
+        });
+        ahead.facegen_read += done.len();
+        for path in done {
+            ahead.queued.remove(&path);
+        }
+    }
     if ahead.jobs.is_empty() {
         return;
     }
@@ -223,20 +255,17 @@ pub fn read_ahead(
         let Some(job) = ahead.jobs.pop_front() else { break };
         match job {
             Job::Actor { reference, base, creature } => {
-                let Some(Plan { parts, skeleton, body, prefix }) = actor_plan(aw, reference, base, creature) else { continue };
+                let Some(Plan { parts, skeleton, body, prefix, facegen }) = actor_plan(aw, reference, base, creature) else { continue };
                 // Starts the reads of what is neither prepared nor read yet.
                 ctx.parts_ready(parts.iter().chain([&skeleton]).map(String::as_str));
                 let key = (fnv_vfs::normalize(&skeleton), body, prefix);
                 if aw.pose == ActorPose::Idle && !aw.anims.loaded(&skeleton, body, prefix) && ahead.anims_queued.insert(key) {
                     ahead.jobs.push_back(Job::Anims { skeleton: skeleton.clone(), body, creature, prefix });
                 }
-                // An NPC's head parts are shaped by the `.egm` beside them (`facegen.rs`).
-                if !creature && aw.facegen_enabled {
-                    // The same key `FaceGenCache::morph` asks with.
-                    for egm in parts.iter().map(|p| crate::facegen::sibling(p, "egm")) {
-                        if ahead.queued.insert(egm.clone()) {
-                            ahead.jobs.push_back(Job::Egm(egm));
-                        }
+                // The paths as `FaceGenCache` is asked for them (its keys).
+                for f in facegen {
+                    if ahead.queued.insert(f.clone()) {
+                        ahead.jobs.push_back(Job::FaceGen(f));
                     }
                 }
                 let paths = parts.iter().map(|p| (p, false)).chain([(&skeleton, true)]);
@@ -263,9 +292,14 @@ pub fn read_ahead(
                     ahead.queued.remove(&path);
                 }
             },
-            Job::Egm(path) => {
-                ahead.queued.remove(&path);
-                aw.facegen.lock().expect("facegen cache").egm(&ctx.models.data, &path);
+            Job::FaceGen(path) => {
+                if aw.facegen.lock().expect("facegen cache").has(&path) {
+                    ahead.queued.remove(&path);
+                    continue;
+                }
+                let (data, job) = ((*ctx.models.data).clone(), path.clone());
+                let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { crate::facegen::read_file(&data, &job) });
+                ahead.facegen.push((path, task));
             }
             Job::Anims { skeleton, body, creature, prefix } => match ctx.cache.part_state(&skeleton) {
                 PartState::Reading | PartState::Read => ahead.jobs.push_back(Job::Anims { skeleton, body, creature, prefix }),
@@ -294,12 +328,13 @@ pub fn report(mut exit: MessageReader<AppExit>, ahead: Res<ReadAhead>) {
     let a = &*ahead;
     let (drawn, ms) = clock();
     info!(
-        "actor read-ahead summary: {} rings, {} actors listed, {} parts read ahead, {} prepared ahead, {} skeletons' clip sets loaded ahead ({:.0} ms in {} frames, slowest {:.1} ms); {} actors drawn ({:.0} ms): {} ready at once, {} after waiting for their parts (longest {:.0} ms)",
+        "actor read-ahead summary: {} rings, {} actors listed, {} parts read ahead, {} prepared ahead, {} skeletons' clip sets loaded ahead, {} FaceGen files read ahead ({:.0} ms in {} frames, slowest {:.1} ms); {} actors drawn ({:.0} ms): {} ready at once, {} after waiting for their parts (longest {:.0} ms)",
         a.rings,
         a.actors_listed,
         a.parts_read,
         a.parts_prepared,
         a.anims_loaded,
+        a.facegen_read,
         a.busy_ms,
         a.busy_frames,
         a.slowest_ms,

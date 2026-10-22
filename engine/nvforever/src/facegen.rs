@@ -71,12 +71,53 @@ pub fn shape_sibling(model: &str, shape: &str, ext: &str) -> String {
     format!("{stem}{}.{ext}", shape.to_ascii_lowercase())
 }
 
+/// A FaceGen file read and parsed, for [`FaceGenCache::offer`].
+pub enum FaceGenFile {
+    Egm(Option<Arc<Egm>>),
+    Egt(Option<Arc<Egt>>),
+}
+
+/// Read and parse the `.egm` at `path`; `None` when it is absent or unreadable.
+fn read_egm(data: &GameData, path: &str) -> Option<Arc<Egm>> {
+    data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new)
+}
+
+/// Read and parse the `.egt` at `path`; `None` when it is absent or unreadable.
+fn read_egt(data: &GameData, path: &str) -> Option<Arc<Egt>> {
+    data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new)
+}
+
+/// Read and parse the FaceGen file at `path` (an `.egm` or `.egt`), on a worker thread
+/// (`readahead.rs`).
+pub fn read_file(data: &GameData, path: &str) -> FaceGenFile {
+    if path.ends_with(".egt") {
+        FaceGenFile::Egt(read_egt(data, path))
+    } else {
+        FaceGenFile::Egm(read_egm(data, path))
+    }
+}
+
 impl FaceGenCache {
     pub(crate) fn egm(&mut self, data: &GameData, path: &str) -> Option<Arc<Egm>> {
-        self.egm
-            .entry(path.to_string())
-            .or_insert_with(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new))
-            .clone()
+        self.egm.entry(path.to_string()).or_insert_with(|| read_egm(data, path)).clone()
+    }
+
+    /// Whether the FaceGen file at `path` has been read (or found absent).
+    pub fn has(&self, path: &str) -> bool {
+        self.egm.contains_key(path) || self.egt.contains_key(path)
+    }
+
+    /// A FaceGen file read ahead on a worker thread ([`read_file`]); kept unless it has
+    /// been read here meanwhile.
+    pub fn offer(&mut self, path: String, file: FaceGenFile) {
+        match file {
+            FaceGenFile::Egm(f) => {
+                self.egm.entry(path).or_insert(f);
+            }
+            FaceGenFile::Egt(f) => {
+                self.egt.entry(path).or_insert(f);
+            }
+        }
     }
 
     /// Per shape of `part` (model `model`), a mesh morphed by `fg`'s FGGS and FGGA
@@ -116,7 +157,7 @@ impl FaceGenCache {
             .entry(path.to_string())
             .or_insert_with(|| {
                 let start = std::time::Instant::now();
-                let egt = data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new);
+                let egt = read_egt(data, path);
                 *time += start.elapsed();
                 egt
             })
