@@ -264,6 +264,15 @@ channels swing by 0.03 to 0.07 within half a second and reach 0.04 to 0.09.
   the `MFG` syntax `mfg <modifier|expression|phoneme> <index> <0–100>` is taken from
   the search summaries of §3.2 [hypothesis] and is checked by the run). The constant is
   `lips::HEAD_RADIANS_PER_UNIT`.
+  **Run 2026-10-22, unsettled** [observed]: the job runs unattended (save `nvfdoc`, plugin
+  v7) and puts Doc in front of a first-person camera, but in an automated run the console
+  has no selected reference: `prid 00104C0F`, `prid 104C0F` and `prid DocMitchellREF` all
+  left a following `SetAngle` without effect, and neither `mfg expression 0 100` nor
+  `mfg modifier 14 100` changed his face, so every picture shows his resting face from the
+  front. Whether `mfg` itself works is therefore still open. What did work: placing Doc
+  with a script step (`BuildRef` of FormID 00104C0F, decimal 1068047; `MoveTo player`, then
+  `SetPos`). Turning him with a script step between pictures crashed the game (once).
+  Next step: type the `mfg` lines by hand in the console with Doc clicked.
 
 ## 4. The morphs (`.tri`)
 
