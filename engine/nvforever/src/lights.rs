@@ -184,7 +184,7 @@ pub fn spawn_light(
     // Lights out of step with each other: a phase from the reference.
     let moving = LightMotion::of(l.flags).map(|motion| MovingLight { motion, full: intensity, seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0 });
     // Neither kind casts shadows. If one ever does, give it the sun's render layers
-    // (`sky::SHADOW_LAYER`), or the player's body casts none from it in first person.
+    // (`sky::SHADOW_LAYER`, `sky::BODY_LAYER`), or the player's body casts none from it.
     if l.flags & light_flags::SPOT != 0 {
         let a = (l.fov.clamp(1.0, 179.0) / 2.0).to_radians();
         // Spot lights point down their reference's -z [hypothesis].
