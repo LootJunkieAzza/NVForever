@@ -14,8 +14,12 @@ use crate::anim_play::{Clip, MaterialTarget, MaterialTrack, OwnCycle, Playing};
 use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_props, shape_skin, to_bevy};
-use crate::texture::TextureCache;
+use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material_with, shape_props, shape_skin, to_bevy, StoreTextures, TextureSource};
+use crate::texture::{worker_texture, TextureCache, TextureSnapshot, WorkerTextures};
+use bevy::asset::AssetHandleProvider;
+use bevy::image::CompressedImageFormats;
+use bevy::render::render_resource::TextureFormat;
+use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::ecs::system::SystemParam;
@@ -624,6 +628,13 @@ pub struct ModelCache {
     /// [`ModelCtx::node_strings`] by (archive path, key).
     node_strings: HashMap<(String, String), Arc<HashMap<String, String>>>,
     pub failures: Vec<String>,
+    /// Models prepared on worker threads ([`ModelCtx::models_ready`]) by cache key: the
+    /// work under way, and the work done that waits for [`ModelCtx::take_fetched`].
+    fetching: HashMap<String, Task<Fetched>>,
+    fetched: HashMap<String, Fetched>,
+    /// The copy of the texture cache's list last sent to workers, with the cache's
+    /// generation then; reused while a worker still holds it and the cache is unchanged.
+    snapshot: Option<(u64, std::sync::Weak<TextureSnapshot>)>,
 }
 
 impl ModelCache {
@@ -638,6 +649,11 @@ impl ModelCache {
     }
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
+    }
+
+    /// Models being prepared on worker threads or waiting to be taken in.
+    pub fn in_flight(&self) -> usize {
+        self.fetching.len() + self.fetched.len()
     }
 
     /// Prepared models held now (remembered failures not counted).
@@ -682,6 +698,135 @@ fn model_in_use(m: &Arc<PreparedModel>) -> bool {
         }
     }
     h.held_elsewhere()
+}
+
+/// The asset stores [`prepare_into`] puts a model's meshes, materials and skins into.
+trait ModelSink: TextureSource {
+    fn data(&self) -> &GameData;
+    fn mesh(&mut self, mesh: Mesh) -> Handle<Mesh>;
+    fn material(&mut self, material: NifMaterial) -> Handle<NifMaterial>;
+    fn bindposes(&mut self, binds: SkinnedMeshInverseBindposes) -> Handle<SkinnedMeshInverseBindposes>;
+    /// A morphing shape's mesh ([`crate::morph::MorphMeshes`]).
+    fn morph(&mut self, mesh: AssetId<Mesh>, morph: Arc<crate::morph::ShapeMorph>);
+}
+
+/// The main thread's asset stores.
+struct Stores<'a> {
+    textures: StoreTextures<'a>,
+    meshes: &'a mut Assets<Mesh>,
+    materials: &'a mut Assets<NifMaterial>,
+    bindposes: &'a mut Assets<SkinnedMeshInverseBindposes>,
+    morphs: &'a mut crate::morph::MorphMeshes,
+}
+
+impl TextureSource for Stores<'_> {
+    fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
+        self.textures.texture(raw_path, srgb)
+    }
+    fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
+        self.textures.lacks_alpha(h)
+    }
+}
+
+impl ModelSink for Stores<'_> {
+    fn data(&self) -> &GameData {
+        self.textures.data
+    }
+    fn mesh(&mut self, mesh: Mesh) -> Handle<Mesh> {
+        self.meshes.add(mesh)
+    }
+    fn material(&mut self, material: NifMaterial) -> Handle<NifMaterial> {
+        self.materials.add(material)
+    }
+    fn bindposes(&mut self, binds: SkinnedMeshInverseBindposes) -> Handle<SkinnedMeshInverseBindposes> {
+        self.bindposes.add(binds)
+    }
+    fn morph(&mut self, mesh: AssetId<Mesh>, morph: Arc<crate::morph::ShapeMorph>) {
+        self.morphs.add(mesh, morph);
+    }
+}
+
+/// A worker thread's stores: handles reserved from the main thread's stores, the assets
+/// kept until the main thread puts them in ([`ModelCtx::take_fetched`]). Textures come
+/// from the cache's list as it was when the work was sent, or are decoded here
+/// (`texture::worker_texture`).
+struct Deferred {
+    data: GameData,
+    providers: Providers,
+    cached: Arc<TextureSnapshot>,
+    workers: Arc<WorkerTextures>,
+    bc_supported: bool,
+    formats: HashMap<AssetId<Image>, TextureFormat>,
+    out: DeferredAssets,
+}
+
+/// The handle providers of the asset stores a worker prepares into.
+#[derive(Clone)]
+struct Providers {
+    meshes: AssetHandleProvider,
+    materials: AssetHandleProvider,
+    bindposes: AssetHandleProvider,
+    images: AssetHandleProvider,
+}
+
+/// What a worker made for one model, by the handles it reserved.
+#[derive(Default)]
+struct DeferredAssets {
+    meshes: Vec<(Handle<Mesh>, Mesh)>,
+    materials: Vec<(Handle<NifMaterial>, NifMaterial)>,
+    bindposes: Vec<(Handle<SkinnedMeshInverseBindposes>, SkinnedMeshInverseBindposes)>,
+    morphs: Vec<(AssetId<Mesh>, Arc<crate::morph::ShapeMorph>)>,
+}
+
+impl TextureSource for Deferred {
+    fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
+        let (h, format) = worker_texture(raw_path, srgb, &self.data, &self.cached, &self.workers, &self.providers.images, self.bc_supported)?;
+        self.formats.insert(h.id(), format);
+        Some(h)
+    }
+    fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
+        self.formats.get(&h.id()).is_some_and(|&f| crate::nif_spawn::format_lacks_alpha(f))
+    }
+}
+
+impl ModelSink for Deferred {
+    fn data(&self) -> &GameData {
+        &self.data
+    }
+    fn mesh(&mut self, mesh: Mesh) -> Handle<Mesh> {
+        let h = self.providers.meshes.reserve_handle().typed::<Mesh>();
+        self.out.meshes.push((h.clone(), mesh));
+        h
+    }
+    fn material(&mut self, material: NifMaterial) -> Handle<NifMaterial> {
+        let h = self.providers.materials.reserve_handle().typed::<NifMaterial>();
+        self.out.materials.push((h.clone(), material));
+        h
+    }
+    fn bindposes(&mut self, binds: SkinnedMeshInverseBindposes) -> Handle<SkinnedMeshInverseBindposes> {
+        let h = self.providers.bindposes.reserve_handle().typed::<SkinnedMeshInverseBindposes>();
+        self.out.bindposes.push((h.clone(), binds));
+        h
+    }
+    fn morph(&mut self, mesh: AssetId<Mesh>, morph: Arc<crate::morph::ShapeMorph>) {
+        self.out.morphs.push((mesh, morph));
+    }
+}
+
+/// A model prepared on a worker thread, waiting for the main thread.
+type Fetched = (Result<PreparedModel, String>, DeferredAssets);
+
+/// The cache key of a model: its normalised path, marked for the first-person copy and
+/// for a list of alternate textures (by the list's hash).
+fn model_key(path: &str, first_person: bool, swaps: &[AltTexture]) -> String {
+    let mut key = if first_person { format!("{path}|1stperson") } else { path.to_string() };
+    if !swaps.is_empty() {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        swaps.hash(&mut h);
+        key = format!("{key}|swap{:016x}", h.finish());
+    }
+    key
 }
 
 #[derive(SystemParam)]
@@ -761,15 +906,15 @@ impl ModelCtx<'_> {
         let path = fnv_vfs::normalize(path);
         // The first-person copy is kept apart from the model's own, and so is each
         // retextured copy (by its list's hash).
-        let mut key = if first_person { format!("{path}|1stperson") } else { path.clone() };
-        if !swaps.is_empty() {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            swaps.hash(&mut h);
-            key = format!("{key}|swap{:016x}", h.finish());
-        }
+        let key = model_key(&path, first_person, swaps);
         if let Some(m) = self.cache.map.get(&key) {
             return m.clone();
+        }
+        // Prepared on a worker thread and not taken in yet. One still under way is
+        // prepared here again (its work is dropped when it comes in): waiting for it could
+        // mean waiting for the whole queue before it.
+        if let Some(f) = self.cache.fetched.remove(&key) {
+            return self.take_in(key, f);
         }
         let m = match self.prepare(&path, keep_cpu, first_person, swaps) {
             Ok(m) => Some(Arc::new(m)),
@@ -782,319 +927,443 @@ impl ModelCtx<'_> {
         m
     }
 
-    fn prepare(&mut self, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Result<PreparedModel, String> {
-        let bytes = self.data.read(path).ok_or("not in any archive")?;
-        let schema = self.data.schema.clone();
-        let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
-        let dec = Decoded::new(&file, &bytes, &schema);
-        let objects = scene_objects(&file, &dec);
-        let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
-        let hidden_self = |b: usize| {
-            dec.blocks[b].as_ref().ok().and_then(|s| s.int("flags")).unwrap_or(0) & 1 != 0
-                || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
-        };
-
-        let mut out = PreparedModel::default();
-        let (mut nodes, node_index) = model_nodes(&objects);
-        for (block, i) in &node_index {
-            if nodes[*i].billboard.is_some() {
-                nodes[*i].billboard = Some(dec.blocks[*block].as_ref().ok().and_then(|s| s.int("billboard_mode")).unwrap_or(0) as u16);
-            }
-            if nodes[*i].addon.is_some() {
-                nodes[*i].addon = dec.blocks[*block].as_ref().ok().and_then(|s| s.int("value")).map(|v| v as i32);
-            }
-            if nodes[*i].damage_stages.is_some() {
-                let field = |k: &str| dec.blocks[*block].as_ref().ok().and_then(|s| s.int(k)).map(|v| v as i32);
-                // Unread: shown once damaged at all, never on the intact model [design].
-                nodes[*i].damage_stages = Some(field("min").zip(field("max")).unwrap_or((1, i32::MAX)));
-            }
-        }
-        out.nodes = nodes;
-        out.particles = file.blocks.iter().any(|b| matches!(b.type_name.as_str(), "NiParticleSystem" | "BSStripParticleSystem"));
-        let root = objects.iter().find(|o| o.parent.is_none()).map(|r| r.block);
-        if let Some(r) = root.and_then(|r| by_block.get(&r)) {
-            out.root = affine(&r.transform);
-        }
-
-        // The embedded sequence played from load: Idle, else SpecialIdle, that moves at
-        // least one node of this file.
-        let seqs = sequences(&file, &dec);
-        let has = |n: &str| objects.iter().any(|o| o.name.as_deref() == Some(n));
-        // A clip moves a node of this file, drives the material of one of its shapes, or
-        // shows and hides one of its nodes.
-        let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape)) || c.visibility.iter().any(|(n, ..)| has(n));
-        let named = |want: &str| {
-            seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
-        };
-        let mut idle = named("idle").or_else(|| named("specialidle"));
-        // What the model plays as an effect (`nvforever::shot_fx`): its idle sequence or a
-        // `SpecialIdle…` one (`SpecialIdle_AreaEffect` in the explosion models), with the
-        // controllers no sequence drives.
-        let special = || seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.to_ascii_lowercase().starts_with("specialidle"))).map(Clip::from_sequence).find(&moves);
-        let effect = effect_clip(&file, &dec, idle.clone().or_else(special)).filter(moves);
-        // Controllers that run by themselves (scrolling smoke and dust textures) play
-        // with the idle clip, each on its own cycle; a model without one gets a clip of
-        // its own for them.
-        let free: Vec<MaterialTrack> = free_material_tracks(&file, &dec).into_iter().filter(|t| has(&t.shape)).collect();
-        let moving: Vec<(String, Arc<TransformTrack>, OwnCycle)> = free_transform_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
-        if !free.is_empty() || !moving.is_empty() {
-            info!("{path}: {} material and {} transform track(s) of controllers of their own, played on their own cycles", free.len(), moving.len());
-            match idle.as_mut() {
-                Some(c) => {
-                    c.materials.extend(free);
-                    c.free.extend(moving);
-                }
-                None => idle = Some(Clip::from_controllers(free, moving)),
-            }
-        }
-        // Vertex morphs that run by themselves, or with the Idle (else SpecialIdle)
-        // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
-        let morph_of = shape_morphs(&file, &dec, &seqs, |b| by_block.get(&b).and_then(|o| o.name.clone()));
-        // A door's Open and Close, when both move nodes of this file.
-        let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
-        // Every named sequence that animates this file (scripts' PlayGroup).
-        let groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).collect();
-        // Shapes whose material a clip of the rig drives.
-        let animated_shapes: HashSet<String> = idle
-            .iter()
-            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
-            .chain(groups.iter())
-            .chain(effect.iter())
-            .flat_map(|c| c.materials.iter().map(|m| m.shape.clone()))
-            .collect();
-        let emissive_shapes: HashSet<String> = idle
-            .iter()
-            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
-            .chain(groups.iter())
-            .chain(effect.iter())
-            .flat_map(|c| c.materials.iter().filter(|m| matches!(m.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult)).map(|m| m.shape.clone()))
-            .collect();
-        let alpha_shapes: HashSet<String> = idle
-            .iter()
-            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
-            .chain(groups.iter())
-            .chain(effect.iter())
-            .flat_map(|c| c.materials.iter().filter(|m| m.target == MaterialTarget::Alpha).map(|m| m.shape.clone()))
-            .collect();
-        // Nodes a clip of the rig shows and hides (`NiVisController`): their shapes are
-        // built even when the file hides them, and spawn hidden in the rig.
-        let vis_nodes: HashSet<String> = idle
-            .iter()
-            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
-            .chain(groups.iter())
-            .chain(effect.iter())
-            .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()))
-            .collect();
-        // Rig nodes: the root first, then every object reachable from it.
-        let animated = idle.is_some() || door.is_some() || !groups.is_empty() || effect.is_some();
-        let mut rig = animated
-            .then(|| {
-            let root = root?;
-            let mut index: HashMap<usize, usize> = HashMap::from([(root, 0)]);
-            let mut order = vec![root];
-            let mut i = 0;
-            while i < order.len() {
-                for &c in &by_block[&order[i]].children {
-                    if by_block.contains_key(&c) && !index.contains_key(&c) {
-                        index.insert(c, order.len());
-                        order.push(c);
-                    }
-                }
-                i += 1;
-            }
-            let nodes = order
-                .iter()
-                .enumerate()
-                .map(|(k, b)| {
-                    let o = by_block[b];
-                    RigNode {
-                        name: o.name.clone(),
-                        parent: o.parent.and_then(|p| index.get(&p).copied()),
-                        local: if k == 0 { Transform::IDENTITY } else { to_bevy(&o.transform) },
-                        hidden: k > 0 && hidden_self(*b),
-                    }
-                })
-                .collect();
-            Some((Rig { nodes, shapes: Vec::new(), idle, door, groups, effect }, index))
-            })
-            .flatten();
-
-        // Alternate textures: the texture set each shape (by block) takes, entries later in
-        // the list winning (texture-swaps.md §2).
-        let mut swap_of: HashMap<usize, &[Option<String>; 6]> = HashMap::new();
-        if !swaps.is_empty() {
-            let order = fnv_nif::scene::geometry_order(&objects);
-            let shapes: Vec<(usize, Option<&str>, usize)> =
-                objects.iter().filter(|o| !o.is_node).filter_map(|o| Some((o.block, o.name.as_deref(), *order.get(&o.block)?))).collect();
-            let named: Vec<(Option<&str>, usize)> = shapes.iter().map(|s| (s.1, s.2)).collect();
-            for e in swaps {
-                let to = fnv_world::alt_textures::targets(e, &named);
-                if to.is_empty() {
-                    info!("{path}: texture swap: no shape {:?} (index {}) for texture set {:08X}", e.shape, e.index, e.texture_set);
-                }
-                for i in to {
-                    swap_of.insert(shapes[i].0, &e.textures);
-                }
-            }
-        }
-        let mut swapped: Vec<String> = Vec::new();
-        // First person: textures the name rule turned to their 1stperson form, and all the
-        // shapes wear in that form after it and the texture swap (first-person-textures.md).
-        let mut first_textures = 0;
-        let mut first_worn = 0;
-        for o in objects.iter().filter(|o| !o.is_node) {
-            // Walk to the root: accumulate the transform below the root's own and look
-            // for hidden ancestors.
-            let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
-            // Hidden in the file, and hidden for good: no visibility track of the rig
-            // shows the hidden node.
-            let shown_by_track = |b: usize| rig.is_some() && by_block.get(&b).and_then(|x| x.name.as_deref()).is_some_and(|n| vis_nodes.contains(n));
-            let mut hidden = hidden_self(o.block);
-            let mut for_good = hidden && !shown_by_track(o.block);
-            let mut ancestors = Vec::new();
-            let mut cur = o.parent;
-            let mut depth = 0;
-            while let Some(p) = cur {
-                let Some(po) = by_block.get(&p) else { break };
-                if po.parent.is_some() {
-                    t = affine(&po.transform) * t;
-                    ancestors.extend(po.name.clone());
-                }
-                hidden |= hidden_self(p);
-                for_good |= hidden_self(p) && !shown_by_track(p);
-                cur = po.parent;
-                depth += 1;
-                if depth > 512 {
-                    break;
-                }
-            }
-            if for_good {
+    /// Whether every model of `wanted` (path, alternate textures) is prepared (or known
+    /// to fail), so drawing them reads no file on this thread. The rest are prepared on
+    /// worker threads (read, parsed, meshes built, textures decoded), taken in by
+    /// [`Self::take_fetched`]: a cell can wait for them instead of stalling the frame it
+    /// is drawn in (`nvforever::world`, docs/design/streaming-hitches.md).
+    pub fn models_ready<'p>(&mut self, wanted: impl IntoIterator<Item = (&'p str, &'p [AltTexture])>) -> bool {
+        let mut ready = true;
+        let mut shared: Option<(Arc<TextureSnapshot>, Providers)> = None;
+        for (path, swaps) in wanted {
+            let path = fnv_vfs::normalize(path);
+            let key = model_key(&path, false, swaps);
+            if self.cache.map.contains_key(&key) {
                 continue;
             }
-            let Ok(shape) = &dec.blocks[o.block] else { continue };
-            let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
-            let mut props = shape_props(&file, &dec, o, &by_block);
-            let shape_name = o.name.clone().unwrap_or_default();
-            props.animated_emissive = emissive_shapes.contains(&shape_name);
-            props.animated_alpha = alpha_shapes.contains(&shape_name);
-            if props.is_helper() {
+            ready = false;
+            if self.cache.fetching.contains_key(&key) || self.cache.fetched.contains_key(&key) {
                 continue;
             }
-            if let Some(set) = swap_of.get(&o.block) {
-                if props.use_texture_set(set) > 0 {
-                    swapped.push(format!("{shape_name} → {}", props.textures.first().map_or("-", String::as_str)));
-                }
+            if shared.is_none() {
+                let providers = Providers {
+                    meshes: self.meshes.get_handle_provider(),
+                    materials: self.materials.get_handle_provider(),
+                    bindposes: self.bindposes.get_handle_provider(),
+                    images: self.images.get_handle_provider(),
+                };
+                shared = Some((self.texture_snapshot(), providers));
             }
-            if first_person {
-                first_textures += props.use_first_person_textures(|p| self.data.vfs.exists(p));
-                first_worn += props.first_person_texture_count();
-            }
-            let Some((mut mesh, tris)) = build_mesh(data) else { continue };
-            // A morphing shape: its mesh stays readable in the main world so that
-            // `morph::play_vertex_morphs` can rewrite its vertices.
-            let morph = morph_of.get(&o.block).filter(|g| g.num_vertices == mesh.count_vertices()).map(|g| {
-                mesh.asset_usage = RenderAssetUsages::all();
-                let label = format!("{path} {shape_name}");
-                info!("{label}: vertex morphs, {} morph(s) over a {:.2} s cycle ({})", g.morphs.len() - 1, g.stop_time - g.start_time, if g.is_free() { "own controller" } else { "idle sequence" });
-                Arc::new(crate::morph::ShapeMorph {
-                    label,
-                    base: g.morphs[0].vectors.clone(),
-                    offsets: g.morphs[1..].iter().map(|m| (m.vectors.clone(), m.weight.clone())).collect(),
-                    cycle: OwnCycle { start: g.start_time, stop: g.stop_time, frequency: g.frequency.max(1e-6), phase: g.phase, cycle_type: (g.flags >> 1) & 3 },
-                })
-            });
-            let (material, _missing) = shape_material(
-                &props,
-                &mut mesh,
-                &mut self.textures,
-                &self.data,
-                &mut self.images,
-                self.formats.as_deref(),
-            );
-            if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-                for v in p {
-                    let q = (out.root * t).transform_point3(Vec3::from_array(*v));
-                    out.bounds = Some(match out.bounds {
-                        None => (q, q),
-                        Some((lo, hi)) => (lo.min(q), hi.max(q)),
-                    });
-                }
-            }
-            let skin = shape_skin(&dec, shape, mesh.count_vertices());
-            if skin.is_some() {
-                out.skinned += 1;
-            }
-            let material = self.materials.add(material);
-            let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
-            // Ranges into the mesh's triangles: only when `build_mesh` kept every one.
-            let drawn = mesh.indices().map_or(0, |i| i.len() / 3);
-            let segments = segment_triangles(shape, tris).filter(|_| drawn == tris).unwrap_or_default();
-            // The rig's copy of a skinned mesh carries the joint attributes; the static
-            // copy draws the bind pose without them.
-            let rig_skinned = match (&rig, skin) {
-                (Some((_, index)), Some(skin)) => {
-                    let joints: Option<Vec<usize>> = skin.bones.iter().map(|b| index.get(b).copied()).collect();
-                    joints.map(|joints| {
-                        let mut m = mesh.clone();
-                        let binds = skin.insert_into(&mut m);
-                        let m = m
-                            .with_generated_skinned_mesh_bounds()
-                            .unwrap_or_else(|_| Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD));
-                        (self.meshes.add(m), self.bindposes.add(binds), joints)
-                    })
-                }
-                _ => None,
+            let (cached, providers) = shared.clone().expect("made above");
+            let mut sink = Deferred {
+                data: (*self.data).clone(),
+                providers,
+                cached,
+                workers: self.textures.workers.clone(),
+                bc_supported: self.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC)),
+                formats: HashMap::new(),
+                out: DeferredAssets::default(),
             };
-            let mesh = self.meshes.add(mesh);
-            if let Some(m) = &morph {
-                self.cache.morphs.add(mesh.id(), m.clone());
-                if let Some((skinned, ..)) = &rig_skinned {
-                    self.cache.morphs.add(skinned.id(), m.clone());
-                }
-            }
-            if let Some((r, index)) = rig.as_mut() {
-                if let Some(&node) = index.get(&o.block) {
-                    let (mesh, skin) = match rig_skinned {
-                        Some((m, binds, joints)) => (m, Some((binds, joints))),
-                        None => (mesh.clone(), None),
-                    };
-                    let animated = animated_shapes.contains(&shape_name);
-                    let (e, m) = props.emissive_parts();
-                    let look = (shape_name.clone(), e, m, props.alpha_part());
-                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, refraction: props.refraction_part(), animated });
-                }
-            }
-            // A shape only a visibility track shows is the rig's alone.
-            if hidden {
-                continue;
-            }
-            out.shapes.push(PreparedShape {
-                cpu,
-                segments,
-                mesh,
-                material,
-                transform: t,
-                name: o.name.clone(),
-                ancestors,
-                node: o.parent.and_then(|p| node_index.get(&p).copied()),
-                own: if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY },
-                external_emittance: props.external_emittance(),
-                look: {
-                    let (e, m) = props.emissive_parts();
-                    crate::material_anim::Look::stored(e, m, props.alpha_part())
-                },
+            let swaps = swaps.to_vec();
+            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move {
+                let m = prepare_into(&mut sink, &path, false, false, &swaps);
+                (m, sink.out)
             });
-            out.triangles += tris;
+            self.cache.fetching.insert(key, task);
+        }
+        ready
+    }
+
+    /// The texture cache's list for workers: the last copy while it is unchanged and a
+    /// worker still holds it (its strong handles keep the textures from being released
+    /// only as long as workers run).
+    fn texture_snapshot(&mut self) -> Arc<TextureSnapshot> {
+        let generation = self.textures.generation();
+        if let Some(s) = self.cache.snapshot.as_ref().filter(|(g, _)| *g == generation).and_then(|(_, w)| w.upgrade()) {
+            return s;
+        }
+        let s = Arc::new(self.textures.snapshot(&self.images));
+        self.cache.snapshot = Some((generation, Arc::downgrade(&s)));
+        s
+    }
+
+    /// Put what worker threads prepared into the asset stores and the cache: every texture
+    /// they decoded, and models for as long as `budget` allows (all of them without one);
+    /// the number of models taken in. `now`: real seconds.
+    pub fn take_fetched(&mut self, now: f64, budget: Option<std::time::Duration>) -> usize {
+        let t0 = std::time::Instant::now();
+        let cache = &mut *self.cache;
+        cache.fetching.retain(|key, task| match check_ready(task) {
+            Some(f) => {
+                cache.fetched.insert(key.clone(), f);
+                false
+            }
+            None => true,
+        });
+        // After the work done is collected: its textures are all in the shared list.
+        self.textures.take_workers(&mut self.images, now);
+        let mut n = 0;
+        let keys: Vec<String> = self.cache.fetched.keys().cloned().collect();
+        for key in keys {
+            if budget.is_some_and(|b| t0.elapsed() >= b) {
+                break;
+            }
+            let Some(f) = self.cache.fetched.remove(&key) else { continue };
+            self.take_in(key, f);
+            n += 1;
+        }
+        n
+    }
+
+    /// Put one model prepared on a worker thread into the stores and the cache (unless
+    /// it was prepared here meanwhile).
+    fn take_in(&mut self, key: String, (m, out): Fetched) -> Option<Arc<PreparedModel>> {
+        if let Some(m) = self.cache.map.get(&key) {
+            return m.clone();
+        }
+        for (h, mesh) in out.meshes {
+            let _ = self.meshes.insert(h.id(), mesh);
+        }
+        for (h, material) in out.materials {
+            let _ = self.materials.insert(h.id(), material);
+        }
+        for (h, binds) in out.bindposes {
+            let _ = self.bindposes.insert(h.id(), binds);
+        }
+        for (id, morph) in out.morphs {
+            self.cache.morphs.add(id, morph);
+        }
+        let m = match m {
+            Ok(m) => Some(Arc::new(m)),
+            Err(e) => {
+                self.cache.failures.push(format!("{key}: {e}"));
+                None
+            }
+        };
+        self.cache.map.insert(key, m.clone());
+        m
+    }
+
+    fn prepare(&mut self, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Result<PreparedModel, String> {
+        let mut stores = Stores {
+            textures: StoreTextures { textures: &mut self.textures, data: &self.data, images: &mut self.images, formats: self.formats.as_deref() },
+            meshes: &mut self.meshes,
+            materials: &mut self.materials,
+            bindposes: &mut self.bindposes,
+            morphs: &mut self.cache.morphs,
+        };
+        prepare_into(&mut stores, path, keep_cpu, first_person, swaps)
+    }
+}
+
+/// Prepare the model at `path` (normalised) into `sink`'s asset stores: on the main
+/// thread ([`Stores`]) or on a worker thread ([`Deferred`]).
+fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Result<PreparedModel, String> {
+    let game = sink.data().clone();
+    let bytes = game.read(path).ok_or("not in any archive")?;
+    let schema = game.schema.clone();
+    let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
+    let dec = Decoded::new(&file, &bytes, &schema);
+    let objects = scene_objects(&file, &dec);
+    let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let hidden_self = |b: usize| {
+        dec.blocks[b].as_ref().ok().and_then(|s| s.int("flags")).unwrap_or(0) & 1 != 0
+            || is_editor_marker(by_block.get(&b).and_then(|o| o.name.as_deref()))
+    };
+
+    let mut out = PreparedModel::default();
+    let (mut nodes, node_index) = model_nodes(&objects);
+    for (block, i) in &node_index {
+        if nodes[*i].billboard.is_some() {
+            nodes[*i].billboard = Some(dec.blocks[*block].as_ref().ok().and_then(|s| s.int("billboard_mode")).unwrap_or(0) as u16);
+        }
+        if nodes[*i].addon.is_some() {
+            nodes[*i].addon = dec.blocks[*block].as_ref().ok().and_then(|s| s.int("value")).map(|v| v as i32);
+        }
+        if nodes[*i].damage_stages.is_some() {
+            let field = |k: &str| dec.blocks[*block].as_ref().ok().and_then(|s| s.int(k)).map(|v| v as i32);
+            // Unread: shown once damaged at all, never on the intact model [design].
+            nodes[*i].damage_stages = Some(field("min").zip(field("max")).unwrap_or((1, i32::MAX)));
+        }
+    }
+    out.nodes = nodes;
+    out.particles = file.blocks.iter().any(|b| matches!(b.type_name.as_str(), "NiParticleSystem" | "BSStripParticleSystem"));
+    let root = objects.iter().find(|o| o.parent.is_none()).map(|r| r.block);
+    if let Some(r) = root.and_then(|r| by_block.get(&r)) {
+        out.root = affine(&r.transform);
+    }
+
+    // The embedded sequence played from load: Idle, else SpecialIdle, that moves at
+    // least one node of this file.
+    let seqs = sequences(&file, &dec);
+    let has = |n: &str| objects.iter().any(|o| o.name.as_deref() == Some(n));
+    // A clip moves a node of this file, drives the material of one of its shapes, or
+    // shows and hides one of its nodes.
+    let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape)) || c.visibility.iter().any(|(n, ..)| has(n));
+    let named = |want: &str| {
+        seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
+    };
+    let mut idle = named("idle").or_else(|| named("specialidle"));
+    // What the model plays as an effect (`nvforever::shot_fx`): its idle sequence or a
+    // `SpecialIdle…` one (`SpecialIdle_AreaEffect` in the explosion models), with the
+    // controllers no sequence drives.
+    let special = || seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.to_ascii_lowercase().starts_with("specialidle"))).map(Clip::from_sequence).find(&moves);
+    let effect = effect_clip(&file, &dec, idle.clone().or_else(special)).filter(moves);
+    // Controllers that run by themselves (scrolling smoke and dust textures) play
+    // with the idle clip, each on its own cycle; a model without one gets a clip of
+    // its own for them.
+    let free: Vec<MaterialTrack> = free_material_tracks(&file, &dec).into_iter().filter(|t| has(&t.shape)).collect();
+    let moving: Vec<(String, Arc<TransformTrack>, OwnCycle)> = free_transform_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
+    if !free.is_empty() || !moving.is_empty() {
+        info!("{path}: {} material and {} transform track(s) of controllers of their own, played on their own cycles", free.len(), moving.len());
+        match idle.as_mut() {
+            Some(c) => {
+                c.materials.extend(free);
+                c.free.extend(moving);
+            }
+            None => idle = Some(Clip::from_controllers(free, moving)),
+        }
+    }
+    // Vertex morphs that run by themselves, or with the Idle (else SpecialIdle)
+    // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
+    let morph_of = shape_morphs(&file, &dec, &seqs, |b| by_block.get(&b).and_then(|o| o.name.clone()));
+    // A door's Open and Close, when both move nodes of this file.
+    let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
+    // Every named sequence that animates this file (scripts' PlayGroup).
+    let groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).collect();
+    // Shapes whose material a clip of the rig drives.
+    let animated_shapes: HashSet<String> = idle
+        .iter()
+        .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+        .chain(groups.iter())
+        .chain(effect.iter())
+        .flat_map(|c| c.materials.iter().map(|m| m.shape.clone()))
+        .collect();
+    let emissive_shapes: HashSet<String> = idle
+        .iter()
+        .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+        .chain(groups.iter())
+        .chain(effect.iter())
+        .flat_map(|c| c.materials.iter().filter(|m| matches!(m.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult)).map(|m| m.shape.clone()))
+        .collect();
+    let alpha_shapes: HashSet<String> = idle
+        .iter()
+        .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+        .chain(groups.iter())
+        .chain(effect.iter())
+        .flat_map(|c| c.materials.iter().filter(|m| m.target == MaterialTarget::Alpha).map(|m| m.shape.clone()))
+        .collect();
+    // Nodes a clip of the rig shows and hides (`NiVisController`): their shapes are
+    // built even when the file hides them, and spawn hidden in the rig.
+    let vis_nodes: HashSet<String> = idle
+        .iter()
+        .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+        .chain(groups.iter())
+        .chain(effect.iter())
+        .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()))
+        .collect();
+    // Rig nodes: the root first, then every object reachable from it.
+    let animated = idle.is_some() || door.is_some() || !groups.is_empty() || effect.is_some();
+    let mut rig = animated
+        .then(|| {
+        let root = root?;
+        let mut index: HashMap<usize, usize> = HashMap::from([(root, 0)]);
+        let mut order = vec![root];
+        let mut i = 0;
+        while i < order.len() {
+            for &c in &by_block[&order[i]].children {
+                if by_block.contains_key(&c) && !index.contains_key(&c) {
+                    index.insert(c, order.len());
+                    order.push(c);
+                }
+            }
+            i += 1;
+        }
+        let nodes = order
+            .iter()
+            .enumerate()
+            .map(|(k, b)| {
+                let o = by_block[b];
+                RigNode {
+                    name: o.name.clone(),
+                    parent: o.parent.and_then(|p| index.get(&p).copied()),
+                    local: if k == 0 { Transform::IDENTITY } else { to_bevy(&o.transform) },
+                    hidden: k > 0 && hidden_self(*b),
+                }
+            })
+            .collect();
+        Some((Rig { nodes, shapes: Vec::new(), idle, door, groups, effect }, index))
+        })
+        .flatten();
+
+    // Alternate textures: the texture set each shape (by block) takes, entries later in
+    // the list winning (texture-swaps.md §2).
+    let mut swap_of: HashMap<usize, &[Option<String>; 6]> = HashMap::new();
+    if !swaps.is_empty() {
+        let order = fnv_nif::scene::geometry_order(&objects);
+        let shapes: Vec<(usize, Option<&str>, usize)> =
+            objects.iter().filter(|o| !o.is_node).filter_map(|o| Some((o.block, o.name.as_deref(), *order.get(&o.block)?))).collect();
+        let named: Vec<(Option<&str>, usize)> = shapes.iter().map(|s| (s.1, s.2)).collect();
+        for e in swaps {
+            let to = fnv_world::alt_textures::targets(e, &named);
+            if to.is_empty() {
+                info!("{path}: texture swap: no shape {:?} (index {}) for texture set {:08X}", e.shape, e.index, e.texture_set);
+            }
+            for i in to {
+                swap_of.insert(shapes[i].0, &e.textures);
+            }
+        }
+    }
+    let mut swapped: Vec<String> = Vec::new();
+    // First person: textures the name rule turned to their 1stperson form, and all the
+    // shapes wear in that form after it and the texture swap (first-person-textures.md).
+    let mut first_textures = 0;
+    let mut first_worn = 0;
+    for o in objects.iter().filter(|o| !o.is_node) {
+        // Walk to the root: accumulate the transform below the root's own and look
+        // for hidden ancestors.
+        let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
+        // Hidden in the file, and hidden for good: no visibility track of the rig
+        // shows the hidden node.
+        let shown_by_track = |b: usize| rig.is_some() && by_block.get(&b).and_then(|x| x.name.as_deref()).is_some_and(|n| vis_nodes.contains(n));
+        let mut hidden = hidden_self(o.block);
+        let mut for_good = hidden && !shown_by_track(o.block);
+        let mut ancestors = Vec::new();
+        let mut cur = o.parent;
+        let mut depth = 0;
+        while let Some(p) = cur {
+            let Some(po) = by_block.get(&p) else { break };
+            if po.parent.is_some() {
+                t = affine(&po.transform) * t;
+                ancestors.extend(po.name.clone());
+            }
+            hidden |= hidden_self(p);
+            for_good |= hidden_self(p) && !shown_by_track(p);
+            cur = po.parent;
+            depth += 1;
+            if depth > 512 {
+                break;
+            }
+        }
+        if for_good {
+            continue;
+        }
+        let Ok(shape) = &dec.blocks[o.block] else { continue };
+        let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
+        let mut props = shape_props(&file, &dec, o, &by_block);
+        let shape_name = o.name.clone().unwrap_or_default();
+        props.animated_emissive = emissive_shapes.contains(&shape_name);
+        props.animated_alpha = alpha_shapes.contains(&shape_name);
+        if props.is_helper() {
+            continue;
+        }
+        if let Some(set) = swap_of.get(&o.block) {
+            if props.use_texture_set(set) > 0 {
+                swapped.push(format!("{shape_name} → {}", props.textures.first().map_or("-", String::as_str)));
+            }
         }
         if first_person {
-            info!("{path}: first person, {first_worn} texture(s) in their 1stperson form ({first_textures} by the name rule, the rest named by its texture swap or the model)");
+            first_textures += props.use_first_person_textures(|p| game.vfs.exists(p));
+            first_worn += props.first_person_texture_count();
         }
-        if !swaps.is_empty() {
-            info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));
+        let Some((mut mesh, tris)) = build_mesh(data) else { continue };
+        // A morphing shape: its mesh stays readable in the main world so that
+        // `morph::play_vertex_morphs` can rewrite its vertices.
+        let morph = morph_of.get(&o.block).filter(|g| g.num_vertices == mesh.count_vertices()).map(|g| {
+            mesh.asset_usage = RenderAssetUsages::all();
+            let label = format!("{path} {shape_name}");
+            info!("{label}: vertex morphs, {} morph(s) over a {:.2} s cycle ({})", g.morphs.len() - 1, g.stop_time - g.start_time, if g.is_free() { "own controller" } else { "idle sequence" });
+            Arc::new(crate::morph::ShapeMorph {
+                label,
+                base: g.morphs[0].vectors.clone(),
+                offsets: g.morphs[1..].iter().map(|m| (m.vectors.clone(), m.weight.clone())).collect(),
+                cycle: OwnCycle { start: g.start_time, stop: g.stop_time, frequency: g.frequency.max(1e-6), phase: g.phase, cycle_type: (g.flags >> 1) & 3 },
+            })
+        });
+        let (material, _missing) = shape_material_with(&props, &mut mesh, sink);
+        if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            for v in p {
+                let q = (out.root * t).transform_point3(Vec3::from_array(*v));
+                out.bounds = Some(match out.bounds {
+                    None => (q, q),
+                    Some((lo, hi)) => (lo.min(q), hi.max(q)),
+                });
+            }
         }
-        out.rig = rig.map(|(r, _)| r);
-        Ok(out)
+        let skin = shape_skin(&dec, shape, mesh.count_vertices());
+        if skin.is_some() {
+            out.skinned += 1;
+        }
+        let material = sink.material(material);
+        let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
+        // Ranges into the mesh's triangles: only when `build_mesh` kept every one.
+        let drawn = mesh.indices().map_or(0, |i| i.len() / 3);
+        let segments = segment_triangles(shape, tris).filter(|_| drawn == tris).unwrap_or_default();
+        // The rig's copy of a skinned mesh carries the joint attributes; the static
+        // copy draws the bind pose without them.
+        let rig_skinned = match (&rig, skin) {
+            (Some((_, index)), Some(skin)) => {
+                let joints: Option<Vec<usize>> = skin.bones.iter().map(|b| index.get(b).copied()).collect();
+                joints.map(|joints| {
+                    let mut m = mesh.clone();
+                    let binds = skin.insert_into(&mut m);
+                    let m = m
+                        .with_generated_skinned_mesh_bounds()
+                        .unwrap_or_else(|_| Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD));
+                    (sink.mesh(m), sink.bindposes(binds.into()), joints)
+                })
+            }
+            _ => None,
+        };
+        let mesh = sink.mesh(mesh);
+        if let Some(m) = &morph {
+            sink.morph(mesh.id(), m.clone());
+            if let Some((skinned, ..)) = &rig_skinned {
+                sink.morph(skinned.id(), m.clone());
+            }
+        }
+        if let Some((r, index)) = rig.as_mut() {
+            if let Some(&node) = index.get(&o.block) {
+                let (mesh, skin) = match rig_skinned {
+                    Some((m, binds, joints)) => (m, Some((binds, joints))),
+                    None => (mesh.clone(), None),
+                };
+                let animated = animated_shapes.contains(&shape_name);
+                let (e, m) = props.emissive_parts();
+                let look = (shape_name.clone(), e, m, props.alpha_part());
+                r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, look, refraction: props.refraction_part(), animated });
+            }
+        }
+        // A shape only a visibility track shows is the rig's alone.
+        if hidden {
+            continue;
+        }
+        out.shapes.push(PreparedShape {
+            cpu,
+            segments,
+            mesh,
+            material,
+            transform: t,
+            name: o.name.clone(),
+            ancestors,
+            node: o.parent.and_then(|p| node_index.get(&p).copied()),
+            own: if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY },
+            external_emittance: props.external_emittance(),
+            look: {
+                let (e, m) = props.emissive_parts();
+                crate::material_anim::Look::stored(e, m, props.alpha_part())
+            },
+        });
+        out.triangles += tris;
     }
+    if first_person {
+        info!("{path}: first person, {first_worn} texture(s) in their 1stperson form ({first_textures} by the name rule, the rest named by its texture swap or the model)");
+    }
+    if !swaps.is_empty() {
+        info!("{path}: texture swap: {} entr(ies), {} shape(s) retextured: {}", swaps.len(), swapped.len(), swapped.join(", "));
+    }
+    out.rig = rig.map(|(r, _)| r);
+    Ok(out)
 }
 
 #[cfg(test)]

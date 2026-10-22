@@ -566,8 +566,13 @@ pub const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
 
 /// Whether a loaded normal map has no alpha channel to hold a specular mask (DXT1).
 pub fn lacks_alpha(image: &Image) -> bool {
+    format_lacks_alpha(image.texture_descriptor.format)
+}
+
+/// [`lacks_alpha`] by the texture's format.
+pub fn format_lacks_alpha(format: bevy::render::render_resource::TextureFormat) -> bool {
     use bevy::render::render_resource::TextureFormat;
-    matches!(image.texture_descriptor.format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
+    matches!(format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
 }
 
 /// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
@@ -591,6 +596,34 @@ pub(crate) fn shape_emissive(props: &Props, alpha_mode: AlphaMode) -> Option<Lin
     Some(LinearRgba::rgb(value(e[0]), value(e[1]), value(e[2])))
 }
 
+/// Where a shape's material takes its textures from: the texture cache and image store on
+/// the main thread ([`StoreTextures`]), or a worker thread's handles reserved for images it
+/// decodes (`model::Deferred`).
+pub(crate) trait TextureSource {
+    /// The texture at a NIF texture path, loaded once.
+    fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>>;
+    /// Whether the texture of `h` has no alpha channel ([`lacks_alpha`]).
+    fn lacks_alpha(&self, h: &Handle<Image>) -> bool;
+}
+
+/// The main thread's textures: the cache and the image store.
+pub(crate) struct StoreTextures<'a> {
+    pub textures: &'a mut TextureCache,
+    pub data: &'a GameData,
+    pub images: &'a mut Assets<Image>,
+    pub formats: Option<&'a CompressedImageFormatSupport>,
+}
+
+impl TextureSource for StoreTextures<'_> {
+    fn texture(&mut self, raw_path: &str, srgb: bool) -> Option<Handle<Image>> {
+        self.textures.get(raw_path, srgb, self.data, self.images, self.formats)
+    }
+
+    fn lacks_alpha(&self, h: &Handle<Image>) -> bool {
+        self.images.get(h).is_some_and(lacks_alpha)
+    }
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -601,12 +634,17 @@ pub(crate) fn shape_material(
     images: &mut Assets<Image>,
     formats: Option<&CompressedImageFormatSupport>,
 ) -> (NifMaterial, Option<String>) {
+    shape_material_with(props, mesh, &mut StoreTextures { textures, data, images, formats })
+}
+
+/// [`shape_material`] with its textures from `textures`.
+pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut impl TextureSource) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
     if props.unlit {
         unlit_vertex_colors(mesh);
     }
-    let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.get(t, true, data, images, formats));
-    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.get(t, false, data, images, formats));
+    let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, true));
+    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.texture(t, false));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
@@ -619,8 +657,8 @@ pub(crate) fn shape_material(
     let glow = (emissive.is_some() || props.animated_emissive)
         .then_some(props.glow.as_deref())
         .flatten()
-        .and_then(|t| textures.get(t, true, data, images, formats));
-    let unmasked = normal.as_ref().and_then(|h| images.get(h)).is_some_and(lacks_alpha);
+        .and_then(|t| textures.texture(t, true));
+    let unmasked = normal.as_ref().is_some_and(|h| textures.lacks_alpha(h));
     let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),

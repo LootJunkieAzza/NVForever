@@ -35,6 +35,28 @@ uGridsToLoad=5).
   PROC_THREAD+LOADER+PROFILE -stackwalk Profile` and `xperf -d`, elevated, then `xperf -a
   dumper -symbols` with `_NT_SYMBOL_PATH` at `engine/target/release`.
 
+- **Cells read ahead and spawned over frames** (§2 "Cells"), `python tools/stress run
+  tour`, one run after another on the same machine (other sessions' builds and games
+  ran beside them, so single numbers are noisy) [observed: target/stress/tour/*,
+  private]. "Main" is origin/main with the FaceGen and actor-part work below (b5333ddb,
+  PR #587); "before #587" is f28edbaa.
+
+  | run | build | mean | 1 % low | worst | frames over 33 ms (`physics streaming:` line) |
+  |---|---|---|---|---|---|
+  | towns lap | before #587 | 17.46 ms | 96.8 ms | 560 ms | 430 of 46,734 |
+  | towns lap | main | 17.15 ms | 52.6 ms | 236 ms | 635 of 47,535 |
+  | towns lap | this branch | 16.86 ms | 34.1 ms | 249 ms | 155 of 48,305 |
+  | slice 52:60 | main | 16.93 ms | 57.8 ms | 1,137 ms | 78 of 9,766 |
+  | slice 52:60 | this branch | 16.94 ms | 50.0 ms | 1,168 ms | 28 of 9,809 |
+  | slice 26:31 | main | 17.78 ms | 81.6 ms | 1,005 ms | 73 of 5,519 |
+  | slice 26:31 | this branch | 17.13 ms | 65.9 ms | 1,073 ms | 34 of 5,716 |
+
+  The slices' worst frames are the start's `lodgen` burst (§3). On the lap, 1,190 cells
+  loaded with 1,060 ms of main-thread time, over 1,201 frames; 9 waited for their
+  read-ahead and none was drawn before it was done (`streaming summary:` at the exit).
+  No count rose in "Possible leaks"; the caches end the lap higher by design (§2
+  "Caches", docs/design/stress-tests.md §4).
+
 ## 2. What runs off the main thread now
 
 - **FaceGen textures**: no longer made (§3). Between PR #587 and the shader tint the
@@ -103,6 +125,35 @@ uGridsToLoad=5).
   a ring before they came into range (a resident walking in from beyond it)
   [hypothesis: not traced per actor].
 
+- **Cells** (`nvforever/src/world.rs`, `nvf-assets/src/model.rs`, `texture.rs`;
+  `CellSpawn`, `ReadAhead`). Before the start square is in, and behind a loading screen,
+  cells load whole in the frame they are reached, as before. After it:
+  - *Read-ahead.* The cells up to one step beyond the loaded ones (the 7 × 7 square
+    around the camera's cell with `--radius 2`) are read on a worker thread: the
+    distinct models their references draw (`cell_models`) and their landscape (LAND
+    read, quadrant meshes built: `terrain::prepare_terrain`). Each model not prepared yet
+    is then prepared on a worker thread (`ModelCtx::models_ready`): read, inflated,
+    parsed, meshes built (tangents included), textures decoded. The worker puts its
+    meshes, materials and skins under handles reserved from the asset stores; the main
+    thread puts them in (`ModelCtx::take_fetched`, PreUpdate, at most 2 ms a frame) and
+    the model joins the cache. Textures a worker decodes go into a list shared with the
+    other workers and the main thread (`texture::WorkerTextures`), so each is decoded
+    once and keeps one handle; a texture the cache already holds is found in a copy of
+    the cache's list sent with the work.
+  - *Spawning over frames.* A cell is started once its models are all prepared (or after
+    1.5 s, preparing what is missing on the main thread). Its references are spawned
+    within 3 ms of main-thread time a frame, nearest cell first; the cell's entity is
+    hidden until the last one is in, then joins `Streamer::loaded` and fades in (fade.rs)
+    as a cell loaded in one frame did. Nothing that reads `loaded` (LOD, residents, cell
+    buffer, decals) sees a half-drawn cell; the LOD stands in for it meanwhile.
+  - *Despawning in slices.* A cell that has faded out is hidden, loses its `RenderCell`
+    and is despawned 400 references a frame.
+  - *GPU uploads* are capped at 24 MiB a frame (Bevy's `RenderAssetBytesPerFrame`), not
+    behind a loading screen or before the start square is in.
+  - *Caches.* Unused models, actor parts and textures stay 300 s (was 60 s), at most 2,048
+    of each (was 256): models read ahead wait unused until their cell loads, and turning
+    back finds the cells left behind still prepared.
+
 ## 3. Left to do
 
 - Done: the FaceGen tint is added in the face and skin shader (`nvf-assets`
@@ -131,9 +182,10 @@ uGridsToLoad=5).
 - Actors re-dressed (`outfits.rs`) still prepare a newly worn part on first use; the
   read-ahead resolves an actor's appearance from its record, not its inventory. Interiors
   and doors' destinations are not read ahead.
-- Cell assets: prepare models and textures of the next ring on a worker thread; spread a
-  cell's spawning over frames; limit GPU uploads per frame
-  (`RenderAssetBytesPerFrameLimiter`).
+- Cells: grass (`grass.rs` `place` and the merged meshes), SpeedTree trees, light and
+  placeable-water models and actors' parts in `world::load_cell` are still made on the
+  main thread when the cell is spawned (within the spawning budget, but one large piece
+  can overrun it).
 - ~~`lodgen` should leave cores free for the frame.~~ Done (branch claude/lodgen-throttle,
   2026-10-22):
   - **Why the frame stalled.** Not core starvation: Bevy's async compute pool has 4

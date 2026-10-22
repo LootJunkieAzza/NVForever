@@ -18,6 +18,7 @@
 //! units ([`TerrainSettings::tile`]) with u = x / 256 and v = y / 256, v growing northwards.
 
 use crate::world::WorldData;
+use fnv_esm::{LoadOrder, Schema as EsmSchema};
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -196,19 +197,44 @@ fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, t
     Some(mesh)
 }
 
-/// Spawn a cell's terrain; returns the landscape it was built from (for the grass).
-pub fn spawn_terrain(
-    commands: &mut Commands,
-    cell: Entity,
-    world: &WorldData,
-    land_id: u32,
-    grid: (i32, i32),
-    tm: &mut TerrainCtx,
-) -> Option<Land> {
-    let land = load_land(world.lo, world.schema, land_id, LandParts::ALL)?;
+/// A cell's landscape, read and its quadrant meshes built (on a worker thread when it is
+/// read ahead, world.rs): the base mesh of each quadrant, `(quadrant, None)`, and the
+/// blended mesh of each other layer, `(quadrant, Some(index in land.layers))`.
+pub struct TerrainPrep {
+    pub land: Land,
+    meshes: HashMap<(u8, Option<usize>), Mesh>,
+}
+
+/// Read LAND `land_id` of grid square `grid` and build its meshes (`tile`: world units per
+/// texture repeat, [`TerrainSettings::tile`]). `None`: no landscape or no heights.
+pub fn prepare_terrain(lo: &LoadOrder, schema: &EsmSchema, land_id: u32, grid: (i32, i32), tile: f32) -> Option<TerrainPrep> {
+    let land = load_land(lo, schema, land_id, LandParts::ALL)?;
     land.heights.as_ref()?;
     let origin = Vec2::new(grid.0 as f32 * fnv_world::CELL_SIZE, grid.1 as f32 * fnv_world::CELL_SIZE);
-    let tile = tm.tm.settings.tile;
+    let mut meshes = HashMap::new();
+    for q in 0..4u8 {
+        if let Some(mesh) = quadrant_mesh(&land, q, None, origin, tile) {
+            meshes.insert((q, None), mesh);
+        }
+        for (i, l) in land.layers.iter().enumerate().filter(|(_, l)| !l.base && l.quadrant == q) {
+            let mut alpha = vec![0.0f32; QUAD_SIDE * QUAD_SIDE];
+            for &(p, o) in &l.alpha {
+                if let Some(a) = alpha.get_mut(p as usize) {
+                    *a = o.clamp(0.0, 1.0);
+                }
+            }
+            if let Some(mesh) = quadrant_mesh(&land, q, Some(&alpha), origin, tile) {
+                meshes.insert((q, Some(i)), mesh);
+            }
+        }
+    }
+    Some(TerrainPrep { land, meshes })
+}
+
+/// Spawn a cell's terrain from its prepared landscape ([`prepare_terrain`]); returns the
+/// landscape (for the grass).
+pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx) -> Land {
+    let TerrainPrep { land, mut meshes } = prep;
     for q in 0..4u8 {
         let base = land.layers.iter().rev().find(|l| l.base && l.quadrant == q);
         if base.is_none() {
@@ -216,29 +242,23 @@ pub fn spawn_terrain(
         }
         let tex = tm.texture_of(world, base.and_then(|b| b.texture));
         let mat = tm.base_material(tex);
-        if let Some(mesh) = quadrant_mesh(&land, q, None, origin, tile) {
+        if let Some(mesh) = meshes.remove(&(q, None)) {
             let mesh = tm.assets.meshes.add(mesh);
             commands.entity(cell).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY));
         }
-        let mut layers: Vec<_> = land.layers.iter().filter(|l| !l.base && l.quadrant == q).collect();
-        layers.sort_by_key(|l| l.layer);
-        for (rank, l) in layers.into_iter().enumerate() {
+        let mut layers: Vec<_> = land.layers.iter().enumerate().filter(|(_, l)| !l.base && l.quadrant == q).collect();
+        layers.sort_by_key(|(_, l)| l.layer);
+        for (rank, (i, l)) in layers.into_iter().enumerate() {
             let Some(tex) = tm.texture_of(world, l.texture) else { continue };
-            let mut alpha = vec![0.0f32; QUAD_SIDE * QUAD_SIDE];
-            for &(p, o) in &l.alpha {
-                if let Some(a) = alpha.get_mut(p as usize) {
-                    *a = o.clamp(0.0, 1.0);
-                }
-            }
             let Some(mat) = tm.layer_material(tex, rank) else { continue };
-            if let Some(mesh) = quadrant_mesh(&land, q, Some(&alpha), origin, tile) {
+            if let Some(mesh) = meshes.remove(&(q, Some(i))) {
                 let mesh = tm.assets.meshes.add(mesh);
                 commands.entity(cell).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY));
                 tm.tm.cache.layers += 1;
             }
         }
     }
-    Some(land)
+    land
 }
 
 #[cfg(test)]

@@ -25,11 +25,14 @@ use std::sync::Arc;
 
 /// Seconds between sweeps.
 pub const SWEEP_SECS: f32 = 2.0;
-/// Seconds an unused entry stays cached [our choice: longer than a door's loading screen
-/// and a save's reload, shorter than walking out of a town's cells].
-pub const KEEP_UNUSED_SECS: f64 = 60.0;
-/// Unused entries each cache keeps at most [our choice].
-pub const KEEP_UNUSED_MAX: usize = 256;
+/// Seconds an unused entry stays cached [our choice: five minutes, so turning back
+/// towards cells left behind finds their models and textures still prepared; memory is
+/// plentiful (owner, 2026-10-22: about 4.7 GB used of 48 GB). It was 60 s and 256
+/// entries; docs/design/streaming-hitches.md].
+pub const KEEP_UNUSED_SECS: f64 = 300.0;
+/// Unused entries each cache keeps at most [our choice: models read ahead for the cells
+/// around the loaded ones wait unused until those cells load, a few hundred at a time].
+pub const KEEP_UNUSED_MAX: usize = 2048;
 
 /// Adds the sweep (the game; the viewer keeps everything it loaded).
 pub struct AssetReleasePlugin;

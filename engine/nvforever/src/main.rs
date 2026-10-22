@@ -1143,6 +1143,9 @@ fn main() -> AppExit {
         settled: false,
         arrival: None,
         per_frame: 1,
+        spawning: Default::default(),
+        dying: Default::default(),
+        ahead: Default::default(),
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
         interior,
         light_scale: args.light_scale,
@@ -1197,6 +1200,8 @@ fn main() -> AppExit {
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
+    .add_systems(PreUpdate, world::take_cell_work)
+    .add_systems(Last, world::report)
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
     .add_systems(Update, actor_materials::pose.after(locomotion::drive))

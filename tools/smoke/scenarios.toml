@@ -155,6 +155,37 @@ args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 
 [[scenario]]
+name = "cell-streaming"
+source = "docs/design/streaming-hitches.md §2 Cells: cells read ahead on worker threads, spawned over frames, faded in once whole"
+note = "A fast flight over the Mojave without --play: once the start square is in, cells load through the read-ahead and the spawning budget (world.rs CellSpawn, ReadAhead); the summary at the exit counts them. The flight outruns the read-ahead now and then, so cells drawn before theirs was done are allowed, a few"
+areas = ["renderer"]
+paths = [
+  "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-assets/src/release.rs",
+  "engine/nvforever/src/world.rs", "engine/nvforever/src/terrain.rs", "engine/nvforever/src/fade.rs",
+]
+args = ["--cell", "Goodsprings", "--auto-fly", "3000"]
+run_seconds = 40
+expect = [
+  { re = 'streaming summary: (\d+) cells loaded', range = [40, 100000], label = "cells streamed in" },
+  { re = 'streaming summary: .* spread over (\d+) frames', range = [40, 100000], label = "spawned over frames" },
+  { re = 'streaming summary: .*, (\d+) drawn before it was done', range = [0, 10], label = "few cells outran their read-ahead" },
+]
+
+[[scenario]]
+name = "cell-fade-in"
+source = "docs/design/streaming-hitches.md §2 Cells: a cell spawned over frames stays hidden until it is whole, then fades in over --cell-fade (fade.rs)"
+note = "Moved two cells east at 8 s: the column of cells two to three cells ahead streams in while the player looks at it"
+areas = ["renderer"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/fade.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "8:-59700:1400:9000", NVF_PLAY_TEST_LOOK = "8.1:90:-2", NVF_PLAY_TEST_SHOTS = "8.2:fade_0.png,8.6:fade_1.png,9:fade_2.png,9.4:fade_3.png,9.8:fade_4.png,10.4:fade_5.png,12:fade_6.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 14
+expect = [
+  { re = 'streaming summary: (\d+) cells loaded', range = [30, 100000], label = "the start square and the cells ahead loaded" },
+]
+manual = "fade_0..fade_6: the cells ahead are absent or whole (never half their references), then dither in over about a second, the distant LOD under them until they are fully drawn"
+
+[[scenario]]
 name = "time-lapse"
 source = "CLAUDE.md: after sky or lighting changes, the day/night time-lapse (a full day in about 20 s)"
 areas = ["sky", "lighting"]
