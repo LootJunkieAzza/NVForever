@@ -13,7 +13,7 @@ use fnv_esm::{LoadOrder, Schema};
 use fnv_world::land::{land_texture, load_land, LandParts, DEFAULT_DIFFUSE, QUAD_SIDE, SIDE, SPACING};
 use fnv_world::{WorldIndex, CELL_SIZE};
 use nvf_assets::GameData;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -548,6 +548,107 @@ impl GenJob {
             }
         }
         cells
+    }
+}
+
+/// A finished bake: the chunk and what [`GenJob::run`] returned for it.
+pub type BakeResult = ((i32, i32), Result<Option<Baked>, String>);
+
+/// Bake threads of their own, at the lowest thread priority, so generated terrain only
+/// uses cores the frame leaves free. Bakes on Bevy's async compute pool held a frame until
+/// they were all done: Bevy compiles render pipelines on that pool and the render thread
+/// waits for some of them (docs/design/streaming-hitches.md §3) [observed]; FaceGen tints
+/// and actor part reads share it too.
+pub struct Baker {
+    shared: Arc<BakerShared>,
+}
+
+struct BakerShared {
+    state: Mutex<BakerQueue>,
+    wake: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct BakerQueue {
+    /// Chunks waiting, the next to bake first.
+    waiting: std::collections::VecDeque<(i32, i32)>,
+    /// Finished bakes, oldest first.
+    done: std::collections::VecDeque<BakeResult>,
+    closed: bool,
+}
+
+impl Baker {
+    pub fn new(job: GenJob, threads: usize) -> Baker {
+        let shared = Arc::new(BakerShared { state: Mutex::new(BakerQueue::default()), wake: Default::default() });
+        for i in 0..threads.max(1) {
+            let (shared, job) = (shared.clone(), job.clone());
+            let spawned = std::thread::Builder::new().name(format!("lodgen {i}")).spawn(move || {
+                lowest_thread_priority();
+                while let Some(chunk) = shared.next() {
+                    let result = job.run(chunk);
+                    shared.state.lock().unwrap().done.push_back((chunk, result));
+                }
+            });
+            if let Err(e) = spawned {
+                warn!("generated LOD: cannot start a bake thread: {e}");
+            }
+        }
+        Baker { shared }
+    }
+
+    /// Make `want` (the next to bake first) the waiting chunks. `pending`: the chunks
+    /// handed to the baker whose results have not been taken; chunks in it that are being
+    /// baked or are done are not queued again, and waiting chunks left out of `want`
+    /// leave it.
+    pub fn schedule(&self, want: &[(i32, i32)], pending: &mut HashSet<(i32, i32)>) {
+        let mut s = self.shared.state.lock().unwrap();
+        let was: HashSet<(i32, i32)> = s.waiting.drain(..).collect();
+        for c in &was {
+            pending.remove(c);
+        }
+        s.waiting = want.iter().copied().filter(|c| was.contains(c) || !pending.contains(c)).collect();
+        pending.extend(s.waiting.iter().copied());
+        self.shared.wake.notify_all();
+    }
+
+    /// A finished bake, if any.
+    pub fn try_recv(&self) -> Option<BakeResult> {
+        self.shared.state.lock().unwrap().done.pop_front()
+    }
+}
+
+impl Drop for Baker {
+    fn drop(&mut self) {
+        self.shared.state.lock().unwrap().closed = true;
+        self.shared.wake.notify_all();
+    }
+}
+
+impl BakerShared {
+    /// The next chunk to bake, waiting for one; `None` once the baker is dropped.
+    fn next(&self) -> Option<(i32, i32)> {
+        let mut s = self.state.lock().unwrap();
+        loop {
+            if s.closed {
+                return None;
+            }
+            if let Some(c) = s.waiting.pop_front() {
+                return Some(c);
+            }
+            s = self.wake.wait(s).unwrap();
+        }
+    }
+}
+
+/// Run the calling thread only when no other thread wants its core.
+fn lowest_thread_priority() {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_LOWEST};
+        // SAFETY: GetCurrentThread returns a pseudo-handle for this thread; no memory is shared.
+        if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST) } == 0 {
+            warn!("generated LOD: cannot lower the bake thread's priority");
+        }
     }
 }
 

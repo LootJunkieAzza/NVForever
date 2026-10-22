@@ -77,10 +77,12 @@ entry under the final name. About 1 MB per chunk; WastelandNV's playable area is
 
 ## 4. Runtime
 
-Baking runs on Bevy's async compute pool, one task per chunk, nearest chunks first;
-tasks for chunks the camera left behind are cancelled. A chunk shows the game's LOD until
-its bake (or cache read) is ready; then only that chunk is rebuilt. Decoded layer
-textures (one mip level each) are shared between tasks. The overlay reports generated
+Baking runs on two threads of its own at the lowest thread priority (`lodgen::Baker`;
+not Bevy's async compute pool, whose render-pipeline compiles a frame can wait on:
+streaming-hitches.md §3), nearest chunks first; chunks the camera left behind are taken
+off the queue (one being baked finishes). A chunk shows the game's LOD until its bake (or
+cache read) is ready; finished bakes are uploaded two a frame and only their chunks are
+rebuilt. Decoded layer textures (one mip level each) are shared between the threads. The overlay reports generated
 chunks drawn and still baking; `--run-seconds` logs frames per second and chunks baked
 or read from the cache; `--screenshot` waits until no chunk is baking.
 

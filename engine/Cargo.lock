@@ -4330,6 +4330,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "texpresso",
+ "windows-sys 0.61.2",
  "winit",
  "winresource",
 ]

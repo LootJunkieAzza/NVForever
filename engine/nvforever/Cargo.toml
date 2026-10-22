@@ -37,6 +37,8 @@ winit = { version = "0.30", default-features = false }
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.15", default-features = false }
+# The generated-terrain bake threads' priority (lodgen.rs); a version already in the build; MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
