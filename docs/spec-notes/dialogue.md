@@ -420,7 +420,9 @@ All of it is in `GameSnapshot`.
   Talking to the actor again while it speaks cuts the line (no end result) and starts
   the greeting afresh [hypothesis, as for a second SayTo]. A Goodbye line of a topic
   named by StartConversation still opens a conversation that ends with it [hypothesis:
-  the statement is about GREETING].
+  the statement is about GREETING]. Through a talking activator the greeting opens a
+  conversation that the line ends, as below [owner statement 2026-10-22, of the REPCONN
+  intercom; talking-activators.md §2].
 - **The rule above is for the player talking to the actor. When the actor starts the
   conversation** (a force greet: StartConversation with the player, or the actor's
   Dialogue package that is not Say To), a greeting with the Goodbye flag **opens a

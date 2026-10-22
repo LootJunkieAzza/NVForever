@@ -209,6 +209,10 @@ pub struct Cycle {
     /// [documented: GECK wiki Weapons, Regen Rate].
     pub regen: Option<f32>,
     regen_acc: f32,
+    /// Every fourth shot uses no ammunition (a "Regenerate Ammo (shots)" mod,
+    /// docs/spec-notes/weapon-data-fields.md §5); shots fired so far.
+    free_fourth: bool,
+    shots: u32,
     /// The trigger was held last tick (semi-automatic weapons need a fresh pull).
     held: bool,
     /// Spun up: shots have left since the trigger was last pulled.
@@ -231,6 +235,8 @@ impl Cycle {
             no_ammo,
             regen: (w.regen_rate > 0.0).then_some(w.regen_rate),
             regen_acc: 0.0,
+            free_fourth: w.free_fourth_shot,
+            shots: 0,
             held: false,
             spun: false,
             queued: None,
@@ -360,7 +366,9 @@ impl Cycle {
                         break;
                     }
                     dt -= left;
-                    let rounds = if self.no_ammo { 0 } else { self.ammo_use };
+                    self.shots += 1;
+                    let free = self.free_fourth && self.shots.is_multiple_of(4);
+                    let rounds = if self.no_ammo || free { 0 } else { self.ammo_use };
                     self.magazine -= rounds;
                     out.push(Event::Fired { rounds });
                     self.phase = Phase::Cooldown { left: (self.timing.interval - self.timing.fire_delay).max(0.0) };

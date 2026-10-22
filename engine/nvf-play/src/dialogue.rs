@@ -317,7 +317,9 @@ fn view(g: &Game, sim: &SimState) -> Option<MenuView> {
     if held(g) {
         return None;
     }
-    let speaker = speaker_name(g, sim, c.actor);
+    // Through a talking activator the menu names the activator ("Intercom", not Chris
+    // Haversam: owner screenshot 2026-10-22 of the REPCONN intercom).
+    let speaker = speaker_name(g, sim, c.through.unwrap_or(c.actor));
     if c.line.is_some() || c.choices.is_empty() {
         return Some(MenuView { speaker, line: response_text(g), choices: Vec::new(), goodbye: false });
     }

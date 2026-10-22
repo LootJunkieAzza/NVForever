@@ -502,7 +502,9 @@ impl<'a> Game<'a> {
             self.emit(EventKind::NoLine { speaker: actor, topic });
             return Err(format!("{} has no line of {} to say", data.name(actor), data.name(topic)));
         };
-        if !forced && Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
+        // Through a talking activator a Goodbye greeting opens a conversation too, which
+        // the line ends (`crate::talking_activators`).
+        if !forced && through.is_none() && Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
             self.extra.entry(actor).or_default().talked_to_pc = true;
             self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);

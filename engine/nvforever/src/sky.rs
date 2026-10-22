@@ -980,6 +980,11 @@ pub const SHADOW_LAYER: usize = 2;
 /// and the sun does not cast from it (`player_body.rs`).
 pub const ARMS_LAYER: usize = 3;
 
+/// Render layer of what the cameras see of the player's third-person body and its weapon:
+/// the sun casts from it, the flashlight does not (`flashlight.rs`; owner 2026-10-22: the
+/// player casts no flashlight shadow, as the arms did aiming in third person).
+pub const BODY_LAYER: usize = 4;
+
 /// The climate's star model.
 #[derive(Component)]
 pub struct Stars;
@@ -1199,7 +1204,7 @@ pub fn setup_sky(
         Transform::IDENTITY,
         // A light's shadow casters are the entities on its layers; it lights the views
         // whose layers meet its own, so the main and the reflection camera as before.
-        RenderLayers::from_layers(&[0, SHADOW_LAYER]),
+        RenderLayers::from_layers(&[0, SHADOW_LAYER, BODY_LAYER]),
     ));
     if sky.shadows {
         sun.insert(shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades));

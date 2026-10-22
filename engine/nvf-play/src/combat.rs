@@ -626,6 +626,19 @@ pub struct CombatStats {
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
 /// draws a tracer.
+/// A grenade live now ([`Combat::live_grenades`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiveGrenade {
+    /// Its number among the drawn projectiles, the same for its whole flight.
+    pub id: u64,
+    pub at: V3,
+    /// Its explosion's radius, units.
+    pub radius: f32,
+    pub thrower: FormId,
+    /// Seconds since it left.
+    pub age: f32,
+}
+
 struct Flying {
     p: Projectile,
     /// Its number among the drawn projectiles ([`ShotVisual::id`]) and its PROJ.
@@ -843,6 +856,19 @@ impl Combat {
     /// Projectiles in flight now (the stress tests' samples).
     pub fn in_flight(&self) -> usize {
         self.flying.len()
+    }
+
+    /// The grenades live now (docs/design/combat-ai.md §17.7): lobbed projectiles with an
+    /// explosion, in flight or at rest, not mines.
+    pub fn live_grenades(&self) -> Vec<LiveGrenade> {
+        self.flying
+            .iter()
+            .filter(|f| f.p.alive && !f.p.mine && f.p.motion == Motion::Lobber)
+            .filter_map(|f| {
+                let radius = self.forms.explosions.get(&f.p.explosion?)?.radius;
+                (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, radius, thrower: f.by.actor, age: f.p.age })
+            })
+            .collect()
     }
 
     /// The thrown mines that came to rest since the last call (`crate::mines`).
@@ -1922,7 +1948,11 @@ pub(crate) fn fire(
                 };
                 let rng = &mut c.rng;
                 let mut rand = || rng.next_f32();
-                let shots = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
+                let mut shots = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
+                // A mod's Increase Projectile Speed (weapon-data-fields.md §5).
+                if let Some(m) = w.projectile_speed_mult {
+                    shots.iter_mut().for_each(|p| p.speed_up(m));
+                }
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
                     let rolled = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
@@ -2027,6 +2057,19 @@ fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimS
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
     let own_dr = actor_av(script, sim, target, 18).unwrap_or(0.0);
     (dt + own_dt, dr + own_dr)
+}
+
+/// `target`'s value, in percent, of the resistance weapon `w`'s damage type names
+/// (`damage::resistance_of`, docs/spec-notes/weapon-data-fields.md §3); 0 for a weapon
+/// whose damage DR takes, or without a script runtime. Logged when above 0.
+fn target_resist(script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId, w: &WeaponStats) -> f32 {
+    let Some(name) = damage::resistance_of(w) else { return 0.0 };
+    let Some(code) = fnv_game::functions::av_by_name(name) else { return 0.0 };
+    let v = actor_av(script, sim, target, code).unwrap_or(0.0);
+    if v > 0.0 {
+        info!("combat: {target} takes {} damage less {v:.0} % ({name}) in place of DR", w.edid.as_deref().unwrap_or("?"));
+    }
+    v
 }
 
 /// The armour `target` wears, each piece with its condition: what the player has
@@ -2522,7 +2565,8 @@ fn melee(
                 strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
                 continue;
             }
-            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &ap, &tp, roll);
+            let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
+            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, ..Target::default() }, &ap, &tp, roll);
             log_hit_perks(FormId::PLAYER_REF, Some(target), &ap, &tp, &d);
             // A person blocking it from the front stops part of it (combat-ai.md §14.3); a
             // power attack breaks through and staggers it (combat-rules.md §12).
@@ -2703,7 +2747,12 @@ fn actor_attacks(
         let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless, vats: false };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
-        let ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
+        let mut ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
+        // The mods on the unit it uses: Increase Projectile Speed (weapon-data-fields.md §5).
+        let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
+        if let Some(m) = c.forms.weapons.get(&s.weapon).filter(|_| mods != 0).and_then(|w| w.modded(mods).projectile_speed_mult) {
+            ps.iter_mut().for_each(|p| p.speed_up(m));
+        }
         for p in ps {
             let rolled = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
             let shown = rolled || DRAW_EVERY_PROJECTILE;
@@ -2749,7 +2798,8 @@ fn actor_attacks(
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
         let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, b.attacker, id, Some(b.target));
-        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &ap, &tp, roll);
+        let resist = target_resist(script.as_deref_mut(), &mut sim, b.target, &w);
+        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, ..Target::default() }, &ap, &tp, roll);
         log_hit_perks(b.attacker, Some(b.target), &ap, &tp, &d);
         // A blocker facing the blow stops part of it (docs/design/combat-ai.md §14.3); a
         // power attack (a creature's, `ActorStrike::anim`) breaks through (combat-rules.md
@@ -3172,7 +3222,8 @@ fn fly(
             continue;
         }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &ap, &tp, roll);
+        let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
+        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, ..Target::default() }, &ap, &tp, roll);
         log_hit_perks(shooter, Some(target), &ap, &tp, &d);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);

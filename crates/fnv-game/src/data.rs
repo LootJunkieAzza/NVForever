@@ -1144,6 +1144,36 @@ pub struct CombatStyleDef {
     pub wait_timer: (f32, f32),
     pub wait_to_fire_timer: (f32, f32),
     pub fire_timer: (f32, f32),
+    /// Maneuver decision: Dodge % Chance and Left/Right % Chance (0–100); the Dodge L/R,
+    /// Forward and Back timers and the Idle Timer, seconds (min, max); Advanced: the
+    /// dodge fatigue and encumbered speed modifiers (base, mult) and the dodge
+    /// multipliers (while, not) under attack, back under attack, forward while attacking
+    /// [documented: GECK wiki Combat Style; docs/design/combat-ai.md §17.1].
+    pub dodge_chance: f32,
+    pub left_right_chance: f32,
+    pub dodge_lr_timer: (f32, f32),
+    pub dodge_forward_timer: (f32, f32),
+    pub dodge_back_timer: (f32, f32),
+    pub idle_timer: (f32, f32),
+    pub dodge_fatigue_mod: (f32, f32),
+    pub encumbered_speed_mod: (f32, f32),
+    pub dodge_mult: (f32, f32),
+    pub dodge_back_mult: (f32, f32),
+    pub dodge_forward_mult: (f32, f32),
+    /// Advanced: the power attack fatigue modifier (base, mult) (§17.3).
+    pub power_attack_fatigue_mod: (f32, f32),
+    /// Rushing Attack % Chance and Distance Mult [documented: the names only,
+    /// GetCombatStyleTraitNumeric; §17.2].
+    pub rushing_attack_chance: f32,
+    pub rushing_attack_distance_mult: f32,
+    /// Flags (GetCombatStyleFlag 1, 4–8): Melee Alert OK, Ignore Threats, Ignore Damaging
+    /// Self / Group / Spectators, Cannot Use Stealthboy (§17.6–§17.8).
+    pub melee_alert_ok: bool,
+    pub ignore_threats: bool,
+    pub ignore_damaging_self: bool,
+    pub ignore_damaging_group: bool,
+    pub ignore_damaging_spectators: bool,
+    pub cannot_use_stealthboy: bool,
 }
 
 /// Everything read from one winning record.
@@ -2363,6 +2393,26 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 wait_timer: (n(simple, "wait_timer_min", 0.0), n(simple, "wait_timer_max", 0.0)),
                 wait_to_fire_timer: (n(simple, "wait_to_fire_timer_min", 0.0), n(simple, "wait_to_fire_timer_max", 0.0)),
                 fire_timer: (n(simple, "fire_timer_min", 0.0), n(simple, "fire_timer_max", 0.0)),
+                dodge_chance: n(std, "dodge_chance", 0.0),
+                left_right_chance: n(std, "left_right_chance", 0.0),
+                dodge_lr_timer: (n(std, "dodge_lr_timer_min", 0.0), n(std, "dodge_lr_timer_max", 0.0)),
+                dodge_forward_timer: (n(std, "dodge_forward_timer_min", 0.0), n(std, "dodge_forward_timer_max", 0.0)),
+                dodge_back_timer: (n(std, "dodge_back_timer_min", 0.0), n(std, "dodge_back_timer_max", 0.0)),
+                idle_timer: (n(std, "idle_timer_min", 0.0), n(std, "idle_timer_max", 0.0)),
+                dodge_fatigue_mod: (n(adv, "dodge_fatigue_mod_base", 0.0), n(adv, "dodge_fatigue_mod_mult", 0.0)),
+                encumbered_speed_mod: (n(adv, "encumbered_speed_mod_base", 0.0), n(adv, "encumbered_speed_mod_mult", 0.0)),
+                dodge_mult: (n(adv, "dodge_while_under_attack_mult", 1.0), n(adv, "dodge_not_under_attack_mult", 1.0)),
+                dodge_back_mult: (n(adv, "dodge_back_while_under_attack_mult", 1.0), n(adv, "dodge_back_not_under_attack_mult", 1.0)),
+                dodge_forward_mult: (n(adv, "dodge_forward_while_attacking_mult", 1.0), n(adv, "dodge_forward_not_attacking_mult", 1.0)),
+                power_attack_fatigue_mod: (n(adv, "power_attack_fatigue_mod_base", 0.0), n(adv, "power_attack_fatigue_mod_mult", 0.0)),
+                rushing_attack_chance: n(std, "rushing_attack_chance", 0.0),
+                rushing_attack_distance_mult: n(std, "rushing_attack_distance_mult", 0.0),
+                melee_alert_ok: has_flag(std.and_then(|v| v.get("flags")), "Melee Alert OK"),
+                ignore_threats: has_flag(std.and_then(|v| v.get("flags")), "Ignore Threats"),
+                ignore_damaging_self: has_flag(std.and_then(|v| v.get("flags")), "Ignore Damaging Self"),
+                ignore_damaging_group: has_flag(std.and_then(|v| v.get("flags")), "Ignore Damaging Group"),
+                ignore_damaging_spectators: has_flag(std.and_then(|v| v.get("flags")), "Ignore Damaging Spectators"),
+                cannot_use_stealthboy: has_flag(std.and_then(|v| v.get("flags")), "Cannot Use Stealthboy"),
             });
         }
         b"MICN" => {

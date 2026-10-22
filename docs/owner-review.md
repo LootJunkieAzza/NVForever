@@ -7680,3 +7680,69 @@ Spec: [actor-flags](spec-notes/actor-flags.md). Decisions and guesses:
 - *Guess:* leveled actor lists' chance none works as the item lists' (none in the masters).
 - *Check:* with a machete, can you mark a ceiling turret in VATS? Does Benny ever say a
   generic greeting? Does a tumbleweed show bullet puffs?
+## Weapon and ammo fields: NPC weapon choice, damage type, mods (2026-10-21, ESM gap audit medium group 2, branch claude/em3-npc-weapon-choice)
+
+NPCs no longer choose Player Only or Not Used In Normal Combat weapons (the Van Graff
+rifles, the MS22 camera); weapons with a damage type (59 in FalloutNV.esm: lasers and
+plasma, flamers, pulse weapons, poison) are cut by the target's resistance of that kind;
+the flamers' Range - Fixed drops the combat style's range multiplier; Aim Arc sets the
+firing angle; projectile speed and ammo regeneration mods work. Spec:
+[weapon-data-fields](spec-notes/weapon-data-fields.md). Decisions and guesses:
+
+- *Guess:* a damage type other than None / Damage Resistance replaces DR by that
+  resistance (as a percent, capped at 85 like DR); DT still comes first. The wiki says
+  only that the setting "determines the Damage Type". Poison Resistance comes from
+  Endurance ((END − 1) × 5), so poison weapons now hit most actors 20–45 % softer;
+  Energy, Fire, EMP and Electric are 0 unless something raises them.
+- *Guess:* scripts (EquipItem, UseWeapon) may still arm an NPC with a Player Only weapon;
+  only the NPC's own choice skips it.
+- *Guess:* Aim Arc 0 (every master weapon) keeps the engine's 30° firing angle.
+- *Guess:* Regenerate Ammo (seconds) changes only a weapon that already recharges.
+- *Decision:* the WEAP flag Ignores Normal Weapon Resistance keeps ignoring DT and DR (the
+  Rippers, Chainsaw, Thermic Lance, Deathclaw Gauntlet), although the wiki says it did not
+  work in the original without JIP LN NVSE. Say if the original's (broken) behaviour is
+  wanted instead.
+- Not built: Kill Impulse / Impulse Dist (the wiki only guesses their meaning), Decrease
+  Equip Time (no master mod).
+- *Check:* does a laser pistol hit on a target with Energy Resistance 50
+  (`setav EnergyResist 50`) do about half damage in the original? Does a Van Graff
+  rifle given to a settler stay unused?
+## The combat style's other fields (2026-10-21, ESM gap audit medium group 1, branch claude/em2-combat-style)
+
+Melee fighters now dodge (left, right, back, forward) or idle by their combat style's
+maneuver decision, roll for rushing attacks, and power-attack a little more when rested;
+fighters stop pursuing beyond their Combat Radius, take up no new target outside their Max
+Targeting FOV, hold explosive shots that would catch themselves, a comrade or a bystander
+(unless the Ignore Damaging flags say otherwise), and run out of a live grenade's blast
+saying their AvoidThreat line (unless Ignore Threats). Spec:
+[combat-ai](design/combat-ai.md) §17. Decisions and guesses:
+
+- *Guess:* the maneuver decision is made each time the melee decision holds (neither
+  block nor attack); the wiki gives no moment. With DefaultCombatstyle a rested person
+  dodges about half the time it holds when its opponent swings (51.8 %), 39 % otherwise.
+- *Guess:* the dodge's way: back, forward and sideways weighed by the back multiplier, the
+  forward multiplier and 1; sideways then rolls Left/Right % (else it idles). The wiki
+  names the multipliers without saying how they combine.
+- *Guess:* a dodge walks for its timer at the actor's walking speed (a 1 s dodge is about
+  87 units for a person); creatures turn to the way they dodge (people keep facing).
+- *Guess:* "encumbered speed" is the AI's alert walking speed (86.8 units/s for people),
+  so the masters' −110 base takes about 23 points off every person's dodge chance. The
+  wiki's "around 110" is Oblivion's GetWalkSpeed.
+- *Guess:* the rushing attack (named, never described): rolled once as the target comes
+  within reach × (1 + Distance Mult); a rush's first melee decision on arrival is an
+  attack, no hold or block.
+- *Guess:* the combat radius is measured from where the fighter stood when its fight began,
+  moved to where it stands each time it loses health; 0 is no limit.
+- *Guess:* Max Targeting FOV 0 is no limit (83 of 84 styles); only a new target is held
+  back, and the fighter still turns to it, so the limit delays a fight.
+- *Guess:* iAvoidHurtingNonTargetsResponsibility (in no master) is 30: a fighter with less
+  Responsibility fires its explosives into bystanders.
+- *Guess:* what counts as a threat is a live grenade (a lobbed projectile with an
+  explosion), in flight or at rest, within its radius + 64 units; the fighter runs 64
+  units beyond the radius. Mines, exploding cars and threats out of combat are not built.
+- *Decision:* Melee Alert OK changes nothing ("an old field for Oblivion"; our fighters
+  already wait when they cannot reach their target); Cannot Use Stealthboy is set on every
+  style and no NPC uses one.
+- *Check:* in a fist fight (Goodsprings, the NCR troopers and Fiends), how often do the
+  fighters step aside or back between blows, and how far? Do NPCs run from a frag grenade
+  landing near them, and say "Grenade!" or the like?

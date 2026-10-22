@@ -108,7 +108,7 @@ impl Game<'_> {
             .iter()
             .filter(|&(i, n)| n > 0 && Some(i) != held && inv.has_sound(i))
             .filter_map(|(i, _)| {
-                let it = forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable)?;
+                let it = forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable && !it.not_for_npcs)?;
                 Some((i, it.weapon_damage.unwrap_or(0.0), reach(i)))
             })
             .collect();

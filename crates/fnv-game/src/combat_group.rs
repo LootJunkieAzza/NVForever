@@ -84,6 +84,11 @@ pub enum PostKind {
     Advance,
     /// A melee fighter staying by a gunman of its group (§14.4).
     Guard,
+    /// A melee fighter's dodge, left, right, back or forward of the line to its target,
+    /// walked for the style's dodge timer (docs/design/combat-ai.md §17.1).
+    Dodge,
+    /// A run out of a live grenade's blast (§17.7).
+    Evade,
 }
 
 impl PostKind {
@@ -98,6 +103,8 @@ impl PostKind {
             PostKind::Shift => "a shift sideways",
             PostKind::Advance => "a bound to cover",
             PostKind::Guard => "a guard place",
+            PostKind::Dodge => "a dodge",
+            PostKind::Evade => "a run from a grenade",
         }
     }
 }

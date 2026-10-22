@@ -122,7 +122,7 @@ Every Combat and Detection topic of FalloutNV.esm and what says it in NVForever
 | AssaultNoCrime, MurderNoCrime, StealNoCrime, TrespassNoCrime, PickpocketNoCrime | as Assault, Murder … when the actor does not count it a crime | not said: the crime code says the crime topics only for crimes (follow-up) |
 | Pickpocket | notices the player picking its pocket | not said: pickpocketing is not built |
 | Yield | yields to whom it fights | not said: NPCs do not yield |
-| AvoidThreat, AvoidThreatResponse | begins avoiding a threat ("It's going to blow!"); per-group timer | not said: avoiding grenades is not built |
+| AvoidThreat, AvoidThreatResponse | begins avoiding a threat ("It's going to blow!"); per-group timer | AvoidThreat said once per grenade a fighter runs from (combat-ai.md §17.7; no per-group timer); AvoidThreatResponse not said |
 | AttackResponse, FleeResponse, FireExplosiveResponse | a valid actor nearby answers that line | not said (follow-up; DeathResponse is) |
 | StartCombatResponse, NormalToAlertResponse | (Detection; not on the pages) | not said [hypothesis: answers to NormalToCombat/NormalToAlert, as the other Response topics] |
 | ArmorIneffective, WeaponIneffective, OnFire, Poisoned, KnockedBack, UsedDoctorBag, Regenerating, Frenzy | the situation the name gives | not said (follow-up) |

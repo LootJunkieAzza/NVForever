@@ -109,11 +109,12 @@ pub fn choice_damage(w: &Weapon) -> f32 {
 
 /// The weapon an actor draws among its carried items: the drawable weapon with the highest
 /// [`choice_damage`], the first carried on ties [engine choice standing in for Layer 6's
-/// equip logic, actors.md §9.3].
+/// equip logic, actors.md §9.3]; never one flagged Player Only or Not Used In Normal
+/// Combat (docs/spec-notes/weapon-data-fields.md §1).
 pub fn choose_weapon(carried: &[FormId], weapons: &HashMap<FormId, Weapon>) -> Option<FormId> {
     let mut best: Option<(f32, FormId)> = None;
     for &id in carried {
-        let Some(w) = weapons.get(&id).filter(|w| drawable(w)) else { continue };
+        let Some(w) = weapons.get(&id).filter(|w| drawable(w) && !w.not_for_npcs) else { continue };
         let damage = choice_damage(w);
         if best.is_none_or(|(d, _)| damage > d) {
             best = Some((damage, id));
@@ -381,7 +382,7 @@ mod tests {
     use super::*;
 
     fn weapon(model: Option<&str>, anim: &str, damage: i32, embedded: bool) -> Weapon {
-        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, projectile: None, explosion_damage: 0.0, embedded, non_playable: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() }
+        Weapon { edid: None, model: model.map(str::to_string), anim_type: Some(anim.to_string()), damage, projectile: None, explosion_damage: 0.0, embedded, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: None, mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() }
     }
 
     #[test]
@@ -410,6 +411,12 @@ mod tests {
         assert_eq!(choose_weapon(&[c, b], &ws), Some(c));
         assert_eq!(choose_weapon(&[d, FormId(9)], &ws), None);
         assert!(!drawable(&weapon(None, "Melee (1 Hand)", 1, false)));
+        // A Player Only weapon (the Van Graff laser rifle) is passed over for a weaker one.
+        let mut van_graff = weapon(Some("w\\v.nif"), "Rifle - Energy (2 Hand)", 50, false);
+        van_graff.not_for_npcs = true;
+        let ws = HashMap::from([(a, van_graff), (b, weapon(Some("w\\b.nif"), "Pistol - Ballistic (1 Hand)", 20, false))]);
+        assert_eq!(choose_weapon(&[a, b], &ws), Some(b));
+        assert_eq!(choose_weapon(&[a], &ws), None);
     }
 
     #[test]

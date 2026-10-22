@@ -700,6 +700,11 @@ impl Residents {
         fnv_ai::Speeds { walk: self.core.ai.cfg.walk_speed, run: self.core.ai.cfg.run_speed }
     }
 
+    /// `actor`'s alert walking and running speeds (searching, combat).
+    pub fn alert_speeds(&self, actor: FormId) -> fnv_ai::Speeds {
+        self.core.ai.alert_speeds(actor)
+    }
+
     /// The share of its speed `actor` moves at (crippled legs, `limping.rs`).
     pub fn set_pace(&mut self, actor: FormId, pace: f32) {
         self.core.ai.set_pace(actor, pace);

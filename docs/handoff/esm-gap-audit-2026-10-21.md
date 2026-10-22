@@ -66,13 +66,26 @@ under active work.
   patrol INAM (in no master, undocumented), XIBS (the wiki: "appears not to work in New
   Vegas"), No AI Acquire (no actor picks items up), DOOR Minimal Use (undocumented), AIDT
   responsibility in crimes (undocumented).
-- **Combat style (CSTY).** Dodge chance, directions and timers; rushing attacks; "Ignore
+- ~~**Combat style (CSTY).** Dodge chance, directions and timers; rushing attacks; "Ignore
   Damaging Self/Group/Spectators"; "Ignore Threats"; "Melee Alert OK"; max targeting FOV
-  and combat radius (stored only).
-- **NPC weapon choice.** WEAP "Player Only" and "Not Used In Normal Combat" are ignored.
+  and combat radius (stored only).~~ Built in claude/em2-combat-style
+  ([combat-ai](../design/combat-ai.md) §17): the maneuver decision (dodges and idles), rushing
+  attacks, the power attack fatigue modifier, Combat Radius, Max Targeting FOV, the three
+  Ignore Damaging flags with iAvoidHurtingNonTargetsResponsibility, and running from live
+  grenades unless Ignore Threats (with the AvoidThreat line). Melee Alert OK and Cannot Use
+  Stealthboy change nothing (§17.8). Left: Acrobatic Dodge (undocumented), threats out of
+  combat, mines and exploding cars as threats, AvoidThreatResponse.
+- ~~**NPC weapon choice.** WEAP "Player Only" and "Not Used In Normal Combat" are ignored.
   The DNAM fields min_range, aim_arc, resist_type and kill_impulse/impulse_dist are stored
   only. Four weapon-mod effects do nothing: Regenerate Ammo, Decrease Equip Time, Increase
-  Projectile Speed, VATS Bonus. AMMO "Ignores Normal Weapon Resistance" is not checked.
+  Projectile Speed, VATS Bonus. AMMO "Ignores Normal Weapon Resistance" is not checked.~~
+  Built in claude/em3-npc-weapon-choice ([weapon-data-fields](../spec-notes/weapon-data-fields.md)):
+  Player Only and Not Used In Normal Combat kept out of NPCs' weapon choice; Range - Fixed;
+  the damage type (Resist) cut by the target's resistance in place of DR; Aim Arc as the
+  firing angle; Increase Projectile Speed and both Regenerate Ammo effects. Nothing to
+  build: AMMO "Ignores…" ("no longer used"), VATS Bonus ("unused in game"), Min Range.
+  Left: Decrease Equip Time (no master mod), Kill Impulse / Impulse Dist (meaning not
+  documented).
 - ~~**Actor flags (ACBS).** "No VATS Melee", "No Blood Spray/Decal", CREA "Is Ghost" and
   "Allow PC Dialogue" (the engine guesses from greetings) are ignored. NPC_ NAM6 Height
   is stored but never applied to the drawn scale. LVLN/LVLC chance-none is not applied in

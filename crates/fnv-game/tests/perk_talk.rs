@@ -21,9 +21,11 @@ use serde_json::Value as Json;
 const CELL: u32 = 0x200;
 const NPC: u32 = 0x400;
 const BENNY: u32 = 0x401;
+const CHRIS: u32 = 0x402;
 const VICTIM_REF: u32 = 0x500;
 const SLEEPER_REF: u32 = 0x501;
 const BENNY_REF: u32 = 0x502;
+const CHRIS_REF: u32 = 0x503;
 const INTERCOM: u32 = 0x600;
 const INTERCOM_REF: u32 = 0x601;
 const CANNIBAL: u32 = 0x700;
@@ -32,6 +34,7 @@ const QUEST: u32 = 0x800;
 const GREETING: u32 = 0x900;
 const LINE_BENNY: u32 = 0x910;
 const LINE_INTERCOM: u32 = 0x911;
+const LINE_CHRIS_BYE: u32 = 0x912;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_DEAD: u16 = 46;
@@ -81,7 +84,12 @@ fn perk(fid: u32, edid: &str, button: &str, target_conds: Vec<Subrecord>, fragme
 }
 
 fn info(id: u32, speaker: u32, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
-    let mut s = vec![sub(b"DATA", vec![0, 0, 0, 0]), sub(b"QSTI", u32b(QUEST))];
+    info_flagged(id, speaker, 0, text, conds)
+}
+
+/// A line with DATA flags (the first flags byte: 0x01 Goodbye).
+fn info_flagged(id: u32, speaker: u32, flags: u8, text: &str, conds: Vec<Subrecord>) -> Vec<u8> {
+    let mut s = vec![sub(b"DATA", vec![0, 0, flags, 0]), sub(b"QSTI", u32b(QUEST))];
     let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
     s.extend([sub(b"TRDT", trdt), sub(b"NAM1", z(text)), sub(b"NAM2", z("")), sub(b"NAM3", z(""))]);
     s.extend(conds);
@@ -102,6 +110,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]),
         record(b"NPC_", 0, NPC, &[sub(b"EDID", z("Settler")), sub(b"FULL", z("Settler"))]),
         record(b"NPC_", 0, BENNY, &[sub(b"EDID", z("Benny")), sub(b"FULL", z("Benny"))]),
+        record(b"NPC_", 0, CHRIS, &[sub(b"EDID", z("Chris")), sub(b"FULL", z("Chris"))]),
     ]
     .concat();
     let tact = record(b"TACT", 0, INTERCOM, &[sub(b"EDID", z("Intercom")), sub(b"FULL", z("Intercom"))]);
@@ -111,6 +120,8 @@ fn plugin_bytes() -> Vec<u8> {
         info(LINE_BENNY, BENNY, "Hey there, pallie.", vec![ctda(EQ, 1.0, TALKING_THROUGH, 0)]),
         // The intercom's own line.
         info(LINE_INTERCOM, INTERCOM, "Static.", vec![ctda(EQ, 1.0, GET_IS_ID, INTERCOM)]),
+        // Chris's Goodbye greeting through an activator (the REPCONN intercom's).
+        info_flagged(LINE_CHRIS_BYE, CHRIS, 0x01, "I'm letting you in.", vec![ctda(EQ, 1.0, TALKING_THROUGH, 0)]),
     ]
     .concat();
     let dial = [
@@ -121,7 +132,7 @@ fn plugin_bytes() -> Vec<u8> {
     let achr = |id: u32, base: u32| record(b"ACHR", 0, id, &[sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
     let refr = record(b"REFR", 0, INTERCOM_REF, &[sub(b"NAME", u32b(INTERCOM)), sub(b"DATA", vec![0; 24])]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), refr].concat();
+    let refs = [achr(VICTIM_REF, NPC), achr(SLEEPER_REF, NPC), achr(BENNY_REF, BENNY), achr(CHRIS_REF, CHRIS), refr].concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
@@ -293,4 +304,30 @@ fn talking_activators_speak_for_their_actor() {
     assert_eq!(call(&mut g, benny, OP_TALKING_THROUGH, &[]), 0.0);
     // Face to face Benny has no line (his only one needs the activator).
     assert!(g.start_dialogue(benny, None).is_err());
+}
+
+/// A Goodbye greeting through a talking activator opens a conversation, which the line
+/// ends (owner 2026-10-22): the REPCONN intercom's "I'm letting you in", said at the
+/// player without one, was said out of hearing where its speaker stood.
+#[test]
+fn a_goodbye_greeting_through_an_activator_opens_a_conversation() {
+    let f = fixture();
+    let mut g = game(&f);
+    let intercom = FormId(INTERCOM_REF);
+    let chris = FormId(CHRIS_REF);
+    call(&mut g, intercom, OP_SET_TALKING_ACTOR, &[ArgValue::Value(Value::Ref(CHRIS_REF))]);
+    assert_eq!(g.start_dialogue(intercom, None).unwrap(), FormId(LINE_CHRIS_BYE));
+    let c = g.dialogue.clone().expect("a conversation through the intercom");
+    assert_eq!((c.actor, c.through), (chris, Some(intercom)));
+    assert!(g.speech.is_empty(), "not said as a line outside the conversation");
+    assert_eq!(call(&mut g, chris, OP_TALKING_THROUGH, &[]), 1.0);
+    for _ in 0..20_000 {
+        if g.dialogue.is_none() {
+            break;
+        }
+        g.tick();
+    }
+    assert!(g.dialogue.is_none(), "the Goodbye line ends the conversation");
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(LINE_CHRIS_BYE))));
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", .. })));
 }

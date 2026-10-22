@@ -126,6 +126,11 @@ pub struct Item {
     /// `fnv_actor::weapon::drawable`]. Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub drawable: bool,
+    /// A weapon whose DNAM flags2 say "Player Only" or "Not Used In Normal Combat": no
+    /// NPC's own weapon choice takes it (docs/spec-notes/weapon-data-fields.md §1). Not part
+    /// of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub not_for_npcs: bool,
     /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
     /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
     /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
@@ -522,7 +527,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         armor_dt: None,
                         weapon_damage: None,
                         weight_mods: [0.0; 3],
-                        drawable: false,
+                        drawable: false, not_for_npcs: false,
                         quest_item: quest_flag(schema, r),
                         icon: None,
                         placed_count: None,
@@ -735,6 +740,8 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
                 && !dnam.and_then(|v| v.get("flags1")).is_some_and(|f| has_flag(f, "Embedded Weapon"))
                 && dnam.and_then(|v| v.get("animation_type")).and_then(text).is_some()
         },
+        not_for_npcs: kind == ItemKind::Weapon
+            && first(d, b"DNAM").and_then(|v| v.get("flags2")).is_some_and(|f| has_flag(f, "Player Only") || has_flag(f, "Not Used In Normal Combat")),
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
         weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),

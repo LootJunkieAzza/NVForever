@@ -410,15 +410,15 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Combat Style | Melee decision: Attack % with the Hand-To-Hand bonus, Attack Skill Modifier, under-attack multipliers; Hold Timer | have | §10.4 |
 | Combat Style | Melee decision: Block % and its multipliers | missing | NPC blocking (next) |
 | Combat Style | Recoil/Stagger and Unconscious bonuses; Attack During Block Mult | missing | next, with blocking and knockdowns |
-| Combat Style | Power attacks: chance, by movement or by % chance, fatigue modifier | missing | next |
-| Combat Style | Maneuver decision: dodge chances and timers, fatigue and encumbrance modifiers | missing | next (dodging) |
+| Combat Style | Power attacks: chance, by movement or by % chance, fatigue modifier | have | combat-rules.md §10.1; the fatigue modifier §17.3 |
+| Combat Style | Maneuver decision: dodge chances and timers, fatigue and encumbrance modifiers | have | §17.1 (when and which way: hypotheses); Acrobatic Dodge not built |
 | Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | missing | next (cover) |
 | Combat Style | Ranged Weapon Min/Max Range Mult | partial | max used (§10.4, §16: also the reach it fires within); min: no backing off (§12.6) |
 | Combat Style | Semi-Auto Firing Delay Min/Max Mult | have | §10.4 |
 | Combat Style | Weapon Restrictions | partial | Melee Only; Ranged Only needs weapon choice |
-| Combat Style | Max Targeting FOV | missing | read; detection's field of view stands in |
-| Combat Style | Combat Radius: no pursuit beyond it | missing | read; next with pursuit and searches |
-| Combat Style | Ignore Threats; Ignore Damaging Self / Group / Spectators; iAvoidHurtingNonTargetsResponsibility | missing | next (threats, grenades) |
+| Combat Style | Max Targeting FOV | have | §17.5: no new target outside it |
+| Combat Style | Combat Radius: no pursuit beyond it | have | §17.4, from where the fight began or it was last hit |
+| Combat Style | Ignore Threats; Ignore Damaging Self / Group / Spectators; iAvoidHurtingNonTargetsResponsibility | have | §17.6, §17.7: live grenades only; the setting's value guessed |
 | Combat Style | Flee Based on Personal Survival | missing | read; next with fleeing |
 | Confidence | Ratings and thresholds; threat ratio from health × DPS | have | §10.5, the decision only |
 | Confidence | Health counts armour | partial | armour not counted yet |
@@ -1294,3 +1294,135 @@ the offsets would show the shotgun, sniper and missile troopers from afar.
 holding fire on a cliff where the shot is beyond reach but the flat distance is not (it
 stands within its stop, silent; the AI moves by the flat distance); switching to another
 weapon when the target is within the blast.
+
+## 17. The combat style's other fields (ESM gap audit, medium group 1, 2026-10-21)
+
+The ESM audit (docs/handoff/esm-gap-audit-2026-10-21.md, "Combat style") found the CSTY
+fields below decoded but unused. Meanings: GECK wiki Combat Style [documented]; field
+names and order: GetCombatStyleTraitNumeric / GetCombatStyleFlag [documented]; layout:
+xEdit CSTY (schema `ai.json`). FalloutNV.esm has 84 styles [observed: fnvtool esm decode,
+2026-10-21]: dodge chance 75 in 32 of them, 0 in 23; rushing attack chance 25 or more
+in 66; Max Targeting FOV 0 in 83 (140 in `CSLibertyPrime`); Combat Radius 10000 in 47,
+0 in 2; Ignore Threats in 44, Ignore Damaging Self in 15, Group in 32, Spectators in 33;
+Melee Alert OK in 4; Cannot Use Stealthboy in all 84. Combat mechanics are not a parity
+target (docs/design/combat.md): the documented meaning is honoured, and where the
+documentation stops the rule is ours, tagged.
+
+### 17.1 The maneuver decision: dodging and idling (`combat_style::maneuver`)
+
+- **When** [hypothesis: the wiki gives no moment]: each time a melee fighter's melee
+  decision (§10.4) holds, neither blocking nor attacking, it also makes the maneuver
+  decision, unless an idle or a dodge from the last one is still running. People and
+  creatures alike; not while fleeing, staggering or recoiling.
+- **The chance** [documented: Combat Style, Maneuver Decision and Maneuver Settings]:
+  Dodge % Chance + the Dodge Fatigue Modifier (base + mult × fatigue percent) + the
+  Encumbered Speed Modifier (base + mult × its walking speed), times Dodge While Under
+  Attack Mult when its opponent has a blow on the way (§10.4's "under attack"), else
+  Dodge Not Under Attack Mult; a roll of 1–100 at or below it dodges, otherwise the actor
+  stays IDLE for a random Idle Timer.
+  - Fatigue percent: 1 − Fatigue / base Fatigue, 0 to 1 ("a fully fatigued actor (100%
+    Fatigue Percent, which is 1.0)" [documented]; reading it off the actor value
+    [hypothesis]).
+  - Walking speed: the AI's alert walking speed in game units a second (86.8 for people
+    without their own) [hypothesis: the wiki's "around 110" from GetWalkSpeed is
+    Oblivion's; with the masters' −110 base a person's modifier is about −23].
+- **Which way** [hypothesis: the wiki names the multipliers but not how they combine]:
+  weights back = Dodge Back While / Not Under Attack Mult, forward = Dodge Forward While /
+  Not Attacking Mult ("attacking": its own blow on the way), sideways = 1, one roll among
+  them. Sideways then rolls 1–100 against Left/Right % Chance [documented]: at or below,
+  left or right at even odds; above, no dodge this time, and it idles.
+- **How long and how far** [documented: the four timers, real seconds]: a random Dodge
+  L/R, Forward or Back Timer; it walks that long at its walking speed [hypothesis], to a
+  navmesh point that far left, right, back or forward of the line to its target, facing
+  its target as fighters do (people; creatures turn to the way they go, as for every
+  post). Forward stops at its melee stop distance (it never dodges into its target); a
+  dodge shorter than 32 units is an idle instead [design].
+- **Not built**: Acrobatic Dodge % Chance (no documented meaning; 50 in one style).
+- Log: `npc combat: … dodges left|right|back|forward from … (… s, … units; … %)`; summary
+  counts.
+
+### 17.2 Rushing attacks (`combat_style::rush_distance`)
+
+The fields are named (Rushing Attack % Chance, Rushing Attack Distance Mult) but not
+described anywhere we have [documented: GetCombatStyleTraitNumeric]. Our reading
+[hypothesis]: a melee fighter closing in rolls Rushing Attack % Chance once each time its
+target comes within reach × (1 + Distance Mult) (the mult scales a rush's start beyond
+plain reach; 0 is a rush that starts at reach). A rush runs in as any approach does, and its
+first melee decision on arrival is an attack: no block, no hold, no attack-chance roll
+(the power-attack roll is made as usual). It rolls again only after its target has gone
+beyond that distance. Log: `npc combat: … rushes … from … units (… %)`.
+
+### 17.3 Power Attack Fatigue Modifier
+
+[documented: Combat Style, Advanced]: base + mult × fatigue percent is added to the
+power attack chance, for people (§10.4, with the recoil and unconscious bonuses) and for
+creatures (their style's chance). The masters' 5 and −10 make a rested actor's chance 5
+points higher than before.
+
+### 17.4 Combat Radius
+
+"The radius around the combat start location/last hit location that the actor should
+not pursue their targets beyond" [documented]. [hypothesis: whose location]: where the
+fighter stood when its fight began, moved to where it stands each time it loses health.
+While its target stands farther than the radius from that place, the fighter does not
+close in and takes no flank, bound or guard post: it holds where it is (a gun still fires
+when in reach). 0 means no limit [hypothesis: two styles, both for non-fighters]. Log:
+`npc combat: … stops pursuing …: … units from where its fight began or it was last hit
+(combat radius …)`.
+
+### 17.5 Max Targeting FOV
+
+"Any targets outside of this FOV for the attacker will not be targeted" [documented].
+0 means no limit [hypothesis: 83 of 84 styles]. Otherwise a fighter does not take up a
+new target more than half the angle off its heading; one it already fights it keeps
+[hypothesis: "targeted" is the choice of a target]. It still turns to what it detects
+(the AI's hold), so the limit delays a fight rather than barring it.
+
+### 17.6 Explosive weapons: Ignore Damaging Self, Group, Spectators
+
+"Actors normally try to avoid hitting themselves, their fellow group members, and
+spectators (unless their responsibility is below iAvoidHurtingNonTargetsResponsibility)"
+[documented]. Before a shot of a gun whose projectile explodes, with the blast centred on
+its target's chest and its explosion's radius:
+
+- **Self**: within the blast it holds fire (§16, built before), now unless Ignore
+  Damaging Self.
+- **Group**: a comrade (`Game::comrades`) within the blast holds its fire, unless Ignore
+  Damaging Group.
+- **Spectators**: anyone else within the blast it would not attack (the player when not
+  its target, bystanders) holds its fire, unless Ignore Damaging Spectators or its
+  Responsibility is below iAvoidHurtingNonTargetsResponsibility. The setting is in no
+  master; we use 30 [hypothesis].
+
+It holds its fire until they are clear and keeps its post. Log: `npc combat: … holds
+fire: … would be caught in its blast at …`.
+
+### 17.7 Ignore Threats: getting away from grenades
+
+"The actor will ignore all threats like grenades and exploding cars and will not try to
+move away from them" [documented], so without the flag it moves away. Built for live
+grenades [hypothesis: what counts]: a lobbed projectile with an explosion (a thrown
+grenade, a grenade launcher's round), in flight or at rest, within its explosion's radius
+plus 64 units of a fighter's feet. The fighter runs to a navmesh point 64 units beyond the
+radius, straight away from the grenade, and says its AvoidThreat line once per grenade
+[documented: the topic, docs/spec-notes/combat-dialogue.md]. This comes before any other
+post. Only fighters in combat (the AI runs posts in combat); not the player; not the
+thrower's own round in flight within its first 0.5 s [design: it leaves from its hand].
+**Not built**: threats out of combat, mines, exploding cars, AvoidThreatResponse.
+
+### 17.8 Melee Alert OK and Cannot Use Stealthboy: nothing to build
+
+- **Melee Alert OK**: the wiki calls it "an old field for Oblivion that should be
+  removed": with it, a fighter that cannot path to its target and has no ranged attack
+  waits for the target to come closer. Ours already does so for every fighter (the AI's
+  hold when it finds no way, `fnv_ai::alert::close_in`); the flag changes nothing
+  [hypothesis: New Vegas ignores it].
+- **Cannot Use Stealthboy**: every style has it and no NPC uses a Stealth Boy in ours.
+
+### 17.9 Checks
+
+Unit tests in `fnv_game::combat_style` (the maneuver decision's chance, direction and
+timers; the rush distance; the fatigue modifier; the radius and the FOV) and in
+`npc_combat` (the dodge point, the blast check). Smoke: `combat-style-dodge` (two melee
+fighters: a dodge and an idle logged), `combat-grenade-evade` (a grenade lands among
+fighters: AvoidThreat and a run away logged).
