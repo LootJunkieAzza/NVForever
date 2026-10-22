@@ -622,6 +622,19 @@ pub struct CombatStats {
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
 /// draws a tracer.
+/// A grenade live now ([`Combat::live_grenades`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiveGrenade {
+    /// Its number among the drawn projectiles, the same for its whole flight.
+    pub id: u64,
+    pub at: V3,
+    /// Its explosion's radius, units.
+    pub radius: f32,
+    pub thrower: FormId,
+    /// Seconds since it left.
+    pub age: f32,
+}
+
 struct Flying {
     p: Projectile,
     /// Its number among the drawn projectiles ([`ShotVisual::id`]) and its PROJ.
@@ -839,6 +852,19 @@ impl Combat {
     /// Projectiles in flight now (the stress tests' samples).
     pub fn in_flight(&self) -> usize {
         self.flying.len()
+    }
+
+    /// The grenades live now (docs/design/combat-ai.md §17.7): lobbed projectiles with an
+    /// explosion, in flight or at rest, not mines.
+    pub fn live_grenades(&self) -> Vec<LiveGrenade> {
+        self.flying
+            .iter()
+            .filter(|f| f.p.alive && !f.p.mine && f.p.motion == Motion::Lobber)
+            .filter_map(|f| {
+                let radius = self.forms.explosions.get(&f.p.explosion?)?.radius;
+                (radius > 0.0).then_some(LiveGrenade { id: f.id, at: f.p.pos, radius, thrower: f.by.actor, age: f.p.age })
+            })
+            .collect()
     }
 
     /// The thrown mines that came to rest since the last call (`crate::mines`).

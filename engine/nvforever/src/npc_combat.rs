@@ -143,8 +143,16 @@
 //!   against a gunman that sees it from afar it bounds from cover to cover, or charges
 //!   when there is none, or stays by a gunman of its group until the target comes near.
 //!
-//! Whom it fights is the detection states' (its combat target). Not built: grenades,
-//! ammunition use (module notes: reloading), weapon choice among several, dodging.
+//! - **The combat style's other fields** (docs/design/combat-ai.md §17): a melee
+//!   fighter's hold also makes the maneuver decision, a dodge left, right, back or forward
+//!   or an idle (`combat_style::maneuver`); a rushing attack rolled as it closes in makes
+//!   its first decision an attack; no pursuit beyond its Combat Radius from where its
+//!   fight began or it was last hit; no new target outside its Max Targeting FOV; an
+//!   explosive shot held while it would catch itself, a comrade or a bystander (the
+//!   Ignore Damaging flags); a run out of a live grenade's blast unless Ignore Threats.
+//!
+//! Whom it fights is the detection states' (its combat target). Not built: throwing
+//! grenades, ammunition use (module notes: reloading), weapon choice among several.
 
 use crate::attack_anims::{AttackTimes, Move, PlayAttack, Power, PowerClip, SwingPick, DEFAULT_HIT};
 use crate::combat_stance::{self as stance, Temperament};
@@ -382,6 +390,24 @@ struct Fighter {
     range_held: Option<RangeHold>,
     /// It has fired at its target in this fight (the first shot's distance is logged).
     opened_fire: bool,
+    /// The maneuver decision's idle or dodge runs until then (clock); the dodge's post,
+    /// and whether it was handed to the AI (§17.1).
+    maneuver_until: f32,
+    dodge: Option<Post>,
+    /// A rush rolled for this approach: `Some(true)` rushing (§17.2).
+    rush: Option<bool>,
+    /// Where its fight began or it was last hit, and its health then; beyond its Combat
+    /// Radius now (§17.4).
+    anchor: V3,
+    anchor_health: f64,
+    leashed: bool,
+    /// The live grenade it runs from, and where to (`None` once the AI found no way there)
+    /// (§17.7).
+    evading: Option<(u64, Option<Post>)>,
+    /// Whom its explosive shot would catch, last frame (§17.6).
+    blast_held: Option<u32>,
+    /// A dodge or a grenade run was handed to the AI last frame.
+    urgent_posted: Option<PostKind>,
 }
 
 /// A fighter's last melee blow (module notes).
@@ -462,6 +488,10 @@ pub struct Fighters {
     people_power_rng: u64,
     /// The combo swings' variant rolls' own sequence, as `stance_rng`.
     swing_rng: u64,
+    /// The maneuver decision's and rushes' own sequence, as `stance_rng` (§17).
+    maneuver_rng: u64,
+    /// (fighter, target) pairs held back by the Max Targeting FOV, logged once (§17.5).
+    fov_waits: std::collections::HashSet<(u32, u32)>,
     /// The player's swings seen so far (`CombatStats::swings`), and when the last began.
     player_swings: u32,
     player_swing_at: f32,
@@ -563,6 +593,16 @@ struct Stats {
     left_cover_for_reach: usize,
     farthest_share: f32,
     shots_beyond: usize,
+    /// The combat style's other fields (§17): dodges left, right, forward, back; idles;
+    /// rushes; pursuits stopped at the combat radius; targets left outside the FOV;
+    /// explosive shots held for a comrade or a bystander; runs from grenades.
+    dodges: [usize; 4],
+    idles: usize,
+    rushes: usize,
+    leashes: usize,
+    fov_waits: usize,
+    blast_holds: usize,
+    evades: usize,
 }
 
 /// The chance (percent) of a creature's blow being a power attack where its combat style
@@ -572,8 +612,8 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// Whether a creature's blow is a power attack, and which with its hit time (module
 /// notes): `have`, the power attacks it has clips for; `u` and `v`, rolls in [0, 1).
 /// Also says whether the chance was the fallback.
-fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f32)], u: f32, v: f32) -> (Option<(Power, f32)>, bool) {
-    let own = style.map(|s| s.power_attack_chance).filter(|c| *c > 0.0);
+fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f32)], fatigue: f32, u: f32, v: f32) -> (Option<(Power, f32)>, bool) {
+    let own = style.filter(|s| s.power_attack_chance > 0.0).map(|s| creature_power_chance(s, fatigue));
     if have.is_empty() || u * 100.0 >= own.unwrap_or(FALLBACK_POWER_CHANCE) {
         return (None, own.is_none());
     }
@@ -590,6 +630,12 @@ fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f3
         }
     }
     (have.last().copied(), own.is_none())
+}
+
+/// A creature's power attack chance: its style's, plus the Power Attack Fatigue Modifier
+/// at `fatigue` (docs/design/combat-ai.md §17.3).
+fn creature_power_chance(s: &fnv_game::data::CombatStyleDef, fatigue: f32) -> f32 {
+    (s.power_attack_chance + fnv_game::combat_style::power_attack_fatigue(s, fatigue)).clamp(0.0, 100.0)
 }
 
 /// The speed (units/s) above which a person moves for a power attack chosen by movement;
@@ -628,9 +674,9 @@ struct PeoplePick {
 /// standing with both legs crippled; among `have`, its rig's clips. `rolls` in [0, 1):
 /// whether, and which by chance. Without a style, the creatures' fallback chance with even
 /// shares.
-fn pick_people_power(style: Option<&fnv_game::data::CombatStyleDef>, opp: Opponent, have: &[PowerClip], moving: (f32, f32), both_lame: bool, rolls: [f32; 2]) -> PeoplePick {
+fn pick_people_power(style: Option<&fnv_game::data::CombatStyleDef>, opp: Opponent, fatigue: f32, have: &[PowerClip], moving: (f32, f32), both_lame: bool, rolls: [f32; 2]) -> PeoplePick {
     let (chance, by_chance, shares) = match style {
-        Some(s) => (fnv_game::combat_style::power_attack_chance(s, opp), s.power_by_chance, s.power_attack_dirs),
+        Some(s) => (fnv_game::combat_style::power_attack_chance(s, opp, fatigue), s.power_by_chance, s.power_attack_dirs),
         None => (FALLBACK_POWER_CHANCE, true, [20.0; 5]),
     };
     let how = match (style.is_some(), by_chance) {
@@ -663,6 +709,48 @@ fn pick_people_power(style: Option<&fnv_game::data::CombatStyleDef>, opp: Oppone
 /// forward power attack is the leap].
 fn no_leaps(have: &[(Power, f32)], lame: bool) -> Vec<(Power, f32)> {
     have.iter().copied().filter(|(p, _)| !(lame && *p == Power::Forward)).collect()
+}
+
+/// The alert walking speed of an actor the AI does not run, units/s (`fnv_ai::AiConfig`'s
+/// default).
+pub const DEFAULT_WALK: f32 = 86.8;
+/// A dodge is no shorter than this, units; shorter, the actor idles (§17.1) [design].
+pub const DODGE_MIN: f32 = 32.0;
+/// How far beyond a live grenade's blast a fighter runs to, units (§17.7) [design].
+pub const EVADE_MARGIN: f32 = 64.0;
+/// A fighter does not run from its own grenade this soon after it left (§17.7) [design].
+pub const OWN_GRENADE_GRACE: f32 = 0.5;
+
+/// Where a dodge `dist` units long takes a fighter at `feet` fighting a target at `tfeet`
+/// (§17.1): left, right, back or forward of the line to it; forward no nearer than
+/// `stop` (its melee stop distance, centre to centre). `None` when shorter than
+/// [`DODGE_MIN`].
+pub fn dodge_point(feet: V3, tfeet: V3, dir: fnv_game::combat_style::DodgeDir, dist: f32, stop: f32) -> Option<V3> {
+    use fnv_game::combat_style::DodgeDir;
+    let (dx, dy) = (tfeet[0] - feet[0], tfeet[1] - feet[1]);
+    let away = dx.hypot(dy);
+    if away < 1e-3 {
+        return None;
+    }
+    let ahead = [dx / away, dy / away];
+    // Right of ahead in game space (x east, y north): (a.y, −a.x).
+    let (way, dist) = match dir {
+        DodgeDir::Forward => (ahead, dist.min(away - stop)),
+        DodgeDir::Back => ([-ahead[0], -ahead[1]], dist),
+        DodgeDir::Right => ([ahead[1], -ahead[0]], dist),
+        DodgeDir::Left => ([-ahead[1], ahead[0]], dist),
+    };
+    (dist >= DODGE_MIN).then(|| [feet[0] + way[0] * dist, feet[1] + way[1] * dist, feet[2]])
+}
+
+/// Where a fighter at `feet` runs to from a grenade at `at` with blast `radius` (§17.7):
+/// [`EVADE_MARGIN`] beyond the radius, straight away from it (east when on top of it).
+pub fn evade_point(feet: V3, at: V3, radius: f32) -> V3 {
+    let (dx, dy) = (feet[0] - at[0], feet[1] - at[1]);
+    let d = dx.hypot(dy);
+    let way = if d < 1e-3 { [1.0, 0.0] } else { [dx / d, dy / d] };
+    let reach = radius + EVADE_MARGIN;
+    [at[0] + way[0] * reach, at[1] + way[1] * reach, feet[2]]
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
@@ -920,6 +1008,11 @@ pub(crate) fn fight(
     if f.swing_rng == 0 {
         f.swing_rng = 0x9E37_79B9_7F4A_7C15;
     }
+    if f.maneuver_rng == 0 {
+        f.maneuver_rng = 0xBF58_476D_1CE4_E5B9;
+    }
+    // Live grenades, to get away from (§17.7).
+    let grenades = c.live_grenades();
     let clock = time.elapsed_secs();
     let space = location.as_deref().map(|l| l.interior.map_or(Space::World(l.world), Space::Interior));
     let nav = nav.as_deref().map(|n| &n.graph);
@@ -989,10 +1082,21 @@ pub(crate) fn fight(
             }
             // What it fights with; its combat style may keep it to melee.
             let style = g.combat_style(me);
+            // Its Max Targeting FOV (§17.5): a new target outside it is not taken up.
+            let new_target = f.fighters.get(&id).is_none_or(|x| x.target != target);
+            if new_target && style.is_some_and(|s| fnv_game::combat_style::outside_targeting_fov(s, facing_off(global, feet, tfeet))) {
+                if f.fov_waits.insert((id, target.0)) {
+                    f.stats.fov_waits += 1;
+                    info!("npc combat: {} does not take up {}: outside its targeting field of view ({:.0}°)", tactics::who(g, me), tactics::who(g, target), style.map_or(0.0, |s| s.max_targeting_fov));
+                }
+                continue;
+            }
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
             let arm = arm_of(c, g, weapons.get(&id).copied(), me, scale, melee_only);
             // Its strength, and its target's, for the threat ratios.
             let (health, full) = g.health_now_and_full(me);
+            // How spent it is, for its dodges and power attacks (§17.1, §17.3).
+            let fatigue = g.fatigue_share(me);
             g.awareness.tactics.strengths.insert(me, Strength { health, dps: dps(c, &arm) as f64 });
             // What its target fights with: close combat or a gun (§14).
             let tarm = if target == FormId::PLAYER_REF { player_arm(c) } else { f.fighters.get(&target.0).map(|x| x.arm.clone()).unwrap_or_else(|| arm_of(c, g, weapons.get(&target.0).copied(), target, 1.0, false)) };
@@ -1059,7 +1163,9 @@ pub(crate) fn fight(
                 info!("npc combat: {name} {me} fights {} with {}", if target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(target) }, describe(c, &arm));
                 // A new target keeps the fighter's tactics (its cover roll, its flight) and
                 // its temperaments; a new fight draws them (§14.1).
-                let (tactic, temper, approach) = f.fighters.remove(&id).map(|x| (x.tactic, Some(x.temper), Approach { charging: x.approach.charging, guarded: x.approach.guarded, ..Default::default() })).unwrap_or_default();
+                let (tactic, temper, approach, anchor) = f.fighters.remove(&id).map(|x| (x.tactic, Some(x.temper), Approach { charging: x.approach.charging, guarded: x.approach.guarded, ..Default::default() }, Some((x.anchor, x.anchor_health)))).unwrap_or_default();
+                // Where the fight began (§17.4); a new target keeps it.
+                let (anchor, anchor_health) = anchor.unwrap_or((feet, health));
                 let temper = temper.unwrap_or_else(|| Temperament { crouch: next_unit(&mut f.stance_rng), cover: next_unit(&mut f.stance_rng), guard: next_unit(&mut f.stance_rng) });
                 let stance_in = stance::between(stance::STANCE_DECIDE, next_unit(&mut f.stance_rng));
                 f.fighters.insert(
@@ -1101,6 +1207,15 @@ pub(crate) fn fight(
                         hide_moves: 0,
                         range_held: None,
                         opened_fire: false,
+                        maneuver_until: 0.0,
+                        dodge: None,
+                        rush: None,
+                        anchor,
+                        anchor_health,
+                        leashed: false,
+                        evading: None,
+                        blast_held: None,
+                        urgent_posted: None,
                     },
                 );
                 // This fight's confidence modifier, not for the foolhardy; the first
@@ -1125,6 +1240,16 @@ pub(crate) fn fight(
                 .collect();
             let fighter = f.fighters.get_mut(&id).expect("inserted");
             let temper = fighter.temper;
+            // A dodge or a run from a grenade the AI found no way to ends (§17.1, §17.7).
+            if let Some(k) = fighter.urgent_posted {
+                if g.awareness.tactics.posts.get(&me).map(|p| p.kind) != Some(k) {
+                    fighter.dodge = None;
+                    if let Some(e) = fighter.evading.as_mut() {
+                        e.1 = None;
+                    }
+                    fighter.urgent_posted = None;
+                }
+            }
             // Confidence: once hurt, now and then, would it rather flee? At its flee spot,
             // attacked or cornered, does it stand and fight? (module notes)
             let away = (feet[0] - tfeet[0]).hypot(feet[1] - tfeet[1]);
@@ -1230,13 +1355,34 @@ pub(crate) fn fight(
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
+            // Its Combat Radius (§17.4): a hit moves where it measures from; beyond it, no
+            // pursuit.
+            if health < fighter.anchor_health - 0.5 {
+                fighter.anchor = feet;
+            }
+            fighter.anchor_health = health;
+            let from_anchor = flat(fighter.anchor, tfeet);
+            let leashed = !fleeing && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor));
+            if leashed != fighter.leashed {
+                fighter.leashed = leashed;
+                if leashed {
+                    f.stats.leashes += 1;
+                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
+                } else {
+                    info!("npc combat: {me_name} pursues {target_name} again: within its combat radius ({from_anchor:.0} units)");
+                }
+            }
+            if leashed {
+                g.awareness.engage.remove(&me);
+            }
             // Can it see its target?
             let sees = g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
             fighter.seen_for = if sees { fighter.seen_for + dt } else { 0.0 };
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
             // Its gun's reach (§16): no shot at a target beyond it, nor within its own blast.
             let shot_distance = vec::len(vec::sub(tchest, eyes));
-            let range_hold = gun.and_then(|r| r.holds(shot_distance));
+            let ignores_self = style.is_some_and(|s| s.ignore_damaging_self);
+            let range_hold = gun.and_then(|r| r.holds(shot_distance)).filter(|h| !(ignores_self && *h == RangeHold::Blast));
             if range_hold != fighter.range_held {
                 match (range_hold, gun) {
                     (Some(RangeHold::Far), Some(r)) => {
@@ -1256,6 +1402,28 @@ pub(crate) fn fight(
             }
             // Tactics of a gunman (`combat_tactics`): cover, flank, line of fire.
             let mut hold_fire = fleeing || range_hold.is_some();
+            // Its blast would catch a comrade or a bystander (§17.6).
+            let blast = gun.map_or(0.0, |r| r.blast);
+            let caught = if blast > 0.0 {
+                let spares = style.is_none_or(|s| g.spares_spectators(me, s));
+                let ignores_group = style.is_some_and(|s| s.ignore_damaging_group);
+                places
+                    .iter()
+                    .filter(|(k, _)| **k != id && **k != target.0)
+                    .filter(|(_, p)| vec::len(vec::sub([p.0[0], p.0[1], p.0[2] + (p.1[2] - p.0[2]) * CHEST], tchest)) < blast)
+                    .map(|(k, _)| FormId(*k))
+                    .find(|k| !g.would_attack(me, *k) && if g.comrades(me, *k) { !ignores_group } else { spares })
+            } else {
+                None
+            };
+            if caught.map(|k| k.0) != fighter.blast_held {
+                fighter.blast_held = caught.map(|k| k.0);
+                if let Some(k) = caught {
+                    f.stats.blast_holds += 1;
+                    info!("npc combat: {me_name} holds fire: {} would be caught in its blast at {target_name} (radius {blast:.0})", tactics::who(g, k));
+                }
+            }
+            hold_fire |= caught.is_some();
             if matches!(arm, Arm::Gun(_)) && !fleeing {
                 let name = &me_name;
                 let t = &mut fighter.tactic;
@@ -1572,6 +1740,49 @@ pub(crate) fn fight(
                 }
             } else if fleeing || !matches!(arm, Arm::Gun(_)) {
                 g.awareness.tactics.posts.remove(&me);
+            }
+            // Beyond its combat radius it takes no post that pursues (§17.4).
+            if leashed && g.awareness.tactics.posts.get(&me).is_some_and(|p| matches!(p.kind, PostKind::Flank | PostKind::Advance | PostKind::Guard)) {
+                g.awareness.tactics.posts.remove(&me);
+            }
+            // A run from a live grenade (§17.7), unless its style ignores threats.
+            let grenade = (!fleeing && style.is_none_or(|s| !s.ignore_threats))
+                .then(|| {
+                    grenades
+                        .iter()
+                        .filter(|gr| !(gr.thrower == me && gr.age < OWN_GRENADE_GRACE))
+                        .map(|gr| (gr, vec::len(vec::sub(gr.at, feet))))
+                        .filter(|(gr, d)| *d < gr.radius + EVADE_MARGIN || fighter.evading.is_some_and(|e| e.0 == gr.id))
+                        .min_by(|a, b| a.1.total_cmp(&b.1))
+                })
+                .flatten();
+            match grenade {
+                Some((gr, _)) if fighter.evading.is_some_and(|e| e.0 == gr.id) => {}
+                Some((gr, d)) => {
+                    let at = evade_point(feet, gr.at, gr.radius);
+                    fighter.evading = Some((gr.id, Some(Post { at, kind: PostKind::Evade, run: true })));
+                    f.stats.evades += 1;
+                    let said = g.combat_line(me, None, "AvoidThreat").is_some();
+                    info!("npc combat: {me_name} runs from a grenade {d:.0} units away (blast radius {:.0}){}", gr.radius, if said { ", saying its AvoidThreat line" } else { "" });
+                }
+                None => fighter.evading = None,
+            }
+            // A dodge ends with its timer (§17.1).
+            if fighter.dodge.is_some() && (clock >= fighter.maneuver_until || fleeing || flinch.is_some_and(|fl| clock < fl.at + fl.clip.clip.length())) {
+                fighter.dodge = None;
+            }
+            let urgent = fighter.evading.and_then(|e| e.1).or(fighter.dodge);
+            match urgent {
+                Some(p) => {
+                    g.awareness.tactics.posts.insert(me, p);
+                    if matches!(arm, Arm::Gun(_)) {
+                        fighter.tactic.last_post = Some(p.kind);
+                    } else {
+                        fighter.approach.posted = Some(p.kind);
+                    }
+                    fighter.urgent_posted = Some(p.kind);
+                }
+                None => fighter.urgent_posted = None,
             }
             // A hit reaction (the stagger of a crippled limb, `deaths.rs`) playing: no attack
             // until it has ended, and a blow being swung is cut short (owner's playtest
@@ -1918,9 +2129,25 @@ pub(crate) fn fight(
                     }
                     // The melee decision: block (against close combat, §14.3), attack, or
                     // hold for the style's hold timer [documented: the order].
+                    // A rushing attack (§17.2): rolled once as its target comes within the
+                    // rush distance; beyond it, rolled again next time.
+                    let bodies = gap.map_or(0.0, |gp| away - gp);
+                    if let Some((rd, chance)) = style.and_then(|s| fnv_game::combat_style::rush_distance(s, reach).map(|d| (d, s.rushing_attack_chance))) {
+                        if away > rd + bodies {
+                            fighter.rush = None;
+                        } else if fighter.rush.is_none() && !near && !fleeing {
+                            let rushes = next_unit(&mut f.maneuver_rng) * 100.0 < chance;
+                            fighter.rush = Some(rushes);
+                            if rushes {
+                                f.stats.rushes += 1;
+                                info!("npc combat: {me_name} rushes {target_name} from {away:.0} units ({chance:.0} %)");
+                            }
+                        }
+                    }
+                    let rushing = fighter.rush == Some(true);
                     let decide = ready && near && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0;
                     let mut blocks = false;
-                    if decide && can_block {
+                    if decide && can_block && !rushing {
                         let chance = style.map_or(0.0, |s| melee_block_chance(s, under_attack));
                         if next_unit(&mut f.stance_rng) * 100.0 < chance {
                             let held = stance::between(style.map_or((0.5, 1.5), |s| s.hold_timer), next_unit(&mut f.stance_rng)).max(stance::BLOCK_MIN);
@@ -1936,7 +2163,7 @@ pub(crate) fn fight(
                     let opponent = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking, unconscious: g.is_out_cold(target) };
                     let attack = decide
                         && !blocks
-                        && style.is_none_or(|s| {
+                        && (rushing || style.is_none_or(|s| {
                             let (skill_name, h2h) = match &arm {
                                 Arm::Melee(Some(w)) => (c.forms.weapons.get(w).and_then(|ws| ws.skill.clone()).unwrap_or_else(|| "Melee Weapons".into()), false),
                                 Arm::Melee(None) => ("Unarmed".to_string(), true),
@@ -1944,12 +2171,40 @@ pub(crate) fn fight(
                             };
                             let skill = fnv_game::functions::av_by_name(&skill_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
                             next_unit(&mut f.rng) * 100.0 < melee_attack_chance(s, skill, h2h, opponent)
-                        });
+                        }));
+                    if decide && rushing {
+                        fighter.rush = Some(false);
+                    }
                     if decide && !blocks && !attack {
                         let (lo, hi) = style.map_or((0.5, 1.5), |s| s.hold_timer);
                         fighter.strike_in = (lo + (hi - lo).max(0.0) * next_unit(&mut f.rng)).max(0.1);
                         f.stats.holds += 1;
                         fighter.swing = None;
+                        // The maneuver decision (§17.1): dodge or idle, unless the last one
+                        // still runs.
+                        if let (Some(s), true) = (style, clock >= fighter.maneuver_until && !fleeing) {
+                            let walk = residents.as_deref().map_or(DEFAULT_WALK, |r| r.alert_speeds(me).walk) * g.awareness.pace_of(me);
+                            let rolls = [(); 5].map(|_| next_unit(&mut f.maneuver_rng));
+                            let chance = fnv_game::combat_style::dodge_chance(s, fatigue, walk, under_attack);
+                            match fnv_game::combat_style::maneuver(s, fatigue, walk, under_attack, !fighter.blows.is_empty(), rolls) {
+                                fnv_game::combat_style::Maneuver::Dodge(dir, secs) => match dodge_point(feet, tfeet, dir, walk * secs, want.0) {
+                                    Some(at) => {
+                                        fighter.maneuver_until = clock + secs;
+                                        fighter.dodge = Some(Post { at, kind: PostKind::Dodge, run: false });
+                                        f.stats.dodges[dir as usize] += 1;
+                                        info!("npc combat: {me_name} dodges {} from {target_name} ({secs:.2} s, {:.0} units; {chance:.0} %)", dir.name(), flat(at, feet));
+                                    }
+                                    None => {
+                                        fighter.maneuver_until = clock + stance::between(s.idle_timer, rolls[4]);
+                                        f.stats.idles += 1;
+                                    }
+                                },
+                                fnv_game::combat_style::Maneuver::Idle(secs) => {
+                                    fighter.maneuver_until = clock + secs;
+                                    f.stats.idles += 1;
+                                }
+                            }
+                        }
                     }
                     if attack {
                         let speed = match &arm {
@@ -1971,10 +2226,10 @@ pub(crate) fn fight(
                             (Arm::Creature(..), Some(have)) if !have.is_empty() => {
                                 let (u, v) = (next_unit(&mut f.power_rng), next_unit(&mut f.power_rng));
                                 let able = no_leaps(have, lame);
-                                let (p, fallback) = pick_power(style, &able, u, v);
+                                let (p, fallback) = pick_power(style, &able, fatigue, u, v);
                                 if let Some((p, _)) = p {
                                     *f.stats.powers.entry(p.group()).or_default() += 1;
-                                    let chance = style.map(|s| s.power_attack_chance).filter(|_| !fallback).unwrap_or(FALLBACK_POWER_CHANCE);
+                                    let chance = style.map(|s| creature_power_chance(s, fatigue)).filter(|_| !fallback).unwrap_or(FALLBACK_POWER_CHANCE);
                                     info!("npc combat: {me_name} power attack {} at {target_name} ({chance:.0} %, {})", p.group(), if fallback { "fallback: its combat style gives none" } else { "from its combat style" });
                                 }
                                 p
@@ -1987,7 +2242,7 @@ pub(crate) fn fight(
                                 let rolls = [next_unit(&mut f.people_power_rng), next_unit(&mut f.people_power_rng)];
                                 let moving = local_motion(fighter.velocity, heading(global));
                                 let both_lame = g.is_crippled(me, fnv_game::combat::LEFT_MOBILITY) && g.is_crippled(me, fnv_game::combat::RIGHT_MOBILITY);
-                                let pick = pick_people_power(style, opponent, have, moving, both_lame, rolls);
+                                let pick = pick_people_power(style, opponent, fatigue, have, moving, both_lame, rolls);
                                 if let Some(p) = pick.played {
                                     *f.stats.powers.entry(p.power.group()).or_default() += 1;
                                     info!("npc combat: {me_name} power attack {} at {target_name} ({:.0} %, {})", p.power.group(), pick.chance, pick.how);
@@ -2149,6 +2404,20 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.farthest_share * 100.0,
         s.shots_beyond,
     );
+    info!(
+        "npc combat style summary: {} dodges ({} left, {} right, {} forward, {} back), {} idles; {} rushes; {} pursuits stopped at the combat radius; {} targets outside the targeting field of view; {} explosive shots held for a comrade or a bystander; {} runs from grenades",
+        s.dodges.iter().sum::<usize>(),
+        s.dodges[0],
+        s.dodges[1],
+        s.dodges[2],
+        s.dodges[3],
+        s.idles,
+        s.rushes,
+        s.leashes,
+        s.fov_waits,
+        s.blast_holds,
+        s.evades,
+    );
     if !s.powers.is_empty() || s.powers_unplayable > 0 {
         info!(
             "npc power attacks summary: {}; {} chosen without a clip (ordinary blows)",
@@ -2188,15 +2457,15 @@ mod tests {
     fn a_creatures_power_attack() {
         let both = [(Power::Normal, 0.4), (Power::Forward, 0.6)];
         // No style: the fallback chance, then evenly.
-        assert_eq!(pick_power(None, &both, 0.1, 0.2), (Some((Power::Normal, 0.4)), true));
-        assert_eq!(pick_power(None, &both, 0.1, 0.7), (Some((Power::Forward, 0.6)), true));
-        assert_eq!(pick_power(None, &both, FALLBACK_POWER_CHANCE / 100.0, 0.7).0, None);
-        assert_eq!(pick_power(None, &[], 0.0, 0.0).0, None);
+        assert_eq!(pick_power(None, &both, 0.0, 0.1, 0.2), (Some((Power::Normal, 0.4)), true));
+        assert_eq!(pick_power(None, &both, 0.0, 0.1, 0.7), (Some((Power::Forward, 0.6)), true));
+        assert_eq!(pick_power(None, &both, 0.0, FALLBACK_POWER_CHANCE / 100.0, 0.7).0, None);
+        assert_eq!(pick_power(None, &[], 0.0, 0.0, 0.0).0, None);
         // The style's chance and shares.
         let s = fnv_game::data::CombatStyleDef { power_attack_chance: 50.0, power_attack_dirs: [0.0, 100.0, 0.0, 0.0, 0.0], ..Default::default() };
-        assert_eq!(pick_power(Some(&s), &both, 0.45, 0.1), (Some((Power::Forward, 0.6)), false));
-        assert_eq!(pick_power(Some(&s), &both, 0.55, 0.1).0, None);
-        assert_eq!(pick_power(Some(&s), &both[..1], 0.1, 0.9).0, Some((Power::Normal, 0.4)));
+        assert_eq!(pick_power(Some(&s), &both, 0.0, 0.45, 0.1), (Some((Power::Forward, 0.6)), false));
+        assert_eq!(pick_power(Some(&s), &both, 0.0, 0.55, 0.1).0, None);
+        assert_eq!(pick_power(Some(&s), &both[..1], 0.0, 0.1, 0.9).0, Some((Power::Normal, 0.4)));
     }
 
     /// The `_male` 1hm power clips' lengths [observed: combat-rules.md §10.1]; hit times
@@ -2211,7 +2480,7 @@ mod tests {
         let s = fnv_game::data::CombatStyleDef { power_attack_chance: 25.0, recoil_stagger_power_bonus: 5.0, power_attack_dirs: [20.0; 5], power_by_chance: true, ..Default::default() };
         let have = one_hand_powers();
         let calm = Opponent::default();
-        let pick = |opp, rolls| pick_people_power(Some(&s), opp, &have, (0.0, 0.0), false, rolls);
+        let pick = |opp, rolls| pick_people_power(Some(&s), opp, 0.0, &have, (0.0, 0.0), false, rolls);
         assert_eq!(pick(calm, [0.24, 0.1]).played.map(|p| p.power), Some(Power::Normal));
         assert_eq!(pick(calm, [0.24, 0.5]).played.map(|p| p.power), Some(Power::Back));
         assert_eq!(pick(calm, [0.24, 0.95]).played.map(|p| p.power), Some(Power::Right));
@@ -2221,20 +2490,20 @@ mod tests {
         assert_eq!(pick(Opponent { recoiling: true, ..calm }, [0.27, 0.1]).played.map(|p| p.power), Some(Power::Normal));
         // A direction without a clip: an ordinary blow, said so.
         let some: Vec<PowerClip> = have.iter().copied().filter(|p| p.power != Power::Back).collect();
-        let p = pick_people_power(Some(&s), calm, &some, (0.0, 0.0), false, [0.1, 0.5]);
+        let p = pick_people_power(Some(&s), calm, 0.0, &some, (0.0, 0.0), false, [0.1, 0.5]);
         assert_eq!((p.played, p.unplayable), (None, Some(Power::Back)));
         // No clips at all (a gun's stance): nothing.
-        assert_eq!(pick_people_power(Some(&s), calm, &[], (0.0, 0.0), false, [0.0, 0.0]), PeoplePick { played: None, unplayable: None, chance: 25.0, how: "by chance" });
+        assert_eq!(pick_people_power(Some(&s), calm, 0.0, &[], (0.0, 0.0), false, [0.0, 0.0]), PeoplePick { played: None, unplayable: None, chance: 25.0, how: "by chance" });
         // Both legs crippled: the standing one whatever the shares say.
-        assert_eq!(pick_people_power(Some(&s), calm, &have, (0.0, 0.0), true, [0.1, 0.95]).played.map(|p| p.power), Some(Power::Normal));
+        assert_eq!(pick_people_power(Some(&s), calm, 0.0, &have, (0.0, 0.0), true, [0.1, 0.95]).played.map(|p| p.power), Some(Power::Normal));
         // Its clip's timing goes with it.
         assert_eq!(pick(calm, [0.0, 0.3]).played, Some(PowerClip { power: Power::Forward, hit: 0.5, len: 1.60 }));
         // A style of 0 %: never.
         let never = fnv_game::data::CombatStyleDef { power_attack_chance: 0.0, ..s.clone() };
-        assert_eq!(pick_people_power(Some(&never), calm, &have, (0.0, 0.0), false, [0.0, 0.0]).played, None);
+        assert_eq!(pick_people_power(Some(&never), calm, 0.0, &have, (0.0, 0.0), false, [0.0, 0.0]).played, None);
         // No style: the fallback chance, even shares.
-        assert_eq!(pick_people_power(None, calm, &have, (0.0, 0.0), false, [0.2, 0.5]).played.map(|p| p.power), Some(Power::Back));
-        assert_eq!(pick_people_power(None, calm, &have, (0.0, 0.0), false, [FALLBACK_POWER_CHANCE / 100.0, 0.5]).played, None);
+        assert_eq!(pick_people_power(None, calm, 0.0, &have, (0.0, 0.0), false, [0.2, 0.5]).played.map(|p| p.power), Some(Power::Back));
+        assert_eq!(pick_people_power(None, calm, 0.0, &have, (0.0, 0.0), false, [FALLBACK_POWER_CHANCE / 100.0, 0.5]).played, None);
     }
 
     #[test]
@@ -2243,7 +2512,7 @@ mod tests {
         let s = fnv_game::data::CombatStyleDef { power_attack_chance: 45.0, power_attack_dirs: [10.0, 60.0, 10.0, 10.0, 10.0], power_by_chance: false, ..Default::default() };
         let have = one_hand_powers();
         let facing_north = [0.0, 1.0];
-        let by = |velocity| pick_people_power(Some(&s), Opponent::default(), &have, local_motion(velocity, facing_north), false, [0.1, 0.0]).played.map(|p| p.power);
+        let by = |velocity| pick_people_power(Some(&s), Opponent::default(), 0.0, &have, local_motion(velocity, facing_north), false, [0.1, 0.0]).played.map(|p| p.power);
         assert_eq!(by([0.0, 0.0]), Some(Power::Normal));
         assert_eq!(by([0.0, 10.0]), Some(Power::Normal), "slower than the threshold stands");
         assert_eq!(by([0.0, 200.0]), Some(Power::Forward));
@@ -2252,7 +2521,7 @@ mod tests {
         assert_eq!(by([-150.0, 0.0]), Some(Power::Left));
         // Forward wins a tie.
         assert_eq!(by([100.0, 100.0]), Some(Power::Forward));
-        assert_eq!(pick_people_power(Some(&s), Opponent::default(), &have, (0.0, 0.0), false, [0.1, 0.0]).how, "by movement");
+        assert_eq!(pick_people_power(Some(&s), Opponent::default(), 0.0, &have, (0.0, 0.0), false, [0.1, 0.0]).how, "by movement");
         // Facing east, moving north is moving left.
         assert_eq!(local_motion([0.0, 100.0], [1.0, 0.0]), (0.0, -1.0));
     }
@@ -2263,7 +2532,7 @@ mod tests {
         assert_eq!(no_leaps(&both, false), both.to_vec());
         assert_eq!(no_leaps(&both, true), vec![(Power::Normal, 0.4)]);
         // A creature whose only power attack is the leap makes a plain blow.
-        assert_eq!(pick_power(None, &no_leaps(&both[1..], true), 0.0, 0.0).0, None);
+        assert_eq!(pick_power(None, &no_leaps(&both[1..], true), 0.0, 0.0, 0.0).0, None);
     }
 
     #[test]
@@ -2336,6 +2605,27 @@ mod tests {
     fn an_aim_arc_sets_the_firing_angle() {
         assert_eq!(fire_facing(0.0), FIRE_FACING);
         assert!((fire_facing(90.0) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn dodges_and_runs_from_grenades() {
+        use fnv_game::combat_style::DodgeDir;
+        // Facing north to a target 200 units away: right is east, left west, back south.
+        let (feet, tfeet) = ([0.0, 0.0, 10.0], [0.0, 200.0, 10.0]);
+        let near = |a: Option<V3>, b: V3| a.is_some_and(|a| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-3));
+        assert!(near(dodge_point(feet, tfeet, DodgeDir::Right, 60.0, 100.0), [60.0, 0.0, 10.0]));
+        assert!(near(dodge_point(feet, tfeet, DodgeDir::Left, 60.0, 100.0), [-60.0, 0.0, 10.0]));
+        assert!(near(dodge_point(feet, tfeet, DodgeDir::Back, 60.0, 100.0), [0.0, -60.0, 10.0]));
+        // Forward stops at the stop distance: 200 − 150 = 50; nearer than 32, no dodge.
+        assert!(near(dodge_point(feet, tfeet, DodgeDir::Forward, 90.0, 150.0), [0.0, 50.0, 10.0]));
+        assert_eq!(dodge_point(feet, tfeet, DodgeDir::Forward, 90.0, 180.0), None);
+        assert_eq!(dodge_point(feet, tfeet, DodgeDir::Back, 20.0, 100.0), None);
+        // From a grenade 100 units south-west, radius 256: 320 units away from it.
+        let g = [-60.0, -80.0, 0.0];
+        let at = evade_point(feet, g, 256.0);
+        assert!(((at[0] - g[0]).hypot(at[1] - g[1]) - 320.0).abs() < 1e-3 && at[0] > 0.0 && at[1] > 0.0 && at[2] == 10.0);
+        // On top of it: east.
+        assert!(near(Some(evade_point(feet, [0.0, 0.0, 0.0], 100.0)), [164.0, 0.0, 10.0]));
     }
 
     #[test]
