@@ -121,7 +121,9 @@ def main(argv=None) -> int:
     elif a.test == "tour":
         if a.route:
             route = a.route.read_text(encoding="utf-8")
-            npts = sum(1 for ln in route.splitlines() if len(ln.split("#")[0].split()) == 2 and ln.split()[0] not in ("world", "step", "dwell", "laps"))
+            if a.slice:
+                route = tour.slice_route_text(route, a.slice)
+            npts = sum(1 for ln in route.splitlines() if tour.is_route_point(ln))
             perimeter = None
         else:
             if not ctx.fnvtool.exists():

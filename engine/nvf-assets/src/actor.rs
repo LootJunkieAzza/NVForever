@@ -40,6 +40,8 @@ use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
 use fnv_nif::{NifFile, Value};
+use crate::texture::TextureCache;
+use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -173,7 +175,69 @@ pub struct ActorParts {
     parts: HashMap<String, Option<Arc<PreparedPart>>>,
     materials: HashMap<(String, usize, String), Handle<NifMaterial>>,
     clips: HashMap<String, Option<Arc<Clip>>>,
+    /// Parts read and parsed on a worker thread ([`ActorCtx::parts_ready`]), waiting for
+    /// [`ActorCtx::part`], with when they came in; and the reads under way.
+    fetched: HashMap<String, (Nif, f64)>,
+    fetching: HashMap<String, Task<Fetched>>,
     pub failures: Vec<String>,
+}
+
+/// A NIF file read and parsed: the file, its bytes and its decoded blocks.
+type Nif = Result<(NifFile, Vec<u8>, Decoded), String>;
+
+/// A part read off the main thread, with the bytes of the textures its texture sets name
+/// (for [`TextureCache::offer`]).
+struct Fetched {
+    nif: Nif,
+    textures: Vec<(String, Vec<u8>)>,
+}
+
+/// Seconds a part read ahead waits for its actor before it is dropped (an actor that
+/// left view before it was drawn).
+const FETCHED_KEEP_SECS: f64 = 30.0;
+
+/// Read and parse the part at `path` and read the textures its texture sets name (on a
+/// worker thread).
+fn fetch(data: &GameData, path: &str) -> Fetched {
+    let nif = decode(data, path);
+    let mut textures = Vec::new();
+    if let Ok((file, _, dec)) = &nif {
+        let mut seen = std::collections::HashSet::new();
+        for (i, b) in file.blocks.iter().enumerate() {
+            let Some(Ok(set)) = dec.blocks.get(i).filter(|_| b.type_name == "BSShaderTextureSet") else { continue };
+            for t in crate::nif_spawn::text_list(set, "textures").iter().filter(|t| !t.is_empty()) {
+                let path = crate::texture::resolved_path(t, |p| data.vfs.exists(p));
+                if seen.insert(path.clone()) && data.vfs.exists(&path) {
+                    textures.extend(data.read(&path).map(|bytes| (path, bytes)));
+                }
+            }
+        }
+    }
+    Fetched { nif, textures }
+}
+
+impl ActorParts {
+    /// Take in the parts read ahead that are done (their textures go to `textures`), and
+    /// drop those nobody took in time; the number taken in.
+    pub fn take_fetched(&mut self, textures: &mut TextureCache, now: f64) -> usize {
+        let mut done = Vec::new();
+        self.fetching.retain(|path, task| match check_ready(task) {
+            Some(f) => {
+                done.push((path.clone(), f));
+                false
+            }
+            None => true,
+        });
+        let n = done.len();
+        for (path, f) in done {
+            for (t, bytes) in f.textures {
+                textures.offer(t, bytes, now);
+            }
+            self.fetched.insert(path, (f.nif, now));
+        }
+        self.fetched.retain(|_, (_, at)| now - *at < FETCHED_KEEP_SECS);
+        n
+    }
 }
 
 /// The asset stores actors are prepared into: the static models' ([`ModelCtx`]), so a
@@ -370,6 +434,29 @@ impl ActorCtx<'_, '_> {
         s
     }
 
+    /// Whether every part at `paths` is prepared or read ahead, so preparing them reads
+    /// no file on this thread. The rest are read (and their textures) on a worker thread,
+    /// taken in by [`ActorParts::take_fetched`]: an actor can wait for them before it is
+    /// drawn instead of stalling the frame it comes into view (the parse was a sixth of
+    /// the hitch then [observed: CPU profile, 2026-10-22]).
+    pub fn parts_ready<'p>(&mut self, paths: impl IntoIterator<Item = &'p str>) -> bool {
+        let mut ready = true;
+        for path in paths {
+            let key = fnv_vfs::normalize(path);
+            if self.cache.parts.contains_key(&key) || self.cache.fetched.contains_key(&key) {
+                continue;
+            }
+            ready = false;
+            if self.cache.fetching.contains_key(&key) {
+                continue;
+            }
+            let (data, job) = ((*self.models.data).clone(), key.clone());
+            let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { fetch(&data, &job) });
+            self.cache.fetching.insert(key, task);
+        }
+        ready
+    }
+
     /// The prepared part at `path` (loaded on first use).
     pub fn part(&mut self, path: &str) -> Option<Arc<PreparedPart>> {
         let key = fnv_vfs::normalize(path);
@@ -518,8 +605,9 @@ impl ActorCtx<'_, '_> {
     }
 
     fn prepare_part(&mut self, path: &str) -> Result<PreparedPart, String> {
+        let ahead = self.cache.fetched.remove(path).map(|(nif, _)| nif);
         let m = &mut *self.models;
-        let (file, _bytes, dec) = decode(&m.data, path)?;
+        let (file, _bytes, dec) = ahead.unwrap_or_else(|| decode(&m.data, path))?;
         let objects = scene_objects(&file, &dec);
         let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
         let hidden_self = |b: usize| {

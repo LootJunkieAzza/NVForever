@@ -166,6 +166,24 @@ def slice_points(points: list, spec: str) -> list:
     return points[lo - 1:hi]
 
 
+ROUTE_KEYS = ("world", "step", "dwell", "laps")
+
+
+def is_route_point(line: str) -> bool:
+    """A waypoint line of a route file (`x y`), not a setting or a comment."""
+    words = line.split("#")[0].split()
+    return len(words) == 2 and words[0] not in ROUTE_KEYS
+
+
+def slice_route_text(text: str, spec: str) -> str:
+    """A route file with only waypoints `START:END` of it (as `slice_points`), its settings
+    and comments kept."""
+    lines = text.splitlines()
+    points = [i for i, ln in enumerate(lines) if is_route_point(ln)]
+    keep = set(slice_points(points, spec))
+    return "".join(ln + "\n" for i, ln in enumerate(lines) if i in keep or not is_route_point(ln))
+
+
 def route_text(world: str, points, step: float, dwell: float, laps: int) -> str:
     return (f"# tools/stress tour\nworld {world}\nstep {step:g}\ndwell {dwell:g}\nlaps {laps}\n"
             + "".join(f"{x:g} {y:g}\n" for x, y in points))

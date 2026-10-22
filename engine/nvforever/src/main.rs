@@ -1188,6 +1188,7 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
+    .add_systems(PreUpdate, actors::take_background_work)
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     // Clips that drive actors' part materials (the Securitron screens), once posed.
     .add_systems(Update, actor_materials::pose.after(locomotion::drive))
@@ -1445,7 +1446,10 @@ fn main() -> AppExit {
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
-                    info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
+                    info!(
+                        "FaceGen: {} shapes morphed, {} faces textured, {} skins textured, {} tinted textures put in, {} EGMs not matching their shape",
+                        fg.morphed_shapes, fg.faces_textured, fg.skins_textured, fg.tints_put_in, fg.mismatched
+                    );
                 }
                 commands.write_message(AppExit::Success);
             }

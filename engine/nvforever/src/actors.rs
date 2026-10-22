@@ -301,12 +301,43 @@ pub struct ActorStats {
     pub fists: usize,
 }
 
+/// Whether the parts of actor `reference` (base `base`) can be prepared without reading a
+/// file on this thread, starting reads on a worker thread for the rest
+/// (`ActorCtx::parts_ready`). An actor that cannot be resolved counts as ready: spawning
+/// it says why.
+pub fn parts_ready(world: &ActorWorld, ctx: &mut ActorCtx, reference: u32, base: u32, creature: bool) -> bool {
+    if creature {
+        world.resolve_creature(base, reference).map_or(true, |c| ctx.parts_ready(c.parts.iter().map(|p| p.model.as_str())))
+    } else {
+        world.resolve(base, reference).map_or(true, |a| ctx.parts_ready(a.parts.iter().map(|p| p.model.as_str())))
+    }
+}
+
+/// Take back what worker threads made for actors: parts read ahead
+/// (`ActorParts::take_fetched`) and tinted FaceGen textures, put into their materials
+/// (`FaceGenCache::finish`).
+pub fn take_background_work(
+    world: Option<Res<ActorWorld>>,
+    parts: Option<ResMut<nvf_assets::actor::ActorParts>>,
+    textures: Option<ResMut<nvf_assets::TextureCache>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<nvf_assets::NifMaterial>>,
+    time: Res<Time>,
+) {
+    if let (Some(mut parts), Some(mut textures)) = (parts, textures) {
+        parts.take_fetched(&mut textures, time.elapsed_secs_f64());
+    }
+    if let Some(w) = world {
+        w.facegen.lock().expect("facegen cache").finish(&mut images, &mut materials);
+    }
+}
+
 /// A race skin texture and the `.egt` that tints it; `image` is made on first use.
 struct SkinTint {
     hand: bool,
     texture: String,
     egt: String,
-    image: Option<Option<Handle<Image>>>,
+    image: Option<Option<crate::facegen::Tint>>,
 }
 
 /// The parts of a resolved actor ready to assemble, each with its index in `a.parts`:
@@ -369,11 +400,10 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             meshes = cache.morph(ctx, &part, &p.model, shape);
             if p.role == "head:head" {
                 let base = p.texture.clone().or_else(|| part.shapes.first().and_then(|s| s.base_texture()).map(str::to_string));
-                if let Some(img) = base.zip(fgts).and_then(|(t, fgts)| cache.face_texture(ctx, &p.model, &t, fgts)) {
+                if let Some(tint) = base.zip(fgts).and_then(|(t, fgts)| cache.face_texture(ctx, &p.model, &t, fgts)) {
                     for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
-                        if let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() {
-                            m.base.base_color_texture = Some(img.clone());
-                            materials[i] = ctx.models.materials.add(m);
+                        if let Some(m) = cache.tinted(&mut ctx.models.materials, &materials[i], &tint) {
+                            materials[i] = m;
                         }
                     }
                 }
@@ -388,20 +418,17 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 let tex = if s.cap { None } else { given.or_else(|| s.base_texture()) };
                 let Some(tex) = tex.map(fnv_vfs::texture_path) else { continue };
                 let Some(skin) = skins.iter_mut().find(|k| k.texture == tex) else { continue };
-                let img = skin
+                let mut cache = world.facegen.lock().expect("facegen cache");
+                let tint = skin
                     .image
                     .get_or_insert_with(|| {
-                        let mut cache = world.facegen.lock().expect("facegen cache");
-                        let img = cache.skin_texture(ctx, &skin.egt, &skin.texture, fg);
-                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(img.is_some());
-                        img
+                        let tint = cache.skin_texture(ctx, &skin.egt, &skin.texture, fg);
+                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(tint.is_some());
+                        tint
                     })
                     .clone();
-                if let Some(img) = img {
-                    if let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() {
-                        m.base.base_color_texture = Some(img);
-                        materials[i] = ctx.models.materials.add(m);
-                    }
+                if let Some(m) = tint.and_then(|tint| cache.tinted(&mut ctx.models.materials, &materials[i], &tint)) {
+                    materials[i] = m;
                 }
             }
         }

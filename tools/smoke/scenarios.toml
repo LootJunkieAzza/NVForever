@@ -6185,6 +6185,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "facegen-tints-in-background"
+source = "docs/design/streaming-hitches.md §2: NPC face and skin tints are made on a worker thread and put into the NPCs' materials when made (the CPU profile of 2026-10-22 found them most of the streaming hitches)"
+note = "the saloon's NPCs (Sunny Smiles, Easy Pete, Trudy) are drawn at the start; every tint started is put in well before the exit"
+areas = ["actors"]
+paths = ["engine/nvforever/src/facegen.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs"]
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'FaceGen: .* (?P<n>\d+) faces textured', range = [2, 200], label = "the NPCs' faces were tinted" },
+  { re = 'FaceGen: .* (?P<n>\d+) tinted textures put in', range = [4, 400], label = "the tints made on a worker thread were put into their materials" },
+]
+
+[[scenario]]
 name = "lip-face-held"
 source = "docs/spec-notes/lipsync.md §5 (test aid NVF_LIP_TEST_HOLD): held head channels nod the head, Look moves the eyes, an expression shows; frames lip_face_rest.png (nothing held, idle face off) and lip_face_held.png in target/smoke, Sunny Smiles from 100 units"
 areas = ["lip"]
