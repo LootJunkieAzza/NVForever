@@ -86,6 +86,8 @@ struct Decals {
     placed: u32,
     on_actors: u32,
     near_another: u32,
+    /// On an actor flagged No Blood Decal (docs/spec-notes/actor-flags.md §2).
+    no_decal: u32,
     over_frame_cap: u32,
     no_body: u32,
     /// Outside the drawn cells.
@@ -100,7 +102,7 @@ struct Decals {
 
 impl Default for Decals {
     fn default() -> Self {
-        Decals { live: VecDeque::new(), rng: SplitMix(0xDEC0), reported: HashSet::new(), placed: 0, on_actors: 0, near_another: 0, over_frame_cap: 0, no_body: 0, no_cell: 0, over_cap: 0, faded: 0, unloaded: 0, peak: 0 }
+        Decals { live: VecDeque::new(), rng: SplitMix(0xDEC0), reported: HashSet::new(), placed: 0, on_actors: 0, near_another: 0, no_decal: 0, over_frame_cap: 0, no_body: 0, no_cell: 0, over_cap: 0, faded: 0, unloaded: 0, peak: 0 }
     }
 }
 
@@ -148,6 +150,10 @@ fn place(
     let st = &mut *st;
     let mut this_frame = 0;
     for hit in landed.read() {
+        if hit.no_decal {
+            st.no_decal += 1;
+            continue;
+        }
         let Some(impact) = sfx.forms.impacts.get(&hit.impact) else { continue };
         let Some((set, data)) = sfx.forms.decal(impact) else { continue };
         let Some(set_id) = impact.texture_set else { continue };
@@ -308,11 +314,15 @@ fn fade(
 }
 
 fn report(mut exit: MessageReader<AppExit>, st: Res<Decals>) {
-    if exit.read().last().is_some() && st.placed + st.near_another + st.no_body + st.no_cell > 0 {
+    let exit_seen = exit.read().last().is_some();
+    if exit_seen && st.placed + st.near_another + st.no_body + st.no_cell > 0 {
         info!(
             "decals summary: {} placed ({} on actors), at most {} alive (cap {MAX_DECALS}), {} still alive; {} within the placement radius of another, {} over the {MAX_DECALS_PER_FRAME} a frame, {} on actors without a skeleton drawn, {} outside the drawn cells; {} removed at the cap, {} faded out after {DECAL_LIFETIME} s, {} gone with their cell or actor",
             st.placed, st.on_actors, st.peak, st.live.len(), st.near_another, st.over_frame_cap, st.no_body, st.no_cell, st.over_cap, st.faded, st.unloaded
         );
+    }
+    if exit_seen && st.no_decal > 0 {
+        info!("decals: {} hits on actors flagged No Blood Decal left none", st.no_decal);
     }
 }
 

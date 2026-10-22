@@ -75,6 +75,11 @@ pub struct Appearance {
     pub skeleton: String,
     /// The race's height for the actor's sex (DATA).
     pub race_height: f64,
+    /// The NPC's own height (NAM6; 1 when 0 or absent), times the race's in the drawn
+    /// scale (docs/spec-notes/actor-flags.md §5) [hypothesis]. Not part of the appearance
+    /// report.
+    #[serde(skip)]
+    pub height: f64,
     pub parts: Vec<Part>,
     /// Worn armour, in the order chosen.
     pub worn: Vec<FormId>,
@@ -163,6 +168,8 @@ pub enum ResolveError {
     /// handles it).
     Creature(FormId),
     LeveledEmpty(FormId),
+    /// The leveled list's Chance none came up: no actor.
+    LeveledNone(FormId),
     TooDeep(FormId),
     NoRace(FormId),
     UnknownRace(FormId),
@@ -179,6 +186,7 @@ impl std::fmt::Display for ResolveError {
             ResolveError::NotAnActor(id) => write!(f, "{id} is not an actor base"),
             ResolveError::Creature(id) => write!(f, "{id} is a creature (not handled yet)"),
             ResolveError::LeveledEmpty(id) => write!(f, "leveled actor {id} has no eligible entry"),
+            ResolveError::LeveledNone(id) => write!(f, "leveled actor {id} rolled its chance none"),
             ResolveError::TooDeep(id) => write!(f, "template or leveled chain too deep at {id} (cycle?)"),
             ResolveError::NoRace(id) => write!(f, "{id} has no race"),
             ResolveError::UnknownRace(id) => write!(f, "race {id} is not loaded"),
@@ -500,6 +508,7 @@ impl<'a> Resolver<'a> {
             race: race_id,
             skeleton,
             race_height: race.height[sex],
+            height: npc.height.filter(|h| *h > 0.0).unwrap_or(1.0),
             parts,
             worn,
             hat,
@@ -561,6 +570,10 @@ impl<'a> Resolver<'a> {
                 None => {
                     let (pool, _) = leveled_pool(&l.entries, ch.at.all(l.all_levels), ch.at.level);
                     ch.random |= distinct(pool.iter().map(|e| e.1)) > 1;
+                    // Chance none (docs/spec-notes/actor-flags.md §6), as `fnv_game::templates`.
+                    if !pool.is_empty() && leveled::rolls_none(&mut ch.rng, l.chance_none) {
+                        return Err(ResolveError::LeveledNone(id));
+                    }
                     let p = pick_leveled(&l.entries, ch.at.all(l.all_levels), ch.at.level, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
                     ch.picks.insert(id, p);
                     p
@@ -634,6 +647,10 @@ impl<'a> Resolver<'a> {
                 None => {
                     let (pool, _) = leveled_pool(&l.entries, ch.at.all(l.all_levels), ch.at.level);
                     ch.random |= distinct(pool.iter().map(|e| e.1)) > 1;
+                    // Chance none (docs/spec-notes/actor-flags.md §6), as `fnv_game::templates`.
+                    if !pool.is_empty() && leveled::rolls_none(&mut ch.rng, l.chance_none) {
+                        return Err(ResolveError::LeveledNone(id));
+                    }
                     let p = pick_leveled(&l.entries, ch.at.all(l.all_levels), ch.at.level, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
                     ch.picks.insert(id, p);
                     p

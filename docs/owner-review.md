@@ -7658,6 +7658,28 @@ sleeping are refused while the world irradiates the player. Spec:
   the blast, how strong (10 rads/s before Rad Resistance here), how far out (616 units here),
   and how long until it stops (12 s here)? Does the level fade or stop at once?
 
+## Actor flags and actor data (2026-10-22, ESM gap audit medium group 3, branch claude/em4-actor-flags)
+
+No VATS Melee (the ceiling turrets), No Blood Spray / Decal (tumbleweeds, the explosive
+Nellis ants), Allow PC Dialogue, NAM6 Height, chance none on leveled actor lists, Special
+Combat factions and voice types without Allow Default Dialog now act as their records say.
+Spec: [actor-flags](spec-notes/actor-flags.md). Decisions and guesses:
+
+- *Decision:* CREA bit 28 ("Is Ghost" in xEdit) is not applied: 124 creatures have it,
+  among them wild dogs, giant rats and big horners that the player kills, so it cannot
+  mean SetGhost's ghost. What does it do in the original?
+- *Guess:* a creature is offered for talk only with Allow PC Dialogue and a greeting
+  (before: the greeting alone).
+- *Guess:* NAM6 Height multiplies the drawn scale with the race's height (0 counts as 1;
+  values 0.85–1.1).
+- *Guess:* voice types without Allow Default Dialog: a line also passes when its INFO
+  names its speaker; a VTYP without DNAM is not restricted. This now keeps the unique
+  voices (Benny, Boone, Veronica, Caesar …), super mutants and robots from generic lines
+  without a GetIsVoiceType / GetIsID / GetInFaction / GetIsClass / GetIsRace / IsInList
+  condition.
+- *Guess:* leveled actor lists' chance none works as the item lists' (none in the masters).
+- *Check:* with a machete, can you mark a ceiling turret in VATS? Does Benny ever say a
+  generic greeting? Does a tumbleweed show bullet puffs?
 ## Weapon and ammo fields: NPC weapon choice, damage type, mods (2026-10-21, ESM gap audit medium group 2, branch claude/em3-npc-weapon-choice)
 
 NPCs no longer choose Player Only or Not Used In Normal Combat weapons (the Van Graff

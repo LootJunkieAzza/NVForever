@@ -181,6 +181,28 @@ impl<'a> Game<'a> {
         self.def_following(r, |d| d.template_base)
     }
 
+    /// Whether the player may not go into VATS against `r` with a melee weapon: ACBS "No
+    /// VATS Melee" on its own record, which a template's Base Data does not supply
+    /// [documented: GECK wiki Category:NPC] (docs/spec-notes/actor-flags.md §1).
+    pub fn no_vats_melee(&self, r: FormId) -> bool {
+        r != FormId::PLAYER_REF && base_of(self, r).is_some_and(|b| self.data.no_vats_melee(b, r))
+    }
+
+    /// Whether hits on `r` leave no blood spray and no blood decal (ACBS "No Blood Spray",
+    /// "No Blood Decal"), from the definition supplying its model and blood ("Use
+    /// Model/Animation includes the Blood … tabs" [documented: GECK wiki Category:NPC];
+    /// hypothesis: the two flags go with that tab) (actor-flags.md §2).
+    pub fn no_blood(&self, r: FormId) -> (bool, bool) {
+        base_of(self, r).map_or((false, false), |b| self.data.no_blood(b, r))
+    }
+
+    /// Whether creature `r` may be talked to: CREA ACBS "Allow PC Dialogue", from the
+    /// definition supplying its base data (actor-flags.md §4) [hypothesis: not among the
+    /// flags the wiki says Base Data leaves out].
+    pub fn allows_pc_dialogue(&self, r: FormId) -> bool {
+        self.base_data_def(r).is_some_and(|d| d.allow_pc_dialogue)
+    }
+
     /// Whether `r` is a creature flagged "Can't Open Doors" (ACBS), from the definition
     /// supplying its base data [hypothesis: the flag is not among those the wiki says
     /// Base Data leaves out, so the template's counts].

@@ -466,8 +466,9 @@ pub fn spawn(
         return false;
     };
     let (part_index, uses): (Vec<usize>, Vec<PartUse>) = part_uses(&a, world, ctx, stats).into_iter().unzip();
-    // The race's height scales the actor [hypothesis, actors.md §3].
-    let rt = rt * Affine3A::from_scale(Vec3::splat(a.race_height as f32));
+    // The race's height scales the actor [hypothesis, actors.md §3], times its own (NAM6,
+    // docs/spec-notes/actor-flags.md §5) [hypothesis].
+    let rt = rt * Affine3A::from_scale(Vec3::splat((a.race_height * a.height) as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
     // The shapes a `.tri` can move when the actor speaks (lips.rs).
     if let Some(rig) = crate::lips::rig(&a, &part_index, &uses, &spawned, &ctx.models.data, a.shape_facegen(world.race_facegen).filter(|_| world.facegen_enabled)) {

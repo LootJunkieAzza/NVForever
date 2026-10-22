@@ -151,6 +151,9 @@ pub enum GroupNote {
     Alarm { sender: FormId, receiver: FormId, about: FormId, combat: bool },
     /// `sender` sent no alarm: its group outmatches its foe.
     NoAlarm { sender: FormId, about: FormId, ratio: f64, alarm_confidence: f64 },
+    /// `sender` and `about` share `faction`, flagged Special Combat: their fight sends no
+    /// alarm (docs/spec-notes/actor-flags.md §8).
+    SpecialCombat { sender: FormId, about: FormId, faction: FormId },
     /// `actor` searched its share of the area round `about`'s alarm (`count` searches done
     /// of `needed`).
     Searched { actor: FormId, about: FormId, count: u32, needed: u32 },
@@ -414,6 +417,16 @@ impl Game<'_> {
         self.awareness.state(actor).in_combat() && self.awareness.tactics.flights.get(&actor).is_some_and(|f| f.arrived.is_some())
     }
 
+    /// A faction flagged Special Combat that `a` and `b` both belong to, if any
+    /// (docs/spec-notes/actor-flags.md §8).
+    pub fn special_combat_faction(&self, a: FormId, b: FormId) -> Option<FormId> {
+        let theirs = crate::functions::factions_of(self, b);
+        crate::functions::factions_of(self, a)
+            .into_iter()
+            .filter(|f| theirs.contains(f))
+            .find(|f| self.data.faction_flags.get(f).is_some_and(|fl| fl & crate::crime::faction_flags::SPECIAL_COMBAT != 0))
+    }
+
     /// `actor` stops fleeing and fights again.
     pub fn end_flight(&mut self, actor: FormId) {
         self.awareness.tactics.flights.remove(&actor);
@@ -433,6 +446,12 @@ impl Game<'_> {
             let (Some(about), Some(from)) = (c.about, near.get(&c.actor).copied()) else { continue };
             let at = c.at.or_else(|| near.get(&about).copied()).unwrap_or(from);
             let combat = c.to == State::Combat;
+            // "If a faction is flagged as Special Combat, members can attack one another
+            // without sending a combat alarm" [documented: GECK wiki Category:Factions].
+            if let Some(faction) = self.special_combat_faction(c.actor, about) {
+                self.awareness.tactics.notes.push(GroupNote::SpecialCombat { sender: c.actor, about, faction });
+                continue;
+            }
             // Fighting: an alarm only when the foe is more than a minimal threat.
             if combat {
                 let (ratio, _) = self.threat_ratios(c.actor);

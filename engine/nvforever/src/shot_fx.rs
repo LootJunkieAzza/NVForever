@@ -188,6 +188,8 @@ struct ShotFx {
     casings: u32,
     casing_knocks: u32,
     impacts: u32,
+    /// Impacts not shown on an actor flagged No Blood Spray.
+    no_spray: u32,
     explosions: u32,
     /// Effect models spawned playing their own clip, and of those, explosions whose
     /// image space modifier went on the screen.
@@ -650,6 +652,11 @@ fn impacts(
         return;
     };
     for hit in landed.read() {
+        // An actor flagged No Blood Spray shows none (docs/spec-notes/actor-flags.md §2).
+        if hit.no_spray {
+            fx.no_spray += 1;
+            continue;
+        }
         let Some(i) = sfx.forms.impacts.get(&hit.impact) else { continue };
         let Some((model, pm)) = i.model.as_deref().and_then(|m| Some((m, load(&mut models, &mut fx, "impact", m)?))) else { continue };
         let (normal, dir) = (Vec3::from_array(hit.normal).normalize_or(Vec3::Z), Vec3::from_array(hit.dir).normalize_or(Vec3::NEG_Z));
@@ -783,6 +790,9 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
             fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
         info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
+        if fx.no_spray > 0 {
+            info!("shot fx: {} impacts on actors flagged No Blood Spray not shown", fx.no_spray);
+        }
         if fx.actor_flashes_muzzle + fx.actor_flashes_at_shot > 0 {
             info!("shot fx: other actors' muzzle flashes: {} at their weapon's muzzle, {} where the shot left (no muzzle node)", fx.actor_flashes_muzzle, fx.actor_flashes_at_shot);
         }
