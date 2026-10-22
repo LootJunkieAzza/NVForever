@@ -309,6 +309,12 @@ class TourTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             tour.slice_points(pts, "7:3")
 
+    def test_a_slice_of_a_route_file(self):
+        text = "# tools/stress tour\nworld 0x000DA726\nstep 1024\ndwell 1\nlaps 1\n1 1\n2 2\n3 3\n4 4\n"
+        self.assertEqual(tour.slice_route_text(text, "2:3"), "# tools/stress tour\nworld 0x000DA726\nstep 1024\ndwell 1\nlaps 1\n2 2\n3 3\n")
+        with self.assertRaises(ValueError):
+            tour.slice_route_text(text, "4:2")
+
     def test_stray_entity_commands_are_counted_and_named(self):
         lines = [
             "WARN nvforever::stray_commands: stray entity command #1 (ignored; the entity is gone): command bevy_ecs::system::commands::entity_command::insert<Visibility>: Entity despawned: The entity with ID 4742v5 is invalid; where: WastelandNV cell -1,28, position -2958, 116277, 4443",

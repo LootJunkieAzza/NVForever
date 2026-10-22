@@ -4,33 +4,112 @@
 //! FGTS coefficients plus its race's add the `.egt` colour offset to the face and skin
 //! textures. The combination rules are [hypothesis] (fnv_actor::facegen,
 //! docs/spec-notes/actors.md §4.2, §4.3).
+//!
+//! The tinted face and skin textures are made on a worker thread: a full-size pass per
+//! texture, two per NPC, was most of the hitch when NPCs came into view [observed: CPU
+//! profile of the towns tour, 2026-10-22, docs/design/streaming-hitches.md]. Until one is
+//! made, the NPC's material keeps the model's own texture; [`FaceGenCache::finish`] then
+//! puts the tinted one in [engineering choice: the NPC is drawn throughout, its skin tone
+//! settling a few frames later]. Made textures are reused by what they are made of while
+//! anything draws them.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task, TaskPool};
 use fnv_actor::facegen::{add_offset, Egm, Egt};
 use fnv_actor::records::FaceGen;
 use fnv_dds::{to_rgba8, Dds, Format};
 use nvf_assets::actor::{ActorCtx, PreparedPart};
-use nvf_assets::GameData;
+use nvf_assets::{GameData, NifMaterial};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Decoded top mip of a texture: width, height, RGBA8.
 type Rgba = (usize, usize, Vec<u8>);
 
-/// Parsed FaceGen files and decoded base textures by archive path; `None` remembers
-/// that a file is absent or unreadable.
+/// A file read once, by whichever thread asks first; `None` remembers that it is absent
+/// or unreadable.
+type Slot<T> = Arc<OnceLock<Option<Arc<T>>>>;
+
+/// Parsed `.egt` files and decoded base textures by archive path, shared with the worker
+/// threads that make tinted textures.
+#[derive(Default)]
+struct Files {
+    egt: Mutex<HashMap<String, Slot<Egt>>>,
+    base: Mutex<HashMap<String, Slot<Rgba>>>,
+}
+
+impl Files {
+    fn egt(&self, data: &GameData, path: &str) -> Option<Arc<Egt>> {
+        let slot = self.egt.lock().expect("egt files").entry(path.to_string()).or_default().clone();
+        slot.get_or_init(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new)).clone()
+    }
+
+    fn base(&self, data: &GameData, path: &str) -> Option<Arc<Rgba>> {
+        let slot = self.base.lock().expect("base textures").entry(path.to_string()).or_default().clone();
+        slot.get_or_init(|| data.read(path).and_then(|b| decode_top(&b)).map(Arc::new)).clone()
+    }
+
+    /// The tinted texture `key` names, for the texture coefficients `fgts` (on a worker
+    /// thread).
+    fn make(&self, data: &GameData, key: &TintKey, fgts: &[f64]) -> Option<Image> {
+        let egt = self.egt(data, &key.egt)?;
+        let base = self.base(data, &key.texture)?;
+        let (mut w, mut h, ref px) = *base;
+        let mut rgba = px.clone();
+        let offset = egt.offset(fgts, &[]);
+        add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
+        if key.skin {
+            while w > SKIN_MAX && h > 1 {
+                (w, h, rgba) = halve(w, h, &rgba);
+            }
+        }
+        Some(image_with_mips(w, h, rgba))
+    }
+}
+
+/// What a tinted texture is made of: face or body skin, the `.egt` and the base texture
+/// (archive paths), and the texture coefficients' bits.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct TintKey {
+    skin: bool,
+    egt: String,
+    texture: String,
+    fgts: Vec<u64>,
+}
+
+/// A tinted texture being made, and the materials to draw with it once it is.
+struct Bake {
+    key: TintKey,
+    image: Handle<Image>,
+    task: Task<Option<Image>>,
+    materials: Vec<Handle<NifMaterial>>,
+}
+
+/// A tinted face or skin texture ([`FaceGenCache::face_texture`]): made, or being made.
+#[derive(Clone)]
+pub enum Tint {
+    Ready(Handle<Image>),
+    Pending(Handle<Image>),
+}
+
+/// Parsed FaceGen files, decoded base textures and the tinted textures made from them;
+/// `None` remembers that a file is absent or unreadable.
 #[derive(Default)]
 pub struct FaceGenCache {
     egm: HashMap<String, Option<Arc<Egm>>>,
-    egt: HashMap<String, Option<Arc<Egt>>>,
-    base: HashMap<String, Option<Arc<Rgba>>>,
+    files: Arc<Files>,
+    /// Tinted textures made, while something holds them.
+    made: HashMap<TintKey, AssetId<Image>>,
+    bakes: Vec<Bake>,
     pub morphed_shapes: usize,
     pub faces_textured: usize,
     /// Body skin textures tinted with the race's body `.egt`.
     pub skins_textured: usize,
+    /// Tinted textures made on a worker thread and put into their materials.
+    pub tints_put_in: usize,
     /// EGMs whose vertex count does not cover the shape they sit beside.
     pub mismatched: usize,
 }
@@ -56,17 +135,6 @@ impl FaceGenCache {
             .entry(path.to_string())
             .or_insert_with(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new))
             .clone()
-    }
-
-    fn egt(&mut self, data: &GameData, path: &str) -> Option<Arc<Egt>> {
-        self.egt
-            .entry(path.to_string())
-            .or_insert_with(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new))
-            .clone()
-    }
-
-    fn base(&mut self, data: &GameData, path: &str) -> Option<Arc<Rgba>> {
-        self.base.entry(path.to_string()).or_insert_with(|| data.read(path).and_then(|b| decode_top(&b)).map(Arc::new)).clone()
     }
 
     /// Per shape of `part` (model `model`), a mesh morphed by `fg`'s FGGS and FGGA
@@ -102,16 +170,9 @@ impl FaceGenCache {
 
     /// The face texture of an NPC: `texture` (or the shape's own diffuse) plus the
     /// `.egt` offset beside `model` for the texture coefficients `fgts`
-    /// (`Appearance::skin_fgts`).
-    pub fn face_texture(&mut self, ctx: &mut ActorCtx, model: &str, texture: &str, fgts: &[f64]) -> Option<Handle<Image>> {
-        let egt = self.egt(&ctx.models.data, &sibling(model, "egt"))?;
-        let base = self.base(&ctx.models.data, &fnv_vfs::texture_path(texture))?;
-        let (w, h, ref px) = *base;
-        let mut rgba = px.clone();
-        let offset = egt.offset(fgts, &[]);
-        add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
-        self.faces_textured += 1;
-        Some(ctx.models.images.add(image_with_mips(w, h, rgba)))
+    /// (`Appearance::skin_fgts`). Put on a material with [`Self::tinted`].
+    pub fn face_texture(&mut self, ctx: &mut ActorCtx, model: &str, texture: &str, fgts: &[f64]) -> Option<Tint> {
+        self.tint(ctx, false, sibling(model, "egt"), fnv_vfs::texture_path(texture), fgts)
     }
 
     /// An NPC's body skin texture: `texture` plus the race's "Upper Body Texture" `.egt`
@@ -119,18 +180,77 @@ impl FaceGenCache {
     /// [hypothesis, actors.md §4.1]. The result is halved until at most
     /// [`SKIN_MAX`] wide (the body texture is 1024² [observed], the EGT 32×32), so one
     /// per actor stays small.
-    pub fn skin_texture(&mut self, ctx: &mut ActorCtx, egt: &str, texture: &str, fgts: &[f64]) -> Option<Handle<Image>> {
-        let egt = self.egt(&ctx.models.data, egt)?;
-        let base = self.base(&ctx.models.data, &fnv_vfs::texture_path(texture))?;
-        let (mut w, mut h, ref px) = *base;
-        let mut rgba = px.clone();
-        let offset = egt.offset(fgts, &[]);
-        add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
-        while w > SKIN_MAX && h > 1 {
-            (w, h, rgba) = halve(w, h, &rgba);
+    pub fn skin_texture(&mut self, ctx: &mut ActorCtx, egt: &str, texture: &str, fgts: &[f64]) -> Option<Tint> {
+        self.tint(ctx, true, egt.to_string(), fnv_vfs::texture_path(texture), fgts)
+    }
+
+    /// The tinted texture made of `egt` and `texture` for `fgts`: the one made already,
+    /// else one a worker thread makes. `None`: either file is missing.
+    fn tint(&mut self, ctx: &mut ActorCtx, skin: bool, egt: String, texture: String, fgts: &[f64]) -> Option<Tint> {
+        let data = &ctx.models.data;
+        if !data.vfs.exists(&egt) || !data.vfs.exists(&texture) {
+            return None;
         }
-        self.skins_textured += 1;
-        Some(ctx.models.images.add(image_with_mips(w, h, rgba)))
+        let key = TintKey { skin, egt, texture, fgts: fgts.iter().map(|v| v.to_bits()).collect() };
+        if let Some(image) = self.made.get(&key).and_then(|id| ctx.models.images.get_strong_handle(*id)) {
+            return Some(Tint::Ready(image));
+        }
+        if let Some(b) = self.bakes.iter().find(|b| b.key == key) {
+            return Some(Tint::Pending(b.image.clone()));
+        }
+        let image = ctx.models.images.reserve_handle();
+        let (files, data, job, fgts) = (self.files.clone(), (*ctx.models.data).clone(), key.clone(), fgts.to_vec());
+        let task = AsyncComputeTaskPool::get_or_init(TaskPool::default).spawn(async move { files.make(&data, &job, &fgts) });
+        *(if skin { &mut self.skins_textured } else { &mut self.faces_textured }) += 1;
+        self.bakes.push(Bake { key, image: image.clone(), task, materials: Vec::new() });
+        Some(Tint::Pending(image))
+    }
+
+    /// A copy of `material` drawn with `tint`: with it now when it is made, else with the
+    /// material's own texture until [`Self::finish`] puts it in.
+    pub fn tinted(&mut self, materials: &mut Assets<NifMaterial>, material: &Handle<NifMaterial>, tint: &Tint) -> Option<Handle<NifMaterial>> {
+        let mut m = materials.get(material)?.clone();
+        let (Tint::Ready(image) | Tint::Pending(image)) = tint;
+        let bake = self.bakes.iter_mut().find(|b| b.image.id() == image.id());
+        if bake.is_none() {
+            m.base.base_color_texture = Some(image.clone());
+        }
+        let copy = materials.add(m);
+        if let Some(b) = bake {
+            b.materials.push(copy.clone());
+        }
+        Some(copy)
+    }
+
+    /// Put the tinted textures made since the last call into their materials; the number
+    /// put in. One that could not be made (an unreadable file) leaves its materials with
+    /// their own texture.
+    pub fn finish(&mut self, images: &mut Assets<Image>, materials: &mut Assets<NifMaterial>) -> usize {
+        let mut done = 0;
+        let mut i = 0;
+        while i < self.bakes.len() {
+            let Some(result) = check_ready(&mut self.bakes[i].task) else {
+                i += 1;
+                continue;
+            };
+            let b = self.bakes.swap_remove(i);
+            let Some(image) = result else { continue };
+            if images.insert(b.image.id(), image).is_err() {
+                continue;
+            }
+            for m in &b.materials {
+                if let Some(mut m) = materials.get_mut(m) {
+                    m.base.base_color_texture = Some(b.image.clone());
+                }
+            }
+            self.made.insert(b.key, b.image.id());
+            self.tints_put_in += 1;
+            done += 1;
+        }
+        if done > 0 {
+            self.made.retain(|_, id| images.contains(*id));
+        }
+        done
     }
 }
 

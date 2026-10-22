@@ -205,7 +205,7 @@ impl Props {
 /// `crates/fnv-nif/examples/skin_survey.rs`, docs/spec-notes/actors.md §3.1].
 pub(crate) const SHADER_SKIN: i64 = 14;
 
-fn text_list(s: &Struct, name: &str) -> Vec<String> {
+pub(crate) fn text_list(s: &Struct, name: &str) -> Vec<String> {
     s.list(name)
         .unwrap_or_default()
         .iter()
