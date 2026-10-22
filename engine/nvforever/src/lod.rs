@@ -61,7 +61,7 @@
 //! water planes cover it [hypothesis: a water LOD surface].
 
 use crate::fade;
-use crate::lodgen::{self, Baked, GenJob};
+use crate::lodgen::{self, Baker, GenJob};
 use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::VisibilityRange;
@@ -69,7 +69,6 @@ use bevy::image::{CompressedImageFormats, ImageAddressMode, ImageFilterMode, Ima
 use bevy::math::Affine3A;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
-use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::texture::dds_image;
@@ -238,13 +237,21 @@ pub struct LodState {
     pub blocks: usize,
 }
 
+/// Threads baking generated terrain (lodgen::Baker, at the lowest priority).
+const BAKE_THREADS: usize = 2;
+/// Finished bakes taken per frame: each uploads two textures and builds a mesh on the main
+/// thread, and cached chunks finish many at once.
+const BAKES_PER_FRAME: usize = 2;
+
 /// Generated terrain chunks: bakes in flight, chunks ready to draw.
 pub struct GenState {
     pub job: GenJob,
     /// Generated chunks replace the game's level-4 chunks within this many squares of the
     /// camera's square.
     pub radius: i32,
-    pending: HashMap<Grid, Task<Result<Option<Baked>, String>>>,
+    baker: Baker,
+    /// Chunks handed to the baker whose results have not been taken.
+    pending: HashSet<Grid>,
     ready: HashMap<Grid, GenChunk>,
     /// Chunks without LAND or whose bake failed: the game's chunk is drawn.
     skip: HashSet<Grid>,
@@ -255,7 +262,8 @@ pub struct GenState {
 
 impl GenState {
     pub fn new(job: GenJob, radius: i32) -> GenState {
-        GenState { job, radius, pending: HashMap::new(), ready: HashMap::new(), skip: HashSet::new(), baked: 0, cached: 0 }
+        let baker = Baker::new(job.clone(), BAKE_THREADS);
+        GenState { job, radius, baker, pending: HashSet::new(), ready: HashMap::new(), skip: HashSet::new(), baked: 0, cached: 0 }
     }
 
     pub fn pending(&self) -> usize {
@@ -790,15 +798,12 @@ fn gather(values: &VertexAttributeValues, used: &[usize]) -> VertexAttributeValu
     )
 }
 
-/// Start bakes for the generated chunks `want` (level-4 squares chosen near the camera),
-/// nearest first; cancel and forget the ones that fell far behind.
+/// Queue bakes for the generated chunks `want` (level-4 squares chosen near the camera),
+/// nearest first; forget waiting ones no longer wanted (but near) and ready ones far behind.
 fn schedule_generated(lod: &mut LodState, centre_chunk: Grid, want: &[Grid]) {
     let Some(gen) = lod.gen.as_mut() else { return };
     let gr = gen.radius;
     let dist = |&(x, y): &Grid| (x.div_euclid(LEVEL) - centre_chunk.0).abs().max((y.div_euclid(LEVEL) - centre_chunk.1).abs());
-    let wanted: HashSet<Grid> = want.iter().copied().collect();
-    // Dropping a task cancels it.
-    gen.pending.retain(|ch, _| wanted.contains(ch) || dist(ch) <= 1);
     gen.ready.retain(|ch, _| dist(ch) <= gr + 2);
     let mut order: Vec<(i32, Grid)> = want
         .iter()
@@ -808,28 +813,23 @@ fn schedule_generated(lod: &mut LodState, centre_chunk: Grid, want: &[Grid]) {
         })
         .collect();
     order.sort();
-    let pool = AsyncComputeTaskPool::get();
-    for (_, chunk) in order {
-        if gen.ready.contains_key(&chunk) || gen.pending.contains_key(&chunk) || gen.skip.contains(&chunk) {
-            continue;
-        }
-        let job = gen.job.clone();
-        gen.pending.insert(chunk, pool.spawn(async move { job.run(chunk) }));
-    }
+    let mut queue: Vec<Grid> = order.into_iter().map(|(_, ch)| ch).filter(|ch| !gen.ready.contains_key(ch) && !gen.skip.contains(ch)).collect();
+    // Bakes of the camera's and neighbouring squares stay queued, last, while unchosen.
+    let wanted: HashSet<Grid> = queue.iter().copied().collect();
+    let mut near: Vec<Grid> = gen.pending.iter().copied().filter(|ch| !wanted.contains(ch) && dist(ch) <= 1).collect();
+    near.sort_unstable();
+    queue.extend(near);
+    gen.baker.schedule(&queue, &mut gen.pending);
 }
 
-/// Collect finished bakes: upload their textures and build their full meshes (`update_lod`
-/// redraws their chunks, whose keys change).
+/// Collect finished bakes, a few a frame: upload their textures and build their full
+/// meshes (`update_lod` redraws their chunks, whose keys change).
 fn poll_generated(lod: &mut LodState, models: &mut ModelCtx) {
     let Some(gen) = lod.gen.as_mut() else { return };
-    let mut done = Vec::new();
-    gen.pending.retain(|&chunk, task| match check_ready(task) {
-        Some(result) => {
-            done.push((chunk, result));
-            false
-        }
-        None => true,
-    });
+    let done: Vec<_> = std::iter::from_fn(|| gen.baker.try_recv()).take(BAKES_PER_FRAME).collect();
+    for (chunk, _) in &done {
+        gen.pending.remove(chunk);
+    }
     let bc = models.formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
     for (chunk, result) in done {
         let baked = match result {
