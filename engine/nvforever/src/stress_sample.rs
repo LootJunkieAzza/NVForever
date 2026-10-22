@@ -7,14 +7,18 @@
 //! bodies <fixed>/<kinematic>/<dynamic>, actors <n>, nan actors <n>, ragdolls <n>,
 //! projectiles <n>, at <place>` with what the engine holds now and where the camera is
 //! (the crash report's place text). At the exit, `stress frames: <n> frames, mean <m> ms,
-//! 1% low <l> ms (<fps> fps), worst <w> ms` over the run after its start-up ([`frame_stats`]).
+//! 1% low <l> ms (<fps> fps), worst <w> ms` over the run after its start-up ([`frame_stats`]),
+//! and `stress actors: <n> drawn in <f> frames (<ms> ms, most in a frame <m> ms); those
+//! frames mean <m> ms, worst <w> ms, <k> over 100 ms`.
 //!
 //! Start-up (the frames until the start's cells are all in, `Streamer::settled`; the first
 //! takes the app's build and the Startup systems, 2.5 s in the stress runs of 2026-10-18)
 //! is left out of the samples' and the run's frame times and logged once on its own:
 //! `stress start-up: <n> frames, <ms> ms, slowest <w> ms`. After it, a frame slower than
 //! [`HITCH_MS`] logs `stress hitch: <ms> ms at t <s> s, <k> cells loaded in it (<ms> ms),
-//! at <place>`, so a stall can be told from a cell load. The process's memory is the
+//! <a> actors drawn in it (<ms> ms), at <place>`, so a stall can be told from a cell load
+//! or from actors coming into view (`readahead::clocked`; actors a cell draws count in
+//! both). The process's memory is the
 //! runner's to read (it has the process).
 
 use crate::limbs::ActorRig;
@@ -54,6 +58,11 @@ struct Samples {
     /// The streamer's cells loaded and their load time so far, at the last frame.
     cells_loaded: usize,
     load_ms: f64,
+    /// Actors drawn and their time so far, at the last frame (`readahead::clock`).
+    actors_drawn: usize,
+    actors_ms: f64,
+    /// After start-up, the frames that drew actors: (frame ms, actors, ms drawing them).
+    actor_frames: Vec<(f32, usize, f64)>,
     /// This window's frame times, and every frame's (milliseconds).
     window: Vec<f32>,
     all: Vec<f32>,
@@ -96,6 +105,9 @@ fn sample(
     let (cells_loaded, load_ms) = streamer.as_deref().map_or((0, 0.0), |st| (st.stats.cells_loaded, st.stats.load_ms));
     let (new_cells, new_ms) = (cells_loaded.saturating_sub(s.cells_loaded), load_ms - s.load_ms);
     (s.cells_loaded, s.load_ms) = (cells_loaded, load_ms);
+    let (actors_drawn, actors_ms) = crate::readahead::clock();
+    let (new_actors, new_actors_ms) = (actors_drawn - s.actors_drawn, actors_ms - s.actors_ms);
+    (s.actors_drawn, s.actors_ms) = (actors_drawn, actors_ms);
     if !s.started {
         s.startup.push(ms);
         // A start that never settles still ends start-up after a minute.
@@ -108,8 +120,15 @@ fn sample(
     } else {
         s.window.push(ms);
         s.all.push(ms);
+        if new_actors > 0 {
+            s.actor_frames.push((ms, new_actors, new_actors_ms));
+        }
         if ms > HITCH_MS {
-            info!("stress hitch: {ms:.0} ms at t {:.1} s, {new_cells} cells loaded in it ({new_ms:.0} ms), at {}", real.elapsed_secs(), crate::crash::place_text());
+            info!(
+                "stress hitch: {ms:.0} ms at t {:.1} s, {new_cells} cells loaded in it ({new_ms:.0} ms), {new_actors} actors drawn in it ({new_actors_ms:.0} ms), at {}",
+                real.elapsed_secs(),
+                crate::crash::place_text()
+            );
         }
     }
     if s.since < s.every {
@@ -148,6 +167,16 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<Samples>) {
     let (mean, low, worst) = frame_stats(&s.all);
     let fps = if low > 0.0 { 1000.0 / low } else { 0.0 };
     info!("stress frames: {} frames, mean {mean:.2} ms, 1% low {low:.2} ms ({fps:.1} fps), worst {worst:.2} ms", s.all.len());
+    let f = &s.actor_frames;
+    let (drawn, ms) = f.iter().fold((0, 0.0), |(n, t), &(_, k, m)| (n + k, t + m));
+    let most = f.iter().map(|x| x.2).fold(0.0, f64::max);
+    let frame_ms: Vec<f32> = f.iter().map(|x| x.0).collect();
+    let (mean, _, worst) = frame_stats(&frame_ms);
+    let slow = frame_ms.iter().filter(|&&m| m > 100.0).count();
+    info!(
+        "stress actors: {drawn} drawn in {} frames ({ms:.0} ms, most in a frame {most:.1} ms); those frames mean {mean:.1} ms, worst {worst:.0} ms, {slow} over 100 ms",
+        f.len()
+    );
 }
 
 #[cfg(test)]

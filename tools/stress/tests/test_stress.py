@@ -367,11 +367,19 @@ class TourTest(unittest.TestCase):
     def test_start_up_and_hitches_read_from_the_log(self):
         lines = ["INFO nvforever::stress_sample: stress start-up: 61 frames, 4210 ms, slowest 2545.84 ms",
                  "INFO stress hitch: 300 ms at t 1633.2 s, 2 cells loaded in it (180 ms), at WastelandNV cell -4,-12, position 1, 2, 3",
-                 "INFO stress hitch: 340 ms at t 1663.3 s, 0 cells loaded in it (0 ms), at WastelandNV cell 2,-13"]
+                 "INFO stress hitch: 340 ms at t 1663.3 s, 0 cells loaded in it (0 ms), at WastelandNV cell 2,-13",
+                 "INFO stress hitch: 260 ms at t 1700.0 s, 0 cells loaded in it (0 ms), 3 actors drawn in it (190 ms), at WastelandNV cell 2,-13"]
         startup, hitches = tour.startup_and_hitches(lines)
         self.assertEqual(startup, {"frames": 61, "ms": 4210.0, "slowest_ms": 2545.84})
-        self.assertEqual([(h["ms"], h["cells"]) for h in hitches], [(340.0, 0), (300.0, 2)])
+        self.assertEqual([(h["ms"], h["cells"]) for h in hitches], [(340.0, 0), (300.0, 2), (260.0, 0)])
+        self.assertEqual((hitches[2]["actors"], hitches[2]["actor_ms"], hitches[2]["at"]), (3, 190.0, "WastelandNV cell 2,-13"))
         self.assertTrue(hitches[1]["at"].endswith("position 1, 2, 3"))
+
+    def test_actor_drawing_summary_read_from_the_log(self):
+        ln = ("INFO stress actors: 212 drawn in 150 frames (900 ms, most in a frame 48.5 ms); "
+              "those frames mean 31.2 ms, worst 140 ms, 3 over 100 ms")
+        m = tour.ACTORS.search(ln)
+        self.assertEqual([m.group(i) for i in (1, 2, 4, 6, 7)], ["212", "150", "48.5", "140", "3"])
 
     def test_memory_goes_on_the_nearest_sample(self):
         samples = [{"t": 1.0}, {"t": 10.0}]

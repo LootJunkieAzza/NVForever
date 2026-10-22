@@ -92,6 +92,7 @@ mod post;
 mod particles;
 mod shot_fx;
 mod ragdoll;
+mod readahead;
 mod reflection;
 mod refraction;
 mod residents;
@@ -1153,6 +1154,8 @@ fn main() -> AppExit {
         manage_actors: residents.as_ref().is_some_and(|r| r.all),
         stats: Default::default(),
         buffer: Default::default(),
+        centre: None,
+        waiting: Vec::new(),
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -1172,6 +1175,11 @@ fn main() -> AppExit {
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, cell_buffer::remember.after(world::stream))
+    .add_systems(Update, world::draw_waiting_actors.after(world::stream))
+    // Actors of the next ring of cells read and prepared before they come into range.
+    .insert_resource(readahead::ReadAhead::from_env())
+    .add_systems(Update, readahead::read_ahead.after(world::stream).after(world::draw_waiting_actors))
+    .add_systems(Last, readahead::report)
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     // Vertex morphs (waving flags, sagging wires): docs/spec-notes/vertex-morphs.md.
