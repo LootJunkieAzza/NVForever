@@ -148,8 +148,13 @@ Long play's memory: what the engine holds, sampled along laps of the Mojave.
   and the asset caches (`models cached`, `textures cached`) should end near their
   lap-start counts. One whose mean over the lap's last tenth of samples is above its first
   tenth's by more than 25 % plus 100 is listed. The caches drop what no live entity uses
-  after a minute (`engine/nvf-assets/src/release.rs`), and the places left behind are
-  further back than that. This works with one lap. Before that sweep existed, the
+  after five minutes, keeping at most 2,048 unused entries each
+  (`engine/nvf-assets/src/release.rs`; one minute and 256 before 2026-10-22, when this
+  check came back clean). Since then the caches, and the meshes and images they hold,
+  end a lap up by the last five minutes' places and are listed here by design [observed:
+  towns lap 2026-10-22, textures cached 945 at the start, 3,443 at the end; peak working
+  set 5,151 MB against 5,107 MB on origin/main]. A count listed in "Possible leaks" is
+  still the one to look into. Before that sweep existed, the
   2026-10-18 lap went from 816 meshes and 618 images to 4,726 and 2,962 at the start's
   place [observed].
 - **Start-up and hitches.** The frames until the start's cells are in are start-up. They
