@@ -1,17 +1,26 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "lip_head_units",
- "title": "Face modifiers by MFG: what HeadPitch/Roll/Yaw and Look at 100 do (pictures, about 2 min, no input)",
- "start": "nvfdoc (Doc Mitchell's house: Doc stands by the player; never saved). Window in front, first person.",
+ "title": "Face modifiers by MFG: what HeadPitch/Roll/Yaw and Look at 100 do (pictures, about 20 s, no input). Not working yet: in an automated run (2026-10-22) prid selected nothing, so neither mfg nor the console turns for the profile pictures reached Doc; all pictures show his resting face from the front. Turning him with script steps between pictures crashed the game.",
+ "start": "nvfdoc (Doc Mitchell's house; never saved). Window in front. The job forces first person (DisablePlayerControls POV flag), sets the player at (2290, 2170, 7360) facing north and Doc (ACHR 00104C0F, BuildRef decimal 1068047) 70 units in front of the player at his placed spot.",
  "steps": [
   {
    "console": "tgm"
   },
   {
-   "console": "tdetect"
+   "console": "tai"
   },
   {
-   "console": "tai"
+   "console": "DisablePlayerControls 0 0 0 1 0 0 0"
+  },
+  {
+   "console": "player.SetPos x 2290"
+  },
+  {
+   "console": "player.SetPos y 2170"
+  },
+  {
+   "console": "player.SetPos z 7360"
   },
   {
    "console": "player.SetAngle z 0"
@@ -20,10 +29,34 @@
    "console": "player.SetAngle x 0"
   },
   {
-   "console": "DocMitchellREF.MoveTo player 0 70 0"
+   "frames": 30
   },
   {
-   "frames": 30
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nrF1.MoveTo player\nrF1.SetPos X 2290\nrF1.SetPos Y 2240\nrF1.SetPos Z 7360\nrF1.SetAngle Z 180\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "player.SetAngle x 0"
+  },
+  {
+   "query": "float fM1\nref rF1\nBegin Function { }\nfloat fV\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "doc x",
+   "field": "v"
+  },
+  {
+   "query": "float fM1\nref rF1\nBegin Function { }\nfloat fV\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "doc y",
+   "field": "v"
+  },
+  {
+   "query": "float fM1\nref rF1\nBegin Function { }\nfloat fV\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "doc z",
+   "field": "v"
+  },
+  {
+   "frames": 10
   },
   {
    "console": "tm"
@@ -32,10 +65,10 @@
    "frames": 10
   },
   {
-   "console": "prid DocMitchellREF"
+   "console": "prid 00104C0F"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -44,7 +77,7 @@
    "screenshot": "rest_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -59,7 +92,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -68,7 +101,7 @@
    "screenshot": "headpitch100_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -89,7 +122,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -98,7 +131,7 @@
    "screenshot": "headpitch50_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -119,7 +152,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -128,7 +161,7 @@
    "screenshot": "headroll100_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -149,7 +182,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -158,7 +191,7 @@
    "screenshot": "headyaw100_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -179,7 +212,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -188,7 +221,7 @@
    "screenshot": "lookdown100_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -209,7 +242,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -218,7 +251,7 @@
    "screenshot": "lookleft100_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -239,7 +272,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -248,7 +281,7 @@
    "screenshot": "anger100_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20
@@ -263,7 +296,7 @@
    "frames": 15
   },
   {
-   "console": "DocMitchellREF.SetAngle z 270"
+   "console": "00104C0F.SetAngle z 270"
   },
   {
    "frames": 20
@@ -272,7 +305,7 @@
    "screenshot": "reset_profile"
   },
   {
-   "console": "DocMitchellREF.SetAngle z 180"
+   "console": "00104C0F.SetAngle z 180"
   },
   {
    "frames": 20

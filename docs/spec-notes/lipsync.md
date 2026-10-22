@@ -240,9 +240,10 @@ reading]: the files' Look values (to 0.18) turn an eye by at most 4°. In the li
 looked at (25 of Doc Mitchell's, every twelfth of his 370 files, scratch) the head
 channels swing by 0.03 to 0.07 within half a second and reach 0.04 to 0.09.
 
-- **Directions** [hypothesis, from the mirroring of §3.1: the eyes turn against the head
-  so that they stay on what they look at]: HeadPitch = LookUp − LookDown, so a positive
-  HeadPitch goes with eyes turning up: **the head nods down**. HeadYaw = LookLeft −
+- **Directions.** HeadPitch: **positive tips the head up** [observed 2026-10-22, below;
+  this replaces the first guess, "nods down", taken from the eyes turning against the
+  head]; with HeadPitch = LookUp − LookDown in the files the eyes then turn with the head
+  in pitch, not against it. HeadYaw = LookLeft −
   LookRight: a positive HeadYaw goes with eyes turning left: **the head turns to the
   actor's right**. HeadRoll has no partner; positive is taken as tipping the top of
   the head to the actor's right.
@@ -264,6 +265,23 @@ channels swing by 0.03 to 0.07 within half a second and reach 0.04 to 0.09.
   the `MFG` syntax `mfg <modifier|expression|phoneme> <index> <0–100>` is taken from
   the search summaries of §3.2 [hypothesis] and is checked by the run). The constant is
   `lips::HEAD_RADIANS_PER_UNIT`.
+  **Run 2026-10-22, unsettled** [observed]: the job runs unattended (save `nvfdoc`, plugin
+  v7) and puts Doc in front of a first-person camera, but in an automated run the console
+  has no selected reference: `prid 00104C0F`, `prid 104C0F` and `prid DocMitchellREF` all
+  left a following `SetAngle` without effect, and neither `mfg expression 0 100` nor
+  `mfg modifier 14 100` changed his face, so every picture shows his resting face from the
+  front. Whether `mfg` itself works is therefore still open. What did work: placing Doc
+  with a script step (`BuildRef` of FormID 00104C0F, decimal 1068047; `MoveTo player`, then
+  `SetPos`). Turning him with a script step between pictures crashed the game (once).
+  **By hand, 2026-10-22** [observed, owner's six screenshots in dialogue with Doc Mitchell,
+  `prid 104C0F` then `mfg …` typed in the console; which picture is which was read from
+  the pictures, the owner's file names did not come through]: `mfg modifier 14 100` tips
+  the head **up** by about 60°, `14 50` by about 30° (eyeballed from the face's tilt);
+  `mfg modifier 16 100` turns it about 70–80° **to the actor's right**;
+  `mfg expression 0 100` closes the left eye (a wink), so expression 0 is not Anger. So
+  100 on the console turns the head by about one radian, which is reading (a) if the
+  console's 100 is a `.lip` value of 1 [hypothesis]. Roll and the Look modifiers were not
+  tried.
 
 ## 4. The morphs (`.tri`)
 
