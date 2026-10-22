@@ -49,7 +49,8 @@
 //! included, and the arms rig and its weapon cast none on the world. What of the body the
 //! camera is not to see is drawn on [`SHADOW_LAYER`], which the sun casts from and no
 //! camera sees, instead of being hidden (a hidden entity casts no shadow). The arms rig
-//! is on [`ARMS_LAYER`], which the sun does not cast from. The unseen body stands where
+//! is on [`ARMS_LAYER`], which the sun does not cast from. What the camera sees of the
+//! body is on [`BODY_LAYER`], which the sun casts from and the flashlight does not. The unseen body stands where
 //! the arms rig is and would shade it, so the arms rig takes its sun shadows from a light
 //! of its own ([`ArmsShade`], `NifSurface::shade_light`) that casts from the world's
 //! layer and the arms': buildings, what is seen of the body and the arms themselves shade
@@ -63,7 +64,7 @@
 
 use crate::actors::{part_uses, ActorWorld};
 use crate::idles::{IdleSlot, PlayerIdles};
-use crate::sky::{Sun, ARMS_LAYER, SHADOW_LAYER};
+use crate::sky::{Sun, ARMS_LAYER, BODY_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
 use crate::view_sway::{SwayInput, SwayPose, ViewSway};
 use bevy::camera::visibility::RenderLayers;
@@ -260,7 +261,7 @@ fn shade_light(
             ArmsShade,
             DirectionalLight { color: sun_light.color, illuminance, shadow_maps_enabled: true, ..default() },
             cascades,
-            RenderLayers::from_layers(&[0, ARMS_LAYER]),
+            RenderLayers::from_layers(&[0, ARMS_LAYER, BODY_LAYER]),
             Transform::IDENTITY,
             ChildOf(sun),
         ));
@@ -1705,10 +1706,11 @@ struct Seen {
 }
 
 impl Seen {
-    /// The render layer of a drawn entity: the world's when the camera sees it, else the
-    /// one only the shadows are cast from.
+    /// The render layer of a drawn entity: the seen body's when the camera sees it, else
+    /// the one only the sun's shadows are cast from. Neither is the world's, so the
+    /// flashlight casts no shadow from the player (`flashlight.rs`).
     fn layer(on: bool) -> RenderLayers {
-        RenderLayers::layer(if on { 0 } else { SHADOW_LAYER })
+        RenderLayers::layer(if on { BODY_LAYER } else { SHADOW_LAYER })
     }
 
     fn part(self, d: &Drawn) -> bool {

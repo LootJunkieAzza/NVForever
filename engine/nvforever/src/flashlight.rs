@@ -7,7 +7,6 @@
 //!   player looks (owner, playtest list 5 items 66 and 67): in a view from outside it
 //!   lights what is ahead of the body, not the body's back from the camera, and nearly on
 //!   the line of the eye its shadows fall behind what casts them instead of beside it.
-//!   Being in front of the body, the body casts nothing on what it lights.
 //! - In a view from outside it is placed from the third-person head's eye
 //!   (`PlayerBody::head_eye`), so it moves with the head: from the first-person eye the
 //!   head leaned into it walking and running and shaded the cone (owner 2026-10-18). In
@@ -15,9 +14,11 @@
 //!   places it.
 //! - It casts shadows: walls stop it instead of it lighting the rooms behind them. It
 //!   falls off as the game's lights do (`lights.rs`).
-//! - Shadow casters are the world's layer (0), as the light's own layers are: the
-//!   first-person arms and weapon (`sky::ARMS_LAYER`) and the unseen body
-//!   (`sky::SHADOW_LAYER`) cast none.
+//! - Shadow casters are the world's layer (0), as the light's own layers are: the player
+//!   casts none (owner 2026-10-22: aiming in third person the arms shaded the cone). The
+//!   first-person arms and weapon (`sky::ARMS_LAYER`), the seen third-person body and its
+//!   weapon (`sky::BODY_LAYER`) and the unseen body (`sky::SHADOW_LAYER`) are on layers
+//!   of their own. It still lights them: a light lights every view its layers meet.
 //! - Detection does not count it (`detection.rs`).
 
 use bevy::prelude::*;

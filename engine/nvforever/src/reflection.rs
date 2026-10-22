@@ -92,9 +92,9 @@ fn setup_reflection(mut commands: Commands, mut images: ResMut<Assets<Image>>, w
         Msaa::Off,
         Projection::Perspective(PerspectiveProjection::default()),
         crate::sky::initial_fog(),
-        // The world without the water; the player's first-person arms as before they
-        // had a layer of their own.
-        RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER]),
+        // The world without the water; the player's first-person arms and seen body as
+        // before they had layers of their own.
+        RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER]),
     ));
     commands.insert_resource(Reflection { image });
 }
