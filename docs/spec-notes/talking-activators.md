@@ -48,13 +48,25 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
   ac6, the same as NVForever's]. That IsActorTalkingThroughActivator is 1 during a
   conversation through the activator is still [hypothesis] (the 92 conditions rely on it;
   smoke `talking-activator-intercom`).
-- **The picture**: the view turns to the activator; the actor does not turn to the
-  player (it is not there). The subtitle and the dialogue menu name the actor
-  [hypothesis].
-- Not built: a talking activator's lines outside a conversation (Say, SayTo from an
-  intercom are said by the activator as by any speaker); distance attenuation is not an
-  issue in a conversation (heard whole) [documented: "talking activators configured by
-  script have no distance attenuation"].
+- **The picture**: the view turns to the activator itself (an intercom on the wall, not
+  a point above it as for an undrawn actor); the actor does not turn to the player (it is
+  not there). The dialogue menu names the activator ("Intercom" at the top right, the
+  line in the band below) [observed: owner screenshot 2026-10-22 of the REPCONN
+  intercom]; the logged subtitle names the actor.
+- **A Goodbye greeting** the player gets through one opens a conversation, as a force
+  greet's does (dialogue.md §5): the dialogue menu holds the player while the line is
+  said and the Goodbye flag then ends it [owner statement 2026-10-22: "even if the line
+  has a goodbye it still draws into dialogue"]. Chris Haversam's "I'm letting you in"
+  (INFO 000CD87E) from the REPCONN intercom by the locked door
+  (REPCONMidToTopDoorIntercom, RocketLabMid) is one: Chris is upstairs in RocketLabTop,
+  and the line's end script unlocks the door [observed: FalloutNV.esm]. Said at the
+  player without a conversation, as face to face, it was said where Chris stood, out of
+  hearing; the player tried again, got "Stop messing around with the intercom", and that
+  conversation cut the silent line before its end script ran (owner playtest 2026-10-22;
+  smoke `intercom-goodbye-line`).
+- Not built: other lines of a talking activator outside a conversation (Say, SayTo from
+  an intercom are said by the activator as by any speaker); distance attenuation is not
+  an issue in a conversation (heard whole).
 
 ## 3. The bunker intercom in the original (2026-10-19) [observed]
 
