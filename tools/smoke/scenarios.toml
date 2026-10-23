@@ -4596,12 +4596,13 @@ expect = [
 name = "camper-steps"
 source = "owner's playtest list 5, item 17 (docs/spec-notes/physics.md §6.9): the camper at the Powder Ganger camp south of Goodsprings; running north up its two door steps (10 and 20 units, 24-unit top) into it without a jump"
 areas = ["physics", "controls"]
-paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs"]
+paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0" }
 args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
+  { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },
 ]
 
 [[scenario]]
@@ -7164,4 +7165,47 @@ forbid = [
 order = [
   ["magic: Turbo on: the world runs at 0.50, the player at full speed", "magic: Turbo off"],
   ["test aid NVF_PLAY_TEST_CONSOLE: player.equipitem NVAntivenom", "magic: CazadorPoison on the player ended"],
+]
+
+[[scenario]]
+name = "death-stops-character"
+source = "owner's playtest list 7 item 14 (docs/spec-notes/physics.md §6.8): a creature killed while it charges glided on along its last walk, and its invisible character pushed the player; on death its character is taken away"
+note = "the crippled-limp-gecko gecko (VERGSGecko2REF 0x00157B3D, god mode) is put 400 units from the player and set on them at 9 s, killed at 11 s while it runs at the player, so the character controller walks it when it dies"
+areas = ["physics", "combat", "creatures"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:moveto:0x00157B3D:player:400:0:0,9:combat:0x00157B3D:player,11:call:0x00157B3D:KillActor" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'ai \[[\d:]+\] \S+ 00157B3D: its character stops \(dead, restrained or out cold\) at \(-?\d+, -?\d+, \d+\), walking at [1-9]\d* units/s', label = "the gecko dies on the run and its character is taken away" },
+]
+
+[[scenario]]
+name = "mantis-nymph-step-on"
+source = "owner's playtest list 7 item 35 (docs/spec-notes/physics.md §6.8.1): the mantis nymphs in the Nevada Highway Patrol Station die when the player is within 50 units (their script); the player then walks on over the spot"
+note = "SLNHPStationINT: the player put 43 units south of NVCrGiantMantisNymph 0x00153388 (nobody perceives the player), which its script kills once the scripts run; at 12 s the player runs north over its spot to the wall at y 1802 (the feet stop 22 short of it). A nymph that ran at the player and died there left its person-sized character behind before the fix (the player stopped short); that case is not reproduced every run, so this checks the walk over the corpse"
+areas = ["physics", "creatures"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/hitvol.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "12:1:0,13.5:0:0" }
+args = ["--cell", "SLNHPStationINT", "--pos=2456,1700,6700", "--heading", "0", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  "script: OnDeath of FalloutNV.esm|SCPT 0x000EF407 ran on Some(0x00153388)",
+  { re = 'physics: the player stepped up \d+ times, feet at \(24[3-7]\d, 17[78]\d, 66\d\d\)', label = "the player runs on over the nymph's spot to the wall" },
+]
+
+[[scenario]]
+name = "car-not-pushed"
+source = "owner's playtest list 7 item 37 (docs/spec-notes/physics.md §6.10): cars (MSTT Car01-Car03, Havok mass 600-1000) moved when the player ran into them; a character no longer pushes a body heavier than 250"
+note = "the Car02 0x0015206B south of Primm; the player 250 units west of it runs east into it for 3 s and slides round it. The car rises 3.4 and slides 2.5 units (4.1 in all) as it wakes and comes out of the ground it is placed a little into, the same with the character's contacts off (2026-10-23): something else wakes it, likely the raven 0x0017467E perched on it; a push moves it further"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/character.rs", "crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,11:0:0" }
+args = ["--play", "--pos=-70720,-85587,6500", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'physics: the player stepped up \d+ times, feet at \(-70[0-7]\d\d, -85[5-9]\d\d, \d+\)', label = "the player ran into the car and round it" },
+]
+forbid = [
+  { re = 'physics: placed 0015206B moved by physics: ([6-9]|\d\d+)\.\d units', label = "the car is pushed" },
 ]
