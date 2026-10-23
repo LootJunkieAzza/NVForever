@@ -273,6 +273,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "shadows-thin"
+source = "docs/design/graphics-enhanced.md §5.5 (2026-10-23): the test aid --shadow-thin (graphics-cycle key shadow-thin=) takes the sun shadows of small far objects away and gives them back, off by default, and the frame-time log breaks the sun's last cascade down by angular size"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvforever/src/shadow_thin.rs", "engine/nvforever/src/graphics.rs"]
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--sun-shadows", "--log-frame-times", "5", "--graphics-cycle", "vanilla;vanilla,shadow-thin=0.04"]
+run_seconds = 35
+expect = [
+  { re = 'shadow thinning: ratio 0; 0 of 0 references \(0 meshes\)', min = 1, label = "off by default: nothing thinned" },
+  { re = 'shadow thinning: ratio 0.04; \d+ of \d+ references \((?P<n>\d+) meshes\)', range = [200, 100000], label = "at 0.04 hundreds of far meshes cast none (about 2,100 at the Goodsprings start)" },
+  { re = 'sun.s last cascade: \d+ meshes; placed references within 1000 units \d+, by angular size', min = 2, label = "the last cascade's breakdown is logged" },
+]
+
+[[scenario]]
 name = "shadow-probe"
 source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the first-person shadow flicker): the debug probe NVF_PLAY_DEBUG_SHADOWS runs and finds no stretched skin, lost joint, wrong skin slot or moved mesh outside Doc Mitchell's house in first person with a weapon out, and the hidden third-person body stays body-sized"
 areas = ["renderer", "player-body"]
