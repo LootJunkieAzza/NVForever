@@ -414,6 +414,9 @@ struct Rig {
     /// The weapon is in the hand with no draw, attack or reload clip playing, and the
     /// parts' pose then was logged ([`pose_rig`]).
     idle_logged: bool,
+    /// Down the sights: the most the spine was turned back to the sights clip's facing
+    /// since the sights went up ([`keep_sights_facing`]; logged as they come down).
+    sights_turned: Option<f32>,
     /// The way from the `Weapon` node down to the weapon model's `ProjectileNode`, when
     /// it has one: each node's place in the animator's extra nodes (a named node; the
     /// clips may move it) and its transform in the model [hypothesis: the node marks
@@ -1174,6 +1177,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_model: None,
         weapon_parts: Vec::new(),
         idle_logged: false,
+        sights_turned: None,
         muzzle: None,
         muzzle_entity: None,
         casing: None,
@@ -1507,6 +1511,15 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     a.pose();
+    let turned = (rig.view == View::Third && f.aiming && f.hands.in_hand && !blocks(f.prefix)).then(|| bone("Bip01 Spine").map_or(0.0, |s| keep_sights_facing(a, s)));
+    match (turned, rig.sights_turned) {
+        (Some(t), m) => rig.sights_turned = Some(m.unwrap_or(0.0).max(t)),
+        (None, Some(m)) => {
+            info!("player sights: upper body turned back to the sights clip's facing by up to {m:.1}° while down the sights");
+            rig.sights_turned = None;
+        }
+        (None, None) => {}
+    }
     // Each time the weapon comes to rest in the hand, the parts it holds away from their
     // place in the model (the 9mm pistol's cocked hammer; smoke `weapon-parts-rest`).
     let busy = |t: u32| t == TAG_EQUIP || t == TAG_RELOAD || (TAG_ATTACK..TAG_ATTACK + 3).contains(&t);
@@ -1546,6 +1559,36 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }),
         View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
+}
+
+/// Down the sights in third person, the upper body faces where the sights clip faces it,
+/// whatever the legs do. The sights clips (`2hraimis.kf`, `1hpaimis.kf`) take the spine,
+/// arms and head (priority 50) but leave `Bip01 NonAccum`, which `Bip01 Spine` hangs
+/// from beside the pelvis, to the movement clips (26 under 30); `mtleft.kf` turns that
+/// node 87.5° from the sights clip's pose (`mtright.kf` 2.7°) and turns its own spine
+/// and head back, which the sights clip's spine does not do, so strafing left swung the
+/// rifle a quarter turn off the crosshair [observed: `kf_pose_compare`, animation.md
+/// §9.3, the owner's playtest 2026-10-23]. The spine is turned by the difference between
+/// its parents' pose under the aim clips alone and the pose the blend gave them, faded
+/// with the aim clips [design: the game's way is not known; standing still the aim clip
+/// holds those nodes itself and the turn is none]. Returns the turn, degrees.
+fn keep_sights_facing(a: &mut Animator, spine: usize) -> f32 {
+    let aim = |l: &nvf_assets::anim_blend::Layer| (TAG_AIM..TAG_AIM + 3).contains(&l.tag);
+    let ease = a.layers.iter().filter(|l| aim(l)).map(|l| l.ease).fold(0.0f32, f32::max);
+    if ease <= 0.0 {
+        return 0.0;
+    }
+    let (mut posed, mut own) = (Quat::IDENTITY, Quat::IDENTITY);
+    let mut cur = a.skel.parents[spine];
+    while let Some(n) = cur.filter(|&n| n > 0) {
+        let l = a.locals[n].rotation;
+        posed = l * posed;
+        own = a.local_from(n, aim).map_or(l, |t| t.rotation) * own;
+        cur = a.skel.parents[n];
+    }
+    let turn = Quat::IDENTITY.slerp((posed.inverse() * own).normalize(), ease.min(1.0));
+    a.locals[spine].rotation = (turn * a.locals[spine].rotation).normalize();
+    turn.angle_between(Quat::IDENTITY).to_degrees()
 }
 
 /// Draw the first-person rig `k` times as big across the view about the eye (along the

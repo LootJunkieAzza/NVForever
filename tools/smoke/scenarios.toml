@@ -1979,6 +1979,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "third-person-sights-strafe"
+source = "owner 2026-10-23: down the sights in third person with a rifle, strafing left turned the body and the rifle left off the crosshair; the rifle stays on the crosshair (player_body::keep_sights_facing)"
+note = "The varmint rifle (2hr, as the service rifle) drawn at 4 s, third person at 5 s, sights up at 7 s; standing until 10 s, strafing left 10-14 s, right 15-17 s, sights down at 18 s. mtleft.kf turns Bip01 NonAccum 87.5° from 2hraimis.kf's pose, so the spine is turned back by about that much while strafing left. Shots: sights_stand.png, sights_left.png, sights_right.png"
+areas = ["animation", "combat"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONTROL = "4:weapon,5:view,7:aim,18:aim", NVF_PLAY_TEST_MOVE = "10:0:-1:walk,14:0:0,15:0:1:walk,17:0:0", NVF_PLAY_TEST_SHOTS = "9:sights_stand.png,12.5:sights_left.png,16.5:sights_right.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 21
+expect = [
+  { re = 'player sights: upper body turned back to the sights clip.s facing by up to (?P<n>[\d.]+)°', range = [60, 120], label = "strafing left down the sights, the spine is turned back by about the quarter turn mtleft.kf gives the body" },
+]
+
+[[scenario]]
 name = "spent-ammo-items"
 source = "ESM gap audit row 13 (docs/handoff/esm-gap-audit-2026-10-21.md): AMMO DAT2 Consumed Ammo at its Consumed Percentage on each of the player's shots: spent cases and drained cells (docs/spec-notes/spent-ammo-items.md)"
 note = "The 10mm pistol with 40 rounds, Hand Loader added at the console at 4 s (10mm Case chance 20 % x 2), 12 shots by fresh pulls from 11 s; at 19 s the laser pistol is equipped at the console (Energy Cell, Drained Small Energy Cell at 40 %, no perk) and fires 12 shots from 22 s. The rolls have their own seeded RNG, so a given run's count repeats; at least one item of each is expected (none in 12 shots at 40 % has odds of 0.2 %). Written 2026-10-21"
