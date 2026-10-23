@@ -166,15 +166,27 @@ screen's height):
   ammunition [observed: titles "ITEMS" and "MISC"; the rest hypotheses]. The other
   half's title is its name for all items, else the category's name [hypothesis].
 - Names wrap onto a second line as the files say; a two-line row is 35 taller.
-- The pointer selects the row it moves onto and gives its half the focus; a click acts
+- The pointer selects the row it moves onto and gives its half the focus, and never
+  scrolls the list: a row half shown at the list's foot stays where it is when the pointer
+  takes it; only the wheel and the keys scroll [design: the owner's rule, playtest list 7
+  item 11; `MenuModel::pointer_pick`]. A click acts
   on the row (barter: chooses one unit for the trade, or takes it back; container: takes
   or stores one), Shift and a click the whole stack [design: the original asks how many
   with its quantity menu, not built]. The keys are listed in `menu.rs`'s notes: the
   hints' letters (A, X, R, E) as the screenshots show them, Esc and Tab to leave,
   `[` and `]` for the categories [design].
-- The item's picture and the WG and VAL tiles, and CND as a bar for weapons and
-  armour; WG has two decimals [observed]. The damage, resistance, strength, ammunition,
-  effects and mods tiles are not built.
+- The item's picture and its figures: the Pip-Boy ITEMS page's (pipboy.md §4–§5,
+  `nvf_play::pipboy::items::info_of` and `tiles_in`, the same `item_stats_display.xml`)
+  laid out in this menu's 530 × 120: DAM (weapons) or DT (armour), DPS over it, STR over
+  the value, CND as a bar for weapons and armour, the ammunition or armour class beside
+  it, the effects across [design: the owner's wish, playtest list 7 item 25]; WG and VAL
+  stay one unit's, WG with two decimals [observed], VAL at the unit's condition before
+  the trade's multiplier. Log `menu: figures of <item>: <tiles>`. The mods tile is not
+  built.
+- Currency (NCR notes, Legion coins) are the caravan money records (CMNY) that
+  inventories hold; their worth is their DATA "Absolute Value" (`Item::money`), the Value
+  of the MISC records of the same names [observed: FalloutNV.esm; playtest list 7 item
+  7].
 - The caps arrow and its figure are drawn at half brightness, as a disabled button is,
   while the side that pays holds fewer caps than the balance (Accept is then refused)
   [design: the owner's request].
@@ -189,7 +201,7 @@ screen's height):
   conversation].
 
 Not built: the quantity menu, the BarterExit lines merchants say when the menu closes
-(GECK wiki Service Tab), the blur, the item tiles listed above, the
+(GECK wiki Service Tab), the blur, the mods tile, the
 "Calculate Buy Price" perk entry point, repair at merchants, companions' inventories
 (OpenTeammateContainer).
 

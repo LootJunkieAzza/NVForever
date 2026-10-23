@@ -274,6 +274,43 @@ fn call(g: &mut Game, op: u16, on: Option<u32>, args: &[ArgValue]) -> f64 {
 
 const PLAYER: u32 = 0x14;
 
+/// Call a function as the character revision's script does (`fnv_game::revision`).
+fn call_as(g: &mut Game, unit: &str, op: u16, on: Option<u32>, args: &[ArgValue]) -> f64 {
+    let ctx = Ctx { unit: unit.into(), opcode: op, on: on.map(FormId), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    match g.call_function(&ctx, args) {
+        Value::Num(x) => x,
+        Value::Ref(f) => f as f64,
+    }
+}
+
+#[test]
+fn the_character_revision_keeps_level_perks_and_skill_points() {
+    let f = fixture();
+    let mut g = game(&f);
+    let av = |c: u16| ArgValue::Enum(c);
+    let (barter, perk) = (32u16, FormId(0x0009_0001));
+    g.player.level = Some(4);
+    g.player.xp = 600.0;
+    g.player.perks.insert(perk, 1);
+    g.player.skill_points.insert(barter, 10.0);
+    let before = call(&mut g, 0x100E, Some(PLAYER), &[av(barter)]);
+    let rev = fnv_game::revision::REVISION_UNIT;
+    call_as(&mut g, rev, 0x1133, Some(PLAYER), &[n(1.0)]);
+    call_as(&mut g, rev, 0x126D, None, &[]);
+    call_as(&mut g, rev, 0x11A8, Some(PLAYER), &[r(perk.0)]);
+    call_as(&mut g, rev, 0x100F, Some(PLAYER), &[av(barter), n(0.0)]);
+    call_as(&mut g, rev, 0x1177, None, &[n(600.0)]);
+    assert_eq!((g.player.level, g.player.xp, g.player.perks.get(&perk)), (Some(4), 600.0, Some(&1)));
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(barter)]), before);
+    // The same calls from any other script reset as the GECK wiki says.
+    call(&mut g, 0x1133, Some(PLAYER), &[n(1.0)]);
+    call(&mut g, 0x126D, None, &[]);
+    call(&mut g, 0x11A8, Some(PLAYER), &[r(perk.0)]);
+    call(&mut g, 0x100F, Some(PLAYER), &[av(barter), n(0.0)]);
+    assert_eq!((g.player.level, g.player.xp, g.player.perks.get(&perk)), (Some(1), 0.0, None));
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(barter)]), 0.0);
+}
+
 #[test]
 fn records_read_for_the_new_functions() {
     let f = fixture();

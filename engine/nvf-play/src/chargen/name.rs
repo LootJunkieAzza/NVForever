@@ -34,8 +34,9 @@ pub const OK: &str = "Ok";
 /// have the glow on the screenshot; hypothesis: font 1 is the default of a text the file
 /// gives no font]; Ok in font 2, a text box's default [documented: text_box.xml].
 ///
-/// How dark the box makes what is behind it: by eye, about the message box's.
-const SHADE: f32 = 0.85;
+/// How dark the box makes what is behind it: by eye, about the message box's; darker
+/// since the owner's playtest list 7 item 2 (`crate::interface::TOP_MENU_SHADE`).
+const SHADE: f32 = crate::interface::TOP_MENU_SHADE;
 
 /// The name menu's state.
 #[derive(Debug, Clone, PartialEq)]

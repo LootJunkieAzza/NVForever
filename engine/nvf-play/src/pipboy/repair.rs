@@ -25,7 +25,10 @@
 //! - The pointer [design: as the ITEMS list's rows, `items.rs`]: a row under the pointer is
 //!   chosen, a click on a row chooses it and a click on the chosen part uses it; a click on
 //!   "Cancel E)" goes back. Log: `pipboy repair: clicked row <n>`.
-//!   After a repair the ITEMS list comes back.
+//! - After a repair the list stays open on the same item for the next repair; it closes
+//!   (the ITEMS list comes back) when the item is at full condition or nothing is left to
+//!   repair it with, or on Cancel [owner's rule, playtest list 7 item 16]. Log
+//!   `pipboy repair: stays open: …` or `pipboy repair: closed: …`.
 //! - The repair list's rows are silent [documented: the template's `&nosound;`]; a repair
 //!   plays `UIRepairWeapon` (`crate::ui_sounds`, as the vendor's).
 //! - Test aid: the Pip-Boy aid's `repair=open|down|up|use|cancel` (`test_aid.rs`).
@@ -207,6 +210,17 @@ pub fn offer(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[
     Some(Offer { item, extra: target, name: crate::menu::model::display_name(forms, item), gear, condition, icon, parts })
 }
 
+/// The repair list after a repair raised the item to `to`: the same unit with what can
+/// still go into it, or `None` when the list closes: the item is at full condition or
+/// nothing is left to repair it with [owner's rule, playtest list 7 item 16: the list
+/// stays open for repeated repairs of the item; it also closes on Cancel].
+pub fn after_repair(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_list: &[FormId], o: &Offer, to: f32) -> Option<Offer> {
+    if to >= 1.0 {
+        return None;
+    }
+    offer(groups, forms, repair_list, o.item, Pick::row(Some(to), o.extra.mods), o.extra.equipped).filter(Offer::usable)
+}
+
 /// The ITEMS page's selected row's offer, now.
 pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptState>) -> Option<Offer> {
     let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
@@ -293,17 +307,33 @@ pub fn keys(
                     let taken: i32 = inv.take_at(part.item, 1, Pick::row(Some(part.condition), part.extra.mods)).iter().map(|g| g.1).sum();
                     taken == 1 && inv.set_condition_one(o.item, o.extra, to)
                 });
+                let mut next = None;
                 if done {
                     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                         rt.game.count_stat(fnv_game::misc_stats::ITEMS_REPAIRED, 1.0);
                     }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
+                    let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| fnv_game::functions::repair_list(&rt.game, o.item)).unwrap_or_default();
+                    let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
+                    let after = after_repair(&groups, sim.forms, &list, o, to);
+                    match &after {
+                        Some(n) => info!("pipboy repair: stays open: {} at {}%, {} part(s) left", n.name, fnv_combat::condition::percent(n.condition), n.parts.len()),
+                        None if to >= 1.0 => info!("pipboy repair: closed: {} is at full condition", o.name),
+                        None => info!("pipboy repair: closed: nothing left to repair {} with", o.name),
+                    }
+                    next = after;
                 } else {
                     info!("pipboy repair: {} with {}: the items are gone", o.name, part.name);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
                 }
-                repair.0 = None;
+                match next {
+                    Some(n) => {
+                        s.selected = s.selected.min(n.parts.len());
+                        s.offer = n;
+                    }
+                    None => repair.0 = None,
+                }
                 if let Some(m) = active.0.as_mut() {
                     if let Err(e) = m.refresh(&mut sim.world) {
                         warn!("pipboy repair: the list: {e:?}");
@@ -410,7 +440,7 @@ mod tests {
     fn store(items: &[(u32, ItemKind)]) -> FormStore {
         let mut f = FormStore::default();
         for &(id, kind) in items {
-            let it = Item { kind, value: Some(10), weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, quest_item: false, icon: None, placed_count: None, teaches: None, cant_be_taken: false };
+            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, quest_item: false, icon: None, placed_count: None, teaches: None, cant_be_taken: false };
             f.bases.insert(FormId(id), BaseForm { id: FormId(id), sig: *b"ARMO", edid: None, name: Some(format!("Item {id}")), script: None, prompt: None, data: BaseData::Item(it) });
         }
         f
@@ -445,6 +475,24 @@ mod tests {
         assert!(!offer(&full, &forms, &[], b, Pick::at(Some(1.0)), false).unwrap().usable());
         // Not a weapon or armour.
         assert_eq!(offer(&groups, &forms, &[], misc, Pick::ANY, false), None);
+    }
+
+    #[test]
+    fn the_list_stays_open_until_full_or_out_of_parts() {
+        let (a, b) = (FormId(1), FormId(2));
+        let forms = store(&[(1, ItemKind::Armor), (2, ItemKind::Armor)]);
+        let worn = Extra { equipped: true, ..at(0.5) };
+        let o = offer(&[(a, worn, 1), (b, at(0.4), 2)], &forms, &[b], a, Pick::at(Some(0.5)), true).unwrap();
+        // One of the two parts used, the item now at 0.7: one part left, the list stays.
+        let after = vec![(a, Extra { equipped: true, ..at(0.7) }, 1), (b, at(0.4), 1)];
+        let n = after_repair(&after, &forms, &[b], &o, 0.7).unwrap();
+        assert_eq!((n.condition, n.extra.equipped, n.parts.len()), (0.7, true, 1));
+        // The last part used: nothing left, the list closes.
+        let gone = vec![(a, Extra { equipped: true, ..at(0.9) }, 1)];
+        assert_eq!(after_repair(&gone, &forms, &[b], &n, 0.9), None);
+        // Full condition: the list closes though parts are left.
+        let full = vec![(a, Extra { equipped: true, ..Extra::default() }, 1), (b, at(0.4), 1)];
+        assert_eq!(after_repair(&full, &forms, &[b], &n, 1.0), None);
     }
 
     #[test]

@@ -759,6 +759,14 @@ impl Runtime {
                         g.emit(EventKind::ItemAdded { to: player, item, count, silent: false });
                         g.item_event(player, item, event::ON_ADD, Some(Value::Ref(player.0)));
                     }
+                    // A placed mine disarmed: its XP and the statistic, as
+                    // `Game::default_activation` gives them; this path (the player's
+                    // hand) gave neither (the owner's playtest list 7 item 23).
+                    if matches!(a.outcome, Outcome::Disarmed { .. }) {
+                        g.count_stat(fnv_game::misc_stats::MINES_DISARMED, 1.0);
+                        let x = fnv_game::experience::mine_disarm_xp(g);
+                        fnv_game::experience::award(g, fnv_game::experience::Source::DisarmMine, x);
+                    }
                     // Through a load door: the player's teammates come along
                     // (`fnv_game::followers`).
                     if matches!(a.outcome, Outcome::Teleported { .. }) {
