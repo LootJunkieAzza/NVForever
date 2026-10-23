@@ -7835,6 +7835,113 @@ Branch claude/l7-visuals-sound. Specs: [actors](spec-notes/actors.md) §2.3, §8
     give no sounds (ceiling turrets, trogs, a few quest creatures).
   - *Check:* a feral ghoul fight: footsteps, attack and chase voices, hit and death; a
     radscorpion's call when it notices you; whether anything now sounds twice.
+## Physics: steps, deaths, small creatures, cars (2026-10-23, list 7 W5)
+
+Branch claude/l7-physics; docs/spec-notes/physics.md §6.8.1, §6.10, §6.11.
+
+**Item 9, smooth height over steps and bumps.**
+- *Decision:* the body and the view are drawn with a "lift" that takes up what the feet
+  rose or fell in one physics step beyond walking a slope, and goes back to 0 as a
+  critically damped spring; the collision capsule, the feet, the reference position and
+  every ray stay exact. Players and walked actors both; actors standing still (no
+  character) are not smoothed.
+- *Guesses:* a step is 95 % climbed after about 0.19 s (ω = 25/s); changes up to 0.35 ×
+  the distance walked (about 19°), or up to the slope walked over the last 0.25 s, pass
+  at once; at most 24 units of lag; more than 48 in one step is a teleport (no smoothing).
+- *Check:* run along the Goodsprings road and up the camper steps south of town, first
+  and third person: is the climb smooth but not floaty? Does the body sink into or float
+  over a steep hill for a moment when the climb starts or ends?
+
+**Item 14, corpses gliding and the invisible push.**
+- *Cause found:* the AI stops moving a dead actor, but its physics character was kept
+  (it was only dropped when the actor stopped "travelling") and went on at its last
+  walking speed; the body is drawn at that character and its person-sized block pushed
+  the player. Now the character is taken away the frame after the death (also for
+  restrained and unconscious actors).
+- *Check:* kill charging geckos: the corpse should drop where it died, and nothing should
+  push you after the kill.
+
+**Item 35, the mantis nymphs in the Nevada Highway Patrol Station.**
+- *Cause found:* every walked actor had the player's capsule (22 wide, 129 tall), so a
+  nymph drawn 30 tall stood in the way as a person, and once its script killed it (within
+  50 units of the player) that person-sized character stayed behind (the item 14 bug).
+- *Decision:* actors drawn under 75 % of the player's height get a character of their own
+  size (as tall as drawn, at least 20; as wide as 0.17 × height, 10 to 22). Bigger
+  creatures keep the player's capsule (a bigger one would get stuck in doors).
+- *Not done:* the player does not climb *onto* a living small creature; it stops 32 units
+  from a nymph's middle, inside the 50 at which the nymph's script kills it, so in the
+  station it dies first. Say if you want small living creatures to be walked through.
+- *Check:* walk into the nymphs in the station: they die and you walk on over the spot.
+
+**Item 37, cars.**
+- *Cause found:* the cars are moveable statics (MSTT Car01–Car03) with one dynamic body of
+  600–1000 mass, so the list-5 fix for the motorcycles (STAT records are fixed) did not
+  cover them; the character pushed them by impulses and by solver contacts.
+- *Guess:* a character pushes no body heavier than 250 (the cars, the motorcycle body, a
+  500 car-hulk trunk); hulk doors, hoods and grills (25–175) and all clutter still give
+  way. Explosions, shots and grabbing still move the cars.
+- *Check:* run into the car south of Primm (Car02 0015206B): it should not move; does an
+  explosion next to one still rock it as the original does?
+## AI in the world: greets, captives, sleepers (2026-10-23, list 7 W6)
+
+Branch claude/l7-ai-world. Design notes: docs/design/actor-behaviour.md §5.6 (the
+paragraphs dated 2026-10-23).
+
+- **24 Johnson Nash under the loading screen.** *Cause:* the residents' AI ran under the
+  loading screen (only scripts were held), and Nash's Dialogue package
+  (PrimmNashDialogueGreeting, activate distance 1024, trigger box by the door) greeted at
+  once. *Fix:* the loading screen now holds `Game::loading`, which stops packages, force
+  greets, hellos and combat starts until it is down. *Check:* go into the Vikki and Vance
+  casino: Nash should greet only after the screen is gone.
+- **41/42 Davison and Harland through doors and walls.** *Records:* both are Dialogue
+  packages "case 2" (trigger location, wait location of radius 0), which talk as soon as
+  the player is within the activate distance: Davison 600, Harland 1200 units, measured
+  straight through walls. *Decision:* a force greet now also needs a clear line from the
+  actor to the player (walls and closed doors block it; the actor's facing does not
+  matter). The distances stay the records' (I did not shorten them). *Guess:* that the
+  original asks for the line and not for the actor's field of view. The greet settings
+  you named (fAIMinGreetingDistance etc.) are for hellos, not these packages. *Check:*
+  Davison should greet only once his door is open, Harland only once you can see him.
+  If the original also wants him to *see* you (facing), tell me.
+- **30 Deputy Beagle's captive marker.** *Cause:* his OnLoad block restrains him
+  (SetRestrained 1), and NVForever's AI ignored restrained actors entirely, so his Travel
+  package to FFCaptiveMarker ("Restrained Sit", 84 units from where he is placed) never
+  began. *Fix:* a restrained actor still picks its package (as the GECK wiki says) and
+  uses the furniture of a package whose place is within 256 units (my number), without
+  walking there. *Check:* Beagle sits tied on his marker; once freed he follows you.
+- **30 Gomorrah courtesans.** *Records:* their template's DefaultPatrolCasual patrols to
+  their linked DanceMarker03 references, which carry 800 s of patrol idle time.
+  *Decision:* a patrol point that is furniture is used for its idle time. *Guess:* that the
+  original uses it (the dance idles are conditioned on that furniture). *Check:* they
+  dance or lean on their markers in Gomorrah. (The courtesans *outside* Gomorrah were
+  handled before: their packages go straight to the marker.)
+- **31 Beagle's weapon while following.** *Confirmed from the records:* his follow
+  package PrimmBeagleFollow has only Defensive Combat and Continue During Combat, no
+  Weapon Drawn flag; the package that has him leave the hotel (PrimmDeputyLeaveBison) has
+  Always Run, Always Sneak and Pretend In Combat. So his weapon going out only when he
+  left the hotel matches the data; he should draw it when he fights. Nothing changed.
+- **32 Convicts at the Nevada Highway Patrol station.** *Records:* the two convicts the
+  ambush script enables there (VSpawnSpecialGangerPrimmAmbush01/02, script
+  VERT1PrimmJackalAmbushScript) are Aggressive, in VGSBanditFaction only (enemy of the
+  Mojave traveller merchants; no relation to the player), with a Weapon Drawn patrol to
+  the station, where the Jackals (Very Aggressive) are. By the records they attack their
+  enemies, not the player: no missed flag found, nothing changed. The Escaped Convicts
+  nearer Primm (PrimmPowderGangerOutside) are Very Aggressive and do attack the player.
+  *Check:* in the original, do the station convicts shoot at you unprovoked? If yes, tell
+  me what you did before (a reputation or a quest stage may be involved).
+- **34 Crucified Powder Gangers.** *Cause:* their Travel package goes to "Near linked
+  reference" (the cross, NVCrucifixFurniture) and the AI gave furniture only for packages
+  naming the reference directly, so they never got on the cross, were never restrained
+  by their script (which restrains them at GetSitting 3) and walked off. And the
+  crucifix's marker ID is 10, which NVForever counted as a bed (the catalogue says 1–10
+  are beds), so no getting-on clip was found. *Fix:* the linked reference counts, and
+  marker 10 is sat on (the crucifix's own idle group asks GetSitting 2/3/4; beds are 1–9
+  now). *Check:* they hang on their crosses in Nipton, scream and fidget, and stay.
+- **38 Talking to a sleeper.** *Decision:* activating an actor asleep in bed wakes it: it
+  gets off the bed, then the conversation starts (at most 8 s later); it stays up for 30
+  s of game time after (conversation time not counted), then goes back to bed. *Both
+  times are mine.* *Check:* talk to Easy Pete at night: does the original's sleeper also
+  go straight back to bed, and how soon?
 ## Explosions, falls, throws, traps, gore (2026-10-23, list 7 W3)
 
 Branch claude/l7-explosives. Items 19, 21, 22, 23, 26, 27, 29 of playtest list 7.
@@ -7849,7 +7956,7 @@ Branch claude/l7-explosives. Items 19, 21, 22, 23, 26, 27, 29 of playtest list 7
   - *Check:* step on a frag mine with god mode off at full health: how much is lost? Stand
     in front of Cook-Cook while he fires the Incinerator.
 - **21: fall damage.** damage = mult × (h − 600)^1.65 for a fall of h units onto land, none
-  into water (physics.md §6.10). 600 and 1.65 are the ESM's settings; the multiplier 0.0252
+  into water (physics.md §6.12). 600 and 1.65 are the ESM's settings; the multiplier 0.0252
   is fitted to the capture's three falls (the exe's own `fJumpFallHeightMult` cannot be
   read). So 700 units ≈ 50 health, 1,000 ≈ 500, 1,500 ≈ 1,860.
   - *Guesses:* h from the top of the fall (a jump's apex counts); armour does not reduce it;

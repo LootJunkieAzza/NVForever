@@ -471,6 +471,36 @@ fn character_pushes_dynamic_clutter() {
     assert!(w.ref_bodies(1)[0].translation[0] > 62.0, "{:?}", w.ref_bodies(1));
 }
 
+/// A car-sized body of a car's Havok mass does not give way to a character running
+/// into it (playtest list 7 item 37, physics.md §6.10); the character stops at it.
+#[test]
+fn character_does_not_push_heavy_bodies() {
+    let mut w = ground();
+    let car = CollisionObject { mass: 600.0, ..object(boxed([60.0, 120.0, 30.0]), Motion::Dynamic) };
+    w.add_ref(&at(1, [100.0, 0.0, 30.5]), &[car]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    let before = w.ref_bodies(1)[0].translation;
+    walk(&mut w, &mut c, [400.0, 0.0], 120);
+    let after = w.ref_bodies(1)[0].translation;
+    assert!((after[0] - before[0]).abs() < 0.5 && (after[1] - before[1]).abs() < 0.5, "{before:?} -> {after:?}");
+    assert!(c.feet[0] < 40.0 - c.params.radius + 1.0, "stopped at the body: {:?}", c.feet);
+}
+
+/// Asleep and resting a little into the ground (as placed cars are), a heavy body is not
+/// woken by a character running into it (it would rise out of the ground and slide).
+#[test]
+fn character_does_not_wake_a_heavy_body() {
+    let mut w = ground();
+    let car = CollisionObject { mass: 600.0, ..object(boxed([60.0, 120.0, 30.0]), Motion::Dynamic) };
+    w.insert_ref(fnv_phys::PreparedRef::new(&PhysParams::default(), &at(1, [100.0, 0.0, 28.0]), &[car]).asleep());
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    walk(&mut w, &mut c, [400.0, 0.0], 120);
+    let b = w.ref_bodies(1)[0];
+    assert!(b.sleeping && (b.translation[2] - 28.0).abs() < 0.01, "{b:?}");
+}
+
 #[test]
 fn activation_ray_skips_the_caster() {
     let mut w = ground();
