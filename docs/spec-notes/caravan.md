@@ -55,7 +55,11 @@ owner, 2026-10-19), 43 screenshots of a game against Ringo taken by the owner
   card forms (`PlayerState::caravan.cards`), saved with the game.
 - Ringo's Caravan Deck item (MISC `CaravanDeck`) moves every item of container 0x0015D8B1
   to the player the first time it is added [observed: `CaravanDeckScript`], so each of
-  those cards goes through the card script above.
+  those cards goes through the card script above. RemoveAllItems therefore runs OnAdd
+  on what it moves into a container (once per stack, as AddItem once per call)
+  [hypothesis: the GECK wiki's OnAdd runs when the object is added to a container; until
+  2026-10-23 NVForever ran none and the player owned 0 cards after Ringo's gift, owner's
+  playtest list 7 item 8].
 
 ## 3. The bet (first screen)
 

@@ -16,7 +16,25 @@
 //! [design]. While the simulation holds no inventory for the actor (its cell never
 //! loaded in the rules) the engine's own choice stays; it agrees with the rules' only
 //! where no leveled choice is random (`fnvtool actor appearance` "random": false)
-//! [observed]. Creatures are drawn as their records say and are not followed.
+//! [observed]. Creatures' bodies are drawn as their records say and are not followed;
+//! the weapon a creature holds is ([`arm_creatures`]).
+//!
+//! **Creatures' weapons** (owner's playtest list 7 item 39: a nightkin fought with its
+//! fists, not its rebar club). Super mutants and nightkin are creatures (CREA, type Super
+//! Mutant, on `creatures\smspinebreaker\skeleton.nif`) that carry weapons
+//! [observed: FalloutNV.esm, e.g. Davison 0x0007F8E1 carries CondNVBumperSwordLoot]; their
+//! skeleton folder has the people's weapon stances `2ha`, `2hh`, `2hl`, `2hm`, `2hr`,
+//! `1gt` and `h2h` (equip, aim, attack, reload clips) but no `1hm` or `1hp`
+//! [observed: `Fallout - Meshes.bsa` listing, 2026-10-23]. A creature now draws the weapon
+//! the rules have it hold (`fnv_sim::World::equipment`: the drawable weapon with the
+//! highest damage among what it carries, as for NPCs) whenever its skeleton folder has
+//! that weapon's stance, as an NPC's (`actors::arm_weapon`: holstered, drawn when
+//! alerted, its attack and reload clips from its own folder, `attack_anims.rs`), and
+//! fights with it (`npc_combat`: a creature with a weapon drawn swings or fires it, as
+//! an NPC) [design: which creatures draw is decided by the clips, not by the CREA "Weapon
+//! & Shield" flag, hypothesis]. A creature whose folder has no stance for its weapon keeps
+//! its own attack, as before. Its unarmed alert look (`creature_stance.rs`) gives way
+//! to the weapon's draw cycle.
 
 use bevy::prelude::*;
 use fnv_actor::{Appearance, Part};
@@ -36,7 +54,7 @@ pub struct OutfitsPlugin;
 
 impl Plugin for OutfitsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<OutfitStats>().add_systems(Update, follow_inventory).add_systems(Last, report);
+        app.init_resource::<OutfitStats>().add_systems(Update, (follow_inventory, arm_creatures.after(crate::creature_stance::StanceAttach))).add_systems(Last, report);
     }
 }
 
@@ -93,6 +111,17 @@ pub struct OutfitStats {
     pub weapons_off: usize,
     pub weapons_on: usize,
     pub parts_on: usize,
+    /// Creatures that took up a weapon ([`arm_creatures`]), and those whose skeleton has
+    /// no stance for the weapon they hold.
+    pub creatures_armed: usize,
+    pub creatures_no_stance: usize,
+}
+
+/// On a drawn creature [`arm_creatures`] has looked at: the weapon it was given (or
+/// could not be given) last.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CreatureArms {
+    pub weapon: Option<FormId>,
 }
 
 /// A drawn NPC whose outfit follows the rules: its root, rig, outfit, clips (none in the
@@ -216,6 +245,76 @@ fn follow_inventory(
     }
 }
 
+/// A drawn creature: its root, rig, clips, whether it is a corpse, and what it was armed with.
+type Armed<'w> = (Entity, &'w ActorRig, Option<&'w mut BlendPlayer>, Has<Corpse>, Option<&'w CreatureArms>);
+
+/// A creature takes up the weapon the rules have it hold, where its skeleton has that
+/// weapon's stance (module notes).
+#[allow(clippy::too_many_arguments)]
+fn arm_creatures(
+    mut commands: Commands,
+    world: Option<Res<ActorWorld>>,
+    sim: Option<Res<SimState>>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+    mut stats: ResMut<OutfitStats>,
+    mut actors: Query<Armed, (Without<Dressed>, Without<crate::locomotion::Dying>)>,
+    held: Query<(Entity, &HeldWeapon)>,
+    muzzles: Query<(Entity, &Muzzle)>,
+) {
+    let (Some(world), Some(sim)) = (world, sim) else { return };
+    if world.weapon_mode == crate::weapons::WeaponMode::None {
+        return;
+    }
+    for (entity, rig, mut player, dead, arms) in &mut actors {
+        if dead || rig.reference == FormId::PLAYER_REF.0 || !rig.skeleton.to_ascii_lowercase().contains("creatures") {
+            continue;
+        }
+        let Some(p) = player.as_deref_mut() else { continue };
+        let Some(items) = sim.world.equipment(FormId(rig.reference)) else { continue };
+        let weapon = items.iter().copied().find(|i| world.actors.weapons.get(i).is_some_and(fnv_actor::weapon::drawable));
+        let before = arms.and_then(|a| a.weapon);
+        if arms.is_some() && weapon == before {
+            continue;
+        }
+        commands.entity(entity).insert(CreatureArms { weapon });
+        if arms.is_none() && weapon.is_none() {
+            continue;
+        }
+        // The old weapon goes (model, muzzle, clips).
+        if before.is_some() {
+            for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
+                commands.entity(e).despawn();
+            }
+            for (e, _) in muzzles.iter().filter(|(_, m)| m.reference == rig.reference) {
+                commands.entity(e).despawn();
+            }
+            commands.entity(entity).remove::<WeaponHold>();
+            (p.layers[2], p.layers[3]) = (None, None);
+            info!("creature weapons: {:08X}: weapon {} no longer held", rig.reference, before.map_or(String::new(), |w| w.to_string()));
+        }
+        let Some(w) = weapon else { continue };
+        let mods = sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w));
+        let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+        let spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+        let mut st = ActorStats::default();
+        let name = world.actors.weapons.get(&w).and_then(|x| x.edid.clone()).unwrap_or_default();
+        let kind = world.actors.weapons.get(&w).and_then(|x| x.anim_type.clone()).unwrap_or_default();
+        match crate::actors::arm_weapon(&mut commands, &spawned, &rig.skel, &rig.skeleton, Some(w), mods, rig.reference, &world, &mut ctx, p, &mut st) {
+            Some(hold) => {
+                // Its unarmed alert look gives way to the weapon's draw cycle.
+                commands.entity(entity).remove::<crate::creature_stance::CreatureStance>().insert(hold);
+                stats.creatures_armed += 1;
+                info!("creature weapons: {:08X} ({}) holds {name} {w} ({kind}): put in its holster", rig.reference, rig.skeleton);
+            }
+            None => {
+                stats.creatures_no_stance += 1;
+                info!("creature weapons: {:08X} ({}) carries {name} {w} ({kind}) but its skeleton has no stance for it: it fights with its own attack", rig.reference, rig.skeleton);
+            }
+        }
+    }
+}
+
 /// Of the rules' equipped `items`, the armour drawn (each piece once) and the weapon held
 /// (the first that has a weapon record).
 fn drawn_of(world: &ActorWorld, items: &[FormId]) -> (Vec<FormId>, Option<FormId>) {
@@ -236,8 +335,8 @@ fn pipboy_of(world: &ActorWorld, a: &Appearance) -> bool {
 fn report(mut exit: MessageReader<AppExit>, stats: Res<OutfitStats>) {
     if exit.read().next().is_some() {
         info!(
-            "outfit summary: {} armour pieces taken off and {} put on, {} weapons taken off and {} put on drawn actors as the rules' equipped items changed; {} parts put on",
-            stats.armour_off, stats.armour_on, stats.weapons_off, stats.weapons_on, stats.parts_on
+            "outfit summary: {} armour pieces taken off and {} put on, {} weapons taken off and {} put on drawn actors as the rules' equipped items changed; {} parts put on; {} creatures took up a weapon, {} hold one their skeleton has no stance for",
+            stats.armour_off, stats.armour_on, stats.weapons_off, stats.weapons_on, stats.parts_on, stats.creatures_armed, stats.creatures_no_stance
         );
     }
 }

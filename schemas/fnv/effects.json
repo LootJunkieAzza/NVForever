@@ -1,6 +1,85 @@
 {
  "format": "fnv.schema/1",
  "types": {
+  "CameraShotData": {
+   "struct": [
+    {
+     "name": "action",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Shoot",
+       "1": "Fly",
+       "2": "Hit",
+       "3": "Zoom"
+      }
+     }
+    },
+    {
+     "name": "location",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Attacker",
+       "1": "Projectile",
+       "2": "Target"
+      }
+     }
+    },
+    {
+     "name": "target",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Attacker",
+       "1": "Projectile",
+       "2": "Target"
+      }
+     }
+    },
+    {
+     "name": "flags",
+     "type": {
+      "flags": "u32",
+      "bits": {
+       "0": "Position Follows Location",
+       "1": "Rotation Follows Target",
+       "2": "Don't Follow Bone",
+       "3": "First Person Camera",
+       "4": "No Tracer",
+       "5": "Start At Time Zero"
+      }
+     }
+    },
+    {
+     "name": "time_mult_player",
+     "type": "f32"
+    },
+    {
+     "name": "time_mult_target",
+     "type": "f32"
+    },
+    {
+     "name": "time_mult_global",
+     "type": "f32"
+    },
+    {
+     "name": "max_time",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "min_time",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "target_pct_between_actors",
+     "type": "f32",
+     "optional": true
+    }
+   ]
+  },
   "EfshBlend": {
    "enum": "u32",
    "values": {
@@ -413,6 +492,58 @@
      },
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas EFSH record (dev-4.1.6; blend, blend-operation and z-test values from wbBlendModeEnum, wbBlendOpEnum, wbZTestFuncEnum in wbDefinitionsCommon.pas; fields from element 57 on optional, SetOptionalFrom(57)) [documented]; meanings in docs/spec-notes/effect-shaders.md"
+    }
+   }
+  },
+  "CAMS": {
+   "name": "Camera Shot",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": "CameraShotData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CAMS record: the last three fields may be absent (7 required)"
+    },
+    "MNAM": {
+     "name": "Image Space Modifier",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CAMS record: IMAD"
+    }
+   }
+  },
+  "CPTH": {
+   "name": "Camera Path",
+   "confidence": "documented",
+   "subrecords": {
+    "ANAM": {
+     "name": "Related Camera Paths",
+     "type": {
+      "array": "formid",
+      "count": 2
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CPTH record: parent, previous sibling (CPTH or null)"
+    },
+    "DATA": {
+     "name": "Camera Zoom",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "Default",
+       "1": "Disable",
+       "2": "Shot List"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CPTH record"
+    },
+    "SNAM": {
+     "name": "Camera Shot",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CPTH record: repeated, each a CAMS"
     }
    }
   }

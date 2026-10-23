@@ -58,6 +58,12 @@ pub const CALM_SPIN: f32 = 0.6;
 pub const CALM_TIME: f32 = 1.5;
 pub const CALM_WINDOW: f32 = 0.25;
 
+/// A ragdoll still moving this many seconds after it started (or was roused) is set at
+/// rest where it is [engineering choice, a cost guard: two dozen mantis nymphs that died
+/// at the player's feet lay in a heap that never calmed, and the contact solver took
+/// 300 ms a frame (docs/design/frame-rate-audit.md §2)].
+pub const MAX_AWAKE: f32 = 3.0;
+
 pub const FELL_THROUGH: f32 = 150.0;
 pub const LIFT_ABOVE: f32 = 20.0;
 pub const MAX_LIFTS: u8 = 3;
@@ -80,6 +86,8 @@ pub struct Ragdolls {
     /// whose stored pose did not fit their skeleton.
     pub authored: usize,
     pub authored_skipped: usize,
+    /// Ragdolls set at rest by [`MAX_AWAKE`] while still moving.
+    pub held: usize,
     /// Per live ragdoll: its fastest bone's speed and spin over the last calm window, and the
     /// longest it has been calm ([`CALM_TIME`] sets it at rest), for the exit report of
     /// ragdolls that never came to rest.
@@ -178,7 +186,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0 })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0 })
     }
 }
 
@@ -228,6 +236,8 @@ pub struct Corpse {
     /// the seconds since.
     since: Vec<Option<Iso>>,
     window: f32,
+    /// Seconds awake since it started or was roused ([`MAX_AWAKE`]).
+    awake: f32,
 }
 
 impl Corpse {
@@ -335,6 +345,7 @@ fn start(
         c.calm = 0.0;
         c.since.clear();
         c.window = 0.0;
+        c.awake = 0.0;
         if asleep {
             ragdolls.restored += 1;
         } else {
@@ -435,7 +446,9 @@ pub(crate) fn pose(
             // Roused by a hit or a blast: calm from scratch.
             c.calm = 0.0;
             c.since.clear();
+            c.awake = 0.0;
         }
+        c.awake += time.delta_secs();
         c.window += time.delta_secs();
         if c.since.len() != now.len() {
             (c.since, c.window) = (now, 0.0);
@@ -459,6 +472,10 @@ pub(crate) fn pose(
         }
         if c.calm >= CALM_TIME || phys.world.ragdoll_asleep(id) {
             phys.world.set_ragdoll_at_rest(id);
+        } else if c.awake >= MAX_AWAKE {
+            phys.world.set_ragdoll_at_rest(id);
+            ragdolls.held += 1;
+            info!("ragdoll: actor {id:08X} held at rest still moving after {MAX_AWAKE} s (calm for {:.2} s)", c.calm);
         }
         let asleep = phys.world.ragdoll_asleep(id);
         if asleep && c.settled {
@@ -520,8 +537,8 @@ fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Optio
     }
     let (live, asleep) = phys.as_deref().map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
     info!(
-        "ragdolls: {} started, {} put back at rest, {} came to rest, {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
-        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.pushes, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
+        "ragdolls: {} started, {} put back at rest, {} came to rest ({} held at rest still moving after {MAX_AWAKE} s), {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
+        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.held, ragdolls.pushes, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
     );
     // Those still moving: how fast, and how near they came to resting.
     if let Some(p) = phys.as_deref() {

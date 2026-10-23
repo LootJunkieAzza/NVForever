@@ -195,6 +195,34 @@ pub struct AudioForms {
     pub spaces: BTreeMap<u32, AcousticSpace>,
     /// Regions naming any music, by FormID.
     pub regions: BTreeMap<u32, RegionMusic>,
+    /// Regions' sounds (REGN `RDSD`), by region FormID.
+    pub region_sounds: BTreeMap<u32, Vec<RegionSound>>,
+    /// DOBJ DATA, the default objects by their place in the list (0: none) [documented:
+    /// xEdit DOBJ]; the music among them: [`DEFAULT_DEATH_MUSIC`].
+    pub default_objects: Vec<u32>,
+}
+
+/// The DOBJ list's Death Music and Level Up Music places [documented: xEdit DOBJ].
+pub const DEFAULT_DEATH_MUSIC: usize = 11;
+pub const DEFAULT_LEVEL_UP_MUSIC: usize = 13;
+
+/// A sound a region plays now and then (REGN `RDSD` [documented: xEdit wbRegionSounds]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RegionSound {
+    pub sound: u32,
+    /// Weathers it plays in: 1 Pleasant, 2 Cloudy, 4 Rainy, 8 Snowy (the WTHR
+    /// classification bits).
+    pub weathers: u8,
+    /// Chance in percent (stored × 10,000, wbScaledInt4) [documented: xEdit].
+    pub chance: f32,
+}
+
+impl RegionSound {
+    /// Whether it plays in a weather of this classification (WTHR DATA flags); one naming
+    /// no weather plays in any [hypothesis].
+    pub fn plays_in(&self, classification: u8) -> bool {
+        self.weathers == 0 || self.weathers & classification != 0
+    }
 }
 
 fn text(v: Option<Value>) -> Option<String> {
@@ -220,7 +248,7 @@ impl AudioForms {
             let Some(d) = defs.last() else { continue };
             let pi = d.plugin as usize;
             let r = lo.records[pi][d.ordinal as usize];
-            if !matches!(&r.header.sig, b"MUSC" | b"MSET" | b"ALOC" | b"ASPC" | b"REGN") || r.header.flags & ref_flags::DELETED != 0 {
+            if !matches!(&r.header.sig, b"MUSC" | b"MSET" | b"ALOC" | b"ASPC" | b"REGN" | b"DOBJ") || r.header.flags & ref_flags::DELETED != 0 {
                 continue;
             }
             let Ok(f) = Fields::new(r, pi, schema) else { continue };
@@ -273,6 +301,22 @@ impl AudioForms {
                     if music.is_some() || incidental.is_some() || !battle.is_empty() {
                         out.regions.insert(g, RegionMusic { form_id: g, edid, music, incidental, battle });
                     }
+                    let mut sounds = Vec::new();
+                    for s in f.subs.iter().filter(|s| &s.sig == b"RDSD") {
+                        for e in s.data.as_chunks::<12>().0 {
+                            let word = |o: usize| u32::from_le_bytes([e[o], e[o + 1], e[o + 2], e[o + 3]]);
+                            if let Some(sound) = global(lo, f.plugin, word(0)).filter(|&x| x != 0 && word(0) != 0) {
+                                sounds.push(RegionSound { sound, weathers: (word(4) & 0xF) as u8, chance: word(8) as f32 / 10_000.0 });
+                            }
+                        }
+                    }
+                    if !sounds.is_empty() {
+                        out.region_sounds.insert(g, sounds);
+                    }
+                }
+                b"DOBJ" => {
+                    let data = f.subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
+                    out.default_objects = data.as_chunks::<4>().0.iter().map(|c| global(lo, f.plugin, u32::from_le_bytes(*c)).filter(|&x| x != 0).unwrap_or(0)).collect();
                 }
                 _ => {
                     let s = formids(&f, b"SNAM", lo);
@@ -461,6 +505,15 @@ pub fn marker_at(markers: &[AudioMarker], at: [f32; 3], enabled: impl Fn(&AudioM
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn region_sounds_play_in_their_weathers() {
+        let rainy = RegionSound { sound: 1, weathers: 4, chance: 40.0 };
+        assert!(rainy.plays_in(4) && rainy.plays_in(4 | 2));
+        assert!(!rainy.plays_in(1));
+        let any = RegionSound { weathers: 0, ..rainy };
+        assert!(any.plays_in(1) && any.plays_in(8));
+    }
 
     fn marker(ref_id: u32, x: f32, radius: f32) -> AudioMarker {
         AudioMarker { ref_id, cell: 1, position: [x, 0.0, 0.0], radius, name: None, controller: Some(9), use_controller_values: true, layer2_percent: 0.5, layer3_percent: 0.9, initially_disabled: false }

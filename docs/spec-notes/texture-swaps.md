@@ -73,10 +73,11 @@ textures come from a Texture Set (TXST) the record names per shape. ESM gap audi
   world, MODS for MODL, MO2S for armour's MOD2, MO4S for a weapon's MOD4
   (`BaseObject::world_alt_textures`).
 - Worn armour: MODS with the male model, MO3S when a female wears MOD3 (the male list
-  when she falls back to MODL). ARMA records are not drawn by NVForever, so their lists
-  are read but unused.
+  when she falls back to MODL). The armour addons a worn item's BIPL names (ARMA,
+  actors.md §2.3) are drawn since 2026-10-23 and take their MODL/MOD3 lists the same way.
 - Head parts (HDPT beards): MODS.
-- Weapons in the hand: the weapon's MODS in third person (NPCs and the player); in first
+- Weapons in the hand: the weapon's MODS in third person (NPCs and the player; MO4S when
+  it holds its MOD4, actors.md §9.3); in first
   person the MODS of the STAT WNAM names (its MODL is the model shown). A modded weapon's
   own model (MWD*/WNM*) takes no list [documented: xEdit has none beside them].
 - The `1stperson` texture fallback (first-person-textures.md §3) runs after the swap, on the

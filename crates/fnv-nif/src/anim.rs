@@ -357,8 +357,9 @@ pub struct Track {
     pub controller_type: Option<String>,
     pub priority: Option<i64>,
     pub data: TrackData,
-    /// The on/off values of a `NiBoolInterpolator` track (`data` is then `Other`): under
-    /// a `NiVisController`, whether the node is shown.
+    /// The on/off values of a `NiBoolInterpolator` (or `NiBoolTimelineInterpolator`)
+    /// track (`data` is then `Other`): under a `NiVisController`, whether the node is
+    /// shown.
     pub bools: Option<BoolTrack>,
     /// The controlled block's controller ID: which member of the target the controller
     /// drives, e.g. `SELF_ILLUM` under a `NiMaterialColorController`, `0-0-TT_TRANSLATE_U`
@@ -669,7 +670,10 @@ pub fn sequences(file: &crate::NifFile, dec: &Decoded) -> Vec<Sequence> {
                 },
             };
             let bools = match &data {
-                TrackData::Other(kind) if kind == "NiBoolInterpolator" => bool_track(dec, interp),
+                // NiBoolTimelineInterpolator is a NiBoolInterpolator with no fields of its
+                // own [documented: nif.xml, schemas/nif/anim.json]: six tracks of the base
+                // meshes' sequences use it.
+                TrackData::Other(kind) if kind == "NiBoolInterpolator" || kind == "NiBoolTimelineInterpolator" => bool_track(dec, interp),
                 _ => None,
             };
             let values = match &data {

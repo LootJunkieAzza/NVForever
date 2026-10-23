@@ -640,6 +640,43 @@ pub struct IngestibleDef {
 impl IngestibleDef {
     pub const FOOD: u8 = 2;
     pub const MEDICINE: u8 = 4;
+    /// ETYP Chems [documented: xEdit wbEquipTypeEnum].
+    pub const CHEMS: i64 = 10;
+}
+
+/// The places in the DOBJ list the game reads [documented: xEdit wbDefinitionsFNV.pas
+/// DOBJ, the list's names in order] (docs/spec-notes/default-objects.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefaultObject {
+    DeathMusic = 11,
+    LevelUpMusic = 13,
+    DrugWearsOffImageSpace = 20,
+}
+
+impl GameData {
+    /// A default object (DOBJ), when the list names one there.
+    pub fn default_object(&self, which: DefaultObject) -> Option<FormId> {
+        default_in(&self.default_objects, which)
+    }
+}
+
+/// The default object at `which`'s place in a DOBJ list.
+fn default_in(list: &[Option<FormId>], which: DefaultObject) -> Option<FormId> {
+    list.get(which as usize).copied().flatten()
+}
+
+#[cfg(test)]
+mod default_object_tests {
+    use super::*;
+
+    #[test]
+    fn default_objects_by_their_place() {
+        let list: Vec<Option<FormId>> = (0..34).map(|i| (i != 19).then_some(FormId(0x100 + i))).collect();
+        assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
+        assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
+        assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
+        assert_eq!(default_in(&[], DefaultObject::DeathMusic), None);
+    }
 }
 
 /// One effect of a magic item (EFID + EFIT + its CTDA) on ALCH, SPEL, ENCH and INGR
@@ -849,6 +886,9 @@ pub struct GameData {
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
     /// WATR XNAM: each water type's actor effect (`crate::radiation`).
     pub water_effects: HashMap<FormId, FormId>,
+    /// DOBJ DATA "Default Objects", by their place in the list ([`DefaultObject`])
+    /// [documented: xEdit DOBJ] (docs/spec-notes/default-objects.md).
+    pub default_objects: Vec<Option<FormId>>,
     /// WATR "Causes Damage" (FNAM bit 0) with its DATA damage: health a second lost in
     /// the water, by water type; only waters with the flag and a damage above 0
     /// (`crate::radiation`, docs/spec-notes/radiation.md §3.1).
@@ -1241,6 +1281,8 @@ struct Read {
     caravan_deck: Option<crate::caravan::DeckDef>,
     need_stage: Option<(u16, u32, FormId)>,
     water_effect: Option<FormId>,
+    /// DOBJ DATA: the default objects, by their place in the list (null: `None`).
+    default_objects: Option<Vec<Option<FormId>>>,
     /// A WATR's damage a second when it has "Causes Damage", else 0 (`Some` on every WATR).
     water_damage: Option<u16>,
     units: Vec<ScriptUnit>,
@@ -1339,6 +1381,7 @@ impl GameData {
             caravan_decks: HashMap::new(),
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
+            default_objects: Vec::new(),
             water_damage: HashMap::new(),
             radiation_markers: crate::radiation::markers(refs),
             class_services: HashMap::new(),
@@ -1585,6 +1628,9 @@ impl GameData {
             }
             if let Some(spell) = r.water_effect {
                 d.water_effects.insert(id, spell);
+            }
+            if let Some(list) = r.default_objects {
+                d.default_objects = list;
             }
             match r.water_damage {
                 Some(n) if n > 0 => {
@@ -1916,6 +1962,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     // A water type's actor effect: XNAM, a SPEL [documented: xEdit wbDefinitionsFNV.pas
     // WATR "Actor Effect"; observed: FalloutNV.esm's waters name WaterHeal1Purified …
     // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
+    if &sig == b"DOBJ" {
+        let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
+        out.default_objects = Some(data.as_chunks::<4>().0.iter().map(|c| Some(u32::from_le_bytes(*c)).filter(|&l| l != 0).and_then(map).map(FormId)).collect());
+    }
     if &sig == b"WATR" {
         out.water_effect = subs.iter().find(|s| &s.sig == b"XNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
         // "Causes Damage" is FNAM bit 0; the damage is DATA's u16, the whole of a 2-byte

@@ -173,11 +173,15 @@ fn test_panic() {
     });
 }
 
-/// The log plugin's extra layer: the same lines as the console, into the run log.
+/// The log plugin's extra layers: the same lines as the console, into the run log, and
+/// the span profile when it is asked for (profile.rs, `NVF_PLAY_TEST_PROFILE`).
 pub fn file_layer(_app: &mut App) -> Option<BoxedLayer> {
-    let log = RUN_LOG.get()?;
-    let writer = move || RunLogWriter(log);
-    Some(Box::new(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer)))
+    let file = RUN_LOG.get().map(|log| {
+        let writer = move || RunLogWriter(log);
+        Box::new(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer)) as BoxedLayer
+    });
+    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::profile::layer()).collect();
+    (!layers.is_empty()).then(|| Box::new(layers) as BoxedLayer)
 }
 
 /// One write to the run log (the layer makes one per line).

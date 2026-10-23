@@ -45,6 +45,25 @@ use nvf_play::script::ScriptState;
 /// hypothesis: the same share for every creature; why 0.70 is open, actors.md §8.10].
 pub const CREATURE_SPEED_FIT: f32 = 0.70;
 
+/// CREA DATA creature type code of feral ghouls [documented: xEdit wbCreatureTypeEnum,
+/// 5 Feral Ghoul].
+pub const FERAL_GHOUL: i64 = 5;
+
+/// A creature type's own share on top of [`CREATURE_SPEED_FIT`]: feral ghouls 1.25
+/// [design: the owner's playtest list 7 item 36, "feral ghouls run too slow from a guess
+/// want to move 25% faster"; the original could not be watched. With the fit a feral
+/// ghoul (`creatures\ghoul`, Speed Mult 100, scale 1) ran 269 units/s, below the
+/// player's 344, so a running player left every ghoul behind; with this share it runs
+/// 336, about the player's pace (observed in NVForever: smoke `combat-ghoul-lunge`,
+/// 2026-10-23)]; every other type 1.
+pub fn type_pace(creature_type: Option<i64>) -> f32 {
+    if creature_type == Some(FERAL_GHOUL) {
+        1.25
+    } else {
+        1.0
+    }
+}
+
 /// A creature's turn rate at scale 1, degrees per second, walking and standing; it
 /// scales with the creature's size [observed: the same observations' headings, 0.16 s
 /// apart: medium cazadors (scale 1) turned at up to 304 degrees a second, young ones
@@ -128,6 +147,8 @@ fn give_speeds(
             // leveled cazadors at the Tribal Village take theirs.
             let mult = game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok().filter(|v| *v > 0.0).map_or(100.0, |v| v as f32);
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
+            // Its type's own share (feral ghouls), as if its Speed Mult were that much higher.
+            let mult = mult * type_pace(game.creature_type(id));
             lo.pace = mult / 100.0 * CREATURE_SPEED_FIT;
             let calm = clip_speeds(&lo.stand, scale, mult, default);
             let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, default));
@@ -200,6 +221,13 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<PaceStats>) {
 mod tests {
     use super::*;
     use fnv_actor::locomotion::ClipInfo;
+
+    #[test]
+    fn feral_ghouls_run_a_quarter_faster() {
+        assert_eq!(type_pace(Some(FERAL_GHOUL)), 1.25);
+        assert_eq!(type_pace(Some(0)), 1.0);
+        assert_eq!(type_pace(None), 1.0);
+    }
     use nvf_assets::anim_play::{BoundClip, Clip};
     use std::sync::Arc;
 

@@ -43,6 +43,8 @@ const WATER1: u32 = 0x880;
 const CHEMIST: u32 = 0x890;
 const RESISTANT: u32 = 0x891;
 const LEAD_BELLY: u32 = 0x892;
+const MAGAZINE: u32 = 0x869;
+const BLOOD: u32 = 0x86A;
 
 const P: FormId = FormId::PLAYER_REF;
 const STRENGTH: u16 = 5;
@@ -70,6 +72,24 @@ fn mgef(fid: u32, edid: &str, flags: u32, archetype: u32, av: i32) -> Vec<u8> {
 /// EFID + EFIT (magnitude, area, duration, type Self, actor value).
 fn effect(base: u32, magnitude: u32, duration: u32, av: i32) -> Vec<fnv_esm::raw::Subrecord> {
     vec![sub(b"EFID", base.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[magnitude, 0, duration, 0]), av.to_le_bytes().to_vec()].concat())]
+}
+
+/// A condition `HasPerk perk == value` on the subject (function 449).
+fn has_perk(perk: u32, value: f32) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![0x00, 0, 0, 0];
+    d.extend(value.to_le_bytes());
+    d.extend(449u16.to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(perk.to_le_bytes());
+    d.extend([0; 12]);
+    sub(b"CTDA", d)
+}
+
+/// An effect with conditions after its EFIT.
+fn effect_if(base: u32, magnitude: u32, duration: u32, av: i32, conds: Vec<fnv_esm::raw::Subrecord>) -> Vec<fnv_esm::raw::Subrecord> {
+    let mut e = effect(base, magnitude, duration, av);
+    e.extend(conds);
+    e
 }
 
 /// ALCH with ETYP, DATA, ENIT (value, flags, withdrawal, addiction chance, sound) and effects.
@@ -135,6 +155,11 @@ fn plugin_bytes() -> Vec<u8> {
         alch(STEALTH, "StealthBoy", 0, 0, 0.0, vec![effect(CHAMELEON_FX, 75, 10, 49)]),
         alch(NUKA, "Nuka", 0, 0, 0.0, vec![effect(DAMAGE_RADS, 10, 0, 54)]),
         alch(BREAD, "Bread", 0, 0, 0.0, vec![effect(RESTORE_HUNGER, 30, 0, 74)]),
+        // A skill magazine: +1 Strength, +2 with the perk (as Programmer's Digest and
+        // Comprehension); a Blood Pack: 1 Health at once, 4 a second for 5 s more with the
+        // perk (as Hematophage).
+        alch(MAGAZINE, "Magazine", 0, 0, 0.0, vec![effect_if(MOD_STR, 1, 60, 5, vec![has_perk(RESISTANT, 0.0)]), effect_if(MOD_STR, 2, 60, 5, vec![has_perk(RESISTANT, 1.0)])]),
+        alch(BLOOD, "Blood", 0, 0, 0.0, vec![effect_if(RESTORE_HEALTH, 4, 5, 16, vec![has_perk(LEAD_BELLY, 1.0)]), effect(RESTORE_HEALTH, 1, 0, 16)]),
     ]
     .concat();
     let spels = [
@@ -507,4 +532,28 @@ fn buffout_raises_carry_weight() {
     assert_eq!(av(&mut g, 13), 220.0);
     g.frames(4 * 60 + 1);
     assert_eq!(g.world.encumbrance(P).unwrap().capacity, 200.0);
+}
+
+/// The EFFECTS preview: only the effects whose conditions pass, one entry per value, an
+/// effect over time counted whole, the item's potency (owner's playtest list 7 item 5).
+#[test]
+fn the_preview_keeps_the_effects_that_apply() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(g.aid_preview(P, FormId(MAGAZINE)), vec![(STRENGTH, 1.0)]);
+    assert_eq!(g.aid_preview(P, FormId(BLOOD)), vec![(HEALTH, 1.0)]);
+    g.player.perks.insert(FormId(RESISTANT), 1);
+    g.player.perks.insert(FormId(LEAD_BELLY), 1);
+    assert_eq!(g.aid_preview(P, FormId(MAGAZINE)), vec![(STRENGTH, 2.0)]);
+    assert_eq!(g.aid_preview(P, FormId(BLOOD)), vec![(HEALTH, 21.0)]);
+    // A Medicine item at Medicine 15: potency 1.3.
+    let stim = g.aid_preview(P, FormId(STIM));
+    assert_eq!(stim.len(), 1);
+    assert!(near(stim[0].1, 39.0), "{stim:?}");
+    // Chemist lengthens a chem's time, so its effect over time counts longer.
+    g.player.perks.insert(FormId(CHEMIST), 1);
+    assert_eq!(g.aid_preview(P, FormId(BLOOD)), vec![(HEALTH, 41.0)]);
+    // Nothing was used.
+    assert!(g.effects.is_empty());
+    assert_eq!(av(&mut g, STRENGTH), 5.0);
 }

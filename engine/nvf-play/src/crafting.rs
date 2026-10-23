@@ -73,8 +73,9 @@ const ICON_SIZE: f32 = 256.0;
 /// and the background fill alpha, 1144 by 970 from (-40, -105)]: faint, as the original's,
 /// which shows only the frame's lines over the world [observed: the owner's screenshot,
 /// 2026-10-19; the 0.75 of the other menus drew a dark box far past the frame]. The
-/// original also blurs the world behind the menu (not built).
-const SHEET_ALPHA: f32 = crate::interface::BACKGROUND_FILL_ALPHA;
+/// original also blurs the world behind the menu (not built). Ours darkens the whole
+/// screen as the character menus do: the owner found the world behind too bright for the
+/// text (playtest list 7 item 2, `crate::interface::top_menu_backing`) [design].
 /// A recipe that cannot be made yet: a little dimmer than one that can [observed: the
 /// owner's screenshots, where no recipe could be made, show the rows a shade under the
 /// titles; the brightness is a guess].
@@ -526,9 +527,8 @@ fn brackets(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, bottom: f32, t
 #[allow(clippy::too_many_arguments)]
 fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let left = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-MAIN.x / 2.0)), top: u((960.0 - MAIN.y) / 2.0), width: u(MAIN.x), height: u(MAIN.y), ..default() };
-    commands.spawn((RecipeRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(105))).with_children(|root| {
+    commands.spawn((RecipeRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing())).with_children(|root| {
         root.spawn(left).with_children(|m| {
-            m.spawn((at(-40.0, -105.0 + 40.0, 1144.0, 900.0), BackgroundColor(Color::BLACK.with_alpha(SHEET_ALPHA))));
             let bright = color(Shade::Bright);
             // The list's box: "◀ RECIPES ▶" in the top line.
             let tw = look.title.font.width(&v.title);

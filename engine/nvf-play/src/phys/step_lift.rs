@@ -1,0 +1,177 @@
+//! Drawn height smoothed over steps and bumps (owner's playtest list 7 item 9;
+//! docs/spec-notes/physics.md §6.11).
+//!
+//! The character controller moves a character's feet up a step or down off a bump in one
+//! fixed step, and the drawn ground under them (`super::drawn_sink`) can change height
+//! from one step to the next as well; drawn there, the body and the camera jumped by the
+//! same amount at once. A [`StepLift`] is how far a character is drawn above (or below)
+//! where its feet and drawn ground put it: what the drawn height changed by in one fixed
+//! step beyond what walking a slope gives is taken up into it, and it goes back to 0 as a
+//! critically damped spring, so the drawn height climbs the step smoothly. The feet, the
+//! collision capsule and every query stay where the controller has them [design].
+//!
+//! - **What counts as a slope**: per step, a change of at most the horizontal distance
+//!   walked × the slope the character has walked lately (filtered over
+//!   [`SLOPE_SECONDS`]), never less than [`BASE_SLOPE`], passes at once; only the rest is
+//!   smoothed. So a long hill is drawn as walked, without lag, and a step or a bump is
+//!   smoothed. In the air, swimming or put somewhere (a change over [`JUMP`]) nothing is
+//!   taken up.
+//! - **How fast** [design]: [`OMEGA`] (a step is about 95 % climbed after 0.19 s); never
+//!   more than [`MAX_LIFT`] either way.
+
+/// Steepest change per unit walked that passes unsmoothed on level ground [design: about
+/// 19°; the bumps of a road are steeper over one step].
+pub const BASE_SLOPE: f32 = 0.35;
+/// Time constant of the slope walked lately, seconds [design].
+pub const SLOPE_SECONDS: f32 = 0.25;
+/// The spring's angular frequency, 1/s [design].
+pub const OMEGA: f32 = 25.0;
+/// Most the drawn height may lag, game units [design: the controller's step height].
+pub const MAX_LIFT: f32 = 24.0;
+/// A change of the drawn height over this in one step is a placement, not a step: the
+/// lift goes back to 0 [design].
+pub const JUMP: f32 = 48.0;
+
+/// A character's drawn lift (see the module notes), stepped with its physics.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StepLift {
+    /// Drawn this far above the feet's drawn height after the last physics step.
+    pub lift: f32,
+    /// The lift before the last physics step (drawing between steps interpolates).
+    pub prev: f32,
+    rate: f32,
+    slope: f32,
+    /// Steps and drawn-ground changes taken up by more than half a unit, and the largest
+    /// lift (either way) since the start (for the exit report).
+    pub taken_up: u32,
+    pub most: f32,
+}
+
+impl StepLift {
+    /// One fixed step of `dt` seconds in which the feet's drawn height changed by `dz`
+    /// while they moved `horizontal` units; `on_ground`: on the ground before and after
+    /// it and not swimming.
+    pub fn step(&mut self, dz: f32, horizontal: f32, on_ground: bool, dt: f32) {
+        self.prev = self.lift;
+        if dz.abs() > JUMP {
+            self.reset();
+            return;
+        }
+        if on_ground {
+            if horizontal > 1e-3 {
+                let seen = (dz.abs() / horizontal).min(2.0);
+                self.slope += (seen - self.slope) * (dt / SLOPE_SECONDS).min(1.0);
+            }
+            let free = horizontal * BASE_SLOPE.max(self.slope);
+            let excess = dz - dz.clamp(-free, free);
+            self.lift -= excess;
+            self.taken_up += u32::from(excess.abs() > 0.5);
+        } else {
+            self.slope = 0.0;
+        }
+        // Critically damped towards 0: the exact solution over dt.
+        let (x, v, w) = (self.lift, self.rate, OMEGA);
+        let e = (-w * dt).exp();
+        let k = v + w * x;
+        self.lift = (x + k * dt) * e;
+        self.rate = (v - w * k * dt) * e;
+        if self.lift.abs() > MAX_LIFT {
+            self.lift = self.lift.clamp(-MAX_LIFT, MAX_LIFT);
+            self.rate = 0.0;
+        }
+        self.most = self.most.max(self.prev.abs());
+    }
+
+    /// Back to no lift (a placement), the tallies kept.
+    pub fn reset(&mut self) {
+        *self = StepLift { taken_up: self.taken_up, most: self.most, ..StepLift::default() };
+    }
+
+    /// The drawn ground under the feet moved by `dz` without the feet moving (after the
+    /// physics steps): taken up whole, as a step's excess.
+    pub fn ground_moved(&mut self, dz: f32) {
+        if dz.abs() > JUMP {
+            self.reset();
+            return;
+        }
+        self.taken_up += u32::from(dz.abs() > 0.5);
+        self.lift = (self.lift - dz).clamp(-MAX_LIFT, MAX_LIFT);
+        self.prev = (self.prev - dz).clamp(-MAX_LIFT, MAX_LIFT);
+    }
+
+    /// The lift between the last two physics steps, `alpha` of the way to the last.
+    pub fn at(&self, alpha: f32) -> f32 {
+        self.prev + (self.lift - self.prev) * alpha
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DT: f32 = 1.0 / 60.0;
+
+    /// Drawn height after each step: feet height plus lift.
+    fn walk(lift: &mut StepLift, heights: &[f32], horizontal: f32) -> Vec<f32> {
+        let mut out = Vec::new();
+        for w in heights.windows(2) {
+            lift.step(w[1] - w[0], horizontal, true, DT);
+            out.push(w[1] + lift.lift);
+        }
+        out
+    }
+
+    #[test]
+    fn a_step_up_is_climbed_smoothly_and_settles() {
+        let mut lift = StepLift::default();
+        // Walking level at 150 units/s, then a 10-unit step in one fixed step.
+        let mut h = vec![0.0; 30];
+        h.extend(std::iter::repeat_n(10.0, 60));
+        let drawn = walk(&mut lift, &h, 2.5);
+        let jumps: Vec<f32> = drawn.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        assert!(jumps.iter().all(|j| *j < 2.0), "largest drawn change in a step {:?}", jumps.iter().cloned().fold(0.0, f32::max));
+        assert!((drawn[29 + 12] - 10.0).abs() < 1.0, "most of the way after 0.2 s: {}", drawn[41]);
+        assert!(lift.lift.abs() < 0.01, "settled: {}", lift.lift);
+    }
+
+    #[test]
+    fn a_steady_slope_is_drawn_as_walked() {
+        let mut lift = StepLift::default();
+        // Running 6 units a step up a 45° slope for two seconds.
+        let h: Vec<f32> = (0..120).map(|i| i as f32 * 6.0).collect();
+        walk(&mut lift, &h, 6.0);
+        assert!(lift.lift.abs() < 0.5, "lag on the slope: {}", lift.lift);
+    }
+
+    #[test]
+    fn a_bump_while_running_is_smoothed() {
+        let mut lift = StepLift::default();
+        // Level running, then a 4-unit bump up and down again, one step each.
+        let mut h = vec![0.0; 30];
+        h.extend([4.0, 4.0, 0.0]);
+        h.extend(vec![0.0; 30]);
+        let drawn = walk(&mut lift, &h, 6.0);
+        let top = drawn.iter().cloned().fold(0.0, f32::max);
+        assert!(top < 3.0, "the drawn body rose {top} of the 4");
+    }
+
+    #[test]
+    fn falls_and_placements_are_not_smoothed() {
+        let mut lift = StepLift::default();
+        lift.step(-10.0, 2.0, true, DT);
+        assert!(lift.lift > 5.0);
+        lift.step(-300.0, 0.0, true, DT);
+        assert_eq!((lift.lift, lift.prev, lift.taken_up), (0.0, 0.0, 1));
+        lift.step(-20.0, 2.0, false, DT);
+        assert_eq!(lift.lift, 0.0, "in the air the drawn height follows the feet");
+    }
+
+    #[test]
+    fn a_change_of_the_drawn_ground_is_taken_up_and_interpolated() {
+        let mut lift = StepLift::default();
+        lift.ground_moved(3.0);
+        assert_eq!((lift.prev, lift.lift, lift.taken_up), (-3.0, -3.0, 1));
+        lift.step(0.0, 0.0, true, DT);
+        assert!(lift.at(0.0) < lift.at(1.0) && lift.at(1.0) < 0.0);
+    }
+}

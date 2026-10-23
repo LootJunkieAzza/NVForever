@@ -2107,6 +2107,125 @@ deep, then a 20-unit step onto the camper's floor (6182-6190), headroom about 15
   `character_climbs_shallow_steps_without_jumping`; the lab's `L4.phys.walk.*` 9/10 as on
   main (`portal_wall` 5/6, the accepted residual); smoke scenario `camper-steps`.
 
+### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
+
+- **Item 14** [observed: owner, "bodies glide along the floor ... like they are still
+  following their last pathfinding movement", and an invisible collision pushed the
+  player after killing a charging creature]. **Cause** [observed in the code]: the
+  residents keep a character for an actor while its activity is Travelling; the AI stops
+  stepping a dead actor (`fnv_ai` `step_actor_inner` returns for the dead, restrained and
+  unconscious), so its activity stayed Travelling, its character stayed in
+  `PhysState::npcs` and was moved at every fixed step by the velocity of the last walk;
+  the body is drawn at its character (`npc_drawn_feet`) and the character is a block in
+  the player's way (§6.8: the characters' blocks were made for every character, dead or
+  not). **Now** the residents take away the character of an actor that is dead,
+  restrained or out cold in the frame after it happens (log line `ai [..] <name> <id>:
+  its character stops (dead, restrained or out cold) at (..), walking at N units/s`); the
+  body stays where it is drawn and the ragdoll (ragdoll.md) takes over there. Smoke
+  `death-stops-character`.
+- **Item 35** [observed: owner; the nymphs `NVCrGiantMantisNymph` 0x000EF411 in
+  `SLNHPStationINT`, Base Scale 0.3, OBND 132 × 102 × 99 unscaled, script
+  `CrGiantMantisNymphScript` 0x000EF407: in an interior, `GetDistance player < 50` →
+  `KillActor player`; `fnvtool esm decode`, `script decompile`]. **Cause** [observed: the
+  code, and a run with the player run north from (2380, 1840) at the nymph 0x00153386:
+  it ran at the player, died by its script at once, and the player then stopped at y
+  2017, 19 units short of the wall at 2058; that the dead nymph's character stopped it
+  is [hypothesis]]: every character the residents made was the
+  player's capsule (radius 22, 128.9 tall), so a nymph walked near the player stood in
+  the way as a person, and once it died that person-sized character stayed where it
+  was (item 14). **Now**: the dead have no character (above), and an actor drawn under
+  0.75 of the player's height gets a character of its own size (`phys::npc_params`): as
+  tall as its drawn bounds (at least 20) and as wide as its block (0.17 of the height,
+  at least 10, at most the player's 22) [design]; larger actors keep the player's capsule
+  (a wider one would not fit the doors and paths they walk). The ragdolls of the dead
+  never met the player (ragdoll.md). Smoke `mantis-nymph-step-on`. Not done: the player
+  does not step *onto* a living small creature (its block stops the player at 32 units
+  from a nymph; the nymph's own script kills it at 50, so in that cell this never shows).
+
+### 6.10 Heavy bodies do not give way to characters (playtest list 7 item 37, 2026-10-23)
+
+The cars could be pushed by running into them; the owner reports that in the game they
+do not move [observed: owner]. They are moveable statics (MSTT `Car01`, `Car02`,
+`Car03`, 48 placed in WastelandNV) whose models each have one dynamic body on the Props
+layer, Havok mass 600, 1000 and 800 [observed: `fnvtool esm decode`, `fnvtool world
+refs`, `fnvtool collide objects --filter vehicles\`], so §4.3.2's rule for statics does
+not apply. A character pushed them two ways: rapier's controller impulses
+(`solve_character_collision_impulses`, push mass 80) and the solver's contacts between
+the character's kinematic body and the dynamic body (a 600-unit box of a car's size was
+moved 6.7 units by a run into it with the impulses off) [observed: test
+`character_does_not_push_heavy_bodies`].
+
+- **Now** [design; what the game's character does to a heavy body is not captured]: a
+  dynamic body heavier than `PUSH_MAX_MASS` = **250** gets no impulse from a character
+  and no contact pair with the characters' kinematic bodies (collision and solver group
+  `CHARACTER_SOLVER` left out of its filters), so a touch neither shoves nor wakes it
+  (the Car02 0x0015206B south of Primm still rises 3.4 and slides 2.5 units, 4.1 in
+  all, when the player runs at it, the same with the forces off and with the contacts
+  off, and stays put with nobody near [observed: smoke `car-not-pushed` and two runs,
+  2026-10-23]: it wakes and comes out of the ground it is placed a little into; that
+  the raven perched on its roof, 0x0017467E, wakes it is [hypothesis]); queries
+  test no groups, so the controller stops at it as at a wall. Shots, explosions, grabs
+  and other bodies still move it. Light clutter (the `pc_push` trials, a few units of
+  mass) is pushed as before.
+- Bodies over 250 among the vehicles: the car bodies, the motorcycle (600; its STAT is
+  fixed anyway), `Car01HulkTrunk` (500), `TruckFlatbed`/`Truck0x`/`NV_FireTruck` (static
+  already). Hulk doors, hoods and grills (25-175) stay pushable.
+- The exit report lists every placed dynamic body physics has moved
+  (`physics: placed <id> moved by physics: D units from where it was added, at exit`).
+  Smoke `car-not-pushed`.
+
+### 6.11 Drawn height over steps and bumps (playtest list 7 item 9, 2026-10-23)
+
+The owner found the character "way too flickery when going over small bumps in a road":
+the body jumped up and down at once with each change of height [observed: owner]. The
+controller moves the feet up a step or down off a bump within one fixed step (rapier's
+autostep, `step_up_move` §6.9, the snap down of §6.4.2), and the drawn ground under the
+feet (`drawn_sink`, floating-actors.md §6-7) changes height from one step to the next
+over models with drawn floors; the body, and the view that is the body's eye, were drawn
+there at once.
+
+**Now** [design; `engine/nvf-play/src/phys/step_lift.rs`]: every character (the player
+and the actors the controller walks) has a drawn lift. In each fixed step on the ground,
+the change of the feet's height beyond the horizontal distance walked × the slope
+walked lately (filtered over 0.25 s, at least 0.35, about 19°) is taken into the lift
+with the opposite sign, so the drawn height does not jump; a change of the drawn ground
+is taken in whole. The lift goes back to 0 as a critically damped spring (ω = 25/s: a
+step is 95 % climbed after about 0.19 s), at most 24 units either way; a change over 48
+units in a step (a placement), the air and swimming take nothing in. The feet, the
+capsule, the reference's position and every query stay where the controller has them;
+the player's body, its first- and third-person view and the actors' drawn bodies use
+the lift (`PhysState::drawn_lift_of`, `npc_drawn_feet`). A long hill is drawn as walked
+(the slope filter); the first quarter second of a steep climb lags a few units. The exit
+report says how many steps the player's lift took in and its largest value; smoke
+`camper-steps`.
+### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
+
+- **Settings** [observed: FalloutNV.esm GMST]: `fJumpFallHeightMin` 600,
+  `fJumpFallHeightExponent` 1.65, `fJumpFallVelocityMin` 2785. No plugin sets
+  `fJumpFallHeightMult` (an exe setting; its value is not read, the exe is encrypted).
+- **Measured** [observed: capture `sw_fall_breath`, §6.6]: land falls of 695.6, 1495.4 and
+  2995.3 units (start feet to landing feet) cost 46.7, 1858.6 and 9419.6 health; 300 cost
+  nothing; no fall into water cost anything.
+- **Rule built**: damage = `fJumpFallHeightMult` × (h − `fJumpFallHeightMin`)^
+  `fJumpFallHeightExponent` for a landing on land from h units above, none at or below
+  the minimum [hypothesis: the formula's shape is the fit k·(h − 600)^1.65 of the three
+  falls, within 0.8 %, and the link to the settings is from their names]. The factor
+  defaults to the fitted 0.0252 [observed fit] when no plugin sets `fJumpFallHeightMult`.
+  h runs from the highest point of the fall (the feet's since leaving the ground, so a
+  jump's apex counts) to the landing [hypothesis: the capture's falls started at rest].
+  A character put somewhere else in mid-air (a teleport, `SetPos`) falls from there
+  [design]. Entering water ends the fall without damage [observed].
+- **Applied** as a hit with no attacker and no body part through the combat hit path (god
+  mode spares the player; death as from any hit). Armour does not reduce it and no limb
+  is damaged [hypothesis: unmeasured]. `fJumpFallVelocityMin` is not used (what it
+  limits is open).
+- **Who**: the player, and the NPCs whose characters the physics walks
+  (`PhysState::npcs`) by the same rule [hypothesis: no NPC-specific fall setting exists in
+  FalloutNV.esm]. Actors moved by other systems (nav travellers, ledge jumps,
+  actor-jumps.md) take none.
+- **Checked**: unit tests in `falls.rs` (the capture's three falls within 1 %; the apex;
+  water; a mid-air placement), smoke `falls-player`.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>

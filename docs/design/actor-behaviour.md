@@ -531,6 +531,46 @@ conversation (…), line …` instead, and both end with `… has talked (…)`.
   across the room while she came (`NVF_PLAY_TEST_GOTO`), she turned after them and
   greeted from 253 units.
 
+**Sight and loading screens** (2026-10-23, owner's playtest list 7 items 24, 41/42):
+- A force greet (not a Say To line) needs a clear line from the actor to the player:
+  nothing solid, a wall or a closed door, between them at the engine's last detection
+  measurement of the pair (`Detection::clear`, the line-of-sight ray of
+  `nvforever` detection.rs, whichever way the actor faces) [owner statement: Davison in
+  the REPCON basement greeted the player through his closed door (Dialogue package
+  REPCONDavisonDialogPackage, activate distance 600, trigger location with a wait
+  location of radius 0: case 2 above), Harland through a wall (REPCONHarlandDialogPackage,
+  activate distance 1200, the same case); "the door must block it"; hypothesis: the
+  original asks for the line and not the field of view]. A pair not measured holds the
+  greet back while the engine measures the player at all; without measuring (headless,
+  `tdetect`, `NVF_PLAY_TEST_UNSEEN`) sight holds nobody back (`Game::greet_sight`). The
+  actor waits where it is (at the end of its walk, or at its wait location), logged once:
+  `… waits to talk to 0x00000014 (…): 586 units away, with something solid between`.
+  The activate distances stay the records' (Davison 600, Harland 1200): the line is what
+  was missing, not a shorter distance [decision].
+- Nobody acts under a loading screen: while `nvf_play::loading` holds the screen up the
+  script runner sets `Game::loading`, which holds the residents (packages, force greets,
+  hellos, combat), as menus and conversations do [owner: Johnson Nash greeted the player
+  entering the Vikki and Vance casino with the screen still up; his package
+  PrimmNashDialogueGreeting has activate distance 1024 and a trigger box by the door].
+  Smoke: `force-greet-door`, `force-greet-after-loading`.
+
+**Restrained actors and furniture** (2026-10-23, list 7 items 30, 34): a restrained actor
+(SetRestrained 1) still picks its package but does not move [documented: GECK wiki
+SetRestrained]: a new package whose place is within `RESTRAINED_REACH` (256 units, our
+choice) counts as reached, and the furniture it gives is used (Deputy Beagle on
+FFCaptiveMarker in the Bison Steve hotel); farther, it stays. Released, its package
+begins again. A package placed at "Near linked reference" whose linked reference is
+furniture gives that furniture, as a specific reference does (the crucified Powder
+Gangers' crosses in Nipton). A patrol point that is furniture is used for the point's
+idle time (Gomorrah's courtesans on DanceMarker03, 800 s) [hypothesis]. Smoke:
+`restrained-furniture`, `crucified-stay`, `patrol-point-furniture`.
+
+**Talking to a sleeper** (list 7 item 38): the player activating an actor asleep in its
+bed (GetSleeping 3) wakes it (`Game::wake`): it gets off the bed and the conversation
+starts once it is off (at most 8 s later); it stays up for 30 s of game time (the
+conversation's own time not counted), then its package takes it back to bed [our
+choice: both times]. Smoke: `wake-to-talk`.
+
 ### 5.7 Pushed aside (2026-10-10, owner request)
 
 A standing actor gives way to one that walks into it (the rule, who pushes and how far:

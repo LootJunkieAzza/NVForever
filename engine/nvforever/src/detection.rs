@@ -125,7 +125,7 @@ pub struct DetectionPlugin;
 impl Plugin for DetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DetectionState>()
-            .add_systems(Update, measure.after(nvf_play::PlaySet::Scripts))
+            .add_systems(Update, measure.after(nvf_play::PlaySet::Scripts).before(crate::residents::drive))
             .add_systems(Last, report);
     }
 }
@@ -414,6 +414,12 @@ fn measure(
         if let (false, Some(by)) = (h.died, h.by) {
             state.hits.push((h.form_id, by.0));
         }
+    }
+    // Whether the actors' sight of the player is measured: force greets ask for it
+    // (`Game::greet_sight`). Told every frame, so that it holds from the first frame the
+    // residents run, before the first measurement.
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.detection.measures_player = !(unseen() || rt.game.toggles.detection_off);
     }
     let now = time.elapsed_secs();
     if now < state.next {

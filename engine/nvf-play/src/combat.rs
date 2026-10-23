@@ -158,6 +158,12 @@ pub struct WeaponAnim {
     /// Counted up by combat when a weapon starts to spin up: the body plays the attack
     /// clip from its start, and the first shot follows at the clip's `Fire` key.
     pub spin_ups: u32,
+    /// Counted up by combat when a pull starts a shot that leaves later, at the attack
+    /// clip's `Hit` key (a thrown weapon's release, a gun's shot after its wind-up): the
+    /// body plays the attack clip from its start then, and the shot that follows does not
+    /// start it again (the owner's playtest list 7 item 22: the clip used to start at the
+    /// shot, so dynamite waited, left, and only then was lit and thrown).
+    pub wind_ups: u32,
     /// Set by combat: the weapon's jam animation (`JamA` for reload animation
     /// `ReloadA`: the game's `1hpjama.kf` beside `1hpreloada.kf` [observed: file lists]),
     /// and counted up when a shot jams the weapon; the body plays the jam clip.
@@ -851,6 +857,16 @@ pub struct Combat {
     /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
     /// leave the shots' rolls as they were.
     spent_rng: SplitMix,
+    /// A reload ended and no shot has been fired since (No Jam After Reload).
+    pub fresh_reload: bool,
+}
+
+impl Combat {
+    /// Whether the player's flinch (a staggering hit, [`player_flinch`]) still plays: the
+    /// player does not walk meanwhile (`crate::player::flinch_holds_walk`).
+    pub fn player_flinching(&self) -> bool {
+        self.time < self.flinch_until
+    }
 }
 
 impl Combat {
@@ -1319,6 +1335,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         script_shots: Vec::new(),
         guarding: HashMap::new(),
         blocked_blows: Vec::new(),
+        fresh_reload: false,
         guard_down_until: 0.0,
         marks: Vec::new(),
         rng: SplitMix(1),
@@ -1553,8 +1570,16 @@ fn ghosts(script: Option<&ScriptState>) -> Vec<ActorId> {
 }
 
 fn view(phys: &mut PhysState, ghosts: Vec<ActorId>) -> PhysView<'_> {
-    let actors: Vec<(ActorId, V3, f32)> =
+    let mut actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
+    // The player has no hit volume (its capsule is its body), so it was never among the
+    // actors a blast reaches: mines, grenades and an NPC's incinerator did it no harm
+    // (the owner's playtest list 7 items 19 and 29). Its capsule's middle stands in for
+    // it; swings and proximity fuses skip their own attacker, so only others' reach it.
+    if let Some(ch) = phys.player.as_ref() {
+        let h = ch.params.height.max(0.0);
+        actors.push((PLAYER, [ch.feet[0], ch.feet[1], ch.feet[2] + h / 2.0], ch.params.radius));
+    }
     let player = phys.player.as_ref().map(|c| c.key());
     let npcs = phys.npcs.values().map(|b| b.ch.key()).collect();
     let aims = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
@@ -1631,13 +1656,15 @@ fn entry_ops(g: &mut fnv_game::Game, owner: FormId, points: &[u8], tabs: &[Optio
 /// the tabs Weapon and Target; the target's change to the attacker's critical chance
 /// (Weapon, then the attacker [hypothesis: the second tab]) and its own DT (Attacker,
 /// Attacker's weapon) [documented: GECK wiki GetPerkModifier, the entry functions'
-/// arguments]. Only the player has perks; without a script runtime, none.
+/// arguments]. Only the player and its teammates have perks (a teammate the teammate
+/// perks, `fnv_game::Game::held_perks`); without a script runtime, none.
 fn hit_perks(script: Option<&mut ScriptState>, sim: &mut SimState, attacker: FormId, weapon: FormId, target: Option<FormId>) -> (damage::EntryOps, damage::EntryOps) {
     use fnv_game::perks as p;
-    if attacker != FormId::PLAYER_REF && target != Some(FormId::PLAYER_REF) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Default::default() };
+    let holds = |r: FormId| r == FormId::PLAYER_REF || rt.game.is_teammate(r);
+    if !holds(attacker) && !target.is_some_and(holds) {
         return Default::default();
     }
-    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Default::default() };
     with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let mine = [p::CALCULATE_WEAPON_DAMAGE, p::CALCULATE_MY_CRITICAL_HIT_CHANCE, p::CALCULATE_MY_CRITICAL_HIT_DAMAGE, p::MODIFY_DAMAGE_THRESHOLD_ATTACKER];
@@ -1832,7 +1859,18 @@ pub(crate) fn fire(
     }
     let total = if c.self_ammo { player_count(&sim, Some(id)) } else { player_count(&sim, c.ammo) };
     let carried = total.saturating_sub(cycle.magazine);
+    let was_winding = matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. });
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt, carried });
+    // A pull whose shot waits for the clip's `Hit` key: the clip starts now (`wind_ups`).
+    if !was_winding && cycle.timing.fire_delay > 0.0 && matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. }) {
+        anim.wind_ups += 1;
+        let what = if c.self_ammo { "throw" } else { "shot" };
+        if c.self_ammo {
+            info!("combat: {} winds up, the {what} leaves at the clip's Hit key in {:.2} s", w.edid.as_deref().unwrap_or("?"), cycle.timing.fire_delay);
+        } else {
+            debug!("combat: {} winds up, the {what} leaves at the clip's Hit key in {:.2} s", w.edid.as_deref().unwrap_or("?"), cycle.timing.fire_delay);
+        }
+    }
     let chain = c.forms.chain_with(id, &w, c.ammo);
     // The cone a shot would leave in now, for the crosshair (bloom included).
     {
@@ -1868,6 +1906,9 @@ pub(crate) fn fire(
                 }
                 if c.self_ammo && !god {
                     let _ = sim.world.remove_item(FormId::PLAYER_REF, id, 1);
+                }
+                if c.self_ammo {
+                    info!("combat: {} leaves the hand {:.2} s into the attack clip", w.edid.as_deref().unwrap_or("?"), cycle.timing.fire_delay);
                 }
                 // The weapon's OnFire blocks (the detonator's DetonatePlacedExplosives),
                 // and the player's Attack or FireExplosive line (a thrown weapon).
@@ -2019,13 +2060,18 @@ pub(crate) fn fire(
                     // Worn below the jamming mark, the shot may jam it (item 9): the jam
                     // clip plays and nothing fires until it ends. Weapons that use ammo
                     // only; a thrown one spends itself [design].
-                    let jams = vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
+                    // The first shot after a reload of a weapon flagged No Jam After Reload
+                    // does not jam [documented: the flag's name; hypothesis: the first shot;
+                    // docs/spec-notes/item-fields.md §1].
+                    let fresh = std::mem::take(&mut c.fresh_reload) && w.has_flag("No Jam After Reload");
+                    let jams = !fresh && vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
                     let points = condition::weapon_wear(&c.rules, &w, &effects);
                     if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
                         break;
                     }
                     if jams {
-                        let secs = anim.timing.jam_len.unwrap_or(c.tuning.jam_fallback);
+                        // The jam clip's length, else the weapon's Jam Time, else the default.
+                        let secs = anim.timing.jam_len.or(Some(w.jam_time).filter(|&t| t > 0.0)).unwrap_or(c.tuning.jam_fallback);
                         cycle.jam(secs);
                         anim.jams += 1;
                         stats.jams += 1;
@@ -2053,6 +2099,7 @@ pub(crate) fn fire(
             }
             Event::Reloaded { taken } => {
                 stats.reloads += 1;
+                c.fresh_reload = true;
                 info!("combat: reloaded {taken}, magazine {}", cycle.magazine);
             }
             Event::DryFire => {
@@ -2074,7 +2121,7 @@ pub(crate) fn fire(
 /// The target's DT and DR from the armour it wears (its carried ARMO by the wearing rule).
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
 /// Each piece protects by its condition (§17).
-fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
+pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
     let (dt, dr) = c.forms.armor_values_worn(&worn_armor(&c.forms, sim, target));
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).
@@ -3116,7 +3163,7 @@ fn fly(
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
         for b in hits {
-            let target = FormId(b.actor as u32);
+            let target = if b.actor == PLAYER { FormId::PLAYER_REF } else { FormId(b.actor as u32) };
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
             let info = blast_hit_info(cause);
@@ -3588,7 +3635,7 @@ mod tests {
         let mut phys = PhysState::default();
         let id = 0x1234;
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
-        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0 });
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], jump: false, sink: 0.0, lift: Default::default() });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
     }

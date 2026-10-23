@@ -187,7 +187,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NOTE", &record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestNote"))])),
         top(b"CHIP", &record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))])),
         top(b"CCRD", &record(b"CCRD", 0, CARD, &[sub(b"EDID", z("TestCard")), sub(b"DATA", 2u32.to_le_bytes().to_vec())])),
-        top(b"CMNY", &record(b"CMNY", 0, CMNY, &[sub(b"EDID", z("TestMoney"))])),
+        top(b"CMNY", &record(b"CMNY", 0, CMNY, &[sub(b"EDID", z("TestMoney")), sub(b"DATA", 40u32.to_le_bytes().to_vec())])),
     ]
     .concat();
     let keym = cat(&[
@@ -1042,6 +1042,18 @@ fn notes_chips_and_caravan_items_weigh_nothing() {
 }
 
 #[test]
+fn caravan_money_is_worth_its_absolute_value() {
+    let f = fixture();
+    let it = f.forms.item(id(CMNY)).unwrap();
+    // The record has no Value field; its DATA is what the note is worth in caps.
+    assert_eq!((it.value, it.money, it.worth()), (None, Some(40), Some(40)));
+    let mut inv = fnv_sim::inventory::Inventory::default();
+    inv.add(id(CMNY), 3);
+    let t = inv.totals(&f.forms, false);
+    assert_eq!((t.value, t.unknown_value.len()), (120, 0));
+}
+
+#[test]
 fn placed_mines_disarm_into_their_weapon() {
     let f = fixture();
     assert_eq!(f.forms.item(id(MINE)).unwrap().projectile, Some(id(MINE_PROJ)));
@@ -1493,6 +1505,26 @@ fn remove_all_items_leaves_the_players_quest_items() {
     assert!(moved.iter().all(|&(i, _)| i != id(SUIT)));
     assert_eq!(w.item_count(p, id(SUIT)).unwrap(), 1);
     assert_eq!(w.item_count(id(SAFE_REF), id(PISTOL)).unwrap(), 1);
+}
+
+#[test]
+fn an_npc_given_an_item_equips_its_best_weapon_and_armour() {
+    // GECK wiki AddItem notes: AddItem on an NPC makes it review its inventory and equip
+    // the best armour and weapon it has (playtest list 7 item 12: Trudy's shotgun).
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    // Unarmed and undressed by a script, it takes both up again once given something.
+    w.unequip(g, id(LONG_GUN)).unwrap();
+    w.unequip(g, id(SUIT)).unwrap();
+    assert!(w.review_equipment(FormId::PLAYER_REF).is_empty());
+    w.add_item(g, id(CAPS), 5).unwrap();
+    let changed = w.review_equipment(g);
+    let inv = w.inventory_mut(g).unwrap();
+    assert!(inv.is_equipped(id(LONG_GUN)) && inv.is_equipped(id(SUIT)));
+    assert_eq!(changed.len(), 2);
+    // Nothing more to change: a second review does nothing.
+    assert!(w.review_equipment(g).is_empty());
 }
 
 #[test]

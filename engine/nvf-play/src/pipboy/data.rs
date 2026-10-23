@@ -508,6 +508,12 @@ impl DataState {
         &self.discovered
     }
 
+    /// The active quest's targets marked now (shown objectives, not done, whose target
+    /// conditions pass; `refresh_quest_targets`), for the compass (`crate::compass`).
+    pub(crate) fn marked_targets(&self) -> Vec<fnv_game::quest_targets::TargetCheck> {
+        self.target_checks.iter().filter(|c| c.shown && Some(c.quest) == self.target_quest).copied().collect()
+    }
+
     /// A save's found markers: found already, so no "You have discovered" for them.
     pub fn restore_discovered(world: &mut bevy::prelude::World, found: BTreeSet<u32>) {
         if !world.contains_resource::<DataState>() {
