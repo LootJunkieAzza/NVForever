@@ -8,7 +8,9 @@ The owner's playtest lists (all merged) and what is left after them are in
 (each with an Outcome section); the state of every system is in `docs/status.md`. The queue of
 work that needs nothing from the owner, done one item at a time: `docs/handoff/queue-2026-10-20.md`.
 What is left after that queue and the ESM gap audit: `docs/handoff/handover-2026-10-21.md`,
-updated after audit groups 1–4 by `docs/handoff/handover-2026-10-22.md` (read that first).
+updated after audit groups 1–4 by `docs/handoff/handover-2026-10-22.md`. **Read first**: the
+code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion, playthrough
+blockers, stale docs; its §7 is the ranked next work) and the owner's `playtest-list-7.md`.
 
 ## Charter (non-negotiable)
 
