@@ -2924,6 +2924,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "dust-whirlwind-close"
+source = "docs/spec-notes/particles.md §6.7 (owner 2026-10-23: white dust devils standing still): FXDustWhirlWind01 0010707A west of Goodsprings from 900 units south, a frame every second over 14 s (whirl_close_*.png in target/smoke)"
+areas = ["particles", "effects"]
+paths = ["engine/nvf-assets/src/particles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "3:whirl_close_00.png,4:whirl_close_01.png,5:whirl_close_02.png,6:whirl_close_03.png,7:whirl_close_04.png,8:whirl_close_05.png,9:whirl_close_06.png,10:whirl_close_07.png,11:whirl_close_08.png,12:whirl_close_09.png,13:whirl_close_10.png,14:whirl_close_11.png,15:whirl_close_12.png,16:whirl_close_13.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-70560,3300,8650", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 17
+manual = "whirl_close_*.png: a faint brown dust cloud moving across the ground"
+expect = [
+  { re = 'particles: born in \S*fxdustwhirlwind01\.nif: .*pTornadoWisps [1-9]', label = "the wisps are born" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]
