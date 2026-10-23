@@ -12,7 +12,10 @@
 //!   docs/spec-notes/nif.md §6, "Multiply blend");
 //! - an additive shape (light beams, glows, flames) adds about what it would add to
 //!   display values: its alpha is raised to a power ([`add_alpha`], nif.md §6
-//!   "Additive blend").
+//!   "Additive blend");
+//! - an unlit alpha-blended shape (smoke, mist, dust, particles) puts about what it would
+//!   put on display values: its colour is scaled by √alpha ([`blend_colour_scale`],
+//!   nif.md §6 "Alpha blend of unlit shapes").
 //!
 //! And one change in the pipeline: shapes with a decal shader flag are drawn with a depth
 //! offset towards the camera ([`decal_bias`], docs/spec-notes/nif.md §6, "Decal flags").
@@ -459,6 +462,20 @@ pub fn add_alpha(a: f32) -> f32 {
     a.clamp(0.0, 1.0).powf(ADD_ALPHA_POWER)
 }
 
+/// The factor on the colour of an unlit alpha-blended shape (smoke, mist, dust, every
+/// particle system; NiAlphaProperty SRC_ALPHA / INV_SRC_ALPHA) of alpha `a` (CPU mirror
+/// of nif_material.wgsl).
+///
+/// The game blends colour × alpha + behind × (1 − alpha) in display values
+/// [hypothesis, docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"]; Bevy does it
+/// in linear light, where light smoke over a dark room shows about twice as bright
+/// (owner's Bison Steve lobby screenshots, 2026-10-23). Scaled by √alpha, the colour
+/// term becomes colour × alpha^[`ADD_ALPHA_POWER`], fitted against the display-value
+/// blend; the share of what lies behind is kept.
+pub fn blend_colour_scale(a: f32) -> f32 {
+    a.clamp(0.0, 1.0).sqrt()
+}
+
 pub struct NifMaterialPlugin;
 
 impl Plugin for NifMaterialPlugin {
@@ -672,5 +689,25 @@ mod tests {
         assert_eq!(add_alpha(1.0), 1.0);
         assert_eq!(add_alpha(0.0), 0.0);
         assert_eq!(add_alpha(2.0), 1.0);
+    }
+
+    #[test]
+    fn unlit_blend_colour() {
+        let display = |v: f32| v.powf(1.0 / MULTIPLY_GAMMA);
+        let linear = |v: f32| v.powf(MULTIPLY_GAMMA);
+        // Bevy's blend of a colour (display) with the factor on it, over `behind`.
+        let blend = |colour: f32, a: f32, behind: f32| display(linear(colour) * blend_colour_scale(a) * a + linear(behind) * (1.0 - a));
+        // Grey 0.5 smoke at alpha 0.3 over black: 0.15 in display values, 0.29 as
+        // blended before; now 0.22.
+        assert!((blend(0.5, 0.3, 0.0) - 0.220).abs() < 0.002, "{}", blend(0.5, 0.3, 0.0));
+        assert!((display(linear(0.5) * 0.3) - 0.290).abs() < 0.002);
+        // The colour term is colour × alpha^1.5, the add_alpha power.
+        assert!((blend_colour_scale(0.3) * 0.3 - add_alpha(0.3)).abs() < 1e-6);
+        // Over a backdrop of its own colour it stays near it (display 0.5).
+        assert!((blend(0.5, 0.3, 0.5) - 0.5).abs() < 0.04);
+        // Full and no alpha are unchanged.
+        assert_eq!(blend_colour_scale(1.0), 1.0);
+        assert_eq!(blend_colour_scale(0.0), 0.0);
+        assert_eq!(blend_colour_scale(2.0), 1.0);
     }
 }

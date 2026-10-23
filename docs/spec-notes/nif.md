@@ -582,9 +582,37 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   game's streaks are as strong as ours (the owner's frame and ours differ in field of
   view, so no pixel was compared); additive particles (flames, muzzle flashes) are drawn
   by the same material and change the same way, and none was compared with the game;
-  SRC_ALPHA / INV_SRC_ALPHA shapes are still blended in linear light (they agree with
-  the game at alpha 0 and 1 and differ between); ONE / ONE shapes are drawn as
-  SRC_ALPHA / ONE, as before.
+  SRC_ALPHA / INV_SRC_ALPHA shapes of lit shaders are still blended in linear light
+  (they agree with the game at alpha 0 and 1 and differ between; unlit ones: "Alpha
+  blend of unlit shapes"); ONE / ONE shapes are drawn as SRC_ALPHA / ONE, as before.
+- **Alpha blend of unlit shapes** (SRC_ALPHA / INV_SRC_ALPHA on a
+  BSShaderNoLightingProperty shape: smoke and mist sheets, dust, and every particle
+  system, which `nvf_assets::particles` draws with the same material). The blend is
+  colour × alpha + behind × (1 − alpha) [documented: nif.xml AlphaFlags]; the game forms
+  it in display values [hypothesis, as "Additive blend"], Bevy in linear light. Light
+  smoke over a dark room is where they differ most: a grey of display 0.5 at alpha 0.3
+  over black is 0.15 in the game and 0.29 in linear light.
+
+  The Bison Steve Hotel's lobby (`BisonSteve01`, the main entrance) [observed, `fnvtool
+  world refs`, `fnvtool nif decode`]: 2 `FXMistLow01` and 1 `FXSmokeWisps01`
+  (`effectsmbientxmistlow01.nif`, `fxsmokewisps01.nif`), unlit, SRC_ALPHA /
+  INV_SRC_ALPHA, texture `SmokeWispsTile.dds`, vertex alpha flag, vertex colours grey
+  0.5 with alpha 0 to 0.5 (mean 0.11 and 0.17). Owner's screenshots of the same view
+  (2026-10-23): the game shows the room clearly with almost no haze; `nvforever` drew a
+  grey fog over the whole room.
+
+  How the renderers blend it [hypothesis, fitted]: the colour of an unlit
+  alpha-blended shape is scaled by √alpha in the shader, so the blend adds colour ×
+  alpha^1.5 while the share of what lies behind stays 1 − alpha
+  (`nif_material.wgsl` `blend_colour_scale`, CPU mirror
+  `nif_material::blend_colour_scale`). The power was chosen by the display-value error
+  of `colour·alpha^p + behind·(1 − alpha)^q` against the display-value blend, over
+  behind 0 to 1, colour 0.15 to 0.85 and alpha 0.01 to 0.6 (a grid, root mean square
+  in display values): p = 1, q = 1 (the old blend) 0.052, and 0.096 where behind is
+  0.2 or darker; p = 1.5, q = 1 0.037, and 0.037 there; the best, p = 1.4, q = 1.1,
+  0.036. The same power as additive shapes; the share behind is kept so smoke still
+  hides as much of the room as before. Lit blended shapes (glass, hair edges) are not
+  changed. Open: no frame was measured against the game's yet.
 - **Decal flags** (BSShaderFlags bit 26 `decal_single_pass` and bit 27
   `dynamic_decal_single_pass`; BSShaderFlags2 bit 21 `alpha_decal` [documented: nif.xml,
   schemas/nif/scene.json]). Survey of the visible shapes in `Fallout - Meshes.bsa`

@@ -2897,6 +2897,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "smoke-blend-bison-steve"
+source = "docs/spec-notes/nif.md §6 \"Alpha blend of unlit shapes\" (owner 2026-10-23, screenshots of the Bison Steve Hotel's main entrance: ours drew far more smoke than the game): unlit alpha-blended shapes put colour × alpha^1.5 on the frame; the lobby (BisonSteve01) from the entrance marker, looking east over FXMistLow01 00172699 and FXSmokeWisps01 0017209E; one frame in target/smoke (bison_steve_smoke.png) to judge against the owner's game screenshot"
+areas = ["particles", "effects", "rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_material.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:bison_steve_smoke.png" }
+args = ["--play", "--cell", "BisonSteve01", "--pos=-1408,-896,0", "--heading", "90", "--no-voice", "--no-messages"]
+run_seconds = 8
+manual = "bison_steve_smoke.png against the owner's game screenshot of the lobby (2026-10-23): the room's floor, rug and desk clear, only a faint haze low over the floor"
+expect = [
+  { re = 'test aid: screenshot .*bison_steve_smoke\.png', label = "the lobby frame is saved" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]
