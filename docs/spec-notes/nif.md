@@ -596,10 +596,15 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
     Now 0.25; in the frames of the Strip the beams are the faint haze of the original.
   - X-13's door lamps (`fxlightbeambrt03`) show as two beams, as in the original; Primm
     and the Strip's other effects are otherwise unchanged.
+  - The Prospector Saloon's window rays, from the camera of the table below (shown minus
+    `--hide indfxlightrays --hide fxbasicglow`): mean 2.8 grey levels added, 8 or more
+    on 14 % of the frame, the display-value-sum target's own numbers (alpha^1.5: 2.0 and
+    10 %).
 
   Open: overlapping additive shapes. Each is summed with the opaque frame alone, so
-  where several overlap (crossed beam planes, a room of rays) the sum falls short of the
-  game's: n equal faint shapes on black add n × d^2.2 instead of (n × d)^2.2. Exact would
+  where several overlap (crossed beam planes) the sum falls short of the game's: n equal
+  faint shapes on black add n × d^2.2 instead of (n × d)^2.2 (the Saloon's rays, which
+  overlap little over lit walls, did not show it). Exact would
   be adding every additive shape into a buffer of display values of its own and adding
   that to the frame once. The Sink's balcony force fields
   (`nvdlc03x13fxforcefield01.nif`, emissive × 1.2 and 2.0, animated alpha) are brighter

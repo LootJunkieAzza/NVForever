@@ -29,7 +29,7 @@ impl Plugin for RefractionPlugin {
     }
 }
 
-fn count(time: Res<Time>, mut c: ResMut<Counts>, materials: Res<Assets<NifMaterial>>, meshes: Query<(&MeshMaterial3d<NifMaterial>, &ViewVisibility)>) {
+fn count(time: Res<Time>, mut c: ResMut<Counts>, materials: Res<Assets<NifMaterial>>, meshes: Query<(&MeshMaterial3d<NifMaterial>, &ViewVisibility), Without<nvf_assets::nif_material::TransmissionAnchor>>) {
     c.since += time.delta_secs();
     if c.since < EVERY {
         return;
