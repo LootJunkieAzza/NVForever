@@ -191,6 +191,14 @@ box is drawn around it. The details are the FormID and Editor ID, the base form 
 type, Editor ID, name), the cell (Editor ID and name, or worldspace and grid square), the
 position, enabled/removed and count, the base's script, and an actor's health.
 
+The mouse wheel, turned outside the panel, then steps the selection along that click's
+ray (2026-10-23, owner's request) [design]: up selects the next reference further away,
+down the next nearer, and past either end it goes round to the other end, so two actors
+one behind the other are a wheel step apart. The references along the ray are those its
+collision hits (walls and floors do not stop it) and those whose render bounds it
+enters, ordered by the collision hit, else by where the ray enters the bounds. A
+reference selected with `prid` that is not on the last click's ray is not stepped from.
+
 ## Keys
 
 Enter runs the line, Up/Down recall earlier lines, Page Up/Down scroll the scrollback.
@@ -200,4 +208,5 @@ Enter runs the line, Up/Down recall earlier lines, Page Up/Down scroll the scrol
 Every line is logged as `console: > <line>` and each reply line as `console: <line>`.
 `NVF_PLAY_TEST_CONSOLE=<seconds>:<line>[;<seconds>:<line>…]` opens the console and runs
 each line at its time on the aids' clock. Two lines exist for the aid only: `click <x> <y>`
-clicks at that fraction of the window (from the top left), and `close` closes the console.
+clicks at that fraction of the window (from the top left), `wheel <steps>` turns the
+mouse wheel (up positive), and `close` closes the console.
