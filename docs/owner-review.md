@@ -7805,9 +7805,15 @@ its iterations every step: about one frame a second.
 - *Decision:* at most 64 one-shot sound effects at once and 8 of one sound; more are not
   started (24 nymphs started 130 footsteps a second and the mixer fell behind). Both
   numbers guessed; interface sounds are not limited.
+- *Decision:* a corpse still tumbling 3 s after it fell (or after a hit or blast moved it)
+  is held still where it lies. The nymphs die at the player's feet (their script kills one
+  within 50 units: stepped on) and their 23 corpses made a heap that never settled and
+  cost 0.2–0.45 s a frame. 3 s is a guess.
 - *Check:* break the egg (shoot it): do the nymphs come out round it rather than in a heap
   on it, and does any appear somewhere odd (behind a locker, across the room)? With many
-  creatures walking, do footsteps sound too thin (the voice limit)?
+  creatures walking, do footsteps sound too thin (the voice limit)? Does any corpse
+  anywhere freeze in mid-fall (a long tumble down stairs or off a ledge, a body thrown by
+  an explosion)?
 
 **Item 47, REPCONN test site.** The facility floor (`RocketLabMid`) holds about 4,200
 meshes with one material each; the render thread's work drawing them one by one is

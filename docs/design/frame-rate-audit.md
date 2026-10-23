@@ -77,13 +77,26 @@ and 1,800 sound entities piled up.
 - `engine/nvf-play/src/sfx.rs`: at most 64 one-shot sound effects play at once and 8 of
   one SOUN; one asked for beyond that is not started (counted, and the most at once
   logged in the `sfx:` exit line). Interface sounds are not limited. [engineering choice]
+- `engine/nvforever/src/ragdoll.rs`: a ragdoll still moving 3 s after it started (or was
+  roused by a hit or a blast) is set at rest where it lies (`MAX_AWAKE`; logged `ragdoll:
+  actor … held at rest still moving after 3 s`). [engineering choice]
 
-**After** (same run, profile build): the 24 nymphs stood 32–384 units round the egg, all
-on the floor; frames 8–11 ms through the fight (one 2 s window at 61 ms and one at
-253 ms right after the spawn in the first version, before the spots kept their distance
-from the first batch); 1 % low 55 ms, of which the start-up's 513 ms frame is most; the
-sound mixer kept up (29.2 s mixed in 30 s), at most 64 one-shots at once. Smoke:
-`mantis-egg-spawn`.
+A third cost came once the nymphs reached the player: the nymph's script kills it within
+50 units of the player (`GetDistance player < 50` → `KillActor player`, stepping on it),
+so they died one after another at the player's feet, 23 ragdolls of about 20 bodies each
+in one heap that never calmed (the calm rule of ragdoll.md §4 never held for any of them).
+From 20 s after the spawn the contact solver (`init_and_solve`) took 160–310 ms a frame,
+frames 200–450 ms, until the run ended. With `MAX_AWAKE` at 5 s the worst 3 s window was
+84 ms a frame (`init_and_solve` 40 ms) and frames were back to 4 ms once the last corpse
+was held; at 3 s the smoke run (vsync on) stayed at 17–18 ms a frame through the die-off.
+
+**After** (same run, profile build, 30 s): the 24 nymphs stood 32–384 units round the
+egg, all on the floor; frames 8–11 ms through the fight (one 2 s window at 61 ms and one
+at 253 ms right after the spawn in the first version, before the spots kept their
+distance from the first batch); 1 % low 55 ms, of which the start-up's 513 ms frame is
+most; the sound mixer kept up (29.2 s mixed in 30 s), at most 64 one-shots at once. The
+smoke run (`mantis-egg-spawn`, 50 s, vsync on, the die-off included): every 2 s window
+17–18 ms a frame, 1 % low 51 ms, all 23 corpses at rest at the exit.
 
 ## 3. Item 47: the REPCONN test site (RocketLabMid)
 
@@ -140,3 +153,7 @@ does not remove most of the render thread's work here; what does scale is not se
   changed (the character controller is the physics workstream's).
 - The voice limit's numbers (64, 8) are guesses; whether the original limits voices is
   not known.
+- **Heaps of corpses**: corpses of different actors collide with each other; a heap of
+  them is held at rest after 3 s, but for those seconds the solver's cost grows with the
+  heap. Letting small creatures' corpses pass through each other (or fewer bodies for
+  them) would cut it further; not done (the physics workstream's ground).
