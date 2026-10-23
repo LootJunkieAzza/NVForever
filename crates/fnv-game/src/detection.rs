@@ -281,6 +281,19 @@ pub struct Round {
     /// Each actor's factions (`functions::actor::factions_of`), for the whole round: they
     /// change only by script (AddToFaction and the like), which forgets them.
     pub(crate) factions: std::sync::Mutex<HashMap<FormId, Vec<FormId>>>,
+    /// How each actor stands towards another by their factions
+    /// (`functions::actor::faction_relation`), for the whole round: scripts and crimes that
+    /// change factions, faction reactions or the player's faction enemies forget them all.
+    pub(crate) relations: std::sync::Mutex<HashMap<(FormId, FormId), i64>>,
+}
+
+impl Round {
+    /// Forget the kept faction relations (something they read changed).
+    pub(crate) fn forget_relations(&self) {
+        if let Ok(mut k) = self.relations.lock() {
+            k.clear();
+        }
+    }
 }
 
 /// One actor's detection inputs ([`Pair`]'s detector and target fields).

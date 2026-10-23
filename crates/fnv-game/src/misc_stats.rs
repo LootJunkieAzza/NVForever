@@ -238,7 +238,7 @@ mod tests {
     use crate::aid::ValueChange;
 
     fn applied(code: u16, kind: ChangeKind, amount: f64, duration: f64) -> Applied {
-        let change = ValueChange { code, kind, amount, parts: false, applied: 0.0, permanent_pool: false, suspended: false };
+        let change = ValueChange { code, kind, amount, parts: false, limb: None, applied: 0.0, permanent_pool: false, suspended: false };
         Applied { id: 0, effect: FormId(0), change: Some(change), duration, extended: false }
     }
 

@@ -674,6 +674,24 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   luminance × tint colour, brightness factor, contrast around the average luminance
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
   NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
+- **HDR and bloom** (IMGS DNAM, 2026-10-23). The 14 HDR floats and the bloom block
+  [documented: xEdit wbDefinitionsFNV.pas IMGS: eye adapt speed, blur radius, blur
+  passes, emissive mult, target lum, upper lum clamp, bright scale, bright clamp, lum
+  ramp no tex, min, max, sunlight, grass and tree dimmer; skin dimmer from form version
+  10; bloom: blur radius, alpha mult interior, alpha mult exterior] are read by
+  `fnv_world::imagespace` (`Hdr`, indexed in the IMAD track order `\x00IAD`..`\x10IAD`;
+  adapters scale them as the cinematic values). NVDefaultExterior (the Mojave and the
+  Strip) [observed]: eye adapt speed 0.9, blur radius 7, passes 3, emissive mult 1.5,
+  target lum 1.4, upper lum clamp 1.0, bright scale 2.0, bright clamp 0.6, sunlight
+  dimmer 1.1; skin dimmer 0.55; bloom radius 0.03, interior 0.8, exterior 0.2. Hoover
+  Dam's lower level (0x0011C0C1): blur radius 6, passes 4, emissive mult 1.0, bright
+  scale 2.4, bright clamp 0.9; bloom 3.0, 0.8, 0.2. The bloom block equals the owner's
+  `[BlurShader]` INI values (fBlurRadius 0.03, fAlphaAddExterior 0.2, interior 0.7) and
+  belongs to the non-HDR mode; the owner plays with `bDoHighDynamicRange=1`, where the
+  HDR block applies [hypothesis from the names]. What the original computes from them
+  is not documented. The renderer's light glow (docs/design/graphics-enhanced.md §3.11)
+  uses Bevy's bloom on an HDR view, its strength scaled by Bright Scale / 2
+  [engineering choice]; the eye adaptation is not built.
 - **IMAD as a screen effect**: the same record type played by scripts (fade colour,
   blur, double vision, radial blur, every key of every track) is in
   docs/spec-notes/image-modifiers.md; the weather grade above reads only the first
@@ -1139,7 +1157,10 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
   and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
   unchanged. Before this the beam drew at full strength day and night and the rays were
-  white.
+  white. References that scripts enable at run time (`nvf_play::script_draw`) take the
+  same driven material (2026-10-23): the Strip's 32 street lamp beams
+  (`StripLightBeamAct`, enable parents 0x0013BAE1-3, switched on at night) name the light
+  `stripStreetLight` (0x0012762B, colour (150, 198, 102), fade 4) and had drawn white.
   XEMI on light references [observed, `light_survey --xemi`]: 2,508 of 10,087 interior
   lights carry one (1,497 name a LIGH, 1,011 a REGN such as NVInteriorRegion or
   NewVegasRegion); outdoors 304 of 1,070 (246 REGN, mostly InvertedDaylightRegion). In

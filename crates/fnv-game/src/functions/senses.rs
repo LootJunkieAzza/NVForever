@@ -171,7 +171,7 @@ impl Game<'_> {
 /// ([`Game::sneaks`]).
 pub fn is_sneaking(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    yes(g.senses.motion.get(&r).map_or_else(|| g.sneaks(r), |m| m.sneaking))
+    yes(g.is_sneaking(r))
 }
 
 /// `actor.IsMoving`: 0 not moving, 1 forward, 2 backward, 3 left, 4 right: the
@@ -308,6 +308,19 @@ impl Game<'_> {
         let data = self.data;
         let def = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p));
         def.is_none_or(|d| !d.has(crate::package::flags::SKIP_FALLOUT_BEHAVIOR) || d.fallout_flags & behaviour != 0)
+    }
+
+    /// Whether the actor sneaks now, as IsSneaking reads it: what the engine measured this
+    /// frame ([`Game::set_motion`]), else the rule of [`Game::sneaks`].
+    pub fn is_sneaking(&self, actor: FormId) -> bool {
+        self.senses.motion.get(&actor).map_or_else(|| self.sneaks(actor), |m| m.sneaking)
+    }
+
+    /// Whether the HUD's compass gives the actor a tick (docs/spec-notes/hud.md §11): alive,
+    /// present and not sneaking [observed: the owner, 2026-10-23, "npc's sneaking should
+    /// not show up on the compass"]. Range and bearing are the engine's to check.
+    pub fn compass_shows(&self, actor: FormId) -> bool {
+        !self.is_dead(actor) && self.present(actor) && !self.is_sneaking(actor)
     }
 
     /// Whether an actor other than the player sneaks: SetForceSneak holds, or its current

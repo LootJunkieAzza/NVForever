@@ -74,6 +74,29 @@ pub mod event {
     pub const ON_RESET: u16 = 0x1E;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
+    /// On the reference a magic effect reached; its parameter is the base effect (MGEF)
+    /// [documented: GECK wiki event handler table, OnMagicEffectHit "Target, BaseEffect"].
+    pub const ON_MAGIC_EFFECT_HIT: u16 = 0x16;
+    /// Never fired, as in the original: the GECK wiki notes that this event "never ran
+    /// prior to xNVSE v6.2.8", so the two shipped OnSell blocks (Lonesome Road's
+    /// Blood-Nap, Gun Runners' Arsenal's Esther) never ran in the game either
+    /// [documented: GECK wiki event handler table, OnSell].
+    pub const ON_SELL: u16 = 0x17;
+    /// On the actor's own script when it equips an item; the parameter is the item
+    /// (base form). It runs for an aid item an EquipItem uses up too: the Legate's
+    /// script waits for his healing powder this way [documented: GECK wiki event handler
+    /// table, OnActorEquip "Equipper, Equipped (item Base Form)", "runs before the item is
+    /// considered as equipped"; observed: VLegateScript `Begin OnActorEquip
+    /// NVHealingPowderLegate` answers its own `EquipItem` of the powder].
+    pub const ON_ACTOR_EQUIP: u16 = 0x1C;
+    /// On a door or container that opens: a door's open flag turning on (by anyone), a
+    /// container's menu opening [documented: GECK wiki event handler table, OnOpen
+    /// "Opened"; hypothesis: the moments, and that an NPC opening a door counts].
+    pub const ON_OPEN: u16 = 0x1F;
+    /// On a door or container that closes: the door's open flag turning off, the
+    /// container's menu closing [documented: GECK wiki event handler table, OnClose
+    /// "Closed"; hypothesis: the moments].
+    pub const ON_CLOSE: u16 = 0x20;
 }
 
 /// Nested script runs allowed (a stage result script setting another stage, an
@@ -1158,6 +1181,14 @@ pub struct Game<'a> {
     /// next one [observed: OnLoad after Enable had not run on the line after Enable and
     /// had run by the next frame, layer5-captures.md §8.3 d].
     pub pending_onload: Vec<FormId>,
+    /// Reference events the engine reported outside a script run (a container menu
+    /// opened or closed: OnOpen, OnClose), run at the start of the next frame with the
+    /// world in place ([`Game::queue_ref_event`]).
+    pub queued_ref_events: Vec<(FormId, u16, Option<FormId>)>,
+    /// The open flag last seen on each scripted door with OnOpen or OnClose blocks
+    /// ([`Game::watch_doors`]). Not saved: a door first seen after a load is taken as
+    /// it stands.
+    door_open_seen: BTreeMap<FormId, bool>,
     pub events: Vec<Event>,
     /// Calls per opcode that have no implementation.
     pub unhandled: BTreeMap<u16, u64>,
@@ -1442,6 +1473,8 @@ impl<'a> Game<'a> {
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
+            queued_ref_events: Vec::new(),
+            door_open_seen: BTreeMap::new(),
             events: Vec::new(),
             unhandled: BTreeMap::new(),
             stubbed: BTreeMap::new(),
@@ -1822,6 +1855,60 @@ impl<'a> Game<'a> {
         ran
     }
 
+    /// Run `event` on `r`'s script at the start of the next frame, with `r` as its
+    /// subject and `by` as the action ref: for an engine that reports something outside a
+    /// script run (the container menu opened or closed: OnOpen, OnClose).
+    pub fn queue_ref_event(&mut self, r: FormId, event: u16, by: Option<FormId>) {
+        self.queued_ref_events.push((r, event, by));
+    }
+
+    /// OnOpen and OnClose of the scripted doors among `refs`: a door's open flag that
+    /// changed since the last look runs the block (the player's activation, a script's
+    /// SetOpenState, an NPC opening it on its way). The first look at a door only notes
+    /// its state.
+    fn watch_doors(&mut self, refs: &[FormId]) {
+        let data = self.data;
+        for &r in refs {
+            let Some(script) = self.ref_script(r) else { continue };
+            let Some(unit) = data.script(script) else { continue };
+            if !unit.has_block(event::ON_OPEN) && !unit.has_block(event::ON_CLOSE) {
+                continue;
+            }
+            if functions::base_of(self, r).and_then(|b| data.sig(b)).as_ref() != Some(b"DOOR") {
+                continue;
+            }
+            let Some(open) = self.world.peek(r).map(|s| s.open).or_else(|| self.world.get(r).ok().map(|s| s.open)) else { continue };
+            if self.door_open_seen.insert(r, open).is_some_and(|was| was != open) {
+                self.ref_event(r, if open { event::ON_OPEN } else { event::ON_CLOSE }, Some(Value::Ref(r.0)), None);
+            }
+        }
+    }
+
+    /// OnMagicEffectHit on `target` for each base effect of the magic `items` that reach
+    /// it (a weapon's or a blast's object effect on an object it hits, a spell on an
+    /// actor), the effect as the block's parameter. Returns whether a block ran.
+    pub fn magic_effect_hits(&mut self, target: FormId, items: &[FormId], caster: Option<FormId>) -> bool {
+        let Some(script) = self.ref_script(target) else { return false };
+        if !self.data.script(script).is_some_and(|u| u.has_block(event::ON_MAGIC_EFFECT_HIT)) {
+            return false;
+        }
+        let effects: Vec<FormId> = items.iter().filter_map(|i| self.data.effect_items.get(i)).flatten().map(|e| e.effect).collect();
+        let mut ran = false;
+        for e in effects {
+            ran |= self.ref_event(target, event::ON_MAGIC_EFFECT_HIT, Some(Value::Ref(e.0)), caster);
+        }
+        ran
+    }
+
+    /// An actor equipped `item`: OnActorEquip on the actor's own script, then, unless the
+    /// item was used up (an aid item), OnEquip on the item's script.
+    pub fn equip_events(&mut self, actor: FormId, item: FormId, consumed: bool) {
+        self.ref_event(actor, event::ON_ACTOR_EQUIP, Some(Value::Ref(item.0)), Some(actor));
+        if !consumed {
+            self.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
+        }
+    }
+
     // ---- frames ------------------------------------------------------------------
 
     /// One frame. Nothing runs during a loading screen ([`Game::loading`]). Otherwise:
@@ -1906,6 +1993,9 @@ impl<'a> Game<'a> {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
+        for (r, ev, by) in std::mem::take(&mut self.queued_ref_events) {
+            self.ref_event(r, ev, Some(Value::Ref(r.0)), by);
+        }
         self.combat_blocks();
         // Activate children whose delay passed (`crate::traps`).
         self.activate_due_children();
@@ -1948,7 +2038,10 @@ impl<'a> Game<'a> {
             }
             self.run_event(key, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
         }
-        for r in if scripts { self.active_refs() } else { Vec::new() } {
+        let active = if scripts { self.active_refs() } else { Vec::new() };
+        // Doors opened or closed since the last frame, by anyone (OnOpen, OnClose).
+        self.watch_doors(&active);
+        for r in active {
             if held(self) {
                 break;
             }
@@ -2916,6 +3009,15 @@ impl<'a> Game<'a> {
             self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
             if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
                 self.finish_effect(id, true);
+            }
+        }
+        // The target's OnMagicEffectHit for each effect that took (not abilities and worn
+        // enchantments, which are not hits) [hypothesis: after the effects start].
+        if !permanent {
+            let mut hit: Vec<FormId> = started.iter().map(|a| a.effect).collect();
+            hit.dedup();
+            for e in hit {
+                self.ref_event(target, event::ON_MAGIC_EFFECT_HIT, Some(Value::Ref(e.0)), caster);
             }
         }
         started

@@ -303,12 +303,12 @@ run_seconds = 24
 order = [[
   "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
   { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
+  { re = 'graphics: finer, longer shadows, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, light glow, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
 
@@ -378,17 +378,17 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 23
 order = [[
   "settings: anti-aliasing FXAA",
-  { re = 'graphics: FXAA$' },
+  { re = 'graphics: light glow, FXAA$' },
   "settings: anti-aliasing SMAA",
-  { re = 'graphics: SMAA$' },
+  { re = 'graphics: light glow, SMAA$' },
   "settings: anti-aliasing TAA",
-  { re = 'graphics: temporal anti-aliasing$' },
+  { re = 'graphics: light glow, temporal anti-aliasing$' },
   "settings: anti-aliasing 8x",
   "graphics: multisampling 8x",
   "settings: shadow-filter Fast",
-  { re = 'graphics: hardware 2x2 shadow filtering$' },
+  { re = 'graphics: light glow, hardware 2x2 shadow filtering$' },
   "settings: shadow-filter Temporal",
-  { re = 'graphics: temporal shadow filtering$' },
+  { re = 'graphics: light glow, temporal shadow filtering$' },
   "settings: shadow-filter Smooth",
   "settings: field-of-view 90",
   "settings: frame-cap 60",
@@ -414,8 +414,10 @@ commands = [
   ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "SunnyRef", "--to", "DocMitchellREF"],
   ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "DocMitchellREF", "--to", "0x0013BB0D", "--keys", "0x00119875", "--speed", "344"],
   ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "TrudyRef", "--to=-193,600,3456", "--space", "GSProspectorSaloonInterior"],
+  # REPCONN: floor to the top catwalk, up seven flights over the floor (navmesh.md §4b)
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=1000,3400,-120", "--space", "RocketLabMid", "--to", "0x000CD684"],
 ]
-expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 6, label = "all six walks arrived" }]
+expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 7, label = "all seven walks arrived" }]
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]
@@ -997,6 +999,25 @@ expect = [
   { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [1, 100000], label = "shots beyond the rifle's reach in the summary" },
 ]
 forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach', label = "she holds fire for the distance" }]
+
+[[scenario]]
+name = "combat-wall-hold"
+source = "owner 2026-10-23: NPCs in combat shoot at walls; a gun fires only with a clear line from the eyes and muzzle to the target's chest, else its head (combat_tactics module notes: a wall in the way; docs/design/combat-ai.md §12.6)"
+note = "Chet (GSChetRef) in the general store is given a .357 and set on the player (GOD), who is put in the back room behind the wall west of his counter at 2 s and out in the store at 20 s on the aids' clock. NVF_PLAY_TEST_SEE_THROUGH_WALLS has him count the player as seen through the wall (as stale detection would): he holds fire, closes in, and fires once the line is clear (first run 2026-10-23: held 7.8 s, 12 shots, all 12 hit the player, 0 world hits). The player fires nothing, so the combat summary's world hits are his shots that hit no actor"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SEE_THROUGH_WALLS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "2:-830:520:600,20:-320:600:600", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 35
+expect = [
+  { re = 'npc combat: GSChetRef \S+ holds fire: a wall stands between it and the player', label = "Chet holds fire with the wall between" },
+  { re = 'npc combat: GSChetRef \S+ has a clear shot at the player again', label = "he finds a clear line again" },
+  { re = 'npc combat: GSChetRef \S+ opens fire on the player', label = "he fires once the line is clear" },
+  { gap = ["holds fire: a wall stands between", "opens fire on the player"], range = [0.5, 1000], label = "his first shot comes after the hold, not at the wall" },
+  { re = 'npc combat summary: .*?(?P<n>\d+) shots', range = [1, 100000], label = "his shots in the npc combat summary" },
+  { re = 'combat: 0 shots .* (?P<n>\d+) world hits', range = [0, 2], label = "his shots hit the player, not the wall (a miss or two in the open may land on the store's walls)" },
+  { re = 'battle summary: .*?(?P<n>\d+) held for a wall', range = [1, 1000], label = "held for a wall in the battle summary" },
+]
 
 [[scenario]]
 name = "combat-npc-reload"
@@ -1914,11 +1935,12 @@ expect = [
 [[scenario]]
 name = "shoot-bottles"
 source = "CLAUDE.md: after changes to shot impacts, knocks, item, container, activator, message-box or script sounds (audio.md §11): Sunny's bottles"
+note = "The shots start at 18 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded: ten boxes, over about 8.5 s after the scripts first ran). While a box is open the player is held in a menu and a pull is lost: on 2026-10-23 the scripts first ran at 5.4 s, the boxes stood from 10.3 to 13.9 s and only the third bottle was hit [observed: smoke log, glass 1]. Same cause as semi-auto-rate"
 areas = ["world-sounds", "audio", "combat"]
 paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/fx.rs", "crates/fnv-collide/", "crates/fnv-phys/"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "7:weapon,18:aimref=0010A202,18.5:fire,18.7:fire,21:aimref=0010A203,21.5:fire,21.7:fire,24:aimref=0010A204,24.5:fire,24.7:fire" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 24
+run_seconds = 31
 expect = [
   { re = 'world sounds summary:.*impacts by material: glass 3 \(0 on collision without a material\)' },
   { re = 'world sounds summary:.*knock', label = "some knocks" },
@@ -2517,6 +2539,23 @@ expect = [
   { re = 'anim sounds summary:.*\b(?P<n>\d+) door sounds', range = [2, 1e9], label = "the locker's open and close sound keys played" },
 ]
 
+[[scenario]]
+name = "container-on-open"
+source = "project audit 2026-10-23 §3.2 (docs/spec-notes/script-functions.md §3.3): the Goodsprings schoolhouse safe (LootSafeGoodspringsSchoolhouse 0x001164C0, script 0x00116739) opened by the menu test aid runs its OnOpen block (VFreeformGoodsprings.openedsafe set, the note removed); before, OnOpen never ran"
+areas = ["scripts", "containers"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "001164C0", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "GSSchoolHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  "menu: open Container(0x001164C0)",
+  { re = 'script: OnOpen of FalloutNV\.esm\|SCPT 0x00116739 ran' },
+  "menu: close",
+]]
+expect = [
+  { re = 'script: OnOpen of FalloutNV\.esm\|SCPT 0x00116739 ran', count = 2, label = "the safe's OnOpen ran once per opening (the test aid opens it twice: Take All closes the menu, list 5 item 60)" },
+]
+
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
 
 [[scenario]]
@@ -2960,6 +2999,23 @@ expect = [
   { re = 'lights: (?P<n>\d+) flickering or pulsing', range = [5, 400], label = "the vault's flickering and pulsing lights are animated" },
 ]
 
+[[scenario]]
+name = "strip-lamp-glow"
+source = "docs/spec-notes/nif.md §6 \"Soft intersections\", \"Emissive multiplier of unlit shapes\"; docs/design/graphics-enhanced.md §3.11: the Strip at night with scripts: the light glow is on (HDR view), the street lamp beams the scripts enable are drawn and take their stripStreetLight colour (0x0012762B) instead of white; a frame in target/smoke (strip_lamp_glow.png)"
+areas = ["renderer", "effects", "lights"]
+paths = [
+  "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvforever/src/emittance.rs",
+  "engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/post.rs", "crates/fnv-world/src/imagespace.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "12:strip_lamp_glow.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-250,8600,1150", "--heading", "185", "--pitch", "0", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'graphics: light glow$', label = "the light glow is on by default" },
+  { re = 'drawn \(enabled at run time\): meshes.effects.ambient.fxlightbeamnvstrip\.nif', label = "the scripts switch the street lamp beams on" },
+  { re = 'emittance: shapes drawn by scripts take source 0x0012762b', label = "the beams take the street light's colour" },
+]
+
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 
 [[scenario]]
@@ -3343,6 +3399,22 @@ expect = [
   { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
   { re = 'fight move summary: .* (?P<n>[\d.]+) s of it on the way to new cover', range = [0.1, 100000], label = "fighters going to new cover face their target and strafe there (owner's playtest list 7 item 43)" },
 ]
+
+[[scenario]]
+name = "combat-cover-room"
+launch = "ncr-fiends"
+source = "owner's screenshot 2026-10-23: an NCR trooper in cover in Goodsprings stood half inside a house's wall and drainpipe (docs/design/combat-ai.md §12.6.2)"
+note = "cover spots keep combat_tactics::SPOT_ROOM (26) round them, measured by rays at the body's heights; where a fighter stands when it reaches its cover and when it has hid there is measured the same way, and under the capsule's radius (22) it is inside something. Which fighters take cover, and whether one reaches it before the fight is over, varies (Take Cover Chance every 10 s); the cover edges of this fight are in the open (all 25 spots of a run of 2026-10-23 had full room), so the wall case is checked by combat_tactics' unit tests"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+]
+forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
 
 [[scenario]]
 name = "allies-alerted"
@@ -4526,6 +4598,51 @@ expect = [
 order = [["pipboy repair: open", "pipboy repair: clicked row 1", "pipboy repair: 10mm Pistol"]]
 
 [[scenario]]
+name = "pipboy-stats-heal"
+source = "owner 2026-10-23: on the STATS page's CND the Stimpak is used on the body (health not full) or on a hurt limb, the Doctor's Bag heals every limb, and the bars show the player's limb conditions (engine/nvf-play/src/pipboy/stats/, crates/fnv-game/src/aid.rs PARTS_LIMB_SHARE, docs/spec-notes/pipboy.md 5.1, aid-items.md 3)"
+note = "the console gives 3 Stimpaks and a Doctor's Bag, cripples the left arm and takes 50 health; on CND a Stimpak on the body, one refused on the whole right arm, one on the left arm, the bag, a second bag refused with every limb whole (the start carries some of each already)"
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/aid.rs", "crates/fnv-game/src/aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,31:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:use=stimpak,24:limb=3,24.5:use=stimpak,25:limb=2,25.5:use=stimpak,27:use=bag,28:use=bag", NVF_PLAY_TEST_SHOTS = "22.5:pipboy_cnd_hurt.png,29:pipboy_cnd_healed.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 33
+expect = [
+  "combat: player's left arm crippled",
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm 0%, right arm 100%', label = "the bars show the crippled arm" },
+  { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "a Stimpak on the body" },
+  { re = 'aid: the player used Stimpak \(potency [\d.]+\): Health \+[\d.]+ at once, limbs too', label = "the body's Stimpak heals health" },
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm [1-9]%', label = "the limbs get a small share" },
+  { re = 'pipboy stats: Stimpak not used: the right arm is not hurt', label = "no Stimpak on a whole limb" },
+  { re = 'pipboy stats: used Stimpak on the left arm \(\d+ left\)', label = "a Stimpak on the left arm" },
+  { re = 'aid: the player used Stimpak on the left arm', label = "the runtime aims it" },
+  { re = '''pipboy stats: used Doctor's Bag on the body \(\d+ left\)''', label = "the Doctor's Bag used" },
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm 100%, right arm 100%, left leg 100%, right leg 100%', label = "every bar whole after the bag" },
+  "combat: player's left arm healed",
+  { re = "pipboy stats: Doctor's Bag not used: no limb is hurt", label = "no bag with every limb whole" },
+]
+order = [["pipboy stats: used Stimpak on the body", "Stimpak not used: the right arm", "used Stimpak on the left arm", "used Doctor's Bag"]]
+
+[[scenario]]
+name = "pipboy-stats-heal-hardcore"
+source = "owner 2026-10-23: in Hardcore the CND page refuses a Stimpak aimed at a limb (FalloutNV.esm help text: a Doctor's Bag or a doctor is required), still uses one on the body, and the Doctor's Bag mends the limb part way (engine/nvf-play/src/pipboy/stats/, docs/spec-notes/pipboy.md 5.1)"
+note = "Hardcore on by the script aid; the console cripples the left arm and takes 50 health; on CND a Stimpak on the left arm (refused), one on the body, then the bag"
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1", NVF_PLAY_TEST_CONSOLE = "8:player.DamageAV LeftAttackCondition 100;8.3:player.DamageAV Health 50;9:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,29:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:limb=2,23.5:use=stimpak,24.5:limb=none,25:use=stimpak,26.5:use=bag" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 31
+expect = [
+  "test aid: Hardcore mode on",
+  "combat: player's left arm crippled",
+  { re = 'pipboy stats: Stimpak not used: a Stimpak mends no limb in Hardcore mode', label = "no Stimpak on a limb in Hardcore" },
+  { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "a Stimpak on the body" },
+  { re = 'aid: the player used Stimpak \(potency [\d.]+\): Health \+[\d.]+ a second', label = "the Hardcore Stimpak heals over time" },
+  { re = '''pipboy stats: used Doctor's Bag on the body''', label = "the Doctor's Bag used" },
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm [1-9]\d%', label = "the bag mends the arm part way" },
+]
+order = [["Stimpak not used: a Stimpak mends no limb", "used Stimpak on the body", "used Doctor's Bag"]]
+
+[[scenario]]
 name = "pipboy-general-locations"
 source = "outstanding.md §2 Interface (2026-10-19; hud.md §11, misc-stats.md): leaving the start finds Goodsprings: the HUD's XP meter shows +10 XP and the Pip-Boy's General list counts it under Locations Discovered (the tab opens on its Reputation list: mode, then down from Quests Completed)"
 areas = ["hud", "pipboy"]
@@ -4846,6 +4963,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "hud-needs-words"
+source = "owner 2026-10-23 (screenshot of the original): H2O FOD SLP on the HP label's line in Hardcore, RAD and LMB after them; each word faded, amber, red or flashing red by the need's or radiation's stage or the crippled limbs' count (engine/nvf-play/src/hud_needs.rs, docs/spec-notes/hud.md §13)"
+note = "Hardcore on at 3 s, then Dehydration 650 (Critical: red), Hunger 850 (Deadly: flashing), Sleep Deprivation 450 (Advanced: normal), rads 450 (Advanced: red); the console cripples the left arm at 10 s, the right leg at 12 s and the left leg at 14 s (LMB normal, red, flashing); Dehydration 100 at 18 s (faded), rads 650 at 18.5 s (Critical: flashing), Hardcore off at 19 s (the need words hidden)"
+areas = ["hud", "hardcore"]
+paths = ["engine/nvf-play/src/hud_needs.rs", "engine/nvf-play/src/hud.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/radiation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:650,3.4:set_av:player:Hunger:850,3.6:set_av:player:SleepDeprivation:450,3.8:set_av:player:RadiationRads:450,18:set_av:player:Dehydration:100,18.5:set_av:player:RadiationRads:650,19:hardcore:0", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV LeftAttackCondition 1000;10.5:close;12:player.DamageAV RightMobilityCondition 1000;12.5:close;14:player.DamageAV LeftMobilityCondition 1000;14.5:close", NVF_PLAY_TEST_SHOTS = "16:needs_limbs.png,21:needs_off.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+manual = "needs_limbs.png: on the HP label's line H2O red, FOD flashing red, SLP amber, RAD red, LMB flashing red (start-up message boxes hide the HUD before 10 s); needs_off.png: only RAD and LMB, in H2O's and FOD's places, both flashing"
+expect = [
+  { re = 'hud needs: LMB faded \(0 limbs crippled\)', label = "the limb word starts faded" },
+  { re = 'hud needs: RAD faded \(no stage\)', label = "the radiation word starts faded, in every mode" },
+  { re = 'hud needs: RAD red \(stage 2 of 5, \w+\)', label = "Advanced radiation sickness is red" },
+  { re = 'hud needs: RAD flashing \(stage 3 of 5, \w+\)', label = "Critical radiation sickness flashes" },
+  "test aid: Hardcore mode on",
+  { re = 'hud needs: H2O red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
+  { re = 'hud needs: FOD flashing \(stage 4 of 5, \w+\)', label = "Deadly hunger flashes" },
+  { re = 'hud needs: SLP normal \(stage 2 of 5, \w+\)', label = "Advanced sleep deprivation is amber" },
+  { re = 'hud needs: LMB normal \(1 limbs crippled\)', label = "one crippled limb" },
+  { re = 'hud needs: LMB red \(2 limbs crippled\)', label = "two crippled limbs" },
+  { re = 'hud needs: LMB flashing \(3 limbs crippled\)', label = "three crippled limbs flash" },
+  { re = 'hud needs: H2O faded \(no stage\)', label = "dehydration lowered fades the word" },
+  "test aid: Hardcore mode off",
+  { re = 'hud needs: SLP hidden \(Hardcore off\)', label = "the need words go outside Hardcore" },
+]
+
+[[scenario]]
 name = "hud-dialogue"
 source = "owner's playtest list 5, item 74 (docs/spec-notes/hud.md §10): Sunny greets the player in the saloon; Trudy's lines to Cheyenne while the conversation runs are logged, not drawn as subtitles"
 note = "the conversation is the force-greet scenario's; Trudy's say_to lines come every 4 s so one falls inside it"
@@ -4872,6 +5016,18 @@ run_seconds = 16
 expect = [
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
   { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },
+]
+
+[[scenario]]
+name = "repconn-catwalk-stairs"
+source = "owner's playtest 2026-10-23 (docs/spec-notes/physics.md §6.9.1): the REPCONN Facility's catwalk stairs up to Chris Haversam's and Jason Bright's intercom (RocketLabMid); walking east up the 312-448 flight (24-unit risers and treads), then left up the 450-504 flight onto the intercom catwalk, without a jump (the feral ghouls left out: they block the stairs and fight)"
+areas = ["physics", "controls"]
+paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_MOVE = "10:1:0:walk,14:0:-1:walk,18:0:0" }
+args = ["--cell", "RocketLabMid", "--play", "--pos=1030,3840,330", "--heading", "90", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 21
+expect = [
+  { re = 'physics: the player stepped up [1-9]\d* times, feet at \(1(2[3-9]|3[0-4])\d, (39[5-9]\d|4[01]\d\d), 50[4-9]\)', label = "up both flights and on the intercom catwalk (506, from y 3950)" },
 ]
 
 [[scenario]]
@@ -7484,9 +7640,10 @@ name = "environment-radiation"
 source = "docs/spec-notes/radiation.md §2-§6: the player in the nuclear test site's shack (SLNuclearTestShackINT), inside the radius of its radiation marker (ref 00154611, 15 rads a second within 2000 units): the level, the rads taken after Rad Resistance, the Geiger counter's strongest burst, radiation sickness once the rads pass 200, and the run's summary"
 areas = ["radiation", "aid", "hud", "sound"]
 paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "crates/fnv-game/src/needs.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "24:radiation_meter.png" }
 args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
+manual = "radiation_meter.png: the meter at the top right, its bracket the mirror of the corner messages' at the top left, +n RADS under the notches and the pointer's tip just under them at the rads taken (past the first long notch, 200, by then)"
 expect = [
   { re = 'radiation: level 15\.0 rads/s \(marker 0x00154611 15\.0\), taking 1\d\.\d\d/s \(Rad Resistance \d+ %\)', label = "the marker's whole level, cut by Rad Resistance" },
   { re = 'geiger: UIPipBoyRadiationC \(level 15\.0\)', label = "the counter's strongest burst" },
@@ -7833,3 +7990,20 @@ expect = [
   { re = 'rooms: 00081D1F: camera in room 0008D44A, (?P<n>\d+) of 17 rooms in view', range = [2, 16], label = "some rooms are out of view from the start" },
   { re = 'rooms summary: \d+ frames culled by rooms and portals, at most (?P<n>\d+) meshes hidden', range = [500, 1e9], label = "meshes of the rooms out of view are hidden" },
 ]
+
+[[scenario]]
+name = "compass-sneaking-npc"
+source = "owner 2026-10-23: a sneaking NPC does not show on the HUD's compass (docs/spec-notes/hud.md §11, fnv_game::Game::compass_shows)"
+note = "as crouched-npc-weapon without the drawn weapons: Ringo is brought 300 units north of the player (heading north, so in the compass's window and within Perception × 300) at 3 s, forced to sneak at 5 s (SetForceSneak 1) and let up at 15 s; while he sneaks the compass leaves him off, after he stands nobody is left off"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/compass.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:300:0,5:call:RingoRef:SetForceSneak:1,15:call:RingoRef:SetForceSneak:0" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'sneaking: RingoRef \S+ crouches and sneaks', label = "Ringo sneaks (SetForceSneak)" },
+]
+order = [[
+  { re = 'compass: \d+ actors .*, [1-9]\d* sneaking left off', label = "sneaking Ringo left off the compass" },
+  { re = 'compass: \d+ actors .*, 0 sneaking left off', label = "standing up, nobody is left off" },
+]]

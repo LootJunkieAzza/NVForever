@@ -343,6 +343,22 @@ impl Game<'_> {
         self.evaluate_package(actor)
     }
 
+    /// A door was unlocked (a script's Unlock, a key, a lock picked): every package set
+    /// aside because its place could not be reached ([`Game::block_package`]) may be
+    /// chosen again, and the actors that set one aside choose now. Returns those actors
+    /// [hypothesis: the original's handling is not documented; the actor would otherwise
+    /// wait out the hour with the way already open].
+    pub fn unblock_packages(&mut self) -> Vec<FormId> {
+        let actors: Vec<FormId> = self.extra.iter().filter(|(_, e)| !e.package_blocked.is_empty()).map(|(a, _)| *a).collect();
+        for &a in &actors {
+            if let Some(e) = self.extra.get_mut(&a) {
+                e.package_blocked.clear();
+            }
+            self.evaluate_package(a);
+        }
+        actors
+    }
+
     /// A list package with a schedule duration and no starting hour runs for that many
     /// game hours from the moment the actor chose it, then ends
     /// ([`Game::end_timed_packages`]) [documented: GECK wiki SetPackDuration "sets the

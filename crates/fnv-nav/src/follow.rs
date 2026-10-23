@@ -180,6 +180,12 @@ impl Follower {
         self.path.legs.iter().skip(self.leg).flat_map(|l| &l.corridor).any(|&t| (t as usize) < nav.tris.len() && !nav.usable(t))
     }
 
+    /// Whether the rest of the path goes through one of `doors`: a load door ending a
+    /// leg still ahead, or a door that opens in place on the way.
+    pub fn through_doors(&self, doors: &[u32]) -> bool {
+        self.path.legs.iter().skip(self.leg).any(|l| l.door.is_some_and(|d| doors.contains(&d.door)) || l.door_stops.iter().any(|s| doors.contains(&s.door)))
+    }
+
     /// The ledge link being crossed: the corner walked to is the landing of one of the
     /// leg's [`LedgeHop`]s (its take-off reached). With the landing point.
     pub fn hop(&self) -> Option<(LedgeHop, [f32; 3])> {

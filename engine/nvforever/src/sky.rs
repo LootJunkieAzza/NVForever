@@ -746,7 +746,7 @@ impl SkyState {
     pub fn sun_scale(&self) -> f32 {
         let Some(base) = self.image_space else { return 1.0 };
         let none = [None; 6];
-        let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour).sunlight_dimmer;
+        let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour).hdr.v[fnv_world::imagespace::HDR_SUNLIGHT_DIMMER];
         let cur = at(&self.weather);
         let dimmer = match &self.prev {
             Some(p) => at(p) + (cur - at(p)) * self.fade,

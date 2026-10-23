@@ -305,7 +305,7 @@ fn find_perk(data: &GameData, name: &str) -> anyhow::Result<FormId> {
 fn simulate(data: &GameData, forms: &FormStore, refs: &RefTable, o: &Options) -> anyhow::Result<Value> {
     let mut g = Game::new(data, World::new(forms, refs, SimConfig::default()), GameConfig::default());
     let p = FormId::PLAYER_REF;
-    g.player.hardcore = Some(o.hardcore);
+    g.set_hardcore(o.hardcore);
     let mut codes: BTreeSet<u16> = BTreeSet::new();
     for name in &o.perks {
         *g.player.perks.entry(find_perk(data, name)?).or_default() += 1;
