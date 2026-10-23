@@ -439,10 +439,36 @@ pub struct Sfx {
     pub deepest: f32,
     /// Sounds with the 2D flag played at a place, not panned.
     pub flat_2d: u32,
+    /// One-shot sounds playing now (counted each frame by [`play`], and as they start),
+    /// those of each SOUN, the most at once, and how many were not started because
+    /// [`MAX_VOICES`] or [`MAX_SAME`] were playing.
+    voices: usize,
+    same: HashMap<FormId, usize>,
+    pub most_voices: usize,
+    pub voice_limited: u32,
 }
 
 #[derive(Component)]
 struct SfxSound;
+
+/// A one-shot sound effect playing, of this SOUN ([`MAX_VOICES`]).
+#[derive(Component)]
+struct OneShot(FormId);
+
+/// One-shot sound effects playing at once, at most; one asked for beyond it is not played
+/// [engineering choice: the game's own limit is not known. Two dozen mantis nymphs walking
+/// started about 130 footsteps a second; each mixed through its own reverb, the mixer fell
+/// behind real time, sounds stopped ending and 1,800 piled up (docs/design/
+/// frame-rate-audit.md §2)]. Interface sounds are not limited.
+pub const MAX_VOICES: usize = 64;
+/// The same SOUN playing at once, at most (a crowd's footsteps) [engineering choice].
+pub const MAX_SAME: usize = 8;
+
+/// Whether one more one-shot of `sound` may start with `voices` playing, `same` of them
+/// of that sound ([`MAX_VOICES`], [`MAX_SAME`]).
+pub fn voice_free(voices: usize, same: usize) -> bool {
+    voices < MAX_VOICES && same < MAX_SAME
+}
 
 fn init(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
@@ -455,7 +481,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         forms.addons.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0 });
+    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0, voices: 0, same: HashMap::new(), most_voices: 0, voice_limited: 0 });
 }
 
 /// The archive path of the file a SOUN plays this time: the file it names, or the Ogg
@@ -531,6 +557,7 @@ fn play(
     mut requests: MessageReader<PlaySound>,
     mut loops: MessageReader<LoopSound>,
     looping: Query<(Entity, &Looping)>,
+    playing: Query<&OneShot>,
     sfx: Option<ResMut<Sfx>>,
     settings: Res<SfxSettings>,
     player: Option<Res<Player>>,
@@ -543,6 +570,11 @@ fn play(
         return;
     };
     let sfx = &mut *sfx;
+    sfx.same.clear();
+    for o in &playing {
+        *sfx.same.entry(o.0).or_default() += 1;
+    }
+    sfx.voices = playing.iter().count();
     for l in loops.read() {
         for (e, playing) in &looping {
             if playing.0 == l.sound {
@@ -668,6 +700,17 @@ fn one_shot_at(
         sfx.silent += 1;
         return Some(seconds);
     }
+    let interface = is_interface(s.edid.as_deref());
+    if !interface {
+        let same = sfx.same.get(&sound).copied().unwrap_or(0);
+        if !voice_free(sfx.voices, same) {
+            sfx.voice_limited += 1;
+            return Some(seconds);
+        }
+        sfx.voices += 1;
+        sfx.same.insert(sound, same + 1);
+        sfx.most_voices = sfx.most_voices.max(sfx.voices);
+    }
     sfx.played += 1;
     let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed);
     let category = SoundCategory::of_effect(s.edid.as_deref());
@@ -683,8 +726,10 @@ fn one_shot_at(
         (None, Some(pcm)) if reverb.is_some() => commands.spawn((AudioPlayer::<PcmSound>(assets.add(own(pcm, None))), playback, SfxSound, category)),
         _ => commands.spawn((AudioPlayer::<PcmSound>(handle), playback, SfxSound, category)),
     };
-    if is_interface(s.edid.as_deref()) {
+    if interface {
         e.insert(KeepsSpeed);
+    } else {
+        e.insert(OneShot(sound));
     }
     Some(seconds)
 }
@@ -700,8 +745,8 @@ fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
     if let (Some(_), Some(s)) = (exit.read().last(), sfx) {
         if s.played + s.silent + s.failed > 0 {
             info!(
-                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned",
-                s.played, s.silent, s.failed, s.muted_submerged, s.deepest, s.flat_2d
+                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned; {} not started at the voice limit, at most {} one-shots at once",
+                s.played, s.silent, s.failed, s.muted_submerged, s.deepest, s.flat_2d, s.voice_limited, s.most_voices
             );
         }
     }
@@ -726,6 +771,14 @@ impl Plugin for SfxPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_voice_limit_holds_back_a_crowd() {
+        assert!(voice_free(0, 0));
+        assert!(!voice_free(MAX_VOICES, 0), "all voices playing");
+        assert!(!voice_free(1, MAX_SAME), "that sound playing its most");
+        assert!(voice_free(MAX_VOICES - 1, MAX_SAME - 1));
+    }
 
     fn wav(tag: u16, channels: u16, rate: u32, bits: u16, data: &[u8]) -> Vec<u8> {
         let mut v = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
