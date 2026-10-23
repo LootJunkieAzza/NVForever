@@ -7788,3 +7788,44 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
   delays, Modulates Voice and the voice filter (audio.md §15.3 gives the reasons).
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
+
+## Menus, character revision, barter figures and currency (2026-10-23, list 7 W1)
+
+Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
+
+- **1 Character revision** (chargen.md §9, `fnv_game::revision`). *Decision:* the original's
+  VCG04ActivatorScript resets level, XP, traits and early perks, S.P.E.C.I.A.L. and skills
+  and gives the XP back so you level up again; as you asked, ours keeps level, XP,
+  non-trait perks and the skill points spent at level-ups: from that script only, SetLevel,
+  ResetXP, the closing RewardXP and SetActorValue of skills on the player do nothing, and
+  RemovePerk takes traits only (the trait menu offers them again). Skills re-derive from
+  the new S.P.E.C.I.A.L. and the new tags; the tag menu starts with the old three tagged.
+  The bug was SetActorValue overriding each skill to 0. *Guess:* traits the script does
+  not name (Skilled, the add-ons' traits) stay, so the trait menu could add two more.
+  *Check:* revise at the Goodsprings edge after a level-up: same level, perks and spent
+  points; change Intelligence and a tag and see the skills follow.
+- **2 Menus on top, darker**. *Decision:* the tag-skill, trait, name, level-up, recipe
+  and repair-services menus stack at 107 (over messages, HUD, dialogue, Pip-Boy and
+  terminals; under message boxes, tutorial, pause menu, console, loading screen) and
+  darken the whole screen to 0.93 black (the barter menu's darkness), so a corner message
+  beside them is covered too. The recipe and repair sheets were the files' faint 32/255
+  box before, the character menus' 0.75 picture box. *Check:* is 0.93 too dark (the world
+  is barely seen); should corner messages wait until the menu closes instead?
+- **7 Currency value**. The NCR notes and Legion coins in the world are CMNY records whose
+  DATA "Absolute Value" (2, 8, 40, 4, 100; mangled 2) matches the MISC records' Value;
+  they now count at it in barter, the Pip-Boy, the crosshair and the inventory value,
+  and caravan bets accept them. The `fnvtool sim items` report keeps CMNY value null (it
+  reports the record's Value field). *Check:* sale price of $5 NCR at your Barter.
+- **10 Check tags** show the AVIF's name ("[Speech 40]") and a perk's name. Not checked in
+  game (Trudy's check needs the Ringo quest state); the dialogue log now prints
+  `(check [Speech 40])` on offered choices. *Check:* Trudy's line.
+- **11 Pointer and scrolling**: the pointer selects without scrolling the barter and
+  container lists (the half-shown row at the foot used to scroll in); only wheel and keys
+  scroll.
+- **16 Repair list stays open** after a repair until the item is full, no parts are left,
+  or Cancel. *Guess:* the chosen row stays at the same place (clamped to the list).
+- **25 Barter and container figures** are the Pip-Boy's (DAM/DT, DPS, STR, CND, ammunition
+  or armour class, effects) with WG and VAL of one unit as before. *Guess:* the
+  ammunition count beside a weapon is the player's carried ammunition even for the
+  merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
+  All/Exit in the container menu on your screen?

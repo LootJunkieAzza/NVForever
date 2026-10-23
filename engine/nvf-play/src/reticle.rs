@@ -130,7 +130,7 @@ impl Prompt {
             _ => None,
         };
         let figures = item.and_then(|b| match &b.data {
-            BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.value)]),
+            BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.worth())]),
             _ => None,
         });
         Prompt { action, name, figures, crime: t.crime, key: String::new() }

@@ -305,9 +305,21 @@ fn row_label(text: &str, fallback: &str, tag: Option<String>) -> String {
     }
 }
 
-fn tag_of(g: &Game, sim: &SimState, c: &Challenge) -> String {
-    let name = sim.name(c.form).map(str::to_string).unwrap_or_else(|| g.data.name(c.form));
-    challenge_tag(&name, c.needed, c.have)
+fn tag_of(g: &Game, c: &Challenge) -> String {
+    challenge_tag(&challenge_name(g.data, c.form), c.needed, c.have)
+}
+
+/// The name a check's tag shows: an actor value's AVIF FULL ("Speech"), a perk's FULL;
+/// the Editor ID only when the record has no name. AVIF records are not base forms of
+/// the simulation, so their names come from the game data's actor value table
+/// [observed: the tag read "[AVSpeech]", the AVIF's Editor ID, on Trudy's Powder Ganger
+/// check; owner's playtest list 7, item 10].
+pub(crate) fn challenge_name(data: &GameData, form: FormId) -> String {
+    let full = data.actor_value_infos.get(&form).map(|a| a.name.as_str()).or_else(|| data.perks.get(&form).map(|p| p.name.as_str()));
+    match full {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => data.name(form),
+    }
 }
 
 /// What the menu shows.
@@ -328,7 +340,7 @@ fn view(g: &Game, sim: &SimState) -> Option<MenuView> {
         .iter()
         .map(|ch| {
             let fallback = g.data.name(ch.topic);
-            let tag = ch.challenge.as_ref().map(|t| tag_of(g, sim, t));
+            let tag = ch.challenge.as_ref().map(|t| tag_of(g, t));
             let short = ch.challenge.as_ref().is_some_and(|t| matches!((t.needed, t.have), (Some(n), Some(h)) if h < n));
             ChoiceRow { label: row_label(g.choice_text(ch), &fallback, tag), darkened: ch.darkened, short }
         })
@@ -357,7 +369,8 @@ pub(crate) fn log_event(data: &GameData, e: &Event) {
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let marks = format!("{}{}", if c.goodbye { " (goodbye)" } else { "" }, if c.darkened { " (dimmed)" } else { "" });
+                    let check = c.challenge.as_ref().map_or_else(String::new, |t| format!(" (check {})", challenge_tag(&challenge_name(data, t.form), t.needed, t.have)));
+                    let marks = format!("{}{}{check}", if c.goodbye { " (goodbye)" } else { "" }, if c.darkened { " (dimmed)" } else { "" });
                     format!("{i}) {:?} [{}]{marks}", data.choice_text(c.topic, c.info), n(c.topic))
                 })
                 .collect();

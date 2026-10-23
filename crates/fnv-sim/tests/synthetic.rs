@@ -187,7 +187,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NOTE", &record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestNote"))])),
         top(b"CHIP", &record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))])),
         top(b"CCRD", &record(b"CCRD", 0, CARD, &[sub(b"EDID", z("TestCard")), sub(b"DATA", 2u32.to_le_bytes().to_vec())])),
-        top(b"CMNY", &record(b"CMNY", 0, CMNY, &[sub(b"EDID", z("TestMoney"))])),
+        top(b"CMNY", &record(b"CMNY", 0, CMNY, &[sub(b"EDID", z("TestMoney")), sub(b"DATA", 40u32.to_le_bytes().to_vec())])),
     ]
     .concat();
     let keym = cat(&[
@@ -1039,6 +1039,18 @@ fn notes_chips_and_caravan_items_weigh_nothing() {
     }
     let e = w.encumbrance(p).unwrap();
     assert_eq!((e.weight, e.unknown_weight), (15.0, vec![]));
+}
+
+#[test]
+fn caravan_money_is_worth_its_absolute_value() {
+    let f = fixture();
+    let it = f.forms.item(id(CMNY)).unwrap();
+    // The record has no Value field; its DATA is what the note is worth in caps.
+    assert_eq!((it.value, it.money, it.worth()), (None, Some(40), Some(40)));
+    let mut inv = fnv_sim::inventory::Inventory::default();
+    inv.add(id(CMNY), 3);
+    let t = inv.totals(&f.forms, false);
+    assert_eq!((t.value, t.unknown_value.len()), (120, 0));
 }
 
 #[test]
