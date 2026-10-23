@@ -1491,8 +1491,8 @@ its blows), `crippled-torso-arms` (the player is held).
   speed and at 200 units); where it has a forward power attack clip
   (`h2hattackforwardpower.kf`: ghoul, radscorpion's sting, gecko, deathclaw …) the
   forward power attack's own hit time gives a longer band, a lunge, rolled by its style's
-  power attack chance; the ordinary blow by its style's attack chance (a rush always
-  attacks). Rolled once each time the target comes within the band. The blow lands only
+  power attack chance; the ordinary blow goes without the attack-chance roll (a creature
+  running in means to strike). Rolled once an approach. The blow lands only
   if the target is within reach at the `Hit` key, as every blow. Before, a creature
   attacked only once it stood within reach, and a failed attack roll made it hold for the
   style's hold timer (0.5–1.5 s): the "awkward delay". Log `npc combat: … attacks … on the

@@ -7374,7 +7374,7 @@ expect = [
 [[scenario]]
 name = "combat-ghoul-lunge"
 source = "owner's playtest list 7 item 36: feral ghouls ran too slowly and waited next to the player before swinging; creatures now attack on the run and lunge (forward power attack) from beyond their reach (npc_combat::lunge_band)"
-note = "the feral ghoul 0x000CE9E7 (follower-boone's) is put 1,500 units from the player south of Goodsprings (death-stops-character's spot, the player in god mode) and set on the player at 3, 12, 21 and 30 s (1,500 units east: north of the player there is no navmesh); each approach rolls once for a blow on the run (its style's attack chance about 60 %, a lunge by its power attack chance 50 %), so four approaches make one all but certain. Outside Novac (the first runs) the townsfolk fought it and it changed targets"
+note = "the feral ghoul 0x000CE9E7 (follower-boone's) is put 1,500 units from the player south of Goodsprings (death-stops-character's spot, the player in god mode) and set on the player at 3, 12, 21 and 30 s (1,500 units east: north of the player there is no navmesh); each approach begins a blow on the run (a lunge by its power attack chance 50 %, else an ordinary blow). Outside Novac (the first runs) the townsfolk fought it and it changed targets"
 areas = ["combat", "creatures"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/creature_pace.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000CE9E7:player:1500:0:0,3.5:combat:0x000CE9E7:player,12:moveto:0x000CE9E7:player:1500:0:0,12.5:combat:0x000CE9E7:player,21:moveto:0x000CE9E7:player:1500:0:0,21.5:combat:0x000CE9E7:player,30:moveto:0x000CE9E7:player:1500:0:0,30.5:combat:0x000CE9E7:player" }

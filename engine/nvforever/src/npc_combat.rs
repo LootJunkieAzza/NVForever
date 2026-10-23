@@ -493,7 +493,7 @@ pub struct Fighters {
     swing_rng: u64,
     /// The maneuver decision's and rushes' own sequence, as `stance_rng` (§17).
     maneuver_rng: u64,
-    /// The rolls of creatures' attacks on the run (`lunge_band`), a sequence of their own
+    /// The power rolls of creatures' lunges on the run (`lunge_band`), a sequence of their own
     /// so the other rolls fall as before.
     lunge_rng: u64,
     /// (fighter, target) pairs held back by the Max Targeting FOV, logged once (§17.5).
@@ -2234,14 +2234,10 @@ pub(crate) fn fight(
                             fighter.lunge_rolled = true;
                             let lunge = forward.filter(|_| away <= strike_at + band_forward).into_iter().collect::<Vec<_>>();
                             let ordinary_ok = away <= strike_at + band_normal;
-                            let wants = if rushing {
-                                true
-                            } else {
-                                let (skill_name, h2h) = ("Melee Weapons".to_string(), true);
-                                let skill = fnv_game::functions::av_by_name(&skill_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
-                                let opp = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking, unconscious: g.is_out_cold(target) };
-                                style.is_none_or(|s| next_unit(&mut f.lunge_rng) * 100.0 < melee_attack_chance(s, skill, h2h, opp))
-                            };
+                            // No attack-chance roll on the run: a creature running in
+                            // means to strike (owner: creatures were not aggressive
+                            // enough); only a lunge rolls, by the power attack chance.
+                            let wants = true;
                             // Beyond the ordinary blow's band only a lunge goes: its power
                             // attack chance is rolled now.
                             let lunge_only = !ordinary_ok;
