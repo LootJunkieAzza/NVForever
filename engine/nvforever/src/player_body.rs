@@ -414,6 +414,9 @@ struct Rig {
     /// The weapon is in the hand with no draw, attack or reload clip playing, and the
     /// parts' pose then was logged ([`pose_rig`]).
     idle_logged: bool,
+    /// Down the sights: the most the spine was turned back to the sights clip's facing
+    /// since the sights went up ([`keep_sights_facing`]; logged as they come down).
+    sights_turned: Option<f32>,
     /// The way from the `Weapon` node down to the weapon model's `ProjectileNode`, when
     /// it has one: each node's place in the animator's extra nodes (a named node; the
     /// clips may move it) and its transform in the model [hypothesis: the node marks
@@ -537,6 +540,7 @@ impl Rig {
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Move(..)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
@@ -1174,6 +1178,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_model: None,
         weapon_parts: Vec::new(),
         idle_logged: false,
+        sights_turned: None,
         muzzle: None,
         muzzle_entity: None,
         casing: None,
@@ -1507,6 +1512,15 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     a.pose();
+    let turned = (rig.view == View::Third && f.aiming && f.hands.in_hand && !blocks(f.prefix)).then(|| bone("Bip01 Spine").map_or(0.0, |s| keep_sights_facing(a, s)));
+    match (turned, rig.sights_turned) {
+        (Some(t), m) => rig.sights_turned = Some(m.unwrap_or(0.0).max(t)),
+        (None, Some(m)) => {
+            info!("player sights: upper body turned back to the sights clip's facing by up to {m:.1}° while down the sights");
+            rig.sights_turned = None;
+        }
+        (None, None) => {}
+    }
     // Each time the weapon comes to rest in the hand, the parts it holds away from their
     // place in the model (the 9mm pistol's cocked hammer; smoke `weapon-parts-rest`).
     let busy = |t: u32| t == TAG_EQUIP || t == TAG_RELOAD || (TAG_ATTACK..TAG_ATTACK + 3).contains(&t);
@@ -1546,6 +1560,41 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }),
         View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
+}
+
+/// Down the sights in third person the body stays square to the view, whatever way the
+/// legs step. The sights clips (`2hraimis.kf`, `1hpaimis.kf`) take the spine, arms and
+/// head (priority 50) but leave `Bip01 NonAccum`, the body's node that the pelvis and
+/// `Bip01 Spine` both hang from, to the movement clips (26 under 30). The unarmed
+/// `male\mtleft.kf` and `mtfastleft.kf`, which a rifle (no `2hrleft.kf`) strafes left
+/// with, turn that node a further 90° (yaw 177.5° against 87.5–90° in every other move
+/// and in the weapons' own side-steps), so strafing left swung the body and the rifle a
+/// quarter turn off the crosshair [observed: `kf_pose_compare` and `fnvtool actor
+/// locomotion --samples`, animation.md §9.6; the owner's playtest 2026-10-23].
+///
+/// The aim clips' own rotation of the nodes above the spine is taken in place of the
+/// blend's, faded with the aim clips; the movement clip keeps their translation (the
+/// bob) and the legs below the pelvis. In the original, strafing left down the sights
+/// the hips stay square to the camera and the legs step as in a backpedal [observed:
+/// the owner's capture 2026-10-23], which is that [hypothesis: the game's rule is not
+/// known]. Turning only the spine instead wrung the skin at the waist a quarter turn.
+/// Standing still the aim clip holds those nodes itself and nothing changes. Returns
+/// the largest turn, degrees.
+fn keep_sights_facing(a: &mut Animator, spine: usize) -> f32 {
+    let aim = |l: &nvf_assets::anim_blend::Layer| (TAG_AIM..TAG_AIM + 3).contains(&l.tag);
+    let ease = a.layers.iter().filter(|l| aim(l)).map(|l| l.ease).fold(0.0f32, f32::max).min(1.0);
+    let mut most = 0.0f32;
+    let mut cur = a.skel.parents.get(spine).copied().flatten();
+    while let Some(n) = cur.filter(|&n| n > 0 && ease > 0.0) {
+        if let Some(own) = a.local_from(n, aim) {
+            let posed = a.locals[n].rotation;
+            let r = posed.slerp(own.rotation, ease).normalize();
+            most = most.max(posed.angle_between(r).to_degrees());
+            a.locals[n].rotation = r;
+        }
+        cur = a.skel.parents[n];
+    }
+    most
 }
 
 /// Draw the first-person rig `k` times as big across the view about the eye (along the
