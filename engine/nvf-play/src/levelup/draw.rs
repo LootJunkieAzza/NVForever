@@ -11,9 +11,10 @@ use bevy::prelude::*;
 
 /// The dark picture behind: 1144 × 1070, 50 left of and 125 above the rectangle.
 const BEHIND: [f32; 4] = [-50.0, -125.0, 1144.0, 1070.0];
-/// How dark it makes the world: the menus' darkness (`crate::interface::MENU_BACKING`;
-/// the original also blurs the world behind, not built).
-const SHADE: f32 = crate::interface::MENU_BACKING;
+/// How dark it makes the world: the character menus' darkness
+/// (`crate::interface::TOP_MENU_SHADE`; the original also blurs the world behind, not
+/// built).
+const SHADE: f32 = crate::interface::TOP_MENU_SHADE;
 /// The headline: a line 50 long, the title 20 after it and 10 above the line; the lines
 /// fading down from its ends 60 long (vertical_fade_line.xml).
 const HEAD_LINE: f32 = 50.0;
@@ -155,8 +156,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &View) {
 /// clickable.
 fn arrow(row: &mut ChildSpawnerCommands, c: &mut Ctx, picture: &str, x: f32, sign: &str, part: Part) {
     let node = at(x, ARROW_Y, ARROW, ARROW);
-    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(31))).is_none() {
-        row.spawn((node, Button, part, GlobalZIndex(31))).with_children(|a| {
+    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(crate::interface::TOP_MENU_Z + 1))).is_none() {
+        row.spawn((node, Button, part, GlobalZIndex(crate::interface::TOP_MENU_Z + 1))).with_children(|a| {
             c.text(a, Which::Body, sign, ARROW / 2.0, ARROW / 2.0 - BODY_H / 2.0, Align::Centre, amber(255.0));
         });
     }

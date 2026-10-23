@@ -61,8 +61,8 @@ const HINT_X: f32 = 0.0;
 /// How dark the original's picture behind makes the world: the world in it is 33 of 255 bright
 /// against 54 just outside it on the trait screenshot (the world behind is also blurred
 /// there; not built).
-/// Ours is darker, the owner's wish ([`crate::interface::MENU_BACKING`]).
-const SHADE: f32 = crate::interface::MENU_BACKING;
+/// Ours is darker, the owner's wish ([`crate::interface::TOP_MENU_SHADE`]).
+const SHADE: f32 = crate::interface::TOP_MENU_SHADE;
 /// The scroll bar's marker: 105 long, its top 23 under the up arrow at the list's top
 /// (sixteen traits, thirteen shown) [hypothesis: the same length for any list].
 const MARKER_H: f32 = 105.0;
@@ -550,8 +550,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
 /// clickable.
 fn arrow(row: &mut ChildSpawnerCommands, c: &mut Ctx, picture: &str, x: f32, sign: &str, part: ListButton) {
     let node = at(x, ARROW_Y, ARROW, ARROW);
-    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(31))).is_none() {
-        row.spawn((node, Button, part, GlobalZIndex(31))).with_children(|a| {
+    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(crate::interface::TOP_MENU_Z + 1))).is_none() {
+        row.spawn((node, Button, part, GlobalZIndex(crate::interface::TOP_MENU_Z + 1))).with_children(|a| {
             c.text(a, Which::Body, sign, ARROW / 2.0, ARROW / 2.0 - BODY_H / 2.0, Align::Centre, amber(255.0));
         });
     }

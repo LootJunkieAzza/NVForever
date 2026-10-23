@@ -453,7 +453,7 @@ fn draw_menu(
         align_items: AlignItems::Center,
         ..default()
     };
-    commands.spawn((root, GlobalZIndex(30), LevelUpRoot)).with_children(|r| draw::spawn(r, &view, &mut c));
+    commands.spawn((root, GlobalZIndex(crate::interface::TOP_MENU_Z), LevelUpRoot)).with_children(|r| draw::spawn(r, &view, &mut c));
 }
 
 #[cfg(test)]
