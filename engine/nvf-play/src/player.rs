@@ -927,6 +927,7 @@ fn step(
             p.prev_feet = at;
         }
         p.prev_feet = at;
+        p.player_lift.reset();
         player.feet = at;
         return;
     }
@@ -954,6 +955,7 @@ fn step(
         if v != [0.0; 3] {
             player.placed = None;
         }
+        p.player_lift.reset();
         let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
         player.feet = lerp3(p.prev_feet, c.feet, alpha);
         return;
@@ -1061,7 +1063,11 @@ fn step(
             b.list = all;
         }
         let was_swimming = c.swimming;
+        let was_on_ground = c.grounded && !c.swimming;
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
+        let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
+        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_on_ground && c.grounded && !c.swimming, dt);
         if s.swimming != was_swimming {
             let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
             info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
@@ -1084,7 +1090,10 @@ fn step(
         // The actors another system walks, by the velocity it gave each.
         for ((&id, b), v) in p.npcs.iter_mut().zip(walking) {
             b.prev_feet = b.ch.feet;
+            let was_on_ground = b.ch.grounded && !b.ch.swimming;
             let s = p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            let (f, from) = (b.ch.feet, b.prev_feet);
+            b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
             if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
                 fell.write(crate::falls::Fell { actor: FormId(id), height });
             }
