@@ -284,3 +284,80 @@ At 50 a side (traced, the same battle): mean frame 98 → 42 ms; `detection::mea
 thread 385 → 269 ms of CPU a second; the moves (`plan_move`, 337 ms a second) now spread
 over the pool, 36 ms a second left on one thread (the player's own) [observed:
 target/stress/battle/prof-*, private].
+
+Then (branch claude/ai-rays-cache):
+
+- **Fewer sight rays** (`nvforever` `detection.rs`), each with the answer the rays gave
+  before:
+  - A line of sight first casts one ray that ignores the actors (`Filter::no_actors`):
+    where it meets nothing, the walk past the actors' capsules (one or two rays for every
+    actor on the line, up to `PAST_ACTORS`) could only end clear, so it is not cast. Only
+    a line that meets something walks as before.
+  - One ray answers every asker of the same two points, either way round
+    (`detection::sights`): A's eyes to B's eyes serves B's eyes to A's (the second step of
+    both, after both chests were hidden), and a detection event's two points are one, so
+    its second step is its first. That the world blocks a line whichever end it is cast
+    from is a [hypothesis] checked with the sight check below.
+- **Still pairs** keep their line of sight for the next measurement when neither the
+  detector's eyes (or the player's camera) nor the target's chest and eyes moved more
+  than `STILL` (4 units) since it was cast; a kept answer is not kept again, so every line
+  is cast at least every second measurement and a door that opened between two shows at
+  most one measurement (0.25 s) late [design].
+- **Factions for the combat AI's frame** (`Game::begin_faction_frame` /
+  `end_faction_frame`, `fnv-game`): `npc_combat::fight` asked every actor's factions
+  afresh for each comrade and hostility check (`Game::comrades` → `factions_of`); they and
+  the faction relations are now kept for the frame, in the same keep as the detection
+  round's (`functions::actor::FactionKeep`), forgotten by the same script functions and
+  crimes.
+- **Sight check** (`NVF_PLAY_TEST_SIGHT_CHECK=1`): every line is also worked out the old
+  way and the answers compared; the `detection summary, lines of sight:` line at the exit
+  gives the counts.
+
+At 50 a side, measured with the engine's span profile (`--features profile`,
+`NVF_PLAY_TEST_PROFILE=10`, passed with the battle's new `--aid`) instead of xperf, which
+needs the owner's elevation; #634's head (ce8574f4) and this branch built the same way and
+run in turn, twice each, the start-up windows left out (ms of CPU a second, the two runs)
+[observed: target/stress/battle/prof-*, private]:
+
+| | #634 | this branch |
+|---|---|---|
+| ray casts (`cast_ray_and_get_normal`, all callers) | 621, 640 | 296, 316 |
+| `detection::measure` (its span) | 400, 374 | 302, 340 |
+| `npc_combat::fight` | 76, 97 | 23, 27 |
+| the whole process | 4,014, 4,224 | 2,987, 3,182 |
+| mean frame (profiled) | 62.5, 51.2 ms | 61.3, 47.2 ms |
+
+Untraced, the same battle: #634 mean 39.7 and 36.6 ms, this branch 41.6 and 33.2 ms: the
+machine's other load moves a run by more than the change. The sight check (one run, every
+line also cast the old way): 3.8 million lines asked, 11.3 million rays where the old way
+cast 20.2 million; 243 answers differ from the old way's (a line grazing an edge, cast from
+a point a unit further along) and 5 of the 449,418 shared answers from the asker's own ray
+[observed: target/stress/battle/check2-50]. 252,085 lines of still pairs could have been
+kept, 6.6 % of those asked; 7,795 of them (3 %) would have answered otherwise than a
+fresh ray. The battle's outcome is as before (Legion 48–49 dead, NCR 6–7).
+
+The CPU is less but the frame barely shorter: the frame waits on `measure`'s serial part
+(each pair's `Game::detect` and `observe_threat`, the events, the allies and alarms), not
+on its rays. That is the next thing to cut.
+
+**Found, not fixed (it changes behaviour):** an actor's eyes (112 units up) are inside its
+own character hull (128.9 tall), and the collision world's ray casts are solid, so a ray
+from the eyes meets the actor's own hull at distance 0 every time; the walk past actors
+steps 1 unit and casts again, `PAST_ACTORS` times, and ends "clear". Every actor's line of
+sight through the collision world is therefore clear (the player's capsule is left out of
+the filter, so the player's and the camera's are not) [observed: a ray from inside a
+character in a test world met it at 0.0 ten times in a row, 2026-10-23]. Leaving the
+detector's own capsule out of its rays would fix it and cut a blocked line from 9 rays to
+about 2.
+
+### Option, not built: measure far pairs less often
+
+Most pairs of a big battle are far from the player: at 50 a side nearly all of the
+10,000 ordered pairs a measurement. Measuring the pairs where neither actor is within some
+distance of the player (say beyond 2,048 units, or out of the player's detection reach)
+every second or fourth measurement instead of every one, keeping their last values in
+between, would cut the measuring and the rays of those pairs by half or three quarters.
+It changes behaviour: far actors would notice each other, lose each other and react to
+hits up to 0.25–0.75 s later than now, and a search or an alarm far away would start
+later. The original's rate for actors far from the player is not documented. Not built:
+the owner has not decided whether that delay is acceptable [design].
