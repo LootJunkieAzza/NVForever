@@ -1981,14 +1981,15 @@ expect = [
 [[scenario]]
 name = "third-person-sights-strafe"
 source = "owner 2026-10-23: down the sights in third person with a rifle, strafing left turned the body and the rifle left off the crosshair; the rifle stays on the crosshair (player_body::keep_sights_facing)"
-note = "The varmint rifle (2hr, as the service rifle) drawn at 4 s, third person at 5 s, sights up at 7 s; standing until 10 s, strafing left 10-14 s, right 15-17 s, sights down at 18 s. mtleft.kf turns Bip01 NonAccum 87.5° from 2hraimis.kf's pose, so that node is turned back by about that much while strafing left; the camera is zoomed out (as the owner's capture of the original) so the legs show. Shots: sights_stand.png, sights_left_a/b/c.png and sights_left.png a quarter second apart, sights_right.png"
+note = "The varmint rifle (2hr, as the service rifle) drawn at 4 s, third person at 5 s, sights up at 7 s; standing until 10 s, strafing left 10-14 s, right 15-17 s, sights down at 18 s. The rifle has no walk left of its own and side-steps with h2hleft.kf (body yawed right, legs stepping back across, as the owner's capture of the original); the unarmed mtleft.kf would turn Bip01 NonAccum 87.5° from 2hraimis.kf's pose; the camera is zoomed out (as the owner's capture of the original) so the legs show. Shots: sights_stand.png, sights_left_a/b/c.png and sights_left.png a quarter second apart, sights_right.png"
 areas = ["animation", "combat"]
-paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "crates/fnv-actor/src/player_clips.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONTROL = "4:weapon,5:view,5.5:zoom=300,7:aim,18:aim", NVF_PLAY_TEST_MOVE = "10:0:-1:walk,14:0:0,15:0:1:walk,17:0:0", NVF_PLAY_TEST_SHOTS = "9:sights_stand.png,12:sights_left_a.png,12.25:sights_left_b.png,12.5:sights_left.png,12.75:sights_left_c.png,16.5:sights_right.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
 run_seconds = 21
 expect = [
-  { re = 'player sights: upper body turned back to the sights clip.s facing by up to (?P<n>[\d.]+)°', range = [60, 120], label = "strafing left down the sights, the body is turned back by about the quarter turn mtleft.kf gives it" },
+  { re = 'player Third rig: Move\(Stand, false, false, Left, Some\("2hr"\), false\) plays .*locomotion\\h2hleft\.kf', label = "the rifle side-steps left with the fists' h2hleft.kf, body square" },
+  { re = 'player sights: upper body turned back to the sights clip.s facing by up to (?P<n>[\d.]+)°', range = [0, 10], label = "down the sights, the body is turned back only a little (h2hleft.kf's 2.7°; mtleft.kf needed 87.5°)" },
 ]
 
 [[scenario]]

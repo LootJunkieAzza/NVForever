@@ -540,6 +540,7 @@ impl Rig {
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Move(..)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
