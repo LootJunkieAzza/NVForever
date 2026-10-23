@@ -738,6 +738,23 @@ impl SkyState {
         }
     }
 
+    /// How strong the outdoor sun and moon are against the Mojave's at this hour: the
+    /// image space's Sunlight Dimmer with the weather's adapters, blended like the grade
+    /// and across a weather fade, over the dimmer the Mojave's lighting was fitted under
+    /// (`fnv_world::imagespace::sun_scale`; world.md §6). 1 without an image space. Kept
+    /// when the grade is switched off: it is light, not a colour grade.
+    pub fn sun_scale(&self) -> f32 {
+        let Some(base) = self.image_space else { return 1.0 };
+        let none = [None; 6];
+        let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour).sunlight_dimmer;
+        let cur = at(&self.weather);
+        let dimmer = match &self.prev {
+            Some(p) => at(p) + (cur - at(p)) * self.fade,
+            None => cur,
+        };
+        fnv_world::imagespace::sun_scale(dimmer, &self.climate, self.hour)
+    }
+
     /// Fog near, far and strength (0..1), blended across a weather fade; `None` when
     /// neither weather has fog. Fading to or from a weather without fog fades the
     /// strength and keeps the other weather's distances.
@@ -1544,7 +1561,9 @@ pub fn update_sky(
         light.color = to_color(sunlight);
         // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
         // switch between the two does not flip shadows at full strength [interim].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0);
+        // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
+        // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale();
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = to_color([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z]);
@@ -1563,7 +1582,7 @@ pub fn update_sky(
             Some(_) => format!("{near:.0}..{far:.0}"),
             None => "none".into(),
         };
-        info!("sky: {}  fog {desc}", sky.describe());
+        info!("sky: {}  fog {desc}  sun x{:.2}", sky.describe(), sky.sun_scale());
     }
 }
 

@@ -276,6 +276,7 @@ impl ImageModifier {
                 contrast_avg_lum: self.contrast_avg_lum.at(t),
                 brightness: self.brightness.at(t),
                 tint: None,
+                sunlight_dimmer: MultAdd::default(),
             },
             tint: self.tint.at(t).unwrap_or([1.0, 1.0, 1.0, 0.0]),
             fade: self.fade.at(t).unwrap_or([0.0; 4]),
@@ -536,7 +537,7 @@ mod tests {
 
     #[test]
     fn grade_with_modifiers() {
-        let base = Cinematic { saturation: 1.1, contrast: 1.2, contrast_avg_lum: 0.2, brightness: 1.0, tint: [1.0, 0.5, 0.0], tint_amount: 0.3 };
+        let base = Cinematic { saturation: 1.1, contrast: 1.2, contrast_avg_lum: 0.2, brightness: 1.0, tint: [1.0, 0.5, 0.0], tint_amount: 0.3, sunlight_dimmer: 1.0 };
         assert_eq!(graded(&base, &ScreenEffect::default()), base);
         let mut e = ScreenEffect { tint: [0.0, 0.5, 1.0, 0.6], ..Default::default() };
         e.cinematic.brightness = MultAdd { mult: 0.0, add: 0.25 };

@@ -19,12 +19,15 @@ pub struct Cinematic {
     pub brightness: f32,
     pub tint: [f32; 3],
     pub tint_amount: f32,
+    /// The HDR "Sunlight Dimmer": how strong the sun and moon light is (world.md §6
+    /// "Sunlight Dimmer") [documented: name from xEdit IMGS DNAM; use: hypothesis].
+    pub sunlight_dimmer: f32,
 }
 
 impl Default for Cinematic {
     /// No change to the picture.
     fn default() -> Self {
-        Cinematic { saturation: 1.0, contrast: 1.0, contrast_avg_lum: 0.5, brightness: 1.0, tint: [1.0; 3], tint_amount: 0.0 }
+        Cinematic { saturation: 1.0, contrast: 1.0, contrast_avg_lum: 0.5, brightness: 1.0, tint: [1.0; 3], tint_amount: 0.0, sunlight_dimmer: 1.0 }
     }
 }
 
@@ -38,6 +41,7 @@ impl Cinematic {
             brightness: l(self.brightness, o.brightness),
             tint: std::array::from_fn(|i| l(self.tint[i], o.tint[i])),
             tint_amount: l(self.tint_amount, o.tint_amount),
+            sunlight_dimmer: l(self.sunlight_dimmer, o.sunlight_dimmer),
         }
     }
 
@@ -54,6 +58,7 @@ impl Cinematic {
             brightness: a.brightness.apply(self.brightness),
             tint,
             tint_amount,
+            sunlight_dimmer: a.sunlight_dimmer.apply(self.sunlight_dimmer),
         }
     }
 }
@@ -62,6 +67,8 @@ impl Cinematic {
 /// dimmer, bloom (3), get hit (3) and night eye (4): byte 100 in a 152-byte DNAM, byte 96
 /// in the 148- and 132-byte ones [observed: docs/spec-notes/world.md §6; xEdit ties the
 /// skin dimmer to form version 10, but form versions 11-13 still read correctly at 96].
+/// The sunlight dimmer is HDR float 11, byte 44 in every size [documented: xEdit IMGS
+/// DNAM; observed: NVDefaultExterior 1.1].
 pub fn image_space(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Cinematic> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
@@ -75,6 +82,7 @@ pub fn image_space(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Cinemati
         brightness: at(3)?,
         tint: [at(4)?, at(5)?, at(6)?],
         tint_amount: at(7)?,
+        sunlight_dimmer: raw.get(44..48).map_or(1.0, |b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
     })
 }
 
@@ -108,6 +116,8 @@ pub struct Adapter {
     pub contrast_avg_lum: MultAdd,
     pub brightness: MultAdd,
     pub tint: Option<([f32; 3], f32)>,
+    /// Track 0x0B, add at 0x4B (`KIAD`) [documented: xEdit IMAD "Sunlight Dimmer"].
+    pub sunlight_dimmer: MultAdd,
 }
 
 /// Value of the earliest key of a time/value key list.
@@ -136,7 +146,14 @@ pub fn adapter(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Adapter> {
         let c = |n: &str| k.get(n).and_then(Value::as_f64).map(|v| v as f32);
         Some(([c("red")?, c("green")?, c("blue")?], c("alpha")?))
     });
-    Some(Adapter { saturation: pair(0x11), contrast_avg_lum: pair(0x12), contrast: pair(0x13), brightness: pair(0x14), tint })
+    Some(Adapter {
+        saturation: pair(0x11),
+        contrast_avg_lum: pair(0x12),
+        contrast: pair(0x13),
+        brightness: pair(0x14),
+        tint,
+        sunlight_dimmer: pair(0x0B),
+    })
 }
 
 /// The adapters a weather links, per time of day (sunrise, day, sunset, night, high noon,
@@ -156,13 +173,34 @@ pub fn cinematic_at(base: &Cinematic, adapters: &[Option<Adapter>; 6], c: &Clima
     a.lerp(&b, if w0 + w1 > 0.0 { w1 / (w0 + w1) } else { 0.0 })
 }
 
+/// The sunlight dimmer the Mojave's outdoor light was fitted under, per time of day
+/// (sunrise, day, sunset, night): NVDefaultExterior's 1.1 with NVWastelandClear's
+/// adapters, ×1.5, ×1.1, +0.2 and ×1.0 [observed: fnvtool esm decode; world.md §6].
+pub const REFERENCE_DIMMER: [f32; 4] = [1.65, 1.21, 1.3, 1.1];
+
+/// How much stronger the sun or moon is than the Mojave's at `hour`: `dimmer` (this
+/// world's blended sunlight dimmer) over [`REFERENCE_DIMMER`] blended the same way, so
+/// the Mojave's clear weather gives 1 [hypothesis: the dimmer scales the directional light
+/// directly; world.md §6 "Sunlight Dimmer"].
+pub fn sun_scale(dimmer: f32, c: &Climate, hour: f32) -> f32 {
+    let [(k0, w0), (k1, w1)] = time_keys(c, hour, false);
+    let r = |k: usize| REFERENCE_DIMMER.get(k).copied().unwrap_or(REFERENCE_DIMMER[3]);
+    let t = if w0 + w1 > 0.0 { w1 / (w0 + w1) } else { 0.0 };
+    let reference = r(k0 as usize) + (r(k1 as usize) - r(k0 as usize)) * t;
+    if reference > 0.0 && dimmer.is_finite() {
+        (dimmer / reference).max(0.0)
+    } else {
+        1.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn adapt_and_blend() {
-        let base = Cinematic { saturation: 1.1, contrast: 1.1, contrast_avg_lum: 0.2, brightness: 1.0, tint: [1.0, 0.5, 0.0], tint_amount: 0.33 };
+        let base = Cinematic { saturation: 1.1, contrast: 1.1, contrast_avg_lum: 0.2, brightness: 1.0, tint: [1.0, 0.5, 0.0], tint_amount: 0.33, sunlight_dimmer: 1.1 };
         let night = Adapter {
             contrast: MultAdd { mult: 1.2, add: 0.0 },
             tint: Some(([0.2, 0.5, 0.9], 0.6)),
@@ -180,5 +218,22 @@ mod tests {
         // 02:00 is full night; 12:00 has no day adapter, so the base grade.
         assert!((cinematic_at(&base, &adapters, &c, 2.0).contrast - 1.32).abs() < 1e-6);
         assert_eq!(cinematic_at(&base, &adapters, &c, 12.0), base);
+    }
+
+    #[test]
+    fn sun_scale_against_the_mojave() {
+        let c = Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() };
+        let base = Cinematic { sunlight_dimmer: 1.1, ..Default::default() };
+        let m = |mult: f32, add: f32| Some(Adapter { sunlight_dimmer: MultAdd { mult, add }, ..Default::default() });
+        // The Mojave's clear weather gives 1 at every hour.
+        let mojave = [m(1.5, 0.0), m(1.1, 0.0), m(1.0, 0.2), m(1.0, 0.0), m(1.1, 0.0), m(1.0, 0.0)];
+        for h in [0.0, 6.5, 7.0, 7.5, 12.0, 18.5, 19.0, 19.5, 22.0] {
+            let d = cinematic_at(&base, &mojave, &c, h).sunlight_dimmer;
+            assert!((sun_scale(d, &c, h) - 1.0).abs() < 1e-5, "{h}: {}", sun_scale(d, &c, h));
+        }
+        // The Big MT's day adapter ×2.25: 2.475 / 1.21.
+        let big_mt = [m(3.0, 0.0), m(2.25, 0.0), m(2.0, 0.0), m(2.0, 0.0), None, None];
+        let d = cinematic_at(&base, &big_mt, &c, 12.0).sunlight_dimmer;
+        assert!((sun_scale(d, &c, 12.0) - 2.475 / 1.21).abs() < 1e-5);
     }
 }
