@@ -52,6 +52,7 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         rot: [0.0; 3],
         scale: None,
         count: None,
+        ammo: None,
         health: None,
         owner: None,
         lock: None,

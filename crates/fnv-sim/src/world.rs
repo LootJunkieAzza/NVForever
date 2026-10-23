@@ -1514,7 +1514,13 @@ impl<'a> World<'a> {
                 return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
             }
             let count = if scripted { t.count.min(1) } else { t.count };
+            // A placed weapon's own ammo (XAMT, XAMC) comes with it the first time it is
+            // taken by hand [hypothesis: the rounds in it; world-fields.md §1].
+            let ammo = (!scripted && !t.deleted).then(|| self.placed.get(target).and_then(|p| p.ammo)).flatten();
             self.inventory(actor)?.add_extra(t.base, count, t.extra);
+            if let Some((a, n)) = ammo {
+                self.inventory(actor)?.add(a, n);
+            }
             let s = self.get(target)?;
             s.deleted = true;
             if scripted {

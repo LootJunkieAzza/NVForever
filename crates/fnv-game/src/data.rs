@@ -1441,7 +1441,10 @@ impl GameData {
             d.read_issues.merge(r.read_issues);
             match &sig {
                 b"SCPT" => {
-                    if let Some(&u) = unit_of.get(&label(UnitOwner::Script { form: id.0 })) {
+                    // SCHR flag "Enabled" clear: the script does not run [documented: xEdit
+                    // SCHR flags; hypothesis: what a disabled script does, logic-fields.md
+                    // §2]. One master script has it clear (l38upgradeGunRack01SCRIPT).
+                    if let Some(&u) = unit_of.get(&label(UnitOwner::Script { form: id.0 })).filter(|&&u| d.units[u].unit.header.flags & 1 != 0) {
                         d.scripts.insert(id, u);
                     }
                 }

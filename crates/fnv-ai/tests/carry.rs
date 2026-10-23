@@ -713,7 +713,8 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
 }
 
 /// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,
-/// "Changing cells will teleport the teammate to the player"; docs/design/followers.md).
+/// "Changing cells will teleport the teammate to the player"; docs/design/followers.md), and
+/// so is an actor following the player on a Follow package (owner decision 2026-10-23).
 #[test]
 fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
     let f = fixture();
@@ -730,10 +731,16 @@ fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
         let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(player), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
         s.game.call_function(&ctx, &[fnv_script::vm::ArgValue::Value(fnv_script::vm::Value::Ref(marker))]);
     };
-    // Not a teammate: it stays (and its package sends it after the player on foot).
+    // Not a teammate, but following the player on its Follow package from the player's
+    // cell: it comes along at once too (owner decision 2026-10-23, Deputy Beagle).
     move_to(&mut s, MARK_B);
-    assert_eq!(s.game.world.peek(mate).map_or(Some(FormId(CELL_A)), |m| m.cell), Some(FormId(CELL_A)));
-    assert!(s.game.brought_along.is_empty());
+    assert_eq!(s.game.world.peek(mate).and_then(|m| m.cell), Some(FormId(CELL_B)));
+    assert!(s.game.brought_along.contains(&mate));
+    assert!(!s.game.is_teammate(mate));
+    s.game.brought_along.clear();
+    s.ai.moved_by_scripts(&mut s.game);
+    s.run(1.0);
+    assert!(s.game.follows_player(mate));
     // A teammate: put beside the player in cell B, and the AI takes it up from there.
     s.game.extra.entry(mate).or_default().teammate = true;
     move_to(&mut s, MARK_B);

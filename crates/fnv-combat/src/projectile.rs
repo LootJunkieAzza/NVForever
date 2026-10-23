@@ -54,6 +54,21 @@ pub trait CombatWorld {
     fn aim_points(&self, _actor: ActorId) -> Vec<V3> {
         Vec::new()
     }
+    /// The first hit on the segment `from` → `to` that is not an actor (a wall, the
+    /// ground, a door): what shields from a blast. By default the ray is cast again past
+    /// each actor it meets.
+    fn cover_ray(&self, from: V3, to: V3) -> Option<WorldHit> {
+        let mut past: Vec<ActorId> = Vec::new();
+        for _ in 0..64 {
+            let h = self.ray(from, to, &past)?;
+            match h.actor {
+                Some(a) if !past.contains(&a) => past.push(a),
+                Some(_) => return None,
+                None => return Some(h),
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -410,18 +425,16 @@ pub struct BlastHit {
 
 /// The actors an explosion at `center` reaches: within its radius, and in line of sight
 /// of the centre unless the EXPL ignores it [documented: GECK wiki Explosion]; damage
-/// falls off with distance [design].
+/// falls off with distance [design]. Only the world shields: another body in the way
+/// does not, or one creature at the front of a pack took the blast for all those
+/// behind it (the owner's playtest, a grenade into a mantis swarm) [design].
 pub fn blast(world: &dyn CombatWorld, t: &CombatTuning, e: &ExplosionStats, center: V3) -> Vec<BlastHit> {
     let los = !e.flags.iter().any(|f| f == "Ignore LOS Check");
     let mut out = Vec::new();
     for (a, at) in world.actors_near(center, e.radius) {
         let d = vec::len(vec::sub(at, center));
-        if los {
-            if let Some(h) = world.ray(center, at, &[]) {
-                if h.actor != Some(a) && h.distance + NUDGE < d {
-                    continue;
-                }
-            }
+        if los && world.cover_ray(center, at).is_some_and(|h| h.distance + NUDGE < d) {
+            continue;
         }
         let damage = explosion_damage(t, e.damage, e.radius, d);
         if damage <= 0.0 {

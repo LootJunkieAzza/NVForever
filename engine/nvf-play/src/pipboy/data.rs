@@ -296,7 +296,7 @@ pub struct DataState {
     /// square without land), kept while one outline is made.
     outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
     /// How many markers the world map showed when last logged.
-    world_logged: Option<usize>,
+    world_logged: Option<(usize, usize)>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
     /// Where the left button went down on the World Map, and how far the pointer has
@@ -352,7 +352,7 @@ struct MapMark {
 impl MapMark {
     fn picture(&self) -> String {
         match self.icon {
-            Some((kind, found)) => model::marker_icon(kind, found, self.highlighted),
+            Some((kind, found)) => model::marker_icon(kind, found),
             None => DOOR_ICON.into(),
         }
     }
@@ -1059,14 +1059,23 @@ fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &m
     }
 }
 
-/// Whether the player knows a marker (`Some`), and has been there (`true`): found within
-/// its radius, or shown by ShowMap, ShowAllMapMarkers (which leaves out markers flagged
-/// "Show All" Hidden, FNAM bit 4 [documented: xEdit's flag names, schemas/fnv/world.json],
-/// when asked to) or by its Visible flag [hypothesis].
+/// Whether the player knows a marker (`Some`), and whether it is drawn as discovered
+/// (`true`): found within its radius, or made a travel target by ShowMap's or
+/// ShowAllMapMarkers' canTravel (owner 2026-10-23: `tmm 1` shows every marker with its own
+/// icon). Known also when shown by ShowMap, ShowAllMapMarkers (which leaves out markers
+/// flagged "Show All" Hidden, FNAM bit 4 [documented: xEdit's flag names,
+/// schemas/fnv/world.json], when asked to) or by its Visible flag [hypothesis]; those
+/// keep the undiscovered icon.
 fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
     let hidden = m.flags & 4 != 0;
-    let shown = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.map_marker_shown(FormId(m.form), hidden));
-    let found = st.discovered.contains(&m.form);
+    let rt = game.script.as_ref().and_then(|s| s.rt.as_ref());
+    let shown = rt.is_some_and(|rt| rt.game.map_marker_shown(FormId(m.form), hidden));
+    let by_script = shown
+        && rt.is_some_and(|rt| {
+            let p = &rt.game.player;
+            p.travel_markers.contains(&FormId(m.form)) || p.all_markers.is_some_and(|a| a.shown && a.travel)
+        });
+    let found = st.discovered.contains(&m.form) || by_script;
     let enabled = game.sim.as_ref().is_none_or(|s| s.present(m.form));
     (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
 }
@@ -1098,9 +1107,10 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         .filter(|t| t.interior.is_none() && t.world == world)
         .map(|t| quest_corner(on_map(t.pos[0], t.pos[1])))
         .collect();
-    if st.world_logged != Some(marks.len()) {
-        st.world_logged = Some(marks.len());
-        info!("pipboy data: world map shows {} of {} markers of this worldspace", marks.len(), all.iter().filter(|mk| mk.world == world).count());
+    let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
+    if st.world_logged != Some((marks.len(), drawn_found)) {
+        st.world_logged = Some((marks.len(), drawn_found));
+        info!("pipboy data: world map shows {} of {} markers of this worldspace, {drawn_found} as discovered", marks.len(), all.iter().filter(|mk| mk.world == world).count());
     }
     let (cursor, label, under) = place_cursor(st, WORLD, pointer, &mut marks, &names);
     st.cursor_marker = under.map(|i| forms[i]);

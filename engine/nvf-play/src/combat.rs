@@ -1546,6 +1546,30 @@ impl CombatWorld for PhysView<'_> {
         })
     }
 
+    fn cover_ray(&self, from: V3, to: V3) -> Option<WorldHit> {
+        let d = vec::sub(to, from);
+        let len = vec::len(d);
+        if len < 1e-4 {
+            return None;
+        }
+        // The world only: no body, living or dead, shields another from a blast.
+        let f = Filter { exclude_layers: layers::character_ignores(), no_actors: true, ..Default::default() };
+        let h = self.q.ray(from, d, len, &f)?;
+        Some(WorldHit {
+            point: h.point,
+            normal: h.normal,
+            distance: h.distance,
+            actor: None,
+            part: None,
+            small_transparent: matches!(h.owner, Owner::Ref { layer, .. } if layer == layers::TRANSPARENT_SMALL || layer == layers::TRANSPARENT_SMALL_ANIM),
+            material: h.material,
+            object: match h.owner {
+                Owner::Ref { form_id, .. } => Some(form_id as u64),
+                _ => None,
+            },
+        })
+    }
+
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
         // A blast passes a ghost too: it "cannot be harmed by a weapon or spell/magic
         // effect in any way" [documented: GECK wiki SetGhost notes] (no knock-down either).
@@ -3336,6 +3360,16 @@ fn fly(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
+        // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
+        // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
+        // hypothesis: from 0, once a hit; logic-fields.md §3].
+        let fatigue = damage::apply_effects(0.0, &ammo_effects, "Fatigue Mod");
+        if fatigue > 0.0 && r.as_ref().is_some_and(|r| !r.immune) {
+            if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                with_world(rt, &mut sim, |rt| rt.game.damage_fatigue(target, f64::from(fatigue)));
+                info!("combat: {target} loses {fatigue:.0} fatigue to the ammo");
+            }
+        }
         if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
             dm.checks.push(check);
         }

@@ -2793,6 +2793,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "pipboy-tmm-discovered"
+source = "owner request 2026-10-23: ShowAllMapMarkers 1 (tmm 1, travel on) draws every marker with its own type icon, as discovered; without travel they keep the undiscovered icon (script-stubs-2-play)"
+areas = ["scripts", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows \d+ of \d+ markers of this worldspace, (\d+) as discovered', range = [100, 100000], label = "pipboy data: tmm 1 draws the markers as discovered (100 or more)" },
+]]
+
+[[scenario]]
 name = "effect-shaders"
 source = "docs/spec-notes/effect-shaders.md: PlayMagicShaderVisuals draws NightkinCloakFXShader on Sunny until StopMagicShaderVisuals and effectAlienDisintegration for 2 s, which ends by itself; SetActorAlpha 0.5 and back to 1 (the test aid call:); frames at 9 s (shaders) and 14 s (alpha) in target/smoke"
 areas = ["scripts", "effect-shaders"]
@@ -2894,6 +2907,19 @@ expect = [
   { re = 'particles: born in \S*neoclassicalsconcefire01\.nif: .* [1-9]', label = "the sconces' flames are born" },
   { re = 'particles: placed references emitting: (?P<n>\d+) of', range = [30, 1000], label = "most of the 45 placed particle models of the floor emit" },
   { re = 'particles: placed references emitting: .* at most (?P<n>\d+) placed model instances', range = [30, 1000], label = "each sconce has its own systems" },
+]
+
+[[scenario]]
+name = "smoke-blend-bison-steve"
+source = "docs/spec-notes/nif.md §6 \"Alpha blend of unlit shapes\" (owner 2026-10-23, screenshots of the Bison Steve Hotel's main entrance: ours drew far more smoke than the game): unlit alpha-blended shapes put colour × alpha^1.5 on the frame; the lobby (BisonSteve01) from the entrance marker, looking east over FXMistLow01 00172699 and FXSmokeWisps01 0017209E; one frame in target/smoke (bison_steve_smoke.png) to judge against the owner's game screenshot"
+areas = ["particles", "effects", "rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_material.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:bison_steve_smoke.png" }
+args = ["--play", "--cell", "BisonSteve01", "--pos=-1408,-896,0", "--heading", "90", "--no-voice", "--no-messages"]
+run_seconds = 8
+manual = "bison_steve_smoke.png against the owner's game screenshot of the lobby (2026-10-23): the room's floor, rug and desk clear, only a faint haze low over the floor"
+expect = [
+  { re = 'test aid: screenshot .*bison_steve_smoke\.png', label = "the lobby frame is saved" },
 ]
 
 [[scenario]]
@@ -3678,6 +3704,20 @@ expect = [
 forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
   { re = 'provocation: CraigBooneREF .*fights back', label = "Boone turns on the player" },
+]
+
+[[scenario]]
+name = "follower-beagle"
+source = "owner 2026-10-23: an NPC following the player on a Follow package (not a teammate) comes along through a load door at once, not seconds later on foot (docs/design/followers.md §3)"
+note = "Bison Steve hotel: the seven Powder Gangers are killed at 1 s (as when the player has cleared the hotel; alive, they shoot Beagle once he is free); Deputy Beagle's line INFO 0x000E501C at 3 s frees him and sets nVPrimmDeputyConv.beaglefollow 1, so his PrimmBeagleFollow package (Follow, the player) is chosen; the player goes through the hotel's front door (0x000D6FF7, beside the cell's start spot) at 12 s and Beagle is put beside the player outside in the same frame"
+areas = ["followers", "ai"]
+paths = ["crates/fnv-game/src/followers.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:kill:0x000D7F3D,1:kill:0x000D7F3B,1:kill:0x000D7F54,1:kill:0x000E375C,1:kill:0x000E375D,1:kill:0x000E375E,1:kill:0x00172D3F,3:info:0x000E501C:PrimmDeputyRef,12:activate:0x000D6FF7" }
+args = ["--cell", "BisonSteve01", "--play", "--npc-packages", "PrimmDeputyRef", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'PrimmDeputyRef: package PrimmBeagleFollow', label = "freed by his line: his Follow package" },
+  { re = 'PrimmDeputyRef: put at .* with the player \(follower\)', label = "brought along through the door at once" },
 ]
 
 [[scenario]]
@@ -5683,7 +5723,7 @@ expect = [
   { json = "counts.races", equals = 4 },
   { json = "counts.sliders", equals = 115 },
   { json = "counts.presets", equals = 80 },
-  { json = "counts.facial_hair", equals = 32 },
+  { json = "counts.facial_hair", equals = 47 },
   { json = "races.?edid=Caucasian.male.hairs.#", equals = 18 },
   { json = "races.?edid=Caucasian.female.hairs.#", equals = 23 },
   { json = "races.?edid=Hispanic.male.eyes.#", equals = 4 },
@@ -6256,6 +6296,32 @@ expect = [
   { re = 'vats mode: [0-9A-F]{8} is flagged No VATS Melee: not marked with a melee weapon', label = "the melee mark on the turret is refused" },
 ]
 forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
+
+[[scenario]]
+name = "bean-bag-fatigue"
+source = "ESM audit low-impact list, Logic (docs/spec-notes/logic-fields.md §3): bean bag shells (AMEF AmmoEffectBeanBagFatigue, Fatigue Mod Add 250) take 250 fatigue a hit"
+note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s; the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat: 0x[0-9A-F]{8} loses 250 fatigue to the ammo', label = "a bean bag hit takes 250 fatigue" },
+]
+
+[[scenario]]
+name = "placed-weapon-ammo"
+source = "ESM audit low-impact list, World (docs/spec-notes/world-fields.md §1): the varmint rifle in Primm's sheriff station (REFR 0x000CDA0D, XAMT 5.56mm 0x00004240, XAMC 10) comes with its 10 rounds when taken by hand"
+areas = ["simulation", "activation"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.getitemcount 00004240;8.3:close;12:player.getitemcount 00004240;12.3:close", NVF_PLAY_TEST_SCRIPT = "9:activate:0x000CDA0D" }
+args = ["--cell", "PrimmSheriffStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'console: GetItemCount on .*>> 0\.00', label = "no 5.56mm rounds before" },
+  { re = 'console: GetItemCount on .*>> 10\.00', label = "the rifle's 10 rounds after taking it" },
+]
 
 [[scenario]]
 name = "blood-none-tumbleweed"
