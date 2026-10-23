@@ -375,6 +375,31 @@ fn character_climbs_shallow_steps_without_jumping() {
     assert!(steps.iter().all(|s| s.landed_speed.is_none_or(|v| v < 100.0)), "no fall onto the steps");
 }
 
+#[test]
+fn character_climbs_steep_stairs_without_jumping() {
+    // Catwalk stairs like the REPCONN Facility's flights up to the intercom (RocketLabMid,
+    // owner's playtest 2026-10-23): risers and treads of 24. Walking or running up them
+    // from any start the cone bottom comes to rest on some step's edge, where the step-up
+    // had found less than its minimum rise and the player stuck until a jump.
+    for speed in [115.5f32, 150.0, 344.0] {
+        for start in (0..8).map(|i| i as f32 * 3.0) {
+            let mut w = ground();
+            for i in 0..8 {
+                // Step i from x = 100 + 24 i to the far end of the top floor (x = 1200).
+                let (top, west) = (24.0 * (i + 1) as f32, 100.0 + 24.0 * i as f32);
+                w.add_ref(&at(10 + i, [(west + 1200.0) / 2.0, 0.0, top / 2.0]), &[object(boxed([(1200.0 - west) / 2.0, 200.0, top / 2.0]), Motion::Static)]);
+            }
+            let mut c = w.add_character(1, CharacterParams::default(), [start, 0.0, 1.0]);
+            settle(&mut w, &mut c, 30);
+            let steps = walk(&mut w, &mut c, [speed, 0.0], 240);
+            // On the top floor (x > 292, z 192) once past the stairs.
+            let past = steps.iter().find(|s| s.feet[0] > 300.0).map(|s| s.feet);
+            assert!(past.is_some_and(|f| (f[2] - 192.0).abs() < 2.0), "speed {speed}, start {start}: {past:?}, end {:?}", c.feet);
+            assert!(steps.iter().all(|s| s.landed_speed.is_none_or(|v| v < 100.0)), "speed {speed}, start {start}: no fall onto the steps");
+        }
+    }
+}
+
 /// A ramp rising eastwards at `deg` degrees from x = 100, as a rotated box.
 fn ramp(w: &mut PhysWorld, deg: f32) {
     let a = deg.to_radians();
