@@ -46,10 +46,11 @@ Each is also listed in the module notes of `detection.rs`.
 | Reach | fSneakMaxDistance, × fSneakExteriorDistanceMult outside | [documented] |
 | Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height), and when that is blocked one to its eyes (§7); for the player's GetLineOfSight from the camera; world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7). Where either end is out of the loaded collision (3 × 3 cells around the player), only the landscape blocks it (§7) | [engineering choice]; the layers: [hypothesis] |
 | Field of view | 95° either side of where the actor's body faces, horizontally; for the player, of where the camera looks | [documented: GECK wiki GetLineOfSight]; using it for detection: [hypothesis] |
-| Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. No shade from the sun | [hypothesis] |
+| Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. Outdoors the sunlight counts only when a ray from the target's chest towards the sun meets nothing within 8,192 units (§8) | [hypothesis] |
 | Moving, running | from the distance moved since the last measurement: moving above 10 units/s; actors run above 215 units/s; the player runs when moving without holding Walk, sneaking or not | [engineering choice]; sneak-running counts as running: [hypothesis] |
 | Sneaking | the player's sneak toggle; actors never sneak (Always Sneak packages are not acted on) | — |
 | Action sound | the player's shots since the last measurement, at the weapon's VNAM sound level (100 / 50 / 10) | [documented] |
+| Movement sound of a creature | the boot term × the creature's NAM5 sound level ÷ Normal: Loud × 2, Normal × 1, Silent × 0.2 (§8) | [hypothesis] |
 | Detector asleep | lying on a bed (marker 1–10, state "on it") | [hypothesis] |
 | Detector alert or busy | alert in a combat state (Alert, Combat, Lost); busy in Combat with someone other than the target (docs/design/alert.md) | [documented] |
 | Interval | 0.25 s | [engineering choice] |
@@ -101,15 +102,15 @@ The light level decides most of the visual term, and its measure is a hypothesis
 ## 6. Next and open
 
 - **Detection states** (Normal, Alert, Combat, Lost), the target list and its timers,
-  and detection events: built 2026-10-11, docs/design/alert.md. Explosions are not
-  events yet; combat AI is next.
+  and detection events: built 2026-10-11, docs/design/alert.md. Explosions, impacts at
+  their own sound level and projectiles in flight are events since 2026-10-23 (§8).
 - **Captures** to tune against (actor-behaviour.md §8 items 7 and 8): GetDetected for the
   player standing, walking, running and sneaking at set distances, lit and dark, and the
   game's values of the fSneak* settings (the masters may override the documented
   defaults; `Settings::read` takes them when present).
-- Not modelled: perk entry point "Ignore Running During Detection", melee and explosion
-  sounds, SetAllVisible, player.GetLineOfSight on objects that are not actors, the sneak
-  meter on the HUD, sun shade in the light measure, fights in the low process (§7).
+- Not modelled: perk entry point "Ignore Running During Detection", melee blows' own
+  sound (a blow's impact counts, §8), SetAllVisible, player.GetLineOfSight on objects
+  that are not actors, the sneak meter on the HUD, fights in the low process (§7).
 
 ## 7. The player as a detector, and pairs far from the player (2026-10-17)
 
@@ -187,3 +188,39 @@ between two actors), `crates/fnv-game/tests/functions.rs`
 measured pair; a Frenzied actor out of the player's reach goes to Combat, IsInCombat 1);
 smoke `detection-far-fight` (the NCR troopers and Cook-Cook's Fiends fight with the
 player about 5,700 units away) and `detection-game` (the player detects actors).
+
+## 8. The records' sound levels and the sun's shade (ESM audit group 6, 2026-10-23)
+
+The records name a sound level (Loud, Normal, Silent: `SoundLevel` in the schema)
+[documented: xEdit wbDefinitionsFNV.pas WEAP VNAM, PROJ VNAM, EXPL DATA, IPCT DATA,
+CREA NAM5]. Only the weapon's fed detection. In FalloutNV.esm [observed 2026-10-23,
+private survey]: WEAP 57 Loud / 119 Normal / 85 Silent; PROJ 1 / 90 / 4; EXPL 71 / 75 /
+8; IPCT 11 / 96 / 18; CREA 0 / 1,554 / 24. A level is worth iSoundLevelLoud, Normal or
+Silent (100 / 50 / 10), as a shot's.
+
+- **Impacts** raise their detection event (alert.md §4) at the impact record's (IPCT)
+  sound level [hypothesis: the impact's own loudness, its field's name]; an impact
+  without one at the firing weapon's, as before. 85 weapons are Silent while their
+  projectiles are Normal, so the PROJ level is not the shot's.
+- **Projectiles in flight** raise an event where they are, at the PROJ's sound level,
+  owned by the shooter, once a measurement (0.25 s) for each projectile seen since the
+  last [hypothesis: PROJ VNAM is the noise of the projectile passing; a bullet passing an
+  actor alerts it, as the bullet whiz is heard]. A beam's event is a Beam event, others
+  Bullet.
+- **Explosions** raise an Explosion event where they go off at the EXPL's sound level,
+  owned by whoever set them off (the thrower, the shooter, the mine's placer); one with no
+  known cause (a destruction stage) raises none [design]. Before, an explosion's dirt
+  impact raised a Bullet event owned by the player for every explosion, the NPCs' too;
+  that impact now belongs to the cause.
+- **Creatures**: the movement sound of a moving creature (the boot term, its armour
+  weight 0) is scaled by its NAM5 level ÷ Normal [hypothesis: NAM5 is how loud the
+  creature moves; 1,554 of 1,578 are Normal, so most are unchanged; the 24 Silent ones
+  move at a fifth]. People keep the boot term.
+- **Sun shade** [hypothesis]: outdoors, the sunlight's share of the light at the target
+  counts only when a ray from the target's chest towards the sun (above the horizon)
+  meets nothing solid within 8,192 units [design: the reach]; ambient and point lights
+  are unchanged. Where the target is out of the loaded collision the sun counts.
+
+Checks: the `detection summary` line counts events by kind (impacts, projectiles,
+explosions) and the targets measured in shade. Smoke `detection-shade`, `detection-events-levels`.
+

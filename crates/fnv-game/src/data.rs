@@ -405,6 +405,9 @@ pub struct ActorDef {
     /// [documented: xEdit field names].
     pub attack_damage: Option<i64>,
     pub attack_reach: Option<u8>,
+    /// CREA NAM5 Sound Level ("Loud", "Normal", "Silent") [documented: xEdit]: how
+    /// loud the creature moves, for detection (docs/design/detection.md §8).
+    pub sound_level: Option<String>,
     /// ACBS Fatigue, Speed Multiplier (percent) and Karma [documented: xEdit].
     pub fatigue: i64,
     pub speed_mult: i64,
@@ -2517,6 +2520,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"ZNAM" => a.combat_style = fid(v).filter(|f| f.0 != 0),
                     b"INAM" => a.death_item = fid(v).filter(|f| f.0 != 0),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
+                    b"NAM5" if &sig == b"CREA" => a.sound_level = v.as_ref().and_then(Json::as_str).map(str::to_string),
                     b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
                     b"DATA" if &sig == b"CREA" => {

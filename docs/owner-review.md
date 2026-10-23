@@ -7789,6 +7789,29 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
 
+## Detection: the records' sound levels and the sun's shade (2026-10-23, ESM audit medium group 6, branch claude/em7-detection)
+
+Impacts, projectiles in flight and explosions now raise detection events at their own
+records' sound levels (IPCT, PROJ VNAM, EXPL); creatures move as loud as their NAM5
+level; outdoors the sunlight counts in the light at a target only where nothing shades it
+from the sun (the owner asked for light level in detection: it was measured already, the
+shade was the missing part). Spec: [detection](design/detection.md) §8. Decisions and
+guesses:
+
+- *Guess:* an impact sounds at its IPCT's level, not the weapon's (85 weapons are Silent
+  while their projectiles are Normal, so PROJ VNAM is taken as the projectile's noise in
+  flight, raised each 0.25 s where it is).
+- *Guess:* an explosion is heard at its EXPL's level and belongs to whoever set it off;
+  one without a known cause raises no event.
+- *Fix:* every explosion's dirt impact was a detection event owned by the player, NPCs'
+  explosions too; it is now the cause's.
+- *Guess:* NAM5 scales a moving creature's footstep sound: Loud × 2, Normal × 1 (1,554 of
+  1,578 creatures), Silent × 0.2 (24).
+- *Guess:* shade is a ray from the target's chest towards the sun within 8,192 units;
+  out of the loaded collision the sun counts.
+- *Check:* does a missed shot passing a sleeping or idle NPC alert it in the original?
+  Does standing under the Prospector Saloon's porch at noon hide the player better than
+  the open street?
 ## Visuals: drinking fountains, weather transitions, glare, interior clip (2026-10-23, ESM audit medium group 7, branch claude/em8-visuals)
 
 The audit's "ACTI water activators" turned out to be the drinkable fixtures (31 toilets,

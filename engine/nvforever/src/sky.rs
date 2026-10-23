@@ -832,6 +832,11 @@ impl SkyState {
         game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH))
     }
 
+    /// Direction towards the sun, in game axes (also below the horizon).
+    pub fn sun_dir_game(&self) -> [f32; 3] {
+        sun_direction(&self.climate, self.hour, SUN_SOUTH)
+    }
+
     /// Compass heading of the sun in degrees (0 north, 90 east).
     pub fn sun_heading(&self) -> f32 {
         let d = sun_direction(&self.climate, self.hour, SUN_SOUTH);
