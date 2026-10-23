@@ -396,6 +396,9 @@ struct Fighter {
     dodge: Option<Post>,
     /// A rush rolled for this approach: `Some(true)` rushing (§17.2).
     rush: Option<bool>,
+    /// A creature's attack on the run rolled for this approach ([`lunge_band`]): rolled
+    /// once as its target comes within the band, again after it has left it.
+    lunge_rolled: bool,
     /// Where its fight began or it was last hit, and its health then; beyond its Combat
     /// Radius now (§17.4).
     anchor: V3,
@@ -599,6 +602,10 @@ struct Stats {
     dodges: [usize; 4],
     idles: usize,
     rushes: usize,
+    /// Creatures' attacks begun on the run, short of their reach, and the forward power
+    /// attacks (lunges) among them ([`lunge_band`]).
+    run_attacks: usize,
+    lunges: usize,
     leashes: usize,
     fov_waits: usize,
     blast_holds: usize,
@@ -711,6 +718,28 @@ fn no_leaps(have: &[(Power, f32)], lame: bool) -> Vec<(Power, f32)> {
     have.iter().copied().filter(|(p, _)| !(lame && *p == Power::Forward)).collect()
 }
 
+/// A creature closing in at least this fast (units/s, towards its target) may begin a
+/// blow before it is within reach ([`lunge_band`]) [design].
+pub const RUN_ATTACK_SPEED: f32 = 100.0;
+/// A blow on the run begins at most this far beyond the strike distance, units [design: a
+/// leap of about 4 m; the measured closing speed is also capped at the creature's own
+/// running speed, as a frame's step after a MoveTo or a physics snap is no run].
+pub const RUN_ATTACK_MAX: f32 = 300.0;
+
+/// How far beyond its strike distance a creature closing in at `closing` units/s may begin
+/// a blow whose clip reaches its `Hit` key after `hit` seconds: the ground it covers until
+/// then (owner's playtest list 7 item 36: feral ghouls and radscorpions waited until they
+/// stood next to the player, then swung after a pause; they should lunge and attack on the
+/// move) [design: the blow still lands only if the target is within reach at the `Hit`
+/// key, as every blow]. 0 below [`RUN_ATTACK_SPEED`].
+pub fn lunge_band(closing: f32, hit: f32) -> f32 {
+    if closing < RUN_ATTACK_SPEED {
+        0.0
+    } else {
+        (closing * hit.max(0.0)).min(RUN_ATTACK_MAX)
+    }
+}
+
 /// The alert walking speed of an actor the AI does not run, units/s (`fnv_ai::AiConfig`'s
 /// default).
 pub const DEFAULT_WALK: f32 = 86.8;
@@ -814,6 +843,10 @@ pub struct GunReach {
     pub blast: f32,
     /// Its projectile is a flame (PROJ type Flame).
     pub flame: bool,
+    /// Its projectile's own range (PROJ Range); `None`: no limit in its data. An ordinary
+    /// firearm fires at any target within it (owner's playtest list 7 item 40,
+    /// [`GunReach::limited`]).
+    pub projectile: Option<f32>,
 }
 
 /// Why a gun holds fire at a target (docs/design/combat-ai.md §16).
@@ -837,7 +870,7 @@ pub fn gun_reach(max_range: f32, range_mult: f32, projectile_range: f32, blast: 
         (Some(w), Some(p)) => Some(w.min(p)),
         (w, p) => w.or(p),
     };
-    GunReach { reach, blast: blast.max(0.0), flame: false }
+    GunReach { reach, blast: blast.max(0.0), flame: false, projectile }
 }
 
 impl GunReach {
@@ -851,9 +884,30 @@ impl GunReach {
         }
     }
 
+    /// Whether its reach also bars its shots: a flame or a projectile that explodes (the
+    /// flamer, missiles, grenades and other explosives). An ordinary firearm keeps its
+    /// reach only as the distance it fights from ([`GunReach::engage`]) and fires out to
+    /// its projectile's range [design: owner's playtest list 7 item 40, "remove the
+    /// minimum firing distance from all projectile based weapons except the flamer,
+    /// missiles and explosives"; before, a pistol (Max Range 768) held fire beyond 768
+    /// units and ran at its target without a shot].
+    pub fn limited(&self) -> bool {
+        self.flame || self.blast > 0.0
+    }
+
+    /// The farthest it fires, eyes to chest: its reach for a [`GunReach::limited`] gun,
+    /// else its projectile's range; `None`: no limit.
+    pub fn fire_limit(&self) -> Option<f32> {
+        if self.limited() {
+            self.reach
+        } else {
+            self.projectile
+        }
+    }
+
     /// Whether it holds fire at a target `distance` away (eyes to chest), and why.
     pub fn holds(&self, distance: f32) -> Option<RangeHold> {
-        if self.reach.is_some_and(|r| distance > r) {
+        if self.fire_limit().is_some_and(|r| distance > r) {
             Some(RangeHold::Far)
         } else if distance < self.blast {
             Some(RangeHold::Blast)
@@ -1210,6 +1264,7 @@ pub(crate) fn fight(
                         maneuver_until: 0.0,
                         dodge: None,
                         rush: None,
+                        lunge_rolled: false,
                         anchor,
                         anchor_health,
                         leashed: false,
@@ -1387,14 +1442,14 @@ pub(crate) fn fight(
                 match (range_hold, gun) {
                     (Some(RangeHold::Far), Some(r)) => {
                         f.stats.held_far += 1;
-                        info!("npc combat: {me_name} holds fire: {target_name} is beyond its weapon's reach ({shot_distance:.0} units, reach {:.0})", r.reach.unwrap_or(0.0));
+                        info!("npc combat: {me_name} holds fire: {target_name} is beyond its weapon's reach ({shot_distance:.0} units, reach {:.0})", r.fire_limit().unwrap_or(0.0));
                     }
                     (Some(RangeHold::Blast), Some(r)) => {
                         f.stats.held_blast += 1;
                         info!("npc combat: {me_name} holds fire: {target_name} is within its weapon's blast ({shot_distance:.0} units, radius {:.0})", r.blast);
                     }
                     (None, Some(r)) => {
-                        info!("npc combat: {me_name} has {target_name} in reach ({shot_distance:.0} units, reach {:.0})", r.reach.unwrap_or(f32::INFINITY));
+                        info!("npc combat: {me_name} has {target_name} in reach ({shot_distance:.0} units, reach {:.0})", r.fire_limit().unwrap_or(f32::INFINITY));
                     }
                     _ => {}
                 }
@@ -2145,7 +2200,58 @@ pub(crate) fn fight(
                         }
                     }
                     let rushing = fighter.rush == Some(true);
-                    let decide = ready && near && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0;
+                    // A creature closing in fast may begin its blow on the run, short of its
+                    // reach, by the time its clip takes to reach the `Hit` key: a forward
+                    // power attack (a lunge) where it has the clip, else an ordinary blow
+                    // (`lunge_band`). Rolled once a band, by its style's chances.
+                    let lame = g.is_crippled(me, fnv_game::combat::LEFT_MOBILITY) || g.is_crippled(me, fnv_game::combat::RIGHT_MOBILITY);
+                    // (the lunges it may make, whether only a lunge goes)
+                    let mut early: Option<(Vec<(Power, f32)>, bool)> = None;
+                    if let Arm::Creature(..) = &arm {
+                        let strike_at = creature_spacing(gap.map(|gap| away - gap), reach).1;
+                        let to = [tfeet[0] - feet[0], tfeet[1] - feet[1]];
+                        let len = to[0].hypot(to[1]).max(1e-3);
+                        let run = residents.as_deref().map_or(f32::INFINITY, |r| r.alert_speeds(me).run * g.awareness.pace_of(me));
+                        let closing = ((fighter.velocity[0] * to[0] + fighter.velocity[1] * to[1]) / len).min(run * 1.1);
+                        let hit_normal = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
+                        let forward = times.powers.get(&id).and_then(|have| have.iter().copied().find(|p| p.0 == Power::Forward)).filter(|_| !lame);
+                        let band_normal = lunge_band(closing, hit_normal);
+                        let band_forward = forward.map_or(0.0, |p| lunge_band(closing, p.1));
+                        let band = band_normal.max(band_forward);
+                        if near || away > strike_at + band || band <= 0.0 {
+                            if !near && away > strike_at + band {
+                                fighter.lunge_rolled = false;
+                            }
+                        } else if !fighter.lunge_rolled && ready && !fleeing && fighter.strike_in <= 0.0 && (feet[2] - tfeet[2]).abs() < 128.0 {
+                            fighter.lunge_rolled = true;
+                            let lunge = forward.filter(|_| away <= strike_at + band_forward).into_iter().collect::<Vec<_>>();
+                            let ordinary_ok = away <= strike_at + band_normal;
+                            let wants = if rushing {
+                                true
+                            } else {
+                                let (skill_name, h2h) = ("Melee Weapons".to_string(), true);
+                                let skill = fnv_game::functions::av_by_name(&skill_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
+                                let opp = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking, unconscious: g.is_out_cold(target) };
+                                style.is_none_or(|s| next_unit(&mut f.rng) * 100.0 < melee_attack_chance(s, skill, h2h, opp))
+                            };
+                            // Beyond the ordinary blow's band only a lunge goes: its power
+                            // attack chance is rolled now.
+                            let lunge_only = !ordinary_ok;
+                            let power_ok = !lunge_only || {
+                                let chance = style.filter(|s| s.power_attack_chance > 0.0).map_or(FALLBACK_POWER_CHANCE, |s| creature_power_chance(s, fatigue));
+                                next_unit(&mut f.power_rng) * 100.0 < chance
+                            };
+                            if wants && power_ok && (ordinary_ok || !lunge.is_empty()) {
+                                f.stats.run_attacks += 1;
+                                info!(
+                                    "npc combat: {me_name} attacks {target_name} on the run from {away:.0} units ({}closing at {closing:.0} units/s; strikes within {strike_at:.0})",
+                                    if lunge_only { "a lunge, " } else { "" }
+                                );
+                                early = Some((lunge, lunge_only));
+                            }
+                        }
+                    }
+                    let decide = ready && (near || early.is_some()) && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0;
                     let mut blocks = false;
                     if decide && can_block && !rushing {
                         let chance = style.map_or(0.0, |s| melee_block_chance(s, under_attack));
@@ -2163,7 +2269,7 @@ pub(crate) fn fight(
                     let opponent = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking, unconscious: g.is_out_cold(target) };
                     let attack = decide
                         && !blocks
-                        && (rushing || style.is_none_or(|s| {
+                        && (early.is_some() || rushing || style.is_none_or(|s| {
                             let (skill_name, h2h) = match &arm {
                                 Arm::Melee(Some(w)) => (c.forms.weapons.get(w).and_then(|ws| ws.skill.clone()).unwrap_or_else(|| "Melee Weapons".into()), false),
                                 Arm::Melee(None) => ("Unarmed".to_string(), true),
@@ -2225,8 +2331,16 @@ pub(crate) fn fight(
                         let power = match (&arm, times.powers.get(&id)) {
                             (Arm::Creature(..), Some(have)) if !have.is_empty() => {
                                 let (u, v) = (next_unit(&mut f.power_rng), next_unit(&mut f.power_rng));
-                                let able = no_leaps(have, lame);
-                                let (p, fallback) = pick_power(style, &able, fatigue, u, v);
+                                // On the run: a lunge or nothing of the power attacks; a lunge
+                                // alone was rolled already.
+                                let (p, fallback) = match &early {
+                                    Some((lunge, true)) => (lunge.first().copied(), false),
+                                    Some((lunge, false)) => pick_power(style, lunge, fatigue, u, v),
+                                    None => pick_power(style, &no_leaps(have, lame), fatigue, u, v),
+                                };
+                                if p.is_some_and(|p| p.0 == Power::Forward) && early.is_some() {
+                                    f.stats.lunges += 1;
+                                }
                                 if let Some((p, _)) = p {
                                     *f.stats.powers.entry(p.group()).or_default() += 1;
                                     let chance = style.map(|s| creature_power_chance(s, fatigue)).filter(|_| !fallback).unwrap_or(FALLBACK_POWER_CHANCE);
@@ -2405,7 +2519,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.shots_beyond,
     );
     info!(
-        "npc combat style summary: {} dodges ({} left, {} right, {} forward, {} back), {} idles; {} rushes; {} pursuits stopped at the combat radius; {} targets outside the targeting field of view; {} explosive shots held for a comrade or a bystander; {} runs from grenades",
+        "npc combat style summary: {} dodges ({} left, {} right, {} forward, {} back), {} idles; {} rushes; {} creature attacks begun on the run ({} lunges); {} pursuits stopped at the combat radius; {} targets outside the targeting field of view; {} explosive shots held for a comrade or a bystander; {} runs from grenades",
         s.dodges.iter().sum::<usize>(),
         s.dodges[0],
         s.dodges[1],
@@ -2413,6 +2527,8 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.dodges[3],
         s.idles,
         s.rushes,
+        s.run_attacks,
+        s.lunges,
         s.leashes,
         s.fov_waits,
         s.blast_holds,
@@ -2589,6 +2705,35 @@ mod tests {
         // No range in the data: no limit; a projectile range alone limits.
         assert_eq!(gun_reach(0.0, 1.0, 0.0, 0.0).holds(1.0e6), None);
         assert_eq!(gun_reach(0.0, 1.0, 640.0, 0.0).reach, Some(640.0));
+    }
+
+    #[test]
+    fn firearms_fire_beyond_their_reach_flames_and_explosives_do_not() {
+        // The 10mm pistol: Max Range 768, its bullet's range 10,000 (FalloutNV.esm
+        // Weap10mmPistol, 10mmBulletProjectile [observed]): it fights from 614 units but
+        // fires at a target 2,000 away (playtest list 7 item 40).
+        let pistol = gun_reach(768.0, 1.0, 10_000.0, 0.0);
+        let (stop, resume) = pistol.engage();
+        assert!((stop - 614.4).abs() < 0.01 && (resume - 691.2).abs() < 0.01);
+        assert!(!pistol.limited());
+        assert_eq!(pistol.holds(2000.0), None);
+        assert_eq!(pistol.holds(10_001.0), Some(RangeHold::Far));
+        // A missile launcher keeps its reach for its shots (blast 1,000).
+        let missile = gun_reach(1536.0, 1.0, 10_000.0, 1000.0);
+        assert!(missile.limited());
+        assert_eq!(missile.holds(1600.0), Some(RangeHold::Far));
+        assert_eq!(missile.holds(900.0), Some(RangeHold::Blast));
+        assert_eq!(missile.holds(1200.0), None);
+    }
+
+    #[test]
+    fn creatures_attack_on_the_run_within_the_ground_they_cover() {
+        // Standing or walking slowly: no blow before it is within reach.
+        assert_eq!(lunge_band(50.0, 0.5), 0.0);
+        // A ghoul running in at 400 units/s with a hit 0.4 s into its clip begins 160
+        // units out; never more than the cap.
+        assert!((lunge_band(400.0, 0.4) - 160.0).abs() < 1e-3);
+        assert_eq!(lunge_band(2000.0, 1.0), RUN_ATTACK_MAX);
     }
 
     #[test]
