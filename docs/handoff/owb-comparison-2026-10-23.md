@@ -69,7 +69,8 @@ moon are 2-2.5 × the Mojave's in the original, and ours are the same as the Moj
 Spots 1, 6, 8, 9 and 12 all show the original's directly lit surfaces about 2 × brighter
 (ground 162 vs 82 at spot 1, frame mean 34 vs 17 at spot 8). A test build with the
 directional light × 2.05 (Big MT day ÷ Mojave day, 2.475 / 1.21) raised spot 1's ground
-from 82 to 112 (original 162) [observed];
+from 82 to 112 (original 162) and, at night, spot 7's ground from 18 to 31 grey
+(original 26) [observed];
 the rest of the gap is the grade (F2). [hypothesis: the dimmer scales the directional
 light; the Mojave's lighting was fitted with its 1.21 built in, so a rule over all worlds
 is directional × dimmer(hour) / 1.21, or the Mojave's fit re-based on it.]
