@@ -168,7 +168,7 @@ fn classify(e: Entity, r: u32, parents: &Query<&ChildOf>, marks: &Query<(Has<Cel
 /// and those whose range changed (a fade ended) each frame, every one when a slider
 /// moved (module notes).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn apply_ranges(
+pub(crate) fn apply_ranges(
     mut commands: Commands,
     distances: Res<DrawDistances>,
     world: Option<Res<WorldData>>,
