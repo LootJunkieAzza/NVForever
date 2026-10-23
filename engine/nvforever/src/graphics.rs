@@ -249,7 +249,8 @@ fn msaa_name(m: Msaa) -> &'static str {
 /// every `every` seconds of real time and then, with a cycle, switch to its next set of
 /// improvements (the first half second after a switch, when pipelines compile, is left
 /// out of the figures). A set may also change the sun's shadows: `no-sun-shadows`,
-/// `shadow-distance=<units>`, `cascades=<n>` (otherwise as at the start).
+/// `shadow-distance=<units>`, `cascades=<n>`, `shadow-thin=<ratio>` (otherwise as at the
+/// start).
 #[derive(Clone, Default)]
 pub struct FrameTimes {
     pub every: f32,
@@ -266,6 +267,8 @@ pub struct CycleStep {
     pub shadow_distance: Option<f32>,
     /// `cascades=<n>`.
     pub cascades: Option<usize>,
+    /// `shadow-thin=<ratio>` (shadow_thin.rs).
+    pub shadow_thin: Option<f32>,
 }
 
 impl FrameTimes {
@@ -283,6 +286,7 @@ impl FrameTimes {
             };
             let shadow_distance = value("shadow-distance=")?;
             let cascades = value("cascades=")?.map(|n| n as usize);
+            let shadow_thin = value("shadow-thin=")?;
             let keys: Vec<String> = keys.iter().filter(|k| *k != "no-sun-shadows" && !k.contains('=')).cloned().collect();
             let graphics = match keys.as_slice() {
                 [] => Graphics::preset(Preset::Vanilla),
@@ -290,7 +294,7 @@ impl FrameTimes {
                 [k] if k == "enhanced" => Graphics::preset(Preset::Enhanced),
                 _ => Graphics::only(&keys)?,
             };
-            Ok(CycleStep { graphics, no_sun_shadows, shadow_distance, cascades })
+            Ok(CycleStep { graphics, no_sun_shadows, shadow_distance, cascades, shadow_thin })
         }).collect()
     }
 }
@@ -313,9 +317,9 @@ impl Plugin for GraphicsPlugin {
             app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
-            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize)>>| {
+            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>| {
                 let first = start_shadows.is_none();
-                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades));
+                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades, thin.ratio));
                 if first {
                     if let Some(step) = ft.cycle.first() {
                         apply_shadow_step(&mut commands, &sky, start, step);
@@ -356,6 +360,36 @@ impl Plugin for GraphicsPlugin {
                         }
                     }
                     info!("shadow casters per cascade: {}", if casters.is_empty() { "none (sun shadows off)".to_string() } else { casters.join("; ") });
+                    if !casters.is_empty() {
+                        info!("shadow thinning: ratio {}; {} of {} references ({} meshes) far and small cast none", thin.ratio, thin.refs.1, thin.refs.0, thin.thinned);
+                        // What the sun's last cascade draws: meshes of placed references by
+                        // their angular size (radius / distance), and the other meshes.
+                        let buckets = crate::shadow_thin::SIZE_BUCKETS;
+                        for (name, light, cascades) in &lights {
+                            if !light.shadow_maps_enabled || name.is_none_or(|n| n.as_str() != "Sun") {
+                                continue;
+                            }
+                            for per_cascade in cascades.entities.values() {
+                                let Some(last) = per_cascade.last() else { continue };
+                                let (mut near, mut other, mut unjudged) = (0, 0, 0);
+                                let mut by_size = [0usize; 7];
+                                for e in last.entities.iter() {
+                                    match refs.get(*e).ok().map(|r| thin.sizes.get(&r.0)) {
+                                        None => other += 1,
+                                        Some(None) => unjudged += 1,
+                                        Some(Some(None)) => near += 1,
+                                        Some(Some(Some(v))) => by_size[buckets.iter().position(|b| *v < *b).unwrap_or(buckets.len())] += 1,
+                                    }
+                                }
+                                let sizes: Vec<String> = by_size.iter().enumerate().map(|(i, n)| match i {
+                                    0 => format!("<{} {n}", buckets[0]),
+                                    i if i == buckets.len() => format!(">={} {n}", buckets[i - 1]),
+                                    i => format!("{}-{} {n}", buckets[i - 1], buckets[i]),
+                                }).collect();
+                                info!("sun's last cascade: {} meshes; placed references within {} units {near}, by angular size {}; not judged {unjudged}; other meshes (terrain, trees, LOD, effects) {other}", last.entities.len(), crate::shadow_thin::NEAR, sizes.join(", "));
+                            }
+                        }
+                    }
                     let next = acc.4 + 1;
                     *acc = (0.0, 0.0, 0.0, 0, next);
                     if !ft.cycle.is_empty() {
@@ -371,10 +405,17 @@ impl Plugin for GraphicsPlugin {
 
 /// The sun's shadows of a `--graphics-cycle` set: `start` (on, distance, cascades) as at
 /// the start, changed by the set's keys.
-fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, usize), step: &CycleStep) {
+fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, usize, f32), step: &CycleStep) {
     let on = start.0 && !step.no_sun_shadows;
     let distance = step.shadow_distance.unwrap_or(start.1);
     let cascades = step.cascades.unwrap_or(start.2);
+    let ratio = step.shadow_thin.unwrap_or(start.3);
+    commands.queue(move |w: &mut World| {
+        let mut thin = w.resource_mut::<crate::shadow_thin::ShadowThin>();
+        if thin.ratio != ratio {
+            thin.ratio = ratio;
+        }
+    });
     if on != sky.shadows || distance != sky.shadow_distance || cascades != sky.shadow_cascades {
         commands.queue(move |w: &mut World| {
             let mut sky = w.resource_mut::<SkyState>();

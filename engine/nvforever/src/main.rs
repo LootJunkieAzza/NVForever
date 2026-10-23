@@ -107,6 +107,7 @@ mod iron_sights;
 mod view_sway;
 mod setup;
 mod shadow_probe;
+mod shadow_thin;
 mod shafts;
 mod imagespace;
 mod imposters;
@@ -282,6 +283,11 @@ struct Args {
     /// turned on from the settings page; 0 keeps them off.
     #[arg(long, default_value_t = sky::DEFAULT_SHADOW_DISTANCE)]
     shadow_distance: f32,
+    /// Test aid: beyond 1,000 units of the camera a placed object casts no shadow when its
+    /// bounding radius is under this part of its distance (its angular size in radians;
+    /// shadow_thin.rs); 0, the default, lets everything cast as far as the shadows reach.
+    #[arg(long, default_value_t = shadow_thin::DEFAULT_RATIO)]
+    shadow_thin: f32,
     /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
     /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
     /// the game's transparency multisampling; with 1 they are tested per pixel.
@@ -391,7 +397,8 @@ struct Args {
     /// Test aid with --log-frame-times: after each logged period switch to the next of
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
     /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
-    /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`).
+    /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`);
+    /// `shadow-distance=<units>`, `cascades=<n>` and `shadow-thin=<ratio>` change them.
     #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
     graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
@@ -1133,6 +1140,8 @@ fn main() -> AppExit {
         generate: fnv_world::grass::GrassSettings { min_size: args.grass_min_size, density_scale: args.grass_density.max(0.0), ..Default::default() },
     }))
     .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
+    // Small objects far away cast no sun shadows (shadow_thin.rs).
+    .add_plugins(shadow_thin::ShadowThinPlugin(args.shadow_thin))
     // Interiors draw the rooms seen through portals only (rooms.rs).
     .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))

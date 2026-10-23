@@ -397,7 +397,7 @@ casters, as it did. Changed [engineering choices]:
 Not changed: the water's reflection camera, while active, gets its own cascades of the sun (Bevy
 builds them for every active camera, with no way to leave one out), doubling the shadow passes
 while water is in view; casters are not thinned by size with distance (no per-cascade filter in
-Bevy).
+Bevy; built and measured in §5.5).
 
 ### 5.4 Anti-aliasing and shadow-filter choices (2026-10-16, this machine)
 
@@ -426,6 +426,66 @@ runs making the same switches (about 45 in all) did not repeat it. PipelineStati
 come only from the measuring aid's `RenderDiagnosticsPlugin`; the smoke scenario
 `graphics-settings`, which makes every switch without it, saw no error.
 
+### 5.5 Where the sun shadows' cost goes (2026-10-23)
+
+The owner: sun shadows drain performance, presumably the main thread. Measured with the span
+profile (`NVF_PLAY_TEST_PROFILE`, a `--features nvforever/profile` build; frame-rate-audit.md
+§1) and `--log-frame-times 8 --graphics-cycle`, so each comparison is one run. Desktop
+(32 threads, RTX 4070), 1280 × 800, `--play` at the Goodsprings start, 14:00, standing still,
+vanilla; other sessions built and ran the game at the same time, so only the cleanest rounds
+(those that agree within about 0.5 ms) are quoted [observed].
+
+**It is the render thread.** With shadows on the main thread's own work hardly changes
+(about 7 against 6 ms a frame, Bevy's caster culling `check_dir_light_mesh_visibility` about
+1 ms of it); the render thread goes from about 9.7 to 16.3 ms, and the main thread waits for
+it (the `RenderExtractApp` span holds the wait). The render spans that grow: writing the
+binned instance buffers (1.6 → 4.0 ms), preparing the preprocessing bind groups (1.2 → 2.4),
+recording the passes (`RenderContextState::apply` 2.2 → 3.7) and submitting (`queue_submit`
+1.3 → 2.4). The GPU's time stays small (§5.3).
+
+| Sun shadows (8,000 units) | Casters per cascade | Frame (ms) | Render thread (ms) |
+|---|---|---|---|
+| off | | 10.2 | 9.7 |
+| 1 cascade | 2,200 | 14.3 | 13.8 |
+| 2 cascades | 85, 2,200 | 14.9 | 14.3 |
+| 3 cascades (default) | 85, 460, 2,130 | 16.8 | 16.3 |
+
+All with the arms' shade light (about 30 casters). So about 4 ms comes with having sun
+shadows at all and the third cascade adds about 2 ms.
+
+**Thinning the casters does not pay** (`shadow_thin.rs`, `--shadow-thin <ratio>`, off by
+default): beyond 1,000 units a placed reference whose bounding radius is under `ratio` × its
+distance casts nothing. The sun's last cascade, broken down by that angular size (the
+frame-time log's `sun's last cascade:` line): about 75 meshes under 0.01, 450 at 0.01-0.02,
+490 at 0.02-0.04, 340 at 0.04-0.08, 280 over 0.08, the rest near or not placed references.
+Clutter whose shadow covers a few pixels is a small part.
+
+| `--shadow-thin` | Meshes thinned | Last cascade | Render thread (ms) |
+|---|---|---|---|
+| 0 | 0 | 2,080-2,330 | 16.2-17.3 |
+| 0.01 | 235 | 2,000-2,260 | 16.0-16.6 |
+| 0.02 | 1,240 | 1,535-1,670 | 15.4-16.4 |
+| 0.04 | 2,140 | 1,030-1,150 | 14.4-16.2 |
+
+Halving the far cascade saves 1-2 ms of about 6.5, and at 0.04 an object under 2 m in radius
+loses its shadow beyond 50 m: a visible change for little. The rule stays off.
+
+**Why** [hypothesis, from Bevy 0.19.1's sources]: the per-view work scales with batch sets
+more than with casters. `write_binned_instance_buffers` writes two GPU buffers and a GPU
+unpacking job per batch set of every view, and the preprocessing bind groups are made per
+view each frame. A shadow draw that only writes depth shares one batch set across materials,
+but an alpha-tested NIF shape (plants, fences, signs) needs its material's textures, and
+`NifMaterial` is not bindless, so each such material is a batch set of its own in every cascade.
+Fewer casters rarely removes a whole material.
+
+What would cut it, in order of what it saves:
+- **A bindless `NifSurface`** (frame-rate-audit.md §4): alpha-tested materials would share
+  batch sets in every view, the main view included. A renderer change of its own.
+- **2 cascades instead of 3**: about 2 ms, with coarser shadows from 667 to about 2,300 units
+  (the middle cascade's range; the first cascade stays 667). The owner's open choice from §5.3.
+- **The arms' shade light** is one more shadow view while the first-person arms are drawn.
+- **Water in view** gives the reflection camera a set of cascades of its own (§5.3).
+
 ## 6. Test aids for measuring
 
 `--log-frame-times <seconds>` logs the mean and slowest frame time and the GPU time of the
@@ -434,11 +494,13 @@ driver may still impose); `--graphics-cycle "<set>;<set>;..."` switches between 
 improvements after each logged period (`vanilla`, `enhanced` or keys as for `--graphics-only`;
 the first half second after a switch is left out), so one run compares them under the same load.
 A set may also change the sun's shadows: `no-sun-shadows`, `shadow-distance=<units>`,
-`cascades=<n>` among its keys (`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`). The
+`cascades=<n>`, `shadow-thin=<ratio>` (§5.5) among its keys
+(`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`). The
 anti-aliasing and shadow filters have keys too: `fxaa`, `smaa`, `taa`, `shadow-filter-hardware`,
 `shadow-filter-temporal` (a set without one of them has `--msaa` and the Gaussian filter); the
 log then gives the sun's shadow reach and cascades with each frame time, the sun's heading and
-elevation, and the casters each cascade of each light drew.
+elevation, and the casters each cascade of each light drew; with sun shadows on also what
+`--shadow-thin` thinned and the sun's last cascade broken down by angular size (§5.5).
 
 ## 7. Next candidates
 
