@@ -390,8 +390,20 @@ impl Catalogue {
         let mut parts: Vec<_> = forms.head_parts.iter().collect();
         parts.sort_by_key(|(id, _)| **id);
         for (&id, h) in parts {
-            let Some(model) = h.model.as_deref() else { continue };
-            let kind = part_kind(model);
+            // A head part without a model (the "BeardMix" beards) is drawn as the parts it
+            // lists (HNAM) [observed: BeardMix6a "Ronin" lists three beards]: it is of their
+            // kind when they all are. Starting faces wear them (CGPresetHispanicM03), so the
+            // Facial hair row must know them or it cannot take them off.
+            let kind = match h.model.as_deref() {
+                Some(model) => part_kind(model),
+                None => {
+                    let kinds: Vec<PartKind> = h.extra.iter().filter_map(|e| forms.head_parts.get(e)?.model.as_deref().map(part_kind)).collect();
+                    match kinds.first() {
+                        Some(&k) if kinds.len() == h.extra.len() && kinds.iter().all(|x| *x == k) => k,
+                        _ => continue,
+                    }
+                }
+            };
             // The brows are not playable, yet the player's own record wears one
             // (EyebrowM [observed]): they are offered all the same [design], but not the
             // old-age ones (their Editor IDs say Old).
@@ -665,5 +677,27 @@ mod tests {
         let b = FaceGen { fggs: vec![4.0; 50], fgga: vec![0.0; 30], fgts: vec![1.0; 50] };
         let m = blend(&a, &b, 0.25);
         assert_eq!((m.fggs[3], m.fgga[3], m.fgts[3]), (1.0, 1.5, 1.0));
+    }
+
+    #[test]
+    fn a_beard_mix_is_offered_as_facial_hair() {
+        let part = |model: Option<&str>, extra: Vec<u32>, name: &str| crate::records::HeadPart {
+            model: model.map(str::to_string),
+            extra: extra.into_iter().map(FormId).collect(),
+            edid: Some(name.into()),
+            name: Some(name.into()),
+            playable: true,
+        };
+        let mut forms = ActorForms::default();
+        forms.head_parts.insert(FormId(1), part(Some("Characters\\Hair\\BeardMustache.nif"), vec![], "Swashbuckler"));
+        forms.head_parts.insert(FormId(2), part(Some("Characters\\Hair\\BeardGoatee.nif"), vec![], "Goatee"));
+        forms.head_parts.insert(FormId(3), part(None, vec![1, 2], "Ronin"));
+        // A mix naming a part that is not a beard, or one not loaded, is left out.
+        forms.head_parts.insert(FormId(4), part(Some("Characters\\Hair\\EyePatch.nif"), vec![], "Patch"));
+        forms.head_parts.insert(FormId(5), part(None, vec![1, 4], "Odd"));
+        forms.head_parts.insert(FormId(6), part(None, vec![1, 99], "Missing"));
+        let cat = Catalogue::build(&forms, true);
+        let names: Vec<&str> = cat.facial_hair.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["Swashbuckler", "Goatee", "Ronin"]);
     }
 }
