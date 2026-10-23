@@ -153,8 +153,8 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
             base.name.as_ref()?;
             Action::Activate
         }
-        BaseData::LeveledItem(_) | BaseData::Projectile { item: None } => return None,
-        BaseData::Projectile { item: Some(_) } => Action::Disarm,
+        BaseData::LeveledItem(_) | BaseData::Projectile { item: None, .. } => return None,
+        BaseData::Projectile { item: Some(_), .. } => Action::Disarm,
     };
     Some((name, action))
 }

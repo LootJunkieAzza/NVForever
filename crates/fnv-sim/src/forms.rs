@@ -301,7 +301,10 @@ pub enum BaseData {
     LeveledItem(LeveledList),
     /// PROJ, the base of a placed explosive (PGRE). `item` is the weapon that fires
     /// this projectile, when exactly one does (what disarming yields).
-    Projectile { item: Option<FormId> },
+    /// `item`: the weapon that fires it, the loose item a disarmed one becomes; linked
+    /// only when the PROJ's DATA flag "Can Be Disabled" is set (or it has no DATA)
+    /// [documented: xEdit PROJ flags] (docs/spec-notes/object-fields.md §1).
+    Projectile { item: Option<FormId>, can_be_disabled: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -495,9 +498,10 @@ fn link_projectiles(mut loaded: Vec<(FormId, Loaded, Issues)>) -> Vec<(FormId, L
     }
     for (_, l, issues) in &mut loaded {
         if let Loaded::Base(b) = l {
-            if let BaseData::Projectile { item } = &mut b.data {
+            if let BaseData::Projectile { item, can_be_disabled } = &mut b.data {
                 match firing.get(&b.id).map(Vec::as_slice) {
-                    Some([w]) => *item = Some(*w),
+                    Some([w]) if *can_be_disabled => *item = Some(*w),
+                    Some([_]) => {}
                     Some(ws) => issues.note("PROJ fired by several weapons", || format!("{} {:?}", b.id, ws)),
                     None => {}
                 }
@@ -660,7 +664,10 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
             b"ACTI" | b"TACT" | b"TERM" => BaseData::Activator,
             b"FURN" => BaseData::Furniture,
             b"LVLI" => BaseData::LeveledItem(leveled(lo, pi, id, &d, issues)),
-            b"PROJ" => BaseData::Projectile { item: None },
+            b"PROJ" => BaseData::Projectile {
+                item: None,
+                can_be_disabled: first(&d, b"DATA").and_then(|v| v.get("flags")).is_none_or(|f| has_flag(f, "Can Be Disabled")),
+            },
             _ => return Loaded::Skip,
         }
     };
