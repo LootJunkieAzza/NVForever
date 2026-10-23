@@ -4531,9 +4531,9 @@ source = "owner 2026-10-23: on the STATS page's CND the Stimpak is used on the b
 note = "the console gives 3 Stimpaks and a Doctor's Bag, cripples the left arm and takes 50 health; on CND a Stimpak on the body, one refused on the whole right arm, one on the left arm, the bag, a second bag refused with every limb whole (the start carries some of each already)"
 areas = ["pipboy", "aid"]
 paths = ["engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/aid.rs", "crates/fnv-game/src/aid.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,23:close", NVF_PLAY_TEST_PIPBOY_STATS = "15:use=stimpak,16:limb=3,16.5:use=stimpak,17:limb=2,17.5:use=stimpak,19:use=bag,20:use=bag", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_cnd_hurt.png,21:pipboy_cnd_healed.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,31:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:use=stimpak,24:limb=3,24.5:use=stimpak,25:limb=2,25.5:use=stimpak,27:use=bag,28:use=bag", NVF_PLAY_TEST_SHOTS = "22.5:pipboy_cnd_hurt.png,29:pipboy_cnd_healed.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 25
+run_seconds = 33
 expect = [
   "combat: player's left arm crippled",
   { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm 0%, right arm 100%', label = "the bars show the crippled arm" },
@@ -4556,9 +4556,9 @@ source = "owner 2026-10-23: in Hardcore the CND page refuses a Stimpak aimed at 
 note = "Hardcore on by the script aid; the console cripples the left arm and takes 50 health; on CND a Stimpak on the left arm (refused), one on the body, then the bag"
 areas = ["pipboy", "aid"]
 paths = ["engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/player.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1", NVF_PLAY_TEST_CONSOLE = "8:player.DamageAV LeftAttackCondition 100;8.3:player.DamageAV Health 50;9:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,21:close", NVF_PLAY_TEST_PIPBOY_STATS = "15:limb=2,15.5:use=stimpak,16.5:limb=none,17:use=stimpak,18.5:use=bag" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1", NVF_PLAY_TEST_CONSOLE = "8:player.DamageAV LeftAttackCondition 100;8.3:player.DamageAV Health 50;9:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,29:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:limb=2,23.5:use=stimpak,24.5:limb=none,25:use=stimpak,26.5:use=bag" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 23
+run_seconds = 31
 expect = [
   "test aid: Hardcore mode on",
   "combat: player's left arm crippled",
