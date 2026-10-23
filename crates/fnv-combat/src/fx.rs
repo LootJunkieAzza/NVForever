@@ -162,6 +162,9 @@ pub struct Impact {
     /// ImpactData].
     pub angle_threshold: f32,
     pub placement_radius: f32,
+    /// `DATA` sound level ("Loud", "Normal", "Silent") [documented: xEdit IPCT]: the
+    /// loudness of the impact for detection (docs/design/detection.md §8).
+    pub sound_level: Option<String>,
     /// `DODT`: the impact's own decal data, which "overrides the Texture Set decal
     /// data" [documented: GECK wiki ImpactData]; `None` with the `DATA` flag "No Decal
     /// Data", when the texture set's is used (docs/spec-notes/impact-decals.md §1).
@@ -234,6 +237,8 @@ pub struct FxForms {
     /// NPC_ and CREA `NAM4` Impact Material Type, an index into [`IMPACT_MATERIALS`]
     /// (the enumeration lists the same twelve in the same order) [documented: xEdit].
     pub actor_impact: HashMap<FormId, usize>,
+    /// CREA CNAM: each creature's attack impact data set ([`FxForms::creature_impact_set`]).
+    pub creature_impacts: HashMap<FormId, FormId>,
 }
 
 const SIGS: &[&[u8; 4]] = &[b"SOUN", b"WEAP", b"PROJ", b"EXPL", b"ADDN", b"IPCT", b"IPDS", b"TXST"];
@@ -307,7 +312,7 @@ impl FxForms {
                 Some((id, load_one(r, &d, edid, &fid, &field)?))
             })
             .collect();
-        let mut out = FxForms { actor_impact: actor_impact_materials(lo), ..FxForms::default() };
+        let mut out = FxForms { actor_impact: actor_impact_materials(lo), creature_impacts: creature_impact_sets(lo), ..FxForms::default() };
         for (id, l) in loaded {
             match l {
                 Loaded::Sound(s) => {
@@ -342,6 +347,12 @@ impl FxForms {
     /// The IPCT of `set` for a material of [`IMPACT_MATERIALS`].
     pub fn impact(&self, set: FormId, material: &str) -> Option<&Impact> {
         self.impacts.get(&self.impact_id(set, material)?)
+    }
+
+    /// The impact data set of a creature's own attacks (CREA `CNAM` Impact Dataset
+    /// [documented: xEdit]; `BiteDataSet`, `ClawDataSet` … [observed]).
+    pub fn creature_impact_set(&self, base: FormId) -> Option<FormId> {
+        self.creature_impacts.get(&base).copied()
     }
 
     /// The impact material of an actor whose base is `base` (NPC_ or CREA `NAM4`).
@@ -383,6 +394,29 @@ fn actor_impact_materials(lo: &LoadOrder) -> HashMap<FormId, usize> {
             let s = subs.iter().find(|s| &s.sig == b"NAM4")?;
             let v = u32::from_le_bytes(s.data.get(..4)?.try_into().ok()?) as usize;
             (v < IMPACT_MATERIALS.len()).then_some((id, v))
+        })
+        .collect()
+}
+
+/// CREA `CNAM` (Impact Dataset) of every creature that names one, read raw as `NAM4` is.
+fn creature_impact_sets(lo: &LoadOrder) -> HashMap<FormId, FormId> {
+    let creatures: Vec<(FormId, usize, &Record)> = lo
+        .index
+        .iter()
+        .filter_map(|(&g, defs)| {
+            let d = defs.last()?;
+            let r = lo.records[d.plugin as usize][d.ordinal as usize];
+            (&r.header.sig == b"CREA" && r.header.flags & 0x20 == 0).then_some((FormId(g), d.plugin as usize, r))
+        })
+        .collect();
+    creatures
+        .par_iter()
+        .filter_map(|&(id, pi, r)| {
+            let subs = r.subrecords().ok()?;
+            let s = subs.iter().find(|s| &s.sig == b"CNAM")?;
+            let local = u32::from_le_bytes(s.data.get(..4)?.try_into().ok()?);
+            (local != 0).then_some(())?;
+            Some((id, global(lo, pi, local).ok().flatten()?))
         })
         .collect()
 }
@@ -464,6 +498,10 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 sound_2: fid(first(d, b"NAM1")),
                 angle_threshold: v.and_then(|v| num(v, "angle_threshold")).unwrap_or(0.0) as f32,
                 placement_radius: v.and_then(|v| num(v, "placement_radius")).unwrap_or(0.0) as f32,
+                sound_level: v.and_then(|v| v.get("sound_level")).and_then(|x| match x {
+                    Value::String(s) => Some(s.clone()),
+                    _ => None,
+                }),
                 decal: if v.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "No Decal Data")) { None } else { first(d, b"DODT").map(decal_data) },
             })
         }

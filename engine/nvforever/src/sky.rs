@@ -98,9 +98,10 @@ const HORIZON_FADE: f32 = 0.1;
 /// Cloud texture scroll per second per ONAM speed unit, in texture repeats [placeholder
 /// rate, to tune against the game].
 const CLOUD_SCROLL: f32 = 1.0 / 25_600.0;
-/// A weather change fades over this many game hours [placeholder; WTHR DATA has a
-/// "trans delta" byte whose unit is unknown].
-const WEATHER_FADE_HOURS: f32 = 0.5;
+/// Game hours per real second at the default TimeScale of 30 [documented: GECK wiki
+/// TimeScale]: a weather's transition, given in real seconds
+/// (`Weather::transition_seconds`), fades over that many game hours.
+const GAME_HOURS_PER_SECOND: f32 = 30.0 / 3600.0;
 /// Transparent sky parts are drawn before everything else. Bevy sorts transparent meshes
 /// by view-space z plus depth bias, ascending, and that value grows towards the camera
 /// [documented: bevy_core_pipeline 0.19 Transparent3d], so a large negative bias draws the
@@ -697,7 +698,8 @@ impl SkyState {
     /// Advance a weather fade by `hours` of game time.
     fn advance_fade(&mut self, hours: f32) {
         if self.prev.is_some() {
-            self.fade = (self.fade + hours / WEATHER_FADE_HOURS).min(1.0);
+            let length = self.weather.transition_seconds() * GAME_HOURS_PER_SECOND;
+            self.fade = if length > 0.0 { (self.fade + hours / length).min(1.0) } else { 1.0 };
             if self.fade >= 1.0 {
                 self.prev = None;
             }
@@ -781,12 +783,15 @@ impl SkyState {
         let sun_col = Vec3::from_array(self.color(ColorType::Sun)) * fade;
         let dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH));
         let half_tan = |deg: f32| (deg / 2.0).to_radians().tan();
+        // The weather's Sun Glare, blended across a weather fade.
+        let glare = self.weather.glare_scale();
+        let glare = self.prev.as_ref().map_or(glare, |p| p.glare_scale() + (glare - p.glare_scale()) * self.fade);
         SkyLight {
             params: Vec4::new(1.0 - SKY_DIM * day, 0.0, 1.0, 0.0),
             glow: (s * SKY_GLOW * day).extend(0.0),
             sun_dir: dir.extend(0.0),
             sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
-            glare: (sun_col * GLARE_STRENGTH).extend(half_tan(GLARE_SIZE_DEG)),
+            glare: (sun_col * GLARE_STRENGTH * glare).extend(half_tan(GLARE_SIZE_DEG)),
         }
     }
 
@@ -825,6 +830,11 @@ impl SkyState {
     /// Direction towards the sun, in Bevy's axes (also below the horizon).
     pub fn sun_dir(&self) -> Vec3 {
         game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH))
+    }
+
+    /// Direction towards the sun, in game axes (also below the horizon).
+    pub fn sun_dir_game(&self) -> [f32; 3] {
+        sun_direction(&self.climate, self.hour, SUN_SOUTH)
     }
 
     /// Compass heading of the sun in degrees (0 north, 90 east).
@@ -1397,6 +1407,28 @@ pub fn sky_keys(input: Res<ButtonInput<KeyCode>>, mut sky: ResMut<SkyState>) {
     if input.just_pressed(KeyCode::BracketLeft) {
         let h = sky.hour - step;
         sky.set_hour(h, true);
+    }
+}
+
+/// The camera's far plane outdoors (and indoors without a clip distance), game units.
+pub const OUTDOOR_FAR: f32 = 400_000.0;
+
+/// Indoors the camera sees no farther than the cell's Fog Clip Distance (CELL XCLL, or
+/// its lighting template's) [documented: GECK wiki SetClipDist, "overriding far clip
+/// distance in interior cells"; GetInteriorLightingTraitNumeric "Fog clip distance";
+/// docs/spec-notes/world.md §6 "Interior clip distance"]; 0 is no clip [hypothesis: 43
+/// interiors store 0]. Outdoors, [`OUTDOOR_FAR`].
+pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<FlyCam>>, mut last: Local<Option<f32>>) {
+    let far = sky.interior.as_ref().map(|l| l.fog_clip_dist).filter(|&c| c > 0.0).unwrap_or(OUTDOOR_FAR);
+    if *last == Some(far) {
+        return;
+    }
+    for mut p in &mut cam {
+        if let Projection::Perspective(pp) = &mut *p {
+            pp.far = far;
+            *last = Some(far);
+            info!("sky: the camera's far plane at {far:.0} units{}", if sky.interior.is_some() && far < OUTDOOR_FAR { " (the cell's fog clip distance)" } else { "" });
+        }
     }
 }
 

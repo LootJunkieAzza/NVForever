@@ -8,7 +8,8 @@
 //! (a Guard package on `Waiting == 1`) are then chosen by the ordinary package choice
 //! [observed]. What this module adds is what `SetPlayerTeammate` itself does [documented:
 //! GECK wiki SetPlayerTeammate]:
-//! - "Changing cells will teleport the teammate to the player" ([`Game::bring_teammates`]);
+//! - "Changing cells will teleport the teammate to the player" ([`Game::bring_teammates`];
+//!   so does an actor following the player on a Follow package, owner decision 2026-10-23);
 //! - "The actor will act and react as if he is in the player faction for the purposes of
 //!   combat. Other actors will treat the actor as if he were in the player faction"
 //!   (`Game::would_attack`, [`Game::teammates_assist`]);
@@ -40,6 +41,11 @@ use crate::provocation::Note;
 /// where the door's marker stands [hypothesis].
 pub const BESIDE: f32 = 160.0;
 
+/// How near the player's old place, outdoors, an actor following the player (not a
+/// teammate) must be to come along when the player changes cells; indoors, the same cell
+/// is enough [design: about the distance a follower falls behind and still catches up].
+pub const FOLLOW_REACH: f32 = 4096.0;
+
 impl Game<'_> {
     /// Whether `r` is the player's teammate now (SetPlayerTeammate 1, alive).
     pub fn is_teammate(&self, r: FormId) -> bool {
@@ -67,21 +73,37 @@ impl Game<'_> {
         self.current_package(actor).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.ty == PackageType::Guard)
     }
 
-    /// The player has just changed cells (a load door, MoveTo): every teammate not told
-    /// to wait is put beside the player, in the player's cell, facing the player's way
-    /// [documented: "Changing cells will teleport the teammate to the player"; observed:
-    /// the original brought Boone along on his own PATROL package, not following, through
-    /// a door and by MoveTo, and left him behind with `Waiting` 1 (od_03 and the
-    /// `followers` campaign, owner-decision-captures.md §7, npc-behaviour-compare.md §13);
-    /// hypothesis: that waiting is what kept him, read here as a Guard package]. They go to [`Game::teleported`] like a MoveTo and
-    /// to [`Game::brought_along`] for the log. Returns them.
-    pub fn bring_teammates(&mut self) -> Vec<FormId> {
+    /// The player has just changed cells (a load door, MoveTo, fast travel), from `from`
+    /// (the player's cell and position before the move): every teammate not told to wait,
+    /// and every other actor following the player from near where the player was
+    /// ([`Game::follows_player`], [`FOLLOW_REACH`]), is put beside the player, in the
+    /// player's cell, facing the player's way [documented: "Changing cells will teleport
+    /// the teammate to the player"; observed: the original brought Boone along on his own
+    /// PATROL package, not following, through a door and by MoveTo, and left him behind
+    /// with `Waiting` 1 (od_03 and the `followers` campaign, owner-decision-captures.md §7,
+    /// npc-behaviour-compare.md §13); hypothesis: that waiting is what kept him, read here
+    /// as a Guard package; owner decision 2026-10-23: an actor on a Follow package that is
+    /// not a teammate (Deputy Beagle in the Primm hotel) comes along at once too, not on
+    /// foot through the door seconds later]. They go to [`Game::teleported`] like a MoveTo
+    /// and to [`Game::brought_along`] for the log. Returns them.
+    pub fn bring_teammates(&mut self, from: Option<(Option<FormId>, [f32; 3])>) -> Vec<FormId> {
         let Some((Some(cell), pos, rot)) = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot)) else { return Vec::new() };
-        let mut out = Vec::new();
-        for t in self.teammates() {
-            if !self.present(t) || self.told_to_wait(t) {
-                continue;
+        let mut who: Vec<FormId> = self.teammates().into_iter().filter(|&t| self.present(t) && !self.told_to_wait(t)).collect();
+        if let Some((from_cell, from_pos)) = from {
+            let candidates: Vec<FormId> = self
+                .extra
+                .iter()
+                .filter(|(r, e)| **r != FormId::PLAYER_REF && e.current_package.is_some() && !e.dead && !e.teammate)
+                .map(|(r, _)| *r)
+                .collect();
+            for r in candidates {
+                if self.present(r) && self.follows_player(r) && self.was_near(r, from_cell, from_pos) {
+                    who.push(r);
+                }
             }
+        }
+        let mut out = Vec::new();
+        for t in who {
             // To the player's left (as observed), then right, one step further for each.
             let n = out.len();
             let side = if n % 2 == 0 { -1.0 } else { 1.0 } * BESIDE * (1 + n / 2) as f32;
@@ -99,6 +121,18 @@ impl Game<'_> {
             out.push(t);
         }
         out
+    }
+
+    /// Whether `r` stands where the player was before a move: in the same cell, or in the
+    /// same worldspace within [`FOLLOW_REACH`].
+    fn was_near(&self, r: FormId, from_cell: Option<FormId>, from_pos: [f32; 3]) -> bool {
+        let Some((cell, pos)) = self.world.peek(r).map(|s| (s.cell, s.pos)).or_else(|| self.world.placed.get(r).map(|p| (p.cell, p.pos))) else { return false };
+        let (Some(cell), Some(from_cell)) = (cell, from_cell) else { return false };
+        if cell == from_cell {
+            return true;
+        }
+        let near = (pos[0] - from_pos[0]).hypot(pos[1] - from_pos[1]) <= FOLLOW_REACH;
+        near && self.world.placed.world_of(cell).is_some_and(|w| self.world.placed.world_of(from_cell) == Some(w))
     }
 
     /// The player's teammates take up the player's fights: a teammate that perceives the

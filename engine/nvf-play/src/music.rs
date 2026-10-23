@@ -808,16 +808,30 @@ fn play(
             b.ended = None;
             b.intro_at = None;
             music.incidental = None;
-            let death = sfx.as_deref().and_then(|x| x.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(DEATH_SOUND))).map(|(&id, _)| id));
-            match death {
-                Some(s) => {
-                    info!("music: the player died: the music stops, {DEATH_SOUND} ({s}) plays{}", if audible { "" } else { " [silent: music is off]" });
-                    if audible {
-                        sounds.write(PlaySound { sound: s, at: None });
-                        music.deaths += 1;
-                    }
+            // The default objects' Death Music (DOBJ) when its file is there, as a script's
+            // music plays (docs/spec-notes/default-objects.md); FalloutNV.esm's names
+            // `special\death.mp3`, which is not shipped, so the SOUN below plays.
+            let dobj = places.forms.default_objects.get(audio::DEFAULT_DEATH_MUSIC).copied().filter(|&m| m != 0).and_then(|m| places.forms.music.get(&m));
+            if let Some((ty, mut w)) = dobj.and_then(|t| Some((t, wanted_type(t)?))).filter(|(_, w)| w.files.iter().flatten().any(|f| music.bytes(&data.vfs, f).is_some())) {
+                info!("music: the player died: the music stops, the default objects' death music {} plays", ty.edid.as_deref().unwrap_or("?"));
+                if audible {
+                    w.fade = SCRIPT_FADE;
+                    let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now);
+                    music.script = Some(t);
+                    music.deaths += 1;
                 }
-                None => info!("music: the player died: the music stops; no {DEATH_SOUND} in the load order"),
+            } else {
+                let death = sfx.as_deref().and_then(|x| x.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(DEATH_SOUND))).map(|(&id, _)| id));
+                match death {
+                    Some(s) => {
+                        info!("music: the player died: the music stops, {DEATH_SOUND} ({s}) plays{}", if audible { "" } else { " [silent: music is off]" });
+                        if audible {
+                            sounds.write(PlaySound { sound: s, at: None });
+                            music.deaths += 1;
+                        }
+                    }
+                    None => info!("music: the player died: the music stops; no {DEATH_SOUND} in the load order"),
+                }
             }
         } else {
             info!("music: the player lives again: the place's music comes back");

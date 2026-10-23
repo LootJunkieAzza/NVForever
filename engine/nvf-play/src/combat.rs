@@ -299,6 +299,8 @@ pub struct ShotVisual {
     pub id: u64,
     /// Its PROJ.
     pub projectile: FormId,
+    /// Who fired it.
+    pub owner: FormId,
     /// Where it is drawn (game space) and the way it points (unit).
     pub pos: V3,
     pub dir: V3,
@@ -334,7 +336,7 @@ pub struct CasingFx {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ImpactFx {
     pub impact: FormId,
-    /// Who fired the projectile.
+    /// Who fired the projectile (or struck, or set off the explosion); `FormId(0)`: no one.
     pub shooter: FormId,
     pub point: V3,
     pub normal: V3,
@@ -353,6 +355,8 @@ pub struct ImpactFx {
 pub struct ExplosionFx {
     pub explosion: FormId,
     pub point: V3,
+    /// Who set it off, when known (nvforever `detection` raises its event as theirs).
+    pub cause: Option<FormId>,
 }
 
 /// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
@@ -689,6 +693,8 @@ struct Pending {
 struct Ghost {
     id: u64,
     proj: FormId,
+    /// Who fired it.
+    owner: FormId,
     from: V3,
     to: V3,
     /// Units per second (a bullet); a beam stays for `left` seconds instead.
@@ -851,6 +857,8 @@ pub struct Combat {
     /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
     /// leave the shots' rolls as they were.
     spent_rng: SplitMix,
+    /// A reload ended and no shot has been fired since (No Jam After Reload).
+    pub fresh_reload: bool,
 }
 
 impl Combat {
@@ -1327,6 +1335,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         script_shots: Vec::new(),
         guarding: HashMap::new(),
         blocked_blows: Vec::new(),
+        fresh_reload: false,
         guard_down_until: 0.0,
         marks: Vec::new(),
         rng: SplitMix(1),
@@ -1528,6 +1537,30 @@ impl CombatWorld for PhysView<'_> {
                 Owner::Actor { part, .. } if part != fnv_phys::actors::WHOLE => Some(part),
                 _ => None,
             },
+            small_transparent: matches!(h.owner, Owner::Ref { layer, .. } if layer == layers::TRANSPARENT_SMALL || layer == layers::TRANSPARENT_SMALL_ANIM),
+            material: h.material,
+            object: match h.owner {
+                Owner::Ref { form_id, .. } => Some(form_id as u64),
+                _ => None,
+            },
+        })
+    }
+
+    fn cover_ray(&self, from: V3, to: V3) -> Option<WorldHit> {
+        let d = vec::sub(to, from);
+        let len = vec::len(d);
+        if len < 1e-4 {
+            return None;
+        }
+        // The world only: no body, living or dead, shields another from a blast.
+        let f = Filter { exclude_layers: layers::character_ignores(), no_actors: true, ..Default::default() };
+        let h = self.q.ray(from, d, len, &f)?;
+        Some(WorldHit {
+            point: h.point,
+            normal: h.normal,
+            distance: h.distance,
+            actor: None,
+            part: None,
             small_transparent: matches!(h.owner, Owner::Ref { layer, .. } if layer == layers::TRANSPARENT_SMALL || layer == layers::TRANSPARENT_SMALL_ANIM),
             material: h.material,
             object: match h.owner {
@@ -2051,13 +2084,18 @@ pub(crate) fn fire(
                     // Worn below the jamming mark, the shot may jam it (item 9): the jam
                     // clip plays and nothing fires until it ends. Weapons that use ammo
                     // only; a thrown one spends itself [design].
-                    let jams = vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
+                    // The first shot after a reload of a weapon flagged No Jam After Reload
+                    // does not jam [documented: the flag's name; hypothesis: the first shot;
+                    // docs/spec-notes/item-fields.md §1].
+                    let fresh = std::mem::take(&mut c.fresh_reload) && w.has_flag("No Jam After Reload");
+                    let jams = !fresh && vats_shot.is_none() && c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
                     let points = condition::weapon_wear(&c.rules, &w, &effects);
                     if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
                         break;
                     }
                     if jams {
-                        let secs = anim.timing.jam_len.unwrap_or(c.tuning.jam_fallback);
+                        // The jam clip's length, else the weapon's Jam Time, else the default.
+                        let secs = anim.timing.jam_len.or(Some(w.jam_time).filter(|&t| t > 0.0)).unwrap_or(c.tuning.jam_fallback);
                         cycle.jam(secs);
                         anim.jams += 1;
                         stats.jams += 1;
@@ -2085,6 +2123,7 @@ pub(crate) fn fire(
             }
             Event::Reloaded { taken } => {
                 stats.reloads += 1;
+                c.fresh_reload = true;
                 info!("combat: reloaded {taken}, magazine {}", cycle.magazine);
             }
             Event::DryFire => {
@@ -2906,9 +2945,18 @@ fn actor_attacks(
         if let Some(sound) = sfx.as_deref().and_then(|x| b.weapon.and_then(|w| x.forms.weapons.get(&w))).and_then(|f| f.shoot_3d.or(f.shoot_2d)) {
             sounds.write(PlaySound { sound, at: Some(b.point) });
         }
-        // Its impact on the one struck, as the player's blows (item 24).
+        // Its impact on the one struck, as the player's blows (item 24); a creature's own
+        // attack by its CREA CNAM impact data set (docs/spec-notes/actor-fields.md §2).
         if let Some(s) = sfx.as_deref() {
-            if let (Some(impact), _) = impact_for(s, &sim, id, Some(b.target.0 as ActorId), None) {
+            let own = b.creature_damage.and(sim.base_of(b.attacker.0)).and_then(|base| s.forms.creature_impact_set(base));
+            let picked = match own {
+                Some(set) => {
+                    let material = sim.base_of(b.target.0).and_then(|t| s.forms.actor_material(t)).unwrap_or("organic");
+                    (s.forms.impact_id(set, material), material)
+                }
+                None => impact_for(s, &sim, id, Some(b.target.0 as ActorId), None),
+            };
+            if let (Some(impact), _) = picked {
                 stats.melee_impacts += 1;
                 show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir, actor: Some(b.target.0), no_spray: false, no_decal: false }, &mut sounds, &mut impacts);
             }
@@ -3031,7 +3079,7 @@ fn fly(
             // where it ended.
             let at_once = instant(&f.p) && f.p.age == 0.0;
             let fade = c.forms.projectiles.get(&f.proj).map_or(0.0, |p| p.fade_duration);
-            let (id, proj, speed, beam) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam);
+            let (id, proj, speed, beam, owner) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam, f.by.actor);
             // What stays on show after the shot (a beam, the line along the shot) keeps
             // its start on the muzzle: the attack clip moves the gun in the frames after
             // the shot [observed: the laser rifle's muzzle is 10 units higher one frame
@@ -3040,7 +3088,7 @@ fn fly(
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
             let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
-            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
+            let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
                 match e {
@@ -3102,12 +3150,12 @@ fn fly(
         }
     });
     visuals.flying.clear();
-    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled, strength: 1.0 }));
+    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, owner: f.by.actor, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled, strength: 1.0 }));
     visuals.flying.extend(c.ghosts.iter().map(|g| {
         let d = vec::sub(g.to, g.from);
         let len = vec::len(d);
         let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
-        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled, strength: beam_strength(g.beam, g.left, g.fade) }
+        ShotVisual { id: g.id, projectile: g.proj, owner: g.owner, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled, strength: beam_strength(g.beam, g.left, g.fade) }
     }));
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
@@ -3120,7 +3168,7 @@ fn fly(
         }
         stats.explosions += 1;
         let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
-        effects.2.write(ExplosionFx { explosion: id, point: at });
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor) });
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -3132,7 +3180,8 @@ fn fly(
             let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
             let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
             if let (Some(impact), Some(g)) = (impact, ground) {
-                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
+                // The dirt is the cause's (no one's without one): detection hears it as theirs.
+                effects.1.write(ImpactFx { impact, shooter: cause.map_or(FormId(0), |c| c.actor), point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0], actor: None, no_spray: false, no_decal: false });
                 if let Some(i) = sfx.as_deref().and_then(|s| s.forms.impacts.get(&impact)) {
                     for sound in i.sound_1.into_iter().chain(i.sound_2) {
                         effects.0.write(PlaySound { sound, at: Some(g.point) });

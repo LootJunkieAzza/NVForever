@@ -44,8 +44,10 @@
 //! - **Light at the target** (0–100) [hypothesis, no source gives the game's measure]:
 //!   100 × the luminance of the ambient light, plus the sunlight's times daylight outdoors
 //!   or the cell's directional light indoors, plus each point light that reaches the
-//!   target with the game's falloff 1 − (d/r)²; capped at 100. Shade from the sun is not
-//!   measured. The player's flashlight (flashlight.rs) is not counted [design: it is not
+//!   target with the game's falloff 1 − (d/r)²; capped at 100. Outdoors the sunlight
+//!   counts only when a ray from the target's chest towards the sun meets nothing within
+//!   [`SUN_REACH`] (where the target is in the loaded collision; elsewhere it counts)
+//!   [hypothesis, docs/design/detection.md §8]. The player's flashlight (flashlight.rs) is not counted [design: it is not
 //!   the game's; whether it should show the player is undecided].
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
@@ -70,8 +72,14 @@
 //! (`Game::hear_event`); an actor that is hit is alarmed about whoever hit it
 //! (`Game::hurt_by`); then `Game::settle_awareness` changes states. Changes and
 //! Detection topic lines are logged here (`alert:` lines); how alerted actors look is
-//! `alert.rs`. [hypothesis: an impact sounds at the firing weapon's sound level; the
-//! original's is not documented.]
+//! `alert.rs`.
+//!
+//! **The events' sound levels** (docs/design/detection.md §8) [hypothesis; the original's
+//! are not documented]: an impact sounds at its IPCT's sound level, else the firing
+//! weapon's; a projectile in flight raises an event where it is each measurement at its
+//! PROJ's sound level (Beam for a beam, else Bullet), owned by the shooter; an explosion
+//! raises an Explosion event at its EXPL's level, owned by whoever set it off (none
+//! without a cause).
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
@@ -85,7 +93,8 @@ use fnv_game::sight::in_view;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_game::functions::senses::Motion;
 use fnv_sim::FormId;
-use nvf_play::combat::{ActorHit, Combat, ImpactFx, ShotFired};
+use nvf_play::combat::{ActorHit, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisuals};
+use nvf_play::sfx::Sfx;
 use nvf_play::control::PlayerControl;
 use nvf_play::phys::PhysState;
 use nvf_play::player::{MoveIntent, Player, EYE_HEIGHT};
@@ -108,6 +117,8 @@ const RUNNING_SPEED: f32 = 215.0;
 const CHEST: f32 = 0.75;
 /// A line of sight passes at most this many actors' capsules.
 const PAST_ACTORS: usize = 8;
+/// How far towards the sun something shades a target [design].
+const SUN_REACH: f32 = 8192.0;
 
 pub struct DetectionPlugin;
 
@@ -155,6 +166,11 @@ struct Stats {
     events: usize,
     events_heard: usize,
     hurt_alarms: usize,
+    /// Events raised by impacts, projectiles in flight and explosions (§8 of the design).
+    raised: [usize; 3],
+    /// Targets measured outdoors under the sun, and of those in shade.
+    sun_measured: usize,
+    shaded: usize,
 }
 
 #[derive(Resource, Default)]
@@ -169,10 +185,15 @@ pub struct DetectionState {
     shots: HashMap<u32, f64>,
     /// The sound level of each shooter's last shot: its impacts make that sound.
     shot_levels: HashMap<u32, f64>,
-    /// Impacts of shots (where, whose), and actors hit (who, by whom), since the last
-    /// measurement.
-    impacts: Vec<([f32; 3], u32)>,
+    /// Impacts of shots (where, whose, the IPCT's sound), and actors hit (who, by whom),
+    /// since the last measurement.
+    impacts: Vec<([f32; 3], u32, Option<f64>)>,
     hits: Vec<(u32, u32)>,
+    /// Explosions since the last measurement: where, whose, how loud.
+    explosions: Vec<([f32; 3], u32, f64)>,
+    /// Projectiles in flight since the last measurement, by their number: where they
+    /// were last, whose, how loud, a beam.
+    flying: HashMap<u64, ([f32; 3], u32, f64, bool)>,
     /// The player's highest band at the last measurement (the meter).
     meter: Option<Band>,
     /// Landscape heights of the exterior cells, for sight out of the collision world.
@@ -238,14 +259,17 @@ fn luminance(c: [f32; 3]) -> f32 {
 }
 
 /// The light level at a point, 0–100 (see the module notes).
-fn light_at(sky: Option<&SkyState>, lights: &[([f32; 3], f32, f32)], at: [f32; 3]) -> f64 {
+fn light_at(sky: Option<&SkyState>, lights: &[([f32; 3], f32, f32)], at: [f32; 3], sunlit: bool) -> f64 {
     let mut l = match sky {
         Some(s) => match &s.interior {
             Some(c) => {
                 let u = |c: [u8; 3]| c.map(|v| v as f32 / 255.0);
                 luminance(u(c.ambient)) + luminance(u(c.directional))
             }
-            None => luminance(s.color(fnv_world::sky::ColorType::Ambient)) + luminance(s.color(fnv_world::sky::ColorType::Sunlight)) * s.daylight(),
+            None => {
+                let sun = if sunlit { luminance(s.color(fnv_world::sky::ColorType::Sunlight)) * s.daylight() } else { 0.0 };
+                luminance(s.color(fnv_world::sky::ColorType::Ambient)) + sun
+            }
         },
         None => 0.5,
     };
@@ -355,7 +379,8 @@ fn measure(
     mut phys: Option<ResMut<PhysState>>,
     (player, intent, control, location, combat, sky): Inputs,
     mut shots: MessageReader<ShotFired>,
-    (mut impacts, mut hits): (MessageReader<ImpactFx>, MessageReader<ActorHit>),
+    (mut impacts, mut hits, mut booms): (MessageReader<ImpactFx>, MessageReader<ActorHit>, MessageReader<ExplosionFx>),
+    (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
     actors: Query<Watched>,
     (point_lights, spot_lights, camera, world): Scene,
 ) {
@@ -368,8 +393,22 @@ fn measure(
         *heard = heard.max(loud);
         state.shot_levels.insert(s.shooter.0, loud);
     }
-    for i in impacts.read() {
-        state.impacts.push((i.point, i.shooter.0));
+    let settings_now = state.settings.unwrap_or_default();
+    let level = |l: Option<&str>| l.map(|l| settings_now.firing_sound(l));
+    for i in impacts.read().filter(|i| i.shooter.0 != 0) {
+        let own = level(sfx.as_deref().and_then(|s| s.forms.impacts.get(&i.impact)).and_then(|x| x.sound_level.as_deref()));
+        state.impacts.push((i.point, i.shooter.0, own));
+    }
+    for b in booms.read() {
+        let (Some(by), Some(c)) = (b.cause, combat.as_deref()) else { continue };
+        let loud = level(c.forms.explosions.get(&b.explosion).and_then(|x| x.sound_level.as_deref())).unwrap_or(0.0);
+        state.explosions.push((b.point, by.0, loud));
+    }
+    if let (Some(v), Some(c)) = (visuals.as_deref(), combat.as_deref()) {
+        for f in v.flying.iter().filter(|f| f.owner.0 != 0) {
+            let loud = level(c.forms.projectiles.get(&f.projectile).and_then(|p| p.sound_level.as_deref())).unwrap_or(0.0);
+            state.flying.insert(f.id, (f.pos, f.owner.0, loud, f.beam.is_some()));
+        }
     }
     for h in hits.read() {
         if let (false, Some(by)) = (h.died, h.by) {
@@ -502,7 +541,23 @@ fn measure(
             lights.push((bevy_to_game(g.translation()).to_array(), l.range, luminance(l.color.to_srgba().to_f32_array_no_alpha())));
         }
     }
-    let light: Vec<f64> = people.iter().map(|p| light_at(sky.as_deref(), &lights, p.chest())).collect();
+    // Outdoors with the sun up, whether something shades each one from it.
+    let sun = sky.as_deref().filter(|s| s.interior.is_none()).map(SkyState::sun_dir_game).filter(|d| d[2] > 0.0);
+    let mut light: Vec<f64> = Vec::with_capacity(people.len());
+    for p in &people {
+        let chest = p.chest();
+        let sunlit = match sun {
+            None => true,
+            Some(d) => {
+                let loaded = phys.as_deref().is_some_and(|ph| ph.ready_at(p.feet));
+                let lit = !loaded || clear_sight(phys.as_deref_mut(), chest, std::array::from_fn(|i| chest[i] + d[i] * SUN_REACH));
+                state.stats.sun_measured += 1;
+                state.stats.shaded += usize::from(!lit);
+                lit
+            }
+        };
+        light.push(light_at(sky.as_deref(), &lights, chest, sunlit));
+    }
 
     // Every detector against every target within reach.
     let shots = std::mem::take(&mut state.shots);
@@ -516,6 +571,9 @@ fn measure(
     let land = &mut state.land;
     let world = world.as_deref();
     let impacts = std::mem::take(&mut state.impacts);
+    let explosions = std::mem::take(&mut state.explosions);
+    let flying: Vec<_> = std::mem::take(&mut state.flying).into_values().collect();
+    let mut raised = [0usize; 3];
     let hits = std::mem::take(&mut state.hits);
     let shot_levels = state.shot_levels.clone();
     let (mut events, mut hurt) = (0, 0);
@@ -595,10 +653,20 @@ fn measure(
         }
         g.detection.forget_older_than(g.time - 1.0);
 
-        // Detection events: the impacts of shots, CreateDetectionEvent.
-        for (at, by) in impacts {
-            let level = shot_levels.get(&by).copied().unwrap_or(0.0);
+        // Detection events: impacts, projectiles in flight, explosions (the module
+        // notes), CreateDetectionEvent.
+        for (at, by, own) in impacts {
+            let level = own.or_else(|| shot_levels.get(&by).copied()).unwrap_or(0.0);
             g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Bullet });
+            raised[0] += 1;
+        }
+        for (at, by, level, beam) in flying {
+            g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: if beam { EventType::Beam } else { EventType::Bullet } });
+            raised[1] += 1;
+        }
+        for (at, by, level) in explosions {
+            g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Explosion });
+            raised[2] += 1;
         }
         for ev in g.take_detection_events() {
             if (unseen() || g.toggles.detection_off) && ev.owner == FormId::PLAYER_REF {
@@ -702,6 +770,9 @@ fn measure(
         }
     }
     log_alerts(st, &people, &alert_changes, &barks, &heard, events, hurt);
+    for (n, r) in st.raised.iter_mut().zip(raised) {
+        *n += r;
+    }
     for (i, det) in &player_bands {
         let id = people[*i].id;
         st.watchers.insert(id);
@@ -779,7 +850,7 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
     let bands = |c: [usize; 3]| format!("{} to hidden, {} to noticed, {} to detected", c[0], c[1], c[2]);
     info!(
         "detection summary: {} measurements, {} pairs ({} at most at once), {} actors measured the player, {} had it noticed, {} detected; \
-         the player's changes: {}; between actors: {}; the player was hidden {:.1} s, CAUTION {:.1} s, DANGER {:.1} s; {} shots heard; values {}",
+         the player's changes: {}; between actors: {}; the player was hidden {:.1} s, CAUTION {:.1} s, DANGER {:.1} s; {} shots heard; values {}; {} of {} measured under the sun in shade",
         s.measurements,
         s.pairs,
         s.most_pairs,
@@ -793,6 +864,8 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
         s.meter_secs[2],
         s.shots_heard,
         s.range.map_or("none".into(), |(lo, hi)| format!("{lo:.1} to {hi:.1}")),
+        s.shaded,
+        s.sun_measured,
     );
     info!(
         "detection summary, out of the player's reach: {} pairs, {} measured detected; the player as a detector: {}; {} actors detected by the player",
@@ -803,10 +876,13 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
     );
     let changes: Vec<String> = s.changes.iter().map(|((f, t), n)| format!("{} → {} {n}", f.name(), t.name())).collect();
     info!(
-        "alert summary: {} actors became Alert; changes: {}; {} detection events, heard {} times; {} hits alarmed; {} Detection topic lines said, {} asked for without a line, {} held back by the group cooldown",
+        "alert summary: {} actors became Alert; changes: {}; {} detection events ({} impacts, {} projectiles in flight, {} explosions), heard {} times; {} hits alarmed; {} Detection topic lines said, {} asked for without a line, {} held back by the group cooldown",
         s.alerted.len(),
         if changes.is_empty() { "none".into() } else { changes.join(", ") },
         s.events,
+        s.raised[0],
+        s.raised[1],
+        s.raised[2],
         s.events_heard,
         s.hurt_alarms,
         s.barks,
@@ -822,11 +898,11 @@ mod tests {
     #[test]
     fn light_adds_point_lights_with_the_game_falloff_and_caps_at_100() {
         let lamp = ([0.0, 0.0, 0.0], 200.0, 1.0);
-        assert!((light_at(None, &[], [0.0; 3]) - 50.0).abs() < 1e-6);
+        assert!((light_at(None, &[], [0.0; 3], true) - 50.0).abs() < 1e-6);
         // Half the radius away: 1 − 0.25 of the lamp's luminance.
-        assert!((light_at(None, &[lamp], [100.0, 0.0, 0.0]) - 100.0).abs() < 1e-6);
+        assert!((light_at(None, &[lamp], [100.0, 0.0, 0.0], true) - 100.0).abs() < 1e-6);
         let dim = ([0.0, 0.0, 0.0], 200.0, 0.2);
-        assert!((light_at(None, &[dim], [100.0, 0.0, 0.0]) - 65.0).abs() < 1e-4);
-        assert!((light_at(None, &[dim], [300.0, 0.0, 0.0]) - 50.0).abs() < 1e-6);
+        assert!((light_at(None, &[dim], [100.0, 0.0, 0.0], true) - 65.0).abs() < 1e-4);
+        assert!((light_at(None, &[dim], [300.0, 0.0, 0.0], true) - 50.0).abs() < 1e-6);
     }
 }

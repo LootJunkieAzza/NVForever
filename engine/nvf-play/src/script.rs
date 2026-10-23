@@ -752,6 +752,7 @@ impl Runtime {
             g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
             Ok(ByHand::Default(a))
         } else {
+            let from = g.world.peek(player).map(|p| (p.cell, p.pos));
             match g.world.activate(player, target) {
                 Ok(mut a) => {
                     self.skip.insert(g.events.len());
@@ -771,12 +772,12 @@ impl Runtime {
                         let x = fnv_game::experience::mine_disarm_xp(g);
                         fnv_game::experience::award(g, fnv_game::experience::Source::DisarmMine, x);
                     }
-                    // Through a load door: the player's teammates come along
-                    // (`fnv_game::followers`).
+                    // Through a load door: the player's teammates and followers come
+                    // along (`fnv_game::followers`).
                     if matches!(a.outcome, Outcome::Teleported { .. }) {
-                        let brought = g.bring_teammates();
+                        let brought = g.bring_teammates(from);
                         if !brought.is_empty() {
-                            info!("script: {} teammate(s) come along through the door", brought.len());
+                            info!("script: {} teammate(s) or follower(s) come along through the door", brought.len());
                         }
                     }
                     // A script without OnActivate does not run on activation; the
@@ -1001,8 +1002,12 @@ impl Runtime {
             ScriptAid::Menu(code) => g.open_menu(*code),
             ScriptAid::Activate(r) => {
                 let r = resolve(g, r)?;
+                let water = g.drink_water(r);
                 if let ByHand::Default(a) = self.activate_as_player(r)? {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
+                    if let Some(w) = water {
+                        info!("test aid: the player drinks from {r}: water {w}");
+                    }
                 }
             }
             ScriptAid::Kill(r) => {

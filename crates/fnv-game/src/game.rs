@@ -2653,6 +2653,9 @@ impl<'a> Game<'a> {
     /// have its inventory accessed by the player until the actor gets up again"].
     pub fn default_activation(&mut self, actor: FormId, target: FormId, by_hand: bool) -> Result<serde_json::Value, String> {
         let base = functions::base_of(self, target);
+        // Where the player was, for whoever follows them through a door
+        // (`Game::bring_teammates`).
+        let from = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
         let pushed = self.knockout(target).is_some_and(|k| k.pushed && k.lying());
         let dead_actor = (self.extra.get(&target).is_some_and(|e| e.dead) || pushed)
             && base.and_then(|b| self.data.sig(b)).is_some_and(|s| &s == b"NPC_" || &s == b"CREA");
@@ -2668,6 +2671,7 @@ impl<'a> Game<'a> {
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v.clone()) });
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);
+            self.drink_from(actor, target);
         }
         // Its activate children go off (`crate::traps`).
         self.set_off_children(target);
@@ -2678,7 +2682,7 @@ impl<'a> Game<'a> {
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
                 self.player_entered(cell);
-                self.bring_teammates();
+                self.bring_teammates(from);
             }
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
@@ -2689,6 +2693,21 @@ impl<'a> Game<'a> {
             _ => {}
         }
         Ok(v)
+    }
+
+    /// The water an activator gives to drink (ACTI WNAM), when it names one.
+    pub fn drink_water(&self, target: FormId) -> Option<FormId> {
+        functions::base_of(self, target).and_then(|b| self.data.drink_waters.get(&b)).copied()
+    }
+
+    /// `actor` drank from the activator `target`: its water's actor effect (WATR XNAM:
+    /// the healing and the rads) applies to the drinker, as from the water itself
+    /// [hypothesis: drinking applies the effect the water names; activators.md §9].
+    /// Whether the activator's script ran too is the activation's business.
+    fn drink_from(&mut self, actor: FormId, target: FormId) {
+        let Some(water) = self.drink_water(target) else { return };
+        let Some(&spell) = self.data.water_effects.get(&water) else { return };
+        self.apply_magic_item(actor, spell, Some(actor), false);
     }
 
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
@@ -2952,6 +2971,20 @@ impl<'a> Game<'a> {
             let e = self.effects.remove(i);
             self.instances.remove(&InstKey::Effect { id });
             self.emit(EventKind::EffectFinished { id, target: e.target, source: e.source });
+            self.drug_wore_off(e.target, e.source);
+        }
+    }
+
+    /// The last effect of a chem (ALCH of equip type Chems) the player took has ended: the
+    /// default objects' Drug Wears Off Image Space plays [documented: the DOBJ entry's
+    /// name; hypothesis: when, docs/spec-notes/default-objects.md].
+    fn drug_wore_off(&mut self, target: FormId, source: FormId) {
+        let chem = self.data.ingestibles.get(&source).is_some_and(|i| i.equip_type == crate::data::IngestibleDef::CHEMS);
+        if target != FormId::PLAYER_REF || !chem || self.effects.iter().any(|x| x.target == target && x.source == source) {
+            return;
+        }
+        if let Some(m) = self.data.default_object(crate::data::DefaultObject::DrugWearsOffImageSpace).filter(|m| self.data.image_modifiers.contains_key(m)) {
+            self.apply_image_modifier(m);
         }
     }
 

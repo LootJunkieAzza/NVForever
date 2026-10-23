@@ -35,7 +35,7 @@ under active work.
 | 8 | ~~The weather never varies: the highest-chance WLST entry always wins (`nvforever/sky.rs:394`), and volatility is ignored. REGN RDWT region weathers are never applied.~~ Built in claude/e8-weather-roll ([world](../spec-notes/world.md) §6 "Choosing a weather"): weighted rolls from the climate's list, overriding regions' lists where the camera stands, volatility as a chance per game hour, live gating globals, seeded and saved. Left: the transition time (WTHR "trans delta" unit unknown, 0.5 h placeholder), the vanilla data has volatility 0 so the Mojave only varies by region. | CLMT, REGN | Weathers are a weighted roll per climate; a region's weather list overrides the climate. |
 | 9 | ~~Weather has no sound and no precipitation (WTHR SNAM, precipitation MODL, lightning).~~ Built in claude/e9-weather-sound-precip ([world](../spec-notes/world.md) §6 "Weather sound, precipitation and lightning"): SNAM loops at the listener outdoors, MODL drawn about the camera, lightning flashes in the lightning colour with the weather's thunder after them, all within the DATA fade bytes. The masters hold no MODL and no looping sound in a used weather; Honest Hearts' two rain weathers flash and thunder. Zion rain and the Hidden Valley dust storm are drawn by their scripts and placed references. Left: the Snow class, sun damage/glare, wind moving anything, GetWeatherTraitNumeric and the JIP weather setters. | WTHR | Rain loops, wind, thunder and lightning, dust storms. |
 | 10 | ~~Weapons have no scopes: MOD3, "Has Scope", "Scope from Mod" and EFSD are ignored.~~ Built in claude/e10-weapon-scopes ([weapon-scopes](../spec-notes/weapon-scopes.md)): the MOD3 picture at full zoom, Scope from Mod by Increase Zoom mods, night-vision scopes (NightScopeISFX, guessed), the sway from `scopewobble.nif` by the player's spread. EFSD stays unused, as the wiki says the original ignores it. Left: the scope in third person, the original's timing. | WEAP | A scope overlay when aiming, and night-vision scopes. |
-| 11 | Critical-hit effects are never applied (CRDT effect and the "On Death" flag are stored only). | WEAP | Disintegrate and goo kills from energy weapons; crit effects on unique weapons. |
+| 11 | ~~Critical-hit effects are never applied (CRDT effect and the "On Death" flag are stored only).~~ Built in 8375a882 ([ash-piles](../spec-notes/ash-piles.md)): the critical effect after a critical hit's damage, On Death ones only when it kills. | WEAP | Disintegrate and goo kills from energy weapons; crit effects on unique weapons. |
 | 12 | ~~Silencers keep the loud shot sound. WMS1/WMS2 are ignored; the mod changes only the detection sound level.~~ Built in claude/e12-silencer-sounds ([weapon-mods](../spec-notes/weapon-mods.md) §7): a Silence or Suppressor mod on the unit plays WMS1 (3D) / WMS2 (2D) for the player and NPCs; inherently silenced weapons already carry quiet SNAM/XNAM sounds; WEAP Shoot Dist built with it. Left: no mod looping sound exists, so a loop stays plain. | WEAP | Silenced shot sound. |
 | 13 | ~~No spent casings or drained cells: DAT2 consumed_ammo and consumed_percentage are stored only.~~ Built in claude/e13-spent-casings ([spent-ammo-items](../spec-notes/spent-ammo-items.md)): one roll per player shot, perk entry point 57 (Hand Loader, Vigilant Recycler). Left: NPCs' shots (they carry no inventory ammo). | AMMO | Feeds the reloading-bench and recharger recipes. |
 | 14 | ~~Holotapes never play: NOTE SNAM, and TNAM for Sound and Voice notes, are ignored.~~ Built in claude/e14-holotapes ([holotapes](../spec-notes/holotapes.md)): a Voice note used in the Pip-Boy's Notes list plays its topic's line (the one naming the speaker) in the speaker's voice, response after response, one tape at a time, again to stop; a Sound note plays its SOUN once (no master note has one). Left: subtitles, the JIP note functions, GetNoteRead, the original's panel. | NOTE | Audio logs. |
@@ -120,9 +120,17 @@ under active work.
   (its reverb environment is played since claude/q27-reverb). ALOC location and retrigger delays are stored
   only. ARMO "Modulates Voice" is ignored. TACT "No Voice Filter" (header bit 13) is not
   in the schema, and no radio or intercom voice filter exists.
-- **Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only
-  the weapon's sound level feeds detection.
-- **Visuals.** Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
+- ~~**Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only
+  the weapon's sound level feeds detection.~~ Built in claude/em7-detection
+  ([detection](../design/detection.md) §8), with the sun's shade in the light measure.
+- **Visuals** (claude/em8-visuals: built the drinkable activators, ACTI WNAM, which draw
+  no water (activators.md §9); weather Trans Delta and Sun Glare and the interior clip
+  distance (world.md §6); nothing to build where no master record uses the field:
+  projectile lights, EXPL INAM, negative, spot and spot-shadow lights; left: destruction
+  debris (gore pieces belong to actors; 12 containers' stages name debris, the 51
+  creatures' stages are not applied), the falloff exponent and fog power (meaning not
+  documented), HDR and eye adaptation, the IDLE body section (the clips' track
+  priorities already lay an upper-body idle over the legs)). Was: Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
   objects are not spawned. Destruction-stage DEBR debris is never spawned. ACTI WNAM water
   activators draw as plain models. Negative lights are skipped instead of darkening, and
   LIGH Spot Shadow and falloff exponent are not applied. EFSH holes and add-on models are
@@ -130,7 +138,7 @@ under active work.
   linear. There is no HDR or bloom pass, so the IMGS HDR block and the IMAD HDR and bloom
   tracks are unused. WTHR transition speed and sun glare are hard-coded. IDLE animation
   group section (upper body or whole body) is stored only.
-- **Unparsed record types.** CAMS/CPTH (kill, VATS and death cameras); DOBJ (default
+- **Unparsed record types** (claude/em9-records, [default-objects](../spec-notes/default-objects.md): all four now in the schema; DOBJ read, its Death Music and Drug Wears Off Image Space used; REGN RDSD region sounds played; CAMS/CPTH (no kill camera) and RGDL (no feedback or pose matching) decoded only, RGDL's RAFD/RAFB/RAPS/ANAM left raw). Was: CAMS/CPTH (kill, VATS and death cameras); DOBJ (default
   objects: death and level-up music, the unarmed power-attack spells and others; death
   music is found by the hard-coded EDID `MUSDeath`); RGDL (ragdoll feedback and pose
   matching); REGN RDSD region sounds (no schema; ambient one-shots are not built); CSNO
@@ -140,11 +148,15 @@ under active work.
 
 Ignored unless noted:
 
-- **Items.** WEAP burst-length flags; "No Jam After Reload"; iron-sights animation flags;
+- **Items** (claude/em10-items, [item-fields](../spec-notes/item-fields.md): built No Jam After
+  Reload, Jam Time, the weapon's rumble and the MISC/KEYM own sound; the rest left with
+  reasons there). Was: WEAP burst-length flags; "No Jam After Reload"; iron-sights animation flags;
   "Hide Backpack"; reload and jam times; rumble; EAMT. AMMO QNAM abbreviation (stored).
   ARMO female world model (MOD4) and female icons; BNAM. KEYM/MISC RNAM loop. CMNY value.
   The CSNO chip models are hard-coded, and only the last ICO2 deck back is kept.
-- **Actors.** NPC_ AIDT mood (stored); "Not Pushable"; "No Rotating To Head-track";
+- **Actors** (claude/em11-actors, [actor-fields](../spec-notes/actor-fields.md): built Not Pushable,
+  No Rotating To Head-track, No Head/Arm and the CREA CNAM impact set; nothing to build
+  for RACE boosts, HAIR Fixed, LVLI owners, No Shadow; the rest left with reasons). Was: NPC_ AIDT mood (stored); "Not Pushable"; "No Rotating To Head-track";
   "Autocalc Service"; NAM7 weight; KFFZ on NPC_. CREA movement flags (Swims, Walks, No
   Combat in Water); tilt flags; No Head and No Arm flags; No Shadow; WNAM foot weight;
   CNAM impact set; LNAM melee list. RACE skill boosts (non-zero in vanilla: unverified);
@@ -159,7 +171,8 @@ Ignored unless noted:
   and Long globals keep fractions). MESG "Auto Display" (hard-coded per message). The
   remaining MGEF flags (Painless, No Hit Effect, Gory Visuals: rated M). SPEL SPIT flags.
   ENCH ENIT flags. AMEF "Fatigue Mod".
-- **World.** WRLD parent-use flags (stored), ONAM map offset, NAM0/NAM9 bounds, LOD and
+- **World** (claude/em13-world, [world-fields](../spec-notes/world-fields.md): built REFR XAMT/XAMC,
+  the three placed weapons' ammo; the rest left with counts and reasons). Was: WRLD parent-use flags (stored), ONAM map offset, NAM0/NAM9 bounds, LOD and
   water flags. LAND DATA flags. LTEX friction, restitution and specular. CELL XCLC Hide
   Quad flags (rated L–M), IMPF material swaps, and XNAM noise. REFR XAMT/XAMC (rated L–M),
   XACT, XTRG, XCHG, WMI1 map-marker reputation (rated L–M), room, portal, multibound and

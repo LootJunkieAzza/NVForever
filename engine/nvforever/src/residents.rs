@@ -1010,7 +1010,11 @@ impl Core {
             let cell = place.and_then(|p| p.0).map_or_else(|| "no cell".to_string(), |c| game.data.name(c));
             let pos = place.map_or([0.0; 3], |p| p.1);
             // A teammate the player's change of cells brought along (`fnv_game::followers`).
-            let why = if game.brought_along.remove(&id) { "with the player (teammate)" } else { "by a script (MoveTo)" };
+            let why = match game.brought_along.remove(&id) {
+                true if game.is_teammate(id) => "with the player (teammate)",
+                true => "with the player (follower)",
+                false => "by a script (MoveTo)",
+            };
             if ours {
                 if let Some(p) = phys.as_deref_mut() {
                     p.remove_npc(id.0);

@@ -273,6 +273,7 @@ fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
             rot: [0.0, 0.0, 2.0],
             scale: None,
             count: None,
+            ammo: None,
             health: None,
             owner: None,
             lock: None,

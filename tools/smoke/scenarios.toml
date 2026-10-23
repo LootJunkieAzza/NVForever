@@ -2793,6 +2793,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "pipboy-tmm-discovered"
+source = "owner request 2026-10-23: ShowAllMapMarkers 1 (tmm 1, travel on) draws every marker with its own type icon, as discovered; without travel they keep the undiscovered icon (script-stubs-2-play)"
+areas = ["scripts", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows \d+ of \d+ markers of this worldspace, (\d+) as discovered', range = [100, 100000], label = "pipboy data: tmm 1 draws the markers as discovered (100 or more)" },
+]]
+
+[[scenario]]
 name = "effect-shaders"
 source = "docs/spec-notes/effect-shaders.md: PlayMagicShaderVisuals draws NightkinCloakFXShader on Sunny until StopMagicShaderVisuals and effectAlienDisintegration for 2 s, which ends by itself; SetActorAlpha 0.5 and back to 1 (the test aid call:); frames at 9 s (shaders) and 14 s (alpha) in target/smoke"
 areas = ["scripts", "effect-shaders"]
@@ -2894,6 +2907,19 @@ expect = [
   { re = 'particles: born in \S*neoclassicalsconcefire01\.nif: .* [1-9]', label = "the sconces' flames are born" },
   { re = 'particles: placed references emitting: (?P<n>\d+) of', range = [30, 1000], label = "most of the 45 placed particle models of the floor emit" },
   { re = 'particles: placed references emitting: .* at most (?P<n>\d+) placed model instances', range = [30, 1000], label = "each sconce has its own systems" },
+]
+
+[[scenario]]
+name = "smoke-blend-bison-steve"
+source = "docs/spec-notes/nif.md §6 \"Alpha blend of unlit shapes\" (owner 2026-10-23, screenshots of the Bison Steve Hotel's main entrance: ours drew far more smoke than the game): unlit alpha-blended shapes put colour × alpha^1.5 on the frame; the lobby (BisonSteve01) from the entrance marker, looking east over FXMistLow01 00172699 and FXSmokeWisps01 0017209E; one frame in target/smoke (bison_steve_smoke.png) to judge against the owner's game screenshot"
+areas = ["particles", "effects", "rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_material.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:bison_steve_smoke.png" }
+args = ["--play", "--cell", "BisonSteve01", "--pos=-1408,-896,0", "--heading", "90", "--no-voice", "--no-messages"]
+run_seconds = 8
+manual = "bison_steve_smoke.png against the owner's game screenshot of the lobby (2026-10-23): the room's floor, rug and desk clear, only a faint haze low over the floor"
+expect = [
+  { re = 'test aid: screenshot .*bison_steve_smoke\.png', label = "the lobby frame is saved" },
 ]
 
 [[scenario]]
@@ -3678,6 +3704,20 @@ expect = [
 forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
   { re = 'provocation: CraigBooneREF .*fights back', label = "Boone turns on the player" },
+]
+
+[[scenario]]
+name = "follower-beagle"
+source = "owner 2026-10-23: an NPC following the player on a Follow package (not a teammate) comes along through a load door at once, not seconds later on foot (docs/design/followers.md §3)"
+note = "Bison Steve hotel: the seven Powder Gangers are killed at 1 s (as when the player has cleared the hotel; alive, they shoot Beagle once he is free); Deputy Beagle's line INFO 0x000E501C at 3 s frees him and sets nVPrimmDeputyConv.beaglefollow 1, so his PrimmBeagleFollow package (Follow, the player) is chosen; the player goes through the hotel's front door (0x000D6FF7, beside the cell's start spot) at 12 s and Beagle is put beside the player outside in the same frame"
+areas = ["followers", "ai"]
+paths = ["crates/fnv-game/src/followers.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:kill:0x000D7F3D,1:kill:0x000D7F3B,1:kill:0x000D7F54,1:kill:0x000E375C,1:kill:0x000E375D,1:kill:0x000E375E,1:kill:0x00172D3F,3:info:0x000E501C:PrimmDeputyRef,12:activate:0x000D6FF7" }
+args = ["--cell", "BisonSteve01", "--play", "--npc-packages", "PrimmDeputyRef", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'PrimmDeputyRef: package PrimmBeagleFollow', label = "freed by his line: his Follow package" },
+  { re = 'PrimmDeputyRef: put at .* with the player \(follower\)', label = "brought along through the door at once" },
 ]
 
 [[scenario]]
@@ -5683,7 +5723,7 @@ expect = [
   { json = "counts.races", equals = 4 },
   { json = "counts.sliders", equals = 115 },
   { json = "counts.presets", equals = 80 },
-  { json = "counts.facial_hair", equals = 32 },
+  { json = "counts.facial_hair", equals = 47 },
   { json = "races.?edid=Caucasian.male.hairs.#", equals = 18 },
   { json = "races.?edid=Caucasian.female.hairs.#", equals = 23 },
   { json = "races.?edid=Hispanic.male.eyes.#", equals = 4 },
@@ -6268,6 +6308,19 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "
 run_seconds = 18
 expect = [
   { re = 'combat: 0x[0-9A-F]{8} loses 250 fatigue to the ammo', label = "a bean bag hit takes 250 fatigue" },
+]
+
+[[scenario]]
+name = "placed-weapon-ammo"
+source = "ESM audit low-impact list, World (docs/spec-notes/world-fields.md §1): the varmint rifle in Primm's sheriff station (REFR 0x000CDA0D, XAMT 5.56mm 0x00004240, XAMC 10) comes with its 10 rounds when taken by hand"
+areas = ["simulation", "activation"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.getitemcount 00004240;8.3:close;12:player.getitemcount 00004240;12.3:close", NVF_PLAY_TEST_SCRIPT = "9:activate:0x000CDA0D" }
+args = ["--cell", "PrimmSheriffStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'console: GetItemCount on .*>> 0\.00', label = "no 5.56mm rounds before" },
+  { re = 'console: GetItemCount on .*>> 10\.00', label = "the rifle's 10 rounds after taking it" },
 ]
 
 [[scenario]]
@@ -6938,6 +6991,79 @@ expect = [
   { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
   { re = 'anim state summary: .*reload open \(17\) (?P<n>\d+)', range = [1, 100000], label = "the .357's reload opens with 17 (anim-state.md §1.1)" },
 ]
+
+[[scenario]]
+name = "detection-events-levels"
+source = "ESM audit group 6 (docs/design/detection.md §8): the player's two frag grenades in Goodsprings raise detection events in flight (PROJ VNAM) and as they go off (EXPL sound level), owned by the player"
+note = "the anim-state-throw setup: the player (GOD) draws five frag grenades (00004330) and throws two"
+areas = ["detection", "alert", "combat"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/detection.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00004330:5", NVF_PLAY_TEST_EQUIP = "00004330", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,21:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'alert summary:.*\(\d+ impacts, (?P<n>\d+) projectiles in flight, \d+ explosions\)', range = [1, 1000], label = "the grenades in flight raise events (11 for one grenade seen 2026-10-23)" },
+  { re = 'alert summary:.*\(\d+ impacts, \d+ projectiles in flight, (?P<n>\d+) explosions\)', range = [1, 2], label = "each grenade's explosion raises an event (one or two thrown: the second throw at 21 s is not always reached)" },
+]
+
+[[scenario]]
+name = "detection-shade"
+source = "ESM audit group 6 (docs/design/detection.md §8): at noon in Goodsprings some of the people measured stand in the shade of a building or a porch, which takes the sunlight out of the light at them"
+areas = ["detection"]
+paths = ["engine/nvforever/src/detection.rs", "engine/nvforever/src/sky.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'detection summary: .*; (?P<n>\d+) of \d+ measured under the sun in shade', range = [1, 1000000], label = "someone is in shade" },
+  { re = 'detection summary: .*; \d+ of (?P<n>\d+) measured under the sun in shade', range = [10, 1000000], label = "the sun is measured" },
+]
+
+[[scenario]]
+name = "drink-sink"
+source = "ESM audit group 7 (docs/spec-notes/activators.md §9): Doc Mitchell's sink (DrinkSinkClean03Purified, ACTI WNAM d1PurifiedWater0r30h) is drunk from: the water's effect applies to the player"
+areas = ["activation", "aid"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/outcome.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "6:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'test aid: the player drinks from 0x00103E58: water 0x[0-9A-F]{8}', label = "the player drinks from the sink" },
+]
+
+[[scenario]]
+name = "interior-clip"
+source = "ESM audit group 7 (docs/spec-notes/world.md §6 Interior clip distance): indoors the camera's far plane is the cell's fog clip distance; Doc Mitchell's house stores one"
+areas = ["sky", "world"]
+paths = ["engine/nvforever/src/sky.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = '''sky: the camera's far plane at (?P<n>\d+) units \(the cell's fog clip distance\)''', range = [500, 100000], label = "the camera clips at the cell's fog clip distance" },
+]
+
+[[scenario]]
+name = "region-sounds"
+source = "ESM audit group 8 (docs/spec-notes/default-objects.md §2): in Doc Mitchell's house the sounds of the region its acoustic space names (AudioIntMitchellHouse, REGN RDSD) are tried every 10 s at their chance and some play"
+areas = ["audio"]
+paths = ["engine/nvf-play/src/ambient.rs", "crates/fnv-world/src/audio.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 70
+expect = [
+  { re = 'ambient summary:.*; (?P<n>\d+) region sounds played', range = [1, 10], label = "region sounds play now and then (at most one a try, a try every 10 s)" },
+]
+
+[[scenario]]
+name = "death-music-dobj"
+source = "ESM audit group 8 (docs/spec-notes/default-objects.md §1): the default objects' Death Music (DefaultDeath, special\\death.mp3) is not shipped, so when the player dies the SOUN MUSDeath plays as before"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/music.rs", "crates/fnv-world/src/audio.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:player.kill;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'music: the player died: the music stops, MUSDeath \(0x[0-9A-F]{8}\) plays', label = "the SOUN fallback plays: the DOBJ's death music names no shipped file" },
+]
+forbid = [{ text = "the default objects' death music", label = "no default objects' death music file in the shipped data" }]
 
 [[scenario]]
 name = "anim-state-throw"

@@ -366,12 +366,13 @@ pub fn depart(
             let c = FormId(c);
             g.world.placed.exterior_cell_at(c, t.travel.feet).unwrap_or(c)
         });
+        let from = g.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
         if let Ok(p) = g.world.get(FormId::PLAYER_REF) {
             (p.cell, p.pos, p.rot) = (cell, t.travel.feet, [0.0, 0.0, t.rot[2]]);
         }
         g.player_entered(cell);
-        let brought = g.bring_teammates();
-        info!("fast travel: under way to {}; {} teammate(s) come along", FormId(t.to), brought.len());
+        let brought = g.bring_teammates(from);
+        info!("fast travel: under way to {}; {} teammate(s) or follower(s) come along", FormId(t.to), brought.len());
     });
 }
 
