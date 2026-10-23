@@ -7732,7 +7732,12 @@ saying their AvoidThreat line (unless Ignore Threats). Spec:
   within reach × (1 + Distance Mult); a rush's first melee decision on arrival is an
   attack, no hold or block.
 - *Guess:* the combat radius is measured from where the fighter stood when its fight began,
-  moved to where it stands each time it loses health; 0 is no limit.
+  moved to where it stands each time it loses health; 0 is no limit. (2026-10-23: it
+  limits how far the fighter itself goes out from there, not where its target may stand:
+  it pursues up to the radius, then holds. VCG02's geckos stand 3,600–3,950 units from
+  Sunny's sneak marker with a 3000 radius, so the old reading kept them from ever coming
+  at the player who shoots from there. *Check:* shot from Sunny's marker, do the first
+  well's geckos run all the way to the player, or stop about 3000 units out?)
 - *Guess:* Max Targeting FOV 0 is no limit (83 of 84 styles); only a new target is held
   back, and the fighter still turns to it, so the limit delays a fight.
 - *Guess:* iAvoidHurtingNonTargetsResponsibility (in no master) is 30: a fighter with less

@@ -1914,11 +1914,12 @@ expect = [
 [[scenario]]
 name = "shoot-bottles"
 source = "CLAUDE.md: after changes to shot impacts, knocks, item, container, activator, message-box or script sounds (audio.md §11): Sunny's bottles"
+note = "The shots start at 18 s, after the message boxes the scripts open about 5 s after they first run (the pre-order packs, the add-ons loaded: ten boxes, over about 8.5 s after the scripts first ran). While a box is open the player is held in a menu and a pull is lost: on 2026-10-23 the scripts first ran at 5.4 s, the boxes stood from 10.3 to 13.9 s and only the third bottle was hit [observed: smoke log, glass 1]. Same cause as semi-auto-rate"
 areas = ["world-sounds", "audio", "combat"]
 paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/fx.rs", "crates/fnv-collide/", "crates/fnv-phys/"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "7:weapon,18:aimref=0010A202,18.5:fire,18.7:fire,21:aimref=0010A203,21.5:fire,21.7:fire,24:aimref=0010A204,24.5:fire,24.7:fire" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 24
+run_seconds = 31
 expect = [
   { re = 'world sounds summary:.*impacts by material: glass 3 \(0 on collision without a material\)' },
   { re = 'world sounds summary:.*knock', label = "some knocks" },
