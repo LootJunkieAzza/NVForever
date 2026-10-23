@@ -2910,6 +2910,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "dust-whirlwind-path"
+source = "docs/spec-notes/particles.md §6.7 (owner 2026-10-23: Goodsprings' dust devils whirled in one spot, white; the game's travel and fade): fxdustwhirlwind01.nif's Idle sequence moves FXDustWhirlWindMover along a NiPathInterpolator curve in 12 s, and its two particle systems emit from a mesh under that node; the dust devil 00106A84 by the general store seen from the road to its south-west (the owner's screenshot); frames in target/smoke (dust_whirlwind_*.png) should show the column at a different place along an east-west line in each"
+areas = ["particles", "effects", "animation"]
+paths = ["engine/nvf-assets/src/particles.rs", "crates/fnv-nif/src/anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "3:dust_whirlwind_0.png,5:dust_whirlwind_1.png,7:dust_whirlwind_2.png,9:dust_whirlwind_3.png,11:dust_whirlwind_4.png,13:dust_whirlwind_5.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-73000,-700,8700", "--heading", "45", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+manual = "dust_whirlwind_0..5.png: the brown column moves along the ground from frame to frame instead of standing in one place"
+expect = [
+  { re = 'particles: model \S*fxdustwhirlwind01\.nif: 2 system.*pTornadoWisps .*moved by FXDustWhirlWindMover \(12\.0 s\)', label = "the whirlwind's wisps follow its mover" },
+  { re = 'particles: born in \S*fxdustwhirlwind01\.nif: .*pTornadoWisps [1-9]', label = "the wisps are born" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]

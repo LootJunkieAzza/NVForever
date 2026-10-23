@@ -414,6 +414,9 @@ fn emit(
         for (k, live) in systems.iter_mut().enumerate() {
             let owed = &mut live.owed;
             let d = &live.def;
+            // The emitter's node as a sequence of its file has moved it (a dust devil on
+            // its path, particles.md §6.7).
+            let node = node * d.moved(age);
             let on = d.on_time(age, age + dt);
             if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) {
                 continue;

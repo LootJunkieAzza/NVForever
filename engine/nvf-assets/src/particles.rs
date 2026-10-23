@@ -12,7 +12,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::PrimitiveTopology;
 use bevy::prelude::*;
 use crate::anim_play::OwnCycle;
-use fnv_nif::anim::{Channel, Keys, ValueTrack};
+use fnv_nif::anim::{Channel, Keys, TrackData, TransformTrack, ValueTrack};
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject, Transform as NifTransform};
 use fnv_nif::value::Struct;
 use fnv_nif::NifFile;
@@ -543,9 +543,87 @@ pub struct ParticleSystemDef {
     pub strip: Option<Strip>,
     /// Parts of the texture a particle can show: (u, width, v, height).
     pub subtextures: Vec<[f32; 4]>,
+    /// A node above the emitter that a sequence of the file moves (a dust devil's mover
+    /// on its path): the emitter, its meshes and the file's bombs move with it.
+    pub mover: Option<Mover>,
+}
+
+/// A node above a system's emitter that a sequence of the file moves, played on the
+/// emitter's time by the sequence's cycle [hypothesis: the model's sequence runs from
+/// the emitter's appearance, as the emitter controllers' keys do (§6.6);
+/// docs/spec-notes/particles.md §6.7]. `fxdustwhirlwind01.nif`'s
+/// `FXDustWhirlWindMover` travels its path in 12 s, again and again.
+#[derive(Debug, Clone)]
+pub struct Mover {
+    /// The node's name, for the log.
+    pub node: String,
+    pub track: TransformTrack,
+    pub cycle: OwnCycle,
+    /// The place of the node's parent in the file.
+    pub parent: Affine3A,
+    /// The node's own transform where the track leaves a part unkeyed.
+    pub rest: (Vec3, Quat, f32),
+    /// From the file's frame to the node's, at rest.
+    pub to_node: Affine3A,
+}
+
+impl Mover {
+    /// How the file's places move at the emitter's time `clock`: the node's place at that
+    /// time over its place at rest.
+    pub fn moved(&self, clock: f32) -> Affine3A {
+        let t = self.cycle.time(clock);
+        let (rt, rr, rs) = self.rest;
+        let translation = self.track.translation.sample(t).map(Vec3::from_array).filter(|v| v.is_finite()).unwrap_or(rt);
+        let rotation = self.track.rotation_at(t).map(|q| Quat::from_xyzw(q[1], q[2], q[3], q[0])).filter(|q| q.is_finite()).unwrap_or(rr);
+        let scale = self.track.scale.sample(t).map(|[v]| v).filter(|v| v.is_finite() && *v > -1e30).unwrap_or(rs);
+        self.parent * Affine3A::from_scale_rotation_translation(Vec3::splat(scale), rotation, translation) * self.to_node
+    }
+}
+
+/// The nearest node at or above block `anchor` that a sequence of the file moves (the
+/// first sequence with a keyed transform track for it).
+fn mover_of(file: &NifFile, dec: &Decoded, by_block: &HashMap<usize, &SceneObject>, anchor: i32, place: &dyn Fn(i32) -> Affine3A) -> Option<Mover> {
+    let seqs = fnv_nif::anim::sequences(file, dec);
+    let mut at = usize::try_from(anchor).ok().and_then(|b| by_block.get(&b)).copied();
+    let mut depth = 0;
+    while let Some(o) = at.filter(|o| o.parent.is_some()) {
+        if let Some(name) = o.name.as_deref() {
+            for seq in &seqs {
+                let track = seq.tracks.iter().find_map(|tr| match &tr.data {
+                    TrackData::Transform(t) if tr.node_name.as_deref() == Some(name) && (t.translation.is_animated() || t.rotation.is_animated() || t.euler.is_some() || t.scale.is_animated()) => Some(t),
+                    _ => None,
+                });
+                if let Some(track) = track {
+                    let rest = affine(&o.transform);
+                    let (rs, rr, rt) = rest.to_scale_rotation_translation();
+                    let parent = place(o.parent.map_or(-1, |p| p as i32));
+                    return Some(Mover {
+                        node: name.to_string(),
+                        track: track.clone(),
+                        cycle: OwnCycle { start: 0.0, stop: seq.stop_time - seq.start_time, frequency: 1.0, phase: 0.0, cycle_type: seq.cycle_type },
+                        parent,
+                        rest: (rt, rr, rs.x),
+                        to_node: (parent * rest).inverse(),
+                    });
+                }
+            }
+        }
+        at = o.parent.and_then(|p| by_block.get(&p)).copied();
+        depth += 1;
+        if depth > 256 {
+            break;
+        }
+    }
+    None
 }
 
 impl ParticleSystemDef {
+    /// How the file's places have moved at the emitter's time `t` (identity without a
+    /// [`Mover`]).
+    pub fn moved(&self, t: f32) -> Affine3A {
+        self.mover.as_ref().map_or(Affine3A::IDENTITY, |m| m.moved(t))
+    }
+
     /// Its birth rate `t` seconds after the emitter appeared.
     pub fn rate_at(&self, t: f32) -> f32 {
         self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate).max(0.0)
@@ -578,6 +656,9 @@ impl ParticleSystemDef {
         }
         if self.color_keys.is_some() {
             s += ", colour keys";
+        }
+        if let Some(m) = &self.mover {
+            s += &format!(", moved by {} ({:.1} s)", m.node, m.cycle.stop);
         }
         let keyed: Vec<String> = self.emitter.keyed.iter().map(|(p, _)| format!("{p:?}")).chain(self.gravity.iter().filter(|g| g.strength_keys.is_some()).map(|_| "GravityStrength".to_string())).collect();
         if !keyed.is_empty() {
@@ -884,6 +965,7 @@ impl ModelCtx<'_> {
                     .and_then(|d| d.floats("subtexture_offsets"))
                     .map(|f| f.as_chunks::<4>().0.to_vec())
                     .unwrap_or_default(),
+                mover: None,
             };
             // The modifiers' on/off keys: a `NiPSysModifierActiveCtlr` in the system's
             // controller chain names its modifier; a blend interpolator leaves the keys to
@@ -921,6 +1003,8 @@ impl ModelCtx<'_> {
             let modifier_keys = |m: &Struct| m.text("name").and_then(|n| switched.get(n)).cloned().unwrap_or_default();
             let mut has_emitter = false;
             let mut emitter_name = String::new();
+            // The block the emitter starts particles from (its object, or its first mesh).
+            let mut anchor = -1;
             for &r in ps.refs("modifiers").unwrap_or_default() {
                 let (Some(ty), Some(m)) = (type_of(r), dec.get(r)) else { continue };
                 let f = |key: &str| m.float(key).unwrap_or(0.0);
@@ -932,6 +1016,7 @@ impl ModelCtx<'_> {
                         has_emitter = true;
                         emitter_name = m.text("name").unwrap_or_default().to_string();
                         let round = ty != "NiPSysBoxEmitter";
+                        anchor = m.block_ref("emitter_object").unwrap_or(-1);
                         def.emitter = Emitter {
                             frame: place(m.block_ref("emitter_object").unwrap_or(-1)),
                             size: if round { Vec3::new(f("radius"), f("radius"), f("height")) } else { Vec3::new(f("width"), f("height"), f("depth")) },
@@ -954,6 +1039,7 @@ impl ModelCtx<'_> {
                     "NiPSysMeshEmitter" => {
                         has_emitter = true;
                         emitter_name = m.text("name").unwrap_or_default().to_string();
+                        anchor = m.refs("emitter_meshes").and_then(|r| r.first().copied()).unwrap_or(parent.map_or(-1, |p| p as i32));
                         let meshes: Vec<EmitterMesh> = m
                             .refs("emitter_meshes")
                             .unwrap_or_default()
@@ -1168,6 +1254,7 @@ impl ModelCtx<'_> {
                     def.loops = se.loops;
                 }
             }
+            def.mover = mover_of(&file, &dec, &by_block, anchor, &place);
             if has_emitter && def.max > 0 {
                 out.systems.push(def);
             }
@@ -1204,6 +1291,7 @@ mod tests {
             colliders: Vec::new(),
             strip: None,
             subtextures: Vec::new(),
+            mover: None,
         }
     }
 
