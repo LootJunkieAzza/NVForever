@@ -1085,6 +1085,9 @@ pub(crate) fn fight(
     f.player_swings = swings;
     let player_close = matches!(player_arm(c), Arm::Melee(_));
     let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
+    // Each actor's factions, read by every comrade and hostility check below, are kept
+    // for the frame (`Game::begin_faction_frame`).
+    rt.game.begin_faction_frame();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
         // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
@@ -2504,6 +2507,7 @@ pub(crate) fn fight(
             g.awareness.crouching.remove(&FormId(id));
         }
     });
+    rt.game.end_faction_frame();
     // Who blocks now, for the blows dealt this frame (`nvf_play::combat`).
     combat.guarding = guarding;
 }
