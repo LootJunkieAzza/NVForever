@@ -1,6 +1,78 @@
 {
  "format": "fnv.schema/1",
  "types": {
+  "RagdollGeneralData": {
+   "struct": [
+    {
+     "name": "dynamic_bone_count",
+     "type": "u32"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "feedback",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "No",
+       "1": "Yes"
+      }
+     }
+    },
+    {
+     "name": "foot_ik",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "No",
+       "1": "Yes"
+      }
+     }
+    },
+    {
+     "name": "look_ik",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "No",
+       "1": "Yes"
+      }
+     }
+    },
+    {
+     "name": "grab_ik",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "No",
+       "1": "Yes"
+      }
+     }
+    },
+    {
+     "name": "pose_matching",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "No",
+       "1": "Yes"
+      }
+     }
+    },
+    {
+     "name": "unused2",
+     "type": {
+      "array": "u8",
+      "count": 1
+     }
+    }
+   ]
+  },
   "BodyLocation": {
    "enum": "i8",
    "values": {
@@ -199,6 +271,36 @@
    "subrecords": {
     "SPIT": {"name": "Data", "type": "ActorEffectData", "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas SPEL record; type values 6-9 are unnamed in xEdit and left out; effects are the shared EFID/EFIT/CTDA"}
+   }
+  },
+  "RGDL": {
+   "name": "Ragdoll",
+   "confidence": "documented",
+   "subrecords": {
+    "NVER": {
+     "name": "Version",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RGDL record"
+    },
+    "DATA": {
+     "name": "General Data",
+     "type": "RagdollGeneralData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RGDL record: foot, look and grab IK marked broken, don't use"
+    },
+    "XNAM": {
+     "name": "Actor Base",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RGDL record: CREA or NPC_"
+    },
+    "TNAM": {
+     "name": "Body Part Data",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RGDL record: BPTD"
+    }
    }
   }
  }

@@ -131,8 +131,9 @@ The acoustic space of the cell the player is in names a looping sound per time o
 17–21, night otherwise; a space with only its first sound plays it all day; one loop
 gives way to the next over 2 seconds. The hours the game uses are not known.
 
-Not built: walla, and the region an acoustic space points to (REGN sound lists,
-`RDSD`). The space's reverb environment: §14.6.
+The region an acoustic space points to plays its sounds (REGN `RDSD`) now and then:
+default-objects.md §2 (claude/em9-records). Not built: walla. The space's reverb
+environment: §14.6.
 
 ## 7. Playback (`nvforever --play`)
 
