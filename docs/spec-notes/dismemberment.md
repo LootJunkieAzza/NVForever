@@ -201,6 +201,13 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
   partitions **if it exploded**, and draw its torso cap. A severed part keeps its partitions
   and section cap; they leave with the severed bones. Shapes without partitions whose bones all
   lie in an exploded part's bone tree (head, hair, eyes, hats, gloves) are hidden.
+  (`headhuman.nif`'s skin has partitions 1 and 1000, so the head goes by them [observed:
+  `fnvtool nif decode`].) The shapes are drawn again whenever another system gives a
+  redrawn shape a mesh back: the moving face (`lips.rs`: blinks, glances, lip sync) gives
+  the head, eyes and hair meshes of their own while it runs and hands their meshes back
+  when it lets the face go, at death. That put an exploded head back on the body (the
+  owner's playtest list 7 item 26, 2026-10-23) [observed in code]. Log: `dismember: <ref>'s
+  shape was given its whole mesh back: drawn without its gone parts again`.
   A model with no cap for the part shows the open cut (owner: "some may not have meatcaps").
 - **Cutting a severed part's skin apart.** Vertices near a joint are weighted to bones on both
   sides of the cut, so a triangle there stretched from the body to the flying piece (owner,

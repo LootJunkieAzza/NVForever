@@ -7849,6 +7849,55 @@ paragraphs dated 2026-10-23).
   s of game time after (conversation time not counted), then goes back to bed. *Both
   times are mine.* *Check:* talk to Easy Pete at night: does the original's sleeper also
   go straight back to bed, and how soon?
+## Explosions, falls, throws, traps, gore (2026-10-23, list 7 W3)
+
+Branch claude/l7-explosives. Items 19, 21, 22, 23, 26, 27, 29 of playtest list 7.
+
+- **19 / 29: mines and the NPC Incinerator now hurt the player.** Blasts only ever reached
+  actors with hit volumes, and the player has none, so no explosion touched the player. The
+  Incinerator's damage is its explosion's (`NVIncineratorFireBurst`, 20 within 212; the
+  weapon itself does 1). The player now counts in every blast at the middle of its capsule,
+  with the same falloff, armour and knockdown rules as anyone.
+  - *Decision:* your own grenades, mines and missiles hurt you too (the original's way, as
+    far as I know; check).
+  - *Check:* step on a frag mine with god mode off at full health: how much is lost? Stand
+    in front of Cook-Cook while he fires the Incinerator.
+- **21: fall damage.** damage = mult × (h − 600)^1.65 for a fall of h units onto land, none
+  into water (physics.md §6.10). 600 and 1.65 are the ESM's settings; the multiplier 0.0252
+  is fitted to the capture's three falls (the exe's own `fJumpFallHeightMult` cannot be
+  read). So 700 units ≈ 50 health, 1,000 ≈ 500, 1,500 ≈ 1,860.
+  - *Guesses:* h from the top of the fall (a jump's apex counts); armour does not reduce it;
+    no leg damage; NPCs whose characters the physics walks use the same rule;
+    `fJumpFallVelocityMin` (2785) unused.
+  - *Check:* jump off a roof in Goodsprings (about 700–800 units): does the original cripple
+    legs or only take health? Compare the health lost.
+- **22: thrown weapons.** The attack clip used to start when the projectile left (the end of
+  the wind-up), so dynamite waited with nothing playing, flew, and was then lit and thrown in
+  the clip. Now the clip starts at the press and the projectile leaves at the clip's `Hit` key
+  (dynamite, grenades, spears, knives, every thrown weapon, and any gun whose attack clip has
+  a `Hit` key after its start).
+  - *Check:* the release moment for dynamite, the frag grenade and the throwing spear, in
+    first and third person. Holding the button to cook a grenade is not built.
+- **23: XP for disarming.** Both come from the data: a mine gives `iMineDisarmExperience`
+  (5), and each trap's own script gives `TrapXPReward*` by its Repair requirement's band (2
+  for the tripwires, plates and bear traps at 22–23, 5 for the rigged shotguns and grenade
+  bouquets at 30–45). The traps' XP already worked; a mine disarmed by hand gave none,
+  because the engine's hand activation path skipped the XP and the Mines Disarmed statistic
+  that the game's default activation gives. Fixed; smoke checks both.
+  - *Decision:* kept the data's 2 XP for the low traps rather than the 5 of your note (the
+    note asked for 5 only where the data has none).
+- **26: exploded head stayed on.** The head was hidden, then put back: the moving face
+  (blinking, lip sync) hands the head, eyes and hair their own meshes back when it lets a face
+  go at death. A shape given its mesh back is now drawn without its gone parts again.
+  - *Check:* a head shot with the sniper rifle on Chet or a Powder Ganger: is the head, hair
+    and hat gone, with the neck cap showing?
+- **27: blood decals.** They were placed on the hit capsules, not on the drawn body. Now the
+  shot's line is cast against the posed body and the decal goes where it meets the skin,
+  facing the skin. Toned down: at most 3 on one actor, one each 0.3 s, at most 16 units wide.
+  - *Guesses:* all three numbers; a shot that meets the capsule but misses the drawn body
+    leaves none.
+  - *Check:* shoot a Powder Ganger several times with a pistol and a shotgun: do the marks
+    sit on the body, the right way round, and is the number right?
 ## Menus, character revision, barter figures and currency (2026-10-23, list 7 W1)
 
 Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
