@@ -293,6 +293,9 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"REFR", L1, "L1", STAT, [250.0, 50.0, 0.0], Some(L2)),
         placed(b"REFR", L2, "L2", STAT, [250.0, 250.0, 0.0], Some(L3)),
         placed(b"REFR", L3, "L3", STAT, [50.0, 250.0, 0.0], Some(L1)),
+        // The door the graph's door link names, placed so the game can lock it (away
+        // from everything the tests walk to).
+        placed(b"REFR", DOOR_A, "DoorA", STAT, [-2000.0, -2000.0, 0.0], None),
         placed(b"ACHR", R_TRAVEL, "TravellerRef", N_TRAVEL, START, None),
         placed(b"ACHR", R_IN, "LodgerRef", N_IN, START, None),
         placed(b"ACHR", R_RADIUS, "VisitorRef", N_RADIUS, START, None),
@@ -600,6 +603,34 @@ fn a_place_that_cannot_be_reached_sets_the_package_aside() {
     assert!(matches!(ev[4], AiEvent::Package { package: Some(p) } if p.0 == P_TRAVEL_B), "{:?}", ev[4]);
     assert!(matches!(ev[5], AiEvent::Trip { .. }));
     assert!(matches!(ev.last().unwrap(), AiEvent::Arrived { .. }));
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+}
+
+/// A door the game locks (a script's Lock) shuts the way: the actor sets its package
+/// aside. Unlocked again (a script's Unlock, a key, a picked lock), the graph learns it,
+/// the package is chosen again at once and the actor gets through
+/// (`Ai::apply_door_locks`; docs/handoff/project-audit-2026-10-23.md §4.1 item 3).
+#[test]
+fn a_door_locked_and_unlocked_in_the_game_reaches_the_paths() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // Nothing changed yet: nothing to apply, and once applied nothing again.
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), None);
+    s.game.world.lock(FormId(DOOR_A), Some(50)).unwrap();
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), Some(vec![]));
+    assert!(s.nav.door_locks.contains_key(&DOOR_A));
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), None, "applied once");
+    s.run(1.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_TRAVEL));
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), START);
+    // Unlocked: within the hour, the package is chosen again and the way is open.
+    s.game.world.unlock(FormId(DOOR_A)).unwrap();
+    assert_eq!(s.ai.apply_door_locks(&mut s.game, &mut s.nav), Some(vec![actor]));
+    assert!(!s.nav.door_locks.contains_key(&DOOR_A));
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "{:?}", s.feet(R_TRAVEL));
     assert_eq!(s.ai.agents[&actor].walker.space, B);
 }
 

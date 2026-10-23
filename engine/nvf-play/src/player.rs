@@ -26,6 +26,7 @@ use crate::sim::SimState;
 use crate::{space, PlaySet, PlayState, PlayWorld, Travel};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::tasks::{ComputeTaskPool, ParallelSliceMut};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use fnv_phys::{CharacterInput, CharacterStep, Owner, Stroke};
 use fnv_sim::FormId;
@@ -526,6 +527,12 @@ fn read_input(
         intent.jump = true;
     }
 }
+
+/// Actors walked by another system whose moves are planned on the compute pool when at
+/// least this many move, in chunks of [`MOVE_CHUNK`] [engineering choice: fewer are
+/// cheaper on this thread].
+const PARALLEL_MOVES: usize = 8;
+const MOVE_CHUNK: usize = 4;
 
 /// While the player aims (Block held with a weapon out) they move at walking speed, not
 /// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
@@ -1105,11 +1112,25 @@ fn step(
                 b.player_held = crate::blocking::HELD_STEPS;
             }
         }
-        // The actors another system walks, by the velocity it gave each.
-        for ((&id, b), v) in p.npcs.iter_mut().zip(walking) {
+        // The actors another system walks, by the velocity it gave each: their moves
+        // planned at once on the compute pool (`PhysWorld::plan_move`, which only reads the
+        // world), then put into the world in turn, as each would have been alone.
+        p.world.update_queries();
+        let world = &p.world;
+        let mut moving: Vec<(u32, &mut crate::phys::NpcBody, [f32; 2])> = p.npcs.iter_mut().zip(walking).map(|((&id, b), v)| (id, b, v)).collect();
+        let plan = |b: &mut crate::phys::NpcBody, v: [f32; 2]| {
             b.prev_feet = b.ch.feet;
             let was_on_ground = b.ch.grounded && !b.ch.swimming;
-            let s = p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            let (s, push) = world.plan_move(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            (was_on_ground, s, push)
+        };
+        let plans: Vec<_> = if moving.len() < PARALLEL_MOVES {
+            moving.iter_mut().map(|(_, b, v)| plan(b, *v)).collect()
+        } else {
+            moving.par_chunk_map_mut(ComputeTaskPool::get(), MOVE_CHUNK, |_, chunk| chunk.iter_mut().map(|(_, b, v)| plan(b, *v)).collect::<Vec<_>>()).into_iter().flatten().collect()
+        };
+        for ((id, b, _), (was_on_ground, s, push)) in moving.into_iter().zip(plans) {
+            p.world.apply_move(&b.ch, push);
             let (f, from) = (b.ch.feet, b.prev_feet);
             b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
             if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {

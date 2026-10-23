@@ -60,7 +60,7 @@ pub fn review_equipment(g: &mut Game, actor: FormId) {
         for u in off {
             g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
         }
-        g.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
+        g.equip_events(actor, item, false);
     }
     g.sync_actor_effects(actor);
 }
@@ -157,6 +157,9 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     for u in e.unequipped {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
+    // The actor's own OnActorEquip runs before the item counts as equipped, for an aid
+    // item used up too (`Game::equip_events`).
+    g.ref_event(actor, event::ON_ACTOR_EQUIP, Some(Value::Ref(item.0)), Some(actor));
     if e.consumed {
         // An aid item is consumed: it is used as from the inventory (Game::consume), with
         // potency and the addiction roll [documented: GECK wiki EquipItem, "the item is
