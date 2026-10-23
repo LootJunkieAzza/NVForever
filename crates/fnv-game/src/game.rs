@@ -1010,6 +1010,8 @@ pub struct Game<'a> {
     /// (`crate::detection`); GetDetected and GetDetectionLevel read it. Not part of the
     /// saved state: the engine measures again.
     pub detection: crate::detection::Detections,
+    /// What a detection round has worked out so far ([`Game::begin_detection_round`]).
+    pub(crate) detection_round: Option<crate::detection::Round>,
     /// Every actor's detection state (Normal, Alert, Combat, Lost), its alert and target
     /// lists, and detection events waiting to be heard (`crate::awareness`). Not part of
     /// the saved state: the engine measures again.
@@ -1387,6 +1389,7 @@ impl<'a> Game<'a> {
             package_door_notes: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),
+            detection_round: None,
             awareness: Default::default(),
             provocations: Default::default(),
             nav_switches: Default::default(),
