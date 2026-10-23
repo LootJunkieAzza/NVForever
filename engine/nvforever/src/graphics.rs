@@ -396,6 +396,7 @@ fn apply(
     mut shadow_map: ResMut<DirectionalLightShadowMap>,
     cams: Query<(Entity, &Msaa), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
+    eye: Res<crate::eye_adapt::EyeCurve>,
     mut done: Local<Option<(Graphics, Msaa, usize)>>,
 ) {
     let cam_count = cams.iter().count();
@@ -425,9 +426,10 @@ fn apply(
         // Bevy's energy-conserving bloom on it, its strength set every frame from the
         // image space (post.rs `image_space_glow`).
         if g.glow && !g.bloom {
-            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow));
+            // With eye adaptation (eye_adapt.rs), which needs the HDR view.
+            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(eye.handle.clone())));
         } else {
-            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow)>();
+            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
         }
         // Anti-aliasing after the picture replaces the multisampling.
         let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };

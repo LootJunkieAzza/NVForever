@@ -527,6 +527,23 @@ impl Weather {
         let d = day_factor(c, hour);
         Some((night.0 + (day.0 - night.0) * d, night.1 + (day.1 - night.1) * d))
     }
+
+    /// Fog power at `hour` (FNAM day and night power, blended like [`Self::fog_at`]; an
+    /// unset range takes the other range's power, and a power that is not above 0 reads
+    /// as 1, a linear fog). The renderers' fog share is ((distance − near) / (far −
+    /// near))^power [hypothesis, fitted to Dead Money's frames: docs/spec-notes/world.md
+    /// §6 "Fog power"]. Stored powers: 0.2 to 1.0 in the masters' 98 weathers [observed].
+    pub fn fog_power_at(&self, c: &Climate, hour: f32) -> f32 {
+        let set = |near: f32, far: f32| far > near;
+        let p = |v: f32| if v > 0.0 { v } else { 1.0 };
+        let (day, night) = (p(self.fog[4]), p(self.fog[5]));
+        let (day, night) = match (set(self.fog[0], self.fog[1]), set(self.fog[2], self.fog[3])) {
+            (true, false) => (day, day),
+            (false, true) => (night, night),
+            _ => (day, night),
+        };
+        night + (day - night) * day_factor(c, hour)
+    }
 }
 
 /// A per-time colour set blended at `hour`, linear RGB (bytes treated as sRGB). Only the
@@ -772,6 +789,13 @@ mod tests {
         assert_eq!(storm.fog_at(&c, 2.0), Some((510.0, 55_000.0)));
         // All zero: no fog.
         assert_eq!(w([0.0, 0.0, 0.0, 0.0, 1.0, 1.0]).fog_at(&c, 12.0), None);
+        // Powers blend like the ranges; an unset range takes the other's power.
+        assert_eq!(clear.fog_power_at(&c, 12.0), 0.6);
+        assert!((clear.fog_power_at(&c, 7.0) - 0.55).abs() < 1e-6);
+        assert_eq!(clear.fog_power_at(&c, 23.0), 0.5);
+        let storm = w([0.0, 0.0, 510.0, 55_000.0, 0.3, 0.8]);
+        assert_eq!(storm.fog_power_at(&c, 12.0), 0.8);
+        assert_eq!(w([0.0, 1.0, 0.0, 1.0, 0.0, -1.0]).fog_power_at(&c, 12.0), 1.0);
     }
 
     #[test]
