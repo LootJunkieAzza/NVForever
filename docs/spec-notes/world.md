@@ -1286,6 +1286,31 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   for most lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
+- **Lamp strength against the original** (2026-10-23, Dead Money's wall lantern; frames
+  private in `C:nv-privateeferencesx_audit\game\dm_lamp_*.png`). Light
+  `NVDLC01ExtSconceKeyWT` (radius 200, (224, 255, 117), fade 2.5) stands 91 units in front
+  of the wall at Puesta del Sol (ground z 1028). Captured with the weather forced to
+  NVWastelandClear (no Dead Money grade) and rendered with the same weather, the same
+  camera: wall within about 110 units of the light, original clipped white (255, 255,
+  250), renderer (129, 145, 117); unlit wall 140+ units away, original (50, 48, 48),
+  renderer (47, 44, 42) [observed]. So the ambient light matches and the lamp is at
+  most half as strong in the renderer, and greenish where the original is white. With
+  Dead Money's weather the original's lit wall is saturated yellow (255, 232, 82): the
+  yellow is the weather's grade, the brightness is the lamp. The numbers fit the lamp's
+  light being summed in display values (colour bytes / 255 × fade × falloff × N·L, added
+  to the ambient and times the texture in display values, clipped), which in linear terms
+  makes a fade-2.5 lamp two to three times stronger near its core; "Light on surfaces"
+  above found the same for daylight. Tried and left out [observed, lab L3 frames]: placed
+  lights alone at fade^2.2 or (fade × falloff)^2.2 (Doc Mitchell's living room −0.04, the
+  saloon up to −0.15 with clipping), and lights scaled by the image space's Emissive Mult
+  (no visible change: the eye adaptation lifts the brighter scene less). Since the lab's
+  ambient, sun and lights were all fitted to the linear sum, the way forward is a
+  refit of the whole lighting sum in display values against the lab frames, the effects
+  audit's night spots, Dead Money and these lantern frames, not a lamp-only change.
+  Also tried for the grade: an adapter's tint at its own alpha, or at the base amount
+  with the adapter's colour; both made every Mojave exterior frame's colour error 4-8
+  times larger (amber far too strong by day; the Strip purple at night) and barely
+  changed Puesta del Sol, so the tint rule stays (§6).
 - **Placed light radius**: a placed light's `XRDS` "Radius" [documented: xEdit] is an
   offset added to its base's DATA radius [observed, below]. Interior LIGH references:
   10,087 in the ten masters, 8,524 with `XRDS` (`crates/fnv-world/examples/light_survey.rs
