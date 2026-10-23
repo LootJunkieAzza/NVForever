@@ -42,6 +42,7 @@ use nvf_play::combat::ActorHit;
 use nvf_play::phys::PhysState;
 use nvf_play::script::ScriptState;
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Take Cover Chance is rolled this often, seconds [documented: "evaluated every 10
 /// seconds to determine if cover will be used for the next 10 seconds"].
@@ -120,6 +121,9 @@ pub struct Cover {
     pub low: bool,
     /// The actor it hides from: a gunman firing at it, or its own target (§12.6.1).
     pub from: u32,
+    /// The room round the behind and peek spots when chosen ([`room`]; infinite without
+    /// collision).
+    pub room: [f32; 2],
 }
 
 /// One the cover can be taken against: who, and where its chest is.
@@ -262,6 +266,107 @@ pub fn peek_points(e: &CoverEdge) -> [[f32; 3]; 2] {
     [[back[0] + u[0] * half, back[1] + u[1] * half, back[2]], [back[0] - u[0] * half, back[1] - u[1] * half, back[2]]]
 }
 
+/// A cover or peek spot keeps at least this much room round its middle, horizontally,
+/// game units: the actor's capsule (`fnv_phys::CharacterParams::default().radius`, 22)
+/// and a little [design]. Navmesh cover edges are not drawn the capsule's width off the
+/// wall: some run along it or under what stands out of it (a drainpipe, a porch post), so
+/// a spot [`COVER_STANDOFF`] in from the edge can be inside the wall [observed: owner's
+/// screenshot 2026-10-23, an NCR trooper in Goodsprings half inside a house's wall and
+/// drainpipe].
+pub const SPOT_ROOM: f32 = 26.0;
+/// An actor standing with less room than this round its feet has its capsule inside
+/// something: the capsule's radius (`fnv_phys::CharacterParams::default().radius`).
+pub const BODY_RADIUS: f32 = 22.0;
+/// The room is measured this far out at most, game units [design].
+pub const ROOM_REACH: f32 = 48.0;
+/// Heights above the feet the room is measured at, game units: above a step (the
+/// character's step height is 24) so kerbs and stairs it walks up are not walls, up to
+/// the head [design].
+const ROOM_HEIGHTS: [f32; 3] = [32.0, 64.0, 100.0];
+/// Directions the room is measured in [design].
+const ROOM_RAYS: usize = 16;
+/// How much farther in from its edge a spot without room is tried again, and how many
+/// times, game units [design].
+const ROOM_BACK_STEP: f32 = 16.0;
+const ROOM_BACK_TRIES: usize = 4;
+
+/// The room round a spot (feet at `at`): the nearest collision within [`ROOM_REACH`],
+/// horizontally, at the heights the body stands in, and the push straight away from it
+/// that would give it [`SPOT_ROOM`] (if nothing else is near). Actors and the terrain are
+/// not counted (a hill beside it is not a wall; the character stands on the ground). A
+/// spot inside a solid shape has no room (a ray from inside a convex shape hits at once).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Room {
+    pub nearest: f32,
+    pub push: [f32; 2],
+}
+
+pub fn room(phys: &mut PhysState, at: [f32; 3]) -> Room {
+    let mut filter = fnv_phys::Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+    filter.exclude.extend(phys.npcs.values().map(|n| n.ch.key()));
+    let mut nearest = ROOM_REACH;
+    let mut way = [0.0f32; 2];
+    for h in ROOM_HEIGHTS {
+        for i in 0..ROOM_RAYS {
+            let a = i as f32 * std::f32::consts::TAU / ROOM_RAYS as f32;
+            let dir = [a.cos(), a.sin(), 0.0];
+            let Some(hit) = phys.ray([at[0], at[1], at[2] + h], dir, ROOM_REACH, filter.clone()) else { continue };
+            if matches!(hit.owner, fnv_phys::Owner::Terrain { .. } | fnv_phys::Owner::Character { .. } | fnv_phys::Owner::Actor { .. }) {
+                continue;
+            }
+            if hit.distance < nearest {
+                nearest = hit.distance;
+                way = [dir[0], dir[1]];
+            }
+        }
+    }
+    // Straight away from the nearest hit; what else is near is left to the next look.
+    let short = (SPOT_ROOM - nearest).max(0.0);
+    Room { nearest, push: [-way[0] * short, -way[1] * short] }
+}
+
+/// A spot near `want` with [`SPOT_ROOM`] round it, on the navmesh: `want` on the navmesh,
+/// pushed out of what is too near once, and failing that, the same again up to
+/// [`ROOM_BACK_TRIES`] steps farther along `back` (the way in from the cover edge, away
+/// from what stands there). With its room; `None` when none has room. Without collision
+/// (`phys` none) `want` on the navmesh, its room not known (infinite).
+pub fn spot_with_room(nav: &NavGraph, phys: Option<&mut PhysState>, space: Space, want: [f32; 3], back: [f32; 2]) -> Option<([f32; 3], f32)> {
+    let Some(phys) = phys else { return nav.nearest(space, want, 96.0).map(|(_, p)| (p, f32::INFINITY)) };
+    let found = find_room(nav, phys, space, want, back);
+    let i = match &found {
+        None => 2,
+        Some((p, _)) if nav.nearest(space, want, 96.0).is_none_or(|(_, w)| flat(*p, w) > 1.0) => 1,
+        Some(_) => 0,
+    };
+    SPOT_TALLY[i].fetch_add(1, Ordering::Relaxed);
+    found
+}
+
+/// Spots looked at by [`spot_with_room`] with collision: with room where wanted (on the
+/// navmesh), with room once moved, and without room (not used), for the battle summary.
+static SPOT_TALLY: [AtomicUsize; 3] = [AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0)];
+
+fn find_room(nav: &NavGraph, phys: &mut PhysState, space: Space, want: [f32; 3], back: [f32; 2]) -> Option<([f32; 3], f32)> {
+    for k in 0..=ROOM_BACK_TRIES {
+        let s = k as f32 * ROOM_BACK_STEP;
+        let Some((_, mut p)) = nav.nearest(space, [want[0] + back[0] * s, want[1] + back[1] * s, want[2]], 96.0) else { continue };
+        for _ in 0..2 {
+            let r = room(phys, p);
+            if r.nearest >= SPOT_ROOM {
+                return Some((p, r.nearest));
+            }
+            if r.push == [0.0, 0.0] {
+                break;
+            }
+            match nav.nearest(space, [p[0] + r.push[0], p[1] + r.push[1], p[2]], 16.0) {
+                Some((_, q)) => p = q,
+                None => break,
+            }
+        }
+    }
+    None
+}
+
 fn flat(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
@@ -284,7 +389,8 @@ pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space
         if !(COVER_MIN_TARGET..=max_range).contains(&d) || flat(e.mid, hidden) < COVER_MIN_TARGET {
             continue;
         }
-        let Some((_, behind)) = nav.nearest(space, e.behind(COVER_STANDOFF), 96.0) else { continue };
+        let inward = [-e.out[0], -e.out[1]];
+        let Some((behind, behind_room)) = spot_with_room(nav, phys.as_deref_mut(), space, e.behind(COVER_STANDOFF), inward) else { continue };
         if taken.iter().any(|t| flat(*t, behind) < TAKEN_RADIUS) {
             continue;
         }
@@ -293,13 +399,21 @@ pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space
         // stands up there to fire, so it must see its target standing.
         if sees(&mut phys, behind, hidden) {
             if crouch && low.is_none() && !sees_from(&mut phys, behind, eye * crate::combat_stance::CROUCH_EYE, hidden) && (from.chest == chest || sees(&mut phys, behind, chest)) {
-                low = Some(Cover { behind, peek: behind, edge: e, phase: Phase::Going, low: true, from: from.actor });
+                low = Some(Cover { behind, peek: behind, edge: e, phase: Phase::Going, low: true, from: from.actor, room: [behind_room; 2] });
             }
             continue;
         }
-        let peek = peek_points(&e).into_iter().filter_map(|p| nav.nearest(space, p, 96.0).map(|x| x.1)).find(|p| sees(&mut phys, *p, chest));
-        if let Some(peek) = peek {
-            return Some(Cover { behind, peek, edge: e, phase: Phase::Going, low: false, from: from.actor });
+        let mut peek = None;
+        for p in peek_points(&e) {
+            if let Some((p, r)) = spot_with_room(nav, phys.as_deref_mut(), space, p, inward) {
+                if sees(&mut phys, p, chest) {
+                    peek = Some((p, r));
+                    break;
+                }
+            }
+        }
+        if let Some((peek, peek_room)) = peek {
+            return Some(Cover { behind, peek, edge: e, phase: Phase::Going, low: false, from: from.actor, room: [behind_room, peek_room] });
         }
     }
     low
@@ -315,7 +429,7 @@ pub fn find_bound(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space
     use crate::combat_stance::{bound_gain, BOUND_RADIUS};
     let mut found: Vec<([f32; 3], f32)> = Vec::new();
     for e in nav.cover_edges_near(space, feet, BOUND_RADIUS).into_iter().filter(|e| e.faces(eyes)).take(COVER_CANDIDATES * 2) {
-        let Some((_, behind)) = nav.nearest(space, e.behind(COVER_STANDOFF), 96.0) else { continue };
+        let Some((behind, _)) = spot_with_room(nav, phys.as_deref_mut(), space, e.behind(COVER_STANDOFF), [-e.out[0], -e.out[1]]) else { continue };
         let Some(gain) = bound_gain(feet, target, behind) else { continue };
         if taken.iter().any(|t| flat(*t, behind) < TAKEN_RADIUS) {
             continue;
@@ -498,7 +612,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         None => "still going at exit".to_string(),
     };
     info!(
-        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}",
+        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}; cover spots: {} with room, {} moved to have room, {} without room",
         b.sides.len(),
         b.line(),
         b.flights.iter().sum::<usize>(),
@@ -519,12 +633,64 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         b.no_alarms,
         b.searches,
         b.npc_grudges,
+        SPOT_TALLY[0].load(Ordering::Relaxed),
+        SPOT_TALLY[1].load(Ordering::Relaxed),
+        SPOT_TALLY[2].load(Ordering::Relaxed),
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A collision world with a static box (a wall) of half extents `half` centred at `at`.
+    fn wall(at: [f32; 3], half: [f32; 3]) -> PhysState {
+        use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+        let mut phys = PhysState::default();
+        let o = CollisionObject {
+            node: None,
+            node_block: 0,
+            node_transform: Iso::IDENTITY,
+            body_transform: Iso::IDENTITY,
+            motion: Motion::Static,
+            layer: fnv_phys::layers::STATIC,
+            mass: 0.0,
+            friction: 0.5,
+            restitution: 0.0,
+            shape: Shape::Box { half_extents: half },
+            shell: 0.0,
+            material: None,
+        };
+        phys.world.add_ref(&fnv_phys::RefPose { form_id: 0x10, position: at, rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[o]);
+        phys
+    }
+
+    #[test]
+    fn room_is_the_way_to_the_nearest_wall_and_out_of_it() {
+        // A wall whose face is 10 units east of the spot, from the ground to 200 up.
+        let mut phys = wall([60.0, 0.0, 100.0], [50.0, 200.0, 100.0]);
+        let r = room(&mut phys, [0.0, 0.0, 0.0]);
+        assert!((r.nearest - 10.0).abs() < 1.0, "{r:?}");
+        assert!(r.push[0] < -(SPOT_ROOM - 11.0) && r.push[1].abs() < 1.0, "pushed west, away from the wall: {r:?}");
+        // Pushed that way, it has room.
+        let at = [r.push[0], r.push[1], 0.0];
+        assert!(room(&mut phys, at).nearest >= SPOT_ROOM - 1.0, "{:?}", room(&mut phys, at));
+        // Far enough from it, the room is all it measures.
+        assert_eq!(room(&mut phys, [-100.0, 0.0, 0.0]).nearest, ROOM_REACH);
+    }
+
+    #[test]
+    fn a_spot_inside_a_wall_has_no_room() {
+        let mut phys = wall([20.0, 0.0, 100.0], [50.0, 200.0, 100.0]);
+        assert!(room(&mut phys, [0.0, 0.0, 0.0]).nearest < 1.0);
+    }
+
+    #[test]
+    fn a_wall_below_the_knee_is_not_counted() {
+        // A kerb 20 units high is stepped onto, not a wall.
+        let mut phys = wall([30.0, 0.0, 10.0], [20.0, 200.0, 10.0]);
+        assert_eq!(room(&mut phys, [0.0, 0.0, 0.0]).nearest, ROOM_REACH);
+    }
 
     #[test]
     fn flank_places_spread_round_the_target() {
@@ -572,7 +738,7 @@ mod tests {
     fn only_the_run_to_cover_turns_away_from_the_target() {
         let e = CoverEdge { tri: 0, a: [0.0, 0.0, 0.0], b: [100.0, 0.0, 0.0], mid: [50.0, 0.0, 0.0], out: [0.0, 1.0] };
         let (behind, peek) = ([50.0, -40.0, 0.0], [214.0, -40.0, 0.0]);
-        let at = |phase| cover_post(&Cover { behind, peek, edge: e, phase, low: false, from: 1 });
+        let at = |phase| cover_post(&Cover { behind, peek, edge: e, phase, low: false, from: 1, room: [f32::INFINITY; 2] });
         assert_eq!(at(Phase::Going), (behind, PostKind::Cover));
         // Back behind it from the peek point, and out again: facing the target, strafing.
         assert_eq!(at(Phase::Hiding { until: 1.0 }), (behind, PostKind::Duck));

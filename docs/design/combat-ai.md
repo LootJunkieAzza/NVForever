@@ -729,6 +729,42 @@ is meant to hide a fighter from the fire coming at it, not only from the one it 
   its target (the player is not a combat-AI fighter); cover from the player comes through
   the target, as before [design].
 
+### 12.6.2 Room round cover spots (2026-10-23)
+
+The owner saw an NCR trooper in cover in Goodsprings stand half inside a house's wall
+and drainpipe [observed: owner's screenshot 2026-10-23]. Two things let that happen:
+
+- **The spot** [observed, code]: the spot behind a cover edge was the edge's middle
+  `COVER_STANDOFF` (40) units in, and a peek point 64 past an end of the edge, each put on
+  the navmesh, and never checked against the collision. Navmesh cover edges are not drawn
+  a capsule's width off the wall [hypothesis: some run along a wall or under what stands
+  out of it (a drainpipe, a porch post), and a navmesh's outline only follows its
+  triangles]; snapping a peek point that falls off the navmesh puts it on the outline
+  itself.
+- **The walk** [observed, code]: the last 64 units of every walk (`residents::LAST_STRETCH`)
+  were the navmesh walker's, which keeps to the navmesh and not the collision (it is there
+  for chairs, beds and markers, which the character cannot stand in). A fighter went the
+  last stretch to its cover spot through whatever stood there.
+
+The fix [design]:
+
+- `combat_tactics::room` measures the room round a spot: 16 horizontal rays at 32, 64 and
+  100 units above the feet (above a step, up to the head), out to 48 units, not counting
+  actors or the terrain. A spot inside a solid shape has none (the ray hits at once).
+- `combat_tactics::spot_with_room` keeps a cover, peek or bound spot only with
+  `SPOT_ROOM` (26: the capsule's 22 and a little) round it. Short of that it is pushed
+  out of what is too near once, and failing that tried again up to 4 times 16 units
+  farther in from the edge; with none, the edge is not used.
+- People in combat (`Core::aims`) are walked by physics to the end of their walks.
+- The log says the room round each spot chosen (`takes cover …; room round its cover
+  spot N, its peek N`), the room where a fighter stands when it reaches its cover and when
+  its wait behind it ends (`in cover at … (reaches|hid) …: room N (clear)`, or `(inside
+  geometry)` under the capsule's radius), and in the battle summary how many spots had
+  room, were moved to have it, or had none. Smoke `combat-cover-room` expects every spot
+  to have room and nobody inside; its fight's cover edges are in the open [observed: all
+  25 spots of a run of 2026-10-23 had full room], so the unit tests in `combat_tactics`
+  check a wall beside a spot, a spot inside a wall and a kerb below the knee.
+
 ### 12.7 Watching fights: the test aids and the summary
 
 - `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<reference>:<marker>[:x:y:z]`: the reference's

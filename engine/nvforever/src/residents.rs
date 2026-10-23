@@ -208,6 +208,9 @@ struct PhysMover<'a> {
     held: &'a HashSet<u32>,
     /// Actors walking on with their AI off ([`Mover::coast`]).
     coasting: &'a mut HashMap<u32, Coasting>,
+    /// People in combat (`Core::aims`, from the last update): physics walks them to the
+    /// end of their walks.
+    fighting: &'a HashMap<FormId, [f32; 3]>,
 }
 
 /// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
@@ -312,8 +315,11 @@ impl Mover for PhysMover<'_> {
                 return Some(WalkEvent::UsedDoor(d));
             }
             // The last steps to the place itself are the walker's: packages send actors
-            // to chairs, beds and markers, which the character cannot stand in.
-            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() => {
+            // to chairs, beds and markers, which the character cannot stand in. Not a
+            // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
+            // the walker, which keeps to the navmesh and not the collision, left it half
+            // inside walls by its cover (owner's screenshot 2026-10-23) [design].
+            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor) => {
                 self.skip_until.insert(id, self.now + 4.0);
                 walker.feet = feet;
                 give_up(phys, walker, f);
@@ -1203,7 +1209,7 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting };
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting, fighting: &self.aims };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
         // Walks with the AI off that ended in this update (the AI back on, or nothing
         // left to carry the actor on), for the log.
