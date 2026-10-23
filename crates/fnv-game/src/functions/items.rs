@@ -80,15 +80,22 @@ pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 /// `RemoveAllItems [target] [retainOwnership] [hideMessages]`: into the target
 /// container, or destroyed. Moved items keep their owner only with retainOwnership
 /// non-zero [documented: GECK wiki RemoveAllItems] (`fnv_sim::World::transfer_all_owned`).
+///
+/// Moved items run their OnAdd in the target, once per stack as AddItem's once per call
+/// [hypothesis: OnAdd "runs when the object is added to a container", GECK wiki OnAdd;
+/// Ringo's Caravan Deck relies on it: its OnAdd moves the spare deck's 54 cards to the
+/// player with RemoveAllItems and each card's OnAdd runs AddCardToPlayer, caravan.md §2].
 pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let silent = hide_flag(a, 2);
     let keep_owner = a.num_or(1, 0.0) != 0.0;
+    let mut added = Vec::new();
     let stacks = match a.opt_form(0) {
         Some(to) => {
             let moved = g.world.transfer_all_owned(from, to, keep_owner).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
                 g.emit(EventKind::ItemAdded { to, item, count, silent });
+                added.push((to, item));
             }
             moved
         }
@@ -96,6 +103,9 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     };
     for (item, count) in stacks {
         g.emit(EventKind::ItemRemoved { from, item, count, silent });
+    }
+    for (to, item) in added {
+        g.item_event(to, item, event::ON_ADD, Some(Value::Ref(to.0)));
     }
     none()
 }

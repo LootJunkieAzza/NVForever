@@ -164,19 +164,8 @@ const PLAYER_BASE: FormId = FormId(7);
 /// left out ("--").
 pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut ScriptState>) -> Snapshot {
     let mut s = Snapshot { name: sim.name(PLAYER_BASE).unwrap_or("").to_string(), limbs: [1.0; 6], ..Snapshot::default() };
-    // What is worn: the enchantments of the player's equipped apparel.
-    let worn: Vec<FormId> = sim.world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let mut temporary: Vec<(u16, f64, bool)> = Vec::new();
-    for item in worn {
-        if sim.forms.sig(item) != Some(*b"ARMO") {
-            continue;
-        }
-        let Some(e) = forms.item_ench(item.0).map(|e| forms.ench(e)).filter(|e| e.apparel && !e.changes.is_empty()) else { continue };
-        let changes: Vec<Change> = e.changes.iter().map(|&(code, amount, detrimental)| Change { value: short(forms, code), amount, detrimental }).collect();
-        let name = if e.name.is_empty() { sim.name(item).unwrap_or("").to_string() } else { e.name.clone() };
-        s.effects.push(EffectLine { name, text: model::changes_text(&changes) });
-        temporary.extend(e.changes);
-    }
+    let (effects, temporary) = worn(forms, sim);
+    s.effects = effects;
     // The hints' counts.
     let mut texts: [String; 4] = Default::default();
     for (i, edid) in HINT_ITEMS.iter().enumerate() {
@@ -319,6 +308,36 @@ fn shown_and_permanent(g: &mut fnv_game::Game<'static>, temporary: &[(u16, f64, 
     // is added here.
     let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, code);
     Some((b + m + t - d + model::added(temporary, code), b + m))
+}
+
+/// What is worn: the enchantments of the player's equipped apparel, as the EFF list's
+/// lines and as the changes they make.
+fn worn(forms: &mut Forms, sim: &SimState) -> (Vec<EffectLine>, Vec<(u16, f64, bool)>) {
+    let worn: Vec<FormId> = sim.world.peek(FormId::PLAYER_REF).and_then(|r| r.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
+    let (mut lines, mut temporary) = (Vec::new(), Vec::new());
+    for item in worn {
+        if sim.forms.sig(item) != Some(*b"ARMO") {
+            continue;
+        }
+        let Some(e) = forms.item_ench(item.0).map(|e| forms.ench(e)).filter(|e| e.apparel && !e.changes.is_empty()) else { continue };
+        let changes: Vec<Change> = e.changes.iter().map(|&(code, amount, detrimental)| Change { value: short(forms, code), amount, detrimental }).collect();
+        let name = if e.name.is_empty() { sim.name(item).unwrap_or("").to_string() } else { e.name.clone() };
+        lines.push(EffectLine { name, text: model::changes_text(&changes) });
+        temporary.extend(e.changes);
+    }
+    (lines, temporary)
+}
+
+/// The player's health out of its whole, as the STATS page's HP card reads it
+/// ([`snapshot`]); `None` without the scripts' game. For the ITEMS page's HP card.
+pub fn player_hp(forms: &mut Forms, sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<(f64, f64)> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (_, temporary) = worn(forms, sim);
+    crate::script::with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, av::HEALTH);
+        shown_and_permanent(g, &temporary, av::HEALTH).map(|(v, max)| (v, max + t))
+    })
 }
 
 /// An actor value's short name, else its name.

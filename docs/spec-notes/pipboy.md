@@ -127,9 +127,27 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
 ## 5. The pages
 
 - **ITEMS** (`items.rs`): the inventory model (`menu::model`, `Mode::Inventory`), the
-  tab choosing the kind of item. Built: the heading (Wg and Caps; HP and DT not read
-  yet), the list (name, count in brackets, the filled square of what is equipped, the
-  selected row boxed), 9 rows at once (51 a row in a list 468 high).
+  tab choosing the kind of item. Built: the heading (Wg, HP, DT and Caps), the list
+  (name, count in brackets, the filled square of what is equipped, the selected row
+  boxed), 9 rows at once (51 a row in a list 468 high).
+  - Added 2026-10-23 (owner's playtest list 7, items 5, 6, 15, 20, 33):
+    - **HP** is the STATS page's health out of its whole; **DT** the threshold a hit on
+      the player meets (worn armour at its condition plus the Damage Threshold actor
+      value, `combat::target_armor`), one decimal [observed: "HP 205/205", "DT 8.0" on
+      the owner's screenshots; hypothesis: the figure is combat's].
+    - A name over two lines makes its row taller; the first row drawn moves on so the
+      selection is always in the list, and the model keeps it as its scroll position (the
+      last of many weapons could not be brought into view: the model counts nine rows a
+      page) [design].
+    - An aid item's EFFECTS: aid-items.md §14.
+    - Skill books (BOOK with a skill to teach) are on the Aid tab, other books on Misc
+      [owner: "Skill books ... should be showing in the Aid tab"; hypothesis: the
+      others].
+    - The Misc tab's folders [owner's wish; design]: the keys (KEYM) are one "Keyring"
+      row and the Caravan cards one "Caravan Cards" row, at the top, each with its count;
+      using one lists what it holds under a "Back" row (Backspace too; another tab closes
+      the folder). The cards are those AddCardToPlayer gave (kept outside the inventory,
+      caravan.md §2), and any CCRD item carried; they are neither used nor dropped.
   - The scroll bar at the list's left (32 wide), only while some rows do not show: the
     arrows at its ends and a line for the part shown [observed: the owner's scroll
     screenshot; the line's look as the DATA lists' (hypothesis)].
