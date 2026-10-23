@@ -170,6 +170,15 @@ pub struct Armor {
     /// (docs/spec-notes/ragdoll.md §6). Not part of any report.
     #[serde(skip)]
     pub ragdoll_template: Option<String>,
+    /// BIPL "Biped Model List": a form list of armour addons (ARMA) worn with the item,
+    /// their models drawn and their biped slots covered with it [documented: xEdit ARMO
+    /// BIPL; observed: `ArmorLeather` and the CaravanPack's `PreordArmorLeather` (Upper
+    /// Body) name `ArmorLeatherList`, the gloves `LeatherArmorGloveR` (Right Hand,
+    /// `GloveR.NIF`) and `LeatherArmorGloveL` (Left Hand); hypothesis: worn as parts of
+    /// the item]. Its members, as load-order FormIDs; empty for an ARMA. Not part of any
+    /// report.
+    #[serde(skip)]
+    pub addons: Vec<FormId>,
 }
 
 /// A WEAP record as far as drawing and animating it goes (workstream 5 part H,
@@ -215,6 +224,29 @@ pub struct Weapon {
     pub mod_first_person: [Option<FormId>; 7],
     #[serde(skip)]
     pub mod_first_person_models: [Option<String>; 7],
+    /// `MOD4` "World Model" when it is a model to hold rather than a ground object
+    /// ([`held_world_model`]): drawn in the hand in third person in place of `MODL`.
+    #[serde(skip)]
+    pub held_world_model: Option<String>,
+}
+
+/// A WEAP's `MOD4` "World Model" when the third-person view holds it in place of `MODL`:
+/// when it differs from `MODL` and is not a ground object (a file named `…go.nif`,
+/// `…_go.nif` or `…worldobject.nif`) [documented: xEdit WEAP MOD4 "World Model";
+/// observed: in FalloutNV.esm 42 weapons' MOD4 differs from their MODL, 41 of them such
+/// ground objects; the 42nd, Lucky's (`WeapNV357RevolverUnique`), is
+/// `357revolvercustom.nif`, the same nodes as its MODL `357revolver.nif` with the
+/// engraved `357revolverCustom.dds` in place of `357revolverStd.dds`, the texture its
+/// first-person model shows; hypothesis: the game holds that one, the owner's playtest
+/// list 7 saw the plain texture in third person].
+pub fn held_world_model(model: Option<&str>, world: Option<&str>) -> Option<String> {
+    let w = world?.trim();
+    let l = w.to_ascii_lowercase();
+    let stem = l.strip_suffix(".nif")?;
+    if model.is_some_and(|m| m.trim().eq_ignore_ascii_case(w)) || stem.ends_with("go") || stem.ends_with("worldobject") {
+        return None;
+    }
+    Some(w.to_string())
 }
 
 impl Weapon {
@@ -222,7 +254,8 @@ impl Weapon {
     /// own model when the record has one, else the plain one (weapon-mods.md §2).
     pub fn model_for(&self, first_person: bool, flags: u8) -> Option<&str> {
         let i = (flags & 7) as usize;
-        let plain = if first_person { self.first_person_model.as_deref().or(self.model.as_deref()) } else { self.model.as_deref() };
+        let third = self.held_world_model.as_deref().or(self.model.as_deref());
+        let plain = if first_person { self.first_person_model.as_deref().or(self.model.as_deref()) } else { third };
         if i == 0 {
             return plain;
         }
@@ -285,7 +318,7 @@ pub struct ActorForms {
     pub alt_textures: HashMap<(FormId, [u8; 4]), Vec<fnv_world::alt_textures::AltTexture>>,
 }
 
-const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"WEAP", b"LVLN", b"CREA", b"LVLC"];
+const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"ARMA", b"WEAP", b"LVLN", b"CREA", b"LVLC"];
 
 enum Loaded {
     Npc(Box<Npc>),
@@ -401,6 +434,7 @@ impl ActorForms {
         alt.extend(out.armors.keys().flat_map(|&id| [(id, *b"MODL"), (id, *b"MOD3")]));
         alt.extend(out.head_parts.keys().map(|&id| (id, *b"MODL")));
         alt.extend(out.weapons.iter().flat_map(|(&id, w)| std::iter::once(id).chain(w.first_person)).map(|id| (id, *b"MODL")));
+        alt.extend(out.weapons.iter().filter(|(_, w)| w.held_world_model.is_some()).map(|(&id, _)| (id, *b"MOD4")));
         out.alt_textures = alt
             .into_par_iter()
             .filter_map(|(id, sub)| {
@@ -438,9 +472,10 @@ impl ActorForms {
 
     /// The alternate textures of a weapon's model for the view with the mods `flags` on
     /// (the model [`Weapon::model_for`] gives): the first-person form's MODS in first
-    /// person, the weapon's own MODS otherwise; none for a modded model, which no
-    /// alternate-texture list pairs with [documented: xEdit WEAP has MODS only beside
-    /// MODL, MO2S–MO4S beside the casing, scope and world models].
+    /// person, the weapon's own MODS otherwise (its MO4S when it holds its MOD4,
+    /// [`held_world_model`]); none for a modded model, which no alternate-texture list
+    /// pairs with [documented: xEdit WEAP has MODS only beside MODL, MO2S–MO4S beside the
+    /// casing, scope and world models].
     pub fn weapon_alt_textures(&self, id: FormId, first_person: bool, flags: u8) -> &[fnv_world::alt_textures::AltTexture] {
         let Some(w) = self.weapons.get(&id) else { return &[] };
         let i = (flags & 7) as usize;
@@ -450,6 +485,7 @@ impl ActorForms {
         }
         match (first_person, w.first_person.filter(|_| w.first_person_model.is_some())) {
             (true, Some(fp)) => self.alt_textures(fp, b"MODL"),
+            (false, _) if w.held_world_model.is_some() => self.alt_textures(id, b"MOD4"),
             _ => self.alt_textures(id, b"MODL"),
         }
     }
@@ -498,7 +534,15 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
             name: first(d, b"FULL").and_then(text),
             playable: first(d, b"DATA").and_then(Value::as_str) == Some("True"),
         }),
-        b"ARMO" => Loaded::Armor(armor(d)),
+        b"ARMO" => {
+            let mut a = armor(d);
+            let list = fid(lo, pi, id, "BIPL", first(d, b"BIPL"), issues);
+            a.addons = list.map(|l| crate::furniture::list_members(lo, l)).unwrap_or_default();
+            Loaded::Armor(a)
+        }
+        // Armour addons (BIPL members): the same biped data and models [documented:
+        // xEdit ARMA].
+        b"ARMA" => Loaded::Armor(armor(d)),
         b"WEAP" => Loaded::Weapon(Box::new(weapon(lo, pi, id, d, issues))),
         b"LVLN" => Loaded::Leveled(leveled_npc(lo, pi, id, d, issues)),
         b"CREA" => Loaded::Creature(Box::new(creature(lo, pi, id, d, issues))),
@@ -672,6 +716,7 @@ fn armor(d: &[Decoded]) -> Armor {
         dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
         power_armor,
         ragdoll_template: path(first(d, b"BMCT")),
+        addons: Vec::new(),
     }
 }
 
@@ -693,6 +738,7 @@ fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Iss
         mod_models: [b"MWD1", b"MWD2", b"MWD3", b"MWD4", b"MWD5", b"MWD6", b"MWD7"].map(|sig| path(first(d, sig))),
         mod_first_person: [b"WNM1", b"WNM2", b"WNM3", b"WNM4", b"WNM5", b"WNM6", b"WNM7"].map(|sig| fid(lo, pi, id, "WNM", first(d, sig), issues)),
         mod_first_person_models: Default::default(),
+        held_world_model: held_world_model(path(first(d, b"MODL")).as_deref(), path(first(d, b"MOD4")).as_deref()),
     }
 }
 
@@ -713,7 +759,7 @@ mod tests {
 
     #[test]
     fn a_modded_weapon_draws_the_model_of_its_mods() {
-        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default() };
+        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default(), held_world_model: None };
         w.mod_models[0] = Some("ext.nif".into());
         w.mod_models[2] = Some("ext_scope.nif".into());
         w.mod_first_person_models[2] = Some("1st_ext_scope.nif".into());
@@ -727,5 +773,23 @@ mod tests {
         assert_eq!(w.model_for(true, 1), Some("1st.nif"));
         // A combination without its own model: the plain one.
         assert_eq!(w.model_for(false, 4), Some("plain.nif"));
+        // A world model to hold: third person draws it, unmodded and modded without a
+        // model of its own; first person keeps its own.
+        w.held_world_model = Some("custom.nif".into());
+        assert_eq!(w.model_for(false, 0), Some("custom.nif"));
+        assert_eq!(w.model_for(false, 4), Some("custom.nif"));
+        assert_eq!(w.model_for(false, 1), Some("ext.nif"));
+        assert_eq!(w.model_for(true, 0), Some("1st.nif"));
+    }
+
+    #[test]
+    fn only_a_world_model_that_is_no_ground_object_is_held() {
+        let held = |m: Option<&str>, w: Option<&str>| held_world_model(m, w);
+        assert_eq!(held(Some(r"weapons\1handpistol\357revolver.NIF"), Some(r"weapons\1handpistol\357revolverCustom.nif")).as_deref(), Some(r"weapons\1handpistol\357revolverCustom.nif"));
+        assert_eq!(held(Some(r"weapons\1handpistol\thatgun.nif"), Some(r"weapons\1handpistol\thatgunGO.nif")), None);
+        assert_eq!(held(Some("a.nif"), Some(r"weapons\hand2hand\boxingglove_go.nif")), None);
+        assert_eq!(held(None, Some(r"weapons\hand2hand\powerfistworldobject.nif")), None);
+        assert_eq!(held(Some(r"w\a.nif"), Some(r"W\A.NIF")), None);
+        assert_eq!(held(Some("a.nif"), None), None);
     }
 }

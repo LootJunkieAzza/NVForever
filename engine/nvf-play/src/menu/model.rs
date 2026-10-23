@@ -51,7 +51,7 @@
 //! whole stack at once without asking [design: NVForever's shortcuts].
 
 use super::barter::{self, Prices};
-use fnv_sim::forms::{BaseData, FormStore, ItemKind};
+use fnv_sim::forms::{BaseData, FormStore, Item, ItemKind};
 use fnv_sim::refs::PlacedRef;
 use fnv_sim::world::{Encumbrance, SimError};
 use fnv_sim::{FormId, Pick, RefTable, World};
@@ -108,6 +108,59 @@ pub struct Row {
     /// A weapon's attached mods (`Extra::mods`): its units are a row of their own, named
     /// with " +" (docs/spec-notes/weapon-mods.md §3).
     pub mods: u8,
+    /// The Misc tab's folder rows (the keyring, the caravan cards, and "Back" inside
+    /// one): no item of their own ([`Folder`]).
+    pub folder: Option<FolderRow>,
+}
+
+/// A folder of the inventory's Misc tab: the keys and the Caravan cards are listed in
+/// one row each, which opens on a list of them [owner's playtest list 7 item 6: "a
+/// keyring item that all keys are added to ... the same for caravan cards", so the Misc
+/// tab is not cluttered; design: the rows' names and places are NVForever's].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Folder {
+    /// KEYM items.
+    Keys,
+    /// The player's Caravan cards: those AddCardToPlayer gave (`fnv_game::caravan`, kept
+    /// outside the inventory, [`MenuModel::cards`]) and any CCRD item carried.
+    Cards,
+}
+
+impl Folder {
+    /// The folder row's name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Folder::Keys => "Keyring",
+            Folder::Cards => "Caravan Cards",
+        }
+    }
+
+    fn holds(self, kind: Option<ItemKind>) -> bool {
+        matches!((self, kind), (Folder::Keys, Some(ItemKind::Key)) | (Folder::Cards, Some(ItemKind::CaravanCard)))
+    }
+}
+
+/// What a folder row does when used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderRow {
+    /// Opens the folder.
+    Open(Folder),
+    /// Back to the Misc list (the first row inside a folder).
+    Back,
+}
+
+/// The name of the row that leaves a folder.
+pub const BACK: &str = "Back";
+
+impl Row {
+    /// A folder row: `count` items inside (0 for "Back").
+    fn of_folder(f: FolderRow, count: i32) -> Row {
+        let name = match f {
+            FolderRow::Open(f) => f.name().to_string(),
+            FolderRow::Back => BACK.to_string(),
+        };
+        Row { item: FormId(0), at: None, name, count, weight: None, value: None, kind: None, equipped: false, quest: false, condition: None, icon: None, price: None, bartered: false, mods: 0, folder: Some(f) }
+    }
 }
 
 /// An inventory's rows (sorted) and totals.
@@ -233,6 +286,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             price: None,
             bartered: false,
             mods: extra.mods,
+            folder: None,
         });
     }
     for r in &mut rows {
@@ -278,14 +332,28 @@ impl Category {
 
     /// Whether an item of this kind is listed.
     pub fn holds(self, kind: Option<ItemKind>) -> bool {
-        let of = match kind {
+        self == Category::All || self == Category::of(kind, false)
+    }
+
+    /// Whether this item is listed: as [`Category::holds`], a skill book with the aid
+    /// items.
+    pub fn holds_item(self, kind: Option<ItemKind>, item: Option<&Item>) -> bool {
+        self == Category::All || self == Category::of(kind, item.is_some_and(|i| i.teaches.is_some()))
+    }
+
+    /// The tab an item is listed in. A skill book (a BOOK that teaches a skill) is with
+    /// the aid items, other books with the misc ones [owner's playtest list 7 item 33:
+    /// "skill books ... should be showing in the Aid tab"; hypothesis: books that teach
+    /// nothing stay in Misc].
+    pub fn of(kind: Option<ItemKind>, skill_book: bool) -> Category {
+        match kind {
             Some(ItemKind::Weapon) => Category::Weapons,
             Some(ItemKind::Armor) => Category::Apparel,
             Some(ItemKind::Aid) => Category::Aid,
+            Some(ItemKind::Book) if skill_book => Category::Aid,
             Some(ItemKind::Ammo) => Category::Ammo,
             _ => Category::Misc,
-        };
-        self == Category::All || self == of
+        }
     }
 
     /// The next category (`by` 1) or the one before (-1), round the ends.
@@ -354,6 +422,8 @@ pub enum Command {
     Drop,
     /// Inventory: drop the whole selected stack.
     DropStack,
+    /// Inventory: leave the open Misc folder ([`Folder`]).
+    Back,
     /// The "How many?" prompt: set its amount (clamped to 1 and the stack).
     Amount(i32),
     /// The prompt: change its amount by this much.
@@ -504,6 +574,11 @@ pub struct MenuModel {
     pub quantity: Option<Quantity>,
     /// The amount the prompt chose, for the command it does on Ok.
     amount: Option<i32>,
+    /// Inventory: the Misc folder open, if any ([`Folder`]).
+    pub folder: Option<Folder>,
+    /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
+    /// the scripts' game ([`MenuModel::set_cards`]).
+    pub cards: Vec<FormId>,
 }
 
 /// What a command did besides changing the model.
@@ -598,6 +673,8 @@ impl MenuModel {
             trade: None,
             quantity: None,
             amount: None,
+            folder: None,
+            cards: Vec::new(),
         }
     }
 
@@ -635,7 +712,7 @@ impl MenuModel {
     /// Re-read the inventories from the simulation, keeping each column's selection on
     /// the same row when it is still there (else on the same position).
     pub fn refresh(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
-        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered)));
+        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered, r.folder)));
         if self.trade.is_some() {
             self.refresh_trade(world)?;
         } else {
@@ -645,14 +722,18 @@ impl MenuModel {
                     _ => PLAYER,
                 };
                 let mut l = listing(world, holder)?;
-                l.rows.retain(|r| self.category[side as usize].holds(r.kind));
+                let forms = world.forms;
+                l.rows.retain(|r| self.category[side as usize].holds_item(r.kind, forms.item(r.item)));
+                if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
+                    self.fold(&mut l, forms);
+                }
                 self.lists[side as usize] = l;
             }
         }
         for &side in self.columns() {
             let i = side as usize;
             let rows = &self.lists[i].rows;
-            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered) == k));
+            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered, r.folder) == k));
             self.selected[i] = at.unwrap_or(self.selected[i]).min(rows.len().saturating_sub(1));
             self.ensure_visible(side);
         }
@@ -723,10 +804,84 @@ impl MenuModel {
         for side in [Side::Container, Side::Player] {
             let i = side as usize;
             let mut rows = std::mem::take(&mut shown[i]);
-            rows.retain(|r| self.category[i].holds(r.kind));
+            rows.retain(|r| self.category[i].holds_item(r.kind, world.forms.item(r.item)));
             sort_rows(&mut rows);
             let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
             self.lists[i] = Listing { rows, weight: weights[i], value, hidden: 0 };
+        }
+        Ok(())
+    }
+
+    /// The Misc tab's folders: outside them, the keys and the cards are one row each at
+    /// the top (only when there are some); inside one, a "Back" row and what it holds.
+    fn fold(&self, l: &mut Listing, forms: &FormStore) {
+        let (inside, rest): (Vec<Row>, Vec<Row>) = std::mem::take(&mut l.rows).into_iter().partition(|r| Folder::Keys.holds(r.kind) || Folder::Cards.holds(r.kind));
+        match self.folder {
+            None => {
+                let count = |f: Folder| inside.iter().filter(|r| f.holds(r.kind)).map(|r| r.count).sum::<i32>();
+                let cards = count(Folder::Cards) + self.cards.len() as i32;
+                let mut rows: Vec<Row> = [(Folder::Keys, count(Folder::Keys)), (Folder::Cards, cards)].into_iter().filter(|&(_, n)| n > 0).map(|(f, n)| Row::of_folder(FolderRow::Open(f), n)).collect();
+                rows.extend(rest);
+                l.rows = rows;
+            }
+            Some(f) => {
+                let mut held: Vec<Row> = inside.into_iter().filter(|r| f.holds(r.kind)).collect();
+                if f == Folder::Cards {
+                    for &card in &self.cards {
+                        match held.iter_mut().find(|r| r.item == card) {
+                            Some(r) => r.count += 1,
+                            None => held.push(Row {
+                                item: card,
+                                at: None,
+                                name: display_name(forms, card),
+                                count: 1,
+                                weight: None,
+                                value: None,
+                                kind: Some(ItemKind::CaravanCard),
+                                equipped: false,
+                                quest: false,
+                                condition: None,
+                                icon: forms.item(card).and_then(|i| i.icon.clone()),
+                                price: None,
+                                bartered: false,
+                                mods: 0,
+                                folder: None,
+                            }),
+                        }
+                    }
+                    sort_rows(&mut held);
+                }
+                l.rows = std::iter::once(Row::of_folder(FolderRow::Back, 0)).chain(held).collect();
+            }
+        }
+    }
+
+    /// Open a Misc folder, or leave the one open (`None`, the folder's row then
+    /// selected).
+    fn enter(&mut self, world: &mut World<'_>, folder: Option<Folder>) -> Result<(), SimError> {
+        let from = std::mem::replace(&mut self.folder, folder);
+        let i = Side::Player as usize;
+        self.selected[i] = 0;
+        self.scroll[i] = 0;
+        self.refresh(world)?;
+        if let (None, Some(f)) = (folder, from) {
+            if let Some(at) = self.lists[i].rows.iter().position(|r| r.folder == Some(FolderRow::Open(f))) {
+                self.selected[i] = at;
+                self.ensure_visible(Side::Player);
+            }
+        }
+        Ok(())
+    }
+
+    /// The player's Caravan cards changed (the engine reads them from the scripts'
+    /// game): the inventory's lists are read again.
+    pub fn set_cards(&mut self, world: &mut World<'_>, cards: Vec<FormId>) -> Result<(), SimError> {
+        if self.cards == cards {
+            return Ok(());
+        }
+        self.cards = cards;
+        if self.mode == Mode::Inventory {
+            self.refresh(world)?;
         }
         Ok(())
     }
@@ -799,6 +954,7 @@ impl MenuModel {
                     return out;
                 }
                 self.category[i] = cat;
+                self.folder = None;
                 self.selected[i] = 0;
                 self.scroll[i] = 0;
                 if let Err(e) = self.refresh(world) {
@@ -818,6 +974,13 @@ impl MenuModel {
                 }
             }
             Command::Close => out.close = true,
+            Command::Back => {
+                if self.mode == Mode::Inventory && self.folder.is_some() {
+                    if let Err(e) = self.enter(world, None) {
+                        self.status = Some(format!("Cannot list the inventories: {e}"));
+                    }
+                }
+            }
             Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
                 if let Some(q) = self.asks_quantity(cmd) {
@@ -845,7 +1008,7 @@ impl MenuModel {
     fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
         let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
         let r = self.selected_row(self.focus)?;
-        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE).then(|| Quantity {
+        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE && r.folder.is_none() && r.kind != Some(ItemKind::CaravanCard)).then(|| Quantity {
             cmd,
             side: self.focus,
             row: self.selected[self.focus as usize],
@@ -940,6 +1103,21 @@ impl MenuModel {
             (Mode::Barter(_), Command::Accept) => self.accept(world, out),
             (Mode::Inventory, Command::One) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
+                match r.folder {
+                    Some(FolderRow::Open(f)) => {
+                        self.enter(world, Some(f))?;
+                        return Ok(format!("Opened {}", f.name()));
+                    }
+                    Some(FolderRow::Back) => {
+                        self.enter(world, None)?;
+                        return Ok("Back to Misc".into());
+                    }
+                    None => {}
+                }
+                // Caravan cards are for the Caravan table [design].
+                if r.kind == Some(ItemKind::CaravanCard) {
+                    return Ok(format!("{} is played at a Caravan table", name(&r)));
+                }
                 out.changed = true;
                 // An item a script locked on or off stays as it is (EquipItem's
                 // NoUnequipFlag, UnequipItem's NoEquipFlag, `fnv_sim::world::EquipLock`)
@@ -973,6 +1151,14 @@ impl MenuModel {
             }
             (Mode::Inventory, Command::Drop | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
+                // A folder row is no item; the cards AddCardToPlayer gave are not in the
+                // inventory [design: carried CCRD items are not dropped either].
+                if r.folder.is_some() {
+                    return Ok("Nothing to drop".into());
+                }
+                if r.kind == Some(ItemKind::CaravanCard) {
+                    return Ok(format!("{} can't be dropped", name(&r)));
+                }
                 let want = self.want(cmd == Command::Drop, &r);
                 let created = match world.player_drop_item_at(r.item, want, r.pick()) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),

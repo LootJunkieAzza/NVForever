@@ -1169,6 +1169,136 @@
     }
    }
   },
+  "ARMA": {
+   "name": "Armor Addon",
+   "confidence": "documented",
+   "subrecords": {
+    "BMDT": {
+     "name": "Biped Data",
+     "type": {
+      "struct": [
+       {
+        "name": "biped_flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Head",
+          "1": "Hair",
+          "2": "Upper Body",
+          "3": "Left Hand",
+          "4": "Right Hand",
+          "5": "Weapon",
+          "6": "PipBoy",
+          "7": "Backpack",
+          "8": "Necklace",
+          "9": "Headband",
+          "10": "Hat",
+          "11": "Eye Glasses",
+          "12": "Nose Ring",
+          "13": "Earrings",
+          "14": "Mask",
+          "15": "Choker",
+          "16": "Mouth Object",
+          "17": "Body AddOn 1",
+          "18": "Body AddOn 2",
+          "19": "Body AddOn 3"
+         }
+        }
+       },
+       {
+        "name": "general_flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "unknown_0x01",
+          "1": "unknown_0x02",
+          "2": "Has Backpack",
+          "3": "Medium",
+          "4": "unknown_0x10",
+          "5": "Power Armor",
+          "6": "Non-Playable",
+          "7": "Heavy"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMA record (wbBMDT, the same helper as ARMO)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "value",
+        "type": "i32"
+       },
+       {
+        "name": "health",
+        "type": "i32"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMA record (the same Data struct as ARMO)"
+    },
+    "DNAM": {
+     "name": "Armor Data",
+     "type": {
+      "struct": [
+       {
+        "name": "dr",
+        "type": "i16"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "dt",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u16",
+         "bits": {
+          "0": "Modulates Voice"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "unused2",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMA record (the same Armor Data struct as ARMO); DR is stored x100"
+    }
+   }
+  },
   "ARMO": {
    "name": "Armor",
    "confidence": "documented",

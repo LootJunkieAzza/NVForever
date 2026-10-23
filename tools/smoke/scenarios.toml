@@ -2120,6 +2120,60 @@ expect = [
   { re = 'shot fx:.*casing knocks heard' },
 ]
 
+[[scenario]]
+name = "creature-sounds-ghoul"
+source = "playtest list 7 item 46 (docs/spec-notes/audio.md §14.1): a feral ghoul in a fight sounds its record's sounds; a template-only creature (LvlFeralGhoul) takes them from the creature its model comes from"
+note = "the feral ghoul 0x000CE9E7 (base LvlFeralGhoul, template-only) at its corpse idle marker about 1,000 units north of the player (as in creature-alert-stance-ghoul) is set on the player at 3 s; god mode. Before the fix it listed 0 sounds"
+areas = ["creature-sounds", "audio"]
+paths = ["crates/fnv-actor/src/anim_sounds.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:0x000CE9E7:StartCombat:player" }
+args = ["--pos=9244,-33900,7500", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bAuxiliary \d \d+', label = "the ghoul's attack voices and swings (its clips' Auxiliary keys)" },
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\b(Left|Right)( Back)? Foot \d+', label = "the ghoul's footsteps" },
+]
+
+[[scenario]]
+name = "creature-sounds-aware"
+source = "playtest list 7 item 46 (docs/spec-notes/audio.md §14.1): a creature that becomes aware plays its Aware sound"
+note = "a radscorpion (CrRadscorpion1Small 0x0001CF9D; its AudioTemplateRadScorpion lists Aware, no clip has an Aware key) placed at the player in Goodsprings at 3 s; god mode; it notices the player and fights"
+areas = ["creature-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrRadscorpion1Small:1" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bAware [1-9]', label = "its Aware sound on noticing the player" },
+]
+
+[[scenario]]
+name = "bloatfly-wings"
+source = "playtest list 7 item 17 (engine/nvforever/src/locomotion.rs UNDER_LAYER): a bloatfly's wings flap while it flies, its idle laid under the movement clips that have no wing tracks"
+note = "a bloatfly (CrBloatFly 0x0009189C) placed at the player in Goodsprings at 3 s; god mode; it flies at the player"
+areas = ["creatures", "animation"]
+paths = ["engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrBloatFly:1,4:call:player:PlaceAtMe:CrBloatFly:1" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'actor idle under movement: [1-9]\d* actor frames', label = "an idle laid under a movement clip" },
+]
+
+[[scenario]]
+name = "worn-addons-lucky"
+source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
+note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "schemas/fnv/objects.json"]
+env = { NVF_PLAY_TEST_EQUIP = "001735E0,000E2C86", NVF_PLAY_TEST_CONTROL = "6:weapon" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 12
+expect = [
+  { re = 'player body: .*wearing \[[^\]]*001735E0[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the armour's gloves are worn with it" },
+  { re = 'player weapon: mods 0 on, models Some\("weapons\W+1handpistol\W+357revolverCustom\.nif"\)', label = "Lucky's own model in third person" },
+]
+
 # ------------------------------------------------------------------ objects' and actors' animation groups
 
 [[scenario]]
@@ -7311,6 +7365,43 @@ order = [
   ["magic: Turbo on: the world runs at 0.50, the player at full speed", "magic: Turbo off"],
   ["test aid NVF_PLAY_TEST_CONSOLE: player.equipitem NVAntivenom", "magic: CazadorPoison on the player ended"],
 ]
+
+[[scenario]]
+name = "pipboy-aid-effects"
+source = "owner's playtest list 7 items 5, 20 and 33 (docs/spec-notes/aid-items.md §14, pipboy.md §5): an aid item's EFFECTS are the effects whose conditions pass for the player, one line per value (Programmer's Digest one Science +10 without Comprehension or Retention, the Blood Pack HP +1 without Hematophage, the Stimpak one HP line); the ITEMS heading reads HP and DT; a skill book is listed on the Aid tab"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/stats/read.rs", "crates/fnv-game/src/aid.rs"]
+env = { NVFOREVER_HOME = "pipboy-aid-effects-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:MagazineNVScience:1,9.2:call:player:AddItem:BloodPack:1,9.4:call:player:AddItem:Stimpak:2,9.6:call:player:AddItem:BookSkillScience:1", NVF_PLAY_TEST_PIPBOY = "15:open,16:page=items,16.5:tab=2,17:key=down,17.4:key=down,17.8:key=down,18.2:key=down,18.6:key=down,19:key=down,19.4:key=down,19.8:key=down,21:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy items: heading HP \d+/\d+, DT \d+\.\d;', label = "the heading's HP and DT are read" },
+  { re = 'pipboy items: Big Book of Science selected', label = "the skill book is on the Aid tab" },
+  { re = '''pipboy items: Programmer's Digest selected: .*effects: Some\("[^",]+ \+10"\)''', label = "one Science +10 for the magazine" },
+  { re = 'pipboy items: Blood Pack selected: .*effects: Some\("[^",]+ \+1"\)', label = "one HP +1 for the Blood Pack" },
+  { re = 'pipboy items: Stimpak selected: .*effects: Some\("[^",]+ \+\d+"\)', label = "one HP line for the Stimpak" },
+]
+
+[[scenario]]
+name = "pipboy-misc-folders"
+source = "owner's playtest list 7 items 6 and 8 (docs/spec-notes/pipboy.md §5, caravan.md §2): Ringo's Caravan Deck item, added to the player, moves the spare deck's 54 cards to the player with RemoveAllItems, and each card's OnAdd runs AddCardToPlayer; the Misc tab lists the keys in a Keyring row and the cards in a Caravan Cards row, each opening on its items with Back (and Backspace) to return; a game of Caravan against Ringo then opens with the 54 cards"
+areas = ["pipboy", "caravan", "menus"]
+paths = ["engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/menu.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "10:player.additem 0015F8C3 1;10.3:player.additem 0017371F 1;10.6:player.additem 00173720 1;11:close", NVF_PLAY_TEST_PIPBOY = "13:open,13.5:page=items,14:tab=3,15:key=use,16:key=use,17:key=down,18:key=use,19:key=back,20:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,24:open:104C7D:15D7A2:0.25" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 27
+expect = [
+  { re = 'pipboy items: Keyring selected', label = "the keys are one Keyring row" },
+  "menu: One: Opened Keyring",
+  "menu: One: Back to Misc",
+  { re = 'pipboy items: Caravan Cards selected', label = "the cards are one Caravan Cards row" },
+  "menu: One: Opened Caravan Cards",
+  { re = 'caravan: open against Ringo .* 54 cards owned', label = "the starter deck's 54 cards are owned" },
+]
+forbid = [
+  { re = 'caravan: refused against', label = "the game is refused for too few cards" },
+]
+order = [["menu: One: Opened Keyring", "menu: One: Back to Misc", "menu: One: Opened Caravan Cards"]]
 
 [[scenario]]
 name = "death-stops-character"
