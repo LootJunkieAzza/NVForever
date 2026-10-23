@@ -3681,6 +3681,20 @@ forbid = [
 ]
 
 [[scenario]]
+name = "follower-beagle"
+source = "owner 2026-10-23: an NPC following the player on a Follow package (not a teammate) comes along through a load door at once, not seconds later on foot (docs/design/followers.md §3)"
+note = "Bison Steve hotel: the seven Powder Gangers are killed at 1 s (as when the player has cleared the hotel; alive, they shoot Beagle once he is free); Deputy Beagle's line INFO 0x000E501C at 3 s frees him and sets nVPrimmDeputyConv.beaglefollow 1, so his PrimmBeagleFollow package (Follow, the player) is chosen; the player goes through the hotel's front door (0x000D6FF7, beside the cell's start spot) at 12 s and Beagle is put beside the player outside in the same frame"
+areas = ["followers", "ai"]
+paths = ["crates/fnv-game/src/followers.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:kill:0x000D7F3D,1:kill:0x000D7F3B,1:kill:0x000D7F54,1:kill:0x000E375C,1:kill:0x000E375D,1:kill:0x000E375E,1:kill:0x00172D3F,3:info:0x000E501C:PrimmDeputyRef,12:activate:0x000D6FF7" }
+args = ["--cell", "BisonSteve01", "--play", "--npc-packages", "PrimmDeputyRef", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'PrimmDeputyRef: package PrimmBeagleFollow', label = "freed by his line: his Follow package" },
+  { re = 'PrimmDeputyRef: put at .* with the player \(follower\)', label = "brought along through the door at once" },
+]
+
+[[scenario]]
 name = "companion-wheel-boone"
 source = "outstanding.md §2: the companion wheel, passive/aggressive and sneaking with the player (docs/spec-notes/companion-wheel.md)"
 note = "Written 2026-10-19 by the companion-wheel session without running the game (another session held it): not run yet, for the merge session. VFreeformNovac.nSnipersRevengeStage is set to 30 at 2.5 s, as his hire chain's INFO 0x0015F30C does (his trade line, INFO 0x000B16BF, asks for it); Boone is hired by his recruit line at 3 s (as follower-boone), hurt by 60 at 10 s, the player given 3 Stimpaks; the wheel is opened on him at 19 s (Wait), closed at 25 s, opened at 35 s (Follow, Far, Aggressive, Melee, Use Stimpak, Back Up), closed at 52 s; the player sneaks at 55 s; the wheel opens at 61 s and Open Inventory closes it into his inventory. The wheel steps were 5 s earlier until 2026-10-19: on a busy run (scripts ready in 12 s, F:/nvf-wt/batch-p487) the script steps come 8 s late but the wheel steps only 4 s (pause.rs WorldAidClock, script_events::delay_late_aids), so the first wheel opened 7 s after his hire, while he was still caught for about 8.7 s on something past his room door at (2842, 1208) (main runs: moved on along his path 8.7 s after the hire, 70 ms before the wheel opened); the Wait then held him 501 units off, and Back Up did nothing there (Ai::back_up returns without a log line; hypothesis: no navmesh within 192 units of the spot behind him, his back to the door). Boone's labels follow his hire state: following, passive, near, ranged"
