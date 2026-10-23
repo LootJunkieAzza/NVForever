@@ -99,6 +99,19 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
         Stance::Stand => {
             if let Some(p) = drawn {
                 out.push(format!(r"locomotion\{p}{f}{d}.kf"));
+                // A weapon with no walk left of its own (`2hr`, `2ha`) side-steps as the
+                // fists do (`h2hleft.kf`), body square, not with the unarmed walk left,
+                // which turns the whole body a quarter turn to face the way it walks
+                // (`Bip01 NonAccum` yaw 177.5° against 87.5° in every weapon side-step)
+                // [observed: `fnvtool actor locomotion --samples`, animation.md §9.6; the
+                // owner's capture of the original, a rifle down the sights strafing left
+                // with the body yawed right and the legs stepping back across, matches
+                // `h2hleft.kf` and `1hpleft.kf` and not `mtleft.kf`, 2026-10-23;
+                // hypothesis: which side-step the game takes]. The first-person folder has
+                // no `h2hleft.kf`, so the arms rig keeps `mtleft.kf`.
+                if dir == Dir::Left && !fast && p != "h2h" {
+                    out.push(r"locomotion\h2hleft.kf".to_string());
+                }
             }
             if female {
                 out.push(format!(r"locomotion\female\mt{f}{d}.kf"));
@@ -586,8 +599,13 @@ mod tests {
         assert_eq!(move_clips(Stance::Stand, false, true, Dir::Forward, None), [r"locomotion\male\mtfastforward.kf", r"locomotion\mtfastforward.kf"]);
         assert_eq!(
             move_clips(Stance::Stand, true, false, Dir::Left, Some("1hp")),
-            [r"locomotion\1hpleft.kf", r"locomotion\female\mtleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]
+            [r"locomotion\1hpleft.kf", r"locomotion\h2hleft.kf", r"locomotion\female\mtleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]
         );
+        // A rifle (no `2hrleft.kf`) side-steps left as the fists do; running left and
+        // the fists themselves are as before.
+        assert_eq!(move_clips(Stance::Stand, false, false, Dir::Left, Some("2hr"))[..2], [r"locomotion\2hrleft.kf", r"locomotion\h2hleft.kf"]);
+        assert_eq!(move_clips(Stance::Stand, false, true, Dir::Left, Some("2hr"))[1], r"locomotion\male\mtfastleft.kf");
+        assert_eq!(move_clips(Stance::Stand, false, false, Dir::Left, Some("h2h")), [r"locomotion\h2hleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]);
         assert_eq!(move_clips(Stance::Sneak, false, false, Dir::Backward, Some("2hh")), ["sneak2hhbackward.kf", "sneakmtbackward.kf"]);
         assert_eq!(move_clips(Stance::Swim, false, true, Dir::Right, None), ["swimmtfastright.kf", "swimmtright.kf"]);
         assert_eq!(idle_clips(Stance::Sneak), ["sneakmtidle.kf", r"locomotion\mtidle.kf", "mtidle.kf"]);

@@ -452,8 +452,9 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         }
         if &r.sig == b"PGRE" {
             let class = match forms.get(r.base).map(|b| &b.data) {
-                Some(BaseData::Projectile { item: Some(i) }) => format!("disarms to {i}"),
-                Some(BaseData::Projectile { item: None }) => "no single weapon".to_string(),
+                Some(BaseData::Projectile { item: Some(i), .. }) => format!("disarms to {i}"),
+                Some(BaseData::Projectile { item: None, can_be_disabled: false }) => "cannot be disabled".to_string(),
+                Some(BaseData::Projectile { item: None, .. }) => "no single weapon".to_string(),
                 _ => "base not a projectile".to_string(),
             };
             bump(&mut pgre, class);

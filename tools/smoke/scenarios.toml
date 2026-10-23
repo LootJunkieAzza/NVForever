@@ -1979,6 +1979,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "third-person-sights-strafe"
+source = "owner 2026-10-23: down the sights in third person with a rifle, strafing left turned the body and the rifle left off the crosshair; the rifle stays on the crosshair (player_body::keep_sights_facing)"
+note = "The varmint rifle (2hr, as the service rifle) drawn at 4 s, third person at 5 s, sights up at 7 s; standing until 10 s, strafing left 10-14 s, right 15-17 s, sights down at 18 s. The rifle has no walk left of its own and side-steps with h2hleft.kf (body yawed right, legs stepping back across, as the owner's capture of the original); the unarmed mtleft.kf would turn Bip01 NonAccum 87.5° from 2hraimis.kf's pose; the camera is zoomed out (as the owner's capture of the original) so the legs show. Shots: sights_stand.png, sights_left_a/b/c.png and sights_left.png a quarter second apart, sights_right.png"
+areas = ["animation", "combat"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvf-assets/src/anim_blend.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONTROL = "4:weapon,5:view,5.5:zoom=300,7:aim,18:aim", NVF_PLAY_TEST_MOVE = "10:0:-1:walk,14:0:0,15:0:1:walk,17:0:0", NVF_PLAY_TEST_SHOTS = "9:sights_stand.png,12:sights_left_a.png,12.25:sights_left_b.png,12.5:sights_left.png,12.75:sights_left_c.png,16.5:sights_right.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 21
+expect = [
+  { re = 'player Third rig: Move\(Stand, false, false, Left, Some\("2hr"\), false\) plays .*locomotion\\h2hleft\.kf', label = "the rifle side-steps left with the fists' h2hleft.kf, body square" },
+  { re = 'player sights: upper body turned back to the sights clip.s facing by up to (?P<n>[\d.]+)°', range = [0, 10], label = "down the sights, the body is turned back only a little (h2hleft.kf's 2.7°; mtleft.kf needed 87.5°)" },
+]
+
+[[scenario]]
 name = "spent-ammo-items"
 source = "ESM gap audit row 13 (docs/handoff/esm-gap-audit-2026-10-21.md): AMMO DAT2 Consumed Ammo at its Consumed Percentage on each of the player's shots: spent cases and drained cells (docs/spec-notes/spent-ammo-items.md)"
 note = "The 10mm pistol with 40 rounds, Hand Loader added at the console at 4 s (10mm Case chance 20 % x 2), 12 shots by fresh pulls from 11 s; at 19 s the laser pistol is equipped at the console (Energy Cell, Drained Small Energy Cell at 40 %, no perk) and fires 12 shots from 22 s. The rolls have their own seeded RNG, so a given run's count repeats; at least one item of each is expected (none in 12 shots at 40 % has odds of 0.2 %). Written 2026-10-21"
@@ -2793,6 +2807,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "pipboy-tmm-discovered"
+source = "owner request 2026-10-23: ShowAllMapMarkers 1 (tmm 1, travel on) draws every marker with its own type icon, as discovered; without travel they keep the undiscovered icon (script-stubs-2-play)"
+areas = ["scripts", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows \d+ of \d+ markers of this worldspace, (\d+) as discovered', range = [100, 100000], label = "pipboy data: tmm 1 draws the markers as discovered (100 or more)" },
+]]
+
+[[scenario]]
 name = "effect-shaders"
 source = "docs/spec-notes/effect-shaders.md: PlayMagicShaderVisuals draws NightkinCloakFXShader on Sunny until StopMagicShaderVisuals and effectAlienDisintegration for 2 s, which ends by itself; SetActorAlpha 0.5 and back to 1 (the test aid call:); frames at 9 s (shaders) and 14 s (alpha) in target/smoke"
 areas = ["scripts", "effect-shaders"]
@@ -2894,6 +2921,19 @@ expect = [
   { re = 'particles: born in \S*neoclassicalsconcefire01\.nif: .* [1-9]', label = "the sconces' flames are born" },
   { re = 'particles: placed references emitting: (?P<n>\d+) of', range = [30, 1000], label = "most of the 45 placed particle models of the floor emit" },
   { re = 'particles: placed references emitting: .* at most (?P<n>\d+) placed model instances', range = [30, 1000], label = "each sconce has its own systems" },
+]
+
+[[scenario]]
+name = "smoke-blend-bison-steve"
+source = "docs/spec-notes/nif.md §6 \"Alpha blend of unlit shapes\" (owner 2026-10-23, screenshots of the Bison Steve Hotel's main entrance: ours drew far more smoke than the game): unlit alpha-blended shapes put colour × alpha^1.5 on the frame; the lobby (BisonSteve01) from the entrance marker, looking east over FXMistLow01 00172699 and FXSmokeWisps01 0017209E; one frame in target/smoke (bison_steve_smoke.png) to judge against the owner's game screenshot"
+areas = ["particles", "effects", "rendering"]
+paths = ["engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_material.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:bison_steve_smoke.png" }
+args = ["--play", "--cell", "BisonSteve01", "--pos=-1408,-896,0", "--heading", "90", "--no-voice", "--no-messages"]
+run_seconds = 8
+manual = "bison_steve_smoke.png against the owner's game screenshot of the lobby (2026-10-23): the room's floor, rug and desk clear, only a faint haze low over the floor"
+expect = [
+  { re = 'test aid: screenshot .*bison_steve_smoke\.png', label = "the lobby frame is saved" },
 ]
 
 [[scenario]]
@@ -3681,6 +3721,20 @@ forbid = [
 ]
 
 [[scenario]]
+name = "follower-beagle"
+source = "owner 2026-10-23: an NPC following the player on a Follow package (not a teammate) comes along through a load door at once, not seconds later on foot (docs/design/followers.md §3)"
+note = "Bison Steve hotel: the seven Powder Gangers are killed at 1 s (as when the player has cleared the hotel; alive, they shoot Beagle once he is free); Deputy Beagle's line INFO 0x000E501C at 3 s frees him and sets nVPrimmDeputyConv.beaglefollow 1, so his PrimmBeagleFollow package (Follow, the player) is chosen; the player goes through the hotel's front door (0x000D6FF7, beside the cell's start spot) at 12 s and Beagle is put beside the player outside in the same frame"
+areas = ["followers", "ai"]
+paths = ["crates/fnv-game/src/followers.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:kill:0x000D7F3D,1:kill:0x000D7F3B,1:kill:0x000D7F54,1:kill:0x000E375C,1:kill:0x000E375D,1:kill:0x000E375E,1:kill:0x00172D3F,3:info:0x000E501C:PrimmDeputyRef,12:activate:0x000D6FF7" }
+args = ["--cell", "BisonSteve01", "--play", "--npc-packages", "PrimmDeputyRef", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'PrimmDeputyRef: package PrimmBeagleFollow', label = "freed by his line: his Follow package" },
+  { re = 'PrimmDeputyRef: put at .* with the player \(follower\)', label = "brought along through the door at once" },
+]
+
+[[scenario]]
 name = "companion-wheel-boone"
 source = "outstanding.md §2: the companion wheel, passive/aggressive and sneaking with the player (docs/spec-notes/companion-wheel.md)"
 note = "Written 2026-10-19 by the companion-wheel session without running the game (another session held it): not run yet, for the merge session. VFreeformNovac.nSnipersRevengeStage is set to 30 at 2.5 s, as his hire chain's INFO 0x0015F30C does (his trade line, INFO 0x000B16BF, asks for it); Boone is hired by his recruit line at 3 s (as follower-boone), hurt by 60 at 10 s, the player given 3 Stimpaks; the wheel is opened on him at 19 s (Wait), closed at 25 s, opened at 35 s (Follow, Far, Aggressive, Melee, Use Stimpak, Back Up), closed at 52 s; the player sneaks at 55 s; the wheel opens at 61 s and Open Inventory closes it into his inventory. The wheel steps were 5 s earlier until 2026-10-19: on a busy run (scripts ready in 12 s, F:/nvf-wt/batch-p487) the script steps come 8 s late but the wheel steps only 4 s (pause.rs WorldAidClock, script_events::delay_late_aids), so the first wheel opened 7 s after his hire, while he was still caught for about 8.7 s on something past his room door at (2842, 1208) (main runs: moved on along his path 8.7 s after the hire, 70 ms before the wheel opened); the Wait then held him 501 units off, and Back Up did nothing there (Ai::back_up returns without a log line; hypothesis: no navmesh within 192 units of the spot behind him, his back to the door). Boone's labels follow his hire state: following, passive, near, ranged"
@@ -4181,9 +4235,10 @@ name = "save-delete-console"
 source = "outstanding.md §2 Saves and Console (2026-10-19; docs/design/save-load.md §6.1, docs/design/console.md): a console line of several statements runs each in order; a save written from the console is deleted from the pause menu's load page (Delete, then Yes) and the page lists the saves again without it"
 areas = ["save", "console"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/console.rs"]
-env = { NVFOREVER_HOME = "save-delete-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav luck 7; player.getav luck;13:save delete-me;14:close", NVF_PLAY_TEST_PAUSE = "16:22", NVF_PLAY_TEST_PAUSE_MENU = "17:load,18:delete,18.5:shot,19:yes,21:back" }
+# The console waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
+env = { NVFOREVER_HOME = "save-delete-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.setav luck 7; player.getav luck;21:save delete-me;22:close", NVF_PLAY_TEST_PAUSE = "24:30", NVF_PLAY_TEST_PAUSE_MENU = "25:load,26:delete,26.5:shot,27:yes,29:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 24
+run_seconds = 32
 expect = [
   "console: 2 statements on the line",
   { re = 'console: GetActorValue on player >> 7\.00', label = "the second statement reads what the first set" },
@@ -4198,9 +4253,10 @@ name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
-env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.additem Stimpak 7;12.5:player.getitemcount Stimpak;13:0010A202.disable;13.5:player.setav luck 9;14:save smoke-roundtrip;15:saves;16:coc GSProspectorSaloonInterior;24:autosave;25:close", NVF_PLAY_TEST_PAUSE = "26:31.5", NVF_PLAY_TEST_PAUSE_MENU = "26.5:save,28:load,29:down,30:up,30.5:back" }
+# The console waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.additem Stimpak 7;20.5:player.getitemcount Stimpak;21:0010A202.disable;21.5:player.setav luck 9;22:save smoke-roundtrip;23:saves;24:coc GSProspectorSaloonInterior;32:autosave;33:close", NVF_PLAY_TEST_PAUSE = "34:39.5", NVF_PLAY_TEST_PAUSE_MENU = "34.5:save,36:load,37:down,38:up,38.5:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 33
+run_seconds = 41
 expect = [
   { re = 'console: GetItemCount on player >> 12\.00', label = "twelve Stimpaks before saving" },
   { re = 'save: wrote .*smoke-roundtrip\.nvfsave \(manual, \d+ bytes, \d+ changed references\)', label = "the save is written" },
@@ -4278,8 +4334,9 @@ expect = [
 name = "load-handoff"
 source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
 areas = ["save"]
-paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs"]
-env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:save handoff-test;14:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
+paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs"]
+# The save waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
+env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:save handoff-test;22:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 90
 # The old run ends by handing over, not at run_seconds; the new one by its test aid.
@@ -4294,6 +4351,7 @@ expect = [
   { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends when the new one is up" },
   { re = 'the previous run did not end normally', count = 0, label = "the new run does not take the old one for a crash" },
   { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
+  { text = "menu pause: the picture runs again", count = 0, label = "the world behind the loading screen stands still while the new run loads (owner 2026-10-23: a load from the main menu played the opening behind it)" },
 ]
 
 [[scenario]]
@@ -5683,7 +5741,7 @@ expect = [
   { json = "counts.races", equals = 4 },
   { json = "counts.sliders", equals = 115 },
   { json = "counts.presets", equals = 80 },
-  { json = "counts.facial_hair", equals = 32 },
+  { json = "counts.facial_hair", equals = 47 },
   { json = "races.?edid=Caucasian.male.hairs.#", equals = 18 },
   { json = "races.?edid=Caucasian.female.hairs.#", equals = 23 },
   { json = "races.?edid=Hispanic.male.eyes.#", equals = 4 },
@@ -6169,6 +6227,62 @@ expect = [
 forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
 
 [[scenario]]
+name = "vats-mode-aim-hold"
+source = "owner 2026-10-23: VATS mode works while aiming down the sights (scopes usable); a held right click aims, a tap still unmarks (docs/design/vats-mode.md §11.5)"
+note = "vats-mode-unmark's setup in first person: V at 10 s, one mark at 10.32; the right button goes down at 10.34 and is held 0.3 s of game time (6 s real at the 0.05 clock, past the 0.25 s tap) so the view zooms to the .357's sight FOV while marking; E at 10.42 with the button still down fires the mark, and the aim stays up through the shot: the zoom goes back only after it. Before 2026-10-23 the mode cleared aiming and no zoom came"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.34:mouse-right:0.3,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode, first person" },
+  { re = 'vats mode: marked .* mark 1;', label = "one mark, then the right button held" },
+  { re = 'aim zoom: WeapNV357Revolver \S+ sight FOV', label = "the held right click aims down the sights while marking" },
+  "vats mode: firing 1 marked shots",
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent', label = "the mark is fired" },
+  { re = 'aim zoom: back to the unzoomed view', label = "the aim stayed up through the shot and goes once the button is let go" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 1 marks, 1 shots, 26 AP spent', label = "one mark, one shot" },
+]
+forbid = [{ re = 'vats mode: unmarked', label = "a held right click is no unmark" }]
+
+[[scenario]]
+name = "vats-mode-third-person-hip"
+source = "owner 2026-10-23: in third person the VATS shots play the aiming clips for a target beyond 20 m and fire from the hip nearer, as the NPCs (docs/design/vats-mode.md §11.5, combat-ai.md §10.6)"
+note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357) in third person (view at 3 s): the dogs come at the player, so both marks are well within 20 m (1,400 units) and the shots leave from the hip"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode in third person" },
+  "vats mode: firing 2 marked shots",
+  { re = 'vats mode: third person, mark 1 (?P<n>\d+) units away: fires from the hip \(within 20 m\)', range = [0, 1400], label = "a near mark is shot from the hip in third person" },
+  { re = 'vats mode: off \(2 shots fired', label = "both marks fired" },
+]]
+forbid = [{ re = 'vats mode: third person, .* aims down the sights', label = "no sights for marks within 20 m" }]
+
+[[scenario]]
+name = "vats-mode-third-person-sights"
+source = "owner 2026-10-23: in third person the VATS shots play the aiming clips for a target beyond 20 m (docs/design/vats-mode.md §11.5, combat-ai.md §10.6)"
+note = "vats-mode-unmark's setup (the Goodsprings dogs on their packages, god mode, a .357) in third person (view at 3.2 s): V at 10 s, a dog marked at 10.32 (game time at the 0.05 clock), then at 10.38 the player is put about 2,000 units straight above the spot (GOTO z 6,500; the ground is about 4,290), so at E (10.42) the mark is beyond 20 m (1,400 units) and the shot is fired down the sights (the iron-sights clips). Earlier tries with a far target on the ground failed on the setup: aimvats after a GOTO found a Fiend guard dog 78 units off (hip fire, rightly), aimref finds no collision body for an actor, and Violet was out of sight from combat-sights' start"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_GOTO = "10.38:-45600:65000:6500", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode in third person, near the dogs" },
+  { re = 'vats mode: marked .* mark 1;', label = "a dog marked before the player is lifted" },
+  "vats mode: firing 1 marked shots",
+  { re = 'vats mode: third person, mark 1 (?P<n>\d+) units away: aims down the sights \(beyond 20 m\)', range = [1400, 6000], label = "a far mark is shot down the sights in third person" },
+  { re = 'vats mode: shot 1 of 1 at', label = "the mark is fired" },
+]]
+
+[[scenario]]
 name = "vats-mode-dof"
 source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode the view's depth of field is focused on the mark, what is beyond it blurred (fVATSDOFStrengthCap 0.6, fVATSDOFRange 500), faded with the mode's look"
 note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
@@ -6256,6 +6370,32 @@ expect = [
   { re = 'vats mode: [0-9A-F]{8} is flagged No VATS Melee: not marked with a melee weapon', label = "the melee mark on the turret is refused" },
 ]
 forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
+
+[[scenario]]
+name = "bean-bag-fatigue"
+source = "ESM audit low-impact list, Logic (docs/spec-notes/logic-fields.md §3): bean bag shells (AMEF AmmoEffectBeanBagFatigue, Fatigue Mod Add 250) take 250 fatigue a hit"
+note = "a gecko (NVCrGecko) placed at the player (GOD) at 3 s; the player shoots it with the hunting shotgun loaded with Ammo12GaBeanBag, the only 12 gauge carried"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/functions/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0", NVF_PLAY_TEST_EQUIP = "0008ED0B", NVF_PLAY_TEST_GIVE = "0013E446:20", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,10.1:fire,11.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat: 0x[0-9A-F]{8} loses 250 fatigue to the ammo', label = "a bean bag hit takes 250 fatigue" },
+]
+
+[[scenario]]
+name = "placed-weapon-ammo"
+source = "ESM audit low-impact list, World (docs/spec-notes/world-fields.md §1): the varmint rifle in Primm's sheriff station (REFR 0x000CDA0D, XAMT 5.56mm 0x00004240, XAMC 10) comes with its 10 rounds when taken by hand"
+areas = ["simulation", "activation"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.getitemcount 00004240;8.3:close;12:player.getitemcount 00004240;12.3:close", NVF_PLAY_TEST_SCRIPT = "9:activate:0x000CDA0D" }
+args = ["--cell", "PrimmSheriffStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'console: GetItemCount on .*>> 0\.00', label = "no 5.56mm rounds before" },
+  { re = 'console: GetItemCount on .*>> 10\.00', label = "the rifle's 10 rounds after taking it" },
+]
 
 [[scenario]]
 name = "blood-none-tumbleweed"

@@ -1057,7 +1057,7 @@ fn caravan_money_is_worth_its_absolute_value() {
 fn placed_mines_disarm_into_their_weapon() {
     let f = fixture();
     assert_eq!(f.forms.item(id(MINE)).unwrap().projectile, Some(id(MINE_PROJ)));
-    assert_eq!(f.forms.get(id(MINE_PROJ)).unwrap().data, BaseData::Projectile { item: Some(id(MINE)) });
+    assert_eq!(f.forms.get(id(MINE_PROJ)).unwrap().data, BaseData::Projectile { item: Some(id(MINE)), can_be_disabled: true });
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
     let p = FormId::PLAYER_REF;
     let Outcome::Disarmed { item, placed: Some(left) } = w.activate(p, id(MINE_REF)).unwrap().outcome else { panic!("not disarmed") };

@@ -8234,6 +8234,20 @@ Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10
   categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
   (*guess*).
 
+## Logic: the low-impact fields (2026-10-23, ESM audit low-impact list "Logic", branch claude/em12-logic)
+
+Bean bag shells now take 250 fatigue a hit (their ammo effect's Fatigue Mod), which can
+knock the target out; a script whose "Enabled" flag is clear does not run (one master
+script, on an unplaced gun-rack upgrade). Spec: [logic-fields](spec-notes/logic-fields.md).
+Decisions and guesses:
+
+- *Decision:* globals keep fractions whatever their type: GameHour, TimeScale and the
+  date globals are typed Short.
+- *Guess:* the fatigue is taken once a hit, from 0.
+- *Decision:* not built: repeated topics (the player's dialogue never removes a said
+  topic), Low/High Intelligence, the speech challenge roll, info order, log entries, MESG
+  Auto Display, the MGEF/SPEL/ENCH flags (reasons in the spec).
+- *Check:* does a bean bag knock a Powder Ganger down in one or two hits in the original?
 ## Actors: the low-impact fields (2026-10-23, ESM audit low-impact list "Actors", branch claude/em11-actors)
 
 Creatures flagged Not Pushable are not pushed aside; an actor flagged No Rotating To
@@ -8260,4 +8274,24 @@ it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
   the ammo abbreviation, ARMO's female ground model and BNAM, CSNO's deck backs and chips
   (item-fields.md gives each reason).
 - *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
+
+## Objects: the low-impact fields (2026-10-23, ESM audit low-impact list "Objects", branch claude/em14-objects)
+
+A placed explosive is disarmable only when its projectile has "Can Be Disabled"; every
+master mine has it, so nothing in the master changes (a mod's explosive without it shows
+no Disarm prompt). The audit's "ARMA not drawn" and "EXPL knockdown unused" were already
+built. Spec: [object-fields](spec-notes/object-fields.md).
+
+- *Decision:* "Can Be Picked Up" is not used: a disarmed mine is a loose item.
+- *Decision:* the rest (door, water, header, tree, explosion and impact flags) left with
+  reasons in the spec.
+## World: the low-impact fields (2026-10-23, ESM audit low-impact list "World", branch claude/em13-world)
+
+The three placed weapons that name their ammo (REFR XAMT/XAMC: the varmint rifle in
+Primm's sheriff station, a BB gun at Nellis, a 9mm at Bison Steve) come with it when taken
+by hand. Every other field of the sub-list is used by at most a few records or has no
+documented effect; the spec lists each. Spec: [world-fields](spec-notes/world-fields.md).
+
+- *Guess:* the ammo comes the first time the weapon is taken by hand.
+- *Check:* does picking up Primm's varmint rifle give 10 5.56mm rounds in the original?
 

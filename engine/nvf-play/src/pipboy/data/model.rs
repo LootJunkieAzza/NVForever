@@ -142,18 +142,14 @@ const ICONS: [&str; 15] = [
     "vault",
 ];
 
-/// The picture of a map marker of type `kind`: its type's icon once the player has been
-/// there, the "undiscovered" icon while it is only known; the inverted form under the
-/// highlight box [hypothesis: by the files' names in `interface\icons\world map\`;
-/// observed: the highlighted marker on the owner's Local Map screenshot is drawn
-/// filled; type 0 "None" takes the settlement's picture, design].
-pub fn marker_icon(kind: u8, discovered: bool, highlighted: bool) -> String {
+/// The picture of a map marker of type `kind`: its type's icon once it counts as
+/// discovered, the "undiscovered" icon while it is only known [hypothesis: by the files'
+/// names in `interface\icons\world map\`; type 0 "None" takes the settlement's picture,
+/// design]. The highlighted marker keeps its picture and is drawn larger and brighter
+/// (owner 2026-10-23: not the inverted files, which read as the undiscovered icon).
+pub fn marker_icon(kind: u8, discovered: bool) -> String {
     let name = if discovered { ICONS.get(kind as usize).copied().unwrap_or("settlement") } else { "undiscovered" };
-    if highlighted {
-        format!("interface\\icons\\world map\\inverted\\icon_map_{name}_inverted.dds")
-    } else {
-        format!("interface\\icons\\world map\\icon_map_{name}.dds")
-    }
+    format!("interface\\icons\\world map\\icon_map_{name}.dds")
 }
 
 /// Text from the plugins' Windows-1252 bytes, up to the first NUL.
@@ -235,10 +231,10 @@ mod tests {
 
     #[test]
     fn marker_pictures_follow_the_type() {
-        assert_eq!(marker_icon(14, true, false), "interface\\icons\\world map\\icon_map_vault.dds");
-        assert_eq!(marker_icon(3, false, false), "interface\\icons\\world map\\icon_map_undiscovered.dds");
-        assert_eq!(marker_icon(5, true, true), "interface\\icons\\world map\\inverted\\icon_map_cave_inverted.dds");
-        assert_eq!(marker_icon(99, true, false), "interface\\icons\\world map\\icon_map_settlement.dds");
+        assert_eq!(marker_icon(14, true), "interface\\icons\\world map\\icon_map_vault.dds");
+        assert_eq!(marker_icon(3, false), "interface\\icons\\world map\\icon_map_undiscovered.dds");
+        assert_eq!(marker_icon(5, true), "interface\\icons\\world map\\icon_map_cave.dds");
+        assert_eq!(marker_icon(99, true), "interface\\icons\\world map\\icon_map_settlement.dds");
     }
 
     #[test]

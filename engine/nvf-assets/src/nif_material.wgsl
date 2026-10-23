@@ -11,7 +11,9 @@
 // - a multiply-blended shape's colour is a factor on what lies behind it: summed in
 //   display values, held to 0..1, and neither fogged nor tonemapped;
 // - an additive shape adds about what it would add to display values: its alpha is
-//   raised to a power (`add_alpha`).
+//   raised to a power (`add_alpha`);
+// - an unlit alpha-blended shape (smoke, mist, dust, particles) puts about what it would
+//   put on display values: its colour term is colour × alpha^1.5 (`blend_colour_scale`).
 
 // Meshes in a crossfade (VisibilityRange; streamed cells fading in and out) are dithered
 // first, as Bevy's own PBR fragment does.
@@ -55,7 +57,7 @@
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
+    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler},
     pbr_bindings,
@@ -156,6 +158,16 @@ fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
 // and alpha^1.5 added as linear light comes near it in the Prospector Saloon.
 fn add_alpha(a: f32) -> f32 {
     return pow(saturate(a), 1.5);
+}
+
+// The factor on the colour of an unlit alpha-blended shape of alpha `a` (CPU mirror and
+// the reasons: nif_material.rs `blend_colour_scale`). Bevy's blend is colour × alpha +
+// behind × (1 − alpha) in linear light; the game's is the same sum in display values
+// [hypothesis], where light smoke over a dark room adds far less. Scaled by √alpha, the
+// colour term becomes colour × alpha^1.5, as for additive shapes; the share of what lies
+// behind is kept.
+fn blend_colour_scale(a: f32) -> f32 {
+    return sqrt(saturate(a));
 }
 
 #ifndef PREPASS_PIPELINE
@@ -353,6 +365,10 @@ fn fragment(
     }
 #endif
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+    let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+        out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
+    }
 #ifdef SOFT_EDGES
     out.color.a = edge;
 #endif

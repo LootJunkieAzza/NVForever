@@ -495,6 +495,38 @@ clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_ma
   rifle stays level. Whether the game's does is not known (owner-review.md).
   Reloading (`2hrreloada.kf`, spine at 65, no up or down form) straightens the body in
   ours for the same reason.
+- Down the sights while strafing [observed: `kf_pose_compare`, 2026-10-23]: `2hr` has no
+  side-step clips (`locomotion\2hrleft.kf` does not exist), so the unarmed
+  `locomotion\male\mtleft.kf` plays. It drives `Bip01 NonAccum` at 30, above
+  `2hraimis.kf`'s 26, and turns it 87.5° from the sights clip's pose (`mtright.kf` 2.7°,
+  `mtforward.kf` 2.7°, `mtbackward.kf` 0.1°), turning its head back by 88°. Sampled
+  (`fnvtool actor locomotion --samples 5`), `Bip01 NonAccum` stays at yaw 87.5–90.9° in
+  every move of `male\` and `female\` and in the weapons' own side-steps (`1hpleft`,
+  `1hpright`, `1hmleft`, `2hhleft`, `h2hleft`, `1hpfastleft`) but sits at 177.5° in
+  `male\mtleft.kf` and `female\mtleft.kf` and −168.6° to −179.4° in their
+  `mtfastleft.kf`: the unarmed walk left turns the whole body (`child\mtleft.kf` does
+  not). `Bip01 Spine` and `Bip01 Pelvis` both hang from `Bip01 NonAccum`, the thighs from
+  the pelvis [observed: `skeleton.nif` node tree]. With the sights clip's spine (50) over
+  that turned node, the body and rifle faced a quarter turn left of the view.
+- In the original, strafing left down the sights with a rifle, the body is yawed some
+  30–45° right of the view, knees bent, the legs stepping back across one another (the
+  owner: "almost like a backpedal"), the rifle on the crosshair [observed: the owner's
+  capture 2026-10-23, camera zoomed out]. Rendered in ours under `2hraimis.kf`,
+  `h2hleft.kf` and `1hpleft.kf` look like that; `mtleft.kf` (the body turned, then with
+  the body held square a forward stride) and `mtbackward.kf` (square) do not [observed:
+  screenshots, kept privately]. Both side-steps keep every track at priority 30, under
+  the rifle's aim arms (35) and sights clip (50).
+- Engine [hypothesis: which side-step the game takes is not known]: a weapon with no
+  walk left of its own walks left with `h2hleft.kf`
+  (`fnv_actor::player_clips::move_clips`; running left keeps `mtfastleft.kf`, which turns
+  the body the same way: not seen in the original yet). The first-person folder has no
+  `h2hleft.kf`, so the arms rig keeps `mtleft.kf`. Also, while down the sights in third
+  person, `player_body::keep_sights_facing` gives the nodes above `Bip01 Spine` the aim
+  clips' own rotation in place of the blend's, faded with the aim clips (2.7° with
+  `h2hleft.kf`; it keeps the rifle on the crosshair under `mtfastleft.kf`). Turning only
+  the spine back instead (the first try) wrung the skin at the waist a quarter turn,
+  and holding the body square over `mtleft.kf` (the second) made the legs walk forward
+  [observed: the owner's screenshots]. Smoke `third-person-sights-strafe`.
 
 ### 9.7 The `Weapon` node between clips [observed unless tagged]
 

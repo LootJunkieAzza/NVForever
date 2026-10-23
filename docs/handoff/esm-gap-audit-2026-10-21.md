@@ -162,14 +162,17 @@ Ignored unless noted:
   CNAM impact set; LNAM melee list. RACE skill boosts (non-zero in vanilla: unverified);
   XNAM relations; weight; FaceGen clamps. HAIR "Fixed". FACT ranks and titles, Hidden, and
   Allow Sell. BPTD to-hit chances and IK flags. The LVLI entry owner (COED) is dropped.
-- **Logic.** QUST "Allow repeated topics", "Compass Marker Ignores Locks", CNAM log
+- **Logic** (claude/em12-logic, [logic-fields](../spec-notes/logic-fields.md): built SCPT Enabled and
+  AMEF Fatigue Mod (the bean bag); GLOB type not built: the clock's globals are typed Short;
+  the rest left with reasons). Was: QUST "Allow repeated topics", "Compass Marker Ignores Locks", CNAM log
   entries. INFO PNAM/TPIC order (file order is used instead; matters for mods), and
   "Low/High Intelligence". The INFO speech challenge always passes (3 lines in the
   masters). DIAL INOM/INOA order (mods). The SCPT "Enabled" flag. GLOB FNAM type (Short
   and Long globals keep fractions). MESG "Auto Display" (hard-coded per message). The
   remaining MGEF flags (Painless, No Hit Effect, Gory Visuals: rated M). SPEL SPIT flags.
   ENCH ENIT flags. AMEF "Fatigue Mod".
-- **World.** WRLD parent-use flags (stored), ONAM map offset, NAM0/NAM9 bounds, LOD and
+- **World** (claude/em13-world, [world-fields](../spec-notes/world-fields.md): built REFR XAMT/XAMC,
+  the three placed weapons' ammo; the rest left with counts and reasons). Was: WRLD parent-use flags (stored), ONAM map offset, NAM0/NAM9 bounds, LOD and
   water flags. LAND DATA flags. LTEX friction, restitution and specular. CELL XCLC Hide
   Quad flags (rated L–M), IMPF material swaps, and XNAM noise. REFR XAMT/XAMC (rated L–M),
   XACT, XTRG, XCHG, WMI1 map-marker reputation (rated L–M), room, portal, multibound and
@@ -177,7 +180,9 @@ Ignored unless noted:
   only by fnvtool. NAVM edge cover is used only as yes or no per triangle.
   PMIS/PBEA/PFLA/PCBE are never simulated (none found in vanilla). LSCR "Displays In Main
   Menu" header bit (rated M–L). LSCT is not parsed.
-- **Objects.** Header bits Visible When Distant, On Local Map, Obstacle and Navmesh
+- **Objects** (claude/em14-objects, [object-fields](../spec-notes/object-fields.md): built PROJ Can Be
+  Disabled; ARMA addons (799e5a1c) and EXPL Knock Down were built before; the rest left with
+  counts and reasons). Was: Header bits Visible When Distant, On Local Map, Obstacle and Navmesh
   (LOD is pre-built and the local map is built from collision). ACTI "Dangerous" (rated
   L–M). DOOR "Hidden" and "Sliding" (rated L–M) and "Automatic". GRAS "Vertex Lighting".
   TREE seeds, leaf angles and shadow radius. PWAT reflection and refraction flags.

@@ -71,7 +71,11 @@ reader; full tables kept in the session notes, not in the repository).
 - **Beards (HDPT)**: 47 playable head parts, all beards and moustaches: 32 with a model
   (14 distinct meshes, some with another texture: "Survivalist", "Goatee", "Muttonstache",
   "Honest Abe", …), 15 "BeardMix" records without a model that list two or three others.
-  Head parts carry no sex or race; no female NPC wears a beard.
+  Head parts carry no sex or race; no female NPC wears a beard. The creator offers all 47:
+  a model-less part counts as a beard when every part it lists is one [observed:
+  BeardMix6a "Ronin" lists three beards]. Starting faces wear BeardMix records
+  (`CGPresetHispanicM03` wears "Ronin" [observed]); left out of the list, the Facial hair
+  row read "Clean shaven" and could not take such a beard off.
 - **Brows (HDPT)**: `EyebrowM` and `EyebrowF` are not flagged playable, yet the player's
   own record wears `EyebrowM`, and 1,203 NPCs wear one of them.
 - **Eyes (EYES)**: each playable race allows four: Blue, Dark Brown, Hazel

@@ -1514,7 +1514,13 @@ impl<'a> World<'a> {
                 return Ok(done(Outcome::NoDefault { sig: base.map(|b| String::from_utf8_lossy(&b.sig).into_owned()).unwrap_or_default() }, None));
             }
             let count = if scripted { t.count.min(1) } else { t.count };
+            // A placed weapon's own ammo (XAMT, XAMC) comes with it the first time it is
+            // taken by hand [hypothesis: the rounds in it; world-fields.md §1].
+            let ammo = (!scripted && !t.deleted).then(|| self.placed.get(target).and_then(|p| p.ammo)).flatten();
             self.inventory(actor)?.add_extra(t.base, count, t.extra);
+            if let Some((a, n)) = ammo {
+                self.inventory(actor)?.add(a, n);
+            }
             let s = self.get(target)?;
             s.deleted = true;
             if scripted {
@@ -1592,7 +1598,7 @@ impl<'a> World<'a> {
             // it you can then pick it up like any other loose item"; every mine needs
             // Explosives 1, so no skill check]. Its owner, unless the player, owns the
             // item [hypothesis].
-            BaseData::Projectile { item: Some(item) } => {
+            BaseData::Projectile { item: Some(item), .. } => {
                 let owner = self.placed.get(target).and_then(|p| p.owner);
                 let s = self.get(target)?;
                 s.deleted = true;
@@ -1601,7 +1607,7 @@ impl<'a> World<'a> {
                 self.get(placed)?.extra.owner = owner;
                 Outcome::Disarmed { item: *item, placed: Some(placed) }
             }
-            BaseData::Projectile { item: None } => Outcome::NoDefault { sig: "PROJ".into() },
+            BaseData::Projectile { item: None, .. } => Outcome::NoDefault { sig: "PROJ".into() },
         };
         Ok(done(outcome, unlocked_with))
     }

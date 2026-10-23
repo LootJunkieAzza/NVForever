@@ -2653,6 +2653,9 @@ impl<'a> Game<'a> {
     /// have its inventory accessed by the player until the actor gets up again"].
     pub fn default_activation(&mut self, actor: FormId, target: FormId, by_hand: bool) -> Result<serde_json::Value, String> {
         let base = functions::base_of(self, target);
+        // Where the player was, for whoever follows them through a door
+        // (`Game::bring_teammates`).
+        let from = self.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos));
         let pushed = self.knockout(target).is_some_and(|k| k.pushed && k.lying());
         let dead_actor = (self.extra.get(&target).is_some_and(|e| e.dead) || pushed)
             && base.and_then(|b| self.data.sig(b)).is_some_and(|s| &s == b"NPC_" || &s == b"CREA");
@@ -2679,7 +2682,7 @@ impl<'a> Game<'a> {
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
                 self.player_entered(cell);
-                self.bring_teammates();
+                self.bring_teammates(from);
             }
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
