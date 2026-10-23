@@ -140,6 +140,11 @@ pub struct Item {
     /// of `fnv.sim.items/1`.
     #[serde(skip)]
     pub not_for_npcs: bool,
+    /// A weapon thrown or laid rather than held: its animation type is one of
+    /// [`THROWN_ANIM_TYPES`]. An actor's own choice holds one only when it carries no other
+    /// weapon it can draw (docs/spec-notes/actors.md §9.3). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub thrown: bool,
     /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
     /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
     /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
@@ -552,7 +557,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         armor_dt: None,
                         weapon_damage: None,
                         weight_mods: [0.0; 3],
-                        drawable: false, not_for_npcs: false,
+                        drawable: false, not_for_npcs: false, thrown: false,
                         quest_item: quest_flag(schema, r),
                         icon: None,
                         placed_count: None,
@@ -771,6 +776,8 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         },
         not_for_npcs: kind == ItemKind::Weapon
             && first(d, b"DNAM").and_then(|v| v.get("flags2")).is_some_and(|f| has_flag(f, "Player Only") || has_flag(f, "Not Used In Normal Combat")),
+        thrown: kind == ItemKind::Weapon
+            && first(d, b"DNAM").and_then(|v| v.get("animation_type")).and_then(text).is_some_and(|a| THROWN_ANIM_TYPES.contains(&a.as_str())),
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
         money: match kind {

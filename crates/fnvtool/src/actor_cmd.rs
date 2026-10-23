@@ -138,6 +138,17 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             v["condition_function_names"] = json!(fn_names.len());
             Ok(v)
         }
+        ActorCmd::CreatureWeapons { lo: lo_args, schema: schema_dir, nif_schema } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_for_plugins(&lo_args.data_dir, &lo_args.plugins).with_context(|| lo_args.data_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let mut v = crate::actor_creature_weapons::report(&lo, &schema, &vfs, &nif);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            Ok(v)
+        }
         ActorCmd::Weapons { lo: lo_args, schema: schema_dir, nif_schema, folder } => {
             let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
             let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());

@@ -1549,6 +1549,20 @@ No NPC's own choice takes a weapon flagged Player Only or Not Used In Normal Com
     Machinegun (1) instead of a melee weapon or a lesser gun (most of them Boomers; Fiends
     with a rolled grenade rifle, Nellis's Jack and Raquel, Mags, Oscar Velasco, a Novac
     doctor's mercenary). Whether the original's Boomers fire these is not checked.
+- **A weapon held in the hands comes before a thrown one** (2026-10-24, owner's report
+  that a Dead Money ghost person showed no weapon; `fnv_actor::weapon::is_thrown`,
+  `fnv_sim::forms::Item::thrown`): a weapon whose animation type is Grenade Throw,
+  Thrown, Land Mine or Mine Drop is held only when the actor carries no other weapon it
+  can draw; among the rest the damage rule above decides [design: NPCs do not throw yet
+  (`npc_combat.rs` "Not built: throwing grenades"), so a thrown weapon as the weapon
+  drawn is never thrown; hypothesis that the original also closes in with the hand
+  weapon]. Ghost harvesters carry a spear (20–81) and throwing spears (35–145) and held
+  the throwing spear. What it changes (`fnvtool actor weapons`, the ten masters,
+  2026-10-24 [observed]): 115 of 3,942 placed NPCs draw another weapon, Thrown (1 Hand)
+  falls from 123 to 8 (those carry nothing else): 43 Honest Hearts tribals the poisoned
+  cleaver and 15 the war club instead of a tomahawk or poisoned throwing spear; Legion
+  soldiers the machete (26), a gun (27) or another hand weapon instead of a throwing
+  spear; one Old World Blues actor the Proton Inversal Axe instead of its thrown form.
 - Type → prefix (`AnimType::prefix`). The ESM gives only the type (DNAM); no field names
   the clips, so the link is read from two kinds of evidence in the data [observed,
   2026-10-09]:
@@ -1969,6 +1983,70 @@ widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
   cyberdog's cap comes out as red glass by the same rule and the military one, unlit,
   as yellow glass (not looked at in the engine). The caps' emissive colours are keyed
   (a 4 s pulse) and their environment map is not drawn: both are open.
+
+### 10.6 Weapons creatures carry (audit 2026-10-24)
+
+Owner's request 2026-10-23: super mutants were found not to take up their weapons
+(playtest list 7 item 39, `engine/nvforever/src/outfits.rs` "Creatures' weapons"); a
+Dead Money ghost person showed no weapon; audit every creature.
+
+- **The tool.** `fnvtool actor creature-weapons <Data> <plugins…> --schema <dir>
+  [--nif-schema <dir>]` → `fnv.actor.creature_weapons/1`. For every creature base a
+  placed creature (ACRE, not deleted) stands for: the ends of its template chain for
+  Model/Animation (skeletons) and for Inventory (whose CNTO it carries), through every
+  entry of every leveled creature list on the way, and every item its carried entries
+  can give, leveled item lists followed through all entries (so every possible pick,
+  not one roll). For each skeleton and each weapon: `status` `drawable` (a model, not
+  "Embedded Weapon", not Player Only / Not Used In Normal Combat, a known animation
+  type, the skeleton folder has that type's stance with a `holster` or `aim` clip
+  (`<folder>\<prefix><clip>.kf`, the engine's `weapons::Stance::load`), the skeleton has
+  a `Weapon` node, the model file exists); `embedded (part of the body)`; `not for
+  NPCs`; `no model`; `no animation type`; `carried only: no stance in the skeleton
+  folder`; `carried only: the skeleton has no Weapon node`; `model file missing`.
+  Top level: `schema`, `summary` {`bases`, `placed`, `weapon_rows_by_status`,
+  `placed_by_status` (each row counted once per placed reference of its base),
+  `by_kind_and_folder` {"<type> | <folder>": {status: placed}} (`no weapon` for
+  bases carrying none), `not_drawn` [{`group`, `weapons`}]}, `creatures` [{`base`,
+  `edid`, `placed`, `inventory_sources`, `inventory_source_is_actor`, `skeletons`
+  [{`skeleton`, `kind`, `weapon_node`, `weapons` [{`weapon`, `edid`, `anim_type`,
+  `prefix`, `model`, `embedded`, `not_for_npcs`, `damage`, `stance_clips`, `status`}]}]}],
+  `load_order`. Smoke scenario `creature-weapons-audit`.
+- **What it found** (the ten masters, owner's install [observed]): 805 bases, 3,739
+  placed creatures; 909 (base, skeleton, weapon) rows: 560 part of the body (claws,
+  bites, robots' built-in guns), 313 drawable, 24 carried only, 2 with no model.
+  - Drawable weapons belong to three skeleton folders only, the only creature folders
+    placed creatures use that have people's weapon stances: super mutants and nightkin
+    (`creatures\smspinebreaker`: rebar club, sledgehammers, nail board, bumper sword,
+    miniguns, incinerators, LMG, assault carbine, hunting rifle, missile launcher,
+    Fat Man, grenades), ghost people (`nvdlc01\creatures\ghosts`: spears `2hm`,
+    throwing spears and gas bombs `1gt`, bear-trap fists `h2h`) and aliens
+    (`dlc05\creatureslien`: alien blasters). Every one has its stance and a `Weapon`
+    node.
+  - Carried only, as in the original [hypothesis: these creatures' folders have no
+    stance for them, so they are loot]: pack and dead caravan brahmin (caravan goods),
+    the Old World Blues robot bosses' unique weapons (Saturnite Fist, Proton axes),
+    the LAER of Gabe, the sentry bot and turret bosses, mines and C4 in super
+    mutants' leveled lists (`1lm`/`1md`: no folder has those stances; held only if
+    nothing else were carried, which never happens), and the ghost seekers'
+    `NVDLC01weapgasbomb` (Mine Drop) beside their gas grenade. A creature whose
+    weapon has no stance fights with its own attack (`npc_combat` reads the weapon
+    drawn, `HeldWeapon`), so these change nothing.
+  - `creatures
+vvoid` rows are the "void" creature of spawn lists (VSpawn…50: a
+    leveled creature list whose other entry is nothing drawn) crossed with the other
+    entry's inventory: one placed reference stands for one pick, so not a gap.
+  - Many creature folders have stances for their own body weapons (eyebots, dogs,
+    radscorpions `1hp`; geckos, mirelurks `2hl`; sentry bots, securitrons, turrets);
+    these are "Embedded Weapon" records and are not drawn as models.
+- **The gap found: thrown weapons won the weapon choice.** Ghost harvesters (spear and
+  throwing spears) held the throwing spear, which is hidden while holstered and is
+  never thrown (NPCs do not throw yet), so they showed no weapon. Fixed by holding a
+  hand weapon first (§9.3). Checked in game by the smoke scenarios
+  `ghost-people-armed` (harvesters and a seeker take up their spears in
+  NVDLC01stealthTest and fight with them) and `ghost-trapper-armed` (a lobby trapper
+  wears its bear-trap fist).
+- Not built: throwing (grenades, throwing spears, gas bombs) by NPCs and creatures,
+  and switching between a thrown and a hand weapon by range.
 
 ## 11. Actors not enabled at the start
 

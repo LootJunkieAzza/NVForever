@@ -27,7 +27,8 @@
 //! `1gt` and `h2h` (equip, aim, attack, reload clips) but no `1hm` or `1hp`
 //! [observed: `Fallout - Meshes.bsa` listing, 2026-10-23]. A creature now draws the weapon
 //! the rules have it hold (`fnv_sim::World::equipment`: the drawable weapon with the
-//! highest damage among what it carries, as for NPCs) whenever its skeleton folder has
+//! highest damage among what it carries, a hand weapon before a thrown one, as for NPCs;
+//! docs/spec-notes/actors.md §9.3, §10.6 for every creature) whenever its skeleton folder has
 //! that weapon's stance, as an NPC's (`actors::arm_weapon`: holstered, drawn when
 //! alerted, its attack and reload clips from its own folder, `attack_anims.rs`), and
 //! fights with it (`npc_combat`: a creature with a weapon drawn swings or fires it, as
