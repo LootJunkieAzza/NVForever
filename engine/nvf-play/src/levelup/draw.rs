@@ -9,12 +9,9 @@ use crate::chargen::lists::{marker, MAIN, ROW_H};
 use crate::interface::{amber, at};
 use bevy::prelude::*;
 
-/// The dark picture behind: 1144 × 1070, 50 left of and 125 above the rectangle.
-const BEHIND: [f32; 4] = [-50.0, -125.0, 1144.0, 1070.0];
-/// How dark it makes the world: the character menus' darkness
-/// (`crate::interface::TOP_MENU_SHADE`; the original also blurs the world behind, not
-/// built).
-const SHADE: f32 = crate::interface::TOP_MENU_SHADE;
+/// The files' dark picture behind (1144 × 1070, 50 left of and 125 above the rectangle)
+/// is replaced by the whole screen darkened ([`crate::interface::top_menu_backing`]; the
+/// original also blurs the world behind, not built).
 /// The headline: a line 50 long, the title 20 after it and 10 above the line; the lines
 /// fading down from its ends 60 long (vertical_fade_line.xml).
 const HEAD_LINE: f32 = 50.0;
@@ -76,11 +73,6 @@ const PLUS_PIC: [&str; 2] = ["interface\\shared\\arrow\\adjust_increase.dds", "i
 pub fn spawn(root: &mut ChildSpawnerCommands, v: &View, c: &mut Ctx) {
     let bright = amber(255.0);
     root.spawn(Node { width: crate::interface::u(MAIN.x), height: crate::interface::u(MAIN.y), ..default() }).with_children(|p| {
-        let [bx, by, bw, bh] = BEHIND;
-        let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
-        if c.image(p, "interface\\shared\\background\\solid_black.dds", at(bx, by, bw, bh), shade, ()).is_none() {
-            p.spawn((at(bx, by, bw, bh), BackgroundColor(shade)));
-        }
         c.line(p, 0.0, 0.0, HEAD_LINE, THICK, bright);
         c.fade(p, 0.0, 0.0, HEAD_CORNER, false, bright);
         let w = c.text(p, Which::Title, &v.title, TITLE_X, TITLE_Y, Align::Left, bright);

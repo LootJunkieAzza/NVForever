@@ -312,6 +312,7 @@ impl Ctx<'_> {
 }
 
 /// Spawn the menu under `root`. `note`: the line under the menu.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, info: Option<&Info>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let mut c = Ctx { kit, data, images, bc };
     let bright = amber(255.0);

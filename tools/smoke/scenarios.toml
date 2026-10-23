@@ -1527,7 +1527,7 @@ note = "as the barter scenario: the caps are given at the start (see its note)"
 source = "playtest list 7 items 7 and 25 (docs/spec-notes/barter-menu.md §2, fnv_sim::forms::Item::money): the barter from Chet's dialogue with a 10mm Pistol (Weap10mmPistol 0000434F) and three Legion Denarii (the caravan money record MoneyLegion1 00176AC4, Absolute Value 4) given to the player: the coins have a price, and the selected pistol shows the Pip-Boy's figures (DAM, DPS, STR, CND, ammunition) beside its weight and value"
 areas = ["barter", "menus"]
 paths = ["engine/nvf-play/src/menu/look.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-sim/src/forms.rs"]
-env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0000000F:100,0000434F:1,00176AC4:3" }
+env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0000000F:100,0000434F:1,00176AC4:3", NVF_PLAY_TEST_SHOT = "barter_figures.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
 run_seconds = 50
 expect = [

@@ -7807,9 +7807,10 @@ Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
 - **2 Menus on top, darker**. *Decision:* the tag-skill, trait, name, level-up, recipe
   and repair-services menus stack at 107 (over messages, HUD, dialogue, Pip-Boy and
   terminals; under message boxes, tutorial, pause menu, console, loading screen) and
-  darken the world to 0.93 black like the barter menu. The recipe and repair sheets were
-  the files' faint 32/255 before. *Check:* the dark box edges of the recipe and repair
-  menus on a wide screen; whether a corner message should still show over a level-up.
+  darken the whole screen to 0.93 black (the barter menu's darkness), so a corner message
+  beside them is covered too. The recipe and repair sheets were the files' faint 32/255
+  box before, the character menus' 0.75 picture box. *Check:* is 0.93 too dark (the world
+  is barely seen); should corner messages wait until the menu closes instead?
 - **7 Currency value**. The NCR notes and Legion coins in the world are CMNY records whose
   DATA "Absolute Value" (2, 8, 40, 4, 100; mangled 2) matches the MISC records' Value;
   they now count at it in barter, the Pip-Boy, the crosshair and the inventory value,

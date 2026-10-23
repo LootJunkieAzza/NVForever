@@ -38,6 +38,12 @@ pub const TOP_MENU_Z: i32 = 107;
 /// through the text].
 pub const TOP_MENU_SHADE: f32 = 0.93;
 
+/// The sheet those menus spread over the whole screen, on their root node: nothing of the
+/// world or of the HUD's messages shows beside them either.
+pub fn top_menu_backing() -> BackgroundColor {
+    BackgroundColor(Color::BLACK.with_alpha(TOP_MENU_SHADE))
+}
+
 /// The menu files' shared fill: `_background_fill_alpha`, 32 of 255 [documented:
 /// globals.xml]. The sheets the recipe and repair-services menus spread behind themselves
 /// (`RM_Background`, `RSM_Background`) take it; at this strength their edge cannot be seen

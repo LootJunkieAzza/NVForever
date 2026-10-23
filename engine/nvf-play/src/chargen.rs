@@ -564,7 +564,7 @@ fn draw_menus(
         align_items: AlignItems::Center,
         ..default()
     };
-    commands.spawn((root, GlobalZIndex(crate::interface::TOP_MENU_Z), ChargenRoot)).with_children(|r| match &view {
+    commands.spawn((root, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing(), ChargenRoot)).with_children(|r| match &view {
         View::Name(m) => name::spawn(r, m, &mut c),
         View::List(v) => lists::spawn(r, v, &mut c),
     });
