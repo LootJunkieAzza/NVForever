@@ -118,6 +118,13 @@ pub struct WeaponStats {
     pub on_hit: Option<String>,
     /// Shots per second of an automatic weapon.
     pub fire_rate: f32,
+    /// DNAM Reload Time and Jam Time, seconds (0: unset) [documented: xEdit WEAP]
+    /// (docs/spec-notes/item-fields.md §1).
+    pub reload_time: f32,
+    pub jam_time: f32,
+    /// DNAM rumble: left and right motor strength (0 to 1) and duration (seconds), when
+    /// any is set [documented: xEdit WEAP "Rumble - Left Motor Strength" …].
+    pub rumble: Option<(f32, f32, f32)>,
     pub attack_shots_per_sec: f32,
     /// Set only when the "Override - Action Points" flag is.
     pub action_points: Option<f32>,
@@ -926,6 +933,9 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         max_range: f(dn, "max_range"),
         on_hit: label(dn.and_then(|v| v.get("on_hit"))),
         fire_rate: f(dn, "fire_rate"),
+        reload_time: f(dn, "reload_time"),
+        jam_time: f(dn, "jam_time"),
+        rumble: Some((f(dn, "rumble_left_motor_strength"), f(dn, "rumble_right_motor_strength"), f(dn, "rumble_duration"))).filter(|r| r.0 > 0.0 || r.1 > 0.0 || r.2 > 0.0),
         attack_shots_per_sec: f(dn, "attack_shots_per_sec"),
         action_points: f2("Override - Action Points").then(|| f(dn, "override_action_points")),
         damage_to_weapon_mult: f2("Override - Damage to Weapon Mult").then(|| f(dn, "override_damage_to_weapon_mult")),

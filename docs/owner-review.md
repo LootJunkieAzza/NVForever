@@ -8128,3 +8128,18 @@ Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10
 - **33 Skill books on Aid**. Books that teach a skill are listed on the Aid tab (barter
   categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
   (*guess*).
+
+## Items: the low-impact fields (2026-10-23, ESM audit low-impact list "Items", branch claude/em10-items)
+
+The first shot after a reload of a weapon flagged No Jam After Reload cannot jam; a jam
+without a jam clip lasts the weapon's Jam Time; a shot rumbles the pad by the weapon's own
+rumble fields (128 weapons) instead of its weight; the one MISC with a looping sound plays
+it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
+
+- *Guess:* "No Jam After Reload" spares the first shot after a reload.
+- *Guess:* the left rumble motor is the strong (low) one.
+- *Decision:* not built: burst lengths, the iron-sights animation flags, Hide Backpack,
+  the ammo abbreviation, ARMO's female ground model and BNAM, CSNO's deck backs and chips
+  (item-fields.md gives each reason).
+- *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
+
