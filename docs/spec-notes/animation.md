@@ -495,6 +495,19 @@ clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_ma
   rifle stays level. Whether the game's does is not known (owner-review.md).
   Reloading (`2hrreloada.kf`, spine at 65, no up or down form) straightens the body in
   ours for the same reason.
+- Down the sights while strafing [observed: `kf_pose_compare`, 2026-10-23]: `2hr` has no
+  side-step clips (`locomotion\2hrleft.kf` does not exist), so the unarmed
+  `locomotion\male\mtleft.kf` plays. It drives `Bip01 NonAccum` at 30, above
+  `2hraimis.kf`'s 26, and turns it 87.5° from the sights clip's pose (`mtright.kf` 2.7°,
+  `mtforward.kf` 2.7°, `mtbackward.kf` 0.1°), turning its head back by 88°. `Bip01
+  Spine` hangs from `Bip01 NonAccum` beside `Bip01 Pelvis` (the thighs hang from the
+  pelvis) [observed: `skeleton.nif` node tree]. With the sights clip's spine (50) over
+  that turned node, the upper body and rifle faced a quarter turn left of the view.
+  Engine [design; the game's way is not known]: while down the sights in third person,
+  `player_body::keep_sights_facing` turns the spine by the difference between its
+  parents' pose under the aim clips alone and the blended pose, so the upper body faces
+  as the sights clip faces it and the legs keep the side-step (smoke
+  `third-person-sights-strafe`).
 
 ### 9.7 The `Weapon` node between clips [observed unless tagged]
 
