@@ -8275,6 +8275,16 @@ it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
   (item-fields.md gives each reason).
 - *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
 
+## Objects: the low-impact fields (2026-10-23, ESM audit low-impact list "Objects", branch claude/em14-objects)
+
+A placed explosive is disarmable only when its projectile has "Can Be Disabled"; every
+master mine has it, so nothing in the master changes (a mod's explosive without it shows
+no Disarm prompt). The audit's "ARMA not drawn" and "EXPL knockdown unused" were already
+built. Spec: [object-fields](spec-notes/object-fields.md).
+
+- *Decision:* "Can Be Picked Up" is not used: a disarmed mine is a loose item.
+- *Decision:* the rest (door, water, header, tree, explosion and impact flags) left with
+  reasons in the spec.
 ## World: the low-impact fields (2026-10-23, ESM audit low-impact list "World", branch claude/em13-world)
 
 The three placed weapons that name their ammo (REFR XAMT/XAMC: the varmint rifle in

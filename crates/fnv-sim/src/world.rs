@@ -1598,7 +1598,7 @@ impl<'a> World<'a> {
             // it you can then pick it up like any other loose item"; every mine needs
             // Explosives 1, so no skill check]. Its owner, unless the player, owns the
             // item [hypothesis].
-            BaseData::Projectile { item: Some(item) } => {
+            BaseData::Projectile { item: Some(item), .. } => {
                 let owner = self.placed.get(target).and_then(|p| p.owner);
                 let s = self.get(target)?;
                 s.deleted = true;
@@ -1607,7 +1607,7 @@ impl<'a> World<'a> {
                 self.get(placed)?.extra.owner = owner;
                 Outcome::Disarmed { item: *item, placed: Some(placed) }
             }
-            BaseData::Projectile { item: None } => Outcome::NoDefault { sig: "PROJ".into() },
+            BaseData::Projectile { item: None, .. } => Outcome::NoDefault { sig: "PROJ".into() },
         };
         Ok(done(outcome, unlocked_with))
     }

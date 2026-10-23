@@ -180,7 +180,9 @@ Ignored unless noted:
   only by fnvtool. NAVM edge cover is used only as yes or no per triangle.
   PMIS/PBEA/PFLA/PCBE are never simulated (none found in vanilla). LSCR "Displays In Main
   Menu" header bit (rated M–L). LSCT is not parsed.
-- **Objects.** Header bits Visible When Distant, On Local Map, Obstacle and Navmesh
+- **Objects** (claude/em14-objects, [object-fields](../spec-notes/object-fields.md): built PROJ Can Be
+  Disabled; ARMA addons (799e5a1c) and EXPL Knock Down were built before; the rest left with
+  counts and reasons). Was: Header bits Visible When Distant, On Local Map, Obstacle and Navmesh
   (LOD is pre-built and the local map is built from collision). ACTI "Dangerous" (rated
   L–M). DOOR "Hidden" and "Sliding" (rated L–M) and "Automatic". GRAS "Vertex Lighting".
   TREE seeds, leaf angles and shadow radius. PWAT reflection and refraction flags.
