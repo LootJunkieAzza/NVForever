@@ -641,10 +641,31 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
   understood]. NVWastelandClearNight has no clouds (`sky\alpha.dds` on layers 1-3) and a
   darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
-- **Star texture alpha** [observed]: `SkyStars.dds` (512², DXT5) has colour in 6,225
-  texels but non-zero alpha in only ~430, and its shader property sets the
-  alpha-texture flag. The owner's in-game night shots show sparse, faint stars, so the
-  renderer weights star colour by texture alpha (additive) [hypothesis].
+- **Star domes** (2026-10-23). The data [observed, `fnvtool nif decode`, BSA extracts]:
+  both domes are the same 16-unit sphere (434 vertices, UVs −1..3 × −2..2), NiAlphaProperty
+  0x1001 (blend ONE/ONE, so the blend itself ignores alpha), SkyShaderProperty sky object
+  type 5. Mojave `Sky\Stars.nif`: `SkyStars.dds` 512² DXT5, colour in 21,309 texels
+  (6,225 above 15), alpha in only 436, every one of them with colour 192-255; shader
+  flags 0x80000100 (Alpha_Texture); emissive × 1. Big MT `NVDLC02\sky\stars.nif`:
+  `Skystars.dds` 1024² DXT1, alpha 255 in every texel, colour in 112,126 texels (4,028
+  at 224+); flags 0x80000000; emissive × 10. Both weathers' night "stars" colour is about
+  white (Big MT 245, 251, 254). On a 1280 × 720 frame at FOV 75 (~14.6 pixels a degree)
+  the Mojave dome has ~12 texels a degree, the Big MT's ~24 (so mip filtering halves its
+  single-texel stars).
+  The original [observed: own captures, clear Mojave night 23:00 at −70500, 1200,
+  `C:\fnv-private\references\stars\game`; Big MT 22:00, `references\owb\game`]: the
+  Mojave sky shows ~19 stars per 10⁴ pixels (peaks p50 39, p90 69, max 143 grey); the
+  Big MT ~76-91 (p50 39-54, p90 75-126, max 110). Rule [hypothesis]: a dome adds its
+  texture colour × the weather's stars colour × `STAR_STRENGTH` (0.25), weighted by
+  texture alpha only where the shader flags set Alpha_Texture; the emissive multiplier is
+  not used (× 10 would saturate every coloured texel). With alpha weighting the Mojave
+  star count matches the original at any strength; 0.25 fits the Mojave's peaks
+  (40, 76, 130). It leaves the Big MT's stars about 1.7 × the original's (p90 126 vs 75),
+  the same factor as our Big MT night background (24, 24, 50 vs 15, 13, 27), so the rest
+  is the grade (owb-comparison F6), not the stars. Which part of the original's pipeline
+  the 0.25 stands for is not known. Our night sky background is also lighter than the
+  original's in the Mojave (10, 10, 17 vs 0, 0, 3) and does not change with the star
+  strength [observed].
 - **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
   `INAM` names the worldspace's image space (IMGS); WTHR `\x00IAD`..`\x05IAD` name one
   image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
