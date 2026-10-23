@@ -162,7 +162,9 @@ Ignored unless noted:
   CNAM impact set; LNAM melee list. RACE skill boosts (non-zero in vanilla: unverified);
   XNAM relations; weight; FaceGen clamps. HAIR "Fixed". FACT ranks and titles, Hidden, and
   Allow Sell. BPTD to-hit chances and IK flags. The LVLI entry owner (COED) is dropped.
-- **Logic.** QUST "Allow repeated topics", "Compass Marker Ignores Locks", CNAM log
+- **Logic** (claude/em12-logic, [logic-fields](../spec-notes/logic-fields.md): built SCPT Enabled and
+  AMEF Fatigue Mod (the bean bag); GLOB type not built: the clock's globals are typed Short;
+  the rest left with reasons). Was: QUST "Allow repeated topics", "Compass Marker Ignores Locks", CNAM log
   entries. INFO PNAM/TPIC order (file order is used instead; matters for mods), and
   "Low/High Intelligence". The INFO speech challenge always passes (3 lines in the
   masters). DIAL INOM/INOA order (mods). The SCPT "Enabled" flag. GLOB FNAM type (Short

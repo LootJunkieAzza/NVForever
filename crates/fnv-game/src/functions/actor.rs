@@ -332,6 +332,18 @@ pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// Rads and Hardcore's needs grow the other way: damage raises them, restoring lowers
 /// them, never below 0 [hypothesis: as their aid effects, aid-items.md §3; the Cannibal
 /// perk's script restores Hunger 50 with the health it gives].
+/// Take `amount` from `actor`'s Fatigue, as DamageAV Fatigue does: at 0 it is knocked
+/// out (an ammo effect's Fatigue Mod, logic-fields.md §3; [`Game::damage_fatigue`]).
+pub(crate) fn damage_fatigue(g: &mut Game, actor: FormId, amount: f64) {
+    if amount <= 0.0 {
+        return;
+    }
+    let code = crate::actor_values::FATIGUE;
+    let d = damage(g, actor, code) + amount;
+    set_damage(g, actor, code, d);
+    g.fatigue_changed(actor);
+}
+
 pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;

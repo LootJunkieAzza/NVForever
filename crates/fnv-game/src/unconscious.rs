@@ -304,6 +304,11 @@ impl Game<'_> {
         self.extra.get_mut(&r).and_then(|e| e.knocked_out.as_mut()).and_then(|k| k.shove.take())
     }
 
+    /// Take `amount` from `r`'s Fatigue as DamageAV does (an ammo effect's Fatigue Mod).
+    pub fn damage_fatigue(&mut self, r: FormId, amount: f64) {
+        crate::functions::actor::damage_fatigue(self, r, amount);
+    }
+
     /// The actor's Fatigue was lowered: at 0 or less it is knocked out (cause fatigue).
     pub fn fatigue_changed(&mut self, r: FormId) {
         if self.knockout(r).is_some() || r == FormId::PLAYER_REF || self.is_dead(r) {
