@@ -7484,9 +7484,10 @@ name = "environment-radiation"
 source = "docs/spec-notes/radiation.md §2-§6: the player in the nuclear test site's shack (SLNuclearTestShackINT), inside the radius of its radiation marker (ref 00154611, 15 rads a second within 2000 units): the level, the rads taken after Rad Resistance, the Geiger counter's strongest burst, radiation sickness once the rads pass 200, and the run's summary"
 areas = ["radiation", "aid", "hud", "sound"]
 paths = ["crates/fnv-game/src/radiation.rs", "engine/nvf-play/src/radiation.rs", "crates/fnv-game/src/needs.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "24:radiation_meter.png" }
 args = ["--cell", "SLNuclearTestShackINT", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
+manual = "radiation_meter.png: the meter at the top right, its bracket the mirror of the corner messages' at the top left, +n RADS under the notches and the pointer's tip just under them at the rads taken (past the first long notch, 200, by then)"
 expect = [
   { re = 'radiation: level 15\.0 rads/s \(marker 0x00154611 15\.0\), taking 1\d\.\d\d/s \(Rad Resistance \d+ %\)', label = "the marker's whole level, cut by Rad Resistance" },
   { re = 'geiger: UIPipBoyRadiationC \(level 15\.0\)', label = "the counter's strongest burst" },

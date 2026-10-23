@@ -15,8 +15,11 @@
 //! - **Meter** ([`draw`]): `RadiationMeter` of `menus\main\hud_main_menu.xml` while rads
 //!   are taken: the rads a second (`radiation_text_value`, font 8, right-justified at x
 //!   237) and "RADS" (`radiation_text`, font 7, from x 245), in the HUD's alternative
-//!   colour (`&hudalt;`) [documented: the menu file; hypothesis: the texts, the word, and
-//!   the place: the file leaves it to the code, set here just above the health piece].
+//!   colour (`&hudalt;`), and the pointer (`radiation_pointer`) under the bracket's notches
+//!   at the player's rads, 0 at the left end to 1000 at the right [documented: the menu
+//!   file; hypothesis: the texts, the word, the pointer's scale]. The meter stands at the
+//!   top right, the mirror of the corner messages' bracket at the top left [owner,
+//!   2026-10-23].
 //! - **Explosion zones**: `crate::combat` leaves them when an explosion with radiation
 //!   goes off (`Game::add_radiation_zone`); here they are logged as they fade away.
 //! - Logged: `radiation: level <l> rads/s (<source>), taking <r>/s (Rad Resistance
@@ -69,9 +72,12 @@ const PIECE: Vec2 = Vec2::new(367.0, 60.0);
 const BRACKET_PATH: &str = "textures\\interface\\hud\\glow_messages_radiation_seperator_right.dds";
 const BRACKET_AT: f32 = -135.0;
 const BRACKET: Vec2 = Vec2::new(567.0, 120.0);
+const POINTER_PATH: &str = "textures\\interface\\hud\\glow_messages_radiation_seperator_arrow.dds";
+const POINTER: Vec2 = Vec2::new(46.0, 24.0);
+const POINTER_Y: f32 = 25.0;
 const VALUE_END: f32 = 237.0;
 const WORD_X: f32 = 245.0;
-const TEXT_TOP: f32 = 65.0;
+// The texts' y in the file, 65, is replaced by `BASE` below.
 const VALUE_FONT: &str = "textures\\fonts\\glow_futura_caps_large.fnt";
 const WORD_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
@@ -79,13 +85,42 @@ const WORD_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
 /// The word [hypothesis: `sStatsRADAbbrev` is set by no master].
 const WORD: &str = "RADS";
-/// The meter's place: the health piece's left margin, its bottom just over the piece
-/// (`hud.rs`: 30 from the bottom, 127 high).
-const LEFT: f32 = 40.0;
-const BOTTOM: f32 = 160.0;
-/// The texts' line, from the piece's top (the file's y 65 is taken as the top of the
-/// text, the font's base about 28 below it).
-const BASE: f32 = TEXT_TOP - 10.0;
+/// The bracket picture (512 x 128, drawn 567 x 120): its line across at rows 12–16, its
+/// upright at columns 494–499, and sixteen notches hanging from the line every 20 columns
+/// from 173 to 473, the ends slanted, the long ones at 233, 293, 353 and 413 [observed: the
+/// texture]. In the piece's units: the line's middle 13.6 under the top, the upright's
+/// middle at x 414.8, the end notches at x 57.1 and 388.3.
+const NOTCHES: (f32, f32) = (57.1, 388.3);
+/// The rads at the right end: five parts of 200 between the long notches, the sickness
+/// stages' steps (200 to 800, death at 1000) [hypothesis].
+pub const FULL_RADS: f64 = 1000.0;
+/// The pointer picture (64 x 32, drawn 46 x 24) has its triangle's tip at row 8, its middle
+/// at column 32: 6 under the picture's top (just under the notches), 23 from its left
+/// [observed: the texture].
+const POINTER_MIDDLE: f32 = 23.0;
+/// The meter's place, the mirror of the corner messages' bracket (`corner_messages.rs`:
+/// its line across 47 under the view's top, its upright 57 from the left edge [observed:
+/// the atlas's picture as drawn there]): the piece's top 33.5 under the view's top, its
+/// right edge 105 from the view's right edge (the bracket reaches past it, the upright
+/// 57 from the edge).
+const TOP: f32 = 33.5;
+const RIGHT: f32 = 105.1;
+/// Where the pointer picture stands for the player's rads.
+pub fn pointer_x(rads: f64) -> f32 {
+    let f = (rads / FULL_RADS).clamp(0.0, 1.0) as f32;
+    NOTCHES.0 + (NOTCHES.1 - NOTCHES.0) * f - POINTER_MIDDLE
+}
+
+/// The texts stand lower and further right than the file's x and y [owner, 2026-10-23:
+/// "lower and to the right against the bracket but not interfering with the notches"]:
+/// "RADS" ends just inside the upright (its middle at x 414.8, its glow from about 410;
+/// the letters' glow reaches about 10 past their width),
+/// the value before it with the file's gap (245 - 237); their line is 88 under the
+/// piece's top, so the value's capitals (about 36 high) start under the pointer's
+/// lowest place (y 49), clear of the notches (to y 28).
+const WORD_END: f32 = 396.0;
+const GAP: f32 = WORD_X - VALUE_END;
+const BASE: f32 = 88.0;
 
 /// What the last level line named: the marker, the zone's explosion, the water, and
 /// the level in tenths.
@@ -255,9 +290,12 @@ fn geiger(
 struct MeterRoot;
 #[derive(Component)]
 struct Texts;
+#[derive(Component)]
+struct Pointer;
 
 struct Kit {
     bracket: Option<Handle<Image>>,
+    pointer: Option<Handle<Image>>,
     value: Face,
     word: Face,
 }
@@ -268,6 +306,7 @@ fn draw(
     mut commands: Commands,
     view: Res<HudView>,
     script: Option<Res<ScriptState>>,
+    log: Res<RadLog>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -275,6 +314,7 @@ fn draw(
     mut shown: Local<Option<String>>,
     mut root: Query<&mut Visibility, With<MeterRoot>>,
     texts: Query<Entity, With<Texts>>,
+    mut pointer: Query<&mut Node, With<Pointer>>,
 ) {
     let rate = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(0.0, |rt| rt.game.radiation().rate);
     let on = view.shown && rate > 0.0;
@@ -286,6 +326,7 @@ fn draw(
         let d = data.as_deref();
         let loaded = Kit {
             bracket: d.and_then(|d| texture(BRACKET_PATH, d, &mut images, bc)).map(|t| t.0),
+            pointer: d.and_then(|d| texture(POINTER_PATH, d, &mut images, bc)).map(|t| t.0),
             value: face(VALUE_FONT, plain_font(52.0, 22.0), d, &mut images, bc),
             word: face(WORD_FONT, plain_font(36.0, 15.0), d, &mut images, bc),
         };
@@ -300,6 +341,12 @@ fn draw(
     if !on {
         return;
     }
+    let left = u(pointer_x(log.rads));
+    for mut n in &mut pointer {
+        if n.left != left {
+            n.left = left;
+        }
+    }
     let Some(kit) = kit.as_ref() else { return };
     // Whole rads a second, at least 1 while any are taken [hypothesis].
     let value = format!("+{}", rate.round().max(1.0) as i64);
@@ -309,22 +356,37 @@ fn draw(
     let Ok(e) = texts.single() else { return };
     let colour = crime_colour();
     commands.entity(e).despawn_related::<Children>().with_children(|p| {
-        if let Some(l) = kit.value.font.lines(&value, None).into_iter().next() {
-            let x = VALUE_END - l.width;
-            set_text(p, &kit.value, &Set { line: l, x, base: BASE }, Vec2::ZERO, colour, ());
-        }
+        // Right to left from the upright: the word, then the value.
+        let mut end = WORD_END;
         if let Some(l) = kit.word.font.lines(WORD, None).into_iter().next() {
-            set_text(p, &kit.word, &Set { line: l, x: WORD_X, base: BASE }, Vec2::ZERO, colour, ());
+            end -= l.width;
+            set_text(p, &kit.word, &Set { line: l, x: end, base: BASE }, Vec2::ZERO, colour, ());
+        }
+        if let Some(l) = kit.value.font.lines(&value, None).into_iter().next() {
+            let x = end - GAP - l.width;
+            set_text(p, &kit.value, &Set { line: l, x, base: BASE }, Vec2::ZERO, colour, ());
         }
     });
     *shown = Some(value);
 }
 
 fn spawn(commands: &mut Commands, kit: &Kit) {
-    let piece = Node { position_type: PositionType::Absolute, left: u(LEFT), bottom: u(BOTTOM), width: u(PIECE.x), height: u(PIECE.y), ..default() };
+    let piece = Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(TOP), width: u(PIECE.x), height: u(PIECE.y), ..default() };
     commands.spawn((MeterRoot, piece, Visibility::Hidden, Pickable::IGNORE)).with_children(|p| {
         if let Some(image) = &kit.bracket {
-            p.spawn((at(BRACKET_AT, 0.0, BRACKET.x, BRACKET.y), ImageNode { color: crime_colour(), ..ImageNode::new(image.clone()) }));
+            p.spawn((at(BRACKET_AT, 0.0, BRACKET.x, BRACKET.y), ImageNode { color: crime_colour(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
+        }
+        let place = at(pointer_x(0.0), POINTER_Y, POINTER.x, POINTER.y);
+        match &kit.pointer {
+            Some(image) => {
+                p.spawn((Pointer, place, ImageNode { color: crime_colour(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
+            }
+            None => {
+                // Without the picture: a small block where the triangle would be.
+                p.spawn((Pointer, place)).with_children(|b| {
+                    b.spawn((at(POINTER_MIDDLE - 6.0, 6.0, 12.0, 10.0), BackgroundColor(crime_colour())));
+                });
+            }
         }
         p.spawn((Texts, at(0.0, 0.0, PIECE.x, PIECE.y)));
     });
@@ -360,5 +422,17 @@ mod tests {
         assert_eq!(band(5.0), 2);
         assert_eq!(band(10.0), 3);
         assert_eq!(band(720.0), 3);
+    }
+
+    #[test]
+    fn the_pointer_runs_from_the_first_notch_to_the_last() {
+        let tip = |rads| pointer_x(rads) + POINTER_MIDDLE;
+        assert!((tip(0.0) - NOTCHES.0).abs() < 1e-3);
+        assert!((tip(1000.0) - NOTCHES.1).abs() < 1e-3);
+        assert_eq!(pointer_x(-5.0), pointer_x(0.0));
+        assert_eq!(pointer_x(1500.0), pointer_x(1000.0));
+        // 200 rads: the first long notch (column 233 of the picture, 567/512 to the unit,
+        // the picture 135 left of the piece).
+        assert!((tip(200.0) - (233.0 * 567.0 / 512.0 - 135.0)).abs() < 0.5);
     }
 }
