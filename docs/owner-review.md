@@ -7789,6 +7789,48 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
 
+## Frame rate: mantis egg and REPCONN (2026-10-23, list 7 W8)
+
+Measurements, causes and what is left: [frame-rate-audit](design/frame-rate-audit.md).
+
+**Item 4, the Goodsprings schoolhouse's mantis egg.** Breaking it places 24 nymphs (12 at
+each of its two destruction stages), all at the egg's centre against the lockers; their
+characters started inside the egg and each other and the character controller ran out
+its iterations every step: about one frame a second.
+- *Decision:* an actor a script creates (PlaceAtMe) first stands on the nearest free floor
+  spot near where it was put: not on the object that made it, at most 24 units above it,
+  with room for a person (else a 12 × 40 capsule), in sight of it, 32 units from other
+  actors; rings out to 384 units. The game's own rule is only "it lands near the caller".
+  All guessed: 24, 32, 384, 12 × 40.
+- *Decision:* at most 64 one-shot sound effects at once and 8 of one sound; more are not
+  started (24 nymphs started 130 footsteps a second and the mixer fell behind). Both
+  numbers guessed; interface sounds are not limited.
+- *Decision:* a corpse still tumbling 3 s after it fell (or after a hit or blast moved it)
+  is held still where it lies. The nymphs die at the player's feet (their script kills one
+  within 50 units: stepped on) and their 23 corpses made a heap that never settled and
+  cost 0.2–0.45 s a frame. 3 s is a guess.
+- *Check:* break the egg (shoot it): do the nymphs come out round it rather than in a heap
+  on it, and does any appear somewhere odd (behind a locker, across the room)? With many
+  creatures walking, do footsteps sound too thin (the voice limit)? Does any corpse
+  anywhere freeze in mid-fall (a long tumble down stairs or off a ledge, a body thrown by
+  an explosion)?
+
+**Item 47, REPCONN test site.** The facility floor (`RocketLabMid`) holds about 4,200
+meshes with one material each; the render thread's work drawing them one by one is
+about 15 ms a frame, the GPU's 3–7 ms. Awake ghouls add 5–12 ms.
+- *Decision:* interiors now draw only the rooms seen through portals, as the original's
+  renderer does (room markers and portals, documented in level-design.md §3.1). Every
+  mesh touching a room (grown by 32 units, guessed) belongs to it; with the camera
+  outside every room everything is drawn; actors, dropped items, lights and effects are
+  never culled. Pictures with and without it were the same at two places; it hides a
+  third to two thirds of the meshes there, but the frame time did not measurably change
+  on the busy machine. `--no-room-culling` turns it off.
+- *Not done:* sharing materials between models (or bindless materials) so meshes can be
+  drawn instanced: the likely real gain, a renderer change of its own.
+- *Check:* walk the REPCONN facility and other interiors (Vault 3, the Lucky 38): does
+  anything vanish or pop in at doorways or corners (a room or portal read wrong)? If so,
+  note where; `--no-room-culling` shows whether the culling is to blame. Is the facility
+  smoother than before for you?
 ## Combat AI: playtest list 7 items 12, 13, 36, 39, 40, 43, 45 (2026-10-23, list 7 W4)
 
 Branch `claude/l7-combat-ai`; details in docs/design/combat-ai.md §18.

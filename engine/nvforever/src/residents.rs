@@ -906,6 +906,34 @@ impl Core {
         }
     }
 
+    /// Actors scripts created since the last frame first stand on a free spot near where
+    /// they were put, not inside the object that made them or each other
+    /// (`nvf_play::created_spots`; playtest list 7 item 4).
+    fn spread_created(&mut self, game: &mut Game, phys: &mut nvf_play::phys::PhysState) {
+        let new: Vec<FormId> = game.created_actors().into_iter().filter(|id| !self.known.contains(&id.0)).collect();
+        let refs = game.world.placed;
+        for (id, how) in nvf_play::created_spots::place(&mut game.world, refs, phys, &new) {
+            match how {
+                nvf_play::created_spots::Placement::Kept => {}
+                nvf_play::created_spots::Placement::Moved { from, to } => info!(
+                    "ai [{}] {} {id}: created at ({:.0}, {:.0}, {:.0}), stands at ({:.0}, {:.0}, {:.0}), {:.0} units away (the nearest free spot)",
+                    self.clock_text,
+                    game.data.name(game.world.peek(id).map_or(id, |s| s.base)),
+                    from[0],
+                    from[1],
+                    from[2],
+                    to[0],
+                    to[1],
+                    to[2],
+                    (from[0] - to[0]).hypot(from[1] - to[1])
+                ),
+                nvf_play::created_spots::Placement::NoSpot => {
+                    info!("ai [{}] {id}: created where no free spot is near: left where it was put", self.clock_text)
+                }
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn add_resident(&mut self, id: FormId, base: u32, creature: bool, scale: f32, pos: [f32; 3], label: String, named: bool) {
         if !self.known.insert(id.0) {
@@ -1700,6 +1728,9 @@ pub fn drive(
                 let mut phys = phys;
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
                 if all {
+                    if let Some(p) = phys.as_deref_mut() {
+                        core.spread_created(&mut rt.game, p);
+                    }
                     core.take_created(&rt.game);
                 }
                 core.process_levels(&rt.game, world_ref, streamer_ref);
