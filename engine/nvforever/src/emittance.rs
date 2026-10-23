@@ -28,7 +28,8 @@ pub struct EmittancePlugin;
 
 impl Plugin for EmittancePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EmittanceState>().add_systems(Update, update_emittance.after(crate::sky::update_sky));
+        app.init_resource::<EmittanceState>()
+            .add_systems(Update, (script_drawn_emittance, update_emittance.after(crate::sky::update_sky)).chain());
     }
 }
 
@@ -100,6 +101,28 @@ impl EmittanceState {
     pub fn light(&mut self, world: &WorldData, xemi: u32, color: LinearRgba) -> Option<LightEmittance> {
         self.hour = None;
         self.source(world, xemi).then_some(LightEmittance { source: xemi, color })
+    }
+}
+
+/// Shapes drawn by scripts (`nvf_play::script_draw`) whose colour an emittance source
+/// drives get their driven material copy, as streamed references do (world.rs).
+fn script_drawn_emittance(
+    mut commands: Commands,
+    world: Option<Res<WorldData>>,
+    mut state: ResMut<EmittanceState>,
+    mut materials: ResMut<Assets<NifMaterial>>,
+    mut shapes: Query<(Entity, &mut MeshMaterial3d<NifMaterial>, &nvf_play::script_draw::WantsEmittance)>,
+    mut logged: Local<std::collections::HashSet<u32>>,
+) {
+    let Some(world) = world else { return };
+    for (e, mut m, w) in &mut shapes {
+        if let Some(copy) = state.material(&world, &mut materials, &m.0, w.0) {
+            m.0 = copy;
+            if logged.insert(w.0) {
+                info!("emittance: shapes drawn by scripts take source {:#010x}", w.0);
+            }
+        }
+        commands.entity(e).remove::<nvf_play::script_draw::WantsEmittance>();
     }
 }
 
