@@ -580,8 +580,20 @@ impl Game<'_> {
         self.is_ghost(target) && self.hostile_to(detector, target)
     }
 
-    /// [`Game::would_attack`] without the ghost rule.
+    /// [`Game::would_attack`] without the ghost rule; kept for the rest of a detection
+    /// round while one runs ([`Game::begin_detection_round`]).
     fn hostile_to(&mut self, actor: FormId, other: FormId) -> bool {
+        if let Some(&h) = self.detection_round.as_ref().and_then(|r| r.hostile.as_ref()?.get(&(actor, other))) {
+            return h;
+        }
+        let h = self.hostile_to_now(actor, other);
+        if let Some(kept) = self.detection_round.as_mut().and_then(|r| r.hostile.as_mut()) {
+            kept.insert((actor, other), h);
+        }
+        h
+    }
+
+    fn hostile_to_now(&mut self, actor: FormId, other: FormId) -> bool {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
             return false;
         }
