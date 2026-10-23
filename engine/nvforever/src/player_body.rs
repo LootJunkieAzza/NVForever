@@ -102,6 +102,7 @@ const TAG_TURN: u32 = 20;
 const TAG_JUMP: u32 = 30;
 const TAG_LAND: u32 = 31;
 const TAG_AIM: u32 = 40; // + 0 level, + 1 up, + 2 down
+const TAG_GRIP: u32 = 45;
 const TAG_HOLSTER: u32 = 50;
 const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
@@ -290,6 +291,8 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
+    /// The weapon's hand grip clip (`1lmhandgrip1.kf`).
+    Grip(&'static str),
 }
 
 impl ClipKey {
@@ -316,6 +319,7 @@ impl ClipKey {
             ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
+            ClipKey::Grip(p) => vec![format!("{p}handgrip1.kf")],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -376,6 +380,8 @@ struct WeaponPart {
     /// Whether it hangs from a bone of its own (the minigun's backpack) rather than
     /// from the `Weapon` node.
     on_bone: bool,
+    /// Never shown: a mine's lit light while the mine is a held weapon.
+    never: bool,
     /// The visibility last written to the entity.
     shown: Option<bool>,
 }
@@ -537,6 +543,7 @@ impl Rig {
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Grip(_)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
@@ -967,6 +974,8 @@ fn ensure_body(
                 let bones = models.node_strings(&path, "UPB");
                 let skel = rig.animator.skel.clone();
                 let in_hand = m.hands.in_hand;
+                // A mine's lit light shows only on a live mine, never in the hand.
+                let mine = matches!(m.prefix, "1lm" | "1md");
                 // The model's nodes keep their tree and their names, so the clips can
                 // move its parts [observed: the clips' tracks on `##Slide`, `##Clip`,
                 // `##MinigunBarrel` name nodes of the weapon models; animation.md §9.8].
@@ -1002,7 +1011,8 @@ fn ensure_body(
                     }
                     let tags: Vec<(String, bool)> =
                         s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
-                    let shown = tags.is_empty() || in_hand;
+                    let never = mine && nvf_play::mines::lit_part(s.name.as_deref(), &s.ancestors);
+                    let shown = !never && (tags.is_empty() || in_hand);
                     let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
                     // On a bone of its own the shape keeps its place in the whole model;
                     // else it sits under its node, which the clips may move.
@@ -1029,7 +1039,7 @@ fn ensure_body(
                     if let (None, Some(name)) = (bone, &s.name) {
                         extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
                     }
-                    rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
+                    rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), never, shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
                 rig.seen = None;
@@ -1249,6 +1259,13 @@ struct Posed<'a> {
     sights: Option<(f32, Vec3)>,
 }
 
+/// The turn and offset (in the hand's frame, game units) a Land Mine weapon is given in
+/// the first-person hand over what its clips say [observed: fitted to the game's frames of
+/// the frag mine, docs/spec-notes/animation.md §9.11].
+fn land_mine_grip() -> (Quat, Vec3) {
+    (Quat::from_rotation_x(240f32.to_radians()), Vec3::new(4.4, -3.9, 4.5))
+}
+
 /// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
 /// eye (game space): the camera node in first person, between the eyes in third. With
 /// it, in first person while an idle drives the camera node, the node's rotation (game
@@ -1366,6 +1383,16 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 }
                 if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, f.aiming)) {
                     want.push((c, TAG_AIM + i as u32, w, Mode::Loop));
+                }
+            }
+            // A Land Mine weapon is held with its hand grip clip over the aim: it puts the
+            // left hand out of view and the right thumb over the mine's rim [observed: the
+            // game's first-person frames of the frag mine (owner 2026-10-23), which show no
+            // left hand; `1lmhandgrip1.kf` is the type's only grip clip; hypothesis: the
+            // game plays it for the weapon's default grip].
+            if f.prefix == "1lm" {
+                if let Some(c) = rig.clip(ctx, ClipKey::Grip(f.prefix)) {
+                    want.push((c, TAG_GRIP, 1.0, Mode::Loop));
                 }
             }
         }
@@ -1507,6 +1534,18 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
     }
     a.pose();
+    // A Land Mine weapon sits turned in the first-person hand: the clips leave the frag
+    // mine on its edge, underside to the view, where the game shows its top tilted back
+    // with the handle in the hand [observed: the game's first-person frames (owner
+    // 2026-10-23); our pose of `1lmaim.kf` matches NifSkope's; the turn and offset are
+    // fitted to those frames, the game's own rule is unknown; animation.md §9.11].
+    if rig.view == View::First && f.prefix == "1lm" {
+        if let Some(w) = rig.weapon_node {
+            let (turn, offset) = land_mine_grip();
+            a.locals[w].rotation = turn * a.locals[w].rotation;
+            a.locals[w].translation = turn * a.locals[w].translation + offset;
+        }
+    }
     // Each time the weapon comes to rest in the hand, the parts it holds away from their
     // place in the model (the 9mm pistol's cocked hammer; smoke `weapon-parts-rest`).
     let busy = |t: u32| t == TAG_EQUIP || t == TAG_RELOAD || (TAG_ATTACK..TAG_ATTACK + 3).contains(&t);
@@ -2196,7 +2235,7 @@ fn drive_body(
                     *on = v;
                 }
             }
-            let shown = p.tags.iter().all(|(_, on)| *on);
+            let shown = !p.never && p.tags.iter().all(|(_, on)| *on);
             if p.shown != Some(shown) {
                 if let Ok(mut v) = visibility.get_mut(p.entity) {
                     *v = if shown { Visibility::Inherited } else { Visibility::Hidden };

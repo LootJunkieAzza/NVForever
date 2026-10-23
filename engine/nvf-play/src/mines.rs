@@ -254,6 +254,13 @@ impl MineLight {
     }
 }
 
+/// Whether a model shape is part of a mine's lit light (`##LightOn`: the glow and the lit
+/// lens), by its name and its parents' names. A mine in the hand shows its dark lens only
+/// [observed: the game's first-person frames of the frag mine, owner 2026-10-23].
+pub fn lit_part(name: Option<&str>, ancestors: &[String]) -> bool {
+    MineLight::of(name, ancestors).is_some_and(|l| l.on)
+}
+
 /// The light group a node name opens: `##LightOn…` lit, `##LightOff…` dark.
 fn light_group(name: &str) -> Option<bool> {
     let n = name.to_ascii_lowercase();

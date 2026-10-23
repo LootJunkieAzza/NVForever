@@ -886,6 +886,40 @@ Measured with `kf_pose_compare` (`KF_TRACK=Weapon` prints the `Weapon` track eve
   clip's), and the weapon changes bones at `Attach` / `Detach` (`ClipFacts::switch`),
   for NPCs as for the player body (`player_clips::HandEvent`).
 
+### 9.11 The Land Mine weapons in the first-person hand [observed unless tagged]
+
+Sources: the owner's first-person frames of the frag mine (WEAP 0x0000433C, animation
+type 11 "Land Mine") drawn in the original game, level and looking down (2026-10-23, kept
+privately in `C:\fnv-private\references\mines`); `_1stperson\1lmaim.kf`, `1lmequip.kf`,
+`1lmhandgrip1.kf`; NifSkope 2.0 Dev 7 playing `1lmaim.kf` on `_1stperson\skeleton.nif`
+with `minefrag.nif` under `Weapon`.
+
+- In the game the mine's ringed top faces up and back towards the view, tilted back
+  about 40–50°, with its wire handle at the right in the hand and the thumb over the
+  rim; the left hand is not in view. Only the dark lens (`##LightOff:0`) shows: no glow
+  (`##Glow:0`) and no lit lens (`##LightOn:0`), which a live placed mine shows
+  (combat-rules.md §11a).
+- The clips alone leave the mine on its edge, underside to the view, handle up: NVForever
+  posed `1lmaim.kf` bone for bone as the file says (every arm bone's rotation checked
+  against the track values), and NifSkope shows the same. The `Weapon` track of every
+  `1lm` clip holds the pistol's rotation (about 88° about the hand's x axis, as in
+  `1hpaim.kf` and the skeleton's own `Weapon` node); what turns `1lm` apart is the hand,
+  which `1lmaim.kf` rolls about 90° from the pistol's.
+- `1lmhandgrip1.kf` (the type's only grip clip) drives no right-arm bone: it poses the
+  left arm (priority 45, as the aim), the fingers and thumbs (56) and `Weapon` (45, the
+  aim's value). Played over the aim it takes the left hand out of view and puts the right
+  thumb over the rim, as in the game's frames. The frag mine's WEAP hand grip is the
+  default (DNAM byte 13 = 0xFF) [hypothesis: the default grip plays `handgrip1` where the
+  stance has one; not checked for the grenades' `1gthandgrip1–3`].
+- The turn the game adds is not in any file read here [hypothesis: an engine rule for
+  these weapons]. NVForever turns the `Weapon` node 240° about the hand's x axis and
+  moves it (4.4, −3.9, 4.5) in the hand's frame (`player_body::land_mine_grip`): fitted
+  by eye to the level frame, where the lens lands within about 30 pixels of the game's at
+  1280×720. Not matched: looking down, the game's mine rises towards the middle of the
+  view while ours stays where it is (the arms rig turns with the view, §9.5).
+- The plasma (0x433D), pulse (0x433E) and powder charge (0x109A0B) mines are also
+  "Land Mine" and get the same; they were not compared with the game.
+
 ### 9.5 The first-person rig [observed unless tagged]
 
 - `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder
