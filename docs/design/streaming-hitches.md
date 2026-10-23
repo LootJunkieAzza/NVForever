@@ -351,7 +351,9 @@ world met it at 0.0 ten times in a row, 2026-10-23]. The same walk crossed any o
 on the line the same way, 1 unit a ray. Now the walk leaves out each actor it meets and
 casts again from the start, up to `PAST_ACTORS` actors (`detection::walk_past_actors`);
 `clear_sight` callers outside detection (the combat AI's cover and line-of-fire checks)
-get the same fix.
+get the same fix: their cover tests from an NPC's eyes had all come out "seen", and
+`combat-cover` passes again (it failed 4 of 4 runs before). A plain run of the battle after
+the fix: mean 35.9 ms, 1 % low 208 ms; Legion 48 dead, NCR 8; cover taken 49 times.
 
 The same battle with the sight check, after the fix [observed:
 target/stress/battle/own-check, private]: 3.8 million lines, 5.6 million rays (11.3
