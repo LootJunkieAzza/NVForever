@@ -87,6 +87,19 @@ pub struct CharacterParams {
 /// jumped as high; a crouched height is not captured).
 pub const HEIGHT: f32 = 128.9;
 
+/// A dynamic body heavier than this (its Havok mass, as the model stores it) is not
+/// pushed by a character walking into it: the character stops at it as at a wall
+/// [design: the cars (MSTT `Car01`–`Car03`, Havok mass 600–1000) and the motorcycles
+/// (600) do not move when the game's player runs into them, owner's playtest lists 5
+/// item 59 and 7 item 37; what the game's character does to a heavy body is not captured;
+/// the clutter the `pc_push` capture pushed weighs a few units; physics.md §6.10].
+/// Shots, explosions and grabs still move such a body.
+pub const PUSH_MAX_MASS: f32 = 250.0;
+
+/// The collision and solver group of the characters' kinematic bodies: bodies heavier
+/// than [`PUSH_MAX_MASS`] leave it out of their filters (`PhysWorld::insert_ref`).
+pub(crate) const CHARACTER_SOLVER: Group = Group::GROUP_32;
+
 impl Default for CharacterParams {
     /// Placeholders sized for a human at 70 units per metre (physics.md §6), except the
     /// jump height, measured in game (§6.3).
@@ -312,7 +325,8 @@ impl PhysWorld {
         };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
-        self.w.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()), Some(body));
+        let groups = InteractionGroups::new(CHARACTER_SOLVER, Group::ALL, InteractionTestMode::And);
+        self.w.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()).collision_groups(groups).solver_groups(groups), Some(body));
         c.body = body;
         self.mark_dirty();
         c
@@ -624,6 +638,15 @@ impl PhysWorld {
                     c.gap = gap;
                 }
             }
+        }
+        // Bodies heavier than `PUSH_MAX_MASS` do not give way to a character (the
+        // cars, physics.md §6.10).
+        {
+            let w = &self.w;
+            collisions.retain(|h| {
+                let body = w.colliders.get(h.handle).and_then(|col| col.parent()).and_then(|b| w.bodies.get(b));
+                body.is_none_or(|b| !b.is_dynamic() || b.mass() <= PUSH_MAX_MASS)
+            });
         }
         if c.params.push_mass > 0.0 && !collisions.is_empty() {
             let w = &mut self.w;
