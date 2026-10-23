@@ -2793,6 +2793,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "pipboy-tmm-discovered"
+source = "owner request 2026-10-23: ShowAllMapMarkers 1 (tmm 1, travel on) draws every marker with its own type icon, as discovered; without travel they keep the undiscovered icon (script-stubs-2-play)"
+areas = ["scripts", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 20
+order = [[
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows \d+ of \d+ markers of this worldspace, (\d+) as discovered', range = [100, 100000], label = "pipboy data: tmm 1 draws the markers as discovered (100 or more)" },
+]]
+
+[[scenario]]
 name = "effect-shaders"
 source = "docs/spec-notes/effect-shaders.md: PlayMagicShaderVisuals draws NightkinCloakFXShader on Sunny until StopMagicShaderVisuals and effectAlienDisintegration for 2 s, which ends by itself; SetActorAlpha 0.5 and back to 1 (the test aid call:); frames at 9 s (shaders) and 14 s (alpha) in target/smoke"
 areas = ["scripts", "effect-shaders"]
