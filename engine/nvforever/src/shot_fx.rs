@@ -473,8 +473,7 @@ fn flash(
         // The flash's light: the LIGH's colour, brightness and radius.
         let light = p.muzzle_flash_light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
-            let lin = l.color.map(fnv_world::sky::srgb_to_linear);
-            let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+            let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
             commands.entity(holder).with_child((PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() }, Transform::IDENTITY));
             fx.lights += 1;
@@ -730,8 +729,7 @@ fn explosions(
         }
         let light = x.light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
-            let lin = l.color.map(fnv_world::sky::srgb_to_linear);
-            let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+            let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
             // Above the point, so the ground it went off on is lit [design].
             commands.spawn((

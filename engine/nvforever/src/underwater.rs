@@ -63,15 +63,16 @@ pub fn underwater_fog(
         return;
     };
     *was_under = true;
-    // The light a diffuse surface facing the sun receives, in the shader's output units
-    // (light × exposure; Lambert's 1/π for the sun).
+    // The light a diffuse surface facing the sun receives: the display-value sum of the
+    // sun and the ambient light (lights.rs `DISPLAY_HELPERS`; light × exposure, Lambert's
+    // 1/π for the sun), raised to the display gamma.
     let exposure = exposure.copied().unwrap_or_default().exposure();
     let light = sun
         .single()
         .map(|s| linear(s.color) * s.illuminance / std::f32::consts::PI)
         .unwrap_or(Vec3::ZERO)
         + linear(ambient.color) * ambient.brightness;
-    let deep = Vec3::from_array(w.deep.map(srgb_to_linear)) * light * exposure;
+    let deep = Vec3::from_array(w.deep.map(srgb_to_linear)) * (light * exposure).max(Vec3::ZERO).powf(2.2);
     let [near, far, _amount] = w.under_fog;
     fog.color = Color::LinearRgba(LinearRgba::rgb(deep.x, deep.y, deep.z));
     fog.falloff = FogFalloff::Linear { start: near, end: far.max(near + 1.0) };

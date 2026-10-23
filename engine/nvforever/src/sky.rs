@@ -121,6 +121,14 @@ pub const DEFAULT_SHADOW_DISTANCE: f32 = 8_000.0;
 /// The sun's shadow cascades by default (see [`DEFAULT_SHADOW_DISTANCE`]).
 pub const DEFAULT_SHADOW_CASCADES: usize = 3;
 
+/// The share of the ambient colour (display values) in the display-value lighting sum
+/// (lights.rs `DISPLAY_HELPERS`, world.md §8 "Light on surfaces in display values")
+/// [fitted].
+pub const AMBIENT_SHARE: f32 = 0.697;
+/// The share of the sun's (or an interior's directional) colour in that sum, before the
+/// Sunlight Dimmer's scale [fitted].
+pub const SUN_SHARE: f32 = 1.0;
+
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
 /// treated as texture × (ambient + sunlight · N·L) in display units [hypothesis], so the
@@ -1536,8 +1544,9 @@ pub fn update_sky(
             t.scale = Vec3::ZERO;
         }
         clear.0 = c(l.fog_color);
-        ambient.color = c(l.ambient);
-        ambient.brightness = unit;
+        let shown = |v: [u8; 3]| v.map(|b| b as f32 / 255.0);
+        ambient.color = crate::lights::display_ambient(shown(l.ambient));
+        ambient.brightness = unit * AMBIENT_SHARE * crate::lights::light_fit().ambient;
         if let Ok((mut light, mut t)) = sun.single_mut() {
             // XCLL directional rotation: xy = azimuth about z, z = elevation, in degrees
             // [hypothesis].
@@ -1545,8 +1554,8 @@ pub fn update_sky(
             let from_game = Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin());
             let from = game_to_bevy().rotation * from_game;
             *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-            light.color = c(l.directional);
-            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0);
+            light.color = crate::lights::display_color(shown(l.directional));
+            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * SUN_SHARE * crate::lights::light_fit().sun;
         }
         fog.color = c(l.fog_color);
         fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
@@ -1607,16 +1616,16 @@ pub fn update_sky(
         // the weather's night "sunlight") [hypothesis].
         let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
         *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-        light.color = to_color(sunlight);
+        light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
         // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
         // switch between the two does not flip shadows at full strength [interim].
         // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
         // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale();
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * SUN_SHARE * crate::lights::light_fit().sun;
     }
     let amb = sky.color(ColorType::Ambient);
-    ambient.color = to_color([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z]);
-    ambient.brightness = unit;
+    ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
+    ambient.brightness = unit * AMBIENT_SHARE * crate::lights::light_fit().ambient;
 
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());

@@ -55,10 +55,12 @@ pub struct EmittanceState {
 
 enum Source {
     Weather(Box<Weather>),
-    Color(LinearRgba),
+    /// A light's colour × fade, linear (for materials) and as display values (for lights).
+    Color(LinearRgba, LinearRgba),
 }
 
-/// A light whose colour an emittance source scales.
+/// A light whose colour (display values, lights.rs `display_color`) an emittance source
+/// scales.
 #[derive(Component)]
 pub struct LightEmittance {
     pub source: u32,
@@ -73,7 +75,8 @@ impl EmittanceState {
                 Emittance::Weather(w) => weather(world.lo, world.schema, w).map(|w| Source::Weather(Box::new(w))),
                 Emittance::Light { color: c, fade } => {
                     let f = fade.max(0.0);
-                    Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f)))
+                    let shown = c.map(|b| b as f32 / 255.0 * f);
+                    Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f), LinearRgba::rgb(shown[0], shown[1], shown[2])))
                 }
             })
             .is_some()
@@ -126,14 +129,17 @@ fn script_drawn_emittance(
     }
 }
 
-/// The emittance colour of a source at the sky's hour (linear).
-fn color(source: &Source, sky: &SkyState) -> LinearRgba {
+/// The emittance colour of a source at the sky's hour: linear, and as display values for
+/// lights (a light's colour × fade, as the display-value lighting sum takes a light's,
+/// world.md §8) [hypothesis].
+fn color(source: &Source, sky: &SkyState) -> (LinearRgba, LinearRgba) {
     match source {
         Source::Weather(w) => {
             let c = w.color(&sky.climate, ColorType::Sunlight, sky.hour);
-            LinearRgba::rgb(c[0], c[1], c[2])
+            let d = c.map(crate::lights::linear_to_display);
+            (LinearRgba::rgb(c[0], c[1], c[2]), LinearRgba::rgb(d[0], d[1], d[2]))
         }
-        Source::Color(c) => *c,
+        Source::Color(c, d) => (*c, *d),
     }
 }
 
@@ -153,10 +159,10 @@ fn update_emittance(
         return;
     }
     state.hour = Some(sky.hour);
-    let colors: HashMap<u32, LinearRgba> =
+    let colors: HashMap<u32, (LinearRgba, LinearRgba)> =
         state.sources.iter().filter_map(|(&k, s)| Some((k, color(s.as_ref()?, &sky)))).collect();
     for d in &state.driven {
-        let Some(&e) = colors.get(&d.source) else { continue };
+        let Some(&(e, _)) = colors.get(&d.source) else { continue };
         let Some(mut m) = materials.get_mut(&d.copy) else { continue };
         if d.unlit {
             m.base.base_color = Color::LinearRgba(scale(d.base_color, e));
@@ -165,7 +171,7 @@ fn update_emittance(
         }
     }
     for (l, point, spot) in &mut lights {
-        let Some(&e) = colors.get(&l.source) else { continue };
+        let Some(&(_, e)) = colors.get(&l.source) else { continue };
         let c = Color::LinearRgba(scale(l.color, e));
         if let Some(mut p) = point {
             p.color = c;

@@ -274,7 +274,16 @@ fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
     var unshadowed = in;
     unshadowed.flags &= ~MESH_FLAGS_SHADOW_RECEIVER_BIT;
     let lit = apply_pbr_lighting(unshadowed);
-    return lit - (lit - shadowed) * ((1.0 + share - shade) / missing);
+    let k = (1.0 + share - shade) / missing;
+    if lights.ambient_color.a < 0.0 {
+        // The display-value sum (nvforever lights.rs DISPLAY_HELPERS): the diffuse light is
+        // texture × sum^2.2, so its display value (^(1/2.2)) is linear in the shadow
+        // values; the same algebra there (the specular part is taken along).
+        let lit_d = pow(max(lit.rgb, vec3(0.0)), vec3(1.0 / 2.2));
+        let shadowed_d = pow(max(shadowed.rgb, vec3(0.0)), vec3(1.0 / 2.2));
+        return vec4(pow(max(lit_d - (lit_d - shadowed_d) * k, vec3(0.0)), vec3(2.2)), shadowed.a);
+    }
+    return lit - (lit - shadowed) * k;
 }
 #endif
 #endif
