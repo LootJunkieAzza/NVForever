@@ -1129,7 +1129,7 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
 - **Lamp strength against the original** (2026-10-23, Dead Money's wall lantern; frames
-  private in `C:nv-privateeferencesx_audit\game\dm_lamp_*.png`). Light
+  private in `C:\fnv-private\references\fx_audit\game\dm_lamp_*.png`). Light
   `NVDLC01ExtSconceKeyWT` (radius 200, (224, 255, 117), fade 2.5) stands 91 units in front
   of the wall at Puesta del Sol (ground z 1028). Captured with the weather forced to
   NVWastelandClear (no Dead Money grade) and rendered with the same weather, the same
