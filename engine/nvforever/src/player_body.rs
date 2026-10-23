@@ -1840,6 +1840,10 @@ fn drive_body(
     }
     m.last_feet = Some(feet);
     m.last_heading = Some(player.heading);
+    // The body and the view are drawn lifted over a step or a bump climbed in one physics
+    // step, so they climb it smoothly; the feet stay where the character is
+    // (`nvf_play::phys::step_lift`, owner's playtest list 7 item 9).
+    let feet = [feet[0], feet[1], feet[2] + phys.drawn_lift_of(FormId::PLAYER_REF.0)];
     let airborne_before = m.airborne;
     m.airborne = if grounded || swimming { 0.0 } else { m.airborne + dt };
     let was_falling = m.falling;
@@ -2013,7 +2017,8 @@ fn drive_body(
         *t -= dt;
         if *t <= 0.0 {
             m.after_idle = None;
-            info!("player view: a second after the idle the character stands at ({:.0}, {:.0}, {:.0})", feet[0], feet[1], feet[2]);
+            let at = player.feet;
+            info!("player view: a second after the idle the character stands at ({:.0}, {:.0}, {:.0})", at[0], at[1], at[2]);
         }
     }
     if driven.0 != idles.held.is_some() {

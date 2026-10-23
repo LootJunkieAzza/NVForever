@@ -373,3 +373,17 @@ fn stored_pose_lays_the_collision_down() {
     assert!(!prepare::pose_stored(&tree, &bones[..1], &mut objects));
     assert_eq!(objects, standing);
 }
+
+/// A small creature's character is its own size, a person's the player's (playtest list
+/// 7 item 35: the mantis nymphs, drawn about 30 units tall, had the player's capsule).
+#[test]
+fn small_actors_get_characters_of_their_size() {
+    let person = super::npc_params(Some(127.0));
+    assert_eq!((person.radius, person.height), (22.0, fnv_phys::CharacterParams::default().height));
+    assert_eq!(super::npc_params(None).radius, 22.0);
+    let nymph = super::npc_params(Some(30.0));
+    assert_eq!((nymph.radius, nymph.height), (crate::blocking::MIN_RADIUS, 30.0));
+    let dog = super::npc_params(Some(80.0));
+    assert!((dog.radius - 13.6).abs() < 1e-3 && dog.height == 80.0, "{dog:?}");
+    assert_eq!(super::npc_params(Some(3.0)).height, super::NPC_MIN_HEIGHT);
+}

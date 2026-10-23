@@ -215,11 +215,14 @@ fn sync_volumes(
     let held: HashMap<u32, blocking::Block> = blocks.list.iter().filter(|b| blocks.attacking.contains(&b.actor)).map(|b| (b.actor, *b)).collect();
     blocks.list.clear();
     vols.living.clear();
+    phys.actor_heights.clear();
     for (&id, &(lo, hi)) in &bounds {
         let dead = crate::combat::is_dead(script.as_deref(), id);
         let v = volume_for(lo, hi, dead);
         if !dead && id != FormId::PLAYER_REF.0 {
             vols.living.push((id, v.feet));
+            // How tall its character is made (`PhysState::add_npc`).
+            phys.actor_heights.insert(id, hi[2] - lo[2]);
         }
         let posed = posed.by_ref.get(&id).filter(|p| !p.segments.is_empty());
         // In the player's way where its body is now, unless the character controller
