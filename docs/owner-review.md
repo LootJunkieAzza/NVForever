@@ -8295,3 +8295,14 @@ documented effect; the spec lists each. Spec: [world-fields](spec-notes/world-fi
 - *Guess:* the ammo comes the first time the weapon is taken by hand.
 - *Check:* does picking up Primm's varmint rifle give 10 5.56mm rounds in the original?
 
+
+## REPCONN catwalk stairs (2026-10-23, owner's playtest, branch claude/repconn-steps)
+
+The stairs up to Chris Haversam's and Jason Bright's intercom in the REPCONN Facility climb
+without a jump, walking or running. They are 24-unit steps; the player's cone-shaped bottom
+came to rest on a step's edge, and the step-up refused the few tenths of a unit it gained
+there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/physics.md).
+
+- *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
+  the feet (was 0.5 above the feet themselves).
+- *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
