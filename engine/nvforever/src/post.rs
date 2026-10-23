@@ -142,6 +142,8 @@ pub(crate) struct PostPipelines {
 #[derive(Component)]
 pub(crate) struct PostView {
     composite: CachedRenderPipelineId,
+    /// The picture's format the composite pipeline was built for.
+    format: TextureFormat,
     /// Quarter-size textures: the bright part and its blur go back and forth.
     a: CachedTexture,
     b: CachedTexture,
@@ -226,7 +228,7 @@ fn prepare(
         };
         let a = quarter("post_glow_a");
         let b = quarter("post_glow_b");
-        commands.entity(entity).insert(PostView { composite, a, b });
+        commands.entity(entity).insert(PostView { composite, format, a, b });
     }
 }
 
@@ -254,7 +256,7 @@ pub(crate) fn post_pass(
 ) {
     let (target, index, effects, pv) = view.into_inner();
     let (bloom, sharpen) = (effects.params.z > 0.0, effects.params.w > 0.0);
-    if !bloom && !sharpen {
+    if (!bloom && !sharpen) || !crate::ssao::format_matches(target, pv.format) {
         return;
     }
     let Some(composite) = cache.get_render_pipeline(pv.composite) else { return };
