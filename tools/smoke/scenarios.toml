@@ -277,6 +277,8 @@ name = "shadows-thin"
 source = "docs/design/graphics-enhanced.md §5.5 (2026-10-23): the test aid --shadow-thin (graphics-cycle key shadow-thin=) takes the sun shadows of small far objects away and gives them back, off by default, and the frame-time log breaks the sun's last cascade down by angular size"
 areas = ["renderer", "graphics"]
 paths = ["engine/nvforever/src/shadow_thin.rs", "engine/nvforever/src/graphics.rs"]
+# A test aid makes the run unattended, so the player's own NVForever.ini (sun shadows off) is not read.
+env = { NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--sun-shadows", "--log-frame-times", "5", "--graphics-cycle", "vanilla;vanilla,shadow-thin=0.04"]
 run_seconds = 35
 expect = [
