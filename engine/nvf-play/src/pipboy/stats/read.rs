@@ -302,6 +302,30 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
 /// modifier) [design: worn enchantments do not change the game's actor values yet
 /// (`fnv_game::functions::actor`, the temporary modifier); the page adds them so that
 /// it reads as the original's].
+/// The player's health (current and whole, as the heading), limb conditions (0 to 1, as
+/// the CND bars) and whether Hardcore mode is on: what the CND page's hints are judged
+/// by; `None` without the scripts' game.
+pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<((f64, f64), [f64; 6], bool)> {
+    let rt = script?.rt.as_mut()?;
+    Some(crate::script::with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, av::HEALTH);
+        let hp = shown_and_permanent(g, &[], av::HEALTH).map_or((0.0, 0.0), |(v, max)| (v, max + t));
+        let mut limbs = [1.0; 6];
+        for (i, &code) in LIMBS.iter().enumerate() {
+            if let Some((v, max)) = shown_and_permanent(g, &[], code).filter(|v| v.1 > 0.0) {
+                limbs[i] = (v / max).clamp(0.0, 1.0);
+            }
+        }
+        (hp, limbs, g.hardcore())
+    }))
+}
+
+/// The hint's item (Stimpak, Doctor's Bag, RadAway, Rad-X), by its Editor ID.
+pub fn hint_item(sim: &SimState, hint: usize) -> Option<FormId> {
+    HINT_ITEMS.get(hint).and_then(|e| sim.forms.by_edid(e))
+}
+
 fn shown_and_permanent(g: &mut fnv_game::Game<'static>, temporary: &[(u16, f64, bool)], code: u16) -> Option<(f64, f64)> {
     let [b, m, d] = gf::actor_value_parts(g, FormId::PLAYER_REF, code).ok()?;
     // Active effects' temporary modifier (aid items) is the game's own; worn apparel's

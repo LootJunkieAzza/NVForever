@@ -349,6 +349,12 @@ impl<'a> World<'a> {
         self.cfg
     }
 
+    /// Hardcore mode turned on or off while the game runs (`fnv_game::Game::set_hardcore`,
+    /// SetHardcore): ammunition weighs from then on, or no longer.
+    pub fn set_hardcore(&mut self, on: bool) {
+        self.cfg.hardcore = on;
+    }
+
     /// Whether the player may wear power armour (ARMO BMDT "Power Armor"): without it
     /// [`World::equip`] refuses such armour on the player with
     /// [`SimError::NoPowerArmorTraining`] [documented: GECK wiki SetPCCanUsePowerArmor,

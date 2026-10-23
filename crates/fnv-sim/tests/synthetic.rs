@@ -1025,6 +1025,11 @@ fn encumbrance_uses_strength_and_settings() {
     let mut hc = World::new(&f.forms, &f.refs, SimConfig { hardcore: true, ..SimConfig::default() });
     hc.add_item(p, id(BULLETS), 100).unwrap();
     assert!((hc.encumbrance(p).unwrap().weight - 10.0).abs() < 1e-4);
+    // Hardcore turned on and off while the game runs (SetHardcore).
+    w.set_hardcore(true);
+    assert!(w.encumbrance(p).unwrap().weight > 200.0);
+    w.set_hardcore(false);
+    assert!(!w.encumbrance(p).unwrap().over);
     assert!(matches!(w.encumbrance(id(SAFE_REF)), Err(SimError::NoActorValues(_))));
 }
 

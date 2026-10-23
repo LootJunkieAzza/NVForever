@@ -669,7 +669,7 @@ fn apply_input(
             }
         }
         if let Some(item) = a.used {
-            used.write(ItemUsed { item: item.0 });
+            used.write(ItemUsed { item: item.0, limb: None });
         }
         // Power armour without the training: the game's message, once the Pip-Boy is
         // closed (`fnv_game::functions::refuse_power_armor`).
