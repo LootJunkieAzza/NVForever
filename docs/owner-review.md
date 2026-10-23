@@ -7812,6 +7812,27 @@ guesses:
 - *Check:* does a missed shot passing a sleeping or idle NPC alert it in the original?
   Does standing under the Prospector Saloon's porch at noon hide the player better than
   the open street?
+## Visuals: drinking fountains, weather transitions, glare, interior clip (2026-10-23, ESM audit medium group 7, branch claude/em8-visuals)
+
+The audit's "ACTI water activators" turned out to be the drinkable fixtures (31 toilets,
+sinks, fountains and pumps): the crosshair now offers Drink and drinking applies the
+water's effect. Weather changes fade over the weather's Trans Delta (30 s for every New
+Vegas sky, was a placeholder half game hour); the sun glare follows the weather's Sun
+Glare; indoors the camera clips at the cell's fog clip distance. Specs: activators.md §9,
+world.md §6. Decisions and guesses:
+
+- *Guess:* the prompt word is "Drink"; drinking applies the WATR's XNAM effect to the
+  player; no sound.
+- *Guess:* transition time 30 × Trans Delta ÷ 255 real seconds (more is slower); 0 at
+  once.
+- *Guess:* the glare scales with Sun Glare ÷ 54 (New Vegas skies unchanged).
+- *Decision:* nothing to build for projectile lights, EXPL placed objects, negative and
+  spot lights: no master record uses them. Not built: destruction debris, the falloff
+  exponent, fog power, HDR, the IDLE body section (reasons in the audit row).
+- *Check:* does a weather change in the original take about 30 s? In WinsResidence and
+  Vault 11, do far parts of the rooms vanish at 1,800 or 2,000 units as they now do?
+  What does the crosshair say on a sink?
+
 ## Frame rate: mantis egg and REPCONN (2026-10-23, list 7 W8)
 
 Measurements, causes and what is left: [frame-rate-audit](design/frame-rate-audit.md).
@@ -8213,6 +8234,19 @@ Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10
   categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
   (*guess*).
 
+## Actors: the low-impact fields (2026-10-23, ESM audit low-impact list "Actors", branch claude/em11-actors)
+
+Creatures flagged Not Pushable are not pushed aside; an actor flagged No Rotating To
+Head-track does not turn its head to look; a creature flagged No Head or No Arm never
+loses that part; a creature's own bite or claw shows its CREA CNAM impact (bite, claw,
+ghoul) instead of the player's fists'. Spec: [actor-fields](spec-notes/actor-fields.md).
+Decisions and guesses:
+
+- *Guess:* CREA bit 27 ("Not Pushable / Allow Pickpocket") is Not Pushable for creatures.
+- *Guess:* No Rotating To Head-track acts as a package's HeadTracking Off.
+- *Decision:* nothing to build for RACE skill boosts, HAIR Fixed, LVLI owners and No
+  Shadow (no master record uses them); the rest left with reasons in the spec.
+- *Check:* does a dog's bite on an NPC show a bite impact in the original?
 ## Items: the low-impact fields (2026-10-23, ESM audit low-impact list "Items", branch claude/em10-items)
 
 The first shot after a reload of a weapon flagged No Jam After Reload cannot jam; a jam

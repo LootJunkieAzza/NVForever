@@ -123,7 +123,14 @@ under active work.
 - ~~**Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only
   the weapon's sound level feeds detection.~~ Built in claude/em7-detection
   ([detection](../design/detection.md) §8), with the sun's shade in the light measure.
-- **Visuals.** Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
+- **Visuals** (claude/em8-visuals: built the drinkable activators, ACTI WNAM, which draw
+  no water (activators.md §9); weather Trans Delta and Sun Glare and the interior clip
+  distance (world.md §6); nothing to build where no master record uses the field:
+  projectile lights, EXPL INAM, negative, spot and spot-shadow lights; left: destruction
+  debris (gore pieces belong to actors; 12 containers' stages name debris, the 51
+  creatures' stages are not applied), the falloff exponent and fog power (meaning not
+  documented), HDR and eye adaptation, the IDLE body section (the clips' track
+  priorities already lay an upper-body idle over the legs)). Was: Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
   objects are not spawned. Destruction-stage DEBR debris is never spawned. ACTI WNAM water
   activators draw as plain models. Negative lights are skipped instead of darkening, and
   LIGH Spot Shadow and falloff exponent are not applied. EFSH holes and add-on models are
@@ -147,7 +154,9 @@ Ignored unless noted:
   "Hide Backpack"; reload and jam times; rumble; EAMT. AMMO QNAM abbreviation (stored).
   ARMO female world model (MOD4) and female icons; BNAM. KEYM/MISC RNAM loop. CMNY value.
   The CSNO chip models are hard-coded, and only the last ICO2 deck back is kept.
-- **Actors.** NPC_ AIDT mood (stored); "Not Pushable"; "No Rotating To Head-track";
+- **Actors** (claude/em11-actors, [actor-fields](../spec-notes/actor-fields.md): built Not Pushable,
+  No Rotating To Head-track, No Head/Arm and the CREA CNAM impact set; nothing to build
+  for RACE boosts, HAIR Fixed, LVLI owners, No Shadow; the rest left with reasons). Was: NPC_ AIDT mood (stored); "Not Pushable"; "No Rotating To Head-track";
   "Autocalc Service"; NAM7 weight; KFFZ on NPC_. CREA movement flags (Swims, Walks, No
   Combat in Water); tilt flags; No Head and No Arm flags; No Shadow; WNAM foot weight;
   CNAM impact set; LNAM melee list. RACE skill boosts (non-zero in vanilla: unverified);
