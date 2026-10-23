@@ -119,7 +119,8 @@ const MOVING_SPEED: f32 = 10.0;
 const RUNNING_SPEED: f32 = 215.0;
 /// The chest, as a fraction of the eye height [engineering choice].
 const CHEST: f32 = 0.75;
-/// A line of sight passes at most this many actors' capsules.
+/// A line of sight passes at most this many actors (their capsules and bodies; the
+/// detector's own counts) [engineering choice].
 const PAST_ACTORS: usize = 8;
 /// How far towards the sun something shades a target [design].
 const SUN_REACH: f32 = 8192.0;
@@ -341,8 +342,8 @@ impl SightFilters {
 /// [`clear_sight`] on read-only queries, so many can run at once ([`clear_sights`]);
 /// `rays` counts the rays cast.
 ///
-/// Actors' capsules (the detector's own included: the ray starts inside it) do not hide
-/// what is behind them: the ray goes on past them, up to [`PAST_ACTORS`] times. First
+/// Actors (the detector's own capsule included: the ray starts inside it) do not hide
+/// what is behind them: the ray goes on past them, up to [`PAST_ACTORS`] of them. First
 /// one ray that ignores the actors: where it meets nothing, nothing but actors is in the
 /// way and the walk past them could only end clear, so it is not cast (the same answer,
 /// one ray instead of two or more for every actor on the line) [engineering choice].
@@ -360,8 +361,30 @@ fn clear_sight_in(q: &Queries, filters: &SightFilters, from: [f32; 3], to: [f32;
     walk_past_actors(q, &filters.walk, from, dir, len, rays)
 }
 
-/// The line of sight from `from` along `dir` for `len`, going on past actors.
+/// The line of sight from `from` along `dir` for `len`, going on past actors: each actor
+/// the ray meets is left out and the ray cast again. Stepping past a hit instead fails
+/// for a ray that starts inside a capsule: the eyes are inside the detector's own (eyes
+/// 112 units up a 128.9-unit hull), the collision world's rays are solid, so it is met at
+/// distance 0 again and again, and the line ended "clear" whatever was in the way
+/// [observed: a ray from inside a character in a test world met it at 0.0 ten times in a
+/// row, 2026-10-23; docs/design/streaming-hitches.md §4].
 fn walk_past_actors(q: &Queries, filter: &Filter, from: [f32; 3], dir: [f32; 3], len: f32, rays: &mut usize) -> bool {
+    let mut filter = filter.clone();
+    for _ in 0..PAST_ACTORS {
+        *rays += 1;
+        match q.ray(from, dir, len, &filter) {
+            None => return true,
+            Some(h) if matches!(h.owner, Owner::Actor { .. } | Owner::Character { .. }) => filter.exclude.push(h.owner.key()),
+            Some(_) => return false,
+        }
+    }
+    true
+}
+
+/// The walk past actors as it was before [`walk_past_actors`] left them out: a step of 1
+/// unit past each hit (which a ray from inside a capsule never gets out of), for
+/// `NVF_PLAY_TEST_SIGHT_CHECK`.
+fn crawl_past_actors(q: &Queries, filter: &Filter, from: [f32; 3], dir: [f32; 3], len: f32, rays: &mut usize) -> bool {
     let mut at = 0.0;
     for _ in 0..PAST_ACTORS {
         let start = [from[0] + dir[0] * at, from[1] + dir[1] * at, from[2] + dir[2] * at];
@@ -378,19 +401,19 @@ fn walk_past_actors(q: &Queries, filter: &Filter, from: [f32; 3], dir: [f32; 3],
     true
 }
 
-/// The line of sight as it was worked out before [`clear_sight_in`]'s first ray: the
-/// walk past actors alone, for `NVF_PLAY_TEST_SIGHT_CHECK`.
+/// The line of sight as it was worked out before [`clear_sight_in`]'s first ray and
+/// before actors were left out ([`crawl_past_actors`]), for `NVF_PLAY_TEST_SIGHT_CHECK`.
 fn clear_sight_walk(q: &Queries, filters: &SightFilters, from: [f32; 3], to: [f32; 3], rays: &mut usize) -> bool {
     let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
     if len < 1.0 {
         return true;
     }
-    walk_past_actors(q, &filters.walk, from, d.map(|v| v / len), len, rays)
+    crawl_past_actors(q, &filters.walk, from, d.map(|v| v / len), len, rays)
 }
 
 /// Test aid `NVF_PLAY_TEST_SIGHT_CHECK=1`: every line of sight cast is also worked out
-/// the old way (the walk past actors alone), every answer shared between askers
+/// the old way (the crawl past actors alone, [`clear_sight_walk`]), every answer shared between askers
 /// ([`sights`]) is cast again from its own asker, and still pairs' lines of sight are not
 /// kept ([`STILL`]) but counted where keeping them would have answered otherwise. The
 /// detection summary gives the counts.

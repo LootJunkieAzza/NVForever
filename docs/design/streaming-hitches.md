@@ -340,15 +340,31 @@ The CPU is less but the frame barely shorter: the frame waits on `measure`'s ser
 (each pair's `Game::detect` and `observe_threat`, the events, the allies and alarms), not
 on its rays. That is the next thing to cut.
 
-**Found, not fixed (it changes behaviour):** an actor's eyes (112 units up) are inside its
-own character hull (128.9 tall), and the collision world's ray casts are solid, so a ray
-from the eyes meets the actor's own hull at distance 0 every time; the walk past actors
-steps 1 unit and casts again, `PAST_ACTORS` times, and ends "clear". Every actor's line of
-sight through the collision world is therefore clear (the player's capsule is left out of
-the filter, so the player's and the camera's are not) [observed: a ray from inside a
-character in a test world met it at 0.0 ten times in a row, 2026-10-23]. Leaving the
-detector's own capsule out of its rays would fix it and cut a blocked line from 9 rays to
-about 2.
+**A bug found here, then fixed (branch claude/sight-own-capsule):** an actor's eyes (112
+units up) are inside its own character hull (128.9 tall), and the collision world's ray
+casts are solid, so a ray from the eyes met the actor's own hull at distance 0 every time;
+the walk past actors stepped 1 unit and cast again, `PAST_ACTORS` times, and ended
+"clear". Every actor's line of sight through the collision world was clear, and so was
+the sun's from every actor's chest (the player's capsule is left out of the filter, so the
+player's and the camera's were not) [observed: a ray from inside a character in a test
+world met it at 0.0 ten times in a row, 2026-10-23]. The same walk crossed any other actor
+on the line the same way, 1 unit a ray. Now the walk leaves out each actor it meets and
+casts again from the start, up to `PAST_ACTORS` actors (`detection::walk_past_actors`);
+`clear_sight` callers outside detection (the combat AI's cover and line-of-fire checks)
+get the same fix: their cover tests from an NPC's eyes had all come out "seen", and
+`combat-cover` passes again (it failed 4 of 4 runs before). A plain run of the battle after
+the fix: mean 35.9 ms, 1 % low 208 ms; Legion 48 dead, NCR 8; cover taken 49 times.
+
+The same battle with the sight check, after the fix [observed:
+target/stress/battle/own-check, private]: 3.8 million lines, 5.6 million rays (11.3
+million before the fix, 23.5 million the old way); 794,601 answers (21 %) differ from the
+old walk's, the lines the bug had made clear; 1 of 729,805 shared answers differs from
+the asker's own ray; of the still pairs that could have been kept, 164 of 169,577 (0.1 %)
+would have answered otherwise. In the battle, fighters now lose each other behind cover:
+Combat → Lost 38 times (5 before), Lost → Combat 36 (4), and detection events heard 8,934
+times (166: an actor in Combat does not take alarms); band changes between actors fell
+from 243,077 to 149,004; under the sun 433 of 26,026 measured in shade (690 of 27,870 before; why fewer is not looked at).
+The outcome is close to before (Legion 46 dead, NCR 8).
 
 ### Option, not built: measure far pairs less often
 
