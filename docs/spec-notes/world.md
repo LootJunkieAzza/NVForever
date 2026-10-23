@@ -851,6 +851,32 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the rain stops, and toggles the rain ambience sound and an interior rain-sound marker.
   So drawing Zion rain needs the script engine (Layer 4); the renderer does not draw it.
 
+### Weather transitions and glare (ESM audit group 7, 2026-10-23)
+
+- **Trans Delta** (WTHR DATA byte 3) [documented: GECK wiki SetWeather, "the transition
+  time is effected by the Trans Delta setting of the weather"; SetWeatherTransitionTimeOverride,
+  the Trans Delta "effectively limits the transition time to 30 seconds max", real-time
+  seconds]. Values [observed]: every New Vegas weather 255; Fallout 3 leftovers 0 (19),
+  87, 122. As built [hypothesis: the time grows with the byte]: a change to a weather
+  fades over 30 × delta ÷ 255 real seconds (255: the documented 30 s; 0: at once), as
+  game hours at the default TimeScale 30 [documented: GECK wiki TimeScale]. It replaces
+  the placeholder half game hour.
+- **Sun Glare** (byte 4): every New Vegas weather 54; others 0, 127, 176, 255
+  [observed]. The glare's strength was fitted on New Vegas skies, so it is scaled by
+  Sun Glare ÷ 54 [hypothesis], blended across a weather fade.
+
+### Interior clip distance (ESM audit group 7, 2026-10-23)
+
+- The interior's Fog Clip Distance (CELL XCLL, or its lighting template's) is its far
+  clip distance [documented: GECK wiki SetClipDist, "overriding far clip distance in
+  interior cells"; GetInteriorLightingTraitNumeric trait 15 "Fog clip distance"]. Values
+  in 388 interiors [observed]: 6,600 (73), 0 (43), 1,800 (42), 4,000 (39), 3,300 (37);
+  in 55 it is nearer than the fog's end (WinsResidence 1,800 against 3,300). As built:
+  indoors the camera's far plane is the clip distance, 0 for none [hypothesis: 0 is no
+  clip]; outdoors 400,000 units as before.
+- **Fog power** (XCLL, LGTM, WTHR) varies (1.0 in 189 interiors, 0.5–2.0 in the rest)
+  but what curve it sets is not documented, and the fog stays linear.
+
 ## 7. Distant LOD
 
 Pre-built LOD ships per worldspace [observed: `Fallout - Meshes.bsa`, `Fallout -

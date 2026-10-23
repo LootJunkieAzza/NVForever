@@ -421,3 +421,21 @@ controller type, with the models, bases and references whose sequences have one:
 - A key's second word (`sound: OBJVaultGearConsoleUnlock SoundNode01`, the vertibirds'
   `SoundNodeProps`) names a node of the model [hypothesis]; the sound is played where the
   object is.
+
+## 9. Drinking from activators (ESM audit group 7, 2026-10-23)
+
+- "Non scripted activators can serve as drinkable water sources" [documented: GECK
+  wiki Activator]; the field is ACTI WNAM "Water Type" [documented: xEdit]. In
+  FalloutNV.esm 31 activators name one, all fixtures: toilets, sinks, urinals, water
+  coolers, fire hydrants and water pumps (`DrinkSink01Avg`, `DrinkToiletClean03Purified`
+  …), each with the water drunk (`d1PurifiedWater0r30h` … `d5TerribleWater20r4h`)
+  [observed]. The ESM audit listed them as water drawn as plain models; they draw no
+  water surface.
+- As built: the crosshair offers "Drink" on such an activator [hypothesis: the
+  original's word]; activating it by hand applies the water's actor effect (WATR XNAM,
+  the healing and the rads of drinking it, radiation.md §3) to the player, after its
+  script if it has one [hypothesis]. The log says `activate 0x… <name>: the player
+  drinks from it`.
+- Not built: a drinking sound (no record names one), NPCs drinking (IsWaterObject is
+  a stub).
+

@@ -2668,6 +2668,7 @@ impl<'a> Game<'a> {
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v.clone()) });
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);
+            self.drink_from(actor, target);
         }
         // Its activate children go off (`crate::traps`).
         self.set_off_children(target);
@@ -2689,6 +2690,21 @@ impl<'a> Game<'a> {
             _ => {}
         }
         Ok(v)
+    }
+
+    /// The water an activator gives to drink (ACTI WNAM), when it names one.
+    pub fn drink_water(&self, target: FormId) -> Option<FormId> {
+        functions::base_of(self, target).and_then(|b| self.data.drink_waters.get(&b)).copied()
+    }
+
+    /// `actor` drank from the activator `target`: its water's actor effect (WATR XNAM:
+    /// the healing and the rads) applies to the drinker, as from the water itself
+    /// [hypothesis: drinking applies the effect the water names; activators.md §9].
+    /// Whether the activator's script ran too is the activation's business.
+    fn drink_from(&mut self, actor: FormId, target: FormId) {
+        let Some(water) = self.drink_water(target) else { return };
+        let Some(&spell) = self.data.water_effects.get(&water) else { return };
+        self.apply_magic_item(actor, spell, Some(actor), false);
     }
 
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the

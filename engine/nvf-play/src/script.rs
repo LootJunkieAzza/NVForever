@@ -1001,8 +1001,12 @@ impl Runtime {
             ScriptAid::Menu(code) => g.open_menu(*code),
             ScriptAid::Activate(r) => {
                 let r = resolve(g, r)?;
+                let water = g.drink_water(r);
                 if let ByHand::Default(a) = self.activate_as_player(r)? {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
+                    if let Some(w) = water {
+                        info!("test aid: the player drinks from {r}: water {w}");
+                    }
                 }
             }
             ScriptAid::Kill(r) => {

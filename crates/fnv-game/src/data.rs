@@ -892,6 +892,11 @@ pub struct GameData {
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
     /// WATR XNAM: each water type's actor effect (`crate::radiation`).
     pub water_effects: HashMap<FormId, FormId>,
+    /// ACTI WNAM "Water Type": the activators the player drinks from (sinks, toilets,
+    /// fountains, water pumps) and the water drunk [documented: xEdit ACTI WNAM; GECK
+    /// wiki Activator, "Non scripted activators can serve as drinkable water sources"]
+    /// (docs/spec-notes/activators.md §9).
+    pub drink_waters: HashMap<FormId, FormId>,
     /// DOBJ DATA "Default Objects", by their place in the list ([`DefaultObject`])
     /// [documented: xEdit DOBJ] (docs/spec-notes/default-objects.md).
     pub default_objects: Vec<Option<FormId>>,
@@ -1287,6 +1292,8 @@ struct Read {
     caravan_deck: Option<crate::caravan::DeckDef>,
     need_stage: Option<(u16, u32, FormId)>,
     water_effect: Option<FormId>,
+    /// An ACTI's WNAM: the water drunk from it.
+    drink_water: Option<FormId>,
     /// DOBJ DATA: the default objects, by their place in the list (null: `None`).
     default_objects: Option<Vec<Option<FormId>>>,
     /// A WATR's damage a second when it has "Causes Damage", else 0 (`Some` on every WATR).
@@ -1387,6 +1394,7 @@ impl GameData {
             caravan_decks: HashMap::new(),
             need_stages: HashMap::new(),
             water_effects: HashMap::new(),
+            drink_waters: HashMap::new(),
             default_objects: Vec::new(),
             water_damage: HashMap::new(),
             radiation_markers: crate::radiation::markers(refs),
@@ -1634,6 +1642,9 @@ impl GameData {
             }
             if let Some(spell) = r.water_effect {
                 d.water_effects.insert(id, spell);
+            }
+            if let Some(water) = r.drink_water {
+                d.drink_waters.insert(id, water);
             }
             if let Some(list) = r.default_objects {
                 d.default_objects = list;
@@ -1968,6 +1979,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     // A water type's actor effect: XNAM, a SPEL [documented: xEdit wbDefinitionsFNV.pas
     // WATR "Actor Effect"; observed: FalloutNV.esm's waters name WaterHeal1Purified …
     // WaterHeal5Terrible, the effects of drinking them]. docs/spec-notes/radiation.md §3.
+    if &sig == b"ACTI" {
+        out.drink_water = subs.iter().find(|s| &s.sig == b"WNAM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
+    }
     if &sig == b"DOBJ" {
         let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
         out.default_objects = Some(data.as_chunks::<4>().0.iter().map(|c| Some(u32::from_le_bytes(*c)).filter(|&l| l != 0).and_then(map).map(FormId)).collect());
