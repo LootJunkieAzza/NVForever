@@ -7329,6 +7329,20 @@ expect = [
 forbid = [{ re = 'mines: 0x00000014 sets off mine 0xFF', label = "the player sets off its own mine" }]
 
 [[scenario]]
+name = "mines-held"
+source = "owner 2026-10-23: the frag mine is held back to front in first person; in the game its ringed top faces the view, the wire handle at the right in the hand, thumb over the rim (owner's frames in C:/fnv-private/references/mines)"
+note = "God mode, in Goodsprings, the player draws a frag mine in first person; frames held level and looking down (compare with the owner's game frames: top up and tilted back, thumb over the rim, no left hand, no glow; animation.md §9.11), mid-throw and lying on the ground"
+areas = ["combat"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0000433C:3", NVF_PLAY_TEST_EQUIP = "0000433C", NVF_PLAY_TEST_CONTROL = "6:weapon,10.5:fire", NVF_PLAY_TEST_LOOK = "9.3:0:-35,13:0:-55", NVF_PLAY_TEST_SHOTS = "9:mine_held.png,9.8:mine_held_down.png,10.8:mine_throw.png,14:mine_ground.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'player First rig: hand grip .*1lmhandgrip1\.kf', label = "the first-person hand holds the mine with its grip clip" },
+  { re = 'test aid: screenshot .*mine_held\.png', label = "the held mine is shot" },
+]
+
+[[scenario]]
 name = "actor-jumps"
 source = "docs/spec-notes/actor-jumps.md §3.1: an NPC whose path goes over a navmesh ledge link drops off it in an arc and lands, its body playing the jump loop and the landing"
 note = "Easy Pete (EasyPeteRef) is set off from (-63600, -18250) above the drop down at (-63042, -18384), one of the three ledge links within 25,000 units of Goodsprings, with --npc-ledges (without them the way round is about 2,600 units). An --npc-travel walker flies the arc itself (no physics); the drawn body plays JumpLoop... then JumpLand..."
