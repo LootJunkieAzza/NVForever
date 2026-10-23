@@ -183,6 +183,7 @@ impl Plugin for MenuPlugin {
                     scripts_open_teammate_containers,
                     open_menus,
                     keep_menu_state,
+                    sync_cards,
                     wheel_hold,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
@@ -617,6 +618,22 @@ fn quantity_mouse(
     }
 }
 
+/// The inventory's Caravan cards follow the player's (`fnv_game::caravan`; kept by the
+/// scripts' game, not in the inventory): the Misc tab's card folder
+/// (`model::Folder::Cards`).
+fn sync_cards(mut active: ResMut<ActiveMenu>, mut sim: ResMut<SimState>, script: Option<Res<crate::script::ScriptState>>) {
+    let Some(cards) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.player.caravan.cards) else { return };
+    if !active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory && m.cards != *cards) {
+        return;
+    }
+    let cards = cards.clone();
+    if let Some(m) = active.0.as_mut() {
+        if let Err(e) = m.set_cards(&mut sim.world, cards) {
+            warn!("menu: the Caravan cards: {e}");
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input(
     mut input: MessageReader<MenuInput>,
@@ -709,6 +726,10 @@ fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
     matches!(sim.world.forms.get(base).map(|b| &b.data), Some(BaseData::Container(k)) if k.respawns).then(|| RESPAWN_NOTE.to_string())
 }
 
+/// What the menu's drawing reads besides the model: the combat records, the plugins and
+/// the scripts' game (an aid item's effects, `crate::pipboy::items::info_of`).
+type DrawSources<'w> = (Option<Res<'w, crate::combat::Combat>>, Option<Res<'w, crate::PlayWorld>>, Option<ResMut<'w, crate::script::ScriptState>>);
+
 /// Rebuild the container or barter menu's UI when the model changed (the inventory is
 /// the Pip-Boy's).
 #[allow(clippy::too_many_arguments)]
@@ -721,7 +742,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut kit: Local<Option<look::Kit>>,
-    (combat, play): (Option<Res<crate::combat::Combat>>, Option<Res<crate::PlayWorld>>),
+    (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
 ) {
     if !active.is_changed() && !roots.is_empty() {
@@ -760,7 +781,7 @@ fn draw(
         if forms.is_none() {
             *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
         }
-        let info = m.selected_row(m.focus).map(|r| crate::pipboy::items::info_of(r, combat.as_deref(), sim.bypass_change_detection(), forms.as_mut()));
+        let info = m.selected_row(m.focus).map(|r| crate::pipboy::items::info_of(r, combat.as_deref(), sim.bypass_change_detection(), forms.as_mut(), script.as_mut().map(|s| s.bypass_change_detection())));
         commands.spawn((MenuRoot, screen.clone(), GlobalZIndex(100))).with_children(|root| {
             look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
         });

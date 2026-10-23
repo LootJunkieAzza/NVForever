@@ -7829,3 +7829,35 @@ Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
   ammunition count beside a weapon is the player's carried ammunition even for the
   merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
   All/Exit in the container menu on your screen?
+
+## Pip-Boy items, Misc folders, Caravan cards (2026-10-23, list 7 W2)
+
+- **5 Aid effect lines**. The EFFECTS card now lists only the effects whose conditions
+  pass for you, one line per value, with the item's Medicine/Survival potency
+  (aid-items.md §14). Programmer's Digest: Science +10 (+20 with Comprehension); the
+  Blood Pack: HP +1 (with Hematophage the 4 a second for 5 s are added: HP +21); the
+  Stimpak one HP line (30 x potency outside Hardcore). *Guesses:* an effect over time is
+  shown as its total (HP +20, not "+4/s for 5 s"), and the potency is applied (your
+  original screenshot shows Stimpak HP +40 against a record value of 30). The barter and
+  container figures read the same. *Check:* a Stimpak and a Blood Pack in Hardcore, and a
+  magazine with Comprehension.
+- **6 Keyring and card deck**. Misc starts with a "Keyring (n)" row and a "Caravan Cards
+  (n)" row (only when you have some). Using one lists its keys/cards under a "Back" row;
+  Back, Backspace or another tab returns to Misc. Cards can't be used or dropped there.
+  *Decisions:* the names "Keyring"/"Caravan Cards" and their place at the top are mine;
+  the real "Caravan Deck" item Ringo gives stays a normal Misc row (it was easy to confuse
+  with the folder; say if it should be the folder instead). *Check:* the look of the rows.
+- **8 Caravan cards 0**. Cause: Ringo's Caravan Deck item moves the 54 cards into your
+  inventory with RemoveAllItems, and each card's own script (OnAdd) registers it; our
+  RemoveAllItems never ran OnAdd, so no card was registered. Now it does, once per stack.
+  *Check:* get the deck from Ringo and play him.
+- **15 Last inventory item**. The list assumed nine rows always fit; a two-line name
+  (e.g. Mercenary's Grenade Rifle) pushed the last row out of reach. The list now moves on
+  to keep the selection drawn. *Check:* a long weapons list, scroll to the end with the
+  wheel and the keys.
+- **20 HP and DT**. HP is the STATS page's health; DT is worn armour at its condition plus
+  the DT actor value (what combat uses), one decimal. *Guess:* the original may show
+  armour DT before condition. *Check:* with worn, damaged armour.
+- **33 Skill books on Aid**. Books that teach a skill are listed on the Aid tab (barter
+  categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
+  (*guess*).
