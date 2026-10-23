@@ -901,23 +901,19 @@ expect = [
 
 [[scenario]]
 name = "combat-sights-beyond-reach"
-source = "owner request 2026-10-18: NPCs fired out of range (docs/design/combat-ai.md §16); the original's flamer trooper held fire from 1,283 units and first attacked at 726 [observed 2026-10-18, AI observer campaign gun_reach]"
-note = "combat-sights' old start: the player about 3,000 units from Violet (0x000F570B, placed at -46910,64897), beyond her hunting rifle's reach (2,000). She holds fire, runs in with her sights lowered, and once the player is within reach stops, takes cover or aims; her first shot is within reach"
+source = "owner's playtest list 7 item 40 (docs/design/combat-ai.md §16): no minimum firing distance for firearms: a gunman fires beyond its weapon's Max Range (out to its projectile's range) and only the flamer, missiles and explosives hold fire beyond their reach; before (owner request 2026-10-18) every gun held fire beyond its reach"
+note = "combat-sights' old start: the player about 3,000 units from Violet (0x000F570B, placed at -46910,64897), beyond her hunting rifle's reach (2,000). She fires down the sights from where she is and closes in to her stop distance meanwhile; she never holds fire for the distance"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 45
 expect = [
-  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+  { re = 'npc combat: FiendVioletRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 2000\)', range = [2001, 5000], label = "her first shot is from beyond her rifle's reach" },
+  { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 5000], label = "she aims down the sights from afar" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [1, 100000], label = "shots beyond the rifle's reach in the summary" },
 ]
-order = [[
-  { re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 2000\)', range = [2001, 5000], label = "she holds fire beyond her rifle's reach" },
-  { re = 'FiendVioletRef: runs at the player, [\d,]+ units away, [\d,]+ units to go$', label = "she runs in with her sights lowered" },
-  { re = 'npc combat: FiendVioletRef \S+ has the player in reach \((?P<n>\d+) units, reach 2000\)', range = [0, 2000], label = "then has the player within reach" },
-  { re = 'FiendVioletRef: (stops and faces|goes to cover against) the player|npc combat: FiendVioletRef \S+ (crouches to fire at|aims down the sights, its target)', label = "then stops, takes cover or aims" },
-  { re = 'npc combat: FiendVioletRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 2000\)', range = [0, 2000], label = "her first shot is within reach" },
-]]
+forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach', label = "she holds fire for the distance" }]
 
 [[scenario]]
 name = "combat-npc-reload"
@@ -3130,6 +3126,7 @@ expect = [
   { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units" },
   { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover" },
   { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
+  { re = 'fight move summary: .* (?P<n>[\d.]+) s of it on the way to new cover', range = [0.1, 100000], label = "fighters going to new cover face their target and strafe there (owner's playtest list 7 item 43)" },
 ]
 
 [[scenario]]
@@ -3362,8 +3359,8 @@ expect = [
 
 [[scenario]]
 name = "combat-shotgun-reach"
-source = "owner request 2026-10-18: a shotgun wants to be closer than a sniper rifle (docs/design/combat-ai.md §16)"
-note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is given and made to equip a hunting shotgun (WeapNVHuntingShotgun: max range 600) and set on the player about 3,000 units away at 4 s, god mode: she holds fire beyond 600 units, closes in and fires within it. Pair: combat-sniper-reach"
+source = "owner request 2026-10-18: a shotgun wants to be closer than a sniper rifle (docs/design/combat-ai.md §16); owner's playtest list 7 item 40: no minimum firing distance, firearms fire beyond their reach"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is given and made to equip a hunting shotgun (WeapNVHuntingShotgun: max range 600) and set on the player about 3,000 units away at 4 s, god mode: she closes in to the shotgun's distance (480) and fires on the way, from beyond 600 units. Pair: combat-sniper-reach"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapNVHuntingShotgun:1,3.5:call:FiendVioletRef:EquipItem:WeapNVHuntingShotgun,4:combat:FiendVioletRef:player" }
@@ -3372,12 +3369,9 @@ run_seconds = 60
 expect = [
   { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVHuntingShotgun \(gun\)', label = "Violet fights with the shotgun" },
   { re = 'FiendVioletRef: (runs|walks) at the player', label = "she closes in" },
-  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+  { re = 'npc combat: FiendVioletRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 600\)', range = [601, 5000], label = "she fires before she is within the shotgun's reach" },
 ]
-order = [[
-  { re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 600\)', range = [601, 5000], label = "she holds fire from afar" },
-  { re = 'npc combat: FiendVioletRef \S+ has the player in reach \((?P<n>\d+) units, reach 600\)', range = [0, 600], label = "then has the player within the shotgun's reach" },
-]]
+forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach', label = "she holds fire for the distance" }]
 
 [[scenario]]
 name = "combat-sniper-reach"
@@ -4861,6 +4855,7 @@ expect = [
   "combat: player's torso crippled",
   { re = 'hit reaction: 00104C79 staggers for .*\(location 0, torso crippled\)', label = "Chet staggers from a torso hit (his torso crippled)" },
   { re = 'combat: the player flinches for 0\.6 s \(torso crippled\)', label = "the player flinches from Chet's hits" },
+  "player: held where they stand while they flinch",
   { re = "combat: 0x00104C79's arm crippled: it drops its", label = "Chet drops his weapon when an arm is crippled" },
 ]
 
@@ -7164,4 +7159,55 @@ forbid = [
 order = [
   ["magic: Turbo on: the world runs at 0.50, the player at full speed", "magic: Turbo off"],
   ["test aid NVF_PLAY_TEST_CONSOLE: player.equipitem NVAntivenom", "magic: CazadorPoison on the player ended"],
+]
+
+[[scenario]]
+name = "combat-supermutant-club"
+source = "owner's playtest list 7 items 39 and 13: a nightkin fought with its fists, not its rebar club (creatures' weapons, engine/nvforever/src/outfits.rs); creatures stagger on their own hit-reaction clips and stand while they do (engine/nvforever/src/locomotion.rs FLINCHES)"
+note = "the Jacobstown super mutant 0x0014B0E3 (JacobstownMutant1, a creature on the smspinebreaker skeleton, carries nothing) is given a Rebar Club (WeapNVRebarClub 0x000CD50E, Melee (2 Hand)) at 3 s: AddItem makes it equip it (GECK wiki AddItem notes) and it draws it; it is put 300 units from the player at 8.5 s (from its own place the player was out of its sight) and fights (the player stands where the mutant cannot reach them, so it does not swing in this run) the player (god mode) from 9 s; at 16 s the hit aid cripples its left leg (staggers it: specialidle_hitlegleft.kf)"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:0x0014B0E3:AddItem:WeapNVRebarClub:1,8.5:moveto:0x0014B0E3:player:0:300:0,9:combat:0x0014B0E3:player", NVF_PLAY_TEST_HIT = "16:0x0014B0E3:2:limb=LeftMobilityCondition" }
+args = ["--play", "--pos=-108200,96700,12100", "--heading", "330", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'equipment review: \S+ 0x0014B0E3 equips WeapNVRebarClub 0x000CD50E \(given an item\)', label = "AddItem: the super mutant equips the club" },
+  { re = 'creature weapons: 0014B0E3 \(.*\) holds WeapNVRebarClub 0x000CD50E \(Melee \(2 Hand\)\)', label = "the creature draws the club on its skeleton" },
+  { re = 'npc combat: \S+ 0x0014B0E3 fights the player with WeapNVRebarClub \(melee\)', label = "it fights with the club, not its own attack" },
+  { re = 'alert: 0x0014B0E3 0x0014B0E3 draws its weapon', label = "it draws the club when it fights" },
+  { re = 'hit reaction: 0014B0E3 staggers for [\d.]+ s \(location \d+, crippled now\)', label = "the crippling hit staggers the creature" },
+  { re = 'npc combat: .*0x0014B0E3 holds its attacks while it staggers', label = "it holds its blows while it staggers" },
+]
+forbid = [
+  { re = 'npc combat: \S+ 0x0014B0E3 fights the player with its own attack', label = "the super mutant fights with its own attack" },
+]
+
+[[scenario]]
+name = "trudy-gunfight-armed"
+source = "owner's playtest list 7 item 12: Trudy had no weapon in the Ghost Town Gunfight. VMS16 stage 70 gives her the leveled list WithAmmoNVSingleShotgunLoot by AddItem (her record carries no weapon); AddItem makes an NPC equip the best weapon it carries (GECK wiki AddItem notes: fnv_sim::World::review_equipment), which was not built"
+note = "in the saloon (her cell loaded, so she is outfitted, as in a game; she starts disabled in a new game and is enabled by the aid at 2 s, as in the joe-cobb scenario) the stage's AddItem is called at 4 s; at 10 s she is set on the player (god mode) so she draws and fires the shotgun. Stage 70 itself also moves her outside by MoveTo; run that way (stage:VMS16:70 from the exterior) she was never drawn there in NVForever (2026-10-23, not chased)"
+areas = ["combat", "quests"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-game/src/functions/items.rs", "engine/nvforever/src/outfits.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "2:enable:TrudyRef,4:call:TrudyRef:AddItem:WithAmmoNVSingleShotgunLoot:1,10:combat:TrudyRef:player" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'equipment review: TrudyRef 0x00104C6D equips WeapNVSingleShotgun', label = "the quest's AddItem arms Trudy with the single shotgun" },
+  { re = 'outfit: actor 00104C6D: weapon \S+ now held: put in its holster', label = "the shotgun is drawn on her" },
+  { re = 'npc combat: TrudyRef 0x00104C6D fights the player with WeapNVSingleShotgun \(gun\)', label = "she fights with it" },
+]
+
+[[scenario]]
+name = "combat-ghoul-lunge"
+source = "owner's playtest list 7 item 36: feral ghouls ran too slowly and waited next to the player before swinging; creatures now attack on the run and lunge (forward power attack) from beyond their reach (npc_combat::lunge_band)"
+note = "the feral ghoul 0x000CE9E7 (follower-boone's) is put 1,500 units from the player outside Novac at 3 s and set on the player (god mode) at 4 s; it runs in and begins its blows on the run"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/creature_pace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000CE9E7:player:0:1500:0,4:combat:0x000CE9E7:player" }
+args = ["--play", "--pos=24086,-30000,6980", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'creature pace: \S+ 0x000CE9E7 walks \d+ and runs (?P<n>\d+) units/s', range = [1, 100000], label = "the ghoul's speeds" },
+  { re = 'npc combat: .*0x000CE9E7 attacks .* on the run from', label = "it begins a blow on the run" },
+  { re = 'npc combat summary:.*? (?P<n>\d+) blows', range = [2, 100000], label = "blows in the npc combat summary" },
 ]

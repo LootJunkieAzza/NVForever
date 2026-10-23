@@ -47,6 +47,10 @@ shots are aimed from the eyes and drawn from the weapon's muzzle (§9).
 nvforever `npc_combat`, for every drawn living actor in Combat with a target:
 
 - the weapon drawn on it (`HeldWeapon`): a gun if it fires a projectile, else melee;
+- a creature's weapon: super mutants and nightkin (creatures on the `smspinebreaker`
+  skeleton) draw and fight with the weapon they carry where their skeleton folder has its
+  stance (`2hm`, `2hr`, `2ha`, `2hh`, `2hl`; no `1hm` or `1hp` there) (playtest list 7
+  item 39, `outfits::arm_creatures`, §18);
 - no weapon: a creature attacks with its own damage (CREA DATA Damage) and reach (RNAM
   Attack Reach) [documented: xEdit field names], from the template that supplies its
   stats [hypothesis for the reach]; an NPC fights with its fists (WEAP `Fists`).
@@ -1189,12 +1193,25 @@ chain resolves it. A range of 0 sets no limit. Cook-Cook (FiendCookCookRef 0x000
 base 1ECookCook) carries WeapFlamer: Max Range 650, FlameProjectile Range 640, the
 default style's multiplier 1.0: reach 640 [observed: FalloutNV.esm].
 
-**No shot beyond it.** "Max Range: Tells combat AI they don't want to be any further away
+**No shot beyond it — for flames and explosives only** (owner's playtest list 7 item 40,
+2026-10-23). "Max Range: Tells combat AI they don't want to be any further away
 than this value. Actors outside this range will not fire their weapon until they are
-within distance of this value to the target" [documented: GECK wiki Weapons]. The
-distance is the shot's: from its eyes to the target's chest. Log: `npc combat: … holds
-fire: … is beyond its weapon's reach (… units, reach …)`, and `… has … in reach` when it
-may fire again.
+within distance of this value to the target" [documented: GECK wiki Weapons]. Combat is
+not a parity target, and the owner asked for the opposite for ordinary firearms: "remove
+the minimum firing distance from all projectile based weapons except the flamer, missiles
+and explosives … pistol users running directly at the player and not shooting until
+point blank. this completely negates the NPC aim down sights functionality" [design:
+owner]. So a gun whose projectile is a flame or explodes (`GunReach::limited`: the
+flamer, the incinerator, missile and grenade launchers, the Fat Man, grenade rifles and
+machine guns) still holds fire beyond its reach; every other gun fires at a target it
+sees out to its projectile's own Range (10,000 for the masters' bullets [observed:
+`fnvtool combat weapon`, 10mmBulletProjectile, BuckshotProjectile]), and its reach is only
+the distance it fights from (the stop and close-in distances below). A pistol user now
+fires from where it first sees its target, down its sights beyond 1,400 units, while it
+runs in to 614 units. The distance is the shot's: from its eyes to the target's chest.
+Log: `npc combat: … holds fire: … is beyond its weapon's reach (… units, reach …)`, and
+`… has … in reach` when it may fire again; the summary's "shots beyond it" now counts
+an ordinary gun's shots from beyond its reach.
 
 **No shot into its own blast** [design]: a gun whose projectile explodes (PROJ Explosion
 flag and EXPL) does not fire at a target nearer than the explosion's radius. Log: `holds
@@ -1426,3 +1443,105 @@ timers; the rush distance; the fatigue modifier; the radius and the FOV) and in
 `npc_combat` (the dodge point, the blast check). Smoke: `combat-style-dodge` (two melee
 fighters: a dodge and an idle logged), `combat-grenade-evade` (a grenade lands among
 fighters: AvoidThreat and a run away logged).
+
+## 18. Playtest list 7, combat AI (W4, 2026-10-23)
+
+Owner's items 12, 13, 36, 39, 40, 43 and 45 (`C:\fnv-private\todo 7.txt`). Combat is not a
+parity target; the rules below are **[design]** unless tagged.
+
+### 18.1 AddItem arms NPCs (item 12, Trudy)
+
+Trudy (GSTrudy 0x00104C6C) carries no weapon, only .357 ammunition and her outfit
+[observed: FalloutNV.esm CNTO]; VMS16 stage 70 (Trudy helps) and VMS16b stage 70 give
+her a shotgun list by AddItem (WithAmmoNVSingleShotgunLoot 0x000F9DCF, WithAmmoNVCaravan
+ShotgunLoot 0x00096C91) [observed: the stages' result scripts, `fnvtool script
+decompile`]. "Executing AddItem function on NPCs will cause them to review their inventory
+and equip the best armor and weapon they have" [documented: GECK wiki AddItem notes];
+that review was not built, so an outfitted NPC kept its empty hands until a Combat state
+made `style_weapon` arm it; in the gunfight she stood with her fists drawn [hypothesis:
+alerted but not in Combat]. Now AddItem on any actor but the player runs
+`fnv_sim::World::review_equipment` (the outfitting's own choice of best weapon and
+armour; OnEquip/OnUnequip run; log `equipment review: … equips …`). Smoke
+`trudy-gunfight-armed`. Open: stage 70 run from outside (`stage:VMS16:70`) moved her out
+of the saloon by MoveTo and she was never drawn outside in that run (not chased).
+
+### 18.2 Staggers hold everyone (item 13)
+
+NPCs already stood while a hit reaction played (`residents.rs` holds their walk). Two
+gaps: no creature ever staggered, as only the people's `idleanims\mt_hit….kf` names were
+looked for, while the creature folders name theirs `specialidle_hit…`,
+`mtspecialidle_hit…`, `hitreaction_…` or `h2hhitlegs` [observed: `Fallout - Meshes.bsa`
+listing] (`locomotion::FLINCHES` now tries each name in turn); and the player's flinch
+(`nvf_play::combat::player_flinch`) only held the trigger: now the walk and jump are held
+too (`player::flinch_holds_walk`, log `player: held where they stand while they flinch`).
+Smoke `combat-supermutant-club` (a super mutant staggers on its crippled leg and holds
+its blows), `crippled-torso-arms` (the player is held).
+
+### 18.3 Feral ghouls' pace, attacks on the run and lunges (item 36)
+
+- **Pace**: a feral ghoul (CrFeralGhoul1A: Speed Mult 100, scale 1) ran at 269 units/s by
+  the cazador-fitted 0.70 of its clip pace, below the player's 344, so a running player
+  left it behind [observed in NVForever: smoke `combat-ghoul-lunge`]. The original could
+  not be watched; the owner's own guess, 25 % faster, is built as a type share
+  (`creature_pace::type_pace`, CREA DATA type 5 Feral Ghoul ×1.25: 336 units/s)
+  [design: owner].
+- **Attacks on the run** (`npc_combat::lunge_band`): a creature closing in faster than
+  100 units/s may begin a blow before it is within its strike distance, by the ground it
+  covers until its clip's `Hit` key (closing speed × hit time, capped at its own running
+  speed and at 300 units); where it has a forward power attack clip
+  (`h2hattackforwardpower.kf`: ghoul, radscorpion's sting, gecko, deathclaw …) the
+  forward power attack's own hit time gives a longer band, a lunge, rolled by its style's
+  power attack chance; the ordinary blow by its style's attack chance (a rush always
+  attacks). Rolled once each time the target comes within the band. The blow lands only
+  if the target is within reach at the `Hit` key, as every blow. Before, a creature
+  attacked only once it stood within reach, and a failed attack roll made it hold for the
+  style's hold timer (0.5–1.5 s): the "awkward delay". Log `npc combat: … attacks … on the
+  run from … units (a lunge, closing at …)`; style summary counts. Smoke
+  `combat-ghoul-lunge`.
+
+### 18.4 Creatures' weapons (item 39, the nightkin's rebar club)
+
+Super mutants and nightkin are creatures (CREA type Super Mutant on
+`creatures\smspinebreaker\skeleton.nif`) that carry weapons; creatures were never armed,
+so all of them fought with their own attack ("fists"). Their skeleton folder has the
+weapon stances `2ha`, `2hh`, `2hl`, `2hm`, `2hr`, `1gt` (equip, aim, attack, reload) but no
+`1hm` or `1hp` [observed]. `outfits::arm_creatures` now draws the weapon the rules have a
+creature hold (its best drawable weapon, as an NPC's) whenever its folder has that stance;
+the combat AI then fights with it as an NPC does (melee or gun; attack and reload clips
+from its folder). A creature whose folder lacks the stance keeps its own attack (log
+`creature weapons: … has no stance for it`). In the Jacobstown run every armed mutant
+took up its hunting rifle, sledgehammer, nail board or Lily's sword [observed in
+NVForever, 2026-10-23]. Not built: dropping a creature's weapon on death or a crippled
+arm (NPCs only), the CREA "Weapon & Shield" flag (the clips decide).
+
+### 18.5 No minimum firing distance (item 40)
+
+§16: ordinary firearms fire beyond their reach (out to the projectile's range); flames
+and explosives keep the limit. Smokes `combat-sights-beyond-reach` and
+`combat-shotgun-reach` rewritten for the owner's new rule (Violet fires from about
+3,000 units; before she held fire), `combat-sniper-reach` and `combat-flamer-reach`
+unchanged.
+
+### 18.6 Strafing into cover (item 43)
+
+Fighters going to new cover turned to their way there: the facing rule
+(`residents.rs`, owner 2026-10-16) left out the Cover post ("running to new cover, out
+of the fight for a while"). Now only fleeing fighters turn to their way; going to
+cover they face their target and strafe or back there. The fight move summary counts
+the seconds on the way to cover (`… s of it on the way to new cover`); smoke
+`combat-cover` expects some.
+
+### 18.7 A recorded fight (item 45)
+
+Smoke launch `ncr-fiends` (six NCR troopers against Cook-Cook and four Fiends, the
+player unseen), read per fighter from the log [observed in NVForever, 2026-10-23, one
+run; resolved in 43 s, 4 NCR and 2 Fiends dead]:
+
+| What | Seen | Done |
+|---|---|---|
+| Stop-and-go | a Fiend (0x000F9CE7) 1,500 units from a trooper, within its stop distance, logged `stops and faces` / `runs at` 3 times a second for 15 s: its sight of the target came and went behind other fighters, and a fighter closed in on an unseen target at once | `fnv_ai::alert::BLIND_CLOSE_AFTER`: it closes in on an unseen target only after 1.5 s without detecting it |
+| Friendly line of fire | 172 shots held for a comrade in the line of fire (Cook-Cook alone 102 lines), against 267 shots fired; 56 steps aside | left: a gunman held this long should step aside sooner or take a flank; the side step waits for its post rules |
+| Melee Fiends against gunmen | the two melee Fiends (pool cue, 0x000F9CE8/9) charged 1,500–2,600 units over open ground and one never reached anyone; they changed target mid-charge | left: a melee fighter far from every enemy could take cover from cover (§14.4 does this for people already when cover is found) or keep its first target |
+| First shots | troopers opened fire at 1,730–2,030 units, Fiends at 1,410–1,880 (item 40: before, the shotgun Fiend would have run to 600) | — |
+| Cover | 1 cover taken in the battle (the styles' Take Cover Chance, rolled every 10 s) | — |
+| Staggers | 11 staggers held a fighter's attacks | — |
