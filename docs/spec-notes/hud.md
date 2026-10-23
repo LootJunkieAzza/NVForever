@@ -325,8 +325,18 @@ menu's (`dialogue_menu.rs`).
   FalloutNV.esm). A place is found when the player comes within its marker's radius
   (`XRDS`), as the Pip-Boy's map counts it (pipboy.md §5.3); saves keep the places found.
   The sound is `UIPopUpMapMarkerAdded` [hypothesis: by its name].
+- [documented: `menus/prefabs/hudtemplates.xml`, `template_compass_icon_quest`] The
+  quest target's icon is `glow_hud_compass_objective_marker.dds`, 40 x 50 at y 5 as the
+  map marker's, at depth 5 over the map marker's 3. Built 2026-10-23 (playtest list 7
+  item 44): the active quest's marked targets (the Pip-Boy's, conditions passing,
+  quests-dialogue.md §2) at any distance, drawn in the map marker's box over the other
+  marks [hypothesis: the box, and no distance limit]; a target in another cell at a door
+  towards it: outdoors the door into its interior (as the Pip-Boy's map), indoors a door of
+  the player's cell to the target's cell, else to its worldspace or that of the door into
+  its interior [hypothesis: one step of doors; the original may walk further].
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
-  Perception <p>` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`.
+  Perception <p>` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
+  `compass: <n> quest target(s) placed, <m> on the compass` when those change.
 
 ## 12. The crippled-limb picture (owner 2026-10-17)
 

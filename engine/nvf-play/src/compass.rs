@@ -18,6 +18,16 @@
 //!   name where quests are announced (`crate::quest_messages`), and gives the player
 //!   `iXPRewardDiscoverMapMarker` experience [observed: 10 in FalloutNV.esm, and "+10 XP"
 //!   on the owner's screenshot]. A save keeps the markers found.
+//! - **Quest targets**: the active quest's marked targets (the Pip-Boy's, whose
+//!   conditions pass: `crate::pipboy::data::refresh_quest_targets`) at any distance, as
+//!   `glow_hud_compass_objective_marker.dds` drawn over the others [documented:
+//!   `menus/prefabs/hudtemplates.xml`, `template_compass_icon_quest`: that picture,
+//!   40 × 50 at y 5 as the map marker's, depth 5 over the map marker's 3]. A target in
+//!   another cell is marked at a door towards it: outdoors at the door into its interior
+//!   (the Pip-Boy map's rule, `fnv_game::quest_targets::marker_door`), indoors at a door of
+//!   the player's cell that leads to the target's cell, else to its worldspace or to the
+//!   worldspace of the door into its interior [hypothesis: the original walks the doors
+//!   further; one step is what is built] (docs/spec-notes/hud.md §11).
 //! - The ranges are guesses: no game setting for them is in the masters [hypothesis].
 
 use crate::hud::{CompassMarks, COMPASS, STRIP};
@@ -36,7 +46,7 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use nvf_assets::GameData;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 /// Game units of range per point of Perception for actors and for map markers
 /// [hypothesis: Perception 5 shows actors within about 21 m and markers within about
@@ -54,6 +64,7 @@ const POLL: f32 = 0.1;
 const TICK: &str = "textures\\interface\\hud\\glow_hud_tick_mark.dds";
 const LANDMARK: &str = "textures\\interface\\hud\\glow_hud_compass_landmark.dds";
 const LANDMARK_FOUND: &str = "textures\\interface\\hud\\glow_hud_compass_landmark_discovered.dds";
+const QUEST: &str = "textures\\interface\\hud\\glow_hud_compass_objective_marker.dds";
 /// The tick (a 32-texel picture whose bar is 18 texels from its left edge) drawn this
 /// size, its top this far down the compass window, its bar's middle on the bearing.
 const TICK_SIZE: f32 = 26.0;
@@ -74,6 +85,8 @@ pub enum Mark {
     /// A map marker the player has not been to, and one it has.
     Place,
     Found,
+    /// A target of the active quest (drawn last, over the others).
+    Quest,
 }
 
 /// Compass units right of the compass's middle at which a thing at `to` stands for a
@@ -179,6 +192,8 @@ fn gather(
     mut poll: Local<f32>,
     mut view: ResMut<CompassView>,
     mut logged: Local<[usize; 4]>,
+    mut doors: Local<HashMap<u32, Vec<FormId>>>,
+    mut logged_quest: Local<Option<(usize, usize)>>,
 ) {
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
@@ -228,6 +243,24 @@ fn gather(
             }
         }
     }
+    // The active quest's targets: how many have a place (themselves or a door), and how
+    // many of those are in the compass's window now.
+    let (mut placed, mut shown) = (0, 0);
+    if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
+        for c in st.marked_targets() {
+            let Some(pos) = quest_mark_at(&sim, loc, &mut doors, c.target, c.ignores_locks) else { continue };
+            placed += 1;
+            let x = offset(heading, here, [pos[0], pos[1]]);
+            if on_compass(x) {
+                marks.push((Mark::Quest, x.round() as i32));
+                shown += 1;
+            }
+        }
+    }
+    if *logged_quest != Some((placed, shown)) {
+        info!("compass: {placed} quest target(s) placed, {shown} on the compass");
+        *logged_quest = Some((placed, shown));
+    }
     marks.sort();
     let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(&m.0)).count();
     let counts = [count(&[Mark::Actor, Mark::Hostile]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found])];
@@ -239,10 +272,60 @@ fn gather(
     view.set_if_neq(CompassView(marks));
 }
 
+/// The doors outdoors that lead into interior `cell` (as `fnv_game::Game::doors_into`).
+fn doors_into(sim: &SimState, cell: FormId) -> Vec<FormId> {
+    let refs = sim.refs;
+    refs.refs
+        .iter()
+        .filter(|(_, d)| d.teleport.is_some_and(|t| refs.get(t.door).is_some_and(|inside| inside.cell == Some(cell))) && d.cell.is_some_and(|c| refs.cell_world.contains_key(&c)))
+        .map(|(id, _)| *id)
+        .collect()
+}
+
+/// Where the compass marks quest target `target` for a player at `loc` (see the module
+/// notes): the target itself in the player's cell or worldspace, else a door towards it;
+/// `None` when no door is known. `doors` caches the doors into each interior.
+fn quest_mark_at(sim: &SimState, loc: &Location, doors: &mut HashMap<u32, Vec<FormId>>, target: FormId, ignores_locks: bool) -> Option<[f32; 3]> {
+    let refs = sim.refs;
+    let (cell, pos) = match sim.world.peek(target) {
+        Some(s) => (s.cell?, s.pos),
+        None => {
+            let p = refs.get(target)?;
+            (p.cell?, p.pos)
+        }
+    };
+    let world = refs.cell_world.get(&cell).map(|w| w.0);
+    // The door outdoors into the target's interior, and its worldspace.
+    let mut door_in = || -> Option<(u32, [f32; 3])> {
+        let into = doors.entry(cell.0).or_insert_with(|| doors_into(sim, cell));
+        let d = fnv_game::quest_targets::marker_door(&sim.world, into, ignores_locks).and_then(|d| refs.get(d))?;
+        Some((refs.cell_world.get(&d.cell?)?.0, d.pos))
+    };
+    match loc.interior {
+        Some(here) if here == cell.0 => Some(pos),
+        None if world == Some(loc.world) => Some(pos),
+        None if world.is_none() => door_in().filter(|(w, _)| *w == loc.world).map(|(_, p)| p),
+        None => None,
+        Some(here) => {
+            // A door of the player's cell: to the target's cell, else to its worldspace
+            // (or the one of the door into its interior).
+            let wanted_world = world.or_else(|| door_in().map(|(w, _)| w));
+            let exits: Vec<([f32; 3], FormId)> =
+                refs.by_cell.get(&FormId(here)).into_iter().flatten().filter_map(|&d| refs.get(d)).filter_map(|d| Some((d.pos, refs.get(d.teleport?.door)?.cell?))).collect();
+            exits
+                .iter()
+                .find(|(_, to)| *to == cell)
+                .or_else(|| exits.iter().find(|(_, to)| wanted_world.is_some() && refs.cell_world.get(to).map(|w| w.0) == wanted_world))
+                .map(|(p, _)| *p)
+        }
+    }
+}
+
 struct Art {
     tick: Option<Handle<Image>>,
     landmark: Option<Handle<Image>>,
     found: Option<Handle<Image>>,
+    quest: Option<Handle<Image>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -263,7 +346,7 @@ fn draw(
     let art = art.get_or_insert_with(|| {
         let bc = bc_supported(formats.as_deref());
         let mut read = |p: &str| data.as_deref().and_then(|d| texture(p, d, &mut images, bc)).map(|t| t.0);
-        Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND) }
+        Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST) }
     });
     let middle = COMPASS.x / 2.0;
     commands.entity(layer).despawn_related::<Children>().with_children(|p| {
@@ -274,8 +357,15 @@ fn draw(
                     let colour = if mark == Mark::Hostile { crime_colour() } else { amber(255.0) };
                     (&art.tick, at(x - TICK_MIDDLE * TICK_SIZE, TICK_TOP, TICK_SIZE, TICK_SIZE), colour)
                 }
-                Mark::Place | Mark::Found => {
-                    let image = if mark == Mark::Found { &art.found } else { &art.landmark };
+                Mark::Place | Mark::Found | Mark::Quest => {
+                    // The quest marker in the map marker's box (the same 40 × 50 at y 5
+                    // in the HUD file) [hypothesis: its picture is laid out as the
+                    // landmark's].
+                    let image = match mark {
+                        Mark::Found => &art.found,
+                        Mark::Quest => &art.quest,
+                        _ => &art.landmark,
+                    };
                     let corner = Vec2::new(x, LANDMARK_Y) - LANDMARK_MIDDLE * LANDMARK_SIZE;
                     (image, at(corner.x, corner.y, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0))
                 }
