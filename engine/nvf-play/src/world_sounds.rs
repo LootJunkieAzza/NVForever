@@ -186,8 +186,9 @@ pub struct SoundForms {
 /// it and what the log calls them [documented: xEdit wbDefinitionsFNV.pas ACTI `SNAM`
 /// Sound - Looping, CONT `RNAM` Sound - Random/Looping, DOOR `BNAM` Sound - Looping, MSTT
 /// `SNAM` Sound, STAT `RNAM` Sound - Looping/Random, LIGH `SNAM` Sound, TERM `SNAM` Sound -
-/// Looping] (audio.md §14.3, §15).
-pub const OWN_SOUNDS: [(&[u8; 4], &[u8; 4], &str); 7] = [
+/// Looping, MISC and KEYM `RNAM` Sound - Random/Looping] (audio.md §14.3, §15;
+/// item-fields.md §2).
+pub const OWN_SOUNDS: [(&[u8; 4], &[u8; 4], &str); 9] = [
     (b"ACTI", b"SNAM", "activators"),
     (b"CONT", b"RNAM", "containers"),
     (b"DOOR", b"BNAM", "doors"),
@@ -195,6 +196,8 @@ pub const OWN_SOUNDS: [(&[u8; 4], &[u8; 4], &str); 7] = [
     (b"STAT", b"RNAM", "statics"),
     (b"LIGH", b"SNAM", "lights"),
     (b"TERM", b"SNAM", "terminals"),
+    (b"MISC", b"RNAM", "misc items"),
+    (b"KEYM", b"RNAM", "keys"),
 ];
 
 /// The kind in [`OWN_SOUNDS`] of statics: they never move, so their place is read once.
