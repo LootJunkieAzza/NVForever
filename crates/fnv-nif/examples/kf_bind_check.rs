@@ -94,6 +94,7 @@ fn main() {
             let qb = quat_of(&b.rotation);
             let kind = match &tt.rotation {
                 Channel::BSpline { .. } => "bspline",
+                Channel::Path(_) => "path",
                 Channel::Keys(_) => "keys",
                 Channel::Static(_) => "static",
             };

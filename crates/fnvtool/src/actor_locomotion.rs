@@ -13,6 +13,7 @@ fn kind<const N: usize>(c: &Channel<N>) -> &'static str {
         Channel::Static(None) => "none",
         Channel::Keys(_) => "keys",
         Channel::BSpline { .. } => "bspline",
+        Channel::Path(_) => "path",
     }
 }
 
