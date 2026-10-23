@@ -146,7 +146,9 @@ Ignored unless noted:
   "Hide Backpack"; reload and jam times; rumble; EAMT. AMMO QNAM abbreviation (stored).
   ARMO female world model (MOD4) and female icons; BNAM. KEYM/MISC RNAM loop. CMNY value.
   The CSNO chip models are hard-coded, and only the last ICO2 deck back is kept.
-- **Actors.** NPC_ AIDT mood (stored); "Not Pushable"; "No Rotating To Head-track";
+- **Actors** (claude/em11-actors, [actor-fields](../spec-notes/actor-fields.md): built Not Pushable,
+  No Rotating To Head-track, No Head/Arm and the CREA CNAM impact set; nothing to build
+  for RACE boosts, HAIR Fixed, LVLI owners, No Shadow; the rest left with reasons). Was: NPC_ AIDT mood (stored); "Not Pushable"; "No Rotating To Head-track";
   "Autocalc Service"; NAM7 weight; KFFZ on NPC_. CREA movement flags (Swims, Walks, No
   Combat in Water); tilt flags; No Head and No Arm flags; No Shadow; WNAM foot weight;
   CNAM impact set; LNAM melee list. RACE skill boosts (non-zero in vanilla: unverified);

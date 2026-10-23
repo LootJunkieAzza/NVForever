@@ -8190,6 +8190,19 @@ Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10
   categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
   (*guess*).
 
+## Actors: the low-impact fields (2026-10-23, ESM audit low-impact list "Actors", branch claude/em11-actors)
+
+Creatures flagged Not Pushable are not pushed aside; an actor flagged No Rotating To
+Head-track does not turn its head to look; a creature flagged No Head or No Arm never
+loses that part; a creature's own bite or claw shows its CREA CNAM impact (bite, claw,
+ghoul) instead of the player's fists'. Spec: [actor-fields](spec-notes/actor-fields.md).
+Decisions and guesses:
+
+- *Guess:* CREA bit 27 ("Not Pushable / Allow Pickpocket") is Not Pushable for creatures.
+- *Guess:* No Rotating To Head-track acts as a package's HeadTracking Off.
+- *Decision:* nothing to build for RACE skill boosts, HAIR Fixed, LVLI owners and No
+  Shadow (no master record uses them); the rest left with reasons in the spec.
+- *Check:* does a dog's bite on an NPC show a bite impact in the original?
 ## Items: the low-impact fields (2026-10-23, ESM audit low-impact list "Items", branch claude/em10-items)
 
 The first shot after a reload of a weapon flagged No Jam After Reload cannot jam; a jam
