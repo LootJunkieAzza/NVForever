@@ -371,7 +371,7 @@ menu's (`dialogue_menu.rs`).
   `hud: crippled limbs hidden`. The stand-in line of words ("crippled: …", `combat.rs`)
   is gone.
 
-## 13. Hardcore's need words and the limb word (owner 2026-10-23)
+## 13. Hardcore's need words, the radiation word and the limb word (owner 2026-10-23)
 
 `engine/nvf-play/src/hud_needs.rs`; smoke `hud-needs-words`.
 
@@ -380,11 +380,12 @@ menu's (`dialogue_menu.rs`).
   "Set it code!": `Dehydration` (`sStatsH20Abbrev`), `Hunger` (`sStatsFODAbbrev`), `Sleep`
   (`sStatsSLPAbbrev`), `Rads` (`sStatsRADAbbrev`) and `LMBs` (`sStatsLMBAbbrev`). So the
   original's file already has a limb word in the Hardcore row.
-- [observed: FalloutNV.esm and the five add-on masters] None of the four settings is in a
+- [observed: FalloutNV.esm and the five add-on masters] None of the five settings is in a
   master; the game's own defaults are not readable here. The words drawn are a plugin's
-  setting if one sets it, else `H2O`, `FOD`, `SLP`, `LMB` [hypothesis: the words on the
-  owner's screenshot; `LMB` from the setting's name]. The `Rads` text is not drawn: the
-  radiation meter shows rads (radiation.md §6).
+  setting if one sets it, else `H2O`, `FOD`, `SLP`, `RAD`, `LMB` [hypothesis: the words on
+  the owner's screenshot; `RAD` and `LMB` from the settings' names]. `RAD` stands in the
+  file's order, between SLP and LMB [owner 2026-10-23: RAD with the other indicators,
+  whether or not the original drew it].
 - [observed: the owner's screenshot, not measured] The words stand on the "HP" label's
   line above the health bar, starting a little right of "HP". Here: on `UPPER_BASE`, the
   first word two spaces of the font after "HP", one space between words [hypothesis].
@@ -397,13 +398,20 @@ menu's (`dialogue_menu.rs`).
   last ones"]: no stage and Minor faded, Advanced normal, Critical red, Deadly and Fatal
   flashing. Counted from the worst stage, so a plugin's shorter list loses the faded
   stage first.
+- **The radiation word** follows the radiation sickness stage the game holds (the RADS
+  records' thresholds 200 … 1000, Minor … Fatal; held in every mode, aid-items.md §11)
+  [design: owner 2026-10-23, "same rules … for each radiation threshold"]: each threshold
+  steps it up: no stage (under 200 rads) faded, Minor normal, Advanced red, Critical,
+  Deadly and Fatal flashing.
 - **The limb word** follows how many of the six limbs (conditions 25–30) are crippled
   [design: owner 2026-10-23]: 0 faded, 1 normal, 2 red, 3 or more flashing. The brain (31)
   is not counted [design: not a limb; the picture of §12 has no piece for it].
-- **When they show**: H2O, FOD and SLP only in Hardcore [design: owner]. LMB in every mode
+- **When they show**: H2O, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
+  [design: radiation sickness is not a Hardcore rule]. LMB in every mode
   [design: crippled limbs matter in every mode and the §12 picture goes after 5 s; the
   original's file puts `LMBs` in the Hardcore rect, so the original may show it only in
-  Hardcore — to be checked in a capture]. Outside Hardcore LMB takes H2O's place.
+  Hardcore — to be checked in a capture]. Outside Hardcore RAD and LMB take H2O's and
+  FOD's places.
 - Log: `hud needs: <word> <hidden|faded|normal|red|flashing> (<why>)` when a word's look
   changes, the why being `stage <n> of <count>, <stage effect>`, `no stage`, `Hardcore
   off` or `<n> limbs crippled`.
