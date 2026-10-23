@@ -987,6 +987,59 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     worldspaces (Honest Hearts' archive is a lab holdout), the underwater fog (still
     linear, water.md).
 
+### Sunlight Dimmer (Old World Blues comparison F1, 2026-10-23)
+
+- **Where it is** [documented: xEdit wbDefinitionsFNV.pas IMGS DNAM, IMAD]: the twelfth
+  HDR float of IMGS DNAM (byte 44, in front of the size-dependent part, so the same in the
+  152-, 148- and 132-byte layouts), "Sunlight Dimmer"; each IMAD multiplies and adds to it
+  with track `\x0bIAD` (multiply) and `KIAD` (0x4B, add). Read with the other HDR values
+  ("HDR and bloom" above; `Hdr::v[HDR_SUNLIGHT_DIMMER]`), at the time-0 key like the
+  cinematic tracks.
+- **Values** [observed: fnvtool esm decode; base × multiply + add]: NVDefaultExterior 1.1.
+  The Mojave's clear weathers (NVWastelandClear, ClearNight, GS, Borders, UrbanClear,
+  BlackMountain, ClearWindy) give 1.65 at sunrise, 1.21 by day, 1.3 at sunset, 1.1 at
+  night. Others: NVWastelandHazy 0.75 / 1.0 / 1.3 / 1.1; NVTheStripWeather night 0.6;
+  NVHooverDamWeather 0.77 by day; NVSearchlightWeather 0.44 by day; NVWastelandClearEast
+  1.21 from sunrise to sunset. Big MT (NVDLC03BigMTWeather) 3.3 / 2.475 / 2.2 / 2.2.
+  Dead Money: NVDLC01VillaWeather 1.1 at every hour, NVDLC01WestTownWeather 0.54 (×0.4 + 0.1),
+  NVDLC01EastTownWeather and DefaultWeather 1.3 (+0.2), each on NVDefaultExterior (the
+  Villa's INAM; the other Dead Money worlds not checked); NVDLC01FogWeather and
+  VistaWeather link Fallout 3's Pitt adapters (`DLC01Pitt01*ISFX`), which set it outright
+  (multiply 0, add 2.1 by day, 2.3 at night, 2.5 at sunset).
+- **What it does** [hypothesis: the dimmer scales the directional (sun and moon) light
+  directly]. Evidence [observed, OWB comparison `docs/handoff/owb-comparison-2026-10-23.md`]:
+  in the original the Big MT's directly lit surfaces are about twice the brightness of
+  ours (Think Tank ground 162 against 82 grey), and its dimmer is about twice the Mojave's;
+  a test build with the sun × 2.05 moved that ground to 112 and a night ground from 18
+  to 31 (original 26). The earlier Mojave fit above read the noon factor 0.66 as the day
+  dimmer used as a divisor; at sunrise and sunset that reading made frames worse, and the
+  Big MT rules it out (a divisor would halve the Big MT's light).
+- **As built**: the outdoor directional light is × dimmer(hour) ÷ the Mojave reference
+  (hour), where dimmer(hour) is the image space's value with the weather's adapters,
+  blended between the four times of day like the grade (and across a weather fade), and
+  the reference is the Mojave clear weathers' 1.65 / 1.21 / 1.3 / 1.1 blended the same
+  way (`fnv_world::imagespace::sun_scale`). The Mojave's light was fitted under its clear
+  weathers, so they give exactly 1 at every hour and their frames do not change; every
+  other weather and world is lit relative to them, by one rule. Interiors keep XCLL's
+  light unchanged (their image spaces' dimmers are not checked yet). The log's
+  `sky: ...` line ends with `sun x<scale>`.
+- **Checked** [observed, 1280 × 720 renders of the OWB comparison cameras against the
+  original's, medians of 8-bit regions]: Big MT ×2.05 by day, ×2.0 at sunrise and night,
+  ×1.7 at sunset. Think Tank by day frame mean 63.8 → 72.0 (original 72.1); X-8 26.7 →
+  35.0 (31.6); X-12 at sunset 54.9 → 60.9 (76.3); Little Yangtze sunrise 78.5 → 82.9
+  (103.0); Think Tank night ground (11, 12, 22) → (21, 23, 32) (original (22, 20, 35)).
+  Z-38 at night overshoots (25.0 → 37.4, original 22.7): its east-facing facades are lit,
+  which the original leaves dark (moonlight direction, OWB F5). Mojave Goodsprings in
+  NVWastelandClear at 12:06 and 19:06: ×1.00, region medians unchanged. Dead Money: the
+  Villa ×1.00 at night (unchanged); Puesta del Sol ×0.49 at night takes out some of the
+  greenish-white moonlight on the lantern wall, which the original does not show, and
+  the frame mean goes 24.3 → 21.9 (original 38.4, lit by warm ambient and the lantern:
+  a separate gap).
+- **Open**: whether the dimmer's own change through the day also applies in the Mojave
+  (the reference would then be the day value 1.21 alone: sunrise × 1.36, night × 0.91).
+  The Mojave fit's per-hour sun factors (0.9-1.2 at 07:36 against 0.5 at 09:06) lean that
+  way but are noisy; not changed without a check against Mojave sunrise frames.
+
 ## 7. Distant LOD
 
 Pre-built LOD ships per worldspace [observed: `Fallout - Meshes.bsa`, `Fallout -
