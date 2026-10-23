@@ -94,7 +94,7 @@ impl Furniture {
 
 /// The members of form list `list` (its FLST's LNAM entries, as load-order FormIDs);
 /// empty when it is not a form list.
-fn list_members(lo: &LoadOrder, list: FormId) -> Vec<FormId> {
+pub(crate) fn list_members(lo: &LoadOrder, list: FormId) -> Vec<FormId> {
     let Some(d) = lo.index.get(&list.0).and_then(|d| d.last()) else { return Vec::new() };
     let r = lo.records[d.plugin as usize][d.ordinal as usize];
     if &r.header.sig != b"FLST" {

@@ -255,6 +255,43 @@ impl Game<'_> {
         crate::combat::setting(self, name, default)
     }
 
+    /// What using an ingestible would change for `actor`, one entry per actor value in the
+    /// order the effects name them: only the effects whose conditions pass now (the perk
+    /// checks of skill magazines, Stimpaks and Blood Packs, Hardcore), with the potency
+    /// [`Game::ingest`] would use; an effect over time counted whole (its amount a second
+    /// times its seconds); effects on the same value added up. Nothing changes.
+    /// For the item's EFFECTS figure (docs/spec-notes/aid-items.md §14) [hypothesis: the
+    /// original's Stimpak shows "HP +40", 30 at a Medicine potency near 1.33, owner's
+    /// screenshot; one line per value, owner's playtest list 7 item 5].
+    pub fn aid_preview(&mut self, actor: FormId, item: FormId) -> Vec<(u16, f64)> {
+        let data = self.data;
+        let Some(items) = data.effect_items.get(&item) else { return Vec::new() };
+        let def = data.ingestibles.get(&item).cloned().unwrap_or_default();
+        let medicine = fa::actor_value_capped(self, actor, 37);
+        let survival = fa::actor_value_capped(self, actor, 44);
+        let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
+        let duration = if def.equip_type == EQUIP_CHEMS { self.entry_point(actor, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0).0 } else { 1.0 };
+        let mods = Mods { potency, duration, ..Mods::default() };
+        let mut out: Vec<(u16, f64)> = Vec::new();
+        for (index, e) in items.iter().enumerate() {
+            let label = format!("{} effect {index} (preview)", data.name(item));
+            if !self.conditions_pass(&e.conditions, Some(actor), Some(actor), &label) {
+                continue;
+            }
+            let m = data.magic_effects.get(&e.effect);
+            let Some(c) = m.and_then(|m| value_change(m, e, potency, false)) else { continue };
+            let amount = match c.kind {
+                ChangeKind::PerSecond => c.amount * mods.seconds(m, e),
+                ChangeKind::Once | ChangeKind::Modifier => c.amount,
+            };
+            match out.iter_mut().find(|(code, _)| *code == c.code) {
+                Some(line) => line.1 += amount,
+                None => out.push((c.code, amount)),
+            }
+        }
+        out
+    }
+
     /// An actor uses an ingestible (the caller has taken it from the inventory): its
     /// effects apply with the item's potency, its usage monitor counts the use, and the
     /// addiction roll is made. docs/spec-notes/aid-items.md §4–§5.

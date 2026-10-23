@@ -5,7 +5,8 @@
 //! - `close`: put it away;
 //! - `page=stats|items|data`: show a page;
 //! - `tab=<0-4>`: show a tab of the page shown;
-//! - `key=<down|up|use|drop>`: a key of the ITEMS list;
+//! - `key=<down|up|use|drop|pgdn|back>`: a key of the ITEMS list (`back`: Backspace,
+//!   out of a Misc folder);
 //! - `point=<x>:<y>`: put the pointer on that point of the canvas (1024 x 768 from its
 //!   top left), through the model's screen where it is shown, as the mouse would be;
 //!   `point=off` gives the pointer back to the mouse;
@@ -99,6 +100,8 @@ fn step(s: &str) -> Option<Step> {
                 "up" => Command::Up,
                 "use" => Command::One,
                 "drop" => Command::Drop,
+                "pgdn" => Command::PageDown,
+                "back" => Command::Back,
                 _ => return None,
             }),
             _ => return None,
