@@ -1457,10 +1457,11 @@ fn main() -> AppExit {
                 info!("distant LOD at the end: {}", lod.describe());
                 info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
-                    "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame",
+                    "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame, {} switches of nodes shown and hidden by visibility tracks",
                     anim.peak,
                     anim.total.as_secs_f64() * 1e3 / f64::from(anim.frames.max(1)),
-                    anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
+                    anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64,
+                    anim.switched
                 );
                 let c = &*actor_anim;
                 if c.actor_frames == 0 {
@@ -1794,17 +1795,20 @@ struct AnimCost {
     /// Clips advanced, summed over frames, and the most at once.
     clip_frames: u64,
     peak: usize,
+    /// Nodes switched between shown and hidden by the clips' visibility tracks (`Playing::show`).
+    switched: u64,
 }
 
 fn advance_animations(
     time: Res<Time>,
     playing: Query<&mut nvf_assets::anim_play::Playing>,
     transforms: Query<&mut Transform>,
+    visibility: Query<&mut Visibility>,
     mut cost: ResMut<AnimCost>,
 ) {
     let t0 = std::time::Instant::now();
     let n = playing.iter().len();
-    nvf_assets::anim_play::advance_instances(time, playing, transforms);
+    cost.switched += nvf_assets::anim_play::advance_instances(time, playing, transforms, visibility) as u64;
     cost.total += t0.elapsed();
     cost.frames += 1;
     cost.clip_frames += n as u64;
