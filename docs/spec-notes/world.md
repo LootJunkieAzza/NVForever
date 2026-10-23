@@ -971,7 +971,8 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
 - **Where it is** [documented: xEdit wbDefinitionsFNV.pas IMGS DNAM, IMAD]: the twelfth
   HDR float of IMGS DNAM (byte 44, in front of the size-dependent part, so the same in the
   152-, 148- and 132-byte layouts), "Sunlight Dimmer"; each IMAD multiplies and adds to it
-  with track `\x0bIAD` (multiply) and `KIAD` (0x4B, add). Read at the time-0 key like the
+  with track `\x0bIAD` (multiply) and `KIAD` (0x4B, add). Read with the other HDR values
+  ("HDR and bloom" above; `Hdr::v[HDR_SUNLIGHT_DIMMER]`), at the time-0 key like the
   cinematic tracks.
 - **Values** [observed: fnvtool esm decode; base × multiply + add]: NVDefaultExterior 1.1.
   The Mojave's clear weathers (NVWastelandClear, ClearNight, GS, Borders, UrbanClear,
