@@ -773,6 +773,40 @@ impl SkyState {
         }
     }
 
+    /// Fog power now (the weather's FNAM day/night power, blended across a weather fade;
+    /// see `fnv_world::sky::Weather::fog_power_at`). An overridden fog (`--fog`) is linear.
+    pub fn fog_power(&self) -> f32 {
+        if self.fog_override.is_some() {
+            return 1.0;
+        }
+        let cur = self.weather.fog_power_at(&self.climate, self.hour);
+        match &self.prev {
+            Some(p) if p.fog_at(&self.climate, self.hour).is_some() && self.weather.fog_at(&self.climate, self.hour).is_some() => {
+                let prev = p.fog_power_at(&self.climate, self.hour);
+                prev + (cur - prev) * self.fade
+            }
+            Some(p) if self.weather.fog_at(&self.climate, self.hour).is_none() => p.fog_power_at(&self.climate, self.hour),
+            _ => cur,
+        }
+    }
+
+    /// How much brighter emitted light is drawn under the image space now: its adapted
+    /// Emissive Mult ("multiplier applied to the emittance of an object" [documented:
+    /// GECK wiki ImageSpace, HDR tab]) over the worldspace base image space's own
+    /// [hypothesis: the renderer's emissive light was judged under the Mojave's base
+    /// value, 1.5, which its adapters leave alone; Dead Money's Villa adapter multiplies
+    /// it by 3.5 and Puesta del Sol's by 2, and there the lanterns' glass burns near
+    /// white in the original. world.md §6 "Emissive mult"]. 1 indoors and without a base.
+    pub fn emissive_scale(&self) -> f32 {
+        use fnv_world::imagespace::HDR_EMISSIVE_MULT;
+        if self.interior.is_some() {
+            return 1.0;
+        }
+        let Some(base) = self.image_space.as_ref().map(|c| c.hdr.v[HDR_EMISSIVE_MULT]).filter(|&v| v > 0.0) else { return 1.0 };
+        let now = self.cinematic().hdr.v[HDR_EMISSIVE_MULT];
+        if now > 0.0 { now / base } else { 1.0 }
+    }
+
     /// Recompute sky, light and fog next frame (e.g. after something else changed the fog).
     pub fn refresh(&mut self) {
         self.changed = true;
@@ -1500,8 +1534,8 @@ pub fn update_sky(
             light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0);
         }
         fog.color = c(l.fog_color);
-        fog.falloff = FogFalloff::Linear { start: l.fog_near.max(0.0), end: l.fog_far.max(l.fog_near + 1.0) };
-        info!("interior lighting: fog {:.0}..{:.0}", l.fog_near, l.fog_far);
+        fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
+        info!("interior lighting: fog {:.0}..{:.0} power {:.2}", l.fog_near, l.fog_far, l.fog_power);
         return;
     }
     let (h, c) = (sky.hour, &sky.climate);
@@ -1573,13 +1607,14 @@ pub fn update_sky(
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
     fog.color = to_color(sky.fog_color()).with_alpha(strength);
-    fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
+    let power = sky.fog_power();
+    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale());
     // A lightning flash changes the light each frame it lasts: not worth a line each.
     let flashing = std::mem::replace(&mut *flashed, flash != Vec3::ZERO);
     if sky.time_scale <= 0.0 && flash == Vec3::ZERO && !flashing {
         let desc = match range {
-            Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} x{strength:.2}"),
-            Some(_) => format!("{near:.0}..{far:.0}"),
+            Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} power {power:.2} x{strength:.2}"),
+            Some(_) => format!("{near:.0}..{far:.0} power {power:.2} ({:.0} % at 1,000 units)", 100.0 * crate::fog::share(near.max(0.0), far, power, 1_000.0)),
             None => "none".into(),
         };
         info!("sky: {}  fog {desc}  sun x{:.2}", sky.describe(), sky.sun_scale());
