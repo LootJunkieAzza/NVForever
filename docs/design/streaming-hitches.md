@@ -265,3 +265,22 @@ At 50 a side the serial part of `measure` fell from 774 to 385 ms a second (trac
 what is left is mostly `Game::call_allies`, whose hostility checks cannot share the
 round's (it adds grudges as it goes), and its faction reactions. The next largest cost is
 the NPCs' physics movement (`PhysWorld::move_character`, about 300 ms a second).
+
+Then (branch claude/combat-perf):
+
+- **Allies** (`Game::call_allies`): who detects whom is indexed once a round instead of
+  scanned per fighter (a million pair checks a round at 50 a side), each helper's
+  Assistance read once, and each actor's faction relation to another
+  (`functions::actor::faction_relation`) kept for the round. SetEnemy, SetAlly,
+  SetPCEnemyOfFaction, ClearFactionPlayerEnemyFlag, a crime that makes the player a
+  faction's enemy and the faction changes forget them.
+- **Characters' moves** (`PhysWorld::plan_move` / `apply_move`, `fnv-phys`): a move only
+  reads the world until it sets the character's next kinematic position (taken at the
+  step) and pushes loose bodies (velocities no move reads), so the walked actors' moves
+  are planned at once on the compute pool and applied in turn, as each would have been
+  alone (`nvf-play` `player.rs`). The player's move is as before.
+
+At 50 a side (traced, the same battle): mean frame 98 → 42 ms; `detection::measure` on its
+thread 385 → 269 ms of CPU a second; the moves (`plan_move`, 337 ms a second) now spread
+over the pool, 36 ms a second left on one thread (the player's own) [observed:
+target/stress/battle/prof-*, private].
