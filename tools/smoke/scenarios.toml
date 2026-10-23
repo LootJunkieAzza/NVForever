@@ -414,8 +414,10 @@ commands = [
   ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "SunnyRef", "--to", "DocMitchellREF"],
   ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "DocMitchellREF", "--to", "0x0013BB0D", "--keys", "0x00119875", "--speed", "344"],
   ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "TrudyRef", "--to=-193,600,3456", "--space", "GSProspectorSaloonInterior"],
+  # REPCONN: floor to the top catwalk, up seven flights over the floor (navmesh.md §4b)
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=1000,3400,-120", "--space", "RocketLabMid", "--to", "0x000CD684"],
 ]
-expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 6, label = "all six walks arrived" }]
+expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 7, label = "all seven walks arrived" }]
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]

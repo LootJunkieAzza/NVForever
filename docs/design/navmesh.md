@@ -67,6 +67,9 @@ Depends on `fnv-esm` and `fnv-world` only.
 6. **Shortcut pass**: drop corners where a straight line to a later corner (up to 32 ahead)
    stays on passable triangles and keeps 3/4 of the clearance from impassable edges
    (`walkable_line`, a navmesh raycast). It straightens what a midpoint corridor bends.
+   The raycast follows one surface: it reaches the later corner only on a triangle whose
+   height there is within `LEVEL_GAP` (40 units) of the corner's, so a line never joins
+   a floor to a catwalk stacked over it (spec-notes/navmesh.md §4b).
 
 7. **Door stops** (§6.1): each door that opens in place whose bounds the leg's polyline
    enters gets a stop. The polyline is made to cross the door square through the middle
