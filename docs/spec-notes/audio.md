@@ -763,7 +763,8 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   at 2.4 s.
 - **As built**: the sounds are the creature's own list, else `CSCR`'s (followed up to
   five times) [hypothesis: an own list wins; none has both], of the creature a leveled
-  list picked, else of the one placed. An `Enum:` key plays one of its type's sounds at
+  list picked, else of the creature its Model/Animation template group comes from (a
+  template-only creature, §16), else of the one placed. An `Enum:` key plays one of its type's sounds at
   its chance (`fnv_actor::anim_sounds::creature_key_type`, `pick_creature_sound`)
   [hypothesis: the keys name the types, one to one by name], at the creature, at most
   once per 0.2 s per type [design]. Hit and Death play when combat reports a hit or a
@@ -771,9 +772,8 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   A living creature within 3,000 units sounds its Conscious Loop (the chance rolled once
   per creature [design]) and while it moves (over 20 units/s) its Movement Loop, as
   sources the ambient plays like sound markers (§14.3). A creature without sounds steps
-  like a person (§10.2). Not built: Aware (only through keys: nothing tells a creature
-  became aware yet; detection exists but combat AI does not), Attack beyond the keys
-  (creatures do not attack yet), Weapon, the type-21 sound.
+  like a person (§10.2). Aware also plays when the creature becomes aware (§16).
+  Not built: Attack beyond the keys (§16), Weapon, the type-21 sound.
 
 ### 14.2 The player's movement
 
@@ -1019,3 +1019,74 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
 - Block sounds per blow with `RUST_LOG=nvf_play::combat=debug` ("blocks: WPNBlock…").
 
 Smoke scenario `own-sounds-goodsprings`.
+
+## 16. Creature sound audit (owner's playtest list 7 item 46, 2026-10-23)
+
+The owner heard nothing from feral ghouls. Survey: `fnv-actor creature_sound_survey`
+(FalloutNV.esm alone) and `fnv-nif kf_sound_keys` (`KEYS_FILTER=enum`, base meshes
+archive) [observed 2026-10-23].
+
+- **Why the ghouls were silent** [observed: smoke `creature-sounds-ghoul`, before the
+  fix "creature 000CE9E7 lists 0 sounds"]: the placed ghoul's base `LvlFeralGhoul`
+  (0x0003A6FA) is a template-only creature: no sounds, no `CSCR`, `TPLT` a leveled list
+  with every template flag set (Model/Animation among them). Its leveled list is not
+  "a leveled list picked" (the base is a CREA, not an LVLC), so the sounds were read
+  from `LvlFeralGhoul` itself. They are now read from the creature the Model/Animation
+  group comes from (`fnv_actor::resolve::CreatureAppearance::model_source`, the same
+  pick the drawn model used) [hypothesis: the sounds go with the model and its
+  animations, whose keys name them; xEdit does not say which template group holds
+  `CSDT`/`CSCR`]. The ghoul then sounds its footsteps (`Left`/`Right` walking,
+  `BackLeft`/`BackRight` running), its attack voices and swings (`Auxiliary2`–`5` in
+  every `h2hattack…` clip), its chase voice (`Auxiliary8` in `mtfastforward.kf`), its
+  aware voice (`Auxiliary6` in `h2hequip.kf`, as it raises its hands), Hit and Death.
+- **How many it touched**: 468 CREA have only a template. Following it (to a creature,
+  or to every creature a leveled list can pick, down the lists): 283 get sounds from
+  every pick, 159 from some (their lists hold Fallout 3 creatures without sounds as
+  well), 26 from none (the ceiling turrets `LvlTurretCeiling…`, `LvlCrTrogg`,
+  `BethesdaGhoul`, a few FFER/quest creatures, `NVCRTumbleweedBaby`).
+- **Aware**: a creature whose awareness state (`fnv_game::awareness`) goes from Normal
+  or Lost to Alert or Combat plays its Aware sound, at its chance, once per change
+  (nvforever `anim_sounds.rs`; the first frame a creature is seen only notes its state,
+  so a cell's creatures do not all call out as it loads) [hypothesis: by the name; the
+  Aware lists of the radscorpion, mirelurk and lakelurk king have no `Enum: Aware` key in
+  any clip, so something other than a key must play them]. Seen: `creature-sounds-aware`
+  (a radscorpion placed at the player: "Aware 1").
+- **Attack** is still only played by the clips' keys (`Enum: Attack`, in the radroach,
+  radscorpion, giant rat, ant, queen ant, spore carrier, brahmin and the gecko's power
+  attacks). Not at every attack's start [design]: the ghoul's list has Attack
+  `NPCFeralGhoulAttack` 100 % and its attack clips already play the same sound through
+  `Auxiliary3` at 69 %, so an engine-played Attack would double it. Lists with Attack
+  and no key in their clips (the lakelurk king, the ghoul) stay quiet on that type.
+
+What each sound template lists (parentheses: only some of the row; F front feet, B back
+feet, MoveLP/ConsLP the movement and conscious loops, AuxN how many Auxiliary types)
+[observed]:
+
+| Template | Types |
+|---|---|
+| FeralGhoul, FeralGlowingOne | F B Attack Hit Death Aux7 |
+| Gecko, FireGecko | F B Attack Hit Death Aux7–8 |
+| BigHorner | F B Idle Aware Attack Hit Death ConsLP Aux4 |
+| RadScorpion, BarkScorpion | F Idle Aware (Attack) Hit Death ConsLP Aux6 |
+| Brahmin | F B Idle Aware Attack Hit Death ConsLP |
+| MoleRat, Mirelurk, MirelurkKing | F (B) Idle Aware Hit Death (ConsLP) Aux2–8 |
+| SporeCarrier, LakelurkKing | F (B) Idle Aware Attack Hit Death ConsLP (Aux8) |
+| Ant, RadRoach | F (B) Idle Attack (Hit) Death Aux1–3 |
+| Dog, DogRex, GiantRat, YaoGuai | F B (Idle) Hit Death (MoveLP/ConsLP) Aux6–8 |
+| Cazador, Centaur, NightStalker, Deathclaw, Mantis, AntQueen | F (B) (Idle) (Hit) Death (ConsLP) Aux3–7 |
+| BlowFly (bloatfly) | Hit Death MoveLP ConsLP |
+| SporePlant | Aware Hit Death MoveLP |
+| SuperMutant | F B Aux2 (no Hit or Death: their voices are dialogue, the VTYP's combat topics) |
+| SuperMutantBehemoth, RobotProtectron | F ConsLP |
+| RobotMrHandy, RobotSentrybot, RobotRobobrain, RobotEyebot, TurretCeiling, Securitron | MoveLP ConsLP (Securitron F Aux1) |
+| NVCrRaven | Aux2 (take-off, fly away) |
+
+Every type these list now plays where something calls for it: feet and Auxiliary and
+Idle and Attack types by the clips' keys, Hit and Death on hits (`ActorHit`), Aware on
+becoming aware, the loops while the creature lives (and moves). Left: Weapon (no list
+names one), the type-21 siren, an Idle type for creatures whose idle clip has no
+`Enum: Idle` key (the mole rat, yao guai, giant rat: nothing says when else it plays),
+Attack without a key (above), super mutants' and robots' combat voices (dialogue
+topics, not creature sounds), and the 26 creatures whose templates give none. Checks:
+the `anim sounds summary` (types counted, "Aware n"), smoke `creature-sounds-ghoul`,
+`creature-sounds-aware`, `bighorner`.

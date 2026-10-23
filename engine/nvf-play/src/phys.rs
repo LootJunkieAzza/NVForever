@@ -35,6 +35,7 @@ pub mod cells;
 pub mod drawn;
 mod loader;
 pub mod prepare;
+pub mod step_lift;
 #[cfg(test)]
 mod tests;
 mod trace;
@@ -104,6 +105,12 @@ pub struct PhysState {
     /// How far below the player character's feet its body is drawn ([`drawn_sink`]),
     /// as of its last physics step.
     player_sink: f32,
+    /// How far the player's body and view are drawn above where its feet and drawn
+    /// ground put them, after a step or a bump ([`step_lift::StepLift`]).
+    pub player_lift: step_lift::StepLift,
+    /// The height of each living actor's drawn bounds, game units, as `crate::hitvol`
+    /// last measured them: an actor's character is made this tall ([`PhysState::add_npc`]).
+    pub actor_heights: HashMap<u32, f32>,
     /// Actors drawn standing without a character: their feet and how far below them
     /// the body is drawn ([`PhysState::standing_drawn_feet`]).
     standing: HashMap<u32, ([f32; 3], f32)>,
@@ -153,6 +160,8 @@ impl Default for PhysState {
             doors: BTreeMap::new(),
             drawn: HashMap::new(),
             player_sink: 0.0,
+            player_lift: step_lift::StepLift::default(),
+            actor_heights: HashMap::new(),
             standing: HashMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
@@ -241,12 +250,42 @@ pub struct NpcBody {
     /// How far below the feet the body is drawn ([`drawn_sink`]), as of the last
     /// physics step.
     pub sink: f32,
+    /// Drawn above that after a step or a bump ([`step_lift::StepLift`]).
+    pub lift: step_lift::StepLift,
 }
 
 /// The steepest slope an actor's character walks: navmeshes cross slopes a little above
 /// the player's limit [observed: 46 to 49 degrees on paths of the walk tests,
 /// docs/design/navmesh.md §5; the value is an engine choice].
 pub const NPC_MAX_SLOPE_DEG: f32 = 60.0;
+
+/// The shortest character an actor gets, game units [design: a capsule at least twice
+/// [`crate::blocking::MIN_RADIUS`] tall].
+pub const NPC_MIN_HEIGHT: f32 = 2.0 * crate::blocking::MIN_RADIUS;
+
+/// Actors drawn shorter than this share of the player's height get a character of their
+/// own size ([`npc_params`]) [design].
+pub const NPC_SMALL_SHARE: f32 = 0.75;
+
+/// The character of an actor whose drawn bounds are `height` tall (`None`: not measured
+/// yet): the player's, but for an actor under [`NPC_SMALL_SHARE`] of the player's height
+/// as tall as it is drawn
+/// and as wide as its block (`crate::blocking`: [`crate::blocking::RADIUS_SHARE`] of
+/// its height, at least [`crate::blocking::MIN_RADIUS`]), so a small creature (a mantis
+/// nymph drawn 30 units tall) is not walked in, and in the way as, a person's capsule
+/// (owner's playtest list 7 item 35; physics.md §6.8) [design]. Larger actors keep the
+/// player's capsule: a wider one would not fit through the doors and paths they walk.
+pub fn npc_params(height: Option<f32>) -> CharacterParams {
+    let base = CharacterParams { max_slope_deg: NPC_MAX_SLOPE_DEG, ..CharacterParams::default() };
+    match height.filter(|h| h.is_finite() && *h < NPC_SMALL_SHARE * base.height) {
+        Some(h) => {
+            let height = h.max(NPC_MIN_HEIGHT);
+            let radius = (crate::blocking::RADIUS_SHARE * height).clamp(crate::blocking::MIN_RADIUS, base.radius);
+            CharacterParams { radius, height, step_width: base.step_width.min(radius), ..base }
+        }
+        None => base,
+    }
+}
 
 /// A loaded cell.
 #[derive(Debug, Clone, Default)]
@@ -493,7 +532,7 @@ impl PhysState {
     pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
         let b = self.npcs.get(&id)?;
         let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
-        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { b.sink } else { 0.0 }))
+        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { b.sink - b.lift.at(a) } else { 0.0 }))
     }
 
     /// How far below its character's feet actor `id`'s body is drawn ([`drawn_sink`]; the
@@ -540,17 +579,37 @@ impl PhysState {
         drawn.unwrap_or(bare)
     }
 
-    /// Bring every character's drawn sink up to date (after its physics step).
+    /// Bring every character's drawn sink up to date (after its physics step). A change
+    /// of the drawn ground is taken up by the character's lift ([`step_lift::StepLift`]).
     pub fn update_drawn_sinks(&mut self) {
         if let Some(c) = self.player.clone() {
-            self.player_sink = drawn_sink(&c, self.drawn_ground(&c));
+            let sink = drawn_sink(&c, self.drawn_ground(&c));
+            if !c.swimming {
+                self.player_lift.ground_moved(self.player_sink - sink);
+            }
+            self.player_sink = sink;
         }
         let chars: Vec<(u32, Character)> = self.npcs.iter().map(|(id, b)| (*id, b.ch.clone())).collect();
         for (id, ch) in chars {
             let sink = drawn_sink(&ch, self.drawn_ground(&ch));
             if let Some(b) = self.npcs.get_mut(&id) {
+                if !ch.swimming {
+                    b.lift.ground_moved(b.sink - sink);
+                }
                 b.sink = sink;
             }
+        }
+    }
+
+    /// How far above its feet's drawn height actor `id`'s body is drawn this frame, after
+    /// a step or a bump ([`step_lift::StepLift`]; the player is `FormId::PLAYER_REF`); 0
+    /// for an actor without a character.
+    pub fn drawn_lift_of(&self, id: u32) -> f32 {
+        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        if id == fnv_sim::FormId::PLAYER_REF.0 {
+            if self.player.is_some() { self.player_lift.at(a) } else { 0.0 }
+        } else {
+            self.npcs.get(&id).map_or(0.0, |b| b.lift.at(a))
         }
     }
 
@@ -1018,11 +1077,11 @@ impl PhysState {
             return false;
         }
         let Some(hit) = self.ground_below(feet, 48.0, 400.0) else { return false };
-        let params = CharacterParams { max_slope_deg: NPC_MAX_SLOPE_DEG, ..CharacterParams::default() };
+        let params = npc_params(self.actor_heights.get(&id).copied());
         let start = [feet[0], feet[1], hit.point[2] + params.rest_gap(hit.shell)];
         let mut ch = self.world.add_character(id, params, start);
         ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
-        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], jump: false, sink: 0.0 };
+        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], jump: false, sink: 0.0, lift: Default::default() };
         b.sink = drawn_sink(&b.ch, self.drawn_ground(&b.ch));
         self.npcs.insert(id, b);
         true
@@ -1343,6 +1402,17 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
     if let Some(c) = phys.player.as_ref() {
         // Ledges climbed by the controller's own step-up (`fnv_phys` `step_up_move`).
         info!("physics: the player stepped up {} times, feet at ({:.0}, {:.0}, {:.0})", c.stepped, c.feet[0], c.feet[1], c.feet[2]);
+        // Steps and bumps the drawn body and view climbed smoothly (`step_lift`).
+        let l = &phys.player_lift;
+        info!("physics: the player's drawn height took up {} steps and bumps, lifted {:.1} units at most", l.taken_up, l.most);
+    }
+    // Placed bodies physics has moved (pushed, shot, knocked over), as they are now.
+    for (&id, p) in phys.placed_dynamic.iter().filter(|(_, p)| p.moved) {
+        if let Some(b) = phys.world.ref_bodies(id).first() {
+            let (pos, _) = dropped::ref_pose_from_body(b, &p.local, p.scale);
+            let d = (0..3).map(|i| (pos[i] - p.added.0[i]).powi(2)).sum::<f32>().sqrt();
+            info!("physics: placed {id:08X} moved by physics: {d:.1} units from where it was added, at exit");
+        }
     }
 }
 

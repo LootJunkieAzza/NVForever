@@ -672,7 +672,8 @@ fn flee(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
 }
 
 /// The furniture a package gives an actor that has arrived at `at`, if any:
-/// - the package's location, when that reference is furniture [observed: under Travel
+/// - the package's location, when that reference (or the linked reference it names) is
+///   furniture [observed: under Travel
 ///   packages to a chair EasyPeteRef and a settler were sitting, GetSitting 3, in 7,395
 ///   samples; packages.md §4];
 /// - for a Sleep package, the nearest bed of the actor's cell within the location's
@@ -688,7 +689,18 @@ pub fn package_furniture(game: &Game, taken: &std::collections::BTreeMap<FormId,
     let flags = |r: FormId| refs.get(r).and_then(|p| game.data.furniture.get(&p.base)).copied();
     let free = |r: &FormId| taken.get(r).is_none_or(|a| *a == actor);
     let loc = def.location?;
-    if let LocationKind::NearReference(Some(r)) = loc.kind {
+    // The package's place as one reference: a specific one, or the actor's linked
+    // reference [observed: the crucified Powder Gangers of Nipton (vNiptonSurvivorCrucifix
+    // and its kin) have a Travel package to "Near linked reference", linked to their
+    // crosses (NVCrucifixFurniture), and their script restrains them once GetSitting is
+    // 3 (NiptonCrucifiedVictimScript); owner's playtest list 7 item 34: they got off the
+    // crosses].
+    let place_ref = match loc.kind {
+        LocationKind::NearReference(Some(r)) => Some(r),
+        LocationKind::NearLinked => refs.get(actor).and_then(|p| p.linked),
+        _ => None,
+    };
+    if let Some(r) = place_ref {
         if flags(r).is_some() {
             return free(&r).then_some(r);
         }

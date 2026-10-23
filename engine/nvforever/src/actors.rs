@@ -643,6 +643,7 @@ pub fn spawn_creature(
         match world.anims.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
+                lo.idle_under = true;
                 lo.hurt = world.anims.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
                 lo.swim = world.anims.swim_set(ctx, &c.skeleton, &skel, Body::Male, &set);
                 // Some creatures move otherwise when alert (`creature_pace.rs`), and limp

@@ -144,7 +144,13 @@ pub struct Tile {
 /// three cards and 20 (hypothesis: on the first free row, as on the owner's apparel and
 /// aid screenshots)].
 pub fn info_tiles(i: &Info) -> Vec<Tile> {
-    let (w, h) = (INFO.width() / 3.0, INFO.height() / 3.0);
+    tiles_in(i, INFO.size())
+}
+
+/// [`info_tiles`] in a figures' rectangle of `size` (the container and barter menus'
+/// is 530 × 120, `crate::menu::look`; the same `item_stats_display.xml`).
+pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
+    let (w, h) = (size.x / 3.0, size.y / 3.0);
     let col = |n: f32| n * (w + 10.0);
     let tile = |x: f32, y: f32, width: f32, title: &str, value: String| Tile { rect: Rect::new(x, y, x + width, y + h), title: title.into(), value, meter: None };
     let mut out = Vec::new();
@@ -181,8 +187,12 @@ fn figure(v: f32, decimals: bool) -> Option<String> {
     (v > 0.0).then(|| if decimals { format!("{v:.2}") } else { format!("{v:.0}") })
 }
 
-/// What the figures show of a row, from the records.
-fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>) -> Info {
+/// What the figures show of a row, from the records (the ITEMS page's, and the
+/// container and barter menus' item figures, `crate::menu::look`). An aid item's effects
+/// are those that would apply to the player now (`fnv_game::Game::aid_preview`: the
+/// effects' conditions, one line per value), read from the records only without the
+/// scripts' game.
+pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>, script: Option<&mut crate::script::ScriptState>) -> Info {
     use fnv_sim::forms::ItemKind;
     let n = r.count.max(1) as f32;
     let mut i = Info {
@@ -232,6 +242,12 @@ fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, 
         _ => {}
     }
     if let Some(forms) = forms {
+        let preview = script.and_then(|s| s.rt.as_mut()).filter(|_| r.kind == Some(ItemKind::Aid)).map(|rt| crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(FormId::PLAYER_REF, r.item)));
+        if let Some(lines) = preview {
+            let changes: Vec<super::stats::model::Change> = lines.into_iter().filter(|(_, amount)| amount.abs() >= 0.5).map(|(code, amount)| super::stats::model::Change { value: forms.short_name(code), amount: amount.abs(), detrimental: amount < 0.0 }).collect();
+            i.effects = (!changes.is_empty()).then(|| super::stats::model::changes_text(&changes));
+            return i;
+        }
         // Aid items carry their effects; apparel and weapons their enchantment's.
         let ench = if r.kind == Some(ItemKind::Aid) { Some(r.item.0) } else { forms.item_ench(r.item.0) };
         if let Some(e) = ench.map(|e| forms.ench(e)).filter(|e| !e.changes.is_empty()) {
@@ -281,6 +297,10 @@ pub fn keys(
     if keys.any_just_pressed([Enter, NumpadEnter, Space]) {
         send(Command::One);
     }
+    // Backspace leaves an open Misc folder (the "Back" row does too) [design].
+    if keys.just_pressed(Backspace) {
+        send(Command::Back);
+    }
     if keys.just_pressed(KeyX) {
         send(if shift { Command::DropStack } else { Command::Drop });
     }
@@ -321,7 +341,7 @@ pub fn draw(
     mut commands: Commands,
     bodies: Query<(Entity, &PageBody)>,
     added: Query<(), Added<PageBody>>,
-    active: Res<ActiveMenu>,
+    mut active: ResMut<ActiveMenu>,
     mut sim: ResMut<SimState>,
     mut kit: ResMut<Kit>,
     data: Option<Res<GameData>>,
@@ -330,7 +350,7 @@ pub fn draw(
     combat: Option<Res<crate::combat::Combat>>,
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
-    (repair, modding, script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<Res<crate::script::ScriptState>>),
+    (repair, modding, mut script): (Res<super::repair::PipRepair>, Res<super::item_mod::PipItemMod>, Option<ResMut<crate::script::ScriptState>>),
 ) {
     let Some((body, _)) = bodies.iter().find(|(_, b)| b.page == Page::Items) else { return };
     if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() && !modding.is_changed() {
@@ -355,14 +375,29 @@ pub fn draw(
     }
     let Some(m) = active.0.as_ref().filter(|m| m.mode == Mode::Inventory) else { return };
     let sim = sim.bypass_change_detection();
+    let mut script = script.as_mut().map(|s| s.bypass_change_detection());
     let caps = sim.world.item_count(FormId::PLAYER_REF, model::CAPS).unwrap_or(0);
     let selected = m.list(Side::Player).rows.get(m.selected[Side::Player as usize]);
-    let info = selected.map(|r| (r.icon.clone(), info_of(r, combat.as_deref(), sim, forms.as_mut())));
+    let info = selected.map(|r| (r.icon.clone(), info_of(r, combat.as_deref(), sim, forms.as_mut(), script.as_deref_mut())));
     if let (Some(r), Some((_, i))) = (selected, &info) {
         info!("pipboy items: {} selected: {:?}", r.name, i);
     }
+    // The heading's HP and DT: the STATS page's health, and the damage threshold a hit on
+    // the player meets (worn armour at its condition and the DT actor value,
+    // `crate::combat::target_armor`) [observed: "HP 205/205", "DT 8.0" on the owner's
+    // screenshots; hypothesis: the figure is the one combat uses].
+    let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
+    let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
+    let (hp, dt) = (hp_text(hp), dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}")));
     let offer = super::repair::current(&active, sim, script.as_deref());
     let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+    // The rows' heights and the first row drawn: the selection is always drawn, rows of
+    // two lines taking more room (owner's playtest list 7 item 15).
+    let heights = row_heights(&mut c, m);
+    let first = if m.pointer_pick { m.scroll[Side::Player as usize].min(heights.len()) } else { first_shown(&heights, m.scroll[Side::Player as usize], m.selected[Side::Player as usize], LIST.height()) };
+    if active.is_changed() {
+        info!("pipboy items: heading HP {hp}, DT {dt}; rows {first}.. of {} drawn", heights.len());
+    }
     commands.entity(body).despawn_children().with_children(|p| {
         let wg = match &m.encumbrance {
             Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
@@ -370,12 +405,12 @@ pub fn draw(
         };
         let cards = [
             Card::new(WG.0, WG.1, "Wg", wg),
-            Card::new(HP.0, HP.1, "HP", "--"),
-            Card::new(DT.0, DT.1, "DT", "--"),
+            Card::new(HP.0, HP.1, "HP", hp),
+            Card::new(DT.0, DT.1, "DT", dt),
             Card::new(CAPS.0, CAPS.1, "Caps", caps.to_string()),
         ];
         frame::heading(p, &mut c, Page::Items.title(), &cards);
-        list(p, &mut c, m);
+        list(p, &mut c, m, first, &heights);
         super::repair::draw_hint(p, &mut c, offer.as_ref());
         if let Some((icon, i)) = &info {
             item_info(p, &mut c, icon.as_deref(), i);
@@ -385,6 +420,13 @@ pub fn draw(
             }
         }
     });
+    // The model keeps the first row drawn as its scroll position, so a row the pointer
+    // picks later does not move the list back (as the container and barter menus do).
+    if first != m.scroll[Side::Player as usize] {
+        if let Some(m) = active.bypass_change_detection().0.as_mut() {
+            m.scroll[Side::Player as usize] = first;
+        }
+    }
 }
 
 /// The selected item's picture and figures.
@@ -411,20 +453,40 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
     }
 }
 
-fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel) {
+/// The HP card's figure: health out of its whole, "--" unread.
+fn hp_text(hp: Option<(f64, f64)>) -> String {
+    hp.map_or_else(|| "--".to_string(), |(v, max)| format!("{}/{}", super::stats::model::whole(v), super::stats::model::whole(max)))
+}
+
+/// Each row's height as drawn: a name broken over more lines makes its row taller.
+fn row_heights(c: &mut Ctx, m: &MenuModel) -> Vec<f32> {
+    m.list(Side::Player).rows.iter().map(|r| ROW_H + LINE_PITCH * c.lines(2, &row_text(r), Some(WRAP)).len().saturating_sub(1) as f32).collect()
+}
+
+/// The first row to draw: the list's own first row, or a later one when the rows from
+/// there to the selection do not fit in `room` (rows of two lines take more of it than the
+/// model's nine rows a page count on).
+pub fn first_shown(heights: &[f32], first: usize, selected: usize, room: f32) -> usize {
+    let mut first = first.min(heights.len());
+    let last = selected.min(heights.len().saturating_sub(1));
+    while first < last && heights[first..=last].iter().sum::<f32>() > room {
+        first += 1;
+    }
+    first
+}
+
+fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, first: usize, heights: &[f32]) {
     let bright = amber(TEXT);
     let line = amber(LINE);
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;
     let mut y = MAIN.min.y + LIST.min.y;
     let rows = &m.list(Side::Player).rows;
     let selected = m.selected[Side::Player as usize];
-    let shown = m.visible(Side::Player);
-    let first = shown.start;
     let mut fit = 0;
-    for i in shown {
+    for i in first..rows.len() {
         let r = &rows[i];
         let lines = c.lines(2, &row_text(r), Some(WRAP));
-        let h = ROW_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;
+        let h = heights[i];
         if y + h > MAIN.min.y + LIST.max.y {
             break;
         }
@@ -478,6 +540,7 @@ mod tests {
             price: None,
             bartered: false,
             mods: 0,
+            folder: None,
         };
         assert_eq!(row_text(&r), "Stimpak (9)");
         r.count = 1;
@@ -494,6 +557,23 @@ mod tests {
         assert!(weapon_dps(&semi, 0.5) < weapon_dps(&semi, 1.0));
         let none = fnv_combat::data::WeaponStats { base_damage: 7, ..Default::default() };
         assert!((weapon_dps(&none, 1.0) - 7.0).abs() < 1e-3);
+    }
+
+    /// Nine rows of 51 fill the list; one name over two lines (86) pushes the last of
+    /// them out, so the first row drawn moves on to keep the selection in (owner's
+    /// playtest list 7 item 15: the last weapon could not be scrolled into view).
+    #[test]
+    fn a_two_line_row_moves_the_first_row_on() {
+        let mut heights = vec![ROW_H; 12];
+        heights[6] = ROW_H + LINE_PITCH;
+        let room = LIST.height();
+        // The model scrolls nine rows a page: selecting the last row puts row 3 first.
+        assert_eq!(first_shown(&heights, 3, 11, room), 4);
+        // Without the long name it fits.
+        assert_eq!(first_shown(&[ROW_H; 12], 3, 11, room), 3);
+        // A selection above the first row is not moved here (the model scrolls up).
+        assert_eq!(first_shown(&heights, 3, 2, room), 3);
+        assert_eq!(first_shown(&[], 0, 0, room), 0);
     }
 
     #[test]

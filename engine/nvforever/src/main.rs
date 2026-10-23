@@ -1465,6 +1465,7 @@ fn main() -> AppExit {
                     c.tracks as f64 / c.actor_frames as f64
                     );
                     info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
+                    info!("actor idle under movement: {} actor frames with the idle laid under another clip", c.under_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
