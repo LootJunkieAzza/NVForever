@@ -1439,11 +1439,19 @@ points higher than before.
 "The radius around the combat start location/last hit location that the actor should
 not pursue their targets beyond" [documented]. [hypothesis: whose location]: where the
 fighter stood when its fight began, moved to where it stands each time it loses health.
-While its target stands farther than the radius from that place, the fighter does not
-close in and takes no flank, bound or guard post: it holds where it is (a gun still fires
-when in reach). 0 means no limit [hypothesis: two styles, both for non-fighters]. Log:
-`npc combat: … stops pursuing …: … units from where its fight began or it was last hit
-(combat radius …)`.
+[hypothesis: what is limited] the fighter's own way out from that place, not where its
+target may stand: it pursues a target farther than the radius from that place until it
+has itself come the radius from it; there, while its target is still beyond the radius,
+it does not close in further and takes no flank, bound or guard post: it holds where it
+is (a gun still fires when in reach). 0 means no limit [hypothesis: two styles, both for
+non-fighters]. Until 2026-10-23 a target beyond the radius stopped the fighter where it
+began, so a creature shot or set on from farther than its radius never came at all; VCG02
+places Sunny's sneak marker, where she and the player take aim at the first well's two
+geckos, 3,600 to 3,950 units from them (VCG02CrGecko's style: radius 3000)
+[observed: fnvtool world refs, VCG02SunnySneakMarkerREF 0010A1FF, VCG02Gecko1REF/2REF;
+smoke npc-sneak-sunny], which made the quest's own shot useless. Log: `npc combat: …
+stops pursuing …: … units from where its fight began or it was last hit, … come (combat
+radius …)`.
 
 ### 17.5 Max Targeting FOV
 

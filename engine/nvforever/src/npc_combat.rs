@@ -1416,21 +1416,23 @@ pub(crate) fn fight(
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
-            // Its Combat Radius (§17.4): a hit moves where it measures from; beyond it, no
-            // pursuit.
+            // Its Combat Radius (§17.4): a hit moves where it measures from; it pursues a
+            // target beyond the radius only until it has come that far itself, then holds.
             if health < fighter.anchor_health - 0.5 {
                 fighter.anchor = feet;
             }
             fighter.anchor_health = health;
             let from_anchor = flat(fighter.anchor, tfeet);
-            let leashed = !fleeing && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor));
+            let own_from_anchor = flat(fighter.anchor, feet);
+            let leashed = !fleeing
+                && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor) && own_from_anchor >= s.combat_radius);
             if leashed != fighter.leashed {
                 fighter.leashed = leashed;
                 if leashed {
                     f.stats.leashes += 1;
-                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
+                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
                 } else {
-                    info!("npc combat: {me_name} pursues {target_name} again: within its combat radius ({from_anchor:.0} units)");
+                    info!("npc combat: {me_name} pursues {target_name} again: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come");
                 }
             }
             if leashed {
