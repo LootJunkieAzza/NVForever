@@ -2022,6 +2022,60 @@ expect = [
   { re = 'shot fx:.*casing knocks heard' },
 ]
 
+[[scenario]]
+name = "creature-sounds-ghoul"
+source = "playtest list 7 item 46 (docs/spec-notes/audio.md §14.1): a feral ghoul in a fight sounds its record's sounds; a template-only creature (LvlFeralGhoul) takes them from the creature its model comes from"
+note = "the feral ghoul 0x000CE9E7 (base LvlFeralGhoul, template-only) at its corpse idle marker about 1,000 units north of the player (as in creature-alert-stance-ghoul) is set on the player at 3 s; god mode. Before the fix it listed 0 sounds"
+areas = ["creature-sounds", "audio"]
+paths = ["crates/fnv-actor/src/anim_sounds.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:0x000CE9E7:StartCombat:player" }
+args = ["--pos=9244,-33900,7500", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bAuxiliary \d \d+', label = "the ghoul's attack voices and swings (its clips' Auxiliary keys)" },
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\b(Left|Right)( Back)? Foot \d+', label = "the ghoul's footsteps" },
+]
+
+[[scenario]]
+name = "creature-sounds-aware"
+source = "playtest list 7 item 46 (docs/spec-notes/audio.md §14.1): a creature that becomes aware plays its Aware sound"
+note = "a radscorpion (CrRadscorpion1Small 0x0001CF9D; its AudioTemplateRadScorpion lists Aware, no clip has an Aware key) placed at the player in Goodsprings at 3 s; god mode; it notices the player and fights"
+areas = ["creature-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrRadscorpion1Small:1" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bAware [1-9]', label = "its Aware sound on noticing the player" },
+]
+
+[[scenario]]
+name = "bloatfly-wings"
+source = "playtest list 7 item 17 (engine/nvforever/src/locomotion.rs UNDER_LAYER): a bloatfly's wings flap while it flies, its idle laid under the movement clips that have no wing tracks"
+note = "a bloatfly (CrBloatFly 0x0009189C) placed at the player in Goodsprings at 3 s; god mode; it flies at the player"
+areas = ["creatures", "animation"]
+paths = ["engine/nvforever/src/locomotion.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrBloatFly:1,4:call:player:PlaceAtMe:CrBloatFly:1" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'actor idle under movement: [1-9]\d* actor frames', label = "an idle laid under a movement clip" },
+]
+
+[[scenario]]
+name = "worn-addons-lucky"
+source = "playtest list 7 items 3 and 28 (fnv_actor::records Armor::addons, held_world_model): the CaravanPack's Lightweight Leather Armor wears its biped model list's gloves; Lucky is held in third person as its own engraved model"
+note = "the player equips PreordArmorLeather (0x001735E0, CaravanPack.esm; BIPL ArmorLeatherList: LeatherArmorGloveR/L) and Lucky (WeapNV357RevolverUnique 0x000E2C86; MOD4 357revolverCustom.nif)"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/records.rs", "crates/fnv-actor/src/resolve.rs", "schemas/fnv/objects.json"]
+env = { NVF_PLAY_TEST_EQUIP = "001735E0,000E2C86", NVF_PLAY_TEST_CONTROL = "6:weapon" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 12
+expect = [
+  { re = 'player body: .*wearing \[[^\]]*001735E0[^\]]*\] with the addons \["LeatherArmorGloveR", "LeatherArmorGloveL"\]', label = "the armour's gloves are worn with it" },
+  { re = 'player weapon: mods 0 on, models Some\("weapons\W+1handpistol\W+357revolverCustom\.nif"\)', label = "Lucky's own model in third person" },
+]
+
 # ------------------------------------------------------------------ objects' and actors' animation groups
 
 [[scenario]]

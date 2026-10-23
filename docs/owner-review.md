@@ -7788,3 +7788,50 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
   delays, Modulates Voice and the voice filter (audio.md §15.3 gives the reasons).
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
+
+## Armour gloves, bloatfly wings, Lucky's texture, creature sounds (2026-10-23, list 7 W7)
+
+Branch claude/l7-visuals-sound. Specs: [actors](spec-notes/actors.md) §2.3, §8.3, §9.3;
+[audio](spec-notes/audio.md) §16 (the creature sound audit).
+
+- **Item 3, the Lightweight Leather Armor's floating right hand.** The armour (CaravanPack
+  `PreordArmorLeather`) names, as the base leather armour does, a "Biped Model List"
+  (BIPL) of gloves (`LeatherArmorGloveR`/`L`), which NVForever never read: the bare race
+  hand was drawn instead, and this armour's right sleeve ends about 3 units short of the
+  base armour's, so the wrist showed a gap. Now every worn item's BIPL addons are worn
+  with it (142 armours name one: outfit gloves, power armour gauntlets, backpacks and
+  decals, the Chinese stealth armour's helmet).
+  - *Guess:* the addons are worn as parts of the item, covering their biped slots (the
+    hands under them are hidden).
+  - *Check:* the Lightweight Leather Armor's right wrist in third and first person;
+    whether power armour now shows the right gauntlets (it showed none, or bare hands,
+    before); the Tesla armour's `ArmorTeslaPowerFX`, which its list names as well.
+- **Item 17, bloatfly wings.** The bloatfly's walk and run clips have no wing tracks; only
+  its idle animates the wings. A creature's idle now plays under its other clips wherever
+  those leave a bone alone, so the wings (and head) keep moving in flight.
+  - *Decision:* creatures only; people keep the bind pose for the bones their walk clips
+    leave (pauldrons, twist bones).
+  - *Check:* the bloatfly's wings flapping while it flies at you; other creatures'
+    movement (anything stiff or doubled that was not before).
+- **Item 28, Lucky's texture in third person.** Lucky's MODL is the plain long-barrel .357
+  model; its "World Model" (MOD4) is the same gun with the engraved texture. NVForever now
+  holds MOD4 in third person when it differs from MODL and is not a ground object
+  (`…GO.nif`, `…WorldObject.nif`): in the base game only Lucky.
+  - *Guess:* the game holds that model (the owner's report says so; not captured).
+  - *Check:* Lucky in third person, the player's and an NPC's.
+- **Item 46, feral ghouls silent; creature sound audit.** The placed ghouls' base
+  (`LvlFeralGhoul`) is a template-only creature: its sounds were read from it (none)
+  instead of from the creature its model comes from. Fixed for all 468 template-only
+  creatures (283 now always sound, 159 depending on the leveled pick). Creatures now also
+  play their Aware sound when they become aware of something (Normal to Alert or Combat).
+  - *Guess:* the sounds come with the Model/Animation template group.
+  - *Guess:* Aware plays on becoming aware (once per change); the Aware lists of the
+    radscorpion, mirelurk and lakelurk king are keyed by no clip.
+  - *Decision:* Attack is still played only by the clips' keys: the ghoul's attack clips
+    already play its attack voice through Auxiliary keys, and an engine-played Attack
+    would double it.
+  - *Left (audio.md §16):* super mutants' and robots' combat voices (dialogue topics, not
+    creature sounds), the Idle type where no clip keys it, 26 creatures whose templates
+    give no sounds (ceiling turrets, trogs, a few quest creatures).
+  - *Check:* a feral ghoul fight: footsteps, attack and chase voices, hit and death; a
+    radscorpion's call when it notices you; whether anything now sounds twice.
