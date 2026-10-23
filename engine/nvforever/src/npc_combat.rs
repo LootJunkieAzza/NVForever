@@ -1568,12 +1568,14 @@ pub(crate) fn fight(
                                     battle.cover_from_shooter += 1;
                                 }
                                 info!(
-                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}",
+                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}; room round its cover spot {:.0}, its peek {:.0}",
                                     if cv.low { "low " } else { "" },
                                     (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
                                     (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
                                     (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1]),
-                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) }
+                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) },
+                                    cv.room[0],
+                                    cv.room[1]
                                 );
                                 t.cover = Some(cv);
                             }
@@ -1588,6 +1590,7 @@ pub(crate) fn fight(
                         Phase::Going => {
                             if near(cv.behind) {
                                 cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                                log_room(phys.as_deref_mut(), name, "reaches", feet, cv.behind);
                             }
                         }
                         Phase::Hiding { until } => {
@@ -1595,6 +1598,7 @@ pub(crate) fn fight(
                             if clock >= until {
                                 cv.phase = Phase::WaitToFire { until: timer(&mut f.rng, wait_fire) };
                                 battle.peeks += 1;
+                                log_room(phys.as_deref_mut(), name, "hid", feet, cv.behind);
                             }
                         }
                         Phase::WaitToFire { until } => {
@@ -2625,6 +2629,23 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
             s.powers_unplayable
         );
     }
+}
+
+/// Where a fighter in cover stands, `what` it did there (reaches its cover, hid behind
+/// it): the room its body has (`combat_tactics::room`), for the log; under the capsule's
+/// radius it is inside something (docs/design/combat-ai.md §12.6.2).
+fn log_room(phys: Option<&mut PhysState>, name: &str, what: &str, feet: [f32; 3], spot: [f32; 3]) {
+    let Some(p) = phys else { return };
+    let r = tactics::room(p, feet);
+    info!(
+        "npc combat: {name} in cover at ({:.0}, {:.0}, {:.0}) ({what}), {:.0} units from its cover spot: room {:.0} ({})",
+        feet[0],
+        feet[1],
+        feet[2],
+        (spot[0] - feet[0]).hypot(spot[1] - feet[1]),
+        r.nearest,
+        if r.nearest < tactics::BODY_RADIUS { "inside geometry" } else { "clear" }
+    );
 }
 
 #[cfg(test)]

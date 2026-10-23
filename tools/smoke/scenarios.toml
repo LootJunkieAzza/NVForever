@@ -3364,6 +3364,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-cover-room"
+launch = "ncr-fiends"
+source = "owner's screenshot 2026-10-23: an NCR trooper in cover in Goodsprings stood half inside a house's wall and drainpipe (docs/design/combat-ai.md §12.6.2)"
+note = "cover spots keep combat_tactics::SPOT_ROOM (26) round them, measured by rays at the body's heights; where a fighter stands when it reaches its cover and when it has hid there is measured the same way, and under the capsule's radius (22) it is inside something. Which fighters take cover, and whether one reaches it before the fight is over, varies (Take Cover Chance every 10 s); the cover edges of this fight are in the open (all 25 spots of a run of 2026-10-23 had full room), so the wall case is checked by combat_tactics' unit tests"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
+  { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+]
+forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
+
+[[scenario]]
 name = "allies-alerted"
 launch = "ncr-fiends"
 source = "owner's list 2: allies alerted when one senses the enemy (GECK wiki Confidence, Alarms; docs/design/combat-ai.md §12.3)"
