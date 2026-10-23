@@ -37,10 +37,17 @@ impl Plugin for EyeAdaptPlugin {
 }
 
 /// The compensation curve every adapting camera shares, and the Target LUM it was made for.
-#[derive(Resource, Default)]
-struct EyeCurve {
-    handle: Handle<AutoExposureCompensationCurve>,
+#[derive(Resource)]
+pub struct EyeCurve {
+    pub handle: Handle<AutoExposureCompensationCurve>,
     target: f32,
+}
+
+impl FromWorld for EyeCurve {
+    fn from_world(world: &mut World) -> Self {
+        let handle = world.resource_mut::<Assets<AutoExposureCompensationCurve>>().add(curve(BASE_TARGET_LUM));
+        EyeCurve { handle, target: BASE_TARGET_LUM }
+    }
 }
 
 /// The reference average (log2 luminance) for an image space's Target LUM; a missing or
@@ -80,33 +87,16 @@ pub fn auto_exposure(handle: Handle<AutoExposureCompensationCurve>) -> AutoExpos
     }
 }
 
-/// Keep the curve on the image space's Target LUM, and give new HDR cameras the adaptation.
-fn follow_target_lum(
-    mut commands: Commands,
-    sky: Option<Res<crate::sky::SkyState>>,
-    mut eye: ResMut<EyeCurve>,
-    mut curves: ResMut<Assets<AutoExposureCompensationCurve>>,
-    cams: Query<(Entity, Option<&AutoExposure>), With<crate::post::ImageSpaceGlow>>,
-    bare: Query<Entity, (With<AutoExposure>, Without<crate::post::ImageSpaceGlow>)>,
-) {
+/// Keep the curve on the image space's Target LUM. The cameras get the adaptation with
+/// the HDR view (graphics.rs `apply`), in the same command, so no frame has one without
+/// the other.
+fn follow_target_lum(sky: Option<Res<crate::sky::SkyState>>, mut eye: ResMut<EyeCurve>, mut curves: ResMut<Assets<AutoExposureCompensationCurve>>, mut told: Local<bool>) {
     let target = sky.map_or(BASE_TARGET_LUM, |s| s.cinematic().hdr.v[HDR_TARGET_LUM]);
-    if eye.handle == Handle::default() {
-        eye.handle = curves.add(curve(target));
-        eye.target = target;
-        info!("eye adaptation: brightens pictures averaging under {:.1} EV (Target LUM {target:.2})", reference_ev(target));
-    } else if (eye.target - target).abs() > 1e-3 {
+    if (eye.target - target).abs() > 1e-3 || !*told {
+        *told = true;
         eye.target = target;
         let _ = curves.insert(&eye.handle, curve(target));
-        info!("eye adaptation: Target LUM {target:.2}, brightens under {:.1} EV", reference_ev(target));
-    }
-    for (e, a) in &cams {
-        if a.is_none() {
-            commands.entity(e).insert(auto_exposure(eye.handle.clone()));
-        }
-    }
-    // The light glow switched off: the view is no longer HDR.
-    for e in &bare {
-        commands.entity(e).remove::<AutoExposure>();
+        info!("eye adaptation: Target LUM {target:.2}, brightens pictures averaging under {:.1} EV", reference_ev(target));
     }
 }
 

@@ -110,6 +110,8 @@ pub(crate) struct AoView {
     occlusion: CachedRenderPipelineId,
     apply: CachedRenderPipelineId,
     multi: bool,
+    /// The picture format `apply` was made for.
+    format: TextureFormat,
     texture: CachedTexture,
 }
 
@@ -212,7 +214,7 @@ fn prepare(
                 view_formats: &[],
             },
         );
-        commands.entity(entity).insert(AoView { occlusion, apply, multi, texture });
+        commands.entity(entity).insert(AoView { occlusion, apply, multi, format, texture });
     }
 }
 
@@ -235,6 +237,12 @@ pub(crate) fn ao_pass(
 ) {
     let (target, index, ao, prepass) = view.into_inner();
     if depth_multisampled(prepass) != Some(ao.multi) {
+        return;
+    }
+    // The render world keeps a view's AoView after the occlusion is switched off; when the
+    // view turns HDR (the light glow switched back on, graphics.rs) in that frame, its
+    // apply pipeline is for the old format, a validation error that ends the run.
+    if target.main_texture_format() != ao.format {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };
