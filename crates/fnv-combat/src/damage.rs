@@ -165,6 +165,11 @@ pub struct Attacker {
     /// Attacking unseen (sneak attack).
     pub sneaking: bool,
     pub in_vats: bool,
+    /// Companion Nerve when the attacker is one of the player's teammates: the share its
+    /// damage goes up by, 0.05 per point of the player's Charisma (docs/spec-notes/
+    /// actor-values.md §4); 0 for everyone else. Not part of any report.
+    #[serde(skip)]
+    pub nerve: f32,
 }
 
 impl Default for Attacker {
@@ -180,6 +185,7 @@ impl Default for Attacker {
             arm_condition: 1.0,
             sneaking: false,
             in_vats: false,
+            nerve: 0.0,
         }
     }
 }
@@ -199,6 +205,10 @@ pub struct Target {
     /// (docs/spec-notes/weapon-data-fields.md §3). Not part of any report.
     #[serde(skip)]
     pub resist: f32,
+    /// Companion Nerve when the target is one of the player's teammates: the share its
+    /// DT and DR go up by (as [`Attacker::nerve`]); 0 for everyone else.
+    #[serde(skip)]
+    pub nerve: f32,
 }
 
 /// The resistance a weapon's damage type names, when it is one other than DR: "Energy
@@ -338,7 +348,10 @@ pub fn hit(
     };
     let base = (base * h.power.max(0.0)).max(0.0);
     let miss = base <= 0.0;
-    let modified = attacker_perks.weapon_damage(apply_effects(base, h.ammo_effects, "Damage Mod")).max(0.0);
+    // Companion Nerve: "+5% to their damage" per point of the player's Charisma
+    // [documented: Fallout Wiki, Charisma (Fallout: New Vegas)]; after the perks
+    // [hypothesis: where it applies].
+    let modified = (attacker_perks.weapon_damage(apply_effects(base, h.ammo_effects, "Damage Mod")) * (1.0 + a.nerve.max(0.0))).max(0.0);
     let sneak_mult = match (a.sneaking, kind) {
         (false, _) => 1.0,
         (true, AttackKind::Gun) => r.sneak_mult_gun,
@@ -356,12 +369,16 @@ pub fn hit(
     let raw = modified * sneak_mult * part_mult + crit_bonus;
 
     let ignores_armour = w.flags.iter().any(|f| f == "Ignores Normal Weapon Resistance");
+    // Companion Nerve: "+5% to their … armor" per point of the player's Charisma
+    // [documented: Fallout Wiki, Charisma (Fallout: New Vegas)]; read as the target's DT
+    // and DR before ammo effects and perks [hypothesis].
+    let armour = 1.0 + target.nerve.max(0.0);
     let dt = if ignores_armour {
         0.0
     } else {
         // The target's own DT with its perks, less what the attacker's perks ignore
         // [hypothesis: in this order].
-        (target_perks.dt_defender(apply_effects(target.dt, h.ammo_effects, "DT Mod")) - attacker_perks.dt_attacker(0.0)).max(0.0)
+        (target_perks.dt_defender(apply_effects(target.dt * armour, h.ammo_effects, "DT Mod")) - attacker_perks.dt_attacker(0.0)).max(0.0)
     };
     // A damage type other than DR: the target's value of that resistance instead of DR,
     // under the same cap (docs/spec-notes/weapon-data-fields.md §3) [hypothesis].
@@ -370,7 +387,7 @@ pub fn hit(
     } else if resistance_of(w).is_some() {
         target.resist.clamp(0.0, r.max_armor_rating)
     } else {
-        apply_effects(target.dr, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating)
+        apply_effects(target.dr * armour, h.ammo_effects, "DR Mod").clamp(0.0, r.max_armor_rating)
     };
     // DT subtracts, but never more than (1 − floor) of the hit [design]; DR scales the rest.
     let after_dt = (raw - dt).max(raw * t.dt_floor);
