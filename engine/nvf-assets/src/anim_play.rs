@@ -411,7 +411,7 @@ pub struct Layer {
 }
 
 /// How many clips a [`BlendPlayer`] blends at once.
-pub const MAX_LAYERS: usize = 6;
+pub const MAX_LAYERS: usize = 7;
 
 /// The priority of the identity a clip gives an accumulation root it does not drive: below
 /// every track, so any clip that drives the root wins.
