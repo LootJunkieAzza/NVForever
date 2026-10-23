@@ -6258,6 +6258,19 @@ expect = [
 forbid = [{ re = 'vats mode: marked ', label = "the turret is marked" }]
 
 [[scenario]]
+name = "placed-weapon-ammo"
+source = "ESM audit low-impact list, World (docs/spec-notes/world-fields.md §1): the varmint rifle in Primm's sheriff station (REFR 0x000CDA0D, XAMT 5.56mm 0x00004240, XAMC 10) comes with its 10 rounds when taken by hand"
+areas = ["simulation", "activation"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/refs.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.getitemcount 00004240;8.3:close;12:player.getitemcount 00004240;12.3:close", NVF_PLAY_TEST_SCRIPT = "9:activate:0x000CDA0D" }
+args = ["--cell", "PrimmSheriffStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'console: GetItemCount on .*>> 0\.00', label = "no 5.56mm rounds before" },
+  { re = 'console: GetItemCount on .*>> 10\.00', label = "the rifle's 10 rounds after taking it" },
+]
+
+[[scenario]]
 name = "blood-none-tumbleweed"
 source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §2): hits on an actor flagged No Blood Spray and No Blood Decal (a tumbleweed) show no impact model and leave no decal"
 note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots it with a 10mm pistol"

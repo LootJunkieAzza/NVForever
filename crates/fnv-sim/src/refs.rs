@@ -103,6 +103,11 @@ pub struct PlacedRef {
     pub scale: Option<f32>,
     /// XCNT: stack size of an item reference.
     pub count: Option<i32>,
+    /// XAMT Ammo Type and XAMC Ammo Count of a placed weapon [documented: xEdit REFR]:
+    /// picked up, the weapon comes with that ammo (docs/spec-notes/world-fields.md §1)
+    /// (not written to JSON).
+    #[serde(skip)]
+    pub ammo: Option<(FormId, i32)>,
     /// XHLP: condition of a placed weapon or armour as a fraction of full health.
     pub health: Option<f32>,
     pub owner: Option<FormId>,
@@ -457,6 +462,7 @@ fn load_ref(
         rot: rot.unwrap_or_default(),
         scale: first(&d, b"XSCL").and_then(serde_json::Value::as_f64).map(|s| s as f32),
         count: first(&d, b"XCNT").and_then(serde_json::Value::as_i64).map(|c| c as i32),
+        ammo: fid(first(&d, b"XAMT"), "XAMT", issues).map(|a| (a, first(&d, b"XAMC").and_then(serde_json::Value::as_i64).unwrap_or(0) as i32)).filter(|a| a.1 > 0),
         health: first(&d, b"XHLP").and_then(serde_json::Value::as_f64).map(|h| h as f32),
         owner: fid(first(&d, b"XOWN"), "XOWN", issues),
         lock,

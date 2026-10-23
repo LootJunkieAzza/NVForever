@@ -8261,3 +8261,13 @@ it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
   (item-fields.md gives each reason).
 - *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
 
+## World: the low-impact fields (2026-10-23, ESM audit low-impact list "World", branch claude/em13-world)
+
+The three placed weapons that name their ammo (REFR XAMT/XAMC: the varmint rifle in
+Primm's sheriff station, a BB gun at Nellis, a 9mm at Bison Steve) come with it when taken
+by hand. Every other field of the sub-list is used by at most a few records or has no
+documented effect; the spec lists each. Spec: [world-fields](spec-notes/world-fields.md).
+
+- *Guess:* the ammo comes the first time the weapon is taken by hand.
+- *Check:* does picking up Primm's varmint rifle give 10 5.56mm rounds in the original?
+
