@@ -210,6 +210,26 @@ protection by DT and DR. Rule as implemented [hypothesis for the details]:
 Placed NPCs wear 0 items: 44, 1: 1,309, 2: 2,080, 3: 508, 4: 1 [observed with these
 rules].
 
+**Armour addons (BIPL)** (owner's playtest list 7 item 3, 2026-10-23): an ARMO's `BIPL`
+"Biped Model List" names a form list of armour addons, ARMA records with their own
+`BMDT` biped flags and worn models (`MODL` male, `MOD3` female) [documented: xEdit ARMO
+BIPL, ARMA; `schemas/fnv/objects.json` ARMA]. A worn item's addons are worn with it:
+their slots are covered (so the race's hands under gloves are hidden) and their models
+drawn as the item's parts, in the list's order [hypothesis: the field's name; the
+models are gloves, gauntlets, backpacks, decals and badges]. Before, they were not read
+and the race's bare hands showed. Counts [observed]: 142 ARMO across the ten plugins
+name a list (FalloutNV.esm 42 lists: gloves of the leather, metal, raider, ranger,
+slaver, settler and vault outfits, power armour's hands, backpack and decals, the
+Chinese stealth armour's helmet; `ArmorPowerTeslaList` holds an ARMO,
+`ArmorTeslaPowerFX`, worn the same way). The case the owner saw: the CaravanPack's
+Lightweight Leather Armor (`PreordArmorLeather` 0x001735E0, Upper Body) names
+`ArmorLeatherList` (`LeatherArmorGloveR` Right Hand `Armor\LeatherArmor\M\GloveR.NIF`,
+`LeatherArmorGloveL`). Its own right sleeve (`Arms:0`, 365 vertices, bones up to `Bip01
+R ForeTwist`) ends at x 43.4 where the base leather armour's (454 vertices, bound to
+`Bip01 R Hand` too) runs to 46.6, so with the bare hand drawn the wrist showed a gap;
+the glove (`RightGlove`, x 40.9–54.6) covers it [observed: the NIFs' vertex bounds in
+the bind pose].
+
 ### 2.4 Parts
 
 `covered` = the union of the worn items' biped flags. Parts, in this order:
@@ -954,6 +974,18 @@ All rules here are engine choices unless tagged otherwise. Layer 6 replaces the 
 - **Pose blend**: per skeleton node, translation and scale are lerped and rotations
   nlerped along the shorter arc by weight; a node that only one clip drives blends
   towards its bind pose by the missing weight.
+- **A creature's idle under its movement clips** (owner's playtest list 7 item 17,
+  2026-10-23; `locomotion.rs` `UNDER_LAYER`): while a creature plays another clip than
+  its idle (moving, turning, fading), its idle is laid under it at a priority below every
+  track, with its own phase running on, wherever the idle drives a node the other clip
+  does not. The bloatfly's `mtidle.kf` drives the wings (`Bip01 L/R UpperArm`,
+  `Forearm`, priority 45) and the head; `mtforward.kf`, `mtfastforward.kf` and the side
+  clips drive neither (priority 30, 32 tracks), so the wings stood in their bind pose
+  while it flew [observed: kf_layer_survey]. [hypothesis: the original keeps the idle
+  under the movement clips, as the player body does, animation.md §9.4.] Not for
+  people [design]: their idle drives the pauldrons and twist bones the movement clips
+  leave, posed for the idle's arms. The run summary: `actor idle under movement: N actor
+  frames …`.
 - **Phase sync**: between two walk/run clips, the incoming clip starts at the same
   footfall phase as the outgoing one, using the time of each clip's first `Enum: Left`
   text key as its left-footfall mark [hypothesis: `Enum: Left`/`Enum: Right` are footstep
@@ -1480,6 +1512,15 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 No NPC's own choice takes a weapon flagged Player Only or Not Used In Normal Combat
 (2026-10-21, [weapon-data-fields](weapon-data-fields.md) §1).
 
+- **The model held in third person** (owner's playtest list 7 item 28, 2026-10-23,
+  `fnv_actor::records::held_world_model`): `MODL`, unless `MOD4` "World Model" differs
+  and is no ground object (not named `…go.nif`, `…_go.nif`, `…worldobject.nif`). In
+  FalloutNV.esm 42 weapons' `MOD4` differs from `MODL`, 41 of them such ground objects;
+  the 42nd is Lucky's (`WeapNV357RevolverUnique`): `MODL` `357revolver.nif` with
+  `357revolverStd.dds`, `MOD4` `357revolvercustom.nif`, the same nodes with
+  `357revolverCustom.dds`, the engraved texture its first-person model (WNAM) shows
+  [observed]. So Lucky is held as `MOD4`, its `MO4S` (none) the alternate textures
+  [hypothesis: the game holds it; the owner saw the plain .357 texture in third person].
 - WEAP: `MODL` third-person model, DNAM "Animation Type" (14 values), DNAM flags
   "Embedded Weapon" and "Non-Playable", DATA base damage [documented: xEdit WEAP;
   `schemas/fnv`]. 496 WEAP records, 372 drawable (a model, not embedded, a known type)

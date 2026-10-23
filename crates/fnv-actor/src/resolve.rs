@@ -151,6 +151,12 @@ pub struct CreatureAppearance {
     pub anims: Vec<String>,
     /// Whether a leveled pick could have gone another way.
     pub random: bool,
+    /// The creature the Model/Animation template group came from (`creature` itself
+    /// without that flag): where a template-only creature's sounds are read
+    /// (`anim_sounds::creature_sounds`; docs/spec-notes/audio.md §14.1). Not part of any
+    /// report.
+    #[serde(skip)]
+    pub model_source: FormId,
 }
 
 /// Archive path of a creature's NIFZ entry: the name in the skeleton's folder
@@ -440,7 +446,20 @@ impl<'a> Resolver<'a> {
             None => self.choose_armor(&carried),
         };
         let weapon = crate::weapon::choose_weapon(&carried, &self.actors.weapons);
-        let covered = worn.iter().filter_map(|w| self.actors.armors.get(w)).fold(0, |acc, a| acc | a.slots);
+        // The worn items and the armour addons their biped model lists name (ARMO BIPL,
+        // `records::Armor::addons`): an addon's slots are covered and its model drawn as
+        // the item's.
+        let drawn: Vec<FormId> = worn
+            .iter()
+            .flat_map(|w| std::iter::once(*w).chain(self.actors.armors.get(w).map(|a| a.addons.clone()).unwrap_or_default()))
+            .filter(|id| self.actors.armors.contains_key(id))
+            .fold(Vec::new(), |mut v, id| {
+                if !v.contains(&id) {
+                    v.push(id);
+                }
+                v
+            });
+        let covered = drawn.iter().filter_map(|w| self.actors.armors.get(w)).fold(0, |acc, a| acc | a.slots);
 
         let mut parts = Vec::new();
         let mut body_egt = None;
@@ -493,7 +512,7 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        for &w in &worn {
+        for &w in &drawn {
             let Some(a) = self.actors.armors.get(&w) else { continue };
             // A female actor wears MOD3, falling back to the male model when the item has
             // none.
@@ -630,6 +649,7 @@ impl<'a> Resolver<'a> {
             parts,
             anims: model.anims.iter().map(|a| a.replace('/', "\\").to_ascii_lowercase()).collect(),
             random: ch.random,
+            model_source: model.id,
         })
     }
 
