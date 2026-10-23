@@ -2937,6 +2937,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "dust-vortex-cycle"
+source = "docs/spec-notes/particles.md §6.8 (owner 2026-10-23: Goodsprings dust white, still, never fading): FXDust02 0016906F by the Prospector Saloon (effects/nv/sanddust/sanddust02.nif) seen from the road 900 units west: once every 45 s its Idle slides two sheets ~510 units up the slope while they fade in and out over 5.3 s, and the PCloud01 puffs (stored alpha 0, keyed up to 0.05) show for about 6 s; frames every 2 s over 49 s (dust_vortex_*.png in target/smoke)"
+areas = ["particles", "effects", "animation"]
+paths = ["engine/nvf-assets/src/particles.rs", "engine/nvforever/src/particles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "3:dust_vortex_00.png,5:dust_vortex_01.png,7:dust_vortex_02.png,9:dust_vortex_03.png,11:dust_vortex_04.png,13:dust_vortex_05.png,15:dust_vortex_06.png,17:dust_vortex_07.png,19:dust_vortex_08.png,21:dust_vortex_09.png,23:dust_vortex_10.png,25:dust_vortex_11.png,27:dust_vortex_12.png,29:dust_vortex_13.png,31:dust_vortex_14.png,33:dust_vortex_15.png,35:dust_vortex_16.png,37:dust_vortex_17.png,39:dust_vortex_18.png,41:dust_vortex_19.png,43:dust_vortex_20.png,45:dust_vortex_21.png,47:dust_vortex_22.png,49:dust_vortex_23.png,51:dust_vortex_24.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-68100,2092,8450", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 53
+manual = "dust_vortex_*.png: a brown gust of dust shows and slides for a few seconds of the 45 s cycle and is gone the rest of the time"
+expect = [
+  { re = 'particles: model \S*sanddust02\.nif: 1 system.*PCloud01 .*keyed alpha', label = "the puffs' material alpha keys are read" },
+  { re = 'particles: born in \S*sanddust02\.nif: PCloud01 [1-9]', label = "the puffs are born" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]

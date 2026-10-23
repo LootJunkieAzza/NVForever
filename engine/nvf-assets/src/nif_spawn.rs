@@ -120,7 +120,7 @@ impl Props {
 pub(crate) struct Props {
     pub(crate) textures: Vec<String>,
     alpha: Option<(i64, i64)>,
-    material_alpha: Option<f32>,
+    pub(crate) material_alpha: Option<f32>,
     emissive: Option<[f32; 3]>,
     emissive_mult: Option<f32>,
     /// Glow map: texture-set slot 2 of a BSShaderPPLightingProperty without the face-gen

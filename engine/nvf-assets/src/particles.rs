@@ -546,6 +546,10 @@ pub struct ParticleSystemDef {
     /// A node above the emitter that a sequence of the file moves (a dust devil's mover
     /// on its path): the emitter, its meshes and the file's bombs move with it.
     pub mover: Option<Mover>,
+    /// The system's material alpha keyed over the emitter's time (`NiAlphaController`):
+    /// each particle's alpha is scaled by it at the emitter time it is drawn at; the
+    /// material is then built with alpha 1.
+    pub alpha_keys: Option<FloatKeys>,
 }
 
 /// A node above a system's emitter that a sequence of the file moves, played on the
@@ -583,7 +587,8 @@ impl Mover {
 /// The nearest node at or above block `anchor` that a sequence of the file moves (the
 /// first sequence with a keyed transform track for it).
 fn mover_of(file: &NifFile, dec: &Decoded, by_block: &HashMap<usize, &SceneObject>, anchor: i32, place: &dyn Fn(i32) -> Affine3A) -> Option<Mover> {
-    let seqs = fnv_nif::anim::sequences(file, dec);
+    let mut seqs = fnv_nif::anim::sequences(file, dec);
+    seqs.sort_by_key(|q| (sequence_rank(&q.name.as_deref().unwrap_or_default().to_ascii_lowercase()), q.block));
     let mut at = usize::try_from(anchor).ok().and_then(|b| by_block.get(&b)).copied();
     let mut depth = 0;
     while let Some(o) = at.filter(|o| o.parent.is_some()) {
@@ -656,6 +661,9 @@ impl ParticleSystemDef {
         }
         if self.color_keys.is_some() {
             s += ", colour keys";
+        }
+        if self.alpha_keys.is_some() {
+            s += ", keyed alpha";
         }
         if let Some(m) = &self.mover {
             s += &format!(", moved by {} ({:.1} s)", m.node, m.cycle.stop);
@@ -746,10 +754,7 @@ struct SequenceEmitter {
 /// when its cycle type is 0 [documented: nif.xml NiControllerSequence, CycleType].
 fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<SequenceEmitter> {
     let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
-    for (i, b) in file.blocks.iter().enumerate() {
-        if b.type_name != "NiControllerSequence" {
-            continue;
-        }
+    for i in sequence_order(file, dec) {
         let Ok(seq) = &dec.blocks[i] else { continue };
         let mut found = SequenceEmitter { rate: -1.0, rate_keys: None, active: Vec::new(), period: seq.float("stop_time").unwrap_or(0.0) - seq.float("start_time").unwrap_or(0.0), loops: seq.int("cycle_type").unwrap_or(0) == 0 };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
@@ -787,6 +792,75 @@ fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<Seque
     None
 }
 
+/// A placed model plays its `Idle` sequence, or `SpecialIdle` when it has none
+/// [hypothesis: nvf_assets::anim_play picks the same for the drawn model]; the other
+/// groups run only when a script or the game starts them. So the sequences that may key
+/// a placed model's particle systems are looked at in that order: `Idle`, `SpecialIdle`,
+/// then the rest in file order (for effect models whose one sequence is another group,
+/// such as an explosion's `SpecialIdle_AreaEffect`). Before 2026-10-23 the first
+/// sequence of the file won: `nvbouldersm.nif`'s `Forward` puffed dust each time a
+/// boulder was drawn (docs/spec-notes/particles.md §6.8).
+fn sequence_order(file: &NifFile, dec: &Decoded) -> Vec<usize> {
+    let mut seqs: Vec<(usize, u8)> = file
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.type_name == "NiControllerSequence")
+        .map(|(i, _)| {
+            let name = dec.blocks[i].as_ref().ok().and_then(|s| s.text("name")).unwrap_or_default().to_ascii_lowercase();
+            (i, sequence_rank(&name))
+        })
+        .collect();
+    seqs.sort_by_key(|&(i, rank)| (rank, i));
+    seqs.into_iter().map(|(i, _)| i).collect()
+}
+
+/// 0 for `Idle`, 1 for `SpecialIdle`, 2 for any other sequence name (lower case).
+fn sequence_rank(name: &str) -> u8 {
+    match name {
+        "idle" => 0,
+        "specialidle" => 1,
+        _ => 2,
+    }
+}
+
+/// The `NiAlphaController` keys a particle system's own material has: its own
+/// interpolator's keys on its own cycle, or the blend interpolator's from a sequence
+/// (controlled block named after the system, controller type `NiAlphaController`)
+/// [observed: `sanddust02.nif`'s `PCloud01`, stored alpha 0, keyed 0 → 0.05 → 0 in its
+/// `Idle`; docs/spec-notes/particles.md §6.8].
+fn material_alpha_keys(file: &NifFile, dec: &Decoded, material: Option<i32>, system: &str) -> Option<FloatKeys> {
+    let type_of = |r: i32| usize::try_from(r).ok().and_then(|i| file.blocks.get(i)).map(|b| b.type_name.as_str());
+    let mut c = material.and_then(|m| dec.get(m)).and_then(|m| m.block_ref("controller")).unwrap_or(-1);
+    let mut steps = 0;
+    while let (Some(ty), Some(ctl)) = (type_of(c), dec.get(c)) {
+        if ty == "NiAlphaController" {
+            if let Some(k) = float_keys(file, dec, ctl.block_ref("interpolator").unwrap_or(-1), controller_cycle(ctl)).filter(|k| matches!(k.channel, Channel::Keys(_))) {
+                return Some(k);
+            }
+            break;
+        }
+        c = ctl.block_ref("next_controller").unwrap_or(-1);
+        steps += 1;
+        if steps > 64 {
+            break;
+        }
+    }
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    for i in sequence_order(file, dec) {
+        let Ok(seq) = &dec.blocks[i] else { continue };
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() == Some(system) && text(cb, "controller_type").as_deref() == Some("NiAlphaController") {
+                if let Some(k) = float_keys(file, dec, cb.block_ref("interpolator").unwrap_or(-1), sequence_cycle(seq)).filter(|k| matches!(k.channel, Channel::Keys(_))) {
+                    return Some(k);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// A sequence's own timing as a controller's: from 0 to its length, its cycle type.
 fn sequence_cycle(seq: &Struct) -> OwnCycle {
     let (start, stop) = (seq.float("start_time").unwrap_or(0.0), seq.float("stop_time").unwrap_or(0.0));
@@ -819,10 +893,7 @@ fn float_keys(file: &NifFile, dec: &Decoded, interp: i32, cycle: OwnCycle) -> Op
 /// gravity strength]).
 fn sequence_float(file: &NifFile, dec: &Decoded, system: &str, controller: &str, modifier: &str) -> Option<FloatKeys> {
     let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
-    for (i, b) in file.blocks.iter().enumerate() {
-        if b.type_name != "NiControllerSequence" {
-            continue;
-        }
+    for i in sequence_order(file, dec) {
         let Ok(seq) = &dec.blocks[i] else { continue };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
             let fnv_nif::value::Value::Struct(cb) = cb else { continue };
@@ -841,10 +912,7 @@ fn sequence_float(file: &NifFile, dec: &Decoded, system: &str, controller: &str,
 /// whose controller ID is the modifier's name [observed: `explosiongrenadefrag.nif`]).
 fn sequence_modifier_active(file: &NifFile, dec: &Decoded, system: &str, modifier: &str) -> Option<Vec<(f32, bool)>> {
     let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
-    for (i, b) in file.blocks.iter().enumerate() {
-        if b.type_name != "NiControllerSequence" {
-            continue;
-        }
+    for i in sequence_order(file, dec) {
         let Ok(seq) = &dec.blocks[i] else { continue };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
             let fnv_nif::value::Value::Struct(cb) = cb else { continue };
@@ -934,7 +1002,14 @@ impl ModelCtx<'_> {
             // Its properties, with those of the nodes above it.
             let parent = objects.iter().find(|o| o.is_node && o.children.contains(&i)).map(|o| o.block);
             let fake = SceneObject { block: i, type_name: b.type_name.clone(), name: None, parent, transform: NifTransform::IDENTITY, is_node: false, children: Vec::new() };
-            let props = shape_props(&file, &dec, &fake, &by_block);
+            let mut props = shape_props(&file, &dec, &fake, &by_block);
+            // A keyed material alpha scales each particle's alpha at draw time; the
+            // material itself is then opaque in alpha (its stored value is often 0).
+            let material_block = ps.refs("properties").unwrap_or_default().iter().copied().find(|&r| type_of(r) == Some("NiMaterialProperty"));
+            let alpha_keys = material_alpha_keys(&file, &dec, material_block, ps.text("name").unwrap_or_default());
+            if alpha_keys.is_some() {
+                props.material_alpha = Some(1.0);
+            }
             let mut template = particle_mesh();
             let (material, _missing) = shape_material(&props, &mut template, &mut self.textures, &self.data, &mut self.images, self.formats.as_deref());
             let material = self.materials.add(material);
@@ -966,6 +1041,7 @@ impl ModelCtx<'_> {
                     .map(|f| f.as_chunks::<4>().0.to_vec())
                     .unwrap_or_default(),
                 mover: None,
+                alpha_keys,
             };
             // The modifiers' on/off keys: a `NiPSysModifierActiveCtlr` in the system's
             // controller chain names its modifier; a blend interpolator leaves the keys to
@@ -1267,6 +1343,13 @@ impl ModelCtx<'_> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn idle_then_special_idle_key_placed_emitters() {
+        let mut names = ["forward", "specialidle", "idle", "backward"].map(|n| (sequence_rank(n), n));
+        names.sort();
+        assert_eq!(names.map(|(_, n)| n), ["idle", "specialidle", "backward", "forward"]);
+    }
+
     fn def() -> ParticleSystemDef {
         ParticleSystemDef {
             name: String::new(),
@@ -1292,6 +1375,7 @@ mod tests {
             strip: None,
             subtextures: Vec::new(),
             mover: None,
+            alpha_keys: None,
         }
     }
 

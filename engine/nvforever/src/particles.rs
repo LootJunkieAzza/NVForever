@@ -154,6 +154,14 @@ impl ModelEmitter {
     pub fn placed(path: impl Into<String>, r: u32) -> ModelEmitter {
         ModelEmitter { path: path.into(), age: 0.0, placed: Some(r) }
     }
+
+    /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
+    /// in ("Random Anim Start" bases): the emitter's time starts there too, so the
+    /// sequence's emitter keys and moved nodes (particles.md §6.7) stay in step with the
+    /// rig and its sounds.
+    pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r) }
+    }
 }
 
 /// Whose systems: an ADDN's (by node index) or a model file's own (by path).
@@ -617,7 +625,7 @@ fn draw(
                 let [u, w, v, h] = d.subtextures.get(q.tex).copied().unwrap_or([0.0, 1.0, 0.0, 1.0]);
                 let tint = d.tint(t);
                 let e = d.emitter.color;
-                let colour = display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]);
+                let colour = display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3] * keyed_alpha(d, q)]);
                 let base = positions.len() as u32;
                 for (i, p) in points.iter().enumerate() {
                     let tangent = points[(i + 1).min(count - 1)] - points[i.saturating_sub(1)];
@@ -645,7 +653,7 @@ fn draw(
             uvs.extend([[u, v + h], [u + w, v + h], [u + w, v], [u, v]]);
             let tint = d.tint(t);
             let e = d.emitter.color;
-            colors.extend([display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]); 4]);
+            colors.extend([display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3] * keyed_alpha(d, q)]); 4]);
             let b = (k * 4) as u32;
             indices.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
         }
@@ -655,6 +663,13 @@ fn draw(
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
         mesh.insert_indices(Indices::U32(indices));
     }
+}
+
+/// The system's keyed material alpha (`ParticleSystemDef::alpha_keys`) at the emitter
+/// time particle `q` is drawn at (its birth time plus its age), 1 without keys
+/// (particles.md §6.8).
+fn keyed_alpha(d: &ParticleSystemDef, q: &Particle) -> f32 {
+    d.alpha_keys.as_ref().and_then(|k| k.at(q.born_at + q.age)).map_or(1.0, |a| a.clamp(0.0, 1.0))
 }
 
 /// A particle's colour (the colour modifier's times the emitter's) taken as display

@@ -346,6 +346,49 @@ How the engine plays it [hypothesis]:
   display-value blend of unlit shapes (nif.md §6 "Alpha blend of unlit shapes", same
   branch history); whether the game restarts the walk at once or waits.
 
+### 6.8 Which sequence keys a placed model's systems; keyed particle alpha [2026-10-23]
+
+An audit of every placed model with a sequence, controllers or particle systems
+[observed: `fnvtool world refs` over all 14 worldspaces and the interiors of
+FalloutNV.esm, `fnvtool nif stats` and `nif decode` of `Fallout - Meshes.bsa` and
+`Update.bsa`: 754 models, 22,024 references; 81 models, 1,239 references with systems
+of their own] found three gaps for emitters:
+- **The first sequence of the file won.** The rate, on/off and modifier keys a
+  sequence gives a system were taken from the first sequence in the file that drives
+  it. `nvbouldersm.nif` (89 MSTT) has `Forward` (dust on for 13.3 s) before
+  `SpecialIdle` (off): each boulder puffed dust when drawn. Also `protectronpod01.nif`
+  (15, steam), `nvnellisartillery.nif` (3, a firing burst every 3.33 s),
+  `forcefieldrightglow02.nif` (36, `Forward` with rate 0 hid `Backward`'s shock).
+  Now `Idle`, then `SpecialIdle`, then the rest in file order (`particles.rs`
+  `sequence_order`) [hypothesis: a placed model plays its Idle, else SpecialIdle; other
+  groups wait for a script or the game]. Groups a script plays (`PlayGroup`) do not
+  yet key a placed model's emitter.
+- **Keyed particle alpha.** A system's own `NiMaterialProperty` can carry an
+  `NiAlphaController`, its own or keyed by a sequence: `sanddust02.nif`'s `PCloud01`
+  (8 placed, 2 by Goodsprings) stores alpha 0 and keys 0 → 0.05 (0.67 s) → 0.05 (4 s)
+  → 0 (6.3 s) over its 45 s Idle; its colour runs (0.90, 0.77, 0.56) → (0.69, 0.58,
+  0.40). The material was built with the stored alpha, so the brown puffs were never
+  seen. Now the keys are read (`material_alpha_keys`), the material gets alpha 1 and
+  each particle's alpha is scaled by the keys at the emitter time it is drawn at
+  (`nvforever::particles::keyed_alpha`) [hypothesis: the material alpha multiplies the
+  particle's colour alpha as for shapes]. Also `projectorlightfx01.nif` (2): its motes
+  flicker with the beam.
+- **Random Anim Start.** `FXDustWhirlWind01` and `FXDust02` bases have the flag (MSTT
+  record flag 0x10000): the drawn rig starts its Idle at a phase spread by reference
+  (animation.md §8) while the emitter started at 0, so the dust and the rig's sound node
+  were out of step and devils streamed in together moved in lockstep. The emitter's time
+  now starts at the rig's phase (`ModelEmitter::placed_from`).
+
+`sanddust02.nif` as a whole [observed]: Idle 45 s, loop. Over 0–5.3 s `DustVortexSlide`
+(the two sheets) and `PCloud01-Emitter` move 510 units along x and 102 up (157 linear
+keys), the sheets' alpha goes 0 → 0.5/0.35 → 0 and their textures scroll; the box
+emitter is on 0–3.67 s; then nothing shows for about 39 s. Smoke `dust-vortex-cycle`.
+
+Left for later (the same audit): visibility tracks of a plain rig's Idle are not applied
+(`fxelectricarc01/02.nif`, 29; `gomorrahlightslowerlevel.nif`) nor
+`fxdustmeshtube01.nif`'s own `NiVisController`; `NiLightColorController` is not read (91
+LIGH references: `lamplightwarm.nif`, `klaxonglow.nif`, `nukacolavendlightblink.nif`).
+
 ## 7. Placed particle systems: the survey and what was still missing [2026-10-21]
 
 The survey [observed: `fnvtool world refs` over every worldspace and interior cell of
