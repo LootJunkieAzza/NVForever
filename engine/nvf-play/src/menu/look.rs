@@ -10,6 +10,7 @@
 //! - Without the game's files the same layout is drawn with Bevy's font and plain lines.
 
 use super::barter::{self, Flow};
+use crate::pipboy::items::{tiles_in, Info};
 use super::model::{Category, Command, MenuModel, Mode, Quantity, Row, Side};
 use super::{AmountMeter, CmdButton, RowButton};
 use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
@@ -215,6 +216,33 @@ pub fn first_shown(heights: &[f32], first: usize, selected: usize) -> usize {
     first
 }
 
+/// The lines of each row of a list as drawn, and the rows' heights.
+fn row_lines(m: &MenuModel, side: Side, kit: &Kit) -> (Vec<Vec<Line>>, Vec<f32>) {
+    let wrap = if matches!(m.mode, Mode::Barter(_)) { WRAP_BARTER } else { WRAP_CONTAINER };
+    let texts: Vec<Vec<Line>> = m.list(side).rows.iter().map(|r| kit.body.font.lines(&row_text(r), Some(wrap))).collect();
+    let heights = texts.iter().map(|t| row_height(t.len())).collect();
+    (texts, heights)
+}
+
+/// The first row drawn from the list's own first row: a selection the pointer made stays
+/// where it is (only the wheel and the keys scroll; owner's playtest list 7, item 11), any
+/// other is brought into the list ([`first_shown`]).
+fn shown_from(m: &MenuModel, side: Side, heights: &[f32], first: usize) -> usize {
+    if m.pointer_pick {
+        first.min(heights.len())
+    } else {
+        first_shown(heights, first, m.selected[side as usize])
+    }
+}
+
+/// The first row each list will draw, for the menu to keep as its scroll position (so a
+/// row the pointer picks later does not move the list back to where the model last
+/// scrolled it).
+pub fn drawn_first(m: &MenuModel, side: Side, kit: &Kit) -> usize {
+    let (_, heights) = row_lines(m, side, kit);
+    shown_from(m, side, &heights, m.scroll[side as usize])
+}
+
 /// The scroll bar's marker: its top and height inside the bar's track, or `None` when the
 /// list fits. Counted in steps of half a row [hypothesis: the steps not shown are the
 /// marker's positions].
@@ -284,7 +312,8 @@ impl Ctx<'_> {
 }
 
 /// Spawn the menu under `root`. `note`: the line under the menu.
-pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
+#[allow(clippy::too_many_arguments)]
+pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>, info: Option<&Info>, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
     let mut c = Ctx { kit, data, images, bc };
     let bright = amber(255.0);
     let main = Node {
@@ -322,7 +351,7 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
         }
         buttons(p, &mut c, m);
         if let Some(r) = m.selected_row(m.focus) {
-            item_data(p, &mut c, m, r);
+            item_data(p, &mut c, m, r, info);
         }
         if let Some(n) = note.filter(|n| !n.is_empty()) {
             c.text(p, false, n, MAIN.x / 2.0, NOTE_Y + (31.0 + 20.0) / 2.0 + 20.0, Align::Centre, bright);
@@ -373,10 +402,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0
             }
         }
         let row_w = width - BAR_W - 5.0;
-        let wrap = if barter { WRAP_BARTER } else { WRAP_CONTAINER };
-        let texts: Vec<Vec<Line>> = rows.iter().map(|r| c.kit.body.font.lines(&row_text(r), Some(wrap))).collect();
-        let heights: Vec<f32> = texts.iter().map(|t| row_height(t.len())).collect();
-        let first = first_shown(&heights, first, m.selected[side as usize]);
+        let (texts, heights) = row_lines(m, side, c.kit);
+        let first = shown_from(m, side, &heights, first);
         let mut y = 0.0;
         for i in first..rows.len() {
             if y >= LIST_H {
@@ -452,7 +479,12 @@ fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel) {
 /// The selected item's picture and figures: weight and value, and the condition of a
 /// weapon or armour as a bar [documented: the tiles of `item_stats_display.xml`; the
 /// damage, resistance, strength, ammunition, effects and mods tiles are not built].
-fn item_data(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, r: &Row) {
+/// The selected item's picture and figures: the Pip-Boy's ITEMS page's ([`Info`],
+/// `crate::pipboy::items::tiles_in`: damage or DT, DPS, STR, condition, ammunition or
+/// armour class, effects) in this menu's figures' rectangle, with the weight and value of
+/// one unit, its value at its condition and before the trade's multiplier [owner's
+/// playtest list 7 item 25; documented: the same `item_stats_display.xml`, §2].
+fn item_data(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, r: &Row, info: Option<&Info>) {
     let bright = amber(255.0);
     if let Some(icon) = r.icon.as_deref() {
         c.image(p, icon, at(ICON_AT.x, ICON_AT.y, ICON, ICON), bright);
@@ -460,31 +492,34 @@ fn item_data(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, r: &Row) 
     let x0 = if matches!(m.mode, Mode::Barter(_)) { DATA_X_BARTER } else { DATA_X_CONTAINER };
     let prices = m.trade.as_ref().map(|t| t.prices).unwrap_or_default();
     let value = r.value.map(|v| prices.value_at(v, r.condition).round() as i64);
-    let tiles = [
-        (x0 + TILE.x + 10.0, "WG", r.weight.map(|w| format!("{w:.2}"))),
-        (x0 + 2.0 * (TILE.x + 10.0), "VAL", value.map(|v| v.to_string())),
-    ];
-    for (x, title, v) in tiles {
-        card(p, c, x, DATA_Y, title, v.as_deref().unwrap_or("--"));
-    }
-    if let (Some(cond), Some(ItemKind::Weapon | ItemKind::Armor)) = (r.condition, r.kind) {
-        card(p, c, x0, DATA_Y + TILE.y, "CND", "");
-        // [documented: meter.xml placed 62 in, 15 down, 20 high, 72 short of the tile]
-        let (x, y, w) = (x0 + 62.0, DATA_Y + TILE.y + 15.0, TILE.x - 72.0);
-        p.spawn((at(x, y, w, 20.0), BackgroundColor(amber(255.0).with_alpha(0.15))));
-        p.spawn((at(x, y, w * cond.clamp(0.0, 1.0), 20.0), BackgroundColor(bright)));
+    let condition = r.condition.filter(|_| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor)));
+    let mut i = info.cloned().unwrap_or_else(|| Info { condition, ..Info::default() });
+    i.weight = r.weight.filter(|w| *w > 0.0).map(|w| format!("{w:.2}"));
+    i.value = value.filter(|v| *v > 0).map(|v| v.to_string());
+    let tiles = tiles_in(&i, Vec2::new(3.0 * TILE.x, 3.0 * TILE.y));
+    let shown: Vec<String> = tiles.iter().map(|t| if t.value.is_empty() { t.title.clone() } else { format!("{} {}", t.title, t.value) }).collect();
+    info!("menu: figures of {}: {}", r.name, shown.join(", "));
+    for t in tiles {
+        let (x, y, w) = (x0 + t.rect.min.x, DATA_Y + t.rect.min.y, t.rect.width());
+        card(p, c, x, y, w, &t.title, &t.value);
+        if let Some(fill) = t.meter {
+            // [documented: meter.xml placed 62 in, 15 down, 20 high, 72 short of the tile]
+            let (mx, my, mw) = (x + 62.0, y + 15.0, w - 72.0);
+            p.spawn((at(mx, my, mw, 20.0), BackgroundColor(amber(255.0).with_alpha(0.15))));
+            p.spawn((at(mx, my, mw * fill, 20.0), BackgroundColor(bright)));
+        }
     }
 }
 
-/// A tile of figures: a line along its top and one fading down its right side, the
-/// title at the left and the value at the right.
-fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, title: &str, value: &str) {
+/// A tile of figures `w` wide: a line along its top and one fading down its right side,
+/// the title at the left and the value at the right.
+fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, w: f32, title: &str, value: &str) {
     let bright = amber(255.0);
-    c.line(p, x, y, TILE.x, THICK, bright);
-    c.fade(p, x + TILE.x - THICK, y, false, bright);
+    c.line(p, x, y, w, THICK, bright);
+    c.fade(p, x + w - THICK, y, false, bright);
     c.text(p, false, title, x + 5.0, y + 20.0, Align::Left, bright);
     if !value.is_empty() {
-        c.text(p, false, value, x + TILE.x - 10.0, y + 20.0, Align::Right, bright);
+        c.text(p, false, value, x + w - 10.0, y + 20.0, Align::Right, bright);
     }
 }
 

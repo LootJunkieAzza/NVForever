@@ -420,7 +420,7 @@ impl Inventory {
                         }
                         None => t.unknown_weight.push(id),
                     }
-                    match i.value {
+                    match i.worth() {
                         Some(v) => t.value += v as i64 * n as i64,
                         None => t.unknown_value.push(id),
                     }
@@ -528,6 +528,7 @@ mod tests {
         let it = Item {
             kind: ItemKind::Weapon,
             value: Some(10),
+            money: None,
             weight: Some(6.0),
             slots: None,
             projectile: None,

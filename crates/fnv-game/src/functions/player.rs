@@ -5,8 +5,12 @@ use crate::game::{FastTravel, Game};
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
-pub fn reward_xp(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn reward_xp(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let n = a.num(0)?.trunc();
+    // The revision's XP given back: the experience was never taken (`crate::revision`).
+    if crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the experience ({n} XP not given again)")) {
+        return none();
+    }
     crate::experience::award(g, crate::experience::Source::Script, n);
     none()
 }
@@ -41,6 +45,9 @@ pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.subject_or_player() == FormId::PLAYER_REF {
         let perk = a.form(0)?;
+        if crate::revision::keeps_perk(g, ctx, FormId::PLAYER_REF, perk) {
+            return none();
+        }
         if a.num_or(1, 0.0) != 0.0 {
             g.player.teammate_perks.remove(&perk);
         } else {
@@ -172,7 +179,11 @@ pub fn remove_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> 
     none()
 }
 
-pub fn reset_xp(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+pub fn reset_xp(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let xp = g.player.xp;
+    if crate::revision::keeps(ctx, FormId::PLAYER_REF, || format!("the experience ({xp} XP)")) {
+        return none();
+    }
     g.player.xp = 0.0;
     none()
 }

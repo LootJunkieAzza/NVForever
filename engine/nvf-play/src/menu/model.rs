@@ -224,7 +224,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             name: modded_name(display_name(forms, item), extra.mods),
             count,
             weight: it.and_then(|i| i.weight),
-            value: it.and_then(|i| i.value),
+            value: it.and_then(|i| i.worth()),
             kind,
             equipped: extra.equipped,
             quest: false, // below, once the inventory is no longer borrowed
@@ -482,6 +482,10 @@ pub struct MenuModel {
     pub selected: [usize; 2],
     /// First visible row per column.
     pub scroll: [usize; 2],
+    /// The selection was last moved by the pointer coming onto a row: the lists stay
+    /// where they are (only the wheel and the keys scroll them; owner's playtest list 7,
+    /// item 11). The menu keeps `scroll` at the rows it draws (`look::drawn_first`).
+    pub pointer_pick: bool,
     /// Rows per column; the container column is empty in the inventory menu.
     pub lists: [Listing; 2],
     /// The category each column shows.
@@ -584,6 +588,7 @@ impl MenuModel {
             focus: Side::Player,
             selected: [0; 2],
             scroll: [0; 2],
+            pointer_pick: false,
             lists: [Listing::default(), Listing::default()],
             category: [Category::All; 2],
             encumbrance: Err(String::new()),
@@ -758,6 +763,13 @@ impl MenuModel {
         }
         let page = self.page() as i64 - 1;
         match cmd {
+            Command::Hover(..) => self.pointer_pick = true,
+            Command::Up | Command::Down | Command::PageUp | Command::PageDown | Command::Scroll(_) | Command::Select(..) | Command::SetCategory(..) => {
+                self.pointer_pick = false
+            }
+            _ => {}
+        }
+        match cmd {
             Command::Up => self.move_selection(-1),
             Command::Down => self.move_selection(1),
             Command::PageUp => self.move_selection(-page),
@@ -777,7 +789,9 @@ impl MenuModel {
                 }
                 self.focus = side;
                 self.selected[side as usize] = idx;
-                self.ensure_visible(side);
+                if !self.pointer_pick {
+                    self.ensure_visible(side);
+                }
             }
             Command::SetCategory(side, cat) => {
                 let i = side as usize;
