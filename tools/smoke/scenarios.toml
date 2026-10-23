@@ -7165,3 +7165,36 @@ order = [
   ["magic: Turbo on: the world runs at 0.50, the player at full speed", "magic: Turbo off"],
   ["test aid NVF_PLAY_TEST_CONSOLE: player.equipitem NVAntivenom", "magic: CazadorPoison on the player ended"],
 ]
+
+# ------------------------------------------------------------------ playtest list 7 (W8, frame rate)
+
+[[scenario]]
+name = "mantis-egg-spawn"
+source = "playtest list 7 item 4 (docs/design/frame-rate-audit.md §1-§2): shooting the Goodsprings schoolhouse's mantis ootheca dropped the frame rate to about one frame a second"
+note = "at 10 s DamageObject breaks the ootheca 0x0010AC54 (V22MantisOotheca): its script places 12 nymphs at each of its two destruction stages, all at the egg's centre against the lockers. Each must stand on a free floor spot near it (created_spots.rs), not inside the egg or each other; their footsteps are held to the voice limit (sfx.rs). Before: 1% low 1,162 ms, the characters' controller ran out its iterations every step. God mode: the nymphs fight the player"
+areas = ["actors", "physics", "audio", "performance"]
+paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIPT = "10:call:0x0010AC54:DamageObject:5" }
+args = ["--cell", "GSSchoolHouse", "--pos", "700,-900,3340", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'NVCrGiantMantisNymph \S+: created at \(1101, -1875, 3339\), stands at \(-?\d+, -?\d+, 33[2-5]\d\)', min = 20, label = "the nymphs stand on the floor round the egg, not in it" },
+  { text = "created where no free spot is near", count = 0, label = "every nymph found a spot" },
+  { re = 'stress frames: .*1% low (?P<n>[\d.]+) ms', range = [0, 400], label = "no run of second-long frames (was 1,162 ms)" },
+  { re = 'at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the footsteps are held to the voice limit" },
+]
+
+[[scenario]]
+name = "rooms-repconn"
+source = "playtest list 7 item 47 (docs/design/frame-rate-audit.md §3; docs/spec-notes/level-design.md §3.1): the REPCONN test site's facility floor draws only the rooms seen through portals"
+note = "RocketLabMid has 17 room markers and 31 portals. From the start (room 0008D44A) 11 rooms and the unbounded space are in view and about 1,200 meshes are hidden; pictures with and without the culling were the same (frame-rate-audit.md §3). Unseen, so the ghouls stay where they are"
+areas = ["renderer", "performance"]
+paths = ["engine/nvforever/src/rooms.rs", "engine/nvforever/src/draw_distance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1" }
+args = ["--cell", "RocketLabMid", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  "rooms: 00081D1F: 17 rooms, 31 portals",
+  { re = 'rooms: 00081D1F: camera in room 0008D44A, (?P<n>\d+) of 17 rooms in view', range = [2, 16], label = "some rooms are out of view from the start" },
+  { re = 'rooms summary: \d+ frames culled by rooms and portals, at most (?P<n>\d+) meshes hidden', range = [500, 1e9], label = "meshes of the rooms out of view are hidden" },
+]
