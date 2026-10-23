@@ -856,7 +856,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "main 2026-10-23 (origin/main cd54601d+, 13 blows): the add-ons' load message boxes hold the game for about 8 s of the 30 (list 7 W4: 12 and 14 on its branch)" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 59) x 1.2 = 128 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3)" },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
@@ -7320,12 +7320,12 @@ expect = [
 [[scenario]]
 name = "combat-ghoul-lunge"
 source = "owner's playtest list 7 item 36: feral ghouls ran too slowly and waited next to the player before swinging; creatures now attack on the run and lunge (forward power attack) from beyond their reach (npc_combat::lunge_band)"
-note = "the feral ghoul 0x000CE9E7 (follower-boone's) is put 1,500 units from the player outside Novac at 3 s and set on the player (god mode) at 4 s; it runs in and begins its blows on the run"
+note = "the feral ghoul 0x000CE9E7 (follower-boone's) is put 1,500 units from the player south of Goodsprings (death-stops-character's spot, the player in god mode) and set on the player at 3, 12, 21 and 30 s (1,500 units east: north of the player there is no navmesh); each approach rolls once for a blow on the run (its style's attack chance about 60 %, a lunge by its power attack chance 50 %), so four approaches make one all but certain. Outside Novac (the first runs) the townsfolk fought it and it changed targets"
 areas = ["combat", "creatures"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/creature_pace.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000CE9E7:player:0:1500:0,4:combat:0x000CE9E7:player" }
-args = ["--play", "--pos=24086,-30000,6980", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 30
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000CE9E7:player:1500:0:0,3.5:combat:0x000CE9E7:player,12:moveto:0x000CE9E7:player:1500:0:0,12.5:combat:0x000CE9E7:player,21:moveto:0x000CE9E7:player:1500:0:0,21.5:combat:0x000CE9E7:player,30:moveto:0x000CE9E7:player:1500:0:0,30.5:combat:0x000CE9E7:player" }
+args = ["--play", "--pos=-69100,-17219,9000", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 42
 expect = [
   { re = 'creature pace: \S+ 0x000CE9E7 walks \d+ and runs (?P<n>\d+) units/s', range = [1, 100000], label = "the ghoul's speeds" },
   { re = 'npc combat: .*0x000CE9E7 attacks .* on the run from', label = "it begins a blow on the run" },

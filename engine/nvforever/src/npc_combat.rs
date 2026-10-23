@@ -493,6 +493,9 @@ pub struct Fighters {
     swing_rng: u64,
     /// The maneuver decision's and rushes' own sequence, as `stance_rng` (§17).
     maneuver_rng: u64,
+    /// The rolls of creatures' attacks on the run (`lunge_band`), a sequence of their own
+    /// so the other rolls fall as before.
+    lunge_rng: u64,
     /// (fighter, target) pairs held back by the Max Targeting FOV, logged once (§17.5).
     fov_waits: std::collections::HashSet<(u32, u32)>,
     /// The player's swings seen so far (`CombatStats::swings`), and when the last began.
@@ -722,9 +725,9 @@ fn no_leaps(have: &[(Power, f32)], lame: bool) -> Vec<(Power, f32)> {
 /// blow before it is within reach ([`lunge_band`]) [design].
 pub const RUN_ATTACK_SPEED: f32 = 100.0;
 /// A blow on the run begins at most this far beyond the strike distance, units [design: a
-/// leap of about 4 m; the measured closing speed is also capped at the creature's own
+/// leap of about 3 m (at 300 a Goodsprings dog lunged from 419 units); the measured closing speed is also capped at the creature's own
 /// running speed, as a frame's step after a MoveTo or a physics snap is no run].
-pub const RUN_ATTACK_MAX: f32 = 300.0;
+pub const RUN_ATTACK_MAX: f32 = 200.0;
 
 /// How far beyond its strike distance a creature closing in at `closing` units/s may begin
 /// a blow whose clip reaches its `Hit` key after `hit` seconds: the ground it covers until
@@ -1061,6 +1064,9 @@ pub(crate) fn fight(
     }
     if f.swing_rng == 0 {
         f.swing_rng = 0x9E37_79B9_7F4A_7C15;
+    }
+    if f.lunge_rng == 0 {
+        f.lunge_rng = 0x94D0_49BB_1331_11EB;
     }
     if f.maneuver_rng == 0 {
         f.maneuver_rng = 0xBF58_476D_1CE4_E5B9;
@@ -2218,11 +2224,13 @@ pub(crate) fn fight(
                         let band_normal = lunge_band(closing, hit_normal);
                         let band_forward = forward.map_or(0.0, |p| lunge_band(closing, p.1));
                         let band = band_normal.max(band_forward);
-                        if near || away > strike_at + band || band <= 0.0 {
-                            if !near && away > strike_at + band {
-                                fighter.lunge_rolled = false;
-                            }
-                        } else if !fighter.lunge_rolled && ready && !fleeing && fighter.strike_in <= 0.0 && (feet[2] - tfeet[2]).abs() < 128.0 {
+                        // Rolled again only once the target is beyond the widest band (a
+                        // frame without a physics step reads as standing still).
+                        if !near && away > strike_at + RUN_ATTACK_MAX {
+                            fighter.lunge_rolled = false;
+                        }
+                        let in_band = !near && band > 0.0 && away <= strike_at + band;
+                        if in_band && !fighter.lunge_rolled && ready && !fleeing && fighter.strike_in <= 0.0 && (feet[2] - tfeet[2]).abs() < 128.0 {
                             fighter.lunge_rolled = true;
                             let lunge = forward.filter(|_| away <= strike_at + band_forward).into_iter().collect::<Vec<_>>();
                             let ordinary_ok = away <= strike_at + band_normal;
@@ -2232,14 +2240,14 @@ pub(crate) fn fight(
                                 let (skill_name, h2h) = ("Melee Weapons".to_string(), true);
                                 let skill = fnv_game::functions::av_by_name(&skill_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
                                 let opp = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking, unconscious: g.is_out_cold(target) };
-                                style.is_none_or(|s| next_unit(&mut f.rng) * 100.0 < melee_attack_chance(s, skill, h2h, opp))
+                                style.is_none_or(|s| next_unit(&mut f.lunge_rng) * 100.0 < melee_attack_chance(s, skill, h2h, opp))
                             };
                             // Beyond the ordinary blow's band only a lunge goes: its power
                             // attack chance is rolled now.
                             let lunge_only = !ordinary_ok;
                             let power_ok = !lunge_only || {
                                 let chance = style.filter(|s| s.power_attack_chance > 0.0).map_or(FALLBACK_POWER_CHANCE, |s| creature_power_chance(s, fatigue));
-                                next_unit(&mut f.power_rng) * 100.0 < chance
+                                next_unit(&mut f.lunge_rng) * 100.0 < chance
                             };
                             if wants && power_ok && (ordinary_ok || !lunge.is_empty()) {
                                 f.stats.run_attacks += 1;

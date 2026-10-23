@@ -7804,10 +7804,10 @@ Branch `claude/l7-combat-ai`; details in docs/design/combat-ai.md §18.
   the existing `flinch_time`). Guess: which creature clip plays for which body part.
 - **36 ghouls.** Guessed constant: feral ghouls ×1.25 on the creature pace (269 → 336
   units/s, about the player's run), your number, not measured in the original. Creatures
-  now begin blows on the run (from up to 300 units out, by their run speed × the clip's
+  now begin blows on the run (from up to 200 units beyond their reach, by their run speed × the clip's
   time to its hit) and lunge with their forward power attack where they have the clip
   (ghouls, radscorpions, geckos, deathclaws). Guessed: the 100 units/s minimum closing
-  speed and the 300-unit cap. Check: ghouls and radscorpions should hit a retreating
+  speed and the 200-unit cap. Check: ghouls and radscorpions should hit a retreating
   player and leap in.
 - **39 nightkin club.** Super mutants and nightkin are creatures and creatures were
   never given their weapons. They now draw and use them where their skeleton has the

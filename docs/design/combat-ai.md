@@ -1488,7 +1488,7 @@ its blows), `crippled-torso-arms` (the player is held).
 - **Attacks on the run** (`npc_combat::lunge_band`): a creature closing in faster than
   100 units/s may begin a blow before it is within its strike distance, by the ground it
   covers until its clip's `Hit` key (closing speed × hit time, capped at its own running
-  speed and at 300 units); where it has a forward power attack clip
+  speed and at 200 units); where it has a forward power attack clip
   (`h2hattackforwardpower.kf`: ghoul, radscorpion's sting, gecko, deathclaw …) the
   forward power attack's own hit time gives a longer band, a lunge, rolled by its style's
   power attack chance; the ordinary blow by its style's attack chance (a rush always
