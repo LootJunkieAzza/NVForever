@@ -499,15 +499,24 @@ clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_ma
   side-step clips (`locomotion\2hrleft.kf` does not exist), so the unarmed
   `locomotion\male\mtleft.kf` plays. It drives `Bip01 NonAccum` at 30, above
   `2hraimis.kf`'s 26, and turns it 87.5° from the sights clip's pose (`mtright.kf` 2.7°,
-  `mtforward.kf` 2.7°, `mtbackward.kf` 0.1°), turning its head back by 88°. `Bip01
-  Spine` hangs from `Bip01 NonAccum` beside `Bip01 Pelvis` (the thighs hang from the
-  pelvis) [observed: `skeleton.nif` node tree]. With the sights clip's spine (50) over
-  that turned node, the upper body and rifle faced a quarter turn left of the view.
-  Engine [design; the game's way is not known]: while down the sights in third person,
-  `player_body::keep_sights_facing` turns the spine by the difference between its
-  parents' pose under the aim clips alone and the blended pose, so the upper body faces
-  as the sights clip faces it and the legs keep the side-step (smoke
-  `third-person-sights-strafe`).
+  `mtforward.kf` 2.7°, `mtbackward.kf` 0.1°), turning its head back by 88°. Sampled
+  (`fnvtool actor locomotion --samples 5`), `Bip01 NonAccum` stays at yaw 87.5–90.9° in
+  every move of `male\` and `female\` and in the weapons' own side-steps (`1hpleft`,
+  `1hpright`, `1hmleft`, `2hhleft`, `h2hleft`, `1hpfastleft`) but sits at 177.5° in
+  `male\mtleft.kf` and `female\mtleft.kf` and −168.6° to −179.4° in their
+  `mtfastleft.kf`: the unarmed walk left turns the whole body (`child\mtleft.kf` does
+  not). `Bip01 Spine` and `Bip01 Pelvis` both hang from `Bip01 NonAccum`, the thighs from
+  the pelvis [observed: `skeleton.nif` node tree]. With the sights clip's spine (50) over
+  that turned node, the body and rifle faced a quarter turn left of the view.
+- In the original, strafing left down the sights with a rifle, the hips stay square to
+  the camera and the legs stride as in a backpedal [observed: the owner's capture
+  2026-10-23, camera zoomed out]. Engine [hypothesis: the game's rule is not known]:
+  while down the sights in third person, `player_body::keep_sights_facing` gives the
+  nodes above `Bip01 Spine` the aim clips' own rotation in place of the blend's (faded
+  with the aim clips), the movement clip keeping their translation and the legs. That
+  looks like the capture (smoke `third-person-sights-strafe`, camera zoomed out).
+  Turning only the spine back instead (the first try) wrung the skin at the waist a
+  quarter turn [observed: the owner's screenshot].
 
 ### 9.7 The `Weapon` node between clips [observed unless tagged]
 

@@ -1561,34 +1561,39 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     }
 }
 
-/// Down the sights in third person, the upper body faces where the sights clip faces it,
-/// whatever the legs do. The sights clips (`2hraimis.kf`, `1hpaimis.kf`) take the spine,
-/// arms and head (priority 50) but leave `Bip01 NonAccum`, which `Bip01 Spine` hangs
-/// from beside the pelvis, to the movement clips (26 under 30); `mtleft.kf` turns that
-/// node 87.5° from the sights clip's pose (`mtright.kf` 2.7°) and turns its own spine
-/// and head back, which the sights clip's spine does not do, so strafing left swung the
-/// rifle a quarter turn off the crosshair [observed: `kf_pose_compare`, animation.md
-/// §9.3, the owner's playtest 2026-10-23]. The spine is turned by the difference between
-/// its parents' pose under the aim clips alone and the pose the blend gave them, faded
-/// with the aim clips [design: the game's way is not known; standing still the aim clip
-/// holds those nodes itself and the turn is none]. Returns the turn, degrees.
+/// Down the sights in third person the body stays square to the view, whatever way the
+/// legs step. The sights clips (`2hraimis.kf`, `1hpaimis.kf`) take the spine, arms and
+/// head (priority 50) but leave `Bip01 NonAccum`, the body's node that the pelvis and
+/// `Bip01 Spine` both hang from, to the movement clips (26 under 30). The unarmed
+/// `male\mtleft.kf` and `mtfastleft.kf`, which a rifle (no `2hrleft.kf`) strafes left
+/// with, turn that node a further 90° (yaw 177.5° against 87.5–90° in every other move
+/// and in the weapons' own side-steps), so strafing left swung the body and the rifle a
+/// quarter turn off the crosshair [observed: `kf_pose_compare` and `fnvtool actor
+/// locomotion --samples`, animation.md §9.6; the owner's playtest 2026-10-23].
+///
+/// The aim clips' own rotation of the nodes above the spine is taken in place of the
+/// blend's, faded with the aim clips; the movement clip keeps their translation (the
+/// bob) and the legs below the pelvis. In the original, strafing left down the sights
+/// the hips stay square to the camera and the legs step as in a backpedal [observed:
+/// the owner's capture 2026-10-23], which is that [hypothesis: the game's rule is not
+/// known]. Turning only the spine instead wrung the skin at the waist a quarter turn.
+/// Standing still the aim clip holds those nodes itself and nothing changes. Returns
+/// the largest turn, degrees.
 fn keep_sights_facing(a: &mut Animator, spine: usize) -> f32 {
     let aim = |l: &nvf_assets::anim_blend::Layer| (TAG_AIM..TAG_AIM + 3).contains(&l.tag);
-    let ease = a.layers.iter().filter(|l| aim(l)).map(|l| l.ease).fold(0.0f32, f32::max);
-    if ease <= 0.0 {
-        return 0.0;
-    }
-    let (mut posed, mut own) = (Quat::IDENTITY, Quat::IDENTITY);
-    let mut cur = a.skel.parents[spine];
-    while let Some(n) = cur.filter(|&n| n > 0) {
-        let l = a.locals[n].rotation;
-        posed = l * posed;
-        own = a.local_from(n, aim).map_or(l, |t| t.rotation) * own;
+    let ease = a.layers.iter().filter(|l| aim(l)).map(|l| l.ease).fold(0.0f32, f32::max).min(1.0);
+    let mut most = 0.0f32;
+    let mut cur = a.skel.parents.get(spine).copied().flatten();
+    while let Some(n) = cur.filter(|&n| n > 0 && ease > 0.0) {
+        if let Some(own) = a.local_from(n, aim) {
+            let posed = a.locals[n].rotation;
+            let r = posed.slerp(own.rotation, ease).normalize();
+            most = most.max(posed.angle_between(r).to_degrees());
+            a.locals[n].rotation = r;
+        }
         cur = a.skel.parents[n];
     }
-    let turn = Quat::IDENTITY.slerp((posed.inverse() * own).normalize(), ease.min(1.0));
-    a.locals[spine].rotation = (turn * a.locals[spine].rotation).normalize();
-    turn.angle_between(Quat::IDENTITY).to_degrees()
+    most
 }
 
 /// Draw the first-person rig `k` times as big across the view about the eye (along the
