@@ -439,6 +439,9 @@ struct Rig {
     /// has one: from and to, seconds into the clip.
     since_attack: f32,
     attack_loop: Option<(f32, f32)>,
+    /// The attack clip a wind-up started, until its shot leaves: the shot plays on in
+    /// it rather than starting it again.
+    wound_up: Option<Arc<Clip>>,
     /// The attack clip last started and its `Eject` key, seconds into the clip, when it
     /// has one; and whether its layer passed the key in the last pose.
     attack_eject: Option<(Arc<Clip>, f32)>,
@@ -619,6 +622,7 @@ struct Motion {
     reload_rounds_seen: u32,
     jams_seen: u32,
     spin_ups_seen: u32,
+    wind_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
     /// Ground velocity in the view's frame (x right, y ahead), smoothed.
@@ -667,6 +671,7 @@ impl Default for Motion {
             reload_rounds_seen: 0,
             jams_seen: 0,
             spin_ups_seen: 0,
+            wind_ups_seen: 0,
             names: HashMap::new(),
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
@@ -1178,6 +1183,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         furniture: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
+        wound_up: None,
         attack_eject: None,
         ejected: false,
     })
@@ -1219,6 +1225,10 @@ struct Frame {
     reload_round_now: bool,
     /// The weapon starts to spin up this frame: its attack clip plays from the start.
     spin_now: bool,
+    /// A pull starts a shot that leaves at the clip's `Hit` key (a throw's release): the
+    /// attack clip plays from the start now, and the shot does not restart it
+    /// (`nvf_play::combat::WeaponAnim::wind_ups`).
+    wind_now: bool,
 }
 
 /// Where a rig stands in the frame and what it plays beside its own clips.
@@ -1363,7 +1373,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             want.push((c.clone(), TAG_HOLSTER, 1.0, Mode::Once));
         }
     }
-    if f.hands.in_hand && (f.attack_now || f.spin_now) {
+    if f.hands.in_hand && (f.attack_now || f.spin_now || f.wind_now) {
         if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
             // A clip with a `Loop` key plays on through the shots that follow while it
             // runs (a minigun's spin) instead of starting again at each, going round from
@@ -1373,7 +1383,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             // shot, which combat holds back until then, meets the `Fire` key.
             rig.attack_loop = c.keys.hit.zip(c.keys.loop_end).filter(|(from, to)| from < to).map(|(from, to)| (from - c.clip.start, to - c.clip.start));
             rig.attack_eject = c.keys.eject.map(|e| (c.clip.clone(), e - c.clip.start));
-            let going = !f.spin_now && rig.attack_loop.is_some() && rig.animator.layers.iter().any(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c.clip) && !l.finished());
+            let playing = rig.animator.layers.iter().any(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c.clip) && !l.finished());
+            // The shot of a wind-up that started this clip plays on in it.
+            let wound = f.attack_now && !f.wind_now && rig.wound_up.take().is_some_and(|w| Arc::ptr_eq(&w, &c.clip)) && playing;
+            let going = !f.spin_now && !f.wind_now && (wound || (rig.attack_loop.is_some() && playing));
+            if f.wind_now {
+                rig.wound_up = Some(c.clip.clone());
+                info!("player {:?} rig: {} starts at the pull; the shot leaves at its Hit key", rig.view, c.path);
+            }
             if !going {
                 rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
@@ -1840,6 +1857,10 @@ fn drive_body(
     }
     m.last_feet = Some(feet);
     m.last_heading = Some(player.heading);
+    // The body and the view are drawn lifted over a step or a bump climbed in one physics
+    // step, so they climb it smoothly; the feet stay where the character is
+    // (`nvf_play::phys::step_lift`, owner's playtest list 7 item 9).
+    let feet = [feet[0], feet[1], feet[2] + phys.drawn_lift_of(FormId::PLAYER_REF.0)];
     let airborne_before = m.airborne;
     m.airborne = if grounded || swimming { 0.0 } else { m.airborne + dt };
     let was_falling = m.falling;
@@ -1974,6 +1995,8 @@ fn drive_body(
     let reload_now = anim.reloads != m.reloads_seen;
     let reload_round_now = anim.reload_rounds != m.reload_rounds_seen;
     let spin_now = anim.spin_ups != m.spin_ups_seen;
+    let wind_now = anim.wind_ups != m.wind_ups_seen;
+    m.wind_ups_seen = anim.wind_ups;
     m.attacks_seen = anim.attacks;
     m.reloads_seen = anim.reloads;
     m.reload_rounds_seen = anim.reload_rounds;
@@ -2013,7 +2036,8 @@ fn drive_body(
         *t -= dt;
         if *t <= 0.0 {
             m.after_idle = None;
-            info!("player view: a second after the idle the character stands at ({:.0}, {:.0}, {:.0})", feet[0], feet[1], feet[2]);
+            let at = player.feet;
+            info!("player view: a second after the idle the character stands at ({:.0}, {:.0}, {:.0})", at[0], at[1], at[2]);
         }
     }
     if driven.0 != idles.held.is_some() {
@@ -2051,6 +2075,7 @@ fn drive_body(
         reload_now,
         reload_round_now,
         spin_now,
+        wind_now,
     };
     // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
     // its eye counts from the feet as before.

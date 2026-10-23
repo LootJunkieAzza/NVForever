@@ -1211,9 +1211,17 @@ impl Core {
         self.ai.keep_apart(game, &nav.graph, dt, &fixed);
         // Hellos to the player and random conversations.
         self.ai.social(game, &nav.graph, dt);
-        // No character is kept for an actor that is not on its way.
+        // No character is kept for an actor that is not on its way, nor for one that is
+        // dead, restrained or out cold: the AI no longer walks it (`fnv_ai`), so its
+        // character would go on at the velocity of its last step, the body drawn gliding
+        // along with it and its block pushing the player (playtest list 7 item 14).
         if let Some(p) = phys {
-            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
+            let held = |id: FormId| game.extra.get(&id).is_some_and(|e| e.dead || e.restrained || e.out_cold());
+            for (&id, b) in p.npcs.iter().filter(|(id, _)| held(FormId(**id))) {
+                let f = b.ch.feet;
+                info!("ai [{}] {} {id:08X}: its character stops (dead, restrained or out cold) at ({:.0}, {:.0}, {:.0}), walking at {:.0} units/s", self.clock_text, game.data.name(FormId(id)), f[0], f[1], f[2], b.velocity[0].hypot(b.velocity[1]));
+            }
+            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
             for id in idle {
                 p.remove_npc(id);
                 self.unstuck.remove(&id);
@@ -1322,6 +1330,7 @@ impl Core {
                 | AiEvent::Follow { .. }
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
+                | AiEvent::TalkUnseen { .. }
                 | AiEvent::PushedBack { .. }
                 | AiEvent::Hello { .. }
                 | AiEvent::Chat { .. }
@@ -1474,6 +1483,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
+        AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
         AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),

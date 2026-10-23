@@ -10,7 +10,10 @@
 //!   all lie in an exploded part's bone tree (head, hair, eyes, hat) is not drawn. Hidden
 //!   shapes are given a mesh with no triangles, so the visibility other systems set
 //!   (`RefVisual`) does not bring them back. Done again whenever shapes are spawned
-//!   (dressing, a cell coming back, a loaded game).
+//!   (dressing, a cell coming back, a loaded game), and when another system gave a
+//!   redrawn shape a mesh again ([`CutMesh`]): the moving face (`crate::lips`) hands a
+//!   dying actor's head, eyes and hair their own meshes back as it lets the face go,
+//!   which put an exploded head back on the body (the owner's playtest list 7 item 26).
 //! - **Ragdolls** ([`cut_ragdolls`]): a severed part's ragdoll bodies are cut from the rest.
 //! - **Gore** ([`throw_gore`], [`move_pieces`]): at an exploded part's gore bone, its
 //!   explosion and blood, and the pieces of its limb replacement model and its debris
@@ -58,6 +61,11 @@ type PieceBox = ([f32; 3], [f32; 3]);
 /// A piece of a gore model: its top node, its transform in the model, its shapes with their
 /// transforms relative to it.
 type Piece = (Option<usize>, Affine3A, Vec<(Affine3A, usize)>);
+
+/// The mesh [`apply_skins`] drew a shape with; a shape whose mesh is no longer this one
+/// was given another by some other system and is drawn again.
+#[derive(Component)]
+struct CutMesh(AssetId<Mesh>);
 
 /// A flying piece of gore.
 #[derive(Component)]
@@ -274,16 +282,23 @@ pub fn partition_drawn(bp: u16, cap: bool, exploded: &BTreeSet<u16>, severed: &B
 
 #[allow(clippy::too_many_arguments)]
 fn apply_skins(
+    mut commands: Commands,
     script: Option<Res<ScriptState>>,
     combat: Res<Combat>,
     rigs: Query<(&ActorRig, Option<&LimbRig>)>,
     added: Query<&RefVisual, Added<LimbShape>>,
-    mut shapes: Query<(&RefVisual, &LimbShape, &mut Mesh3d)>,
+    mut shapes: Query<(Entity, &RefVisual, &LimbShape, &mut Mesh3d, Option<&CutMesh>)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut gore: ResMut<Gore>,
 ) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
-    let respawned: HashSet<u32> = added.iter().map(|r| r.0).collect();
+    let mut respawned: HashSet<u32> = added.iter().map(|r| r.0).collect();
+    // A redrawn shape given another mesh since (`CutMesh`): its actor is drawn again.
+    for (_, r, _, mesh, cut) in &shapes {
+        if cut.is_some_and(|c| c.0 != mesh.0.id()) && respawned.insert(r.0) {
+            info!("dismember: {:08X}'s shape was given its whole mesh back: drawn without its gone parts again", r.0);
+        }
+    }
     let mut todo = Vec::new();
     for (rig, limb) in &rigs {
         let gone = game.limbs_gone(FormId(rig.reference));
@@ -302,7 +317,7 @@ fn apply_skins(
         let torso_gone = exploded.contains(&0);
         let mut redrawn = 0;
         let mut cut = (0, 0);
-        for (r, shape, mut mesh) in &mut shapes {
+        for (e, r, shape, mut mesh, _) in &mut shapes {
             if r.0 != rig.reference {
                 continue;
             }
@@ -310,6 +325,7 @@ fn apply_skins(
                 cut.0 += 1;
                 cut.1 += groups.iter().filter(|g| g.0 > 0).map(|g| g.1.len() / 3).sum::<usize>();
                 mesh.0 = meshes.add(sever_mesh(&shape.cpu, &groups, &side, &fallback));
+                commands.entity(e).try_insert(CutMesh(mesh.0.id()));
                 redrawn += 1;
                 continue;
             }
@@ -327,6 +343,7 @@ fn apply_skins(
                 dismember_mesh(&shape.cpu, &shape.partitions, keep)
             };
             mesh.0 = meshes.add(new);
+            commands.entity(e).try_insert(CutMesh(mesh.0.id()));
             redrawn += 1;
         }
         if cut.0 > 0 {

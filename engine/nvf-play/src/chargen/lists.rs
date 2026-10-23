@@ -23,8 +23,8 @@ use fnv_game::Game;
 
 /// The menus' rectangle, centred on the screen.
 pub const MAIN: Vec2 = Vec2::new(1024.0, 800.0);
-/// The dark picture behind: 1144 × 1070, 50 left of and 125 above the rectangle.
-const BEHIND: [f32; 4] = [-50.0, -125.0, 1144.0, 1070.0];
+/// The files' dark picture behind (1144 × 1070, 50 left of and 125 above the rectangle)
+/// is replaced by the whole screen darkened ([`crate::interface::top_menu_backing`]).
 /// The headline: a line 50 long, the title 20 after it and 10 above the line.
 const HEAD_LINE: f32 = 50.0;
 const TITLE_X: f32 = 70.0;
@@ -58,11 +58,9 @@ pub const ROW_H: f32 = 52.0;
 const TAG_LIST_Y: f32 = 66.0;
 /// The key hint ("R)") starts at the button's right end.
 const HINT_X: f32 = 0.0;
-/// How dark the original's picture behind makes the world: the world in it is 33 of 255 bright
-/// against 54 just outside it on the trait screenshot (the world behind is also blurred
-/// there; not built).
-/// Ours is darker, the owner's wish ([`crate::interface::MENU_BACKING`]).
-const SHADE: f32 = crate::interface::MENU_BACKING;
+/// The original's picture behind leaves the world 33 of 255 bright against 54 just outside
+/// it on the trait screenshot (and blurs it, not built); ours darkens the whole screen more
+/// ([`crate::interface::top_menu_backing`]), the owner's wish.
 /// The scroll bar's marker: 105 long, its top 23 under the up arrow at the list's top
 /// (sixteen traits, thirteen shown) [hypothesis: the same length for any list].
 const MARKER_H: f32 = 105.0;
@@ -476,11 +474,6 @@ pub fn spawn(root: &mut ChildSpawnerCommands, v: &ListView, c: &mut Ctx) {
     let bright = amber(255.0);
     let main = Node { width: u(MAIN.x), height: u(MAIN.y), ..default() };
     root.spawn(main).with_children(|p| {
-        let [bx, by, bw, bh] = BEHIND;
-        let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
-        if c.image(p, "interface\\shared\\background\\solid_black.dds", at(bx, by, bw, bh), shade, ()).is_none() {
-            p.spawn((at(bx, by, bw, bh), BackgroundColor(shade)));
-        }
         // The headline: the short line, the title, the long line, a line fading down at
         // each end.
         c.line(p, 0.0, 0.0, HEAD_LINE, THICK, bright);
@@ -550,8 +543,8 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
 /// clickable.
 fn arrow(row: &mut ChildSpawnerCommands, c: &mut Ctx, picture: &str, x: f32, sign: &str, part: ListButton) {
     let node = at(x, ARROW_Y, ARROW, ARROW);
-    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(31))).is_none() {
-        row.spawn((node, Button, part, GlobalZIndex(31))).with_children(|a| {
+    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(crate::interface::TOP_MENU_Z + 1))).is_none() {
+        row.spawn((node, Button, part, GlobalZIndex(crate::interface::TOP_MENU_Z + 1))).with_children(|a| {
             c.text(a, Which::Body, sign, ARROW / 2.0, ARROW / 2.0 - BODY_H / 2.0, Align::Centre, amber(255.0));
         });
     }

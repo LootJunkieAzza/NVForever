@@ -144,7 +144,13 @@ pub struct Tile {
 /// three cards and 20 (hypothesis: on the first free row, as on the owner's apparel and
 /// aid screenshots)].
 pub fn info_tiles(i: &Info) -> Vec<Tile> {
-    let (w, h) = (INFO.width() / 3.0, INFO.height() / 3.0);
+    tiles_in(i, INFO.size())
+}
+
+/// [`info_tiles`] in a figures' rectangle of `size` (the container and barter menus'
+/// is 530 × 120, `crate::menu::look`; the same `item_stats_display.xml`).
+pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
+    let (w, h) = (size.x / 3.0, size.y / 3.0);
     let col = |n: f32| n * (w + 10.0);
     let tile = |x: f32, y: f32, width: f32, title: &str, value: String| Tile { rect: Rect::new(x, y, x + width, y + h), title: title.into(), value, meter: None };
     let mut out = Vec::new();
@@ -181,8 +187,9 @@ fn figure(v: f32, decimals: bool) -> Option<String> {
     (v > 0.0).then(|| if decimals { format!("{v:.2}") } else { format!("{v:.0}") })
 }
 
-/// What the figures show of a row, from the records.
-fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>) -> Info {
+/// What the figures show of a row, from the records (the ITEMS page's, and the
+/// container and barter menus' item figures, `crate::menu::look`).
+pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>) -> Info {
     use fnv_sim::forms::ItemKind;
     let n = r.count.max(1) as f32;
     let mut i = Info {

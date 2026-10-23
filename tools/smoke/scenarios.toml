@@ -559,6 +559,89 @@ expect = [
 ]
 
 [[scenario]]
+name = "force-greet-door"
+source = "owner's playtest list 7 items 41/42: a force greet needs a clear line to the player (Game::greet_sight; actor-behaviour.md §5.6)"
+note = "REPCON basement: the player stands 586 units north of Davison (activate distance 600), behind his closed door (DavisonDoor 000BAE24, 500 units north of him); at 20 s the player opens it. Harland (activate distance 1200) is 2,400 units off"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "20:activate:0x000BAE24" }
+args = ["--cell", "RocketLabBasement", "--play", "--pos=464,-2250,8260", "--heading", "180", "--npc-packages", "DavisonREF,HarlandREF", "--no-voice"]
+run_seconds = 45
+order = [[
+  { re = 'DavisonREF: waits to talk to .* with something solid between', label = "Davison waits behind his closed door" },
+  { re = 'dialogue: conversation with DavisonREF started', label = "he greets once the door is open" },
+]]
+
+[[scenario]]
+name = "force-greet-after-loading"
+source = "owner's playtest list 7 item 24: no AI acts under a loading screen (Game::loading held by nvf_play::script while the screen is up)"
+note = "Primm: the player goes in through the Vikki and Vance casino door at 14 s; Johnson Nash's Dialogue package (activate distance 1024, trigger box by the door) greets the player, only once the screen is down"
+areas = ["ai", "dialogue-packages", "loading"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvf-play/src/loading.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:0x000E2888" }
+args = ["--play", "--world", "WastelandNV", "--pos=-53600,-51296,5815", "--heading", "270", "--hour", "12", "--npc-packages", "PrimmJohnsonNashRef", "--no-voice"]
+run_seconds = 50
+order = [[
+  { re = 'loading screen down after', label = "the casino's loading screen comes down" },
+  { re = 'dialogue: conversation with PrimmJohnsonNashRef started', label = "then Johnson Nash greets the player" },
+]]
+
+[[scenario]]
+name = "restrained-furniture"
+source = "owner's playtest list 7 items 30/34: a restrained actor still picks its package and uses the furniture it is placed by (fnv_ai begin_in_place); a package to a linked furniture reference (goal::package_furniture)"
+note = "Bison Steve hotel: Deputy Beagle's OnLoad restrains him; his Travel package PrimmDeputyCaptured goes to the captive marker (FFCaptiveMarker 000D7F58) he stands 84 units from"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "BisonSteve01", "--play", "--npc-packages", "PrimmDeputyRef", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'furniture: 000D7F59 is on 000D7F58', label = "Beagle sits on his captive marker" },
+]
+
+[[scenario]]
+name = "crucified-stay"
+source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--play", "--world", "WastelandNV", "--pos=-33100,-92900,6840", "--hour", "12", "--npc-packages", "00139FDD,00139FDC", "--no-voice"]
+run_seconds = 60
+expect = [
+  { re = 'furniture: 00139FDD is on 001375D8', label = "a crucified Powder Ganger is on his cross" },
+  { re = 'furniture: 00139FDD gets off', count = 0, label = "and stays on it" },
+]
+
+[[scenario]]
+name = "patrol-point-furniture"
+source = "owner's playtest list 7 item 30: a patrol point that is furniture is used for its idle time (fnv_ai arrived)"
+note = "Gomorrah: a courtesan (0011A2FB, template vGOMVarProstitutes) patrols to her linked DanceMarker03 (0011A2F8, 800 s of idle time)"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Gomorrah00", "--play", "--hour", "21", "--npc-packages", "0011A2FB", "--no-voice"]
+run_seconds = 45
+expect = [
+  { re = 'furniture: 0011A2FB is on 0011A2F8', label = "the courtesan uses her dance marker" },
+]
+
+[[scenario]]
+name = "wake-to-talk"
+source = "owner's playtest list 7 item 38: talking to a sleeping actor wakes it; it gets up, then talks (Runtime::talk_when_awake, Game::wake)"
+note = "Easy Pete is put by his bed (00176ACE) at 2:00 and his Sleep package lays him on it; at 30 s the player talks to him"
+areas = ["ai", "furniture", "dialogue"]
+paths = ["engine/nvf-play/src/script.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_TALK = "30:EasyPeteRef" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice"]
+run_seconds = 60
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { re = 'dialogue: the player talks to .*, asleep: it wakes and gets up first', label = "talked to, he wakes" },
+  { text = "furniture: 00104C80 gets off 00176ACE", label = "he gets off the bed" },
+  { re = 'dialogue: .* is up after .*: the player talks to it', label = "then the conversation starts" },
+]]
+
+[[scenario]]
 name = "actor-values"
 kind = "tool"
 source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"
@@ -1518,6 +1601,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "barter-figures-currency"
+note = "as the barter scenario: the caps are given at the start (see its note)"
+source = "playtest list 7 items 7 and 25 (docs/spec-notes/barter-menu.md §2, fnv_sim::forms::Item::money): the barter from Chet's dialogue with a 10mm Pistol (Weap10mmPistol 0000434F) and three Legion Denarii (the caravan money record MoneyLegion1 00176AC4, Absolute Value 4) given to the player: the coins have a price, and the selected pistol shows the Pip-Boy's figures (DAM, DPS, STR, CND, ammunition) beside its weight and value"
+areas = ["barter", "menus"]
+paths = ["engine/nvf-play/src/menu/look.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-sim/src/forms.rs"]
+env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0000000F:100,0000434F:1,00176AC4:3", NVF_PLAY_TEST_SHOT = "barter_figures.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
+run_seconds = 50
+expect = [
+  { re = 'Player: .*Legion Denarius x3 at (\d+|0\.\d)', label = "the denarii have a price (their Absolute Value)" },
+  { re = 'menu: figures of 10mm Pistol: DAM \d+, WG [\d.]+, VAL \d+, .*DPS \d+, .*CND', label = "the pistol's figures as the Pip-Boy's: damage, weight, value, DPS, condition" },
+]
+order = [["menu: a script opens the barter menu with 0x00104C79", "menu: figures of 10mm Pistol", "menu: close"]]
+
+[[scenario]]
 name = "barter"
 note = "the player is given 100 caps at the start (NVF_PLAY_TEST_GIVE, caps 0x0000000F): the add-on packs' GameMode scripts that hand out caps and items first run about one quest delay after the scripts start, the time of the 10 s talk, and wait while the conversation is open, so the player had nothing to pay with ('You don't have enough caps.' instead of Traded: 1 of 2 runs on main 2026-10-12, every run on main 539a8e6c and #408 2026-10-17)"
 source = "CLAUDE.md: after changes to the container or barter menus (docs/spec-notes/barter-menu.md §6): the barter from Chet's dialogue"
@@ -2093,6 +2191,7 @@ run_seconds = 22
 expect = [
   { re = 'script: trigger 0x0015834D has 1 trigger volume\(s\) in its model', label = "the bear trap's model box is its trigger" },
   { re = 'script: message .*"You have disarmed the trap\."', label = "the first trap is disarmed" },
+  { re = 'xp: \+2 XP from a script', label = "its script's RewardXP gives TrapXPRewardVeryEasy (requirement 0, below iLockLevelMaxEasy; playtest list 7 item 23)" },
   { text = "playgroup: 0x00165495 plays Forward", label = "the disarmed trap springs shut" },
   { text = "script: player entered trigger 0x0015834D", label = "the player steps into the second trap" },
   { re = 'script: OnTriggerEnter of .*SCPT 0x0002CBA1 ran on', label = "its OnTriggerEnter runs" },
@@ -2110,6 +2209,7 @@ args = ["--cell", "NiptonHouse8Paranoid", "--play", "--hour", "12", "--no-voice"
 run_seconds = 25
 expect = [
   { re = 'script: message .*"[^"]*disarm[^"]*"', label = "the second tripwire is disarmed" },
+  { re = 'xp: \+2 XP from a script', label = "its script's RewardXP gives TrapXPRewardVeryEasy (requirement 0, below iLockLevelMaxEasy; playtest list 7 item 23)" },
   { text = "script: player entered trigger 0x00139522", label = "the player walks into the armed tripwire" },
   { re = 'script: activate parent 0x00139522 sets off 0x0013951E after 0\.00 s', label = "the tripwire sets off its shotgun" },
   { re = 'script: OnActivate of FalloutNV\.esm\|SCPT 0x0003E877 ran on Some\(0x0013951E\)', label = "the shotgun's OnActivate runs (its action reference is not the player)" },
@@ -4297,6 +4397,22 @@ expect = [
 order = [["test aid calls AddItemHealthPercent on", "pipboy repair: open", "pipboy repair: 10mm Pistol"]]
 
 [[scenario]]
+name = "pipboy-repair-repeat"
+source = "playtest list 7 item 16 (engine/nvf-play/src/pipboy/repair.rs, docs/spec-notes/repair.md §5): the repair list stays open after a repair while the item is below full condition and parts are left; three 10mm Pistols (one at 40 %, two at 30 %): the first use leaves one part and the list open, the second uses it up and the list closes (unit test the_list_stays_open_until_full_or_out_of_parts)"
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs"]
+env = { NVFOREVER_HOME = "pipboy-repair-repeat-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,17:repair=use,18.5:repair=use,20:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy repair: open 10mm Pistol at 40% \(Repair \d+\): 10mm Pistol \(2\) 30%', label = "R lists the two other pistols as one part row" },
+  { re = 'pipboy repair: stays open: 10mm Pistol at \d+%, 1 part\(s\) left', label = "after the first repair the list stays open with one part left" },
+  { re = 'pipboy repair: closed: ', label = "the second repair uses the last part (or fills the pistol) and the list closes" },
+  { re = 'pipboy repair: 10mm Pistol \d+% with 10mm Pistol( \(2\))? 30% -> \d+%', count = 2, label = "two repairs in one opening" },
+]
+order = [["pipboy repair: open", "pipboy repair: stays open", "pipboy repair: closed"]]
+
+[[scenario]]
 name = "pipboy-item-mod"
 source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
 areas = ["pipboy", "combat"]
@@ -4590,12 +4706,13 @@ expect = [
 name = "camper-steps"
 source = "owner's playtest list 5, item 17 (docs/spec-notes/physics.md §6.9): the camper at the Powder Ganger camp south of Goodsprings; running north up its two door steps (10 and 20 units, 24-unit top) into it without a jump"
 areas = ["physics", "controls"]
-paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs"]
+paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0" }
 args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [
   { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
+  { re = 'physics: the player.s drawn height took up [1-9]\d* steps and bumps, lifted ([4-9]|1\d|2[0-4])\.\d units at most', label = "the steps are climbed smoothly by the drawn body and view (playtest list 7 item 9, physics.md §6.11)" },
 ]
 
 [[scenario]]
@@ -6896,6 +7013,9 @@ expect = [
   { re = 'mines: 0x00000014 sets off mine 0x00172DB5 at \d+ units .*fuse 0\.60 s at Explosives 20', label = "stepped on at Explosives 20: a 0.6 s fuse" },
   { re = 'mines: mine 0x00172DB5 goes off', label = "the fuse burns down" },
   { re = 'combat: explosion MineFragExplosion at', label = "the frag mine's explosion" },
+  { re = 'combat: blast MineFragExplosion on 0x00000014 at \d+', label = "its blast catches the player standing on it (playtest list 7 item 19)" },
+  { re = 'combat: .* hits the player for [1-9][\d.]* \(god mode: no damage taken\)', label = "with damage god mode stops" },
+  { re = 'xp: \+5 XP from a disarmed mine', label = "the disarmed mine gives iMineDisarmExperience (playtest list 7 item 23)" },
 ]
 forbid = [{ re = 'mines: mine 0x00172DDC goes off', label = "the disarmed mine goes off" }]
 
@@ -7210,4 +7330,106 @@ expect = [
   { re = 'creature pace: \S+ 0x000CE9E7 walks \d+ and runs (?P<n>\d+) units/s', range = [1, 100000], label = "the ghoul's speeds" },
   { re = 'npc combat: .*0x000CE9E7 attacks .* on the run from', label = "it begins a blow on the run" },
   { re = 'npc combat summary:.*? (?P<n>\d+) blows', range = [2, 100000], label = "blows in the npc combat summary" },
+]
+
+[[scenario]]
+name = "death-stops-character"
+source = "owner's playtest list 7 item 14 (docs/spec-notes/physics.md §6.8): a creature killed while it charges glided on along its last walk, and its invisible character pushed the player; on death its character is taken away"
+note = "the crippled-limp-gecko gecko (VERGSGecko2REF 0x00157B3D, god mode) is put 400 units from the player and set on them at 9 s, killed at 11 s while it runs at the player, so the character controller walks it when it dies"
+areas = ["physics", "combat", "creatures"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:moveto:0x00157B3D:player:400:0:0,9:combat:0x00157B3D:player,11:call:0x00157B3D:KillActor" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'ai \[[\d:]+\] \S+ 00157B3D: its character stops \(dead, restrained or out cold\) at \(-?\d+, -?\d+, \d+\), walking at [1-9]\d* units/s', label = "the gecko dies on the run and its character is taken away" },
+]
+
+[[scenario]]
+name = "mantis-nymph-step-on"
+source = "owner's playtest list 7 item 35 (docs/spec-notes/physics.md §6.8.1): the mantis nymphs in the Nevada Highway Patrol Station die when the player is within 50 units (their script); the player then walks on over the spot"
+note = "SLNHPStationINT: the player put 43 units south of NVCrGiantMantisNymph 0x00153388 (nobody perceives the player), which its script kills once the scripts run; at 12 s the player runs north over its spot to the wall at y 1802 (the feet stop 22 short of it). A nymph that ran at the player and died there left its person-sized character behind before the fix (the player stopped short); that case is not reproduced every run, so this checks the walk over the corpse"
+areas = ["physics", "creatures"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/hitvol.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "12:1:0,13.5:0:0" }
+args = ["--cell", "SLNHPStationINT", "--pos=2456,1700,6700", "--heading", "0", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  "script: OnDeath of FalloutNV.esm|SCPT 0x000EF407 ran on Some(0x00153388)",
+  { re = 'physics: the player stepped up \d+ times, feet at \(24[3-7]\d, 17[78]\d, 66\d\d\)', label = "the player runs on over the nymph's spot to the wall" },
+]
+
+[[scenario]]
+name = "car-not-pushed"
+source = "owner's playtest list 7 item 37 (docs/spec-notes/physics.md §6.10): cars (MSTT Car01-Car03, Havok mass 600-1000) moved when the player ran into them; a character no longer pushes a body heavier than 250"
+note = "the Car02 0x0015206B south of Primm; the player 250 units west of it runs east into it for 3 s and slides round it. The car rises 3.4 and slides 2.5 units (4.1 in all) as it wakes and comes out of the ground it is placed a little into, the same with the character's contacts off (2026-10-23): something else wakes it, likely the raven 0x0017467E perched on it; a push moves it further"
+areas = ["physics"]
+paths = ["crates/fnv-phys/src/character.rs", "crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,11:0:0" }
+args = ["--play", "--pos=-70720,-85587,6500", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'physics: the player stepped up \d+ times, feet at \(-70[0-7]\d\d, -85[5-9]\d\d, \d+\)', label = "the player ran into the car and round it" },
+]
+forbid = [
+  { re = 'physics: placed 0015206B moved by physics: ([6-9]|\d\d+)\.\d units', label = "the car is pushed" },
+]
+
+[[scenario]]
+name = "thrown-dynamite"
+source = "owner's playtest list 7 item 22: a thrown weapon left the hand when the attack was pressed plus its wind-up, and only then did the throw clip start (dynamite waited, was spawned and thrown, then lit and thrown again in the clip); the clip now starts at the pull and the stick leaves at its Hit key (docs/design/combat.md §5.5)"
+note = "God mode in Goodsprings: the player is given three sticks of dynamite (000BA0F3), draws them and throws one at 17 s. The throw's wind-up line, the rig's clip start and the stick leaving the hand should come in that order, the stick the clip's Hit key after the pull"
+areas = ["combat", "animation"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "000BA0F3:3", NVF_PLAY_TEST_EQUIP = "000BA0F3", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'combat: WeapNVDynamite winds up, the throw leaves at the clip.s Hit key in (?P<n>[\d.]+) s', range = [0.1, 5.0], label = "the pull starts the throw's wind-up" },
+  { re = 'player \w+ rig: \S+ starts at the pull; the shot leaves at its Hit key', label = "the throw clip starts at the pull" },
+  { re = 'combat: WeapNVDynamite leaves the hand', label = "the stick leaves the hand" },
+  { gap = ["combat: WeapNVDynamite winds up", "combat: WeapNVDynamite leaves the hand"], range = [0.1, 5.0], label = "the stick leaves at the clip's Hit key, not at once" },
+]
+order = [["combat: WeapNVDynamite winds up", "starts at the pull", "combat: WeapNVDynamite leaves the hand"]]
+
+[[scenario]]
+name = "falls-player"
+source = "owner's playtest list 7 item 21: no fall damage; a fall onto land from above fJumpFallHeightMin (600) loses health by fJumpFallHeightMult x (h - 600)^1.65 (docs/spec-notes/physics.md §6.10)"
+note = "God mode in Goodsprings: at 8 s the console puts the player about 1,500 units up; the landing logs the height and the fall damage the formula gives (god mode deals none). The formula is checked against the capture's falls in falls.rs's tests"
+areas = ["physics", "combat"]
+paths = ["engine/nvf-play/src/falls.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.setpos z 10200;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'falls: 0x00000014 lands from (?P<n>\d+) units: [\d.]+ fall damage', range = [700, 5000], label = "the player lands from the drop" },
+  { re = 'falls: 0x00000014 lands from \d+ units: [1-9][\d.]* fall damage, 0\.0 dealt.*immune', label = "the formula gives damage; god mode deals none" },
+]
+
+[[scenario]]
+name = "incinerator-hurts-player"
+source = "owner's playtest list 7 items 29 and 19: an NPC's Incinerator did the player no harm, nor did mines: its damage is in its explosion (NVIncineratorFireBurst, 20 within 212), and blasts never reached the player, who has no hit volume (combat.rs view)"
+note = "God mode, the player put 500 units in front of Cook-Cook (FiendCookCookRef 000F5704), who draws his Incinerator (actors.md §9.3) and fires at the player; the flame globs' blasts now catch the player"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/projectile.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:moveto:player:0x000F5704:0:500:0,6:combat:0x000F5704:player" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'combat: explosion NVIncineratorFireBurst at', label = "the Incinerator's flame globs burst" },
+  { re = 'combat: blast NVIncineratorFireBurst on 0x00000014 at \d+', label = "a burst catches the player" },
+]
+
+[[scenario]]
+name = "impact-decals-blood"
+source = "owner's playtest list 7 item 27: blood decals floated off the bodies at wrong angles and came too often; they now lie on the drawn body where the shot's line meets it, at most 3 an actor, one each 0.3 s (docs/spec-notes/impact-decals.md §4)"
+note = "God mode in the Goodsprings general store (the energy-resist-hit setup): aimed at Chet's chest (aimnpc=0.6) the 10mm pistol with no spread shoots him four times from 14.1 s; a frame at 15.8 s shows the blood on him"
+areas = ["combat", "render"]
+paths = ["engine/nvforever/src/decals.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONTROL = "10:weapon,14:aimnpc=0.6,14.1:fire,14.5:aimnpc=0.6,14.6:fire,15:aimnpc=0.6,15.1:fire,15.4:aimnpc=0.6,15.5:fire", NVF_PLAY_TEST_SHOTS = "15.8:decals_blood.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'decals: \w+ leaves \w+ \(\S+\) on actor [0-9A-F]{8}', label = "a shot leaves blood on Pete" },
+  { re = 'decals summary: \d+ placed \((?P<n>\d+) on actors\)', range = [1, 3], label = "no more than three on him" },
 ]

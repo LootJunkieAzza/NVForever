@@ -389,8 +389,22 @@ fn seed(opponent: FormId, now: f32) -> u64 {
 
 /// The currencies other than caps a bet may use [documented: `HelpCaravanBetting`; the
 /// FalloutNV.esm MISC records NCRMoney5, NCRMoney20, NCRMoney100, LegionMoney1 (Legion
-/// Denarius) and LegionMoney25 (Legion Aureus); the mangled denarius is no currency].
-pub const CURRENCY: [FormId; 5] = [FormId(0x0013_A4D6), FormId(0x0013_A4D7), FormId(0x0013_A4D8), FormId(0x0013_7B9D), FormId(0x0013_A4D9)];
+/// Denarius) and LegionMoney25 (Legion Aureus); the mangled denarius is no currency], and
+/// the caravan money (CMNY) records of the same notes and coins, MoneyNCR5, MoneyNCR20,
+/// MoneyNCR100, MoneyLegion1 and MoneyLegion25, which are the ones the world's
+/// inventories hold [observed: FalloutNV.esm; `fnv_sim::forms::Item::money`].
+pub const CURRENCY: [FormId; 10] = [
+    FormId(0x0013_A4D6),
+    FormId(0x0013_A4D7),
+    FormId(0x0013_A4D8),
+    FormId(0x0013_7B9D),
+    FormId(0x0013_A4D9),
+    FormId(0x0017_6AC6),
+    FormId(0x0017_6AC8),
+    FormId(0x0017_6AC9),
+    FormId(0x0017_6AC4),
+    FormId(0x0017_6AC7),
+];
 
 /// What one side holds to bet: its caps, and each currency it carries as (item, count,
 /// value in caps).
@@ -452,7 +466,7 @@ fn purse_of(world: &mut fnv_sim::World<'_>, forms: &fnv_sim::forms::FormStore, h
     let mut notes = Vec::new();
     for c in CURRENCY {
         let n: u32 = holders.iter().map(|&h| count(h, c)).sum();
-        let v = forms.item(c).and_then(|it| it.value).unwrap_or(0).max(0) as u32;
+        let v = forms.item(c).and_then(|it| it.worth()).unwrap_or(0).max(0) as u32;
         if n > 0 && v > 0 {
             notes.push((c, n, v));
         }

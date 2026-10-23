@@ -7825,3 +7825,199 @@ Branch `claude/l7-combat-ai`; details in docs/design/combat-ai.md §18.
   when sight of the target flickered (now 1.5 s grace before closing in blind). Left for
   later: many shots held for a comrade in the line of fire (172 held vs 267 fired), melee
   Fiends charging gunmen over 2,000 units of open ground and changing target mid-charge.
+## Physics: steps, deaths, small creatures, cars (2026-10-23, list 7 W5)
+
+Branch claude/l7-physics; docs/spec-notes/physics.md §6.8.1, §6.10, §6.11.
+
+**Item 9, smooth height over steps and bumps.**
+- *Decision:* the body and the view are drawn with a "lift" that takes up what the feet
+  rose or fell in one physics step beyond walking a slope, and goes back to 0 as a
+  critically damped spring; the collision capsule, the feet, the reference position and
+  every ray stay exact. Players and walked actors both; actors standing still (no
+  character) are not smoothed.
+- *Guesses:* a step is 95 % climbed after about 0.19 s (ω = 25/s); changes up to 0.35 ×
+  the distance walked (about 19°), or up to the slope walked over the last 0.25 s, pass
+  at once; at most 24 units of lag; more than 48 in one step is a teleport (no smoothing).
+- *Check:* run along the Goodsprings road and up the camper steps south of town, first
+  and third person: is the climb smooth but not floaty? Does the body sink into or float
+  over a steep hill for a moment when the climb starts or ends?
+
+**Item 14, corpses gliding and the invisible push.**
+- *Cause found:* the AI stops moving a dead actor, but its physics character was kept
+  (it was only dropped when the actor stopped "travelling") and went on at its last
+  walking speed; the body is drawn at that character and its person-sized block pushed
+  the player. Now the character is taken away the frame after the death (also for
+  restrained and unconscious actors).
+- *Check:* kill charging geckos: the corpse should drop where it died, and nothing should
+  push you after the kill.
+
+**Item 35, the mantis nymphs in the Nevada Highway Patrol Station.**
+- *Cause found:* every walked actor had the player's capsule (22 wide, 129 tall), so a
+  nymph drawn 30 tall stood in the way as a person, and once its script killed it (within
+  50 units of the player) that person-sized character stayed behind (the item 14 bug).
+- *Decision:* actors drawn under 75 % of the player's height get a character of their own
+  size (as tall as drawn, at least 20; as wide as 0.17 × height, 10 to 22). Bigger
+  creatures keep the player's capsule (a bigger one would get stuck in doors).
+- *Not done:* the player does not climb *onto* a living small creature; it stops 32 units
+  from a nymph's middle, inside the 50 at which the nymph's script kills it, so in the
+  station it dies first. Say if you want small living creatures to be walked through.
+- *Check:* walk into the nymphs in the station: they die and you walk on over the spot.
+
+**Item 37, cars.**
+- *Cause found:* the cars are moveable statics (MSTT Car01–Car03) with one dynamic body of
+  600–1000 mass, so the list-5 fix for the motorcycles (STAT records are fixed) did not
+  cover them; the character pushed them by impulses and by solver contacts.
+- *Guess:* a character pushes no body heavier than 250 (the cars, the motorcycle body, a
+  500 car-hulk trunk); hulk doors, hoods and grills (25–175) and all clutter still give
+  way. Explosions, shots and grabbing still move the cars.
+- *Check:* run into the car south of Primm (Car02 0015206B): it should not move; does an
+  explosion next to one still rock it as the original does?
+## AI in the world: greets, captives, sleepers (2026-10-23, list 7 W6)
+
+Branch claude/l7-ai-world. Design notes: docs/design/actor-behaviour.md §5.6 (the
+paragraphs dated 2026-10-23).
+
+- **24 Johnson Nash under the loading screen.** *Cause:* the residents' AI ran under the
+  loading screen (only scripts were held), and Nash's Dialogue package
+  (PrimmNashDialogueGreeting, activate distance 1024, trigger box by the door) greeted at
+  once. *Fix:* the loading screen now holds `Game::loading`, which stops packages, force
+  greets, hellos and combat starts until it is down. *Check:* go into the Vikki and Vance
+  casino: Nash should greet only after the screen is gone.
+- **41/42 Davison and Harland through doors and walls.** *Records:* both are Dialogue
+  packages "case 2" (trigger location, wait location of radius 0), which talk as soon as
+  the player is within the activate distance: Davison 600, Harland 1200 units, measured
+  straight through walls. *Decision:* a force greet now also needs a clear line from the
+  actor to the player (walls and closed doors block it; the actor's facing does not
+  matter). The distances stay the records' (I did not shorten them). *Guess:* that the
+  original asks for the line and not for the actor's field of view. The greet settings
+  you named (fAIMinGreetingDistance etc.) are for hellos, not these packages. *Check:*
+  Davison should greet only once his door is open, Harland only once you can see him.
+  If the original also wants him to *see* you (facing), tell me.
+- **30 Deputy Beagle's captive marker.** *Cause:* his OnLoad block restrains him
+  (SetRestrained 1), and NVForever's AI ignored restrained actors entirely, so his Travel
+  package to FFCaptiveMarker ("Restrained Sit", 84 units from where he is placed) never
+  began. *Fix:* a restrained actor still picks its package (as the GECK wiki says) and
+  uses the furniture of a package whose place is within 256 units (my number), without
+  walking there. *Check:* Beagle sits tied on his marker; once freed he follows you.
+- **30 Gomorrah courtesans.** *Records:* their template's DefaultPatrolCasual patrols to
+  their linked DanceMarker03 references, which carry 800 s of patrol idle time.
+  *Decision:* a patrol point that is furniture is used for its idle time. *Guess:* that the
+  original uses it (the dance idles are conditioned on that furniture). *Check:* they
+  dance or lean on their markers in Gomorrah. (The courtesans *outside* Gomorrah were
+  handled before: their packages go straight to the marker.)
+- **31 Beagle's weapon while following.** *Confirmed from the records:* his follow
+  package PrimmBeagleFollow has only Defensive Combat and Continue During Combat, no
+  Weapon Drawn flag; the package that has him leave the hotel (PrimmDeputyLeaveBison) has
+  Always Run, Always Sneak and Pretend In Combat. So his weapon going out only when he
+  left the hotel matches the data; he should draw it when he fights. Nothing changed.
+- **32 Convicts at the Nevada Highway Patrol station.** *Records:* the two convicts the
+  ambush script enables there (VSpawnSpecialGangerPrimmAmbush01/02, script
+  VERT1PrimmJackalAmbushScript) are Aggressive, in VGSBanditFaction only (enemy of the
+  Mojave traveller merchants; no relation to the player), with a Weapon Drawn patrol to
+  the station, where the Jackals (Very Aggressive) are. By the records they attack their
+  enemies, not the player: no missed flag found, nothing changed. The Escaped Convicts
+  nearer Primm (PrimmPowderGangerOutside) are Very Aggressive and do attack the player.
+  *Check:* in the original, do the station convicts shoot at you unprovoked? If yes, tell
+  me what you did before (a reputation or a quest stage may be involved).
+- **34 Crucified Powder Gangers.** *Cause:* their Travel package goes to "Near linked
+  reference" (the cross, NVCrucifixFurniture) and the AI gave furniture only for packages
+  naming the reference directly, so they never got on the cross, were never restrained
+  by their script (which restrains them at GetSitting 3) and walked off. And the
+  crucifix's marker ID is 10, which NVForever counted as a bed (the catalogue says 1–10
+  are beds), so no getting-on clip was found. *Fix:* the linked reference counts, and
+  marker 10 is sat on (the crucifix's own idle group asks GetSitting 2/3/4; beds are 1–9
+  now). *Check:* they hang on their crosses in Nipton, scream and fidget, and stay.
+- **38 Talking to a sleeper.** *Decision:* activating an actor asleep in bed wakes it: it
+  gets off the bed, then the conversation starts (at most 8 s later); it stays up for 30
+  s of game time after (conversation time not counted), then goes back to bed. *Both
+  times are mine.* *Check:* talk to Easy Pete at night: does the original's sleeper also
+  go straight back to bed, and how soon?
+## Explosions, falls, throws, traps, gore (2026-10-23, list 7 W3)
+
+Branch claude/l7-explosives. Items 19, 21, 22, 23, 26, 27, 29 of playtest list 7.
+
+- **19 / 29: mines and the NPC Incinerator now hurt the player.** Blasts only ever reached
+  actors with hit volumes, and the player has none, so no explosion touched the player. The
+  Incinerator's damage is its explosion's (`NVIncineratorFireBurst`, 20 within 212; the
+  weapon itself does 1). The player now counts in every blast at the middle of its capsule,
+  with the same falloff, armour and knockdown rules as anyone.
+  - *Decision:* your own grenades, mines and missiles hurt you too (the original's way, as
+    far as I know; check).
+  - *Check:* step on a frag mine with god mode off at full health: how much is lost? Stand
+    in front of Cook-Cook while he fires the Incinerator.
+- **21: fall damage.** damage = mult × (h − 600)^1.65 for a fall of h units onto land, none
+  into water (physics.md §6.12). 600 and 1.65 are the ESM's settings; the multiplier 0.0252
+  is fitted to the capture's three falls (the exe's own `fJumpFallHeightMult` cannot be
+  read). So 700 units ≈ 50 health, 1,000 ≈ 500, 1,500 ≈ 1,860.
+  - *Guesses:* h from the top of the fall (a jump's apex counts); armour does not reduce it;
+    no leg damage; NPCs whose characters the physics walks use the same rule;
+    `fJumpFallVelocityMin` (2785) unused.
+  - *Check:* jump off a roof in Goodsprings (about 700–800 units): does the original cripple
+    legs or only take health? Compare the health lost.
+- **22: thrown weapons.** The attack clip used to start when the projectile left (the end of
+  the wind-up), so dynamite waited with nothing playing, flew, and was then lit and thrown in
+  the clip. Now the clip starts at the press and the projectile leaves at the clip's `Hit` key
+  (dynamite, grenades, spears, knives, every thrown weapon, and any gun whose attack clip has
+  a `Hit` key after its start).
+  - *Check:* the release moment for dynamite, the frag grenade and the throwing spear, in
+    first and third person. Holding the button to cook a grenade is not built.
+- **23: XP for disarming.** Both come from the data: a mine gives `iMineDisarmExperience`
+  (5), and each trap's own script gives `TrapXPReward*` by its Repair requirement's band (2
+  for the tripwires, plates and bear traps at 22–23, 5 for the rigged shotguns and grenade
+  bouquets at 30–45). The traps' XP already worked; a mine disarmed by hand gave none,
+  because the engine's hand activation path skipped the XP and the Mines Disarmed statistic
+  that the game's default activation gives. Fixed; smoke checks both.
+  - *Decision:* kept the data's 2 XP for the low traps rather than the 5 of your note (the
+    note asked for 5 only where the data has none).
+- **26: exploded head stayed on.** The head was hidden, then put back: the moving face
+  (blinking, lip sync) hands the head, eyes and hair their own meshes back when it lets a face
+  go at death. A shape given its mesh back is now drawn without its gone parts again.
+  - *Check:* a head shot with the sniper rifle on Chet or a Powder Ganger: is the head, hair
+    and hat gone, with the neck cap showing?
+- **27: blood decals.** They were placed on the hit capsules, not on the drawn body. Now the
+  shot's line is cast against the posed body and the decal goes where it meets the skin,
+  facing the skin. Toned down: at most 3 on one actor, one each 0.3 s, at most 16 units wide.
+  - *Guesses:* all three numbers; a shot that meets the capsule but misses the drawn body
+    leaves none.
+  - *Check:* shoot a Powder Ganger several times with a pistol and a shotgun: do the marks
+    sit on the body, the right way round, and is the number right?
+## Menus, character revision, barter figures and currency (2026-10-23, list 7 W1)
+
+Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
+
+- **1 Character revision** (chargen.md §9, `fnv_game::revision`). *Decision:* the original's
+  VCG04ActivatorScript resets level, XP, traits and early perks, S.P.E.C.I.A.L. and skills
+  and gives the XP back so you level up again; as you asked, ours keeps level, XP,
+  non-trait perks and the skill points spent at level-ups: from that script only, SetLevel,
+  ResetXP, the closing RewardXP and SetActorValue of skills on the player do nothing, and
+  RemovePerk takes traits only (the trait menu offers them again). Skills re-derive from
+  the new S.P.E.C.I.A.L. and the new tags; the tag menu starts with the old three tagged.
+  The bug was SetActorValue overriding each skill to 0. *Guess:* traits the script does
+  not name (Skilled, the add-ons' traits) stay, so the trait menu could add two more.
+  *Check:* revise at the Goodsprings edge after a level-up: same level, perks and spent
+  points; change Intelligence and a tag and see the skills follow.
+- **2 Menus on top, darker**. *Decision:* the tag-skill, trait, name, level-up, recipe
+  and repair-services menus stack at 107 (over messages, HUD, dialogue, Pip-Boy and
+  terminals; under message boxes, tutorial, pause menu, console, loading screen) and
+  darken the whole screen to 0.93 black (the barter menu's darkness), so a corner message
+  beside them is covered too. The recipe and repair sheets were the files' faint 32/255
+  box before, the character menus' 0.75 picture box. *Check:* is 0.93 too dark (the world
+  is barely seen); should corner messages wait until the menu closes instead?
+- **7 Currency value**. The NCR notes and Legion coins in the world are CMNY records whose
+  DATA "Absolute Value" (2, 8, 40, 4, 100; mangled 2) matches the MISC records' Value;
+  they now count at it in barter, the Pip-Boy, the crosshair and the inventory value,
+  and caravan bets accept them. The `fnvtool sim items` report keeps CMNY value null (it
+  reports the record's Value field). *Check:* sale price of $5 NCR at your Barter.
+- **10 Check tags** show the AVIF's name ("[Speech 40]") and a perk's name. Not checked in
+  game (Trudy's check needs the Ringo quest state); the dialogue log now prints
+  `(check [Speech 40])` on offered choices. *Check:* Trudy's line.
+- **11 Pointer and scrolling**: the pointer selects without scrolling the barter and
+  container lists (the half-shown row at the foot used to scroll in); only wheel and keys
+  scroll.
+- **16 Repair list stays open** after a repair until the item is full, no parts are left,
+  or Cancel. *Guess:* the chosen row stays at the same place (clamped to the list).
+- **25 Barter and container figures** are the Pip-Boy's (DAM/DT, DPS, STR, CND, ammunition
+  or armour class, effects) with WG and VAL of one unit as before. *Guess:* the
+  ammunition count beside a weapon is the player's carried ammunition even for the
+  merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
+  All/Exit in the container menu on your screen?

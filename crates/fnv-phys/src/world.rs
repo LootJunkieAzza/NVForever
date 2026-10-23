@@ -414,6 +414,7 @@ impl PhysWorld {
             report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.material.mass);
+                self.heavy_unpushed(body);
             }
             if hold {
                 self.pending_sleep.push(body);
@@ -450,6 +451,25 @@ impl PhysWorld {
             }
         }
         n
+    }
+
+    /// A dynamic body heavier than [`crate::character::PUSH_MAX_MASS`]: no contacts
+    /// between it and the characters' kinematic bodies, so a character walking into it
+    /// does not shove it (the character controller stops at it as at a wall; physics.md
+    /// §6.10). Everything else still meets it as before.
+    fn heavy_unpushed(&mut self, body: RigidBodyHandle) {
+        let b = &self.w.bodies[body];
+        if b.mass() <= crate::character::PUSH_MAX_MASS {
+            return;
+        }
+        let groups = InteractionGroups::new(Group::ALL, Group::ALL.difference(crate::character::CHARACTER_SOLVER), InteractionTestMode::And);
+        for c in b.colliders().to_vec() {
+            // No contact pair at all: a character's touch neither shoves it nor wakes it
+            // (awake, a car resting a little off its rest slid a few units). Queries see
+            // it still (they test no groups), so the controller stops at it.
+            self.w.colliders[c].set_collision_groups(groups);
+            self.w.colliders[c].set_solver_groups(groups);
+        }
     }
 
     /// Scale the colliders' densities so the body's mass is `mass`; leaves the

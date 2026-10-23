@@ -38,6 +38,7 @@ pub mod doors;
 pub mod dropped;
 pub mod effect_sounds;
 pub mod fade;
+pub mod falls;
 pub mod flashlight;
 pub mod free_cam;
 pub mod game_start;
@@ -310,6 +311,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(mines::MinesPlugin)
+            .add_plugins(falls::FallsPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)

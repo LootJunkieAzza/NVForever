@@ -230,7 +230,8 @@ each the identity by default. Reading PERK records is a later step.
   scale × weapon reach [documented formula; placeholder setting].
 - **Blast.** Every actor within the radius takes damage, unless a ray from the centre
   is blocked first and the EXPL does not ignore line of sight [documented]. The damage
-  falls off [design]; the push is away from the centre with the EXPL force.
+  falls off [design]; the push is away from the centre with the EXPL force. In play the
+  player counts, at the middle of its capsule (design/combat.md §5.8).
 
 ## 6. CLI contract
 

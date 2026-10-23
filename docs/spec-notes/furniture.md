@@ -53,7 +53,7 @@ actor-behaviour.md §1 (packages that send actors to furniture), ai-observer.md 
   | 1, 2 | 50, 46 | 615, 818 | bed, left and right side |
   | 3, 4 | 5, 4 | 502, 494 | floor bed (bedroll), left and right |
   | 5, 6 | 5, 3 | 155, 96 | sleeping on the floor, left and right |
-  | 10 | 1 | 29 | (no idles test it) |
+  | 10 | 1 | 29 | the crucifix (NVCrucifixFurniture): sat on, see below |
   | 11, 12 | 93, 93 | 2,547, 2,550 | chair, entered from its left and right |
   | 13 | 0 | 0 | chair from behind (idles exist, no model uses it) |
   | 14 | 153 | 3,067 | chair or bench, from the front |
@@ -121,8 +121,17 @@ actor-behaviour.md §1 (packages that send actors to furniture), ai-observer.md 
   decode`, `actor furniture`, 2026-10-20; the owner saw them dance in the original].
   Any member matching counts, as `GetIsVoiceType` takes a list [hypothesis: the GECK
   wiki types the parameter as a furniture only; the shipped data relies on a list].
-- IDs 10 and 22 have no enter, loop or exit clip in the tree [observed]: work spots play
-  their special idles while standing.
+- ID 22 has no enter, loop or exit clip in the tree [observed]: work spots play their
+  special idles while standing. ID 10 has none by its ID either, but the one model that
+  carries it, the crucifix, has its own group under `Sitting`: `NVCrucifixIdles`
+  (IsCurrentFurnitureObj of FLST NVCrucifixMarkerObjects, which lists
+  NVCrucifixFurniture) with NVCrucifixEnter (GetSitting 2), NVCrucifixDynamicIdle
+  (GetSitting 1), NVCrucifixExit (GetSitting 4) and the fidgets at GetSitting 3
+  [observed: the IDLE records, 2026-10-23]. So marker 10 is *sat* on, though the
+  catalogue counts 1–10 as beds; the base sets MNAM bit 30 (sit), not 31. NVForever
+  counts beds as 1–9 [hypothesis: the crucifix's tree is the only use of 10; owner's
+  playtest list 7 item 34, the crucified did not get onto their crosses while 10 was a
+  bed].
 
 ## 4. How the clips move the body
 
