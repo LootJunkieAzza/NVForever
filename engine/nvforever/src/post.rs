@@ -14,6 +14,10 @@
 //! neighbours.
 //!
 //! On the main camera only, while it carries [`PostEffects`] with either part on.
+//!
+//! The light glow (`graphics.rs`, on in vanilla) is not drawn here: it is Bevy's bloom on
+//! an HDR main view ([`glow_bloom`]), its strength set from the image space on cameras
+//! with [`ImageSpaceGlow`].
 
 use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
@@ -57,12 +61,53 @@ impl PostEffects {
     }
 }
 
+/// A camera whose bloom is the light glow ([`glow_bloom`], strength from the image space).
+#[derive(Component, Clone, Copy)]
+pub struct ImageSpaceGlow;
+
+/// Bevy's bloom for the light glow: its NATURAL preset (energy-conserving: every pixel
+/// scatters a share of its light, so only what is far brighter than its surroundings,
+/// neon, bulbs, fire, glowing beams, shows a halo) [engineering choice, judged against
+/// the original's frames at night, docs/spec-notes/world.md §6 "HDR and bloom"]; the
+/// strength follows the image space ([`glow_intensity`]).
+pub fn glow_bloom() -> bevy::post_process::bloom::Bloom {
+    bevy::post_process::bloom::Bloom { intensity: glow_intensity(&fnv_world::imagespace::Hdr::default()), ..bevy::post_process::bloom::Bloom::NATURAL }
+}
+
+/// Light glow strength at the image space's "Bright Scale" 2 (the Mojave's
+/// NVDefaultExterior) [engineering choice, by eye against the original's frames].
+pub const GLOW_INTENSITY: f32 = 0.15;
+
+/// The bloom strength for an image space's HDR values: [`GLOW_INTENSITY`] scaled by its
+/// "Bright Scale" over 2, held to half and twice [engineering choice: the name says how
+/// strongly bright parts are scaled for the original's glow, xEdit IMGS DNAM]. An image
+/// space without HDR values (bright scale 0 or less) keeps the base strength.
+pub fn glow_intensity(hdr: &fnv_world::imagespace::Hdr) -> f32 {
+    let scale = hdr.v[fnv_world::imagespace::HDR_BRIGHT_SCALE];
+    if scale <= 0.0 {
+        return GLOW_INTENSITY;
+    }
+    GLOW_INTENSITY * (scale / 2.0).clamp(0.5, 2.0)
+}
+
+/// Set the light glow's strength on [`ImageSpaceGlow`] cameras from the image space now.
+fn image_space_glow(sky: Option<Res<crate::sky::SkyState>>, mut cams: Query<&mut bevy::post_process::bloom::Bloom, With<ImageSpaceGlow>>) {
+    let Some(sky) = sky else { return };
+    let intensity = glow_intensity(&sky.cinematic().hdr);
+    for mut b in &mut cams {
+        if b.intensity != intensity {
+            b.intensity = intensity;
+        }
+    }
+}
+
 pub struct PostPlugin;
 
 impl Plugin for PostPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "post.wgsl");
-        app.add_plugins((ExtractComponentPlugin::<PostEffects>::default(), UniformComponentPlugin::<PostEffects>::default()));
+        app.add_plugins((ExtractComponentPlugin::<PostEffects>::default(), UniformComponentPlugin::<PostEffects>::default()))
+            .add_systems(PostUpdate, image_space_glow);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .add_systems(RenderStartup, init_pipelines)
@@ -97,6 +142,8 @@ pub(crate) struct PostPipelines {
 #[derive(Component)]
 pub(crate) struct PostView {
     composite: CachedRenderPipelineId,
+    /// The picture's format the composite pipeline was built for.
+    format: TextureFormat,
     /// Quarter-size textures: the bright part and its blur go back and forth.
     a: CachedTexture,
     b: CachedTexture,
@@ -181,7 +228,7 @@ fn prepare(
         };
         let a = quarter("post_glow_a");
         let b = quarter("post_glow_b");
-        commands.entity(entity).insert(PostView { composite, a, b });
+        commands.entity(entity).insert(PostView { composite, format, a, b });
     }
 }
 
@@ -209,7 +256,7 @@ pub(crate) fn post_pass(
 ) {
     let (target, index, effects, pv) = view.into_inner();
     let (bloom, sharpen) = (effects.params.z > 0.0, effects.params.w > 0.0);
-    if !bloom && !sharpen {
+    if (!bloom && !sharpen) || !crate::ssao::format_matches(target, pv.format) {
         return;
     }
     let Some(composite) = cache.get_render_pipeline(pv.composite) else { return };
@@ -235,4 +282,24 @@ pub(crate) fn post_pass(
     let bind_group = device.create_bind_group("post_composite", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding, &pv.a.default_view)));
     draw(&mut ctx, "post_composite_pass", post.destination, composite, &bind_group, offset);
     span.end(ctx.command_encoder());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_world::imagespace::{Hdr, HDR_BRIGHT_SCALE};
+
+    #[test]
+    fn glow_follows_bright_scale() {
+        let at = |scale: f32| {
+            let mut h = Hdr::default();
+            h.v[HDR_BRIGHT_SCALE] = scale;
+            glow_intensity(&h)
+        };
+        assert_eq!(at(2.0), GLOW_INTENSITY);
+        assert!((at(2.4) - GLOW_INTENSITY * 1.2).abs() < 1e-6);
+        assert_eq!(at(10.0), GLOW_INTENSITY * 2.0);
+        assert_eq!(at(0.1), GLOW_INTENSITY * 0.5);
+        assert_eq!(at(0.0), GLOW_INTENSITY);
+    }
 }
