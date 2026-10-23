@@ -353,7 +353,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
             .init_resource::<RunPace>()
-            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
@@ -564,6 +564,24 @@ pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState
     }
     if st.1 && !intent.walk {
         intent.walk = true;
+    }
+}
+
+/// While the player flinches from a staggering hit (`crate::combat`, crippled-limbs.md
+/// §3) they do not walk or jump: the hit's stagger holds them where they stand, as it
+/// holds NPCs and creatures (`nvforever` residents.rs) [design: owner's playtest list 7
+/// item 13, "npcs/creatures and the player should be stopped from moving whilst a
+/// crippled animation or stagger is currently playing"].
+pub fn flinch_holds_walk(combat: Option<Res<crate::combat::Combat>>, mut intent: ResMut<MoveIntent>, mut held: Local<bool>) {
+    let now = combat.is_some_and(|c| c.player_flinching());
+    if now != *held {
+        *held = now;
+        if now {
+            info!("player: held where they stand while they flinch");
+        }
+    }
+    if now && (intent.forward != 0.0 || intent.right != 0.0 || intent.jump) {
+        (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
     }
 }
 

@@ -84,6 +84,14 @@ pub const STOP_SHORT: f32 = 0.9;
 /// In Combat, a target it does not detect now: it closes in to this share of the
 /// distance, again each time the way is planned [design].
 pub const BLIND_CLOSE_SHARE: f32 = 0.5;
+/// A fighter standing at its distance closes in on a target it no longer detects only
+/// once it has gone this long without detecting it, seconds [design: owner's playtest
+/// list 7 item 45, a recorded fight between NCR troopers and Fiends (smoke `battle-ncr-fiends`,
+/// 2026-10-23): a Fiend 1,500 units from a trooper, within its stop distance, stopped and
+/// set off again 3 times a second for 15 s, as its sight of the trooper came and went
+/// behind the other fighters; closing in at the first frame unseen made it run and stop
+/// on every flicker]. One already closing in goes on.
+pub const BLIND_CLOSE_AFTER: f64 = 1.5;
 /// Search points that make one complete search of an actor's share [design].
 pub const SEARCH_POINTS: u32 = 3;
 /// A post that moved less than this from where the way to it was planned is kept, game
@@ -160,6 +168,9 @@ impl Ai {
             let latest = aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0)));
             let Some((target, at)) = aw.combat_target().or(latest.map(|(id, t)| (*id, t))).map(|(id, t)| (id, t.at)) else { return true };
             let sees = aw.combat_target().is_some();
+            // Unseen only briefly: it counts as seen (`BLIND_CLOSE_AFTER`).
+            let last_seen = aw.targets.get(&target).and_then(|t| t.detected);
+            let sees = sees || last_seen.is_some_and(|t| now - t < BLIND_CLOSE_AFTER);
             let away = goal::dist(a.walker.feet, at);
             // A fighter on its way stands up: it never crouch-walks across a fight
             // (docs/design/combat-ai.md §14.2).
