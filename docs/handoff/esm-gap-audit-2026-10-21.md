@@ -169,7 +169,8 @@ Ignored unless noted:
   and Long globals keep fractions). MESG "Auto Display" (hard-coded per message). The
   remaining MGEF flags (Painless, No Hit Effect, Gory Visuals: rated M). SPEL SPIT flags.
   ENCH ENIT flags. AMEF "Fatigue Mod".
-- **World.** WRLD parent-use flags (stored), ONAM map offset, NAM0/NAM9 bounds, LOD and
+- **World** (claude/em13-world, [world-fields](../spec-notes/world-fields.md): built REFR XAMT/XAMC,
+  the three placed weapons' ammo; the rest left with counts and reasons). Was: WRLD parent-use flags (stored), ONAM map offset, NAM0/NAM9 bounds, LOD and
   water flags. LAND DATA flags. LTEX friction, restitution and specular. CELL XCLC Hide
   Quad flags (rated L–M), IMPF material swaps, and XNAM noise. REFR XAMT/XAMC (rated L–M),
   XACT, XTRG, XCHG, WMI1 map-marker reputation (rated L–M), room, portal, multibound and
