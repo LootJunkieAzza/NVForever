@@ -18,8 +18,9 @@
 //! - The sun: the climate's sun texture and glare texture spread over angular squares
 //!   around the sun, coloured by the weather's "sun" colour and drawn into the dome (the
 //!   disc, behind the clouds) and the clouds (the glare) by sky.wgsl [hypothesis, fitted].
-//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive, weighted by
-//!   the star texture's alpha),
+//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive at
+//!   `STAR_STRENGTH`, weighted by the star texture's alpha where its shader flags set
+//!   Alpha_Texture),
 //!   coloured by the weather's "stars" colour and faded in as the sun sinks from 0° to
 //!   −12° (sunset to full dark) [hypothesis: the stars colour is white by day, so the
 //!   weather alone does not hide them].
@@ -161,8 +162,9 @@ pub struct SkyDisplay {
 /// additive quads after the inverse could not reproduce the game's glow over a bright sky.
 #[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
 pub struct SkyLight {
-    /// x: scale; z: 1 for parts the light applies to (the dome, clouds and moon), 0 for
-    /// additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
+    /// x: scale; y: 1 for additive parts weighted by texture alpha (Alpha_Texture), 0 for
+    /// those adding their colour alone; z: 1 for parts the light applies to (the dome,
+    /// clouds and moon), 0 for additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
     /// only (clouds), 0 neither.
     pub params: Vec4,
     /// Linear RGB added.
@@ -995,6 +997,17 @@ pub const ARMS_LAYER: usize = 3;
 /// player casts no flashlight shadow, as the arms did aiming in third person).
 pub const BODY_LAYER: usize = 4;
 
+/// Alpha_Texture in a BSShaderProperty's shader flags (bit 8) [documented: nif.xml BSShaderFlags].
+const ALPHA_TEXTURE: i64 = 1 << 8;
+
+/// What a star dome adds, as a share of its texture's display value × the weather's
+/// stars colour [hypothesis, fitted 2026-10-23 to the original's clear Mojave night at
+/// 23:00 (star peaks p50 39, p90 69, max 143 grey in a 1280 × 720 frame at FOV 75; this
+/// value gives 40, 76, 130); the same value leaves the Big MT's stars about 1.7 × the
+/// original's, as much as our grade lifts that sky's background (world.md §6 "Star
+/// domes")]. The material's emissive multiplier (× 1 Mojave, × 10 Big MT) is not used.
+const STAR_STRENGTH: f32 = 0.25;
+
 /// The climate's star model.
 #[derive(Component)]
 pub struct Stars;
@@ -1010,6 +1023,8 @@ pub struct MoonDisc {
 struct SkyShape {
     /// The SkyShaderProperty's texture (file_name), if any.
     texture: Option<String>,
+    /// The SkyShaderProperty's shader flags set Alpha_Texture (bit 8).
+    alpha_texture: bool,
     positions: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
     uv: Vec<[f32; 2]>,
@@ -1038,13 +1053,10 @@ fn sky_shapes(data: &GameData, path: &str) -> Vec<SkyShape> {
             let colors = if md.colors.len() == n { md.colors } else { vec![[1.0; 4]; n] };
             let uv = md.uv_sets.into_iter().next().filter(|u| u.len() == n).unwrap_or_else(|| vec![[0.0; 2]; n]);
             let indices = md.triangles.iter().filter(|t| t.iter().all(|&i| (i as usize) < n)).flatten().copied().collect();
-            let texture = shape
-                .refs("properties")
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|&r| dec.get(r))
-                .find_map(|p| p.text("file_name").filter(|t| !t.is_empty()).map(str::to_string));
-            Some(SkyShape { texture, positions: md.positions, colors, uv, indices })
+            let props: Vec<_> = shape.refs("properties").unwrap_or_default().iter().filter_map(|&r| dec.get(r)).collect();
+            let texture = props.iter().find_map(|p| p.text("file_name").filter(|t| !t.is_empty()).map(str::to_string));
+            let alpha_texture = props.iter().filter_map(|p| p.int("shader_flags")).any(|f| f & ALPHA_TEXTURE != 0);
+            Some(SkyShape { texture, alpha_texture, positions: md.positions, colors, uv, indices })
         })
         .collect()
 }
@@ -1087,7 +1099,7 @@ fn fallback_dome() -> SkyShape {
         Some(Indices::U16(i)) => i.iter().map(|&x| x as u32).collect(),
         None => Vec::new(),
     };
-    SkyShape { texture: None, positions: pos, colors, uv: vec![[0.0; 2]; n], indices }
+    SkyShape { texture: None, alpha_texture: false, positions: pos, colors, uv: vec![[0.0; 2]; n], indices }
 }
 
 /// Transform of a sky mesh around the camera: game space to Bevy, scaled to the dome.
@@ -1171,17 +1183,19 @@ pub fn setup_sky(
                 Name::new("Stars"),
                 Stars,
                 Mesh3d(meshes.add(sky_mesh(shape, vec![[1.0; 4]; shape.positions.len()]))),
-                MeshMaterial3d(materials.add(sky_material(StandardMaterial {
-                    base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
-                    base_color_texture: tex,
-                    // Additive, weighted by the texture's alpha: SkyStars.dds has colour in
-                    // 6,225 texels but alpha in only ~430, and the game shows sparse, faint
-                    // stars [observed: owner's screenshots; the shader property sets the
-                    // alpha-texture flag; hypothesis: the game weights by alpha].
-                    alpha_mode: AlphaMode::Add,
-                    depth_bias: SKY_SORT_BIAS - 30.0,
-                    ..default()
-                }, 0.0))),
+                MeshMaterial3d(materials.add({
+                    let mut m = sky_material(StandardMaterial {
+                        base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
+                        base_color_texture: tex,
+                        alpha_mode: AlphaMode::Add,
+                        depth_bias: SKY_SORT_BIAS - 30.0,
+                        ..default()
+                    }, 0.0);
+                    // Additive (NiAlphaProperty ONE/ONE): the texture's alpha weighs the
+                    // colour only where the shader flags set Alpha_Texture (sky.wgsl).
+                    m.extension.light.params.y = if shape.alpha_texture { 1.0 } else { 0.0 };
+                    m
+                })),
                 Transform { rotation: game_to_bevy().rotation, scale: Vec3::splat(0.9 * SKY_INNER / radius), ..default() },
                 NotShadowCaster,
                 NotShadowReceiver,
@@ -1326,7 +1340,8 @@ pub fn update_night_sky(
         if refresh {
             if let Some(mut mat) = materials.get_mut(&m.0) {
                 let c = sky.color(ColorType::Stars);
-                mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 1.0));
+                let v = star_vis * STAR_STRENGTH;
+                mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0] * v, c[1] * v, c[2] * v, 1.0));
             }
         }
     }
@@ -1514,7 +1529,7 @@ pub fn update_sky(
     for id in ids {
         if let Some(mut m) = materials.get_mut(id) {
             let p = m.extension.light.params;
-            m.extension.light = SkyLight { params: light.params.with_z(p.z).with_w(p.w), ..light };
+            m.extension.light = SkyLight { params: light.params.with_y(p.y).with_z(p.z).with_w(p.w), ..light };
         }
     }
     let upper = sky.color(ColorType::SkyUpper);
