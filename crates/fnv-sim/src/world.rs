@@ -273,6 +273,12 @@ pub type DeathItemRoll = (u16, Vec<(FormId, i32)>);
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
 
+/// A starting [`World::lock_serial`] no other world of this process used.
+fn next_world_serial() -> u64 {
+    static WORLDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    WORLDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32
+}
+
 pub struct World<'a> {
     pub forms: &'a FormStore,
     pub placed: &'a RefTable,
@@ -306,6 +312,11 @@ pub struct World<'a> {
     /// Death items owed to dead actors not read yet, rolled into the inventory when it is
     /// first made ([`World::add_death_item`]).
     death_items: BTreeMap<FormId, FormId>,
+    /// Counts lock changes ([`World::lock`], [`World::unlock`]) so the AI can bring its
+    /// nav graph's door locks in line when one changed ([`World::lock_serial`]). Not
+    /// saved: every world made (a new or a restored one) starts from a number no other
+    /// world of this process used, so a reader sees the change of world as a change.
+    lock_serial: u64,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -328,6 +339,7 @@ impl<'a> World<'a> {
             zone_levels: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
             death_items: BTreeMap::new(),
+            lock_serial: next_world_serial(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -1330,6 +1342,7 @@ impl<'a> World<'a> {
     }
 
     pub fn lock(&mut self, id: FormId, level: Option<u8>) -> Result<(), SimError> {
+        self.lock_serial += 1;
         let s = self.get(id)?;
         match &mut s.lock {
             Some(l) => {
@@ -1346,8 +1359,15 @@ impl<'a> World<'a> {
     pub fn unlock(&mut self, id: FormId) -> Result<(), SimError> {
         if let Some(l) = &mut self.get(id)?.lock {
             l.locked = false;
+            self.lock_serial += 1;
         }
         Ok(())
+    }
+
+    /// Goes up with every lock change ([`World::lock`], [`World::unlock`]): a reader that
+    /// saw the same number has nothing new to learn about locks.
+    pub fn lock_serial(&self) -> u64 {
+        self.lock_serial
     }
 
     /// The access state of a door or container lock, as the in-game `GetLocked` reports

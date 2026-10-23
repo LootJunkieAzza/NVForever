@@ -439,6 +439,19 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **Emissive multiplier of unlit shapes** (2026-10-23). Gomorrah's neon
+  (`architecture\strip\gomorrahlights.nif`, `gomorrahlightslowerlevel.nif` [observed,
+  `crates/fnv-nif/examples/fx_audit.rs`]) is BSShaderNoLightingProperty shapes on
+  `StripLights01.dds`, SRC_ALPHA / INV_SRC_ALPHA, emissive white × multiplier 25
+  (`LightsNeon`, `GamorrahLowLights`), 15 (`OverHangGlow`), 5 or 3. In the original's
+  night frames of the Strip (owner's HDR on) such neon burns white at the core and
+  throws large coloured halos; drawn at its surface colour it was a dim strip. Rule in
+  the renderers [hypothesis from those frames; engineering choice where it goes beyond
+  them]: in an HDR view (the light glow, docs/design/graphics-enhanced.md §3.11) an
+  unlit shape is drawn as bright as its emissive light, surface colour × emissive colour
+  × multiplier, and never darker than its surface colour (so the 2,663 unlit shapes with
+  a black emissive colour keep their look). Multiply shapes are left alone. Without the
+  light glow (LDR view, tonemapped in the shader) nothing changes.
 - **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
   destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
   colour, channel by channel, and the shape adds no light of its own [documented:
@@ -595,7 +608,7 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 
   The Bison Steve Hotel's lobby (`BisonSteve01`, the main entrance) [observed, `fnvtool
   world refs`, `fnvtool nif decode`]: 2 `FXMistLow01` and 1 `FXSmokeWisps01`
-  (`effectsmbientxmistlow01.nif`, `fxsmokewisps01.nif`), unlit, SRC_ALPHA /
+  (`effects\ambient\fxmistlow01.nif`, `fxsmokewisps01.nif`), unlit, SRC_ALPHA /
   INV_SRC_ALPHA, texture `SmokeWispsTile.dds`, vertex alpha flag, vertex colours grey
   0.5 with alpha 0 to 0.5 (mean 0.11 and 0.17). Owner's screenshots of the same view
   (2026-10-23): the game shows the room clearly with almost no haze; `nvforever` drew a
@@ -613,6 +626,36 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   0.036. The same power as additive shapes; the share behind is kept so smoke still
   hides as much of the room as before. Lit blended shapes (glass, hair edges) are not
   changed. Open: no frame was measured against the game's yet.
+- **Soft intersections** (unlit effect shapes that meet an opaque surface). The Strip's
+  street lamp beam `effects\ambient\fxlightbeamnvstrip.nif` [observed, `fnvtool nif
+  decode`, `fnvtool world refs --world TheStripWorldNew`] is two crossed vertical panels
+  (normals -Y and -X), 1,800 units from the lamp head down, plus a glow disc under the
+  head and a glow shell around it; BSShaderNoLightingProperty, SRC_ALPHA / ONE, flags
+  0xA2000148 (vertex alpha, falloff bit 6, external emittance, z test), vertex alpha 0.25
+  at the top falling to 0 at the bottom. Its 32 references (`StripLightBeamAct`) are
+  placed at scale 0.6, about 460 units above the road, so the panels pass about 620
+  units into the road while still a third as bright as at the top. Drawn with a plain
+  depth test, the road cuts them along a straight line (a "+" seen from above). The
+  owner's game frame of the same street at night (2026-10-23) shows a faint haze above the
+  bulb and a soft pool on the road with no line where the panels meet road or pavement
+  [observed]. How the game hides it is not known (no depth-fade setting is documented for
+  this shader).
+
+  What the renderers do [engineering choice, nif_material.rs module notes "Soft
+  intersections"]: every unlit shape that adds or blends (additive SRC_ALPHA / ONE and
+  ONE / ONE, SRC_ALPHA / INV_SRC_ALPHA; light beams, glows, smoke and dust sheets and all
+  particle systems; not multiply shapes, decals or refracting shells) fades out linearly
+  over `SOFT_DISTANCE` (160 units, view depth) in front of the opaque surface behind it,
+  read from the view's depth prepass. Where the shape lies along that surface (the
+  shape's and the surface's facings, both from screen derivatives, within about 25°;
+  full fade-out from 18° to 32°) it is not faded, so light spots and haze cards laid on
+  a floor or a wall stay. The rule is by blend and shader only: no model is named. Survey
+  of the shapes it covers in the placed models of `FalloutNV.esm` [observed,
+  `crates/fnv-nif/examples/fx_audit.rs` over `Fallout - Meshes.bsa` and `Update.bsa`,
+  joined with `fnvtool world refs` of every worldspace and interior]: 316 additive
+  shapes in 145 models (7,624 references), 1,129 unlit SRC_ALPHA / INV_SRC_ALPHA shapes
+  in 819 models (editor markers among them, which are not drawn), 1,262 particle
+  systems.
 - **Decal flags** (BSShaderFlags bit 26 `decal_single_pass` and bit 27
   `dynamic_decal_single_pass`; BSShaderFlags2 bit 21 `alpha_decal` [documented: nif.xml,
   schemas/nif/scene.json]). Survey of the visible shapes in `Fallout - Meshes.bsa`

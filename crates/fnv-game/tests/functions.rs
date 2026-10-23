@@ -1327,6 +1327,29 @@ fn reset_3d_state_forgets_the_animation() {
     assert_eq!(g.anims.resets, vec![on]);
 }
 
+/// The HUD's compass leaves sneaking actors off (docs/spec-notes/hud.md §11): forced to
+/// sneak (SetForceSneak) or measured sneaking by the engine, an actor gets no tick; standing
+/// up again, or dead, as before.
+#[test]
+fn compass_leaves_sneaking_actors_off() {
+    use fnv_game::functions::senses::Motion;
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    assert!(g.compass_shows(adult));
+    call(&mut g, 0x10D3, Some(ADULT_REF), &[n(1.0)]);
+    assert!(g.is_sneaking(adult));
+    assert!(!g.compass_shows(adult));
+    call(&mut g, 0x10D3, Some(ADULT_REF), &[n(0.0)]);
+    assert!(g.compass_shows(adult));
+    // What the engine measures this frame wins over the rule, as for IsSneaking.
+    g.set_motion(adult, Motion { sneaking: true, ..Motion::default() });
+    assert!(!g.compass_shows(adult));
+    assert_eq!(call(&mut g, 0x111E, Some(ADULT_REF), &[]), 1.0);
+    g.set_motion(adult, Motion::default());
+    assert!(g.compass_shows(adult));
+}
+
 /// The gaps the script function audit fixed (docs/design/script-function-audit.md).
 #[test]
 fn script_function_audit_fixes() {

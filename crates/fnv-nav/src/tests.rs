@@ -329,6 +329,19 @@ fn routes_chain_interiors_and_worldspaces_and_respect_locks() {
     // Unlocking the door at run time opens the way for anyone.
     g.set_door_lock(0xD2, None);
     assert!(g.can_reach(from, to, &open));
+    // The game's lock states brought in: 0xD1 locked by a script; a door the graph
+    // does not know is passed over; 0xD0 and 0xD2, not named, keep theirs.
+    assert_eq!(g.door_refs(), vec![0xD0, 0xD1, 0xD2]);
+    let lock = DoorLock { level: 50, key: None };
+    let changes = g.sync_door_locks([(0xD1, Some(lock)), (0xFF, Some(lock))]);
+    assert_eq!(changes, crate::graph::DoorLockChanges { unlocked: vec![], locked: vec![0xD1] });
+    assert!(!g.door_locks.contains_key(&0xFF));
+    assert!(!g.can_reach(from, to, &open));
+    assert!(g.sync_door_locks([(0xD1, Some(lock))]).is_empty(), "nothing new");
+    // Unlocked again (a script's Unlock): the way is open and the door is reported.
+    let changes = g.sync_door_locks([(0xD0, None), (0xD1, None)]);
+    assert_eq!(changes.unlocked, vec![0xD1]);
+    assert!(g.can_reach(from, to, &open));
 }
 
 #[test]
@@ -660,4 +673,54 @@ fn cover_edges_are_the_outline_of_listed_triangles_facing_out() {
     assert!(south.faces([250.0, 380.0, 0.0]) && !south.faces([250.0, 20.0, 0.0]));
     assert_eq!(south.behind(40.0), [250.0, 160.0, 0.0]);
     assert!((south.length() - 100.0).abs() < 1e-3);
+}
+
+/// A floor, a ramp up from its east side to a landing, and a deck turning back west
+/// from the landing over the floor, 200 units above it (a catwalk over a factory floor:
+/// RocketLabMid's flights and catwalks, docs/spec-notes/navmesh.md §4b).
+fn floor_with_deck_above() -> NavGraph {
+    let mut floor = grid(1, [0.0, 0.0], 4, 4, 100.0, &[], flat);
+    let mut ramp = grid(2, [400.0, 0.0], 4, 1, 100.0, &[], |x, _| (x - 400.0) * 0.5);
+    let mut landing = grid(3, [800.0, 0.0], 1, 4, 100.0, &[], |_, _| 200.0);
+    let mut deck = grid(4, [0.0, 300.0], 8, 1, 100.0, &[], |_, _| 200.0);
+    seam(&mut floor, &mut ramp, link_kind::PORTAL);
+    seam(&mut ramp, &mut landing, link_kind::PORTAL);
+    seam(&mut deck, &mut landing, link_kind::PORTAL);
+    graph(&[(floor, W), (ramp, W), (landing, W), (deck, W)])
+}
+
+#[test]
+fn a_straight_line_does_not_reach_a_level_stacked_over_the_floor() {
+    let g = floor_with_deck_above();
+    let p = PathParams::default();
+    let (low, high) = ([150.0, 350.0, 0.0], [150.0, 350.0, 200.0]);
+    let floor = g.locate(W, low, 10.0).expect("floor triangle");
+    let deck = g.locate(W, high, 10.0).expect("deck triangle");
+    assert_ne!(floor, deck);
+    // Seen from above the deck's spot is on the floor triangle; it is not walkable from
+    // there all the same.
+    assert_eq!(g.walkable_line(W, floor, low, high, 18.0, &p), None);
+    assert_eq!(g.walkable_line(W, floor, [50.0, 50.0, 0.0], high, 18.0, &p), None);
+    // On one level the line is walkable.
+    assert_eq!(g.walkable_line(W, floor, [50.0, 50.0, 0.0], low, 18.0, &p), Some(floor));
+    assert_eq!(g.walkable_line(W, deck, [650.0, 350.0, 200.0], high, 18.0, &p), Some(deck));
+}
+
+#[test]
+fn a_path_up_to_a_level_stacked_over_the_floor_takes_the_ramp() {
+    // RocketLabMid (owner report 2026-10-23): the path from the floor to the top
+    // catwalk was pulled straight from the floor under the catwalk up to it.
+    let g = floor_with_deck_above();
+    for (from, to) in [([150.0, 350.0, 0.0], [150.0, 350.0, 200.0]), ([150.0, 350.0, 200.0], [150.0, 350.0, 0.0]), ([50.0, 50.0, 0.0], [100.0, 350.0, 200.0])] {
+        let path = g.find_path(Place { space: W, pos: from }, Place { space: W, pos: to }, &PathParams::default()).unwrap();
+        let pts = &path.legs[0].points;
+        // Up the ramp (x 400-800) and back along the deck: well over 1000 units.
+        assert!(path.length > 1000.0, "{pts:?}");
+        assert!(pts.iter().any(|q| q[0] > 700.0), "{pts:?}");
+        // No segment rises or falls more steeply than the ramp (1 in 2).
+        for w in pts.windows(2) {
+            let h = (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]);
+            assert!((w[1][2] - w[0][2]).abs() <= 0.5 * h + 1.0, "{w:?} in {pts:?}");
+        }
+    }
 }

@@ -141,6 +141,29 @@ OnStartCombat "Target, Starter", OnCombatEnd "Target, Ender", OnReset "WhatsRese
 wiki Reference, a cell's reset triggers its references' OnReset blocks; hypothesis: the
 moments in the fight].
 
+OnOpen, OnClose, OnActorEquip and OnMagicEffectHit are fired since 2026-10-23
+(`crates/fnv-game/src/game.rs` `event`; until then their blocks never ran: the Fort's
+weapons footlocker, Honest Hearts' NVDLC02MQ05aDoor and its stage 100, the Legate's
+healing powder, the Vault 22 traps):
+
+- **OnOpen / OnClose**, subject the opened reference [documented: GECK wiki event handler
+  table, "Opened", "Closed"]: a door's open flag turning on or off, by the player, an NPC
+  or SetOpenState; a container's menu opening or closing [hypothesis: the moments, and
+  that an NPC opening a door counts].
+- **OnActorEquip item**, on the equipping actor's own script [documented: "Equipper,
+  Equipped (item Base Form)", "runs before the item is considered as equipped"], also for
+  an aid item an EquipItem uses up [observed: VLegateScript's `Begin OnActorEquip
+  NVHealingPowderLegate` answers its own `EquipItem` of the powder].
+- **OnMagicEffectHit effect** [documented: "Target, BaseEffect"]: each base effect that
+  takes on the target (not abilities or worn enchantments), and a weapon's object effect
+  on an object a shot hits [hypothesis: an object takes no effect, but the original's
+  Vault 22 traps answer the flamer's burn this way].
+- **OnSell is never fired**, as in the original: "this event never ran prior to xNVSE
+  v6.2.8" [documented: GECK wiki event handler table]. Its two shipped blocks (Lonesome
+  Road's Blood-Nap, Gun Runners' Arsenal's Esther) remove the item's spell when sold; sold
+  while equipped, the spell may stay on the player, as it would in the original
+  [hypothesis: the item's GameMode no longer runs once it has left the inventory].
+
 Codes 0x0B, 0x0D, 0x0E and 0x1D are not used by any shipped script. Their block names are
 unknown; do not guess them.
 

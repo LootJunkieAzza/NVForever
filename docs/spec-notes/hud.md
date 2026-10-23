@@ -319,6 +319,11 @@ menu's (`dialogue_menu.rs`).
   Perception × 2048, while outdoors. No game setting for these ranges is in the masters.
   Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
   player's heading at 1024 units for 360 degrees, the strip's scale.
+- [observed: the owner, 2026-10-23] An actor that sneaks gets no tick. NVForever's
+  "sneaks" is IsSneaking's (`fnv_game::Game::is_sneaking`: the engine's measure, else
+  SetForceSneak, an Always Sneak package, a crouch to fire or reload, a teammate
+  sneaking with the player); whether the original also hides the crouch-to-fire case
+  is not known [hypothesis].
 - [observed: the owner's screenshot "Discovered"] Finding a place shows "You have
   discovered" over its name in large capitals, where and as "Quest added" is drawn
   (quest-messages.md), and "+10 XP" (`iXPRewardDiscoverMapMarker` is 10 in
@@ -335,7 +340,7 @@ menu's (`dialogue_menu.rs`).
   the player's cell to the target's cell, else to its worldspace or that of the door into
   its interior [hypothesis: one step of doors; the original may walk further].
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
-  Perception <p>` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
+  Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
   `compass: <n> quest target(s) placed, <m> on the compass` when those change.
 
 ## 12. The crippled-limb picture (owner 2026-10-17)

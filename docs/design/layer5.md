@@ -163,7 +163,10 @@ and Layer 4 can produce:
 | MenuMode | each frame while a menu is open | engine / runner |
 | OnActivate | the reference is activated. Whether the default action still runs depends on the script calling `Activate` | `fnv_sim::World::activate` |
 | OnLoad, OnReset | the reference's 3D loads, or its cell resets | cell attach |
-| OnAdd, OnDrop, OnEquip, OnUnequip, OnSell | inventory changes | `fnv-sim` inventory |
+| OnAdd, OnDrop, OnEquip, OnUnequip, OnActorEquip | inventory changes (OnActorEquip on the equipping actor's own script, for an aid item used up too) | `fnv-sim` inventory, `Game::equip_events` |
+| OnOpen, OnClose | a door's open flag changes (by anyone); a container's menu opens or closes | `Game::watch_doors`, `Game::queue_ref_event` |
+| OnMagicEffectHit | a magic effect reaches the reference (an applied hit effect or spell; a weapon's object effect on an object it hits) | `Game::apply_magic_item_with`, `Game::magic_effect_hits` |
+| OnSell | never: it never ran in the original either [documented: GECK wiki event handler table, "never ran prior to xNVSE v6.2.8"] | — |
 | OnTriggerEnter/Leave/OnTrigger | an actor enters, leaves or stays in a trigger volume | physics sensors (5D) |
 | OnDeath, OnHit, OnStartCombat, OnCombatEnd, SayToDone, OnPackage* | Layer 6 events | scripted runner inputs until Layer 6 |
 
