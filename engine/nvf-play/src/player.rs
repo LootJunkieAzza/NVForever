@@ -897,6 +897,7 @@ fn step(
     turbo: Option<Res<crate::script::PlayerTimeScale>>,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
+    (mut falls, mut fell): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>),
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -917,6 +918,9 @@ fn step(
         }
         if let Some(c) = p.player.as_mut() {
             p.world.place_character(c, at);
+            if let Some(f) = falls.as_deref_mut() {
+                f.forget(c.id);
+            }
             // Held up by the furniture: not in the air (the body's fall and landing).
             c.grounded = true;
             c.ground_gap = Some(0.0);
@@ -935,6 +939,9 @@ fn step(
         let v = swim_velocity(&intent, player.heading, player.pitch, *speeds);
         intent.jump = false;
         let c = p.player.as_mut().expect("placed");
+        if let Some(f) = falls.as_deref_mut() {
+            f.forget(c.id);
+        }
         for _ in 0..n {
             p.prev_feet = c.feet;
             let to = [c.feet[0] + v[0] * dt, c.feet[1] + v[1] * dt, c.feet[2] + v[2] * dt];
@@ -1062,6 +1069,10 @@ fn step(
         if let Some(speed) = s.landed_speed {
             landed.write(crate::rumble::Landed { speed });
         }
+        // A fall's damage (`crate::falls`).
+        if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
+            fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height });
+        }
         // Pushed and held by something: the actors walk round the player for a while.
         let want = pushed[0].hypot(pushed[1]);
         if want > 1e-4 {
@@ -1071,9 +1082,12 @@ fn step(
             }
         }
         // The actors another system walks, by the velocity it gave each.
-        for (b, v) in p.npcs.values_mut().zip(walking) {
+        for ((&id, b), v) in p.npcs.iter_mut().zip(walking) {
             b.prev_feet = b.ch.feet;
-            p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            let s = p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
+                fell.write(crate::falls::Fell { actor: FormId(id), height });
+            }
         }
         p.world.step();
         status.record(&s, p.prev_feet, [vx, vy], dt);

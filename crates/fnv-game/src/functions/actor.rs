@@ -299,7 +299,11 @@ pub fn get_permanent_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Va
 /// the SetActorValue command"].
 pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    set_base(g, r, a.code(0)?, a.num(1)?)?;
+    let code = a.code(0)?;
+    if crate::actor_values::SKILLS.contains(&code) && crate::revision::keeps(ctx, r, || format!("the skill {} (points spent stay)", AV_NAMES[code as usize])) {
+        return none();
+    }
+    set_base(g, r, code, a.num(1)?)?;
     none()
 }
 
@@ -877,6 +881,10 @@ pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let mut level = a.int(0)?;
     if r == FormId::PLAYER_REF {
+        let now = g.player_level();
+        if crate::revision::keeps(ctx, r, || format!("the level ({now})")) {
+            return none();
+        }
         g.player.level = Some(level);
         return none();
     }

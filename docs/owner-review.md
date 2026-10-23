@@ -7810,3 +7810,92 @@ world.md §6. Decisions and guesses:
   Vault 11, do far parts of the rooms vanish at 1,800 or 2,000 units as they now do?
   What does the crosshair say on a sink?
 
+## Explosions, falls, throws, traps, gore (2026-10-23, list 7 W3)
+
+Branch claude/l7-explosives. Items 19, 21, 22, 23, 26, 27, 29 of playtest list 7.
+
+- **19 / 29: mines and the NPC Incinerator now hurt the player.** Blasts only ever reached
+  actors with hit volumes, and the player has none, so no explosion touched the player. The
+  Incinerator's damage is its explosion's (`NVIncineratorFireBurst`, 20 within 212; the
+  weapon itself does 1). The player now counts in every blast at the middle of its capsule,
+  with the same falloff, armour and knockdown rules as anyone.
+  - *Decision:* your own grenades, mines and missiles hurt you too (the original's way, as
+    far as I know; check).
+  - *Check:* step on a frag mine with god mode off at full health: how much is lost? Stand
+    in front of Cook-Cook while he fires the Incinerator.
+- **21: fall damage.** damage = mult × (h − 600)^1.65 for a fall of h units onto land, none
+  into water (physics.md §6.10). 600 and 1.65 are the ESM's settings; the multiplier 0.0252
+  is fitted to the capture's three falls (the exe's own `fJumpFallHeightMult` cannot be
+  read). So 700 units ≈ 50 health, 1,000 ≈ 500, 1,500 ≈ 1,860.
+  - *Guesses:* h from the top of the fall (a jump's apex counts); armour does not reduce it;
+    no leg damage; NPCs whose characters the physics walks use the same rule;
+    `fJumpFallVelocityMin` (2785) unused.
+  - *Check:* jump off a roof in Goodsprings (about 700–800 units): does the original cripple
+    legs or only take health? Compare the health lost.
+- **22: thrown weapons.** The attack clip used to start when the projectile left (the end of
+  the wind-up), so dynamite waited with nothing playing, flew, and was then lit and thrown in
+  the clip. Now the clip starts at the press and the projectile leaves at the clip's `Hit` key
+  (dynamite, grenades, spears, knives, every thrown weapon, and any gun whose attack clip has
+  a `Hit` key after its start).
+  - *Check:* the release moment for dynamite, the frag grenade and the throwing spear, in
+    first and third person. Holding the button to cook a grenade is not built.
+- **23: XP for disarming.** Both come from the data: a mine gives `iMineDisarmExperience`
+  (5), and each trap's own script gives `TrapXPReward*` by its Repair requirement's band (2
+  for the tripwires, plates and bear traps at 22–23, 5 for the rigged shotguns and grenade
+  bouquets at 30–45). The traps' XP already worked; a mine disarmed by hand gave none,
+  because the engine's hand activation path skipped the XP and the Mines Disarmed statistic
+  that the game's default activation gives. Fixed; smoke checks both.
+  - *Decision:* kept the data's 2 XP for the low traps rather than the 5 of your note (the
+    note asked for 5 only where the data has none).
+- **26: exploded head stayed on.** The head was hidden, then put back: the moving face
+  (blinking, lip sync) hands the head, eyes and hair their own meshes back when it lets a face
+  go at death. A shape given its mesh back is now drawn without its gone parts again.
+  - *Check:* a head shot with the sniper rifle on Chet or a Powder Ganger: is the head, hair
+    and hat gone, with the neck cap showing?
+- **27: blood decals.** They were placed on the hit capsules, not on the drawn body. Now the
+  shot's line is cast against the posed body and the decal goes where it meets the skin,
+  facing the skin. Toned down: at most 3 on one actor, one each 0.3 s, at most 16 units wide.
+  - *Guesses:* all three numbers; a shot that meets the capsule but misses the drawn body
+    leaves none.
+  - *Check:* shoot a Powder Ganger several times with a pistol and a shotgun: do the marks
+    sit on the body, the right way round, and is the number right?
+## Menus, character revision, barter figures and currency (2026-10-23, list 7 W1)
+
+Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
+
+- **1 Character revision** (chargen.md §9, `fnv_game::revision`). *Decision:* the original's
+  VCG04ActivatorScript resets level, XP, traits and early perks, S.P.E.C.I.A.L. and skills
+  and gives the XP back so you level up again; as you asked, ours keeps level, XP,
+  non-trait perks and the skill points spent at level-ups: from that script only, SetLevel,
+  ResetXP, the closing RewardXP and SetActorValue of skills on the player do nothing, and
+  RemovePerk takes traits only (the trait menu offers them again). Skills re-derive from
+  the new S.P.E.C.I.A.L. and the new tags; the tag menu starts with the old three tagged.
+  The bug was SetActorValue overriding each skill to 0. *Guess:* traits the script does
+  not name (Skilled, the add-ons' traits) stay, so the trait menu could add two more.
+  *Check:* revise at the Goodsprings edge after a level-up: same level, perks and spent
+  points; change Intelligence and a tag and see the skills follow.
+- **2 Menus on top, darker**. *Decision:* the tag-skill, trait, name, level-up, recipe
+  and repair-services menus stack at 107 (over messages, HUD, dialogue, Pip-Boy and
+  terminals; under message boxes, tutorial, pause menu, console, loading screen) and
+  darken the whole screen to 0.93 black (the barter menu's darkness), so a corner message
+  beside them is covered too. The recipe and repair sheets were the files' faint 32/255
+  box before, the character menus' 0.75 picture box. *Check:* is 0.93 too dark (the world
+  is barely seen); should corner messages wait until the menu closes instead?
+- **7 Currency value**. The NCR notes and Legion coins in the world are CMNY records whose
+  DATA "Absolute Value" (2, 8, 40, 4, 100; mangled 2) matches the MISC records' Value;
+  they now count at it in barter, the Pip-Boy, the crosshair and the inventory value,
+  and caravan bets accept them. The `fnvtool sim items` report keeps CMNY value null (it
+  reports the record's Value field). *Check:* sale price of $5 NCR at your Barter.
+- **10 Check tags** show the AVIF's name ("[Speech 40]") and a perk's name. Not checked in
+  game (Trudy's check needs the Ringo quest state); the dialogue log now prints
+  `(check [Speech 40])` on offered choices. *Check:* Trudy's line.
+- **11 Pointer and scrolling**: the pointer selects without scrolling the barter and
+  container lists (the half-shown row at the foot used to scroll in); only wheel and keys
+  scroll.
+- **16 Repair list stays open** after a repair until the item is full, no parts are left,
+  or Cancel. *Guess:* the chosen row stays at the same place (clamped to the list).
+- **25 Barter and container figures** are the Pip-Boy's (DAM/DT, DPS, STR, CND, ammunition
+  or armour class, effects) with WG and VAL of one unit as before. *Guess:* the
+  ammunition count beside a weapon is the player's carried ammunition even for the
+  merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
+  All/Exit in the container menu on your screen?

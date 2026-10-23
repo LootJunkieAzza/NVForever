@@ -24,6 +24,26 @@ pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
 /// its sheet is lighter: about 0.33 to 0.4 measured on the screenshots].
 pub const MENU_BACKING: f32 = 0.75;
 
+/// The stacking level of the character and workbench menus (tag skills, traits, name,
+/// level-up, recipes, repair services): over the HUD, the corner and quest messages
+/// (50), the dialogue menu and the Pip-Boy (90), the terminal and the casino games (106);
+/// under the message boxes (108) these menus may ask, the tutorial (109), the pause menu
+/// (110), the console (120) and the loading screen [design: the owner's playtest list 7,
+/// item 2, "on top level with nothing in front"].
+pub const TOP_MENU_Z: i32 = 107;
+
+/// How dark the sheet behind those menus makes the world: the container and barter
+/// menus' 0.93 (`crate::menu::look`) [design: list 7 item 2, "the backgrounds need to be
+/// darker", the 0.75 of [`MENU_BACKING`] and the files' 32 of 255 let the world show
+/// through the text].
+pub const TOP_MENU_SHADE: f32 = 0.93;
+
+/// The sheet those menus spread over the whole screen, on their root node: nothing of the
+/// world or of the HUD's messages shows beside them either.
+pub fn top_menu_backing() -> BackgroundColor {
+    BackgroundColor(Color::BLACK.with_alpha(TOP_MENU_SHADE))
+}
+
 /// The menu files' shared fill: `_background_fill_alpha`, 32 of 255 [documented:
 /// globals.xml]. The sheets the recipe and repair-services menus spread behind themselves
 /// (`RM_Background`, `RSM_Background`) take it; at this strength their edge cannot be seen
