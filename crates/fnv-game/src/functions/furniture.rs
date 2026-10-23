@@ -27,8 +27,9 @@ fn using(g: &Game, ctx: &Ctx) -> Result<Option<FurnitureUse>, String> {
 
 /// Marker IDs 1 to 10 are beds [documented: GECK wiki GetFurnitureMarkerID, catalogue
 /// notes]: their users sleep, the others sit.
+/// Marker 10 is the crucifix's, sat on (`fnv_actor::furniture::is_bed`): 1 to 9 here.
 pub(crate) fn bed(u: &FurnitureUse) -> bool {
-    (1..=10).contains(&u.marker_id)
+    (1..=9).contains(&u.marker_id)
 }
 
 /// GetSitting's and GetSleeping's state while on the furniture [observed: furniture.md §3].

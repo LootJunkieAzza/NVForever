@@ -50,7 +50,7 @@ master. The other rewards:
 | --- | --- | --- |
 | Picked lock | `iXPRewardPickLock<class>` 20, 30, 40, 50, 60 by the lock's level [observed; documented: wiki] | `lockpick::opened` |
 | Hacked terminal | `iXPRewardHackComputer<class>` 20 to 60 [observed; documented: wiki]; the class is the first whose `iXPLevelHackComputer<class>` (0 to 4 by the wiki, not in the master) the terminal's difficulty code does not pass [documented: wiki] | `terminal::hacked`, on success only |
-| Disarmed mine | `iMineDisarmExperience` 5 [observed]; given "on a successful deactivation" of a projectile that Can be Disabled [documented: wiki Projectile] | `Game::default_activation`, the player's Disarmed outcome |
+| Disarmed mine | `iMineDisarmExperience` 5 [observed]; given "on a successful deactivation" of a projectile that Can be Disabled [documented: wiki Projectile] | `Game::default_activation`, the player's Disarmed outcome, and the engine's hand activation (`nvf_play::script`, which skipped it until playtest list 7 item 23); trap scripts give theirs by `RewardXP` (traps.md §3) |
 | Speech challenge | `iXPRewardSpeechChallenge<class>` by the line's DNAM (1 Very Easy … 5 Very Hard): only VeryEasy (5) is in any master, and the wiki lists none [observed]; a class without a setting gives nothing [design] | `Game::choose`, a line with the Speech Challenge flag |
 | Place found | `iXPRewardDiscoverMapMarker` 10 [observed; documented: wiki] | the engine's compass |
 | Scripts | `RewardXP <n>` (quests, challenges, dialogue result scripts) | `functions::player::reward_xp` |

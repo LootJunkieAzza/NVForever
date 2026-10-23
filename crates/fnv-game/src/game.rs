@@ -188,6 +188,10 @@ pub struct RefExtra {
     pub ghost: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub restrained: bool,
+    /// The player woke it by talking to it while it slept: until this game time it stays
+    /// off its bed (`Game::wake`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woken_until: Option<f64>,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub unconscious: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
