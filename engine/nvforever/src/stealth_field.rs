@@ -13,13 +13,20 @@
 //! put back when the effect ends. Detection does not read this: it reads the Chameleon
 //! value itself (`fnv_game::detection`).
 //!
+//! The Pip-Boy's screen is the one exception: while the menus are on it
+//! (`pipboy_arm.rs`) it is drawn plain, so the menus can be read and used; the rest of
+//! the arm and the Pip-Boy stay see-through, and the screen refracts again once the
+//! Pip-Boy is down (owner, 2026-10-23) [design].
+//!
 //! Log lines: `stealth field: on (Chameleon 75): <n> meshes see-through (refracting,
 //! strength 0.030)` and `stealth field: off`.
 
+use crate::pipboy_arm::PipBoyPart;
 use crate::player_body::PlayerBody;
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use nvf_assets::nif_material::NifMaterial;
+use nvf_play::pipboy::PipBoyScreen;
 use nvf_play::script::ScriptState;
 use std::collections::HashMap;
 
@@ -47,7 +54,20 @@ pub struct StealthFieldPlugin;
 
 impl Plugin for StealthFieldPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<StealthField>().add_systems(Update, apply.after(nvf_play::player::BodySet));
+        // After the Pip-Boy has put the menus on its screen or taken them off, so the
+        // screen is skipped exactly while the menus are on it.
+        app.init_resource::<StealthField>().add_systems(Update, apply.after(nvf_play::player::BodySet).after(crate::pipboy_arm::show_screen));
+    }
+}
+
+impl StealthField {
+    /// Give `e` its own material back and stop making it see-through: the material it
+    /// had before the field, or `None` when the field had not touched it. The
+    /// see-through copy is dropped.
+    pub fn take_original(&mut self, e: Entity, current: &Handle<NifMaterial>, materials: &mut Assets<NifMaterial>) -> Option<Handle<NifMaterial>> {
+        let original = self.originals.remove(&e)?;
+        materials.remove(current);
+        Some(original)
     }
 }
 
@@ -64,9 +84,12 @@ pub fn see_through(m: &NifMaterial) -> NifMaterial {
     m
 }
 
-fn apply(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply(
     script: Option<Res<ScriptState>>,
     body: Res<PlayerBody>,
+    pip_screen: Option<Res<PipBoyScreen>>,
+    parts: Query<&PipBoyPart>,
     mut field: ResMut<StealthField>,
     children: Query<&Children>,
     mut meshes: Query<&mut MeshMaterial3d<NifMaterial>>,
@@ -77,9 +100,10 @@ fn apply(
     if want {
         // Every frame: a weapon drawn or an outfit changed brings new meshes.
         let mut fresh = 0;
+        let menus_on_screen = pip_screen.is_some_and(|s| s.on_model);
         for root in body.roots() {
             for e in children.iter_descendants(root) {
-                if field.originals.contains_key(&e) {
+                if field.originals.contains_key(&e) || (menus_on_screen && matches!(parts.get(e), Ok(PipBoyPart::Screen))) {
                     continue;
                 }
                 let Ok(mut handle) = meshes.get_mut(e) else { continue };

@@ -31,12 +31,17 @@
 //! - While the Pip-Boy is up only the page's button glows [observed: the owner's
 //!   screenshots: the button of the page shown is bright, the other two dimmer], and the
 //!   one the pointer is on [design]; down, all three glow, as before (owner, 2026-10-10).
+//! - Under a Stealth Boy (`stealth_field.rs`) the screen's own material is the field's
+//!   see-through copy; the menus are built from the screen's real material instead, and
+//!   the field leaves the screen alone while they are on it, so the menus stay readable
+//!   (owner, 2026-10-23). They used to inherit the refraction and the screen was blank.
 //! - The pointer is followed onto the shapes as the arm's bones pose them, from CPU
 //!   copies of their meshes ([`PartMesh`], [`Posed`]): the drawn meshes are kept on the
 //!   GPU only and are skinned, so Bevy's mesh ray casts found nothing and clicks on the
 //!   screen and the buttons did nothing (the owner's playtest, 2026-10-11).
 
 use crate::player_body::PlayerBody;
+use crate::stealth_field::StealthField;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -102,18 +107,18 @@ impl Plugin for PipBoyArmPlugin {
 
 /// The screen's own material while the menus are on it.
 #[derive(Default)]
-struct Swapped {
+pub(crate) struct Swapped {
     screen: Option<(Entity, Handle<NifMaterial>)>,
     menus: Option<Handle<NifMaterial>>,
 }
 
 #[allow(clippy::too_many_arguments)]
-fn show_screen(
-    mut commands: Commands,
+pub(crate) fn show_screen(
     pip: Res<PipBoy>,
     screen: Option<ResMut<PipBoyScreen>>,
     body: Res<PlayerBody>,
-    parts: Query<(Entity, &PipBoyPart, &MeshMaterial3d<NifMaterial>)>,
+    mut field: ResMut<StealthField>,
+    mut parts: Query<(Entity, &PipBoyPart, &mut MeshMaterial3d<NifMaterial>)>,
     mut visibility: Query<&mut Visibility>,
     mut materials: ResMut<Assets<NifMaterial>>,
     mut swapped: Local<Swapped>,
@@ -125,15 +130,23 @@ fn show_screen(
     // Give back the screen's own material when the menus leave it (or the rig was rebuilt).
     if let Some((e, own)) = swapped.screen.clone() {
         if !shown || model_screen.as_ref().is_none_or(|(s, _)| *s != e) {
-            if let Ok(mut ec) = commands.get_entity(e) {
-                ec.insert(MeshMaterial3d(own));
+            // Set at once, not by command: the Stealth Boy's field runs next and must see
+            // the screen's own material to make it see-through again.
+            if let Ok((_, _, mut m)) = parts.get_mut(e) {
+                m.0 = own;
             }
             swapped.screen = None;
         }
     }
     screen.on_model = shown && model_screen.is_some();
-    if let (true, Some((e, own))) = (shown, model_screen) {
+    if let (true, Some((e, mut own))) = (shown, model_screen) {
         if swapped.screen.is_none() {
+            // Under a Stealth Boy the screen wears the field's see-through copy: take the
+            // real material back, so neither the menus nor the screen afterwards refract.
+            if let Some(original) = field.take_original(e, &own, &mut materials) {
+                own = original;
+                info!("pipboy: the menus are on the screen drawn plain under the Stealth Boy");
+            }
             let menus = swapped.menus.get_or_insert_with(|| {
                 let mut m = materials.get(&own).cloned().unwrap_or_default();
                 let scale = (CANVAS / TARGET.as_vec2()) / UV_EXTENT;
@@ -147,7 +160,9 @@ fn show_screen(
                 m.base.uv_transform = bevy::math::Affine2::from_scale(scale);
                 materials.add(m)
             });
-            commands.entity(e).insert(MeshMaterial3d(menus.clone()));
+            if let Ok((_, _, mut m)) = parts.get_mut(e) {
+                m.0 = menus.clone();
+            }
             swapped.screen = Some((e, own));
             info!("pipboy: the menus are on the model's screen");
         }
