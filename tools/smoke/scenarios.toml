@@ -3038,7 +3038,8 @@ commands = [
 # challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
 # to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
 # 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
-# to 0 and add 3 x 4.8 Hunger.
+# to 55 (60 an hour, the owner's table 2026-10-23; it was 0 with the old guess of 100)
+# and add 3 x 4.8 Hunger.
 expect = [
   { json = "perks.count", equals = 109 },
   { json = "perks.entries_by_entry_point.23", equals = 1 },
@@ -3049,7 +3050,7 @@ expect = [
   { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
   { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
   { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
-  { json = "use.wait.values_after.Sleep Deprivation", equals = 0.0 },
+  { json = "use.wait.values_after.Sleep Deprivation", range = [54.9, 55.1] },
   { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
 ]
 
@@ -3089,7 +3090,8 @@ expect = [
   "wait menu: open as sleep",
   { re = 'wait: hour 1 passed for the player \(120 s of effects\): \d+ effect\(s\) ended; Dehydration [\d.]+ → [\d.]+, Hunger [\d.]+ → [\d.]+, Sleep Deprivation 2\d\d[\d.]* → 1\d\d' },
   { re = 'needs: Sleep Deprivation 1\d\d[\d.]*: no stage' },
-  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 0' },
+  # 250 less 3 hours of sleep at 60 an hour (the owner's table, 2026-10-23).
+  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 7\d' },
 ]
 
 [[scenario]]
