@@ -231,7 +231,9 @@ fn sync_volumes(
             let block = blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments)));
             // One that stands where it may be pushed is where its owner has it, with
             // the pushes still to come.
-            let block = blocks.standing_now(id).map_or(block, |at| block.standing_at(at));
+            // ACBS "Not Pushable": never pushed aside (actor-fields.md §1).
+            let not_pushable = sim.base_of(id).zip(script.as_deref().and_then(|s| s.rt.as_ref())).is_some_and(|(b, rt)| rt.game.data.minor_flags(b, FormId(id)).not_pushable);
+            let block = if not_pushable { block } else { blocks.standing_now(id).map_or(block, |at| block.standing_at(at)) };
             blocks.list.push(held.get(&id).copied().unwrap_or(block));
         }
         match posed {

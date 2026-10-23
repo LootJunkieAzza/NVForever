@@ -2906,9 +2906,18 @@ fn actor_attacks(
         if let Some(sound) = sfx.as_deref().and_then(|x| b.weapon.and_then(|w| x.forms.weapons.get(&w))).and_then(|f| f.shoot_3d.or(f.shoot_2d)) {
             sounds.write(PlaySound { sound, at: Some(b.point) });
         }
-        // Its impact on the one struck, as the player's blows (item 24).
+        // Its impact on the one struck, as the player's blows (item 24); a creature's own
+        // attack by its CREA CNAM impact data set (docs/spec-notes/actor-fields.md §2).
         if let Some(s) = sfx.as_deref() {
-            if let (Some(impact), _) = impact_for(s, &sim, id, Some(b.target.0 as ActorId), None) {
+            let own = b.creature_damage.and(sim.base_of(b.attacker.0)).and_then(|base| s.forms.creature_impact_set(base));
+            let picked = match own {
+                Some(set) => {
+                    let material = sim.base_of(b.target.0).and_then(|t| s.forms.actor_material(t)).unwrap_or("organic");
+                    (s.forms.impact_id(set, material), material)
+                }
+                None => impact_for(s, &sim, id, Some(b.target.0 as ActorId), None),
+            };
+            if let (Some(impact), _) = picked {
                 stats.melee_impacts += 1;
                 show_impact(s, script.as_deref(), &sim, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir, actor: Some(b.target.0), no_spray: false, no_decal: false }, &mut sounds, &mut impacts);
             }

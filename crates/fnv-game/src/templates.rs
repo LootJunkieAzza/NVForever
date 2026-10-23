@@ -143,6 +143,21 @@ impl GameData {
         self.template_source(base, reference, |_| false).is_some_and(|(_, d)| d.no_vats_melee)
     }
 
+    /// The base data source's (template flag "Base Data") ACBS flags of `reference`,
+    /// placed with `base`, for pushing, head tracking and dismemberment (actor-fields.md
+    /// §1) [documented: GECK wiki Category:NPC, Template Data: Base Data supplies the
+    /// flags but No Knockdowns, No VATS Melee and a few others]. All clear without a
+    /// definition.
+    pub fn minor_flags(&self, base: FormId, reference: FormId) -> MinorFlags {
+        self.template_source(base, reference, |d| d.template_base).map_or(MinorFlags::default(), |(_, d)| MinorFlags {
+            not_pushable: d.not_pushable,
+            no_head_track: d.no_head_track,
+            no_head: d.no_head,
+            no_right_arm: d.no_right_arm,
+            no_left_arm: d.no_left_arm,
+        })
+    }
+
     /// Whether hits on `reference`, placed with `base`, leave no blood spray and no blood
     /// decal (actor-flags.md §2; `Game::no_blood`).
     pub fn no_blood(&self, base: FormId, reference: FormId) -> (bool, bool) {
@@ -225,3 +240,41 @@ impl GameData {
         }
     }
 }
+
+/// An actor's minor ACBS flags ([`GameData::minor_flags`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MinorFlags {
+    pub not_pushable: bool,
+    pub no_head_track: bool,
+    pub no_head: bool,
+    pub no_right_arm: bool,
+    pub no_left_arm: bool,
+}
+
+impl MinorFlags {
+    /// Whether a part at body location `location` (BPTD part type: 1–2 head, 13 brain, 3–4
+    /// left arm, 5–6 right arm) is one the actor has not got, so it cannot be cut off.
+    pub fn lacks(&self, location: i32) -> bool {
+        match location {
+            1 | 2 | 13 => self.no_head,
+            3 | 4 => self.no_left_arm,
+            5 | 6 => self.no_right_arm,
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod minor_flag_tests {
+    use super::*;
+
+    #[test]
+    fn a_creature_without_a_head_or_arms_lacks_those_parts() {
+        let f = MinorFlags { no_head: true, no_left_arm: true, ..MinorFlags::default() };
+        assert!(f.lacks(1) && f.lacks(2) && f.lacks(13));
+        assert!(f.lacks(3) && f.lacks(4));
+        assert!(!f.lacks(5) && !f.lacks(0) && !f.lacks(7));
+        assert!(!MinorFlags::default().lacks(1));
+    }
+}
+
