@@ -5683,7 +5683,7 @@ expect = [
   { json = "counts.races", equals = 4 },
   { json = "counts.sliders", equals = 115 },
   { json = "counts.presets", equals = 80 },
-  { json = "counts.facial_hair", equals = 32 },
+  { json = "counts.facial_hair", equals = 47 },
   { json = "races.?edid=Caucasian.male.hairs.#", equals = 18 },
   { json = "races.?edid=Caucasian.female.hairs.#", equals = 23 },
   { json = "races.?edid=Hispanic.male.eyes.#", equals = 4 },
