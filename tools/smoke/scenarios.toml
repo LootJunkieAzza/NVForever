@@ -6735,6 +6735,29 @@ expect = [
 ]
 
 [[scenario]]
+name = "drink-sink"
+source = "ESM audit group 7 (docs/spec-notes/activators.md §9): Doc Mitchell's sink (DrinkSinkClean03Purified, ACTI WNAM d1PurifiedWater0r30h) is drunk from: the water's effect applies to the player"
+areas = ["activation", "aid"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/outcome.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "6:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'test aid: the player drinks from 0x00103E58: water 0x[0-9A-F]{8}', label = "the player drinks from the sink" },
+]
+
+[[scenario]]
+name = "interior-clip"
+source = "ESM audit group 7 (docs/spec-notes/world.md §6 Interior clip distance): indoors the camera's far plane is the cell's fog clip distance; Doc Mitchell's house stores one"
+areas = ["sky", "world"]
+paths = ["engine/nvforever/src/sky.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = '''sky: the camera's far plane at (?P<n>\d+) units \(the cell's fog clip distance\)''', range = [500, 100000], label = "the camera clips at the cell's fog clip distance" },
+]
+
+[[scenario]]
 name = "anim-state-throw"
 source = "docs/spec-notes/anim-state.md §1: GetAnimAction 5 while gearing up to throw, 6 once the throwable left the hand, then 4 (GECK wiki GetAnimAction, New Vegas table)"
 note = "The player (GOD) is given five frag grenades (00004330), draws them and throws two; the anim state summary at exit counts how often each code began on the player"

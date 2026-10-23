@@ -7788,3 +7788,25 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
   delays, Modulates Voice and the voice filter (audio.md §15.3 gives the reasons).
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
+
+## Visuals: drinking fountains, weather transitions, glare, interior clip (2026-10-23, ESM audit medium group 7, branch claude/em8-visuals)
+
+The audit's "ACTI water activators" turned out to be the drinkable fixtures (31 toilets,
+sinks, fountains and pumps): the crosshair now offers Drink and drinking applies the
+water's effect. Weather changes fade over the weather's Trans Delta (30 s for every New
+Vegas sky, was a placeholder half game hour); the sun glare follows the weather's Sun
+Glare; indoors the camera clips at the cell's fog clip distance. Specs: activators.md §9,
+world.md §6. Decisions and guesses:
+
+- *Guess:* the prompt word is "Drink"; drinking applies the WATR's XNAM effect to the
+  player; no sound.
+- *Guess:* transition time 30 × Trans Delta ÷ 255 real seconds (more is slower); 0 at
+  once.
+- *Guess:* the glare scales with Sun Glare ÷ 54 (New Vegas skies unchanged).
+- *Decision:* nothing to build for projectile lights, EXPL placed objects, negative and
+  spot lights: no master record uses them. Not built: destruction debris, the falloff
+  exponent, fog power, HDR, the IDLE body section (reasons in the audit row).
+- *Check:* does a weather change in the original take about 30 s? In WinsResidence and
+  Vault 11, do far parts of the rooms vanish at 1,800 or 2,000 units as they now do?
+  What does the crosshair say on a sink?
+

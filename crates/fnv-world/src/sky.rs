@@ -117,6 +117,12 @@ pub struct Weather {
     /// DATA wind speed, 0-255 [documented: xEdit]; 50 for most weathers, 127 for
     /// HVDustStorm, 130 for NVHooverFinalBattle [observed].
     pub wind_speed: u8,
+    /// DATA Trans Delta and Sun Glare, 0-255 [documented: xEdit; GECK wiki SetWeather and
+    /// SetWeatherTransitionTimeOverride: the Trans Delta sets the transition time, at most
+    /// 30 s of real time]. Every New Vegas weather stores 255 and 54 [observed]; `None`
+    /// (no DATA) reads as those.
+    pub trans_delta: Option<u8>,
+    pub sun_glare: Option<u8>,
     /// SNAM sounds with their kind, in record order [documented: xEdit wbWeatherSounds].
     pub sounds: Vec<WeatherSound>,
     /// MODL: the precipitation model drawn about the camera [documented: GECK wiki
@@ -163,6 +169,19 @@ impl WeatherSoundKind {
 }
 
 impl Weather {
+    /// Real seconds a change to this weather takes: 30 × Trans Delta ÷ 255, at most the
+    /// documented 30 s; 0 is at once [hypothesis: the time grows with the byte;
+    /// docs/spec-notes/world.md §6 "Weather transitions and glare"].
+    pub fn transition_seconds(&self) -> f32 {
+        30.0 * f32::from(self.trans_delta.unwrap_or(255)) / 255.0
+    }
+
+    /// The sun glare's strength against a New Vegas weather's (Sun Glare 54, the one the
+    /// glare was tuned on) [hypothesis: the byte scales the glare].
+    pub fn glare_scale(&self) -> f32 {
+        f32::from(self.sun_glare.unwrap_or(54)) / 54.0
+    }
+
     /// The sounds that go round while the weather is shown (all but thunder).
     pub fn loops(&self) -> impl Iterator<Item = &WeatherSound> {
         self.sounds.iter().filter(|s| s.kind != WeatherSoundKind::Thunder)
@@ -253,6 +272,8 @@ pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
     if let Some(d) = f.get(b"DATA") {
         let b = |k: &str| num(&d, k).map_or(0, |v| v as u8);
         w.wind_speed = b("wind_speed");
+        w.trans_delta = Some(b("trans_delta"));
+        w.sun_glare = Some(b("sun_glare"));
         w.precipitation_fade = (b("precipitation_begin_fade_in"), b("precipitation_end_fade_out"));
         w.lightning_fade = (b("lightning_begin_fade_in"), b("lightning_end_fade_out"));
         w.lightning_frequency = b("lightning_frequency");
@@ -679,6 +700,19 @@ mod tests {
 
     fn clim() -> Climate {
         Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() }
+    }
+
+    #[test]
+    fn transition_and_glare_from_the_record() {
+        let nv = Weather { trans_delta: Some(255), sun_glare: Some(54), ..Default::default() };
+        assert_eq!(nv.transition_seconds(), 30.0);
+        assert_eq!(nv.glare_scale(), 1.0);
+        let at_once = Weather { trans_delta: Some(0), sun_glare: Some(0), ..Default::default() };
+        assert_eq!(at_once.transition_seconds(), 0.0);
+        assert_eq!(at_once.glare_scale(), 0.0);
+        // No DATA: as a New Vegas weather.
+        assert_eq!(Weather::default().transition_seconds(), 30.0);
+        assert_eq!(Weather::default().glare_scale(), 1.0);
     }
 
     #[test]

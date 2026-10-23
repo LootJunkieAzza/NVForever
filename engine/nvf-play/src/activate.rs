@@ -238,6 +238,7 @@ pub(crate) fn find_target(
                 describe(&sim, play.index, id).map(|(n, a)| match a {
                     // An ash or goo pile is searched as the body was (ash-piles.md §3).
                     Action::Activate if pile => (n, Action::Search),
+                    Action::Activate if rt.as_deref().is_some_and(|rt| rt.game.drink_water(FormId(id)).is_some()) => (n, Action::Drink),
                     Action::Talk => {
                         let name = sim.ref_name(rt.as_deref().map(|rt| &rt.game), id).map_or(n, str::to_string);
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
@@ -459,6 +460,9 @@ pub(crate) fn activate(
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
         Ok(crate::script::ByHand::Default(a)) => {
             sounds.write(crate::world_sounds::Activated { reference: t.form_id });
+            if t.action == Action::Drink {
+                info!("activate 0x{:08X} {}: the player drinks from it", t.form_id, t.name);
+            }
             a
         }
         Ok(crate::script::ByHand::Script) => {

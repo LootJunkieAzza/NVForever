@@ -33,6 +33,9 @@ pub enum Action {
     Activate,
     /// A terminal: its screen opens (`crate::terminal`).
     Access,
+    /// An activator that gives water (ACTI WNAM): the player drinks from it
+    /// (`fnv_game::Game::drink_water`, docs/spec-notes/activators.md §9).
+    Drink,
     /// A placed explosive (PGRE).
     Disarm,
     /// An actor the player cannot talk to: a hostile one, or a creature with nothing to
@@ -85,6 +88,8 @@ impl Action {
             Action::Activate => "Activate".into(),
             // [hypothesis, hacking.md §8: the original's word for a terminal]
             Action::Access => "Access".into(),
+            // [hypothesis: the original's word; activators.md §9]
+            Action::Drink => "Drink".into(),
             Action::Disarm => "Disarm".into(),
             Action::Name => String::new(),
             // [hypothesis: the flag's name, cells-refs.md §2]

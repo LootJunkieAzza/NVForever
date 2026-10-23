@@ -122,7 +122,14 @@ under active work.
   in the schema, and no radio or intercom voice filter exists.
 - **Detection.** The sound levels on EXPL, PROJ VNAM, IPCT and CREA NAM5 are unused; only
   the weapon's sound level feeds detection.
-- **Visuals.** Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
+- **Visuals** (claude/em8-visuals: built the drinkable activators, ACTI WNAM, which draw
+  no water (activators.md §9); weather Trans Delta and Sun Glare and the interior clip
+  distance (world.md §6); nothing to build where no master record uses the field:
+  projectile lights, EXPL INAM, negative, spot and spot-shadow lights; left: destruction
+  debris (gore pieces belong to actors; 12 containers' stages name debris, the 51
+  creatures' stages are not applied), the falloff exponent and fog power (meaning not
+  documented), HDR and eye adaptation, the IDLE body section (the clips' track
+  priorities already lay an upper-body idle over the legs)). Was: Projectiles carry no light (PROJ DATA light). EXPL INAM placed impact
   objects are not spawned. Destruction-stage DEBR debris is never spawned. ACTI WNAM water
   activators draw as plain models. Negative lights are skipped instead of darkening, and
   LIGH Spot Shadow and falloff exponent are not applied. EFSH holes and add-on models are
