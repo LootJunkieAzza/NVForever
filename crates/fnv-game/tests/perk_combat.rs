@@ -29,6 +29,7 @@ const KILLER: u32 = 0x701;
 const TOUGHNESS: u32 = 0x702;
 const DECK: u32 = 0x703;
 const BLOODY: u32 = 0x704;
+const VENGEANCE: u32 = 0x705;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_IS_ID: u16 = 72;
@@ -95,6 +96,8 @@ fn plugin_bytes() -> Vec<u8> {
         perk(DECK, "HitTheDeck", 1, vec![entry(perks::MODIFY_DAMAGE_THRESHOLD_DEFENDER, perks::ADD_VALUE, 25.0, vec![(2, ctda(1.0, IS_IN_LIST, REVOLVERS))])]),
         // Bloody Mess: × 1.05, an owner condition that holds (the owner is the player).
         perk(BLOODY, "BloodyMess", 1, vec![entry(perks::CALCULATE_WEAPON_DAMAGE, perks::MULTIPLY_VALUE, 1.05, vec![(0, ctda(1.0, GET_IS_ID, 0x7))])]),
+        // A teammate perk (as Hand of Vengeance): × 1.15 for one companion (owner tab).
+        perk(VENGEANCE, "HandOfVengeance", 1, vec![entry(perks::CALCULATE_WEAPON_DAMAGE, perks::MULTIPLY_VALUE, 1.15, vec![(0, ctda(1.0, GET_IS_ID, NPC))])]),
     ]
     .concat();
     let npcs = [
@@ -175,6 +178,28 @@ fn weapon_damage_by_the_weapon_and_the_target_tabs() {
     // An entry point no perk has is left alone; nothing applies to another actor's hits.
     assert_eq!(value(&mut g, perks::CALCULATE_MY_CRITICAL_HIT_DAMAGE, &[revolver, target], target, 10.0), 10.0);
     assert!(g.entry_ops(FormId(NPC_REF), dmg, &[revolver, Some(P)], Some(P)).is_empty());
+}
+
+/// `player.AddPerk perk 1` gives the perk to the player's teammates: its entries apply
+/// to a teammate (its own conditions deciding which one), not to the player, and stop
+/// when the actor leaves the team.
+#[test]
+fn teammate_perks_apply_to_teammates() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (npc, other, rifle) = (FormId(NPC_REF), FormId(OTHER_REF), Some(FormId(RIFLE)));
+    let dmg = perks::CALCULATE_WEAPON_DAMAGE;
+    let of = |g: &mut Game, who: FormId| g.entry_ops(who, dmg, &[rifle, Some(P)], Some(P)).into_iter().fold(20.0, |v, (_, op)| op.apply(v));
+    g.player.teammate_perks.insert(FormId(VENGEANCE));
+    assert_eq!(of(&mut g, npc), 20.0, "not a teammate yet");
+    g.extra.entry(npc).or_default().teammate = true;
+    g.extra.entry(other).or_default().teammate = true;
+    assert!((of(&mut g, npc) - 23.0).abs() < 1e-4, "the teammate the perk names");
+    assert_eq!(of(&mut g, other), 20.0, "another teammate: its GetIsID fails");
+    assert_eq!(of(&mut g, P), 20.0, "the player does not hold a teammate perk");
+    assert_eq!(g.held_perks(npc), vec![(FormId(VENGEANCE), 1)]);
+    g.extra.entry(npc).or_default().teammate = false;
+    assert_eq!(of(&mut g, npc), 20.0, "left the team");
 }
 
 #[test]

@@ -268,7 +268,8 @@ pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 /// (1) or off it (0); the optional flags default to 1 [documented: GECK wiki
 /// ShowAllMapMarkers, "1, 1, 1 … same as first example"]. Hiding takes travel away
 /// whatever canTravel says, and showing with canTravel 0 does not take it from markers
-/// that had it [documented]; fast travel is not built, so `travel` is only kept. The
+/// that had it [documented]; the Pip-Boy's fast travel reads `travel`
+/// (`nvf_play::pipboy::data::travel`). The
 /// Explorer perk's quest calls `ShowAllMapMarkers 1 0 0` [observed: QUST 0x000038B2
 /// stage 50]. Hiding forgets the markers ShowMap showed; markers the player found and
 /// those authored Visible stay on the map [hypothesis: no shipped script hides them,
