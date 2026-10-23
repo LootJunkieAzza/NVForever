@@ -554,13 +554,22 @@ pub fn add_to_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
     let f = a.form(0)?;
     let rank = (a.num_or(1, 0.0) as i8).max(-1);
     g.extra.entry(r).or_default().factions.insert(f, rank);
+    forget_factions(g, r);
     none()
 }
 
 pub fn remove_from_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.extra.entry(r).or_default().factions.insert(a.form(0)?, -1);
+    forget_factions(g, r);
     none()
+}
+
+/// A script changed `r`'s factions: a detection round's kept list of them goes.
+fn forget_factions(g: &Game, r: FormId) {
+    if let Some(mut k) = g.detection_round.as_ref().and_then(|round| round.factions.lock().ok()) {
+        k.remove(&r);
+    }
 }
 
 /// The voice type can be given directly or as a form list of voice types.
@@ -729,6 +738,19 @@ pub fn is_killer(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// The factions an actor is in now: the records' ([`base_factions`]) unless removed, and
 /// those added at run time.
 pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
+    // Kept for a detection round, which asks again and again (`Game::begin_detection_round`).
+    let kept = g.detection_round.as_ref().map(|round| &round.factions);
+    if let Some(f) = kept.and_then(|k| k.lock().ok()?.get(&r).cloned()) {
+        return f;
+    }
+    let out = factions_now(g, r);
+    if let Some(mut k) = kept.and_then(|k| k.lock().ok()) {
+        k.insert(r, out.clone());
+    }
+    out
+}
+
+fn factions_now(g: &Game, r: FormId) -> Vec<FormId> {
     let mut out: Vec<FormId> = base_factions(g, r).iter().map(|f| f.0).collect();
     if let Some(e) = g.extra.get(&r) {
         out.extend(e.factions.keys().copied());
@@ -837,6 +859,7 @@ pub fn remove_from_all_factions(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Va
     for f in factions_of(g, r) {
         g.extra.entry(r).or_default().factions.insert(f, -1);
     }
+    forget_factions(g, r);
     none()
 }
 

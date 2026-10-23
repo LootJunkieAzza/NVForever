@@ -47,7 +47,7 @@ use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::forms::{ArmorClass, ItemKind};
 use fnv_sim::FormId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub const INVISIBILITY: u16 = 48;
 pub const CHAMELEON: u16 = 49;
@@ -272,6 +272,30 @@ impl Settings {
     }
 }
 
+/// What a detection round keeps ([`Game::begin_detection_round`]).
+#[derive(Debug, Default)]
+pub struct Round {
+    sides: HashMap<FormId, Side>,
+    /// `hostile_to(actor, other)` by (actor, other), until [`Game::end_detection_hostility`].
+    pub(crate) hostile: Option<HashMap<(FormId, FormId), bool>>,
+    /// Each actor's factions (`functions::actor::factions_of`), for the whole round: they
+    /// change only by script (AddToFaction and the like), which forgets them.
+    pub(crate) factions: std::sync::Mutex<HashMap<FormId, Vec<FormId>>>,
+}
+
+/// One actor's detection inputs ([`Pair`]'s detector and target fields).
+#[derive(Debug, Clone, Copy)]
+struct Side {
+    perception: f64,
+    night_eye: bool,
+    sneak: f64,
+    invisible: bool,
+    armor_weight: f64,
+    armor_class: ArmorClass,
+    level: f64,
+    sound_level: Option<SoundLevel>,
+}
+
 /// What the two actors' records and actor values say, for one detector and one target.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pair {
@@ -482,24 +506,67 @@ impl Game<'_> {
 
     /// What the records and actor values say for `detector` perceiving `target`.
     pub fn detection_pair(&mut self, detector: FormId, target: FormId) -> Pair {
-        let av = |g: &mut Game, r: FormId, code: u16| actor_value(g, r, code).unwrap_or(0.0);
-        let detector_perception = capped(PERCEPTION, av(self, detector, PERCEPTION));
-        let detector_night_eye = av(self, detector, NIGHT_EYE) != 0.0;
-        let target_sneak = capped(SNEAK, av(self, target, SNEAK));
-        let target_invisible = av(self, target, INVISIBILITY) >= 1.0 || av(self, target, CHAMELEON) >= 1.0;
-        let (target_armor_weight, target_armor_class) = self.body_armor(target).unwrap_or((0.0, ArmorClass::Light));
+        let (d, t) = (self.detection_side(detector), self.detection_side(target));
         Pair {
-            detector_perception,
-            detector_level: self.actor_level(detector),
-            detector_night_eye,
-            target_sneak,
-            target_level: self.actor_level(target),
-            target_invisible,
-            target_armor_weight,
-            target_armor_class,
+            detector_perception: d.perception,
+            detector_level: d.level,
+            detector_night_eye: d.night_eye,
+            target_sneak: t.sneak,
+            target_level: t.level,
+            target_invisible: t.invisible,
+            target_armor_weight: t.armor_weight,
+            target_armor_class: t.armor_class,
             ignore_running: false,
-            target_sound_level: self.stats_def(target).filter(|d| &d.sig == b"CREA").and_then(|d| d.sound_level.as_deref()).and_then(SoundLevel::parse),
+            target_sound_level: t.sound_level,
         }
+    }
+
+    /// One actor's part of a [`Pair`], as detector and as target: worked out once per
+    /// detection round ([`Game::begin_detection_round`]), else each time.
+    fn detection_side(&mut self, r: FormId) -> Side {
+        if let Some(s) = self.detection_round.as_ref().and_then(|round| round.sides.get(&r)) {
+            return *s;
+        }
+        let av = |g: &mut Game, code: u16| actor_value(g, r, code).unwrap_or(0.0);
+        let (armor_weight, armor_class) = self.body_armor(r).unwrap_or((0.0, ArmorClass::Light));
+        let s = Side {
+            perception: capped(PERCEPTION, av(self, PERCEPTION)),
+            night_eye: av(self, NIGHT_EYE) != 0.0,
+            sneak: capped(SNEAK, av(self, SNEAK)),
+            invisible: av(self, INVISIBILITY) >= 1.0 || av(self, CHAMELEON) >= 1.0,
+            armor_weight,
+            armor_class,
+            level: self.actor_level(r),
+            sound_level: self.stats_def(r).filter(|d| &d.sig == b"CREA").and_then(|d| d.sound_level.as_deref()).and_then(SoundLevel::parse),
+        };
+        if let Some(round) = self.detection_round.as_mut() {
+            round.sides.insert(r, s);
+        }
+        s
+    }
+
+    /// Start a detection round: until [`Game::end_detection_round`], each actor's
+    /// detection inputs (its actor values, level and armour) and who would attack whom are
+    /// worked out once and kept. The engine measures every pair of the loaded actors four
+    /// times a second; worked out per pair, these were most of a 50-a-side battle's frame
+    /// time, and each actor's factions, read for every hostility check, more [observed: CPU
+    /// profiles, 2026-10-23, docs/design/streaming-hitches.md §4]. Within a round nothing
+    /// they read changes: the pairs only record detections and awareness.
+    pub fn begin_detection_round(&mut self) {
+        self.detection_round = Some(Round { hostile: Some(HashMap::new()), ..Default::default() });
+    }
+
+    /// Who would attack whom is worked out afresh from here on in the round: hits that
+    /// provoke and allies taking up a fight change it. Each actor's factions stay kept.
+    pub fn end_detection_hostility(&mut self) {
+        if let Some(r) = self.detection_round.as_mut() {
+            r.hostile = None;
+        }
+    }
+
+    /// End the detection round: what it kept is dropped.
+    pub fn end_detection_round(&mut self) {
+        self.detection_round = None;
     }
 
     /// The weight and class of the armour an actor wears in the torso slot.

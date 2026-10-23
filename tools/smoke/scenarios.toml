@@ -3126,6 +3126,27 @@ expect = [
 manual = "the frame at 14 s shows the player's body as a clear, slightly bent outline of what lies behind it"
 
 [[scenario]]
+name = "stealth-boy-pipboy"
+source = "owner 2026-10-23: under a Stealth Boy the Pip-Boy's screen was see-through too, so the menus could not be used; the screen is drawn plain while the menus are on it, the arm stays see-through"
+note = "first person; the Stealth Boy used at 8 s; the Pip-Boy up on ITEMS at 18 s, after the add-ons' start-up message boxes (frame at 20 s), down at 21 s, up again at 23 s (the screen had turned see-through again), down at 25 s"
+areas = ["aid", "pipboy"]
+paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_DROP = "8:00043E94:use", NVF_PLAY_TEST_PIPBOY = "18:open,21:close,23:open,25:close", NVF_PLAY_TEST_SHOTS = "20:stealth_pipboy.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  { text = "pipboy: the menus are on the screen drawn plain under the Stealth Boy", count = 2, label = "each time the Pip-Boy comes up, the menus are drawn plain" },
+]
+order = [[
+  { re = 'stealth field: on \(Chameleon 75\): [1-9]\d* meshes see-through' },
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: the menus are on the screen drawn plain under the Stealth Boy",
+  "pipboy: the menus are on the model's screen",
+  "pipboy: down",
+]]
+manual = "the frame at 20 s shows the ITEMS page clearly on the screen while the arm around it refracts"
+
+[[scenario]]
 name = "no-messages"
 source = "engine/nvf-play/src/script.rs module doc: --no-messages closes message boxes that ask nothing at once; the twelve add-on start-up boxes of a Goodsprings start are such boxes"
 areas = ["scripts", "menus"]
@@ -7327,6 +7348,20 @@ expect = [
   { re = 'mines: [1-9]\d* live mine\(s\) in the loaded cells', label = "it counts as a live mine" },
 ]
 forbid = [{ re = 'mines: 0x00000014 sets off mine 0xFF', label = "the player sets off its own mine" }]
+
+[[scenario]]
+name = "mines-held"
+source = "owner 2026-10-23: the frag mine is held back to front in first person; in the game its ringed top faces the view, the wire handle at the right in the hand, thumb over the rim (owner's frames in C:/fnv-private/references/mines)"
+note = "God mode, in Goodsprings, the player draws a frag mine in first person; frames held level and looking down (compare with the owner's game frames: top up and tilted back, thumb over the rim, no left hand, no glow; animation.md §9.11), mid-throw and lying on the ground"
+areas = ["combat"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0000433C:3", NVF_PLAY_TEST_EQUIP = "0000433C", NVF_PLAY_TEST_CONTROL = "6:weapon,10.5:fire", NVF_PLAY_TEST_LOOK = "9.3:0:-35,13:0:-55", NVF_PLAY_TEST_SHOTS = "9:mine_held.png,9.8:mine_held_down.png,10.8:mine_throw.png,14:mine_ground.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'player First rig: hand grip .*1lmhandgrip1\.kf', label = "the first-person hand holds the mine with its grip clip" },
+  { re = 'test aid: screenshot .*mine_held\.png', label = "the held mine is shot" },
+]
 
 [[scenario]]
 name = "actor-jumps"
