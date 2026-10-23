@@ -912,6 +912,18 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   other weather and world is lit relative to them, by one rule. Interiors keep XCLL's
   light unchanged (their image spaces' dimmers are not checked yet). The log's
   `sky: ...` line ends with `sun x<scale>`.
+- **Checked** [observed, 1280 × 720 renders of the OWB comparison cameras against the
+  original's, medians of 8-bit regions]: Big MT ×2.05 by day, ×2.0 at sunrise and night,
+  ×1.7 at sunset. Think Tank by day frame mean 63.8 → 72.0 (original 72.1); X-8 26.7 →
+  35.0 (31.6); X-12 at sunset 54.9 → 60.9 (76.3); Little Yangtze sunrise 78.5 → 82.9
+  (103.0); Think Tank night ground (11, 12, 22) → (21, 23, 32) (original (22, 20, 35)).
+  Z-38 at night overshoots (25.0 → 37.4, original 22.7): its east-facing facades are lit,
+  which the original leaves dark (moonlight direction, OWB F5). Mojave Goodsprings in
+  NVWastelandClear at 12:06 and 19:06: ×1.00, region medians unchanged. Dead Money: the
+  Villa ×1.00 at night (unchanged); Puesta del Sol ×0.49 at night takes out some of the
+  greenish-white moonlight on the lantern wall, which the original does not show, and
+  the frame mean goes 24.3 → 21.9 (original 38.4, lit by warm ambient and the lantern:
+  a separate gap).
 - **Open**: whether the dimmer's own change through the day also applies in the Mojave
   (the reference would then be the day value 1.21 alone: sunrise × 1.36, night × 0.91).
   The Mojave fit's per-hour sun factors (0.9-1.2 at 07:36 against 0.5 at 09:06) lean that
