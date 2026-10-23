@@ -112,6 +112,12 @@ pub struct CreatorMenu {
     hits: Vec<Hit>,
     /// The slider row being dragged.
     drag: Option<usize>,
+    /// The scrollbar is being dragged.
+    scroll_drag: bool,
+    /// Where the pointer was last frame: hovering chooses only when it moves (or the
+    /// rows scrolled under it), so it does not take the choice back from the keys.
+    last_pointer: Option<Vec2>,
+    hover_after_scroll: bool,
     /// The camera being dragged, and with which button.
     camera_drag: Option<CameraDrag>,
     camera_button: Option<MouseButton>,
@@ -148,6 +154,12 @@ enum Op {
     StepTab(i32),
     StepRow(i32),
     Select(usize),
+    /// The pointer over a bottom button.
+    HoverAction(usize),
+    /// The wheel: scroll the rows by so many (the chosen row stays).
+    Scroll(i32),
+    /// The scrollbar: the first row shown.
+    ScrollTo(usize),
     Adjust(i32, bool),
     /// Change row `i` by a step.
     AdjustRow(usize, i32),
@@ -433,8 +445,23 @@ fn input(
                 }
             }
         }
+        // Hovering chooses the row or button under the pointer [owner 2026-10-23: "add
+        // mouse hover for selecting options"], when the pointer moved or the rows
+        // scrolled under it, and not while something is dragged.
+        let moved = st_ref.last_pointer.is_some_and(|q| q.distance(p) > 0.5);
+        st_ref.last_pointer = Some(p);
+        let dragging = st_ref.drag.is_some() || st_ref.scroll_drag || st_ref.camera_drag.is_some();
+        if (moved || st_ref.hover_after_scroll) && !dragging {
+            st_ref.hover_after_scroll = false;
+            match under {
+                Some(HitWhat::Row(i) | HitWhat::Arrow(i, _) | HitWhat::Track(i) | HitWhat::Swatch(i, _)) if m.on_actions.is_some() || m.row() != i => ops.push((Op::Select(i), "hover")),
+                Some(HitWhat::Action(i)) if m.on_actions != Some(i) => ops.push((Op::HoverAction(i), "hover")),
+                _ => {}
+            }
+        }
         if mouse.just_pressed(MouseButton::Left) {
             match under {
+                Some(HitWhat::Scrollbar) => st_ref.scroll_drag = true,
                 Some(HitWhat::Tab(i)) => ops.push((Op::Tab(m.tabs()[i]), "click")),
                 Some(HitWhat::Arrow(i, by)) => ops.push((Op::AdjustRow(i, by), "click")),
                 Some(HitWhat::Track(i)) => {
@@ -450,6 +477,13 @@ fn input(
                 _ => {}
             }
         }
+        if st_ref.scroll_drag {
+            if mouse.pressed(MouseButton::Left) {
+                ops.push((Op::ScrollTo(view::first_at(&view::heights(m), p.y)), "drag"));
+            } else {
+                st_ref.scroll_drag = false;
+            }
+        }
         if let Some(i) = st_ref.drag {
             if mouse.pressed(MouseButton::Left) {
                 ops.push((Op::Track(i, view::track_fraction(p.x)), "drag"));
@@ -458,11 +492,14 @@ fn input(
             }
         }
         if wheel.abs() >= 1.0 {
-            if under.is_some() {
-                ops.push((Op::StepRow(-wheel.round() as i32), "wheel"));
-            } else {
+            match under {
+                // The wheel scrolls the rows only [owner 2026-10-23: "scroll should only
+                // scroll the page items not the bottom bar"]; on the tabs or buttons it
+                // does nothing.
+                Some(HitWhat::Panel | HitWhat::Tab(_) | HitWhat::Action(_)) => {}
+                Some(_) => ops.push((Op::Scroll(-wheel.round() as i32), "wheel")),
                 // A notch: a tenth nearer or further.
-                m.view.zoom_by(0.9f32.powf(wheel));
+                None => m.view.zoom_by(0.9f32.powf(wheel)),
             }
         }
     }
@@ -520,6 +557,24 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
         }
         Op::Select(i) => {
             m.select_row(i);
+        }
+        Op::HoverAction(i) => {
+            m.on_actions = Some(i.min(ACTIONS.len() - 1));
+        }
+        Op::Scroll(_) | Op::ScrollTo(_) => {
+            let heights = view::heights(m);
+            let first = match op {
+                Op::Scroll(by) => (m.scroll() as i64 + i64::from(by)).max(0) as usize,
+                Op::ScrollTo(first) => first,
+                _ => unreachable!(),
+            };
+            let first = first.min(view::max_first(&heights));
+            if first != m.scroll() {
+                m.set_scroll(first);
+                st.hover_after_scroll = true;
+                st.dirty = true;
+            }
+            return None;
         }
         Op::Adjust(by, fine) => {
             let shown = m.chosen_row().map(|r| m.view(r));
@@ -613,6 +668,13 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
             if let Some(Row::Slider(k)) = m.chosen_row() {
                 m.set_slider(k, f);
             }
+        }
+    }
+    if (before.0, before.1) != (m.tab, m.row()) || before.2 != m.on_actions {
+        // The chosen row moved (keys, a click, a test aid): scroll it into view.
+        if m.on_actions.is_none() {
+            let first = view::reveal(&view::heights(m), m.scroll(), m.row());
+            m.set_scroll(first);
         }
     }
     let after = (m.tab, m.row(), m.on_actions, &m.look);
