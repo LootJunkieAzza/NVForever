@@ -4235,9 +4235,10 @@ name = "save-delete-console"
 source = "outstanding.md §2 Saves and Console (2026-10-19; docs/design/save-load.md §6.1, docs/design/console.md): a console line of several statements runs each in order; a save written from the console is deleted from the pause menu's load page (Delete, then Yes) and the page lists the saves again without it"
 areas = ["save", "console"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/console.rs"]
-env = { NVFOREVER_HOME = "save-delete-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav luck 7; player.getav luck;13:save delete-me;14:close", NVF_PLAY_TEST_PAUSE = "16:22", NVF_PLAY_TEST_PAUSE_MENU = "17:load,18:delete,18.5:shot,19:yes,21:back" }
+# The console waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
+env = { NVFOREVER_HOME = "save-delete-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.setav luck 7; player.getav luck;21:save delete-me;22:close", NVF_PLAY_TEST_PAUSE = "24:30", NVF_PLAY_TEST_PAUSE_MENU = "25:load,26:delete,26.5:shot,27:yes,29:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 24
+run_seconds = 32
 expect = [
   "console: 2 statements on the line",
   { re = 'console: GetActorValue on player >> 7\.00', label = "the second statement reads what the first set" },
@@ -4252,9 +4253,10 @@ name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]
 paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
-env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.additem Stimpak 7;12.5:player.getitemcount Stimpak;13:0010A202.disable;13.5:player.setav luck 9;14:save smoke-roundtrip;15:saves;16:coc GSProspectorSaloonInterior;24:autosave;25:close", NVF_PLAY_TEST_PAUSE = "26:31.5", NVF_PLAY_TEST_PAUSE_MENU = "26.5:save,28:load,29:down,30:up,30.5:back" }
+# The console waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:player.additem Stimpak 7;20.5:player.getitemcount Stimpak;21:0010A202.disable;21.5:player.setav luck 9;22:save smoke-roundtrip;23:saves;24:coc GSProspectorSaloonInterior;32:autosave;33:close", NVF_PLAY_TEST_PAUSE = "34:39.5", NVF_PLAY_TEST_PAUSE_MENU = "34.5:save,36:load,37:down,38:up,38.5:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 33
+run_seconds = 41
 expect = [
   { re = 'console: GetItemCount on player >> 12\.00', label = "twelve Stimpaks before saving" },
   { re = 'save: wrote .*smoke-roundtrip\.nvfsave \(manual, \d+ bytes, \d+ changed references\)', label = "the save is written" },
@@ -4332,8 +4334,9 @@ expect = [
 name = "load-handoff"
 source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
 areas = ["save"]
-paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs"]
-env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:save handoff-test;14:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
+paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs"]
+# The save waits past the add-on packs' message boxes (each held 0.3 s), which run to about 13 s.
+env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "20:save handoff-test;22:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 90
 # The old run ends by handing over, not at run_seconds; the new one by its test aid.
@@ -4348,6 +4351,7 @@ expect = [
   { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends when the new one is up" },
   { re = 'the previous run did not end normally', count = 0, label = "the new run does not take the old one for a crash" },
   { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
+  { text = "menu pause: the picture runs again", count = 0, label = "the world behind the loading screen stands still while the new run loads (owner 2026-10-23: a load from the main menu played the opening behind it)" },
 ]
 
 [[scenario]]
