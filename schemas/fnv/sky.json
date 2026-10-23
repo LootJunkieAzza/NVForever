@@ -731,6 +731,30 @@
      }
     }
    ]
+  },
+  "RegionSound": {
+   "struct": [
+    {
+     "name": "sound",
+     "type": "formid"
+    },
+    {
+     "name": "flags",
+     "type": {
+      "flags": "u32",
+      "bits": {
+       "0": "Pleasant",
+       "1": "Cloudy",
+       "2": "Rainy",
+       "3": "Snowy"
+      }
+     }
+    },
+    {
+     "name": "chance",
+     "type": "u32"
+    }
+   ]
   }
  },
  "records": {
@@ -1554,6 +1578,14 @@
      },
      "confidence": "observed",
      "note": "The region's imposter list: the references with the REFR XSRF Imposter flag that are drawn always while the player is in the region [documented: GECK wiki 'Reference', owner's export]. Observed in FalloutNV.esm: present only after an RDAT of type 8, in 18 regions (StripImposter lists 222 references, StripImposterClose 10), each entry a REFR FormID; the subrecord name is not checked against xEdit"
+    },
+    "RDSD": {
+     "name": "Sounds",
+     "type": {
+      "array": "RegionSound"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbRegionSounds (RDSD for FNV): sound, weather flags, chance stored ×10,000 (wbScaledInt4)"
     }
    }
   }

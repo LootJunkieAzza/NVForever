@@ -126,6 +126,42 @@ fn main() {
     }
     println!("{} CREA: {own} list sounds, {inherit} inherit them (CSCR) only, {inherit_and_own} both, {template_only} only a template (TPLT), {none} neither", crea.len());
     println!("{resolved} have sounds after following CSCR");
+    // Template-only creatures: the sounds of what their template (TPLT) gives, a creature
+    // or every creature a leveled list (LVLC LVLO) can pick, followed down [as the engine
+    // reads them: the Model/Animation source's, audio.md §14.1].
+    fn picks<'a>(lo: &LoadOrder, fields: &dyn Fn(u32) -> Option<Fields<'a>>, id: u32, depth: u32, out: &mut Vec<u32>) {
+        let Some(f) = fields(id).filter(|_| depth < 8) else { return };
+        match &f.sig {
+            b"CREA" => out.push(id),
+            b"LVLC" => {
+                for e in f.subs.iter().filter(|s| &s.sig == b"LVLO") {
+                    if let Some(next) = f.decode(e).and_then(|v| v.get("reference").and_then(fnv_world::fields::formid_of)).and_then(|l| fnv_world::fields::global(lo, f.plugin, l)) {
+                        picks(lo, fields, next, depth + 1, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let (mut all, mut some, mut silent) = (0, 0, Vec::new());
+    for &id in &crea {
+        let Some(f) = fields(id) else { continue };
+        if !creature_sounds(&lo, &schema, id).0.is_empty() {
+            continue;
+        }
+        let Some(t) = f.formid(b"TPLT", &lo) else { continue };
+        let mut got = Vec::new();
+        picks(&lo, &fields, t, 0, &mut got);
+        let heard = got.iter().filter(|&&c| !creature_sounds(&lo, &schema, c).0.is_empty()).count();
+        if !got.is_empty() && heard == got.len() {
+            all += 1;
+        } else if heard > 0 {
+            some += 1;
+        } else {
+            silent.push(edid(id));
+        }
+    }
+    println!("creatures without sounds of their own that have a template: {all} get sounds from every creature it can give, {some} from some, {} from none: {silent:?}", silent.len());
     println!("types listed (creatures, sounds):");
     for (k, (c, n)) in &by_type {
         println!("  {k:>2} {:<22} {c:>4} {n:>5}", creature_sound_type_name(*k));

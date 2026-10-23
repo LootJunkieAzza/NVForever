@@ -74,7 +74,7 @@ everything below is [design] (combat is not a parity target). Built in
 - **The player takes damage** (each `ActorHit` on the player that took health): by the
   share `s` of the maximum health it took, `t = min(4 s, 1)`: strong `0.35 + 0.65 t`, weak
   `0.5`, `0.15 + 0.30 t` s.
-- **A hard landing** (the physics step's touchdown speed; fall damage is physics.md §6.10):
+- **A hard landing** (the physics step's touchdown speed; fall damage is physics.md §6.12):
   from 600 units/s (a drop of about 260 units under gravity 687 units/s²; a jump lands at
   about 290), `t` up to 1 at 1200 (a drop of about 1050): strong `0.45 + 0.55 t`, weak
   `0.3`, `0.15 + 0.25 t` s.

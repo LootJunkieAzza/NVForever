@@ -353,7 +353,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
             .init_resource::<RunPace>()
-            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
@@ -564,6 +564,24 @@ pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState
     }
     if st.1 && !intent.walk {
         intent.walk = true;
+    }
+}
+
+/// While the player flinches from a staggering hit (`crate::combat`, crippled-limbs.md
+/// §3) they do not walk or jump: the hit's stagger holds them where they stand, as it
+/// holds NPCs and creatures (`nvforever` residents.rs) [design: owner's playtest list 7
+/// item 13, "npcs/creatures and the player should be stopped from moving whilst a
+/// crippled animation or stagger is currently playing"].
+pub fn flinch_holds_walk(combat: Option<Res<crate::combat::Combat>>, mut intent: ResMut<MoveIntent>, mut held: Local<bool>) {
+    let now = combat.is_some_and(|c| c.player_flinching());
+    if now != *held {
+        *held = now;
+        if now {
+            info!("player: held where they stand while they flinch");
+        }
+    }
+    if now && (intent.forward != 0.0 || intent.right != 0.0 || intent.jump) {
+        (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
     }
 }
 
@@ -927,6 +945,7 @@ fn step(
             p.prev_feet = at;
         }
         p.prev_feet = at;
+        p.player_lift.reset();
         player.feet = at;
         return;
     }
@@ -954,6 +973,7 @@ fn step(
         if v != [0.0; 3] {
             player.placed = None;
         }
+        p.player_lift.reset();
         let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
         player.feet = lerp3(p.prev_feet, c.feet, alpha);
         return;
@@ -1061,7 +1081,11 @@ fn step(
             b.list = all;
         }
         let was_swimming = c.swimming;
+        let was_on_ground = c.grounded && !c.swimming;
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).
+        let moved = (c.feet[0] - p.prev_feet[0]).hypot(c.feet[1] - p.prev_feet[1]);
+        p.player_lift.step(c.feet[2] - p.prev_feet[2], moved, was_on_ground && c.grounded && !c.swimming, dt);
         if s.swimming != was_swimming {
             let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
             info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
@@ -1084,7 +1108,10 @@ fn step(
         // The actors another system walks, by the velocity it gave each.
         for ((&id, b), v) in p.npcs.iter_mut().zip(walking) {
             b.prev_feet = b.ch.feet;
+            let was_on_ground = b.ch.grounded && !b.ch.swimming;
             let s = p.world.move_character(&mut b.ch, CharacterInput { velocity: v, jump: std::mem::take(&mut b.jump), ..Default::default() });
+            let (f, from) = (b.ch.feet, b.prev_feet);
+            b.lift.step(f[2] - from[2], (f[0] - from[0]).hypot(f[1] - from[1]), was_on_ground && b.ch.grounded && !b.ch.swimming, dt);
             if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(id, b.prev_feet[2], &s)) {
                 fell.write(crate::falls::Fell { actor: FormId(id), height });
             }

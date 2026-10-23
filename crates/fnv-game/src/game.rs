@@ -188,6 +188,10 @@ pub struct RefExtra {
     pub ghost: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub restrained: bool,
+    /// The player woke it by talking to it while it slept: until this game time it stays
+    /// off its bed (`Game::wake`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub woken_until: Option<f64>,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub unconscious: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
@@ -2964,6 +2968,20 @@ impl<'a> Game<'a> {
             let e = self.effects.remove(i);
             self.instances.remove(&InstKey::Effect { id });
             self.emit(EventKind::EffectFinished { id, target: e.target, source: e.source });
+            self.drug_wore_off(e.target, e.source);
+        }
+    }
+
+    /// The last effect of a chem (ALCH of equip type Chems) the player took has ended: the
+    /// default objects' Drug Wears Off Image Space plays [documented: the DOBJ entry's
+    /// name; hypothesis: when, docs/spec-notes/default-objects.md].
+    fn drug_wore_off(&mut self, target: FormId, source: FormId) {
+        let chem = self.data.ingestibles.get(&source).is_some_and(|i| i.equip_type == crate::data::IngestibleDef::CHEMS);
+        if target != FormId::PLAYER_REF || !chem || self.effects.iter().any(|x| x.target == target && x.source == source) {
+            return;
+        }
+        if let Some(m) = self.data.default_object(crate::data::DefaultObject::DrugWearsOffImageSpace).filter(|m| self.data.image_modifiers.contains_key(m)) {
+            self.apply_image_modifier(m);
         }
     }
 

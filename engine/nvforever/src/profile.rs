@@ -1,0 +1,239 @@
+//! An in-engine CPU profile by span (docs/design/frame-rate-audit.md §1), for finding what
+//! costs the frames without a sampling profiler (xperf needs elevation;
+//! docs/design/streaming-hitches.md §1).
+//!
+//! `NVF_PLAY_TEST_PROFILE=<seconds>`: every that many real seconds one line
+//! `profile: <s> s, <n> frames, frame mean <m> ms, cpu <c> ms a frame; per frame: <span>
+//! <ms>, …` (cpu: the process's processor time over every thread, which other programs
+//! on a busy machine do not inflate as they do wall times) with the
+//! spans that took the most time in the window, summed over every thread and divided by
+//! the frames (a system that runs on a worker thread beside others counts its own time,
+//! not the frame's). The spans are Bevy's: each system (`system` spans, by the system's
+//! name), the schedules, the render graph's nodes and the render app's systems. They exist
+//! only in a build with Bevy's `trace` feature (`cargo build --release --features
+//! profile`); without it the lines say no spans were seen. The layer is installed only
+//! when the variable is set.
+//!
+//! Each window also logs `profile scene: <n> mesh entities (<v> visible, <c> moved this
+//! frame), <m> distinct meshes, <u> distinct materials in use (<a> material assets)`: what
+//! the renderer batches by, and how many entities it extracts again because their
+//! transform changed.
+
+use bevy::log::tracing::field::{Field, Visit};
+use bevy::log::tracing::span::{Attributes, Id};
+use bevy::log::tracing::Subscriber;
+use bevy::log::tracing_subscriber::layer::Context;
+use bevy::log::tracing_subscriber::registry::LookupSpan;
+use bevy::log::tracing_subscriber::Layer;
+use bevy::log::BoxedLayer;
+use bevy::prelude::*;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
+
+/// Spans listed in a line, the most costly first.
+const LISTED: usize = 40;
+
+/// The window in seconds, when `NVF_PLAY_TEST_PROFILE` asks for a profile.
+pub fn interval() -> Option<f32> {
+    static EVERY: OnceLock<Option<f32>> = OnceLock::new();
+    *EVERY.get_or_init(|| std::env::var("NVF_PLAY_TEST_PROFILE").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|s| *s > 0.0))
+}
+
+/// Time per span key in the current window: (seconds, entries).
+static TOTALS: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
+
+/// The layer, when the profile is asked for.
+pub fn layer() -> Option<BoxedLayer> {
+    interval()?;
+    Some(Box::new(SpanTimes))
+}
+
+struct SpanTimes;
+
+/// A span's key (its name, with the `name` field of Bevy's system spans) and when it was
+/// last entered.
+struct Timing {
+    key: String,
+    entered: Option<Instant>,
+}
+
+/// Reads the `name` field of a span.
+struct NameField(Option<String>);
+
+impl Visit for NameField {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "name" {
+            self.0 = Some(value.to_string());
+        }
+    }
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "name" && self.0.is_none() {
+            self.0 = Some(format!("{value:?}").trim_matches('"').to_string());
+        }
+    }
+}
+
+impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for SpanTimes {
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let mut name = NameField(None);
+        attrs.record(&mut name);
+        let base = attrs.metadata().name();
+        let key = match name.0 {
+            Some(n) => short_name(&n),
+            None => base.to_string(),
+        };
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert(Timing { key, entered: None });
+        }
+    }
+
+    fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
+        if let Some(span) = ctx.span(id) {
+            if let Some(t) = span.extensions_mut().get_mut::<Timing>() {
+                t.entered = Some(Instant::now());
+            }
+        }
+    }
+
+    fn on_exit(&self, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else { return };
+        let mut ext = span.extensions_mut();
+        let Some(t) = ext.get_mut::<Timing>() else { return };
+        let Some(at) = t.entered.take() else { return };
+        let secs = at.elapsed().as_secs_f64();
+        let mut totals = TOTALS.lock().unwrap_or_else(|e| e.into_inner());
+        let e = totals.get_or_insert_with(HashMap::new).entry(t.key.clone()).or_default();
+        e.0 += secs;
+        e.1 += 1;
+    }
+}
+
+/// A system's type path without its modules: `nvforever::residents::drive` →
+/// `residents::drive` (the last two segments outside generics).
+pub fn short_name(full: &str) -> String {
+    let head = full.split('<').next().unwrap_or(full);
+    let parts: Vec<&str> = head.split("::").collect();
+    let keep = parts.len().saturating_sub(2);
+    let mut s = parts[keep..].join("::");
+    if head.len() < full.len() {
+        s.push_str("<…>");
+    }
+    s
+}
+
+pub struct ProfilePlugin;
+
+impl Plugin for ProfilePlugin {
+    fn build(&self, app: &mut App) {
+        let Some(every) = interval() else { return };
+        info!("test aid NVF_PLAY_TEST_PROFILE: a span profile every {every} s");
+        app.insert_resource(ProfileWindow { every, ..default() }).add_systems(Last, report);
+    }
+}
+
+#[derive(Resource, Default)]
+struct ProfileWindow {
+    every: f32,
+    /// The process's processor time at the window's start (seconds).
+    cpu_at: Option<f64>,
+    since: f32,
+    frames: u32,
+    frame_secs: f32,
+}
+
+#[allow(clippy::type_complexity)]
+fn report(
+    time: Res<Time<Real>>,
+    mut w: ResMut<ProfileWindow>,
+    meshes: Query<(&Mesh3d, Option<&MeshMaterial3d<nvf_assets::NifMaterial>>, &ViewVisibility)>,
+    moved: Query<(), (With<Mesh3d>, Changed<GlobalTransform>)>,
+    materials: Res<Assets<nvf_assets::NifMaterial>>,
+) {
+    let dt = time.delta_secs();
+    w.since += dt;
+    w.frames += 1;
+    w.frame_secs += dt;
+    if w.since < w.every {
+        return;
+    }
+    let totals = TOTALS.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
+    let frames = w.frames.max(1) as f64;
+    let cpu = process_cpu_secs();
+    let cpu_ms = cpu.zip(w.cpu_at).map(|(now, at)| (now - at) * 1000.0 / frames);
+    let text = line(w.since, w.frames, w.frame_secs, &totals, frames);
+    info!("{}", match cpu_ms {
+        Some(c) => text.replacen(" ms; ", &format!(" ms, cpu {c:.1} ms a frame; "), 1),
+        None => text,
+    });
+    let (mut visible, mut ids, mut mats) = (0usize, std::collections::HashSet::new(), std::collections::HashSet::new());
+    for (mesh, material, vis) in &meshes {
+        visible += usize::from(vis.get());
+        ids.insert(mesh.0.id());
+        if let Some(m) = material {
+            mats.insert(m.0.id());
+        }
+    }
+    info!(
+        "profile scene: {} mesh entities ({visible} visible, {} moved this frame), {} distinct meshes, {} distinct materials in use ({} material assets)",
+        meshes.iter().count(),
+        moved.iter().count(),
+        ids.len(),
+        mats.len(),
+        materials.len()
+    );
+    *w = ProfileWindow { every: w.every, cpu_at: cpu, ..default() };
+}
+
+/// The line for a window.
+fn line(secs: f32, frames: u32, frame_secs: f32, totals: &HashMap<String, (f64, u64)>, per: f64) -> String {
+    let mut spans: Vec<(&String, &(f64, u64))> = totals.iter().collect();
+    spans.sort_by(|a, b| b.1 .0.total_cmp(&a.1 .0));
+    let listed: Vec<String> = spans.iter().take(LISTED).map(|(k, (s, _))| format!("{k} {:.2}", s * 1000.0 / per)).collect();
+    let mean = if frames > 0 { frame_secs * 1000.0 / frames as f32 } else { 0.0 };
+    if listed.is_empty() {
+        format!("profile: {secs:.1} s, {frames} frames, frame mean {mean:.1} ms; no spans seen (build with --features profile)")
+    } else {
+        format!("profile: {secs:.1} s, {frames} frames, frame mean {mean:.1} ms; per frame ms: {}", listed.join(", "))
+    }
+}
+
+/// The processor time the process has used so far, user and kernel, seconds.
+#[cfg(windows)]
+fn process_cpu_secs() -> Option<f64> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let mut t = [FILETIME::default(); 4];
+    // SAFETY: the pseudo handle of the current process needs no closing; the four out
+    // pointers are to live FILETIMEs.
+    let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut t[0], &mut t[1], &mut t[2], &mut t[3]) };
+    let secs = |f: &FILETIME| ((u64::from(f.dwHighDateTime) << 32) | u64::from(f.dwLowDateTime)) as f64 * 1e-7;
+    (ok != 0).then(|| secs(&t[2]) + secs(&t[3]))
+}
+
+#[cfg(not(windows))]
+fn process_cpu_secs() -> Option<f64> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_names_keep_their_module() {
+        assert_eq!(short_name("nvforever::residents::drive"), "residents::drive");
+        assert_eq!(short_name("drive"), "drive");
+        assert_eq!(short_name("bevy_ecs::event::update<nvf_play::Foo>"), "event::update<…>");
+    }
+
+    #[test]
+    fn a_line_lists_the_costliest_first_per_frame() {
+        let mut t = HashMap::new();
+        t.insert("a".to_string(), (0.010, 10));
+        t.insert("b".to_string(), (0.100, 10));
+        let l = line(1.0, 10, 1.0, &t, 10.0);
+        assert!(l.contains("per frame ms: b 10.00, a 1.00"), "{l}");
+        assert!(line(1.0, 0, 0.0, &HashMap::new(), 1.0).contains("no spans seen"));
+    }
+}

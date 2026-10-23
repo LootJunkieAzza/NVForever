@@ -132,15 +132,60 @@ const GET_UPS: [[&str; 3]; 2] = [
     ["idleanims\\mt_knockdownfaceup.kf", "idleanims\\specialidle_getupfaceup.kf", "idleanims\\mtspecialidle_getupright.kf"],
     ["idleanims\\mt_knockdownfacedown.kf", "idleanims\\specialidle_getupfacedown.kf", "idleanims\\mtspecialidle_getupleft.kf"],
 ];
-/// Hit reactions: torso, head, left and right arm, left and right leg [observed: the
-/// `_male\idleanims` names; design: which location plays which].
-const FLINCHES: [&str; 6] = [
-    "idleanims\\mt_hittorso.kf",
-    "idleanims\\mt_hithead.kf",
-    "idleanims\\mt_hitarmleft.kf",
-    "idleanims\\mt_hitarmright.kf",
-    "idleanims\\mt_hitlegleft.kf",
-    "idleanims\\mt_hitlegright.kf",
+/// Hit reactions: torso, head, left and right arm, left and right leg, the first of each
+/// list that a skeleton's folder has [observed: the `_male\idleanims` names; the creature
+/// folders' `idleanims` names in `Fallout - Meshes.bsa`, 2026-10-23: `specialidle_hit…`
+/// (ghoul, deathclaw, super mutant, mantis …; some spell `hitleftarm` for `hitarmleft`),
+/// `mtspecialidle_hit…` (dog, brahmin, protectron, yao guai; the dog's and brahmin's
+/// `hitleft`/`hitright` for a side), `hitreaction_…` (gecko, mole rat, giant rat,
+/// bighorner), the cazador's `h2hhitlegs`; design: which location plays which]. Before,
+/// only the people's `mt_hit…` names were looked for and no creature ever staggered
+/// (owner's playtest list 7 item 13).
+const FLINCHES: [&[&str]; 6] = [
+    &["idleanims\\mt_hittorso.kf", "idleanims\\specialidle_hittorso.kf", "idleanims\\mtspecialidle_hittorso.kf", "idleanims\\hitreaction_torso.kf"],
+    &["idleanims\\mt_hithead.kf", "idleanims\\specialidle_hithead.kf", "idleanims\\mtspecialidle_hithead.kf", "idleanims\\hitreaction_head.kf"],
+    &[
+        "idleanims\\mt_hitarmleft.kf",
+        "idleanims\\specialidle_hitarmleft.kf",
+        "idleanims\\specialidle_hitleftarm.kf",
+        "idleanims\\mtspecialidle_hitarmleft.kf",
+        "idleanims\\mtspecialidle_hitleftarm.kf",
+        "idleanims\\hitreaction_leftarm.kf",
+        "idleanims\\specialidle_hitarms.kf",
+        "idleanims\\mtspecialidle_hitleft.kf",
+    ],
+    &[
+        "idleanims\\mt_hitarmright.kf",
+        "idleanims\\specialidle_hitarmright.kf",
+        "idleanims\\specialidle_hitrightarm.kf",
+        "idleanims\\mtspecialidle_hitarmright.kf",
+        "idleanims\\mtspecialidle_hitrightarm.kf",
+        "idleanims\\hitreaction_rightarm.kf",
+        "idleanims\\specialidle_hitarms.kf",
+        "idleanims\\mtspecialidle_hitright.kf",
+    ],
+    &[
+        "idleanims\\mt_hitlegleft.kf",
+        "idleanims\\specialidle_hitlegleft.kf",
+        "idleanims\\specialidle_hitleftleg.kf",
+        "idleanims\\mtspecialidle_hitlegleft.kf",
+        "idleanims\\mtspecialidle_hitleftleg.kf",
+        "idleanims\\hitreaction_leftleg.kf",
+        "idleanims\\specialidle_hitlegs.kf",
+        "idleanims\\h2hhitlegs.kf",
+        "idleanims\\mtspecialidle_hitleft.kf",
+    ],
+    &[
+        "idleanims\\mt_hitlegright.kf",
+        "idleanims\\specialidle_hitlegright.kf",
+        "idleanims\\specialidle_hitrightleg.kf",
+        "idleanims\\mtspecialidle_hitlegright.kf",
+        "idleanims\\mtspecialidle_hitrightleg.kf",
+        "idleanims\\hitreaction_rightleg.kf",
+        "idleanims\\specialidle_hitlegs.kf",
+        "idleanims\\h2hhitlegs.kf",
+        "idleanims\\mtspecialidle_hitright.kf",
+    ],
 ];
 
 /// A dead actor (combat C5): the death pose plays once and holds its last frame; without
@@ -215,9 +260,11 @@ impl ClipSet {
                 set.death.push(Arc::new(bind_clip(skel, clip)));
             }
         }
-        for (k, f) in FLINCHES.iter().enumerate() {
-            let path = format!("{folder}\\{f}");
-            set.flinch[k] = ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+        for (k, names) in FLINCHES.iter().enumerate() {
+            set.flinch[k] = names.iter().find_map(|f| {
+                let path = format!("{folder}\\{f}");
+                ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)))
+            });
         }
         for (k, names) in GET_UPS.iter().enumerate() {
             set.getup[k] = names.iter().find_map(|f| {
@@ -408,11 +455,60 @@ pub struct Locomotion {
     pub armed_on: bool,
     /// The clip files logged while armed ([`Locomotion::armed_clip_news`]).
     armed_logged: Vec<String>,
+    /// The idle under the movement clips ([`UNDER_LAYER`]): creatures only.
+    pub idle_under: bool,
+    under: Under,
+}
+
+/// [`Locomotion::layers`]' slot for the set's idle laid under a movement clip, at a
+/// priority below every track ([`UNDER_PRIORITY`]): it drives only what the clips over it
+/// leave, the nodes the movement clip has no track for [observed: the bloatfly's
+/// `mtidle.kf` drives its wings (`Bip01 L/R UpperArm`, `Forearm`, priority 45) and head,
+/// its `mtforward.kf`, `mtfastforward.kf` and side clips neither (kf_layer_survey,
+/// 2026-10-23), so the wings stood still in their bind pose while it flew; hypothesis:
+/// the original keeps the idle under the movement clips, as the player body does,
+/// animation.md §9.4]. Only while the idle drives a node the movement clip does not, and
+/// only on creatures ([`Locomotion::idle_under`]) [design: people's `mtidle.kf` drives
+/// the pauldrons and twist bones their movement clips leave, posed for the idle's arms;
+/// their bind pose suits a swinging arm better].
+pub const UNDER_LAYER: usize = 6;
+/// The under-laid idle's track priority: below every clip's (clips' priorities are small
+/// non-negative numbers [observed]) and above `anim_play`'s undriven-root identity.
+pub const UNDER_PRIORITY: i32 = i32::MIN + 1;
+
+/// The idle under the movement clips: the idle clip it was made from (by address), the
+/// idle with its tracks at [`UNDER_PRIORITY`] (without the accumulation root), the
+/// movement clip last checked and whether the idle drives a node that clip does not, and
+/// the idle's own phase, which runs on while another clip plays.
+#[derive(Default)]
+struct Under {
+    idle: usize,
+    clip: Option<Arc<BoundClip>>,
+    checked: usize,
+    needed: bool,
+    phase: f32,
+}
+
+/// `idle` with every track at [`UNDER_PRIORITY`], without the accumulation root (whose
+/// motion is the movement clip's, or held at the identity).
+fn under_clip(idle: &BoundClip) -> BoundClip {
+    BoundClip {
+        clip: idle.clip.clone(),
+        tracks: idle.tracks.iter().filter(|(i, _, _)| Some(*i) != idle.root).map(|(i, t, _)| (*i, t.clone(), UNDER_PRIORITY)).collect(),
+        root: None,
+        root_track: None,
+    }
+}
+
+/// Whether `idle` drives a node (other than the accumulation root) that `other` has no
+/// track for.
+fn drives_more(idle: &BoundClip, other: &BoundClip) -> bool {
+    idle.tracks.iter().any(|(i, _, _)| Some(*i) != idle.root && !other.tracks.iter().any(|(j, _, _)| j == i))
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new() }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default() }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -606,11 +702,19 @@ impl Locomotion {
         if self.blend.prev.is_none() || self.blend.cur.mv != before {
             self.prev_set = None;
         }
+        // The idle's own phase: the blend's while the idle plays, else running on.
+        if self.blend.cur.mv == Move::Idle {
+            self.under.phase = self.blend.cur.phase;
+        } else if let Some(p) = self.blend.prev.filter(|p| p.mv == Move::Idle) {
+            self.under.phase = p.phase;
+        } else if let Some(len) = self.set.info(Move::Idle).map(|c| c.duration).filter(|l| *l > 1e-3) {
+            self.under.phase = wrap01(self.under.phase + dt.max(0.0) / len);
+        }
     }
 
     /// The blend's clips and weights as player layers; the fading-out clip from the set
     /// it belongs to ([`Locomotion::prev_set`]).
-    pub fn layers(&self, player: &mut BlendPlayer) {
+    pub fn layers(&mut self, player: &mut BlendPlayer) {
         let layer = |set: &ClipSet, mv: Move, phase: f32, weight: f32| set.clips.get(&mv).map(|c| Layer { clip: c.bound.clone(), phase, weight });
         let w = self.blend.weight();
         player.layers[0] = layer(&self.set, self.blend.cur.mv, self.blend.cur.phase, w);
@@ -624,6 +728,30 @@ impl Locomotion {
                 player.layers[0] = Some(Layer { clip: clip.clone(), phase, weight: jw });
             }
         }
+        player.layers[UNDER_LAYER] = self.under_layer();
+    }
+
+    /// The set's idle under the movement clip ([`UNDER_LAYER`]): while a clip other than
+    /// the idle plays (or fades out) and the idle drives a node it does not.
+    fn under_layer(&mut self) -> Option<Layer> {
+        if !self.idle_under {
+            return None;
+        }
+        let idle = self.set.clips.get(&Move::Idle)?.bound.clone();
+        let other = [Some(self.blend.cur.mv), self.blend.prev.map(|p| p.mv)].into_iter().flatten().find(|m| *m != Move::Idle)?;
+        let moving = self.set.clips.get(&other).or_else(|| self.prev_set.as_ref().and_then(|s| s.clips.get(&other)))?.bound.clone();
+        let key = Arc::as_ptr(&idle) as usize;
+        if self.under.idle != key || self.under.clip.is_none() {
+            self.under.idle = key;
+            self.under.clip = Some(Arc::new(under_clip(&idle)));
+            self.under.checked = 0;
+        }
+        let checked = Arc::as_ptr(&moving) as usize;
+        if self.under.checked != checked {
+            self.under.checked = checked;
+            self.under.needed = drives_more(&idle, &moving);
+        }
+        self.under.needed.then(|| Layer { clip: self.under.clip.clone().expect("made above"), phase: self.under.phase, weight: 1.0 })
     }
 
     /// The jump clip of the actor's set that plays now (the loop in the air, the landing
@@ -685,6 +813,9 @@ pub struct ActorAnimCost {
     pub blend_frames: u64,
     /// Frames in which an actor's clip was a turn on the spot, summed over actors.
     pub turn_frames: u64,
+    /// Frames in which an actor's idle was laid under another clip ([`UNDER_LAYER`]),
+    /// summed over actors.
+    pub under_frames: u64,
     pub peak: usize,
 }
 
@@ -760,6 +891,7 @@ pub fn drive(
         }
         cost.turn_frames += u64::from(lo.blend.cur.mv.is_turn());
         lo.layers(&mut player);
+        cost.under_frames += u64::from(player.layers[UNDER_LAYER].is_some());
         let drawn = crate::attack_anims::drawn(weapon.as_deref());
         if let Some(mut w) = weapon {
             if !w.hold {

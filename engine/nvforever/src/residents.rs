@@ -634,6 +634,11 @@ struct Core {
     /// Seconds drawn fighters facing their target (`aims`) moved forward, sideways and
     /// back (within 45° of their heading, within 135°, beyond).
     fight_moves: [f32; 3],
+    /// Of those, seconds on the way to new cover (playtest list 7 item 43), and seconds
+    /// on the way there facing within 45° of the way it goes (turned to its cover).
+    cover_moves: [f32; 2],
+    /// Fighters on their way to new cover this frame.
+    to_cover: HashSet<FormId>,
     /// Frames of drawn residents on their way: all, those in which their character had
     /// not moved since the last frame (no physics step: drawn standing before the
     /// in-between drawing), and those drawn standing.
@@ -650,7 +655,7 @@ struct Core {
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
-    /// out of their cover; not fleeing nor running to new cover): where their target is. They are drawn facing it
+    /// out of their cover, and on their way to new cover; not fleeing): where their target is. They are drawn facing it
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
@@ -760,6 +765,8 @@ impl Residents {
             fastest_turn: (0.0, String::new()),
             snaps: 0,
             fight_moves: [0.0; 3],
+            cover_moves: [0.0; 2],
+            to_cover: HashSet::new(),
             walk_frames: [0; 3],
             standing_by: [0; 6],
             held_now: false,
@@ -896,6 +903,34 @@ impl Core {
             let label = format!("{} {id}", game.data.name(base));
             info!("ai [{}] {label}: created by a script (PlaceAtMe) at ({:.0}, {:.0}, {:.0}): a resident from there", self.clock_text, pos[0], pos[1], pos[2]);
             self.add_resident(id, base.0, creature, 1.0, pos, label, true);
+        }
+    }
+
+    /// Actors scripts created since the last frame first stand on a free spot near where
+    /// they were put, not inside the object that made them or each other
+    /// (`nvf_play::created_spots`; playtest list 7 item 4).
+    fn spread_created(&mut self, game: &mut Game, phys: &mut nvf_play::phys::PhysState) {
+        let new: Vec<FormId> = game.created_actors().into_iter().filter(|id| !self.known.contains(&id.0)).collect();
+        let refs = game.world.placed;
+        for (id, how) in nvf_play::created_spots::place(&mut game.world, refs, phys, &new) {
+            match how {
+                nvf_play::created_spots::Placement::Kept => {}
+                nvf_play::created_spots::Placement::Moved { from, to } => info!(
+                    "ai [{}] {} {id}: created at ({:.0}, {:.0}, {:.0}), stands at ({:.0}, {:.0}, {:.0}), {:.0} units away (the nearest free spot)",
+                    self.clock_text,
+                    game.data.name(game.world.peek(id).map_or(id, |s| s.base)),
+                    from[0],
+                    from[1],
+                    from[2],
+                    to[0],
+                    to[1],
+                    to[2],
+                    (from[0] - to[0]).hypot(from[1] - to[1])
+                ),
+                nvf_play::created_spots::Placement::NoSpot => {
+                    info!("ai [{}] {id}: created where no free spot is near: left where it was put", self.clock_text)
+                }
+            }
         }
     }
 
@@ -1204,9 +1239,17 @@ impl Core {
         self.ai.keep_apart(game, &nav.graph, dt, &fixed);
         // Hellos to the player and random conversations.
         self.ai.social(game, &nav.graph, dt);
-        // No character is kept for an actor that is not on its way.
+        // No character is kept for an actor that is not on its way, nor for one that is
+        // dead, restrained or out cold: the AI no longer walks it (`fnv_ai`), so its
+        // character would go on at the velocity of its last step, the body drawn gliding
+        // along with it and its block pushing the player (playtest list 7 item 14).
         if let Some(p) = phys {
-            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
+            let held = |id: FormId| game.extra.get(&id).is_some_and(|e| e.dead || e.restrained || e.out_cold());
+            for (&id, b) in p.npcs.iter().filter(|(id, _)| held(FormId(**id))) {
+                let f = b.ch.feet;
+                info!("ai [{}] {} {id:08X}: its character stops (dead, restrained or out cold) at ({:.0}, {:.0}, {:.0}), walking at {:.0} units/s", self.clock_text, game.data.name(FormId(id)), f[0], f[1], f[2], b.velocity[0].hypot(b.velocity[1]));
+            }
+            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| held(FormId(*id)) || self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
             for id in idle {
                 p.remove_npc(id);
                 self.unstuck.remove(&id);
@@ -1224,18 +1267,24 @@ impl Core {
         // back away instead of turning to where they go (owner 2026-10-16: NCR troopers
         // fighting Fiends turned between their way and their target, as if they could
         // not decide whether to move or shoot) [design]. Not while fleeing (it runs
-        // away) or running to new cover (it runs there, out of the fight for a while);
-        // out to its peek point and back behind its cover it strafes (`PostKind::Duck`).
+        // away). Going to new cover it strafes too, keeping its target in front (owner's
+        // playtest list 7 item 43: Violet turned to face the cover she ran to; before,
+        // a fighter turned to its way to cover); out to its peek point and back behind
+        // its cover it strafes (`PostKind::Duck`).
         self.aims.clear();
+        self.to_cover.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let tactics = &game.awareness.tactics;
-            if tactics.flights.contains_key(&r.actor) || tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
+            if tactics.flights.contains_key(&r.actor) {
                 continue;
             }
             let Some((target, _)) = game.awareness.get(r.actor).filter(|x| x.state == fnv_game::awareness::State::Combat).and_then(|x| x.combat_target()) else { continue };
             if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
                 self.aims.insert(r.actor, p.pos);
+                if tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
+                    self.to_cover.insert(r.actor);
+                }
             }
         }
         self.no_room.retain(|_, until| now < *until);
@@ -1309,6 +1358,7 @@ impl Core {
                 | AiEvent::Follow { .. }
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
+                | AiEvent::TalkUnseen { .. }
                 | AiEvent::PushedBack { .. }
                 | AiEvent::Hello { .. }
                 | AiEvent::Chat { .. }
@@ -1461,6 +1511,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
+        AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
         AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),
@@ -1677,6 +1728,9 @@ pub fn drive(
                 let mut phys = phys;
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
                 if all {
+                    if let Some(p) = phys.as_deref_mut() {
+                        core.spread_created(&mut rt.game, p);
+                    }
                     core.take_created(&rt.game);
                 }
                 core.process_levels(&rt.game, world_ref, streamer_ref);
@@ -1865,6 +1919,12 @@ pub fn drive(
         if strafe && moving && visible && core.aims.contains_key(&r.actor) {
             let off = heading_delta(heading, heading_of(step)).abs();
             core.fight_moves[usize::from(off > FRAC_PI_4) + usize::from(off > 3.0 * FRAC_PI_4)] += dt;
+            if core.to_cover.contains(&r.actor) {
+                core.cover_moves[0] += dt;
+                if off <= FRAC_PI_4 {
+                    core.cover_moves[1] += dt;
+                }
+            }
         }
         let stage = (&mut r.spawned, &mut r.root);
         if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
@@ -1918,8 +1978,8 @@ pub fn report(
         SNAP_TURN.to_degrees()
     );
     info!(
-        "fight move summary: drawn fighters facing their target moved {:.1} s forward, {:.1} s sideways (strafing), {:.1} s back",
-        core.fight_moves[0], core.fight_moves[1], core.fight_moves[2]
+        "fight move summary: drawn fighters facing their target moved {:.1} s forward, {:.1} s sideways (strafing), {:.1} s back; {:.1} s of it on the way to new cover, {:.1} s of that facing the way to it",
+        core.fight_moves[0], core.fight_moves[1], core.fight_moves[2], core.cover_moves[0], core.cover_moves[1]
     );
     // Flights over ledges of actors on the navmesh surface (no physics), and landings.
     let (flights, landings) = core.ai.agents.values().fold((0, 0), |(f, l), a| (f + a.walker.flights, l + a.walker.landings));

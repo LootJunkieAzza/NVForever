@@ -89,6 +89,47 @@ Order: W1, W3, W5, W6 first; then W2, W4, W7, W8; W9 last.
 46. Feral ghouls make no sound; audit creature attack/alert/hurt sounds.
 47. Frame rate drops on the REPCONN main floor.
 
-## 4. Outcome
+## 4. Outcome (2026-10-23)
 
-Filled in as PRs merge.
+Every workstream is merged into main. Each PR's guesses and the things to check in game
+are in `docs/owner-review.md`, one section per workstream ("… (2026-10-23, list 7 W#)").
+
+| # | PR | Items done | Partly / not done |
+|---|---|---|---|
+| W1 menus | #597 | 1, 2, 7, 10, 11, 16, 25 | 10 not run in game (needs Trudy's quest state) |
+| W2 Pip-Boy | #603 | 5, 6, 8, 15, 20, 33 | 15 checked by a unit test only |
+| W3 explosives | #598 | 19, 21, 22, 23, 26, 27, 29 | 26 not seen in game (the run never hit the path); NPCs don't throw yet |
+| W4 combat AI | #605 | 12, 13, 36, 39, 40, 43 | 45 partly: findings in combat-ai.md §18.7 |
+| W5 physics | #600 | 9, 14, 35, 37 | 9's feel on roads is for the owner's eye |
+| W6 AI in the world | #599 | 24, 30, 34, 38, 41, 42 | 31 no change (data has no Weapon Drawn flag); 32 no missing flag found |
+| W7 visuals/sound | #601 | 3, 17, 28, 46 | super mutant / robot combat voices (dialogue topics) |
+| W8 frame rate | #606 | 4 | 47 partly: room culling built, no measurable gain; material batching needed |
+| W9 audit | #604 | 44: audit + teammate perks, compass quest markers, main smoke fixes | queue in `gap-audit-2026-10-23.md` |
+
+### What the owner should check first
+
+- **Item 1:** the character revision keeps level, perks and spent skill points; this departs
+  from the original on purpose.
+- **Item 2:** whether the 0.93 black behind the menus is too dark.
+- **Item 21:** the fall-damage factor 0.0252 (fitted; `fJumpFallHeightMult` is not in the ESM).
+- **Items 31 and 32:** Beagle drawing only outside the hotel and the station convicts not
+  attacking match the records; say if the original differs.
+- **Item 36:** ghouls ×1.25 is the owner's number, not measured.
+- **Item 40:** firearms now fire to their full range; watch for NPCs shooting from too far.
+- **Item 12 side effect:** AddItem now re-equips an NPC's best weapon and armour, which could
+  undo a scripted EquipItem of a weaker weapon.
+- **Item 8 side effect:** RemoveAllItems now runs OnAdd on the moved items.
+- **Item 4:** spawned creatures placed on free spots; corpses frozen after 3 s still moving;
+  at most 64 sound effects at once.
+
+### Left for later sessions
+
+- Renderer material batching for interiors (item 47).
+- Combat: shots held for comrades in the line of fire, melee Fiends' charges (item 45);
+  NPCs throwing grenades; creature weapons dropped on death.
+- Physics: corpses of small creatures passing through each other; the player stepping onto
+  a living small creature.
+- The W9 queue: NPCs running scripted doors' OnActivate, teammate attack-speed perks, NIF
+  light-colour controllers, compass distance figure, the Ripper's chain teeth, credits.
+- Smoke on main: `knockdown-player` (one check marked known_failing, cause not traced),
+  `vats-mode-melee` and `anim-sounds` marked with reasons.

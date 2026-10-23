@@ -450,3 +450,24 @@ Not settled: GetActorValueModifier did not compile in the game's probe script (t
 function needs a different form), and the script name `PoisonResist` (the original answers
 125 on Victor: 25 + PoisonImmunity's 100) is missing from our decoder's actor value
 names (`crates/fnv-script/data/encodings.json` lists the names seen in compiled scripts).
+
+## 14. The EFFECTS figure (the Pip-Boy, barter and container menus)
+
+An aid item's EFFECTS card (pipboy.md §5) is what using it would do to the player now
+(`fnv_game::Game::aid_preview`), not the record's list of effects:
+
+- Only the effects whose conditions pass for the player (subject and target the player, as
+  `Game::ingest`) [observed: Programmer's Digest `MagazineNVScience` holds four Science
+  effects, +10/+20 for 60/180 s, behind HasPerk Comprehension (0x31DE1) and Retention
+  (0x10F09E) checks; the Blood Pack's +4 Health for 5 s needs HasPerk Hematophage
+  (0x3131), its +1 has no condition; the Stimpak's four Health effects split by IsHardcore
+  and HasPerk 0x94EBF; `fnvtool esm decode`].
+- One line per actor value, the applying effects on it added up [owner's playtest list 7
+  item 5: "it should only show a single Science +10"; design: adding up is what using it
+  does]. An effect over time counts whole: its amount a second times its seconds
+  (Chemist-lengthened for chems, §10) [hypothesis: how the original writes one is not
+  known; a total reads like the instant ones].
+- With the item's potency (§4) [hypothesis: the original's Stimpak shows "HP +40" on the
+  owner's screenshot, its record's instant effect 30, which fits a Medicine potency near
+  1.33].
+- Without the scripts' game the record's effects are listed as before (no conditions).

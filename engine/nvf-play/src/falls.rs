@@ -1,4 +1,4 @@
-//! Fall damage (docs/spec-notes/physics.md §6.10; the owner's playtest list 7 item 21): a
+//! Fall damage (docs/spec-notes/physics.md §6.12; the owner's playtest list 7 item 21): a
 //! character that lands from higher than `fJumpFallHeightMin` loses health.
 //!
 //! - **Height.** From the highest point of the fall (the feet's, since the character left

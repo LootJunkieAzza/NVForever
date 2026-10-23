@@ -94,7 +94,7 @@ impl Furniture {
 
 /// The members of form list `list` (its FLST's LNAM entries, as load-order FormIDs);
 /// empty when it is not a form list.
-fn list_members(lo: &LoadOrder, list: FormId) -> Vec<FormId> {
+pub(crate) fn list_members(lo: &LoadOrder, list: FormId) -> Vec<FormId> {
     let Some(d) = lo.index.get(&list.0).and_then(|d| d.last()) else { return Vec::new() };
     let r = lo.records[d.plugin as usize][d.ordinal as usize];
     if &r.header.sig != b"FLST" {
@@ -181,9 +181,13 @@ pub mod state {
 
 /// Whether a marker ID is a bed's (the actor sleeps) rather than a seat's [documented:
 /// catalogue notes for GetFurnitureMarkerID: 1 to 10 beds, 11 to 20 chairs; observed:
-/// the IDLE tree tests GetSleeping only under IDs 1–4].
+/// the IDLE tree tests GetSleeping only under IDs 1–4]. The one model with marker ID 10, the crucifix
+/// (NVCrucifixFurniture, MNAM bit 30 "sit"), is sat on: its IDLE group NVCrucifixIdles
+/// gets on, stays and gets off by GetSitting 2, 3 and 4 [observed: the IDLE records;
+/// owner's playtest list 7 item 34: the crucified got off their crosses, as the picker
+/// found no getting-on clip for a "bed"]. So beds are 1 to 9 here.
 pub fn is_bed(marker_id: u8) -> bool {
-    (1..=10).contains(&marker_id)
+    (1..=9).contains(&marker_id)
 }
 
 /// An actor using furniture, as the IDLE conditions see it.

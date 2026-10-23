@@ -235,15 +235,59 @@ pub fn rank_abilities(def: &crate::data::PerkDef, rank: u8) -> Vec<FormId> {
 }
 
 impl Game<'_> {
+    /// The perks `actor` holds, with their ranks: the player's own (traits included); a
+    /// teammate of the player holds the teammate perks (`AddPerk perk 1` on the player),
+    /// each at rank 1 [documented: GECK wiki AddPerk, forTeammates "adds the perk to the
+    /// player's teammates"; hypothesis: one rank, and held only while a teammate — the
+    /// masters' teammate perks (Companion Suite, the companions' quest rewards Old
+    /// Vaquero, Hand of Vengeance, Calm Heart, Bonds of Steel, Causeless Rebel) have one
+    /// rank, and their entry points test GetIsID of the companion they are for]. Any other
+    /// actor holds none.
+    pub fn held_perks(&self, actor: FormId) -> Vec<(FormId, u8)> {
+        if actor == FormId::PLAYER_REF {
+            self.player.perks.iter().map(|(&p, &r)| (p, r)).collect()
+        } else if !self.player.teammate_perks.is_empty() && self.is_teammate(actor) {
+            self.player.teammate_perks.iter().map(|&p| (p, 1)).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// The abilities the player's perks give now (traits included), with their perks.
     pub fn perk_abilities(&self) -> Vec<(FormId, FormId)> {
+        self.perk_abilities_of(FormId::PLAYER_REF)
+    }
+
+    /// The abilities `actor`'s perks ([`Self::held_perks`]) give now, with their perks.
+    pub fn perk_abilities_of(&self, actor: FormId) -> Vec<(FormId, FormId)> {
         let data = self.data;
         let mut out = Vec::new();
-        for (&perk, &rank) in &self.player.perks {
+        for (perk, rank) in self.held_perks(actor) {
             let Some(def) = data.perks.get(&perk) else { continue };
             out.extend(rank_abilities(def, rank.max(1)).into_iter().map(|s| (perk, s)));
         }
         out
+    }
+
+    /// Whether `actor`'s perk abilities need bringing up to date: the player always; an
+    /// actor that is a teammate now, or that still has an ability of a teammate perk (a
+    /// teammate that left the team). An ability of a teammate perk the player lost
+    /// (`RemovePerk perk 1`) stays on the teammates [design: no shipped script takes one
+    /// back from the player; the masters remove Companion Suite from each companion,
+    /// which needs nothing here].
+    pub(crate) fn wants_perk_sync(&self, actor: FormId) -> bool {
+        if actor == FormId::PLAYER_REF {
+            return true;
+        }
+        if self.player.teammate_perks.is_empty() {
+            return false;
+        }
+        if self.is_teammate(actor) {
+            return true;
+        }
+        let Some(spells) = self.extra.get(&actor).map(|x| &x.spells).filter(|s| !s.is_empty()) else { return false };
+        let data = self.data;
+        self.player.teammate_perks.iter().filter_map(|p| data.perks.get(p)).any(|d| rank_abilities(d, 1).iter().any(|a| spells.contains(a)))
     }
 
     /// The player's perks' abilities follow the perks: an ability of a perk the player
@@ -255,9 +299,15 @@ impl Game<'_> {
     /// is held, whichever way it was gained: AddPerk, the level-up menu, a trait].
     /// Logged `perks: <perk>'s ability <spell> on|off`.
     pub fn sync_perk_abilities(&mut self) {
-        let wanted = self.perk_abilities();
+        self.sync_perk_abilities_of(FormId::PLAYER_REF);
+    }
+
+    /// [`Self::sync_perk_abilities`] for any actor: a teammate's abilities follow the
+    /// teammate perks ([`Self::held_perks`]) and end when it leaves the team.
+    pub fn sync_perk_abilities_of(&mut self, actor: FormId) {
+        let wanted = self.perk_abilities_of(actor);
         let data = self.data;
-        let have: Vec<FormId> = self.extra.get(&FormId::PLAYER_REF).map(|x| x.spells.clone()).unwrap_or_default();
+        let have: Vec<FormId> = self.extra.get(&actor).map(|x| x.spells.clone()).unwrap_or_default();
         let stale: Vec<FormId> = have
             .iter()
             .copied()
@@ -268,7 +318,7 @@ impl Game<'_> {
         if stale.is_empty() && new.is_empty() {
             return;
         }
-        let x = self.extra.entry(FormId::PLAYER_REF).or_default();
+        let x = self.extra.entry(actor).or_default();
         x.spells.retain(|s| !stale.contains(s));
         x.dispelled.retain(|s| !stale.contains(s));
         for &(_, spell) in &new {
@@ -276,12 +326,13 @@ impl Game<'_> {
                 x.spells.push(spell);
             }
         }
+        let who = data.name(actor);
         for spell in stale {
-            tracing::info!("perks: ability {} off", data.name(spell));
-            self.dispel(FormId::PLAYER_REF, None, |e| e.source == spell && e.worn.is_none());
+            tracing::info!("perks: {who}'s ability {} off", data.name(spell));
+            self.dispel(actor, None, |e| e.source == spell && e.worn.is_none());
         }
         for (perk, spell) in new {
-            tracing::info!("perks: {}'s ability {} on", data.name(perk), data.name(spell));
+            tracing::info!("perks: {who}: {}'s ability {} on", data.name(perk), data.name(spell));
         }
     }
 
@@ -289,13 +340,14 @@ impl Game<'_> {
     /// the forms of the entry point's argument tabs 1 and 2 (`None`: none known here);
     /// `other`: the actor the owner's conditions take as their target.
     pub(crate) fn entry_point_entries(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], other: Option<FormId>) -> Vec<(FormId, PerkEntry)> {
-        // Perks are the player's only (`AddPerk` on another actor is refused).
-        if actor != FormId::PLAYER_REF || self.player.perks.is_empty() {
+        // The player's perks, or a teammate's teammate perks ([`Self::held_perks`];
+        // `AddPerk` on another actor is refused).
+        let owned = self.held_perks(actor);
+        if owned.is_empty() {
             return Vec::new();
         }
         let data = self.data;
         let mut found: Vec<(FormId, PerkEntry)> = Vec::new();
-        let owned: Vec<(FormId, u8)> = self.player.perks.iter().map(|(&p, &r)| (p, r)).collect();
         for (perk, rank) in owned {
             let Some(def) = data.perks.get(&perk) else { continue };
             let at = |e: &&PerkEntry| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1);

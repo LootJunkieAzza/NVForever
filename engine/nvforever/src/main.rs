@@ -117,6 +117,8 @@ mod ssao;
 mod taa;
 mod speech_look;
 mod stress_sample;
+mod profile;
+mod rooms;
 mod terrain;
 mod texture_swap;
 mod effect_particles;
@@ -232,6 +234,9 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Draw every room of an interior: no room and portal culling (rooms.rs).
+    #[arg(long)]
+    no_room_culling: bool,
     /// Seconds a streamed cell takes to fade in or out against the distant LOD; 0 swaps
     /// at once (fade.rs).
     #[arg(long, default_value_t = 1.0)]
@@ -1126,6 +1131,8 @@ fn main() -> AppExit {
         generate: fnv_world::grass::GrassSettings { min_size: args.grass_min_size, density_scale: args.grass_density.max(0.0), ..Default::default() },
     }))
     .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
+    // Interiors draw the rooms seen through portals only (rooms.rs).
+    .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
@@ -1293,6 +1300,8 @@ fn main() -> AppExit {
             app.add_plugins(knockouts::KnockoutsPlugin);
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
+            // The span profile (NVF_PLAY_TEST_PROFILE; nothing without it; profile.rs).
+            app.add_plugins(profile::ProfilePlugin);
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             // The player knocked down (player_knockdown.rs).
             app.add_plugins(player_knockdown::PlayerKnockdownPlugin);
@@ -1456,6 +1465,7 @@ fn main() -> AppExit {
                     c.tracks as f64 / c.actor_frames as f64
                     );
                     info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
+                    info!("actor idle under movement: {} actor frames with the idle laid under another clip", c.under_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");

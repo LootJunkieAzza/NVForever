@@ -72,6 +72,11 @@ const AID: u32 = 0x175; // ALCH "Aid", weight 0.5
 const BULLETS: u32 = 0x176; // AMMO "Ammo", weight 0.1 (Hardcore only)
 const CHIP: u32 = 0x177; // MISC "Platinum Chip" with the "Quest Item" header flag (bit 10)
 const BOX: u32 = 0x120; // CONT "Cash Box": CAPS 200, CAN 2, RIFLE 1, ANVIL 1
+const KEY_A: u32 = 0x180; // KEYM "Shack Key"
+const KEY_B: u32 = 0x181; // KEYM "Vault Key"
+const SKILL_BOOK: u32 = 0x182; // BOOK "Big Book of Science", teaches Science
+const PLAIN_BOOK: u32 = 0x183; // BOOK "Paradise Lost", teaches nothing
+const CARD: u32 = 0x184; // CCRD "Ace of Hearts" (no DATA here)
 const CELL: u32 = 0x200;
 const BOX_REF: u32 = 0x300;
 const CAN_REF: u32 = 0x301;
@@ -111,6 +116,19 @@ fn plugin_bytes() -> Vec<u8> {
         &record(b"GMST", 0, 0x160, &[sub(b"EDID", z("fAVDCarryWeightsBase")), sub(b"DATA", 150f32.to_le_bytes().to_vec())]),
         &record(b"GMST", 0, 0x162, &[sub(b"EDID", z("fAVDCarryWeightMult")), sub(b"DATA", 10f32.to_le_bytes().to_vec())]),
     ]);
+    let key = |fid: u32, edid: &str, full: &str| {
+        let [e, f] = named(edid, full);
+        record(b"KEYM", 0, fid, &[e, f, sub(b"DATA", cat(&[&0i32.to_le_bytes(), &0f32.to_le_bytes()]))])
+    };
+    let keys = cat(&[&key(KEY_A, "TestKeyA", "Shack Key"), &key(KEY_B, "TestKeyB", "Vault Key")]);
+    // BOOK DATA: flags, skill (-1 none, 10 Science), value, weight.
+    let book = |fid: u32, edid: &str, full: &str, skill: i8| {
+        let [e, f] = named(edid, full);
+        record(b"BOOK", 0, fid, &[e, f, sub(b"DATA", cat(&[&[0u8, skill as u8], &10i32.to_le_bytes(), &1f32.to_le_bytes()]))])
+    };
+    let books = cat(&[&book(SKILL_BOOK, "TestSkillBook", "Big Book of Science", 10), &book(PLAIN_BOOK, "TestPlainBook", "Paradise Lost", -1)]);
+    let [e, f] = named("TestCard", "Ace of Hearts");
+    let card = record(b"CCRD", 0, CARD, &[e, f]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let label = CELL.to_le_bytes();
     let children = group(label, 6, &group(label, 9, &cat(&[&refr(BOX_REF, BOX), &refr(CAN_REF, CAN)])));
@@ -123,6 +141,9 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"WEAP", &weaps),
         &top(b"ALCH", &alch),
         &top(b"AMMO", &ammo),
+        &top(b"KEYM", &keys),
+        &top(b"BOOK", &books),
+        &top(b"CCRD", &card),
         &top(b"NPC_", &npc),
         &cells,
     ])
@@ -759,4 +780,51 @@ fn a_modded_row_takes_the_modded_unit() {
     let dropped = inv.dropped.last().copied().expect("a dropped reference");
     assert_eq!(w.peek(dropped).unwrap().extra.mods, 2);
     assert_eq!(rifles(&inv, Side::Player), vec![(5, 0, false)]);
+}
+
+/// The Misc tab's keyring and Caravan cards (owner's playtest list 7 item 6): one row
+/// each, opening on what they hold with a "Back" row first; skill books are listed with
+/// the aid items (item 33).
+#[test]
+fn misc_folders_and_skill_books() {
+    let f = fixture();
+    assert!(f.forms.issues.is_empty(), "{:?}", f.forms.issues.to_json());
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    for item in [KEY_A, KEY_B, SKILL_BOOK, PLAIN_BOOK] {
+        w.add_item(FormId::PLAYER_REF, FormId(item), 1).unwrap();
+    }
+    let mut m = MenuModel::open_inventory(&mut w).unwrap();
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::Aid));
+    assert_eq!(names(m.list(Side::Player)), [("Aid", 2), ("Big Book of Science", 1)]);
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
+    assert_eq!(names(m.list(Side::Player)), [("Keyring", 2), ("Bottle Cap", 5), ("Paradise Lost", 1)]);
+    // The cards AddCardToPlayer gave: two of one card.
+    m.set_cards(&mut w, vec![FormId(CARD), FormId(CARD)]).unwrap();
+    assert_eq!(names(m.list(Side::Player))[..2], [("Keyring", 2), ("Caravan Cards", 2)]);
+    // Into the keyring and back.
+    select(&mut m, Side::Player, "Keyring");
+    m.apply(&mut w, Command::One);
+    assert_eq!(m.folder, Some(Folder::Keys));
+    assert_eq!(names(m.list(Side::Player)), [("Back", 0), ("Shack Key", 1), ("Vault Key", 1)]);
+    // A folder row drops nothing.
+    select(&mut m, Side::Player, "Back");
+    m.apply(&mut w, Command::Drop);
+    assert_eq!(m.status.as_deref(), Some("Nothing to drop"));
+    m.apply(&mut w, Command::One);
+    assert_eq!(m.folder, None);
+    assert_eq!(m.selected_row(Side::Player).map(|r| r.name.as_str()), Some("Keyring"));
+    // The cards; Backspace's Back leaves; another tab closes the folder.
+    select(&mut m, Side::Player, "Caravan Cards");
+    m.apply(&mut w, Command::One);
+    assert_eq!(names(m.list(Side::Player)), [("Back", 0), ("Ace of Hearts", 2)]);
+    select(&mut m, Side::Player, "Ace of Hearts");
+    m.apply(&mut w, Command::Drop);
+    assert_eq!(m.status.as_deref(), Some("Ace of Hearts can't be dropped"));
+    m.apply(&mut w, Command::Back);
+    assert_eq!(m.selected_row(Side::Player).map(|r| r.name.as_str()), Some("Caravan Cards"));
+    m.apply(&mut w, Command::One);
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::Aid));
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
+    assert_eq!(m.folder, None);
+    assert_eq!(count(&mut w, 0x14, KEY_A), 1);
 }

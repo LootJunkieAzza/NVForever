@@ -116,3 +116,30 @@ shot is leaving, so Center of Mass applies to VATS mode's shots that land while 
 - Smoke `perk-combat-entry-points`: Bloody Mess and Confirmed Bachelor change the
   player's 10mm shot on Easy Pete (12.65 → 14.61, × 1.05 × 1.1), Math Wrath the VATS AP
   cost (17 → 15.3) [observed: run 2026-10-21].
+
+## 6. Teammate perks (2026-10-23, playtest list 7 item 44)
+
+- [documented: GECK wiki AddPerk, HasPerk] `player.AddPerk perk 1` (forTeammates)
+  gives the perk to the player's teammates instead of the player.
+- [observed: the masters' scripts and PERK records] The shipped calls are
+  VCG01RemoveDocCarebearModeTriggerSCRIPT's `player.AddPerk CompanionSuite 1` on leaving
+  Doc Mitchell's, and the companions' quest rewards in dialogue result scripts (Old
+  Vaquero, Hand of Vengeance, Calm Heart, Bonds of Steel, Causeless Rebel, three in the
+  add-ons). Each has one rank; their entry points test `GetIsID` of the companion they are
+  for on the owner's tab ("Cass does 15% more damage with all Guns"), Calm Heart and
+  Companion Suite also carry an Ability. P04CompanionFireQuestSCRIPT removes Companion
+  Suite from each companion it fires (`CraigBooneREF.RemovePerk CompanionSuite`).
+- Built: `Game::held_perks` gives a teammate (SetPlayerTeammate 1, alive) the teammate
+  perks at rank 1, so their entry points apply to its hits, its DT and the rest as the
+  player's own do (`Game::entry_point_entries`; combat asks for a hit's perks when the
+  attacker or the target is the player or a teammate), and their abilities join its spell
+  list while it is a teammate and leave when it is not (`Game::sync_perk_abilities_of`,
+  log `perks: <actor>: <perk>'s ability <spell> on` and `perks: <actor>'s ability
+  <spell> off`) [hypothesis: held only while a teammate, one rank; a companion's
+  RemovePerk needs nothing, it is no longer a teammate when it is called].
+- Not built: entry points the engine asks only of the player (attack speed, rate of
+  fire: Old Vaquero's and Causeless Rebel's), so those two do nothing yet. An ability of a
+  teammate perk the player loses (`player.RemovePerk perk 1`) stays on the teammates [design:
+  no shipped script does that].
+- Checks: `fnv-game` `tests/perk_combat.rs` `teammate_perks_apply_to_teammates`; smoke
+  `teammate-perk`.
