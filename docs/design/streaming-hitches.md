@@ -225,3 +225,43 @@ uGridsToLoad=5).
     before the change [observed].
 - The jump's own ~1 s frame (26–31 above, with or without generated terrain), and the
   1.2 s frame entering cell -16,-13 on the full lap: not looked into yet.
+
+## 4. Combat and interiors (2026-10-23, 5022d345)
+
+Measured the same way (xperf CPU sampling; `tools/stress run battle`, standing in five
+busy interiors, `tools/stress run cells` over 120 interiors) [observed: target/stress/
+battle/perf-battle*, private].
+
+- **Interiors** (Gomorrah00, TOPSCasino, Vault3a, RocketLabMid, Vault19a): about 17 ms a
+  frame, the 60 fps vsync cap, 1 % low 68–95 ms; the only frames over 250 ms are 1–2 s
+  after the launch. Interior loads: mean 0.32 s, slowest 0.76 s (RocketLabBasement).
+  Nothing there is held by the main thread.
+- **Battles**: 25 a side, mean 24 ms and 1 % low 303 ms; 50 a side, mean 181 ms and 1 %
+  low 1,487 ms. `detection::measure`, one system on one thread, took 262 and 774 ms of
+  CPU a second. Inside it, per pair of actors: the actors' actor values, levels and armour
+  (`detection_pair`) and their factions (`factions_of`, through leveled templates:
+  `Picks::pick`, `World::level_at`) for every hostility check, and four sight rays
+  (`Queries::ray`). The main thread was nearly idle; the frame waited on this system.
+
+What changed (branch claude/detection-perf):
+
+- A **detection round** (`Game::begin_detection_round`, `fnv-game` `detection.rs`): while
+  the engine measures, each actor's detection inputs are worked out once, who would attack
+  whom once per pair up to the hits and allies step (`end_detection_hostility`: hits that
+  provoke and allies taking up a fight change it), and each actor's factions once for the
+  whole round. Scripts that change factions forget the actor's (AddToFaction and the rest).
+- **Sight rays at once**: the pair, camera, sun and event rays are gathered and cast on
+  the compute pool (`detection::clear_sights`, read-only `Queries`), then the game logic
+  runs over the results in the order it did.
+
+Result (same battles, untraced) [observed: target/stress/battle/after2-*, private]:
+
+| battle | mean before | after | 1 % low before | after | worst before | after |
+|---|---|---|---|---|---|---|
+| 25 a side | 24 ms | 17 ms | 303 ms | 65 ms | 382 ms | 100 ms |
+| 50 a side | 181 ms | 54 ms | 1,487 ms | 427 ms | 1,596 ms | 453 ms |
+
+At 50 a side the serial part of `measure` fell from 774 to 385 ms a second (traced);
+what is left is mostly `Game::call_allies`, whose hostility checks cannot share the
+round's (it adds grudges as it goes), and its faction reactions. The next largest cost is
+the NPCs' physics movement (`PhysWorld::move_character`, about 300 ms a second).

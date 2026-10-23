@@ -661,6 +661,26 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   brahmin stand among them: with them counted, the troopers held fire 126 times in one
   fight). Log:
   `holds fire: … stands in its line of fire to …`.
+- **A wall in the way** [design: owner 2026-10-23, NPCs in combat shooting at walls]:
+  a gun fires only when the shot can reach. Detection does not decide it: it says whom
+  an actor knows about and where, and it can say "seen" while a wall stops the shot
+  (between its measurements, over the landscape alone where the collision world is not
+  built, or with the muzzle below the eyes behind low cover). As the trigger is pulled,
+  rays go from the eyes and, where the weapon has a muzzle node, from the muzzle (a shot
+  leaves the eye line and, with something between the muzzle and the aim point, the
+  muzzle: combat.md §5.1) to the target's chest, else its head; the world's solid
+  shapes block them, actors' capsules do not (`detection::clear_sight`). The shot goes
+  at the point that is clear. A clear line holds 0.25 s (`LINE_CLEAR_FOR`, an
+  automatic's burst); a blocked one holds fire 0.5 s (`WALL_RECHECK`) before the next
+  look, so there are no rays every frame. Held, the fighter steps 128 units aside to
+  whichever side its eyes see the target's chest from (`wall_step`, a `Sidestep`
+  post), else (or once there, still blocked) closes in as on a target it does not see
+  (half the distance, `fnv_ai::alert::BLIND_CLOSE_SHARE`); out at a cover's peek point
+  it gives that cover up. Melee is not checked. Log: `holds fire: a wall stands between
+  it and … (… units); steps aside … / closes in`, `has a clear shot at … again after …
+  s`; the battle summary counts `held for a wall (… steps aside, … clear again)`. Test
+  aid `NVF_PLAY_TEST_SEE_THROUGH_WALLS=1` has fighters count their targets as seen
+  whatever detection says (smoke `combat-wall-hold`).
 - **A step back** [design: owner 2026-10-16, "backtracking in order to go backwards"]: a
   gunman whose target is nearer than 256 units (`BACK_OFF_WITHIN`) steps 192 units
   straight back from it, walking, and

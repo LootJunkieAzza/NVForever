@@ -87,10 +87,11 @@ use crate::ragdoll::Corpse;
 use crate::sky::SkyState;
 use crate::world::{bevy_to_game, WorldData};
 use bevy::prelude::*;
+use bevy::tasks::{ComputeTaskPool, ParallelSlice};
 use fnv_game::awareness::{Change, DetectionEvent, EventType, State};
 use fnv_game::detection::{Band, Settings, Situation};
 use fnv_game::sight::in_view;
-use fnv_phys::{layers, Filter, Owner};
+use fnv_phys::{layers, Filter, Owner, Queries};
 use fnv_game::functions::senses::Motion;
 use fnv_sim::FormId;
 use nvf_play::combat::{ActorHit, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisuals};
@@ -309,19 +310,32 @@ fn unseen() -> bool {
 /// `combat_tactics`).
 pub(crate) fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bool {
     let Some(phys) = phys else { return true };
+    let filter = sight_filter(phys);
+    clear_sight_in(&phys.world.queries(), &filter, from, to)
+}
+
+/// What sight rays hit: not the layers sight passes through, actors' hit volumes or the
+/// player's own capsule (`PhysState::ray`'s rule).
+fn sight_filter(phys: &PhysState) -> Filter {
+    let mut filter = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()).union(see_through()), ..Default::default() };
+    filter.exclude.extend(phys.player.as_ref().map(|c| c.key()));
+    filter
+}
+
+/// [`clear_sight`] on read-only queries, so many can run at once ([`clear_sights`]).
+fn clear_sight_in(q: &Queries, filter: &Filter, from: [f32; 3], to: [f32; 3]) -> bool {
     let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
     if len < 1.0 {
         return true;
     }
     let dir = d.map(|v| v / len);
-    let filter = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()).union(see_through()), ..Default::default() };
     // Actors' capsules (the detector's own included: the ray starts inside it) do not
     // hide what is behind them: the ray goes on past them.
     let mut at = 0.0;
     for _ in 0..PAST_ACTORS {
         let start = [from[0] + dir[0] * at, from[1] + dir[1] * at, from[2] + dir[2] * at];
-        match phys.ray(start, dir, len - at, filter.clone()) {
+        match q.ray(start, dir, len - at, filter) {
             None => return true,
             Some(h) if matches!(h.owner, Owner::Actor { .. } | Owner::Character { .. }) => at += h.distance + 1.0,
             Some(_) => return false,
@@ -333,16 +347,60 @@ pub(crate) fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32
     true
 }
 
-/// Whether `from` sees `to` for detection: through the collision world where both are
-/// in it, else over the landscape alone (the module notes).
-fn sight(phys: Option<&mut PhysState>, land: &mut LandCache, world: Option<&WorldData>, exterior: bool, from: [f32; 3], to: [f32; 3]) -> bool {
-    let Some(phys) = phys else { return true };
-    if phys.ready_at(from) && phys.ready_at(to) {
-        return clear_sight(Some(phys), from, to);
+/// Sight rays at or above this many are cast on the compute pool, in chunks of
+/// [`RAY_CHUNK`] [engineering choice: fewer are cheaper on this thread].
+const PARALLEL_RAYS: usize = 32;
+const RAY_CHUNK: usize = 16;
+
+/// [`clear_sight`] for every (from, to) of `rays`, in order; the rays are cast on the
+/// compute pool at once (the queries are read-only). A 50-a-side battle casts some
+/// 20,000 a measurement [observed: CPU profile, 2026-10-23].
+fn clear_sights(phys: &mut PhysState, rays: &[([f32; 3], [f32; 3])]) -> Vec<bool> {
+    let filter = sight_filter(phys);
+    let q = phys.world.queries();
+    if rays.len() < PARALLEL_RAYS {
+        return rays.iter().map(|&(a, b)| clear_sight_in(&q, &filter, a, b)).collect();
     }
-    let (Some(world), true) = (world, exterior) else { return true };
-    let ws = phys.worldspace;
-    fnv_game::sight::over_land(from, to, |x, y| land.height(world, ws, x, y))
+    rays.par_chunk_map(ComputeTaskPool::get(), RAY_CHUNK, |_, chunk| chunk.iter().map(|&(a, b)| clear_sight_in(&q, &filter, a, b)).collect::<Vec<_>>())
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Whether `from` sees for detection the first point, else the second, for each
+/// (from, [first, second]) of `asks`: through the collision world where both ends are in
+/// it, else over the landscape alone (the module notes). The rays of each step are cast at
+/// once ([`clear_sights`]).
+fn sights(phys: Option<&mut PhysState>, land: &mut LandCache, world: Option<&WorldData>, exterior: bool, asks: &[([f32; 3], [[f32; 3]; 2])]) -> Vec<bool> {
+    let Some(phys) = phys else { return vec![true; asks.len()] };
+    let mut seen = vec![false; asks.len()];
+    for k in 0..2 {
+        let mut rays = Vec::new();
+        let mut cast = Vec::new();
+        for i in 0..asks.len() {
+            let (from, to) = (asks[i].0, asks[i].1[k]);
+            if seen[i] {
+                continue;
+            }
+            if phys.ready_at(from) && phys.ready_at(to) {
+                rays.push((from, to));
+                cast.push(i);
+            } else {
+                // Not both in the collision world: over the landscape alone.
+                seen[i] = match (world, exterior) {
+                    (Some(world), true) => {
+                        let ws = phys.worldspace;
+                        fnv_game::sight::over_land(from, to, |x, y| land.height(world, ws, x, y))
+                    }
+                    _ => true,
+                };
+            }
+        }
+        for (i, clear) in cast.into_iter().zip(clear_sights(phys, &rays)) {
+            seen[i] = clear;
+        }
+    }
+    seen
 }
 
 /// A band change: detector and target (indices into the people), distance, the band
@@ -543,21 +601,24 @@ fn measure(
     }
     // Outdoors with the sun up, whether something shades each one from it.
     let sun = sky.as_deref().filter(|s| s.interior.is_none()).map(SkyState::sun_dir_game).filter(|d| d[2] > 0.0);
-    let mut light: Vec<f64> = Vec::with_capacity(people.len());
-    for p in &people {
-        let chest = p.chest();
-        let sunlit = match sun {
-            None => true,
-            Some(d) => {
-                let loaded = phys.as_deref().is_some_and(|ph| ph.ready_at(p.feet));
-                let lit = !loaded || clear_sight(phys.as_deref_mut(), chest, std::array::from_fn(|i| chest[i] + d[i] * SUN_REACH));
-                state.stats.sun_measured += 1;
-                state.stats.shaded += usize::from(!lit);
-                lit
+    let mut sunlit = vec![true; people.len()];
+    if let Some(d) = sun {
+        // Who stands in the loaded collision is lit when nothing is between it and the
+        // sun; the rest count as lit.
+        let loaded: Vec<usize> = (0..people.len()).filter(|&i| phys.as_deref().is_some_and(|ph| ph.ready_at(people[i].feet))).collect();
+        let rays: Vec<_> = loaded.iter().map(|&i| {
+            let chest = people[i].chest();
+            (chest, std::array::from_fn(|k| chest[k] + d[k] * SUN_REACH))
+        }).collect();
+        if let Some(ph) = phys.as_deref_mut() {
+            for (&i, lit) in loaded.iter().zip(clear_sights(ph, &rays)) {
+                sunlit[i] = lit;
             }
-        };
-        light.push(light_at(sky.as_deref(), &lights, chest, sunlit));
+        }
+        state.stats.sun_measured += people.len();
+        state.stats.shaded += sunlit.iter().filter(|lit| !**lit).count();
     }
+    let light: Vec<f64> = people.iter().zip(&sunlit).map(|(p, &lit)| light_at(sky.as_deref(), &lights, p.chest(), lit)).collect();
 
     // Every detector against every target within reach.
     let shots = std::mem::take(&mut state.shots);
@@ -601,12 +662,39 @@ fn measure(
         // look at [documented: GECK wiki SetAllVisible]; the player's sight is the
         // camera's and keeps its rays [hypothesis].
         let all_visible = g.frame_switches.all_visible;
-        for (i, j) in ordered {
+        // Each actor's detection inputs, factions and who would attack whom, worked out
+        // once for the pairs, the events and the alarms below
+        // (`Game::begin_detection_round`).
+        g.begin_detection_round();
+        let player_unseen = unseen() || g.toggles.detection_off;
+        let ai_off: Vec<bool> = people.iter().enumerate().map(|(i, p)| i != 0 && g.ai_off(FormId(p.id))).collect();
+        let ordered: Vec<(usize, usize)> = ordered.filter(|&(i, j)| !(j == 0 && player_unseen) && !ai_off[i]).collect();
+        // The lines of sight, cast at once (`sights`): the detector's eyes to the target's
+        // chest, else its eyes; for the player also the camera's, where the target is in
+        // the camera's view.
+        let eye_asks: Vec<usize> = (0..ordered.len()).filter(|&k| !(all_visible && ordered[k].0 != 0)).collect();
+        let asks: Vec<_> = eye_asks.iter().map(|&k| {
+            let (d, t) = (&people[ordered[k].0], &people[ordered[k].1]);
+            (d.view, [t.chest(), t.eyes])
+        }).collect();
+        let mut eye_sight = vec![true; ordered.len()];
+        for (&k, clear) in eye_asks.iter().zip(sights(phys.as_deref_mut(), land, world, exterior, &asks)) {
+            eye_sight[k] = clear;
+        }
+        let camera_asks: Vec<(usize, [f32; 3])> = (0..ordered.len())
+            .filter_map(|k| {
+                let (d, t) = (&people[ordered[k].0], &people[ordered[k].1]);
+                d.camera.filter(|&(at, ahead)| in_view(at, ahead, t.chest())).map(|(at, _)| (k, at))
+            })
+            .collect();
+        let asks: Vec<_> = camera_asks.iter().map(|&(k, at)| (at, [people[ordered[k].1].chest(), people[ordered[k].1].eyes])).collect();
+        let mut camera_sight = vec![false; ordered.len()];
+        for (&(k, _), clear) in camera_asks.iter().zip(sights(phys.as_deref_mut(), land, world, exterior, &asks)) {
+            camera_sight[k] = clear;
+        }
+        for (k, &(i, j)) in ordered.iter().enumerate() {
             let (d, t) = (&people[i], &people[j]);
             let by_player = i == 0;
-            if (j == 0 && (unseen() || g.toggles.detection_off)) || (!by_player && g.ai_off(FormId(d.id))) {
-                continue;
-            }
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());
             let fighting = aware.filter(|a| a.state == State::Combat).and_then(|a| a.combat_target()).map(|(t, _)| t);
@@ -615,7 +703,7 @@ fn measure(
             let sit = Situation {
                 distance: dist as f64,
                 exterior,
-                line_of_sight: (all_visible && !by_player) || sight(phys.as_deref_mut(), land, world, exterior, d.view, target) || sight(phys.as_deref_mut(), land, world, exterior, d.view, t.eyes),
+                line_of_sight: eye_sight[k],
                 in_view: in_view(d.view, d.forward, target),
                 light: light[j],
                 moving: t.moving,
@@ -625,9 +713,7 @@ fn measure(
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
                 detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
-                camera_sight: d.camera.map(|(at, ahead)| {
-                    in_view(at, ahead, target) && (sight(phys.as_deref_mut(), land, world, exterior, at, target) || sight(phys.as_deref_mut(), land, world, exterior, at, t.eyes))
-                }),
+                camera_sight: d.camera.map(|_| camera_sight[k]),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
             // The player's own detection feeds the script functions only.
@@ -668,21 +754,27 @@ fn measure(
             g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Explosion });
             raised[2] += 1;
         }
-        for ev in g.take_detection_events() {
-            if (unseen() || g.toggles.detection_off) && ev.owner == FormId::PLAYER_REF {
-                continue;
-            }
-            events += 1;
-            // Actors hear events; the player (first) does not take part.
-            for d in people.iter().skip(1) {
+        let evs: Vec<DetectionEvent> = g.take_detection_events().into_iter().filter(|ev| !((unseen() || g.toggles.detection_off) && ev.owner == FormId::PLAYER_REF)).collect();
+        // Actors hear events; the player (first) does not take part.
+        let mut hearers: Vec<(usize, usize, f32)> = Vec::new();
+        for (e, ev) in evs.iter().enumerate() {
+            for (i, d) in people.iter().enumerate().skip(1) {
                 let dist = distance(d.feet, ev.at);
-                if FormId(d.id) == ev.owner || dist > reach {
-                    continue;
+                if FormId(d.id) != ev.owner && dist <= reach {
+                    hearers.push((e, i, dist));
                 }
+            }
+        }
+        let asks: Vec<_> = hearers.iter().map(|&(e, i, _)| (people[i].eyes, [evs[e].at, evs[e].at])).collect();
+        let heard_sight = sights(phys.take(), land, world, exterior, &asks);
+        events += evs.len();
+        for (&(e, i, dist), clear) in hearers.iter().zip(heard_sight) {
+            let (ev, d) = (evs[e], &people[i]);
+            {
                 let sit = Situation {
                     distance: dist as f64,
                     exterior,
-                    line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.eyes, ev.at),
+                    line_of_sight: clear,
                     // An event is heard, not seen [hypothesis].
                     in_view: false,
                     sneaking: ev.owner == FormId::PLAYER_REF && people[0].sneaking,
@@ -698,6 +790,8 @@ fn measure(
                 }
             }
         }
+        // Hits and allies can change who would attack whom: worked out afresh from here.
+        g.end_detection_hostility();
         for (id, by) in hits {
             // Hit by someone it would leave alone: it may turn on them (assault,
             // friendly fire; `fnv_game::provocation`).
@@ -714,6 +808,7 @@ fn measure(
         // (`fnv_game::combat_group`); only those measured here: drawn (the loaded area).
         let near: std::collections::BTreeMap<FormId, [f32; 3]> = people.iter().map(|p| (FormId(p.id), p.feet)).collect();
         g.raise_alarms(&near);
+        g.end_detection_round();
         let held = std::mem::take(&mut g.awareness.held_back);
         for (topic, who, by) in &held {
             debug!("alert: {} does not say {topic}: {} said a line of that kind {:.0} s ago (group cooldown)", g.data.name(*who), g.data.name(*by), g.awareness.said.iter().rev().find(|s| s.speaker == *by).map_or(0.0, |s| g.time - s.time));

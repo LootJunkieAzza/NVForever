@@ -28,6 +28,20 @@
 //!   when the player is not its target) stands within [`LINE_OF_FIRE_WIDTH`] of the line
 //!   to its target; it steps aside, away from them. Bystanders do not hold it back (the
 //!   Fiends' brahmin stand among them).
+//! - **A wall in the way** [design: owner's report 2026-10-23, NPCs shooting at walls]:
+//!   a gun is fired only when the shot can reach. As the trigger is pulled, rays go from
+//!   the shooter's eyes, and from its weapon's muzzle where it has one (a shot leaves the
+//!   eye line and, with something between the muzzle and the target, the muzzle:
+//!   `nvf_play::combat`), to the target's chest, else its head ([`shot_clear`]); the
+//!   collision world's solid shapes block them, actors' capsules do not, as for sight
+//!   (`detection::clear_sight`). The shot goes at the point that is clear. Detection
+//!   is not asked: it says whom an actor knows about, and it can say "seen" while a
+//!   wall stops the shot (between its rounds, over the landscape alone, the muzzle
+//!   below the eyes). A clear line holds for [`LINE_CLEAR_FOR`] (an automatic's burst);
+//!   a blocked one holds fire for [`WALL_RECHECK`] before the next look. Held, the
+//!   fighter steps aside ([`SIDESTEP`]) to whichever side has a clear line from its
+//!   eyes ([`wall_step`]), else closes in on its target as on one it does not see
+//!   (`fnv_ai::alert`); at a cover's peek point it gives that cover up.
 //! - **Fight summary** ([`Battle`]): the sides (comrades together, named by a faction),
 //!   hits, kills, flights, cover, flanks, steps aside, alarms and searches, and how long
 //!   the fight took: `battle over` when nobody has fought for [`RESOLVED_AFTER`] seconds,
@@ -95,6 +109,43 @@ pub const RESOLVED_AFTER: f32 = 5.0;
 /// A kind of post the AI found no way to is not given again for this long, seconds
 /// [design].
 pub const NO_POST_SECONDS: f32 = 3.0;
+/// A clear line of fire found as the trigger is pulled holds this long for the shots
+/// that follow, seconds [design: rays are not free; an automatic fires every frame].
+pub const LINE_CLEAR_FOR: f32 = 0.25;
+/// A shot held for a wall is looked at again after this long, seconds [design].
+pub const WALL_RECHECK: f32 = 0.5;
+
+/// A wall stops a fighter's shot at its target (module notes).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Wall {
+    pub target: u32,
+    /// Since when (clock); the next look (clock).
+    pub since: f32,
+    pub recheck_at: f32,
+    /// Where it steps aside to, a clear line from there; `None`: it closes in.
+    pub step: Option<[f32; 3]>,
+}
+
+/// Whether a shot from `eyes` (and from `muzzle`, where the weapon has one) reaches the
+/// target's `chest`, else its `head`: the point it can go at (module notes).
+pub fn shot_clear(mut phys: Option<&mut PhysState>, eyes: [f32; 3], muzzle: Option<[f32; 3]>, chest: [f32; 3], head: [f32; 3]) -> Option<[f32; 3]> {
+    [chest, head].into_iter().find(|to| crate::detection::clear_sight(phys.as_deref_mut(), eyes, *to) && muzzle.is_none_or(|m| crate::detection::clear_sight(phys.as_deref_mut(), m, *to)))
+}
+
+/// The two steps of `step` across the line from `feet` to `target`: `first` side first.
+pub fn side_steps(feet: [f32; 3], target: [f32; 3], step: f32, first: bool) -> [[f32; 3]; 2] {
+    let d = [target[0] - feet[0], target[1] - feet[1]];
+    let len = d[0].hypot(d[1]).max(1e-3);
+    let n = [-d[1] / len, d[0] / len];
+    let s = if first { 1.0 } else { -1.0 };
+    [[feet[0] + n[0] * step * s, feet[1] + n[1] * step * s, feet[2]], [feet[0] - n[0] * step * s, feet[1] - n[1] * step * s, feet[2]]]
+}
+
+/// Where a fighter whose shot a wall stops steps aside to: the first of its
+/// [`side_steps`] from which its eyes (`eye` above the feet) see the target's `chest`.
+pub fn wall_step(mut phys: Option<&mut PhysState>, feet: [f32; 3], eye: f32, target: [f32; 3], chest: [f32; 3], first: bool) -> Option<[f32; 3]> {
+    side_steps(feet, target, SIDESTEP, first).into_iter().find(|p| crate::detection::clear_sight(phys.as_deref_mut(), [p[0], p[1], p[2] + eye], chest))
+}
 
 /// Where a fighter is in its use of cover.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -165,6 +216,10 @@ pub struct Tactic {
     pub bad_cover: Vec<[f32; 3]>,
     /// A shift sideways it is on its way to (docs/design/combat-ai.md §14.2).
     pub shift: Option<[f32; 3]>,
+    /// A clear line of fire to this target until then (clock), and the point it is clear
+    /// to ([`LINE_CLEAR_FOR`]); a wall that stops its shot ([`Wall`]).
+    pub shot_line: Option<(u32, f32, [f32; 3])>,
+    pub wall: Option<Wall>,
 }
 
 /// A name for logs: the reference's name (its Editor ID or FULL), else its base form's
@@ -475,6 +530,11 @@ pub struct Battle {
     pub sidesteps: usize,
     pub back_offs: usize,
     pub held_fire: usize,
+    /// Shots held for a wall in the way (times a fighter began holding), steps aside
+    /// for it, and times it found its line clear again.
+    pub wall_holds: usize,
+    pub wall_steps: usize,
+    pub wall_clears: usize,
     pub alarms: usize,
     pub no_alarms: usize,
     pub searches: usize,
@@ -612,7 +672,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         None => "still going at exit".to_string(),
     };
     info!(
-        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}; cover spots: {} with room, {} moved to have room, {} without room",
+        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken ({} from a gunman firing at it), {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} held for a wall ({} steps aside, {} clear again); {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}; cover spots: {} with room, {} moved to have room, {} without room",
         b.sides.len(),
         b.line(),
         b.flights.iter().sum::<usize>(),
@@ -629,6 +689,9 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         b.sidesteps,
         b.back_offs,
         b.held_fire,
+        b.wall_holds,
+        b.wall_steps,
+        b.wall_clears,
         b.alarms,
         b.no_alarms,
         b.searches,
@@ -722,6 +785,19 @@ mod tests {
         let [p, q] = peek_points(&e);
         assert!((p[0] - (50.0 + 50.0 + PEEK_STEP)).abs() < 1e-3 && (p[1] + COVER_STANDOFF).abs() < 1e-3);
         assert!((q[0] - (50.0 - 50.0 - PEEK_STEP)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_wall_step_goes_across_the_line_either_way() {
+        // Target due east: the steps go north and south, the chosen side first.
+        let [a, b] = side_steps([0.0, 0.0, 10.0], [1000.0, 0.0, 0.0], SIDESTEP, true);
+        assert!(a[0].abs() < 1e-3 && (a[1] - SIDESTEP).abs() < 1e-3 && a[2] == 10.0);
+        assert!(b[0].abs() < 1e-3 && (b[1] + SIDESTEP).abs() < 1e-3);
+        assert_eq!(side_steps([0.0; 3], [1000.0, 0.0, 0.0], SIDESTEP, false), [b, a].map(|p| [p[0], p[1], 0.0]));
+        // Without a collision world every line is clear: the chest is the point.
+        let (chest, head) = ([500.0, 0.0, 50.0], [500.0, 0.0, 70.0]);
+        assert_eq!(shot_clear(None, [0.0, 0.0, 60.0], Some([10.0, -5.0, 50.0]), chest, head), Some(chest));
+        assert_eq!(wall_step(None, [0.0; 3], 60.0, chest, chest, true).map(|p| p[1]), Some(SIDESTEP));
     }
 
     #[test]
