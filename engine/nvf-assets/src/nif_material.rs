@@ -91,12 +91,20 @@
 //! [engineering choice: a small per-NPC offset image in place of a full-size texture per
 //! NPC, docs/design/streaming-hitches.md §3]. Every other shape has no offset and the
 //! shader is unchanged (the `FACEGEN_TINT` shader def).
+//!
+//! Bindless [engineering choice, docs/design/graphics-enhanced.md §5.6]: where the device
+//! supports it (Bevy decides; `BINDLESS` in the shaders), every NIF material's values and
+//! textures are reached through index tables, so the draws of shapes with different
+//! materials share a batch set instead of each binding a bind group of its own: the
+//! alpha-tested shapes in every shadow cascade above all. The shaders reach the values,
+//! the holes and the FaceGen offset through `nif_surface`, `holes_alpha` and
+//! `facegen_texel` (nif_material.wgsl, nif_prepass.wgsl), which read either binding.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, CompareFunction, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, ShaderType, CompareFunction, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
 /// fade_prepass.wgsl.
@@ -104,6 +112,9 @@ const FADE_PREPASS_SHADER: Handle<Shader> = uuid_handle!("6f0c9b51-2a7e-4f43-9d0
 
 /// nif_prepass.wgsl.
 const NIF_PREPASS_SHADER: Handle<Shader> = uuid_handle!("b1d6a2f4-7c35-4e0a-8f29-3a5d9c0e6b17");
+
+/// nif_surface_bindings.wgsl (imported by the two above).
+const NIF_SURFACE_BINDINGS_SHADER: Handle<Shader> = uuid_handle!("3c8e1f60-9a4d-4b27-b5e2-7d0f6a91c348");
 
 /// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
 /// (module docs). Call from `MaterialExtension::specialize` of materials whose meshes
@@ -170,31 +181,35 @@ pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipel
 
 /// The extension part: the falloff parameters, the alpha cut, the decal switch and the
 /// fragment shader.
+///
+/// Bindless where the device allows it, as `StandardMaterial` is (module docs,
+/// "Bindless"): the values go to one array for all NIF materials ([`NifSurfaceUniform`],
+/// binding 101, index 50 of the extension's index table at binding 100) and the textures
+/// to Bevy's shared texture arrays, so shapes of different materials are drawn in one
+/// batch. Without bindless the values are a uniform at binding 50 and the textures at 51
+/// to 53, Bevy's numbering for extensions.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[data(50, NifSurfaceUniform, binding_array(101))]
+#[bindless(index_table(range(50..54), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
     /// when the shape has no falloff ([`Falloff::NONE`]).
-    #[uniform(100)]
     pub falloff: Vec4,
     /// Fragments whose alpha is below this are not drawn: the alpha test of a shape that
     /// is drawn blended (`nif_spawn::blend_cut`); 0 on every other shape, which drops
     /// nothing.
-    #[uniform(100)]
     pub alpha_cut: f32,
     /// 1 for an additive shape whose source factor is ONE (NiAlphaProperty ONE / ONE): its
     /// colour is added whole, whatever its alpha [documented: nif.xml AlphaFlags, source
     /// blend mode 0 ONE]; the view-angle falloff still fades it [hypothesis]. 0 for every
     /// other shape (an additive SRC_ALPHA / ONE shape adds colour × [`add_alpha`]).
-    #[uniform(100)]
     pub add_whole: f32,
     /// The screen shift of a refracting shape per unit of its view-space normal (module
     /// notes, "Refraction"), in screen UV; 0 for every other shape.
-    #[uniform(100)]
     pub refraction: f32,
     /// Seconds for the normal map of a refracting shape to scroll once up its texture,
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
-    #[uniform(100)]
     pub fire_period: f32,
     /// The shape refracts (module notes, "Refraction").
     pub refract: bool,
@@ -209,21 +224,40 @@ pub struct NifSurface {
     /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
     /// which the holes texture's alpha leaves a hole, negative for none; y the width of
     /// the edge band below it; z, w unused.
-    #[uniform(100)]
     pub holes: Vec4,
     /// The colour of the holes' edge band (linear, alpha unused).
-    #[uniform(100)]
     pub holes_edge: Vec4,
     /// The holes texture; `None` with no holes.
-    #[texture(101)]
-    #[sampler(102)]
+    #[texture(51)]
+    #[sampler(52)]
     pub holes_texture: Option<Handle<Image>>,
     /// FaceGen tint (module notes, "FaceGen tint"): the colour offset in colour units
     /// (0–255 scale), one texel per `.egt` image texel, in the file's row order (first row
     /// at the texture's bottom); read with `textureLoad`, so it is not filtered. `None` on
     /// every shape but an NPC's face and skin.
-    #[texture(103, sample_type = "float", filterable = false)]
+    /// Read with `textureLoad` only, but declared filterable: Bevy's bindless texture
+    /// arrays hold filterable textures, and the offsets are Rgba16Float, which is.
+    #[texture(53)]
     pub facegen_offset: Option<Handle<Image>>,
+}
+
+/// The values of a [`NifSurface`] the shaders read (nif_material.wgsl and
+/// nif_prepass.wgsl `NifSurface`, the same fields in the same order).
+#[derive(Clone, Default, ShaderType)]
+pub struct NifSurfaceUniform {
+    pub falloff: Vec4,
+    pub alpha_cut: f32,
+    pub add_whole: f32,
+    pub refraction: f32,
+    pub fire_period: f32,
+    pub holes: Vec4,
+    pub holes_edge: Vec4,
+}
+
+impl From<&NifSurface> for NifSurfaceUniform {
+    fn from(s: &NifSurface) -> Self {
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction, fire_period: s.fire_period, holes: s.holes, holes_edge: s.holes_edge }
+    }
 }
 
 /// [`NifSurface::holes`] of a shape with no holes.
@@ -482,6 +516,7 @@ impl Plugin for NifMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "nif_material.wgsl");
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, NIF_SURFACE_BINDINGS_SHADER, "nif_surface_bindings.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
         app.add_plugins(MaterialPlugin::<NifMaterial>::default()).add_systems(PostUpdate, see_through_casts_no_shadow);
     }
