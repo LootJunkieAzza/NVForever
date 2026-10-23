@@ -3311,6 +3311,16 @@ fn fly(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
+        // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
+        // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
+        // hypothesis: from 0, once a hit; logic-fields.md §3].
+        let fatigue = damage::apply_effects(0.0, &ammo_effects, "Fatigue Mod");
+        if fatigue > 0.0 && r.as_ref().is_some_and(|r| !r.immune) {
+            if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                with_world(rt, &mut sim, |rt| rt.game.damage_fatigue(target, f64::from(fatigue)));
+                info!("combat: {target} loses {fatigue:.0} fatigue to the ammo");
+            }
+        }
         if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
             dm.checks.push(check);
         }
