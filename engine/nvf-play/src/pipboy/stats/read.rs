@@ -302,10 +302,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
 /// modifier) [design: worn enchantments do not change the game's actor values yet
 /// (`fnv_game::functions::actor`, the temporary modifier); the page adds them so that
 /// it reads as the original's].
-/// The player's health (current and whole, as the heading) and limb conditions (0 to 1,
-/// as the CND bars), what the CND page's hints are judged by; `None` without the
-/// scripts' game.
-pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<((f64, f64), [f64; 6])> {
+/// The player's health (current and whole, as the heading), limb conditions (0 to 1, as
+/// the CND bars) and whether Hardcore mode is on: what the CND page's hints are judged
+/// by; `None` without the scripts' game.
+pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option<((f64, f64), [f64; 6], bool)> {
     let rt = script?.rt.as_mut()?;
     Some(crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
@@ -317,7 +317,7 @@ pub fn condition(sim: &mut SimState, script: Option<&mut ScriptState>) -> Option
                 limbs[i] = (v / max).clamp(0.0, 1.0);
             }
         }
-        (hp, limbs)
+        (hp, limbs, g.hardcore())
     }))
 }
 

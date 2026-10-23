@@ -467,6 +467,19 @@ fn hardcore_needs_rise_with_time() {
     assert_eq!(av(&mut g, HUNGER), 0.0);
 }
 
+/// SetHardcore turns on the simulation's switch too (ammunition weighs), and turning it
+/// off marks the game as not always Hardcore.
+#[test]
+fn set_hardcore_reaches_the_ammunition_weight() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(!g.world.config().hardcore);
+    g.set_hardcore(true);
+    assert!(g.hardcore() && g.world.config().hardcore && !g.player.hardcore_was_off);
+    g.set_hardcore(false);
+    assert!(!g.hardcore() && !g.world.config().hardcore && g.player.hardcore_was_off);
+}
+
 /// A need past a stage's threshold gives the stage's effect; below it, or with
 /// Hardcore off, the effect goes. Restore- and DamageActorValue move a need.
 #[test]

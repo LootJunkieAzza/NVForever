@@ -4551,6 +4551,26 @@ expect = [
 order = [["pipboy stats: used Stimpak on the body", "Stimpak not used: the right arm", "used Stimpak on the left arm", "used Doctor's Bag"]]
 
 [[scenario]]
+name = "pipboy-stats-heal-hardcore"
+source = "owner 2026-10-23: in Hardcore the CND page refuses a Stimpak aimed at a limb (FalloutNV.esm help text: a Doctor's Bag or a doctor is required), still uses one on the body, and the Doctor's Bag mends the limb part way (engine/nvf-play/src/pipboy/stats/, docs/spec-notes/pipboy.md 5.1)"
+note = "Hardcore on by the script aid; the console cripples the left arm and takes 50 health; on CND a Stimpak on the left arm (refused), one on the body, then the bag"
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1", NVF_PLAY_TEST_CONSOLE = "8:player.DamageAV LeftAttackCondition 100;8.3:player.DamageAV Health 50;9:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,21:close", NVF_PLAY_TEST_PIPBOY_STATS = "15:limb=2,15.5:use=stimpak,16.5:limb=none,17:use=stimpak,18.5:use=bag" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  "test aid: Hardcore mode on",
+  "combat: player's left arm crippled",
+  { re = 'pipboy stats: Stimpak not used: a Stimpak mends no limb in Hardcore mode', label = "no Stimpak on a limb in Hardcore" },
+  { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "a Stimpak on the body" },
+  { re = 'aid: the player used Stimpak \(potency [\d.]+\): Health \+[\d.]+ a second', label = "the Hardcore Stimpak heals over time" },
+  { re = '''pipboy stats: used Doctor's Bag on the body''', label = "the Doctor's Bag used" },
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm [1-9]\d%', label = "the bag mends the arm part way" },
+]
+order = [["Stimpak not used: a Stimpak mends no limb", "used Stimpak on the body", "used Doctor's Bag"]]
+
+[[scenario]]
 name = "pipboy-general-locations"
 source = "outstanding.md §2 Interface (2026-10-19; hud.md §11, misc-stats.md): leaving the start finds Goodsprings: the HUD's XP meter shows +10 XP and the Pip-Boy's General list counts it under Locations Discovered (the tab opens on its Reputation list: mode, then down from Quests Completed)"
 areas = ["hud", "pipboy"]

@@ -192,10 +192,10 @@ them.
   limb.
 - **A Stimpak on one limb from the Pip-Boy** (built 2026-10-23, pipboy.md §5.1): that
   limb gets the whole amount; the Doctor's Bag is used from the same page.
-- **Hardcore: Stimpaks do not heal limbs** (not checked): the help text supports it
-  ("only … Doctor's Bags or … a doctor"). The Stimpak has a Hardcore effect of its own
-  (aid-items.md §3). Whether that effect leaves the limbs alone was not checked in
-  this pass.
+- **Hardcore: Stimpaks do not heal limbs** (checked 2026-10-23): the Hardcore Stimpak's
+  effect is a Value Modifier on Health alone, 5 a second for 6 s, no limbs [observed:
+  `fnvtool actor aid --use Stimpak --hardcore`], as the help text says; the Pip-Boy's
+  CND page refuses a Stimpak aimed at a limb in Hardcore.
 - Daturana, healing poultice and the weapon binding ritual: their own effects (aid
   items); not looked at here.
 

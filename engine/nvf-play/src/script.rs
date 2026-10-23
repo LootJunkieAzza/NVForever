@@ -1096,7 +1096,7 @@ impl Runtime {
                 info!("test aid: {} {value} set to {v}", g.data.name(r));
             }
             ScriptAid::Hardcore(on) => {
-                g.player.hardcore = Some(*on);
+                g.set_hardcore(*on);
                 info!("test aid: Hardcore mode {}", if *on { "on" } else { "off" });
             }
             ScriptAid::Perk(p) => {

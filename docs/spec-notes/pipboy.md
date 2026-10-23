@@ -227,7 +227,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
     pointer on a limb's bar chooses it while there, and a click on the bar uses a
     Stimpak on that limb); E or the Doctor's Bag hint uses one on every limb. An item is
     not used when it would not heal: a Stimpak on the body at full health, on a limb
-    that is whole, a Doctor's Bag with no limb hurt, or none carried
+    that is whole, a Stimpak on a limb in Hardcore mode (it mends no limb there
+    [observed: FalloutNV.esm help text, "In Hardcore Mode, a Doctor's Bag or an actual
+    doctor is required"]), a Doctor's Bag with no limb hurt, or none carried
     (`model::refusal`). The chosen or pointed-at limb's bracket is boxed. The item is
     taken, its consume sound plays and the runtime uses it as the inventory does
     (`stats::use_hints`); what it does to the limbs: aid-items.md §3. RadAway and Rad-X

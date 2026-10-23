@@ -113,6 +113,13 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   it every limb is whole after the use; in Hardcore its limbs get 36 × potency
   [observed: `fnvtool actor aid --use NVDoctorBag`, 2026-10-23, Medicine 15: a left arm
   at 0 went to 100, and to 46.8 with `--hardcore`].
+- **Hardcore on and off while the game runs** (SetHardcore, `Game::set_hardcore`):
+  the needs and the weight of ammunition follow it; the simulation counts ammunition's
+  weight by its own switch (`fnv_sim::World::set_hardcore`), which SetHardcore now
+  sets too (before 2026-10-23 only the start's configuration set it, so ammunition
+  stayed weightless after Doc Mitchell's question turned Hardcore on). RadAway is
+  6.5 rads a second for 10 s in Hardcore, 65 at once otherwise [observed: `fnvtool
+  actor aid --use RadAway`, Medicine 15].
 - The value changes of the masters' aid items [observed]: 257 at once, 173 modifiers while
   they last, 138 by the second.
 
