@@ -686,6 +686,9 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
+    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.decal, props.refraction.is_some()) {
+        material.extension.soft.x = crate::nif_material::SOFT_DISTANCE;
+    }
     if let Some(strength) = props.refraction {
         refraction_material(&mut material, strength, props.fire_period);
         // The models' refracting shells bend all of their area, as before the cut was

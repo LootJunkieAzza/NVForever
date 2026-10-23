@@ -1,7 +1,8 @@
 // NIF surface material (nif_material.rs): Bevy's standard PBR fragment with six changes,
 // all [hypothesis, docs/spec-notes/nif.md §6 "Emissive light", "Specular", "View-angle
 // falloff", "Multiply blend", "Additive blend", "Alpha"]:
-// - the alpha is scaled by the view-angle falloff (blended effect shapes only);
+// - the alpha is scaled by the view-angle falloff (blended effect shapes only) and, in the
+//   main pass, by the soft intersection with the surface behind (`soft_fade`);
 // - a blended shape that is also alpha-tested drops the fragments below its cut;
 // - the emissive light is modulated by the surface colour (diffuse texture × vertex
 //   colour), as NIF emissive is;
@@ -61,8 +62,11 @@
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler},
     pbr_bindings,
-    view_transformations::frag_coord_to_uv,
+    view_transformations::{frag_coord_to_uv, frag_coord_to_ndc, position_ndc_to_world, depth_ndc_to_view_z},
 }
+#ifdef DEPTH_PREPASS
+#import bevy_pbr::prepass_utils
+#endif
 #ifdef SHADE_LIGHT
 #import bevy_pbr::{
     pbr_types::PbrInput,
@@ -92,6 +96,8 @@ struct NifSurface {
     holes: vec4<f32>,
     // The edge band's colour (linear).
     holes_edge: vec4<f32>,
+    // Soft intersections: x the fade distance (game units), 0 for none.
+    soft: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
@@ -170,7 +176,30 @@ fn blend_colour_scale(a: f32) -> f32 {
     return sqrt(saturate(a));
 }
 
+
+
 #ifndef PREPASS_PIPELINE
+// Soft intersections (nif_material.rs module notes): the share of the shape kept at this
+// fragment, falling from 1 at `distance` in front of the opaque surface behind it (the
+// depth prepass) to 0 on it. Not faded where the shape lies along that surface (the two
+// facings, from screen derivatives, within about 25 degrees), nor in front of the sky,
+// nor without a prepass. Called in uniform control flow (screen derivatives).
+fn soft_fade(frag_coord: vec4<f32>, world_pos: vec3<f32>, distance: f32) -> f32 {
+#ifdef DEPTH_PREPASS
+    let depth = prepass_utils::prepass_depth(frag_coord, 0u);
+    let scene = position_ndc_to_world(frag_coord_to_ndc(vec4(frag_coord.xy, max(depth, 1e-7), 1.0)));
+    let scene_n = cross(dpdx(scene), dpdy(scene));
+    let own_n = cross(dpdx(world_pos), dpdy(world_pos));
+    let lengths = length(scene_n) * length(own_n);
+    let along = select(0.0, abs(dot(scene_n, own_n)) / lengths, lengths > 1e-12);
+    let gap = depth_ndc_to_view_z(frag_coord.z) - depth_ndc_to_view_z(max(depth, 1e-7));
+    let fade = mix(saturate(gap / max(distance, 1e-3)), 1.0, smoothstep(0.85, 0.95, along));
+    return select(fade, 1.0, distance <= 0.0 || depth <= 0.0);
+#else
+    return 1.0;
+#endif
+}
+
 #ifdef SHADE_LIGHT
 // The lit colour of a fragment whose sun shadows are those of the shade light
 // (nif_material.rs, "Shade light"). Of the directional lights with shadows, the brightest
@@ -303,7 +332,11 @@ fn fragment(
     // |N·V|: the normal is already flipped towards the viewer on back faces of double-sided
     // shapes; abs() also covers single-sided ones seen edge-on.
     let cos_angle = abs(dot(normalize(pbr_input.world_normal), pbr_input.V));
+#ifdef PREPASS_PIPELINE
     let falloff = falloff_opacity(cos_angle, surface.falloff);
+#else
+    let falloff = falloff_opacity(cos_angle, surface.falloff) * soft_fade(in.position, pbr_input.world_position.xyz, surface.soft.x);
+#endif
     pbr_input.material.base_color.a *= falloff;
     if pbr_input.material.base_color.a < surface.alpha_cut {
         discard;
@@ -324,6 +357,7 @@ fn fragment(
     // base_color already holds texture × vertex colour × material colour.
     let e = pbr_input.material.emissive;
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
+
 #ifdef BLEND_MULTIPLY
     // Kept out of the lighting sum: multiply_factor adds it in display values.
     let multiply_emissive = pbr_input.material.emissive.rgb;
@@ -350,6 +384,17 @@ fn fragment(
         out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     } else {
         out.color = pbr_input.material.base_color;
+#ifndef TONEMAP_IN_SHADER
+#ifndef BLEND_MULTIPLY
+        // Light glow (nvforever graphics.rs), HDR views only, where the tonemapper runs
+        // after the main pass: an unlit shape is as bright as its emissive light (surface
+        // colour × emissive colour × emissive multiplier), so neon authored at multiplier
+        // 25 (Gomorrah's tubes) burns far brighter than white and glows, as in the
+        // original's HDR frames; never darker than its surface colour [hypothesis from the
+        // original's frames, nif.md §6 "Emissive multiplier of unlit shapes"].
+        out.color = vec4(max(out.color.rgb, pbr_input.material.emissive.rgb), out.color.a);
+#endif
+#endif
     }
     out.color = vec4(mix(out.color.rgb, surface.holes_edge.rgb, holes_band), out.color.a);
 #ifdef BLEND_MULTIPLY

@@ -42,7 +42,7 @@ pub mod world;
 
 pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;
-pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
+pub use character::{Character, CharacterInput, CharacterParams, CharacterStep, Push};
 pub use convert::ConvertError;
 pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;

@@ -78,7 +78,7 @@ use crate::detection::Band;
 use crate::functions::actor::{actor_value, faction_relation};
 use crate::game::Game;
 use fnv_sim::FormId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 const ASSISTANCE: u16 = crate::actor_values::ASSISTANCE;
 
@@ -404,14 +404,31 @@ impl Game<'_> {
             .filter(|(_, f)| !f.is_empty())
             .collect();
         let mut joined = 0;
+        // Who perceives whom (detected, seen or heard), in one pass over the pairs, each
+        // victim's watchers in the pairs' order [engineering choice: one scan per victim
+        // over every pair was a fifth of a 50-a-side battle's detection, CPU profile
+        // 2026-10-23]. Each helper's Assistance is read once.
+        let mut watching: HashMap<FormId, Vec<FormId>> = HashMap::new();
+        for ((w, t), (d, _)) in &self.detection.pairs {
+            if d.band == Band::Detected {
+                watching.entry(*t).or_default().push(*w);
+            }
+        }
+        let mut assistance_of: HashMap<FormId, i64> = HashMap::new();
         for (victim, foes) in fights {
-            // Who perceives the victim (detected, seen or heard).
-            let watchers: Vec<FormId> = self.detection.pairs.iter().filter(|((_, t), (d, _))| *t == victim && d.band == Band::Detected).map(|((w, _), _)| *w).collect();
+            let watchers = watching.get(&victim).cloned().unwrap_or_default();
             for helper in watchers {
                 if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) {
                     continue;
                 }
-                let assistance = actor_value(self, helper, ASSISTANCE).unwrap_or(0.0) as i64;
+                let assistance = match assistance_of.get(&helper) {
+                    Some(&a) => a,
+                    None => {
+                        let a = actor_value(self, helper, ASSISTANCE).unwrap_or(0.0) as i64;
+                        assistance_of.insert(helper, a);
+                        a
+                    }
+                };
                 if !helps(assistance, self.reaction_to(helper, victim)) {
                     continue;
                 }

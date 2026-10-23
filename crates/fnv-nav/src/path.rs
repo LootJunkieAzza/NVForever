@@ -161,6 +161,12 @@ impl std::error::Error for PathError {}
 /// How far from a point a path start or goal may be snapped onto the navmesh.
 pub const SNAP_RADIUS: f32 = 512.0;
 
+/// How far a point may be above or below a triangle's surface and still be on it, for
+/// straight-line walks ([`NavGraph::walkable_line`]): less than the gap between levels
+/// stacked over each other, which is over 40 units almost everywhere in FalloutNV.esm
+/// [observed] (docs/spec-notes/navmesh.md §4b) [engine choice].
+pub const LEVEL_GAP: f32 = 40.0;
+
 #[derive(Clone, Copy)]
 enum Via {
     Start,
@@ -870,7 +876,10 @@ impl NavGraph {
                 }
             }
             if self.contains_xy(cur, b[0], b[1]) {
-                return Some(cur);
+                // The line walks one surface: where it reaches b's spot seen from above, b
+                // must be on that surface. A b far above or below is on another level
+                // stacked over this one (a catwalk over a floor): not walkable straight.
+                return ((self.height_on(cur, b[0], b[1]) - b[2]).abs() <= LEVEL_GAP).then_some(cur);
             }
             // Leave by the edge the line crosses furthest along (not back the way in).
             let c = self.corners(cur);
@@ -889,8 +898,11 @@ impl NavGraph {
             let n = self.passable(cur, e, p)?;
             // Across a seam the linked triangle need not be the one facing the crossing:
             // continue on the triangle under the point just past it.
+            // Its height is the surface's there, not the line's (which runs straight from
+            // a to b, through the air if b is on another level).
             let ahead = (s + 1e-3).min(1.0);
-            let x = lerp(a, b, ahead);
+            let mut x = lerp(a, b, ahead);
+            x[2] = self.height_on(cur, x[0], x[1]);
             prev = cur;
             cur = if self.contains_xy(n, x[0], x[1]) { n } else { self.locate(space, x, 96.0).filter(|&t| t != prev)? };
         }

@@ -29,6 +29,7 @@ struct NifSurface {
     fire_period: f32,
     holes: vec4<f32>,
     holes_edge: vec4<f32>,
+    soft: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;

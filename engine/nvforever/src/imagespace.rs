@@ -552,9 +552,10 @@ pub(crate) struct BlurPipelines {
     by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 3]>,
 }
 
-/// The blur pipelines of a view, and whether its depth is multisampled.
+/// The blur pipelines of a view, whether its depth is multisampled, and the picture's
+/// format they were built for.
 #[derive(Component)]
-pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool);
+pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 3], bool, TextureFormat);
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
@@ -602,7 +603,7 @@ fn prepare_blur(
                 ids
             }
         };
-        commands.entity(entity).insert(BlurPipelineIds(ids, multi));
+        commands.entity(entity).insert(BlurPipelineIds(ids, multi, format));
     }
 }
 
@@ -619,7 +620,7 @@ pub(crate) fn blur_pass(
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
     let (smear, blur) = (grade.motion.x > 0.0, grade.blur > 0.0 || grade.dof.x != 0.0);
-    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) {
+    if !(smear || blur) || crate::ssao::depth_multisampled(prepass) != Some(ids.1) || !crate::ssao::format_matches(target, ids.2) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };
