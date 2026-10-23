@@ -549,6 +549,33 @@ impl<'a> World<'a> {
         self.default_choice(self.inventory_base(id, s.base), inv)
     }
 
+    /// An actor other than the player that was given something reviews its inventory and
+    /// equips the best armour and weapon it has: "Executing AddItem function on NPCs will
+    /// cause them to review their inventory and equip the best armor and weapon they
+    /// have" [documented: GECK wiki AddItem notes]. Best is the outfitting's own choice
+    /// ([`World::equip_default`]); each chosen item not yet equipped is equipped, taking
+    /// off what shares its slot (a weapon replaces the weapon held). A broken weapon or a
+    /// locked slot keeps what is there. Before the actor's first outfitting nothing happens
+    /// (that outfitting chooses from everything it then carries). Returns each item put
+    /// on with what came off for it (the caller runs OnEquip and OnUnequip).
+    pub fn review_equipment(&mut self, id: FormId) -> Vec<(FormId, Vec<FormId>)> {
+        if id == FormId::PLAYER_REF {
+            return Vec::new();
+        }
+        let Some(s) = self.refs.get(&id).filter(|s| s.outfitted) else { return Vec::new() };
+        let source = self.inventory_base(id, s.base);
+        let Some(inv) = s.inventory.as_ref() else { return Vec::new() };
+        let Some(chosen) = self.default_choice(source, inv) else { return Vec::new() };
+        let wanted: Vec<FormId> = chosen.into_iter().filter(|&i| !inv.is_equipped(i)).collect();
+        let mut out = Vec::new();
+        for item in wanted {
+            if let Ok(e) = self.equip(id, item) {
+                out.push((item, e.unequipped));
+            }
+        }
+        out
+    }
+
     /// The first time an actor other than the player is loaded, it puts on its outfit
     /// and takes up its weapon ([`World::equip_default`]); later calls do nothing.
     /// Returns whether it was outfitted now. [observed in game (capture

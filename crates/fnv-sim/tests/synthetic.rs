@@ -1496,6 +1496,26 @@ fn remove_all_items_leaves_the_players_quest_items() {
 }
 
 #[test]
+fn an_npc_given_an_item_equips_its_best_weapon_and_armour() {
+    // GECK wiki AddItem notes: AddItem on an NPC makes it review its inventory and equip
+    // the best armour and weapon it has (playtest list 7 item 12: Trudy's shotgun).
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    // Unarmed and undressed by a script, it takes both up again once given something.
+    w.unequip(g, id(LONG_GUN)).unwrap();
+    w.unequip(g, id(SUIT)).unwrap();
+    assert!(w.review_equipment(FormId::PLAYER_REF).is_empty());
+    w.add_item(g, id(CAPS), 5).unwrap();
+    let changed = w.review_equipment(g);
+    let inv = w.inventory_mut(g).unwrap();
+    assert!(inv.is_equipped(id(LONG_GUN)) && inv.is_equipped(id(SUIT)));
+    assert_eq!(changed.len(), 2);
+    // Nothing more to change: a second review does nothing.
+    assert!(w.review_equipment(g).is_empty());
+}
+
+#[test]
 fn an_npc_starts_with_its_outfit_and_weapon_equipped() {
     // The engine's wearing and arming rules (World::equip_default): the helmet (first
     // carried, no DT anywhere) takes Head|Hair, so the hat (Hair) stays in the pack; the

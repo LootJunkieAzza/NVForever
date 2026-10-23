@@ -42,7 +42,27 @@ pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
             g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));
         }
     }
+    review_equipment(g, to);
     none()
+}
+
+/// An actor given something by AddItem equips the best armour and weapon it has
+/// (`fnv_sim::World::review_equipment`) [documented: GECK wiki AddItem notes]: OnEquip and
+/// OnUnequip run for what changed (owner's playtest list 7 item 12: Trudy is given a
+/// shotgun by VMS16 stage 70 and fought unarmed).
+pub fn review_equipment(g: &mut Game, actor: FormId) {
+    let changed = g.world.review_equipment(actor);
+    if changed.is_empty() {
+        return;
+    }
+    for (item, off) in changed {
+        tracing::info!("equipment review: {} {actor} equips {} {item} (given an item){}", g.data.name(actor), g.data.name(item), if off.is_empty() { String::new() } else { format!(" in place of {}", off.iter().map(|o| g.data.name(*o)).collect::<Vec<_>>().join(", ")) });
+        for u in off {
+            g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
+        }
+        g.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
+    }
+    g.sync_actor_effects(actor);
 }
 
 /// `Container.RemoveItem item count [hideMessage]`: the items are destroyed. The
