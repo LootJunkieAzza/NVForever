@@ -25,7 +25,12 @@
 //!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
-//!   [design].
+//!   [design]. As the trigger is pulled, a gun fires only with a clear line from its
+//!   eyes and muzzle to the target's chest, else its head (`combat_tactics`: a wall in
+//!   the way), whatever detection says; held, it steps aside or closes in [design].
+//!   Test aid `NVF_PLAY_TEST_SEE_THROUGH_WALLS=1`: fighters count their targets as seen
+//!   whatever detection says, standing in for detection that says "seen" while a wall
+//!   stops the shot (smoke `combat-wall-hold`).
 //! - **Reloading**: its gun's magazine (WEAP Clip Size) empties as it fires, and it
 //!   reloads as soon as it is empty, whether it can fire then or not, playing its
 //!   weapon's reload clips (`attack_anims`, [`Move::Reload`]) for as long as they run in
@@ -185,6 +190,12 @@ use nvf_play::player::{Player, EYE_HEIGHT};
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
 use std::collections::{BTreeMap, HashMap};
+
+/// Test aid `NVF_PLAY_TEST_SEE_THROUGH_WALLS=1` (module notes).
+fn sees_through_walls() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_SEE_THROUGH_WALLS").is_ok_and(|v| v == "1"))
+}
 
 /// Seconds between first seeing the target in a fight and the first attack [design].
 pub const REACTION_SECONDS: f32 = 0.6;
@@ -1074,6 +1085,9 @@ pub(crate) fn fight(
     f.player_swings = swings;
     let player_close = matches!(player_arm(c), Arm::Melee(_));
     let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
+    // Each actor's factions, read by every comrade and hostility check below, are kept
+    // for the frame (`Game::begin_faction_frame`).
+    rt.game.begin_faction_frame();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
         // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
@@ -1405,29 +1419,41 @@ pub(crate) fn fight(
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
-            // Its Combat Radius (§17.4): a hit moves where it measures from; beyond it, no
-            // pursuit.
+            // Its Combat Radius (§17.4): a hit moves where it measures from; it pursues a
+            // target beyond the radius only until it has come that far itself, then holds.
             if health < fighter.anchor_health - 0.5 {
                 fighter.anchor = feet;
             }
             fighter.anchor_health = health;
             let from_anchor = flat(fighter.anchor, tfeet);
-            let leashed = !fleeing && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor));
+            let own_from_anchor = flat(fighter.anchor, feet);
+            let leashed = !fleeing
+                && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor) && own_from_anchor >= s.combat_radius);
             if leashed != fighter.leashed {
                 fighter.leashed = leashed;
                 if leashed {
                     f.stats.leashes += 1;
-                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
+                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
                 } else {
-                    info!("npc combat: {me_name} pursues {target_name} again: within its combat radius ({from_anchor:.0} units)");
+                    info!("npc combat: {me_name} pursues {target_name} again: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come");
                 }
             }
             if leashed {
                 g.awareness.engage.remove(&me);
             }
-            // Can it see its target?
-            let sees = g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
+            // Can it see its target? (Test aid: it does, whatever detection says.)
+            let sees = sees_through_walls() || g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
             fighter.seen_for = if sees { fighter.seen_for + dt } else { 0.0 };
+            // A wall that stopped its shot (`combat_tactics`): forgotten for a target it
+            // no longer sees or no longer fights; with no step aside that clears it, it
+            // closes in as on a target it does not see.
+            if !sees || fighter.tactic.wall.is_some_and(|w| w.target != target.0) {
+                fighter.tactic.wall = None;
+            }
+            if !leashed && fighter.tactic.wall.is_some_and(|w| w.step.is_none()) {
+                let near = away * fnv_ai::alert::BLIND_CLOSE_SHARE;
+                g.awareness.engage.insert(me, (near, near));
+            }
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
             // Its gun's reach (§16): no shot at a target beyond it, nor within its own blast.
             let shot_distance = vec::len(vec::sub(tchest, eyes));
@@ -1547,12 +1573,14 @@ pub(crate) fn fight(
                                     battle.cover_from_shooter += 1;
                                 }
                                 info!(
-                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}",
+                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}; room round its cover spot {:.0}, its peek {:.0}",
                                     if cv.low { "low " } else { "" },
                                     (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
                                     (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
                                     (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1]),
-                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) }
+                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) },
+                                    cv.room[0],
+                                    cv.room[1]
                                 );
                                 t.cover = Some(cv);
                             }
@@ -1567,6 +1595,7 @@ pub(crate) fn fight(
                         Phase::Going => {
                             if near(cv.behind) {
                                 cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                                log_room(phys.as_deref_mut(), name, "reaches", feet, cv.behind);
                             }
                         }
                         Phase::Hiding { until } => {
@@ -1574,6 +1603,7 @@ pub(crate) fn fight(
                             if clock >= until {
                                 cv.phase = Phase::WaitToFire { until: timer(&mut f.rng, wait_fire) };
                                 battle.peeks += 1;
+                                log_room(phys.as_deref_mut(), name, "hid", feet, cv.behind);
                             }
                         }
                         Phase::WaitToFire { until } => {
@@ -1639,6 +1669,25 @@ pub(crate) fn fight(
                         }
                     }
                     None => t.blocked_by = None,
+                }
+                // A wall stops its shot (`combat_tactics` module notes): out at a peek
+                // point, that cover is no good; else it steps aside to a clear line, and
+                // once there (or with no way there) it closes in.
+                if let Some(mut w) = t.wall {
+                    if let Some(cv) = t.cover.filter(|cv| matches!(cv.phase, Phase::WaitToFire { .. } | Phase::Firing { .. })) {
+                        t.cover = None;
+                        t.bad_cover.push(cv.behind);
+                        if want_post.is_some_and(|p| p.kind == PostKind::Peek) {
+                            want_post = None;
+                        }
+                        info!("npc combat: {name} gives up its cover: a wall stops its shot at {target_name} from the peek point");
+                    }
+                    match w.step {
+                        Some(at) if flat(at, feet) < tactics::AT_POST || barred(t, PostKind::Sidestep) => w.step = None,
+                        Some(at) if want_post.is_none() => want_post = Some(Post { at, kind: PostKind::Sidestep, run: false }),
+                        _ => {}
+                    }
+                    t.wall = Some(w);
                 }
                 // A shift sideways it decided on (§14.2), until it is there.
                 if let Some(at) = t.shift {
@@ -2043,7 +2092,58 @@ pub(crate) fn fight(
                     // the cycle is ready and the style's firing delay has passed. Not while
                     // it reloads: a pull would stop a round-by-round reload after a round.
                     fighter.pull_in = (fighter.pull_in - dt).max(0.0);
-                    let trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    let mut trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    // A wall in the way holds the shot (`combat_tactics` module notes),
+                    // looked at as the trigger is pulled, not every frame; the shot goes
+                    // at the point the line is clear to.
+                    let mut aim_at = tchest;
+                    if trigger {
+                        let t = &mut fighter.tactic;
+                        let line = t.shot_line.filter(|(k, until, _)| *k == target.0 && clock < *until).map(|l| l.2);
+                        if let Some(p) = line {
+                            aim_at = p;
+                        } else if t.wall.is_some_and(|w| clock < w.recheck_at) {
+                            trigger = false;
+                        } else {
+                            match tactics::shot_clear(phys.as_deref_mut(), eyes, muzzle_at.get(&id).copied(), tchest, teyes) {
+                                Some(p) => {
+                                    aim_at = p;
+                                    t.shot_line = Some((target.0, clock + tactics::LINE_CLEAR_FOR, p));
+                                    if let Some(w) = t.wall.take() {
+                                        battle.wall_clears += 1;
+                                        info!("npc combat: {me_name} has a clear shot at {target_name} again after {:.1} s (at its {})", clock - w.since, if p == tchest { "chest" } else { "head" });
+                                    }
+                                }
+                                None => {
+                                    trigger = false;
+                                    t.shot_line = None;
+                                    match t.wall {
+                                        Some(w) => t.wall = Some(tactics::Wall { recheck_at: clock + tactics::WALL_RECHECK, ..w }),
+                                        None => {
+                                            // Standing eyes: a crouched fighter steps aside standing.
+                                            let eye = (eyes[2] - feet[2]) / if crouched { stance::CROUCH_EYE } else { 1.0 };
+                                            let step = tactics::wall_step(phys.as_deref_mut(), feet, eye, tfeet, tchest, id % 2 == 0);
+                                            battle.wall_holds += 1;
+                                            if step.is_some() {
+                                                battle.wall_steps += 1;
+                                            }
+                                            info!(
+                                                "npc combat: {me_name} holds fire: a wall stands between it and {target_name} ({shot_distance:.0} units); {}",
+                                                match step {
+                                                    Some(at) => format!("steps aside {:.0} units to a clear line", flat(at, feet)),
+                                                    None => "no clear line a step aside: closes in".to_string(),
+                                                }
+                                            );
+                                            t.wall = Some(tactics::Wall { target: target.0, since: clock, recheck_at: clock + tactics::WALL_RECHECK, step });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !trigger {
+                            fighter.firing_for = 0.0;
+                        }
+                    }
                     fighter.pulled = trigger;
                     // An empty magazine is reloaded at once, whether it can fire or not;
                     // it carries what it loads (module notes).
@@ -2062,7 +2162,7 @@ pub(crate) fn fight(
                                 // Aimed from the eyes, drawn from the muzzle when the weapon
                                 // has one (module notes).
                                 let muzzle = muzzle_at.get(&id).copied();
-                                let to = vec::sub(tchest, eyes);
+                                let to = vec::sub(aim_at, eyes);
                                 let len = vec::len(to).max(1.0);
                                 let aim = vec::scale(to, 1.0 / len);
                                 let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
@@ -2407,6 +2507,7 @@ pub(crate) fn fight(
             g.awareness.crouching.remove(&FormId(id));
         }
     });
+    rt.game.end_faction_frame();
     // Who blocks now, for the blows dealt this frame (`nvf_play::combat`).
     combat.guarding = guarding;
 }
@@ -2534,6 +2635,23 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
             s.powers_unplayable
         );
     }
+}
+
+/// Where a fighter in cover stands, `what` it did there (reaches its cover, hid behind
+/// it): the room its body has (`combat_tactics::room`), for the log; under the capsule's
+/// radius it is inside something (docs/design/combat-ai.md §12.6.2).
+fn log_room(phys: Option<&mut PhysState>, name: &str, what: &str, feet: [f32; 3], spot: [f32; 3]) {
+    let Some(p) = phys else { return };
+    let r = tactics::room(p, feet);
+    info!(
+        "npc combat: {name} in cover at ({:.0}, {:.0}, {:.0}) ({what}), {:.0} units from its cover spot: room {:.0} ({})",
+        feet[0],
+        feet[1],
+        feet[2],
+        (spot[0] - feet[0]).hypot(spot[1] - feet[1]),
+        r.nearest,
+        if r.nearest < tactics::BODY_RADIUS { "inside geometry" } else { "clear" }
+    );
 }
 
 #[cfg(test)]

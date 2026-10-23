@@ -292,6 +292,7 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<item_mod::PipItemMod>()
             .add_message::<item_mod::ModInput>()
             .add_message::<PipBoyInput>()
+            .add_message::<stats::UseHint>()
             .add_message::<sounds::TabHovered>()
             .add_message::<data::travel::FastTravelAsk>()
             .add_message::<data::travel::FastTravelGo>()
@@ -312,6 +313,7 @@ impl Plugin for PipBoyPlugin {
                     flat_screen,
                     frame::draw,
                     (stats::draw, items::draw, data::draw),
+                    stats::use_hints,
                     (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),
                 )

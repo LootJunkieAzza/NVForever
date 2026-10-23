@@ -75,6 +75,17 @@ impl Game<'_> {
         self.player.hardcore.unwrap_or(self.world.config().hardcore)
     }
 
+    /// Turn Hardcore mode on or off (SetHardcore): the needs, and the weight of
+    /// ammunition, which the simulation counts by its own switch
+    /// (`fnv_sim::World::set_hardcore`) [observed: FalloutNV.esm's Hardcore help text,
+    /// "ammunition has weight"]. Turning it off marks the game as not always Hardcore
+    /// (IsAlwaysHardcore).
+    pub fn set_hardcore(&mut self, on: bool) {
+        self.player.hardcore = Some(on);
+        self.player.hardcore_was_off |= !on;
+        self.world.set_hardcore(on);
+    }
+
     /// Seconds of play per point of a need.
     pub fn need_rate(&self, code: u16) -> f64 {
         NEEDS.iter().find(|n| n.0 == code).map_or(f64::INFINITY, |&(_, name, default)| setting(self, name, default)).max(1e-3)

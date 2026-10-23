@@ -13,13 +13,20 @@
 //!   bar of condition at each body part and the player's name and level under him, RAD
 //!   the rad resistance and the rads meter, EFF the worn apparel's and aid items'
 //!   changes. The Stimpak and Doctor's Bag hints (CND) and RadAway and Rad-X (RAD) are at
-//!   the top right; using them from here is not built.
+//!   the top right. On CND the Stimpak (S, or a click on its hint) is used on the body,
+//!   or on the limb chosen; a click on a limb's bar uses one on that limb; the Doctor's
+//!   Bag (E, or its hint) heals the limbs ([`use_hints`], `model::refusal` says when an
+//!   item is not used, `fnv_game::aid::PARTS_LIMB_SHARE` what a Stimpak gives the limbs).
+//!   Using RadAway and Rad-X from here is not built.
 //! - **S.P.E.C.I.A.L., Skills, Perks**: a list at the left (nine rows at once, a scroll bar
 //!   when longer), the selected row's picture and description at the right.
 //! - **General**: the Reputation list (the file's first mode) or the General list of
 //!   statistics with the karma's picture; R or the button at the top right switches.
 //! - **Keys** [design]: Up/Down (W/S) select in a list, the arrows choose CND, RAD, EFF
-//!   (S is the Stimpak's key there), Page Up/Down scroll the description, the wheel
+//!   (S is the Stimpak's key there, E the Doctor's Bag's; 1-6 choose the head, torso,
+//!   left arm, right arm, left leg or right leg for the Stimpak, the same key again the
+//!   whole body; the pointer on a limb's bar chooses it while there), Page Up/Down
+//!   scroll the description, the wheel
 //!   scrolls the list or, over it, the description; R switches General's lists. The
 //!   pointer selects the row it moves onto (as the list boxes do), clicks the buttons and
 //!   the scroll arrows.
@@ -37,6 +44,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use fnv_sim::FormId;
 use model::{Row, Snapshot};
 use nvf_assets::GameData;
 
@@ -173,6 +181,8 @@ pub enum Spot {
     Row(usize),
     /// Stimpak, Doctor's Bag, RadAway, Rad-X.
     Hint(usize),
+    /// A limb's bar on CND (`model::LIMB_NAMES`).
+    Limb(usize),
     /// General's switch between its lists.
     Switch,
     DescUp,
@@ -196,6 +206,9 @@ pub struct StatsView {
     /// it in the reputation mode, `user0` 1].
     pub reputation: bool,
     pub hover: Option<Spot>,
+    /// The limb chosen by key on CND for the Stimpak (`model::LIMB_NAMES`); `None` the
+    /// whole body.
+    pub limb: Option<usize>,
     /// The selected row is boxed: after a key moved the selection or while the pointer
     /// is on a row [observed: no box on the owner's S.P.E.C.I.A.L. and Skills
     /// screenshots, the pointer on the tab line or off the screen, the selected row's
@@ -211,7 +224,7 @@ pub struct StatsView {
 
 impl Default for StatsView {
     fn default() -> StatsView {
-        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, highlight: false, drawn_at: None, lens: [0; 5], desc_max: 0 }
+        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, lens: [0; 5], desc_max: 0 }
     }
 }
 
@@ -242,6 +255,19 @@ impl StatsView {
 
     pub fn scroll_desc(&mut self, by: i32) {
         self.desc = (self.desc as i32 + by).clamp(0, self.desc_max as i32) as usize;
+    }
+
+    /// The limb a Stimpak goes on: the one under the pointer, else the one chosen by key.
+    pub fn aimed(&self) -> Option<usize> {
+        match self.hover {
+            Some(Spot::Limb(i)) => Some(i),
+            _ => self.limb,
+        }
+    }
+
+    /// Choose a limb by key; the same one again chooses the whole body.
+    pub fn choose_limb(&mut self, i: usize) {
+        self.limb = if self.limb == Some(i) { None } else { Some(i) };
     }
 
     /// Switch General between its two lists.
@@ -288,6 +314,7 @@ pub struct Input<'w, 's> {
     keys: Res<'w, ButtonInput<KeyCode>>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     time: crate::pause::AidTime<'w>,
+    asks: MessageWriter<'w, UseHint>,
 }
 
 /// What the page keeps between frames.
@@ -328,6 +355,7 @@ pub fn draw(
         change(&mut view, |v| {
             v.highlight = false;
             v.hover = None;
+            v.limb = None;
         });
     }
     // Test aid and keys.
@@ -342,11 +370,18 @@ pub fn draw(
             (AidStep::Perk(f), Some(g)) => *g.player.perks.entry(fnv_sim::FormId(f)).or_default() += 1,
             (AidStep::Fame(f, n), Some(g)) => g.player.reputation.entry(fnv_sim::FormId(f)).or_default()[1] += n,
             (AidStep::Perk(_) | AidStep::Fame(..), None) => warn!("NVF_PLAY_TEST_PIPBOY_STATS: {s:?} needs the scripts' game"),
+            (AidStep::Use(hint), _) => {
+                input.asks.write(UseHint { hint, limb: if hint == model::STIMPAK { view.limb } else { None } });
+            }
             _ => change(&mut view, |v| apply_aid(v, tab, s)),
         }
     }
     if pip.open() && pip.page == Page::Stats {
-        change(&mut view, |v| keys(&input.keys, v, tab));
+        let mut ask = None;
+        change(&mut view, |v| ask = keys(&input.keys, v, tab));
+        if let Some(a) = ask {
+            input.asks.write(a);
+        }
         let pointer = screen.as_ref().and_then(|s| s.pointer);
         for w in input.wheel.read() {
             mem.wheel += match w.unit {
@@ -402,6 +437,11 @@ pub fn draw(
             if snap.game { "" } else { " (no scripts' game: figures not read)" }
         );
     }
+    // What the CND bars show, when it changes (the smoke checks them against combat's).
+    if tab == 0 && view.status == 0 && (new || mem.last.as_ref().is_none_or(|l| l.limbs != snap.limbs)) {
+        let bars: Vec<String> = model::LIMB_NAMES.iter().zip(snap.limbs).map(|(n, c)| format!("{n} {:.0}%", c * 100.0)).collect();
+        info!("pipboy stats: CND bars {}", bars.join(", "));
+    }
     let says = describe(&view, &snap, tab);
     if says != mem.logged {
         info!("pipboy stats: {says}");
@@ -432,7 +472,10 @@ pub fn draw(
 fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
     let name = Page::Stats.tabs()[tab];
     match tab {
-        0 => format!("{name} {}", ["CND", "RAD", "EFF"][view.status.min(2)]),
+        0 => {
+            let limb = view.limb.filter(|_| view.status == 0).map_or(String::new(), |i| format!(" ({} chosen)", model::LIMB_NAMES[i]));
+            format!("{name} {}{limb}", ["CND", "RAD", "EFF"][view.status.min(2)])
+        }
         _ => {
             let rows = snap.rows(tab, view.reputation);
             let mode = match (tab, view.reputation) {
@@ -451,8 +494,8 @@ fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
     }
 }
 
-/// The page's keys (module notes).
-fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) {
+/// The page's keys (module notes); a hint's item to use.
+fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option<UseHint> {
     use KeyCode::*;
     if tab == 0 {
         if keys.just_pressed(ArrowUp) && view.status > 0 {
@@ -461,13 +504,21 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) {
         if keys.just_pressed(ArrowDown) && view.status < 2 {
             view.status += 1;
         }
+        if view.status == 0 {
+            for (i, k) in [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6].into_iter().enumerate() {
+                if keys.just_pressed(k) {
+                    view.choose_limb(i);
+                }
+            }
+        }
+        let mut ask = None;
         for (i, k) in [KeyS, KeyE, KeyA, KeyX].into_iter().enumerate() {
             let shown = (view.status == 0 && i < 2) || (view.status == 1 && i >= 2);
             if shown && keys.just_pressed(k) {
-                info!("pipboy stats: {} (using it from the STATS page is not built)", HINT_KEYS[i]);
+                ask = hint_pressed(view, i);
             }
         }
-        return;
+        return ask;
     }
     if keys.any_just_pressed([ArrowUp, KeyW]) {
         view.step(tab, -1);
@@ -483,6 +534,20 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) {
     }
     if tab == 4 && keys.just_pressed(KeyR) {
         view.switch();
+    }
+    None
+}
+
+/// A hint's key or button: the item to use (the Stimpak on the limb aimed at), or `None`
+/// for RadAway and Rad-X, which are not used from here.
+fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
+    match hint {
+        model::STIMPAK => Some(UseHint { hint, limb: view.aimed() }),
+        model::DOCTORS_BAG => Some(UseHint { hint, limb: None }),
+        _ => {
+            info!("pipboy stats: {} (using it from the STATS page is not built)", HINT_KEYS[hint]);
+            None
+        }
     }
 }
 
@@ -519,11 +584,16 @@ fn on_out(out: On<Pointer<Out>>, spots: Query<&Spot>, view: Option<ResMut<StatsV
     });
 }
 
-fn on_click(click: On<Pointer<Click>>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>) {
+fn on_click(click: On<Pointer<Click>>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, mut asks: MessageWriter<UseHint>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(click.entity), view) else { return };
     let tab = pip.tab();
-    if let Spot::Hint(i) = spot {
-        info!("pipboy stats: {} clicked (using it from the STATS page is not built)", HINT_KEYS[i]);
+    let ask = match spot {
+        Spot::Hint(i) => hint_pressed(&view, i),
+        Spot::Limb(i) => Some(UseHint { hint: model::STIMPAK, limb: Some(i) }),
+        _ => None,
+    };
+    if let Some(a) = ask {
+        asks.write(a);
     }
     change(&mut view, |v| match spot {
         Spot::Sub(i) => v.status = i,
@@ -533,7 +603,7 @@ fn on_click(click: On<Pointer<Click>>, spots: Query<&Spot>, view: Option<ResMut<
         Spot::DescDown => v.scroll_desc(1),
         Spot::ListUp => v.scroll(tab, -1),
         Spot::ListDown => v.scroll(tab, 1),
-        Spot::Hint(_) => {}
+        Spot::Hint(_) | Spot::Limb(_) => {}
     });
 }
 
@@ -598,7 +668,7 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         spots.push((r, Spot::Hint(i)));
     }
     match v.status {
-        0 => condition(p, c, s),
+        0 => condition(p, c, v, s, &mut spots),
         1 => radiation(p, c, s),
         _ => effects(p, c, s),
     }
@@ -607,8 +677,9 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
     }
 }
 
-/// CND: the Vault Boy, his bars and the name.
-fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Snapshot) {
+/// CND: the Vault Boy, his bars and the name; each bar takes the pointer (a Stimpak on
+/// that limb), boxed while pointed at or chosen [design].
+fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snapshot, spots: &mut Vec<(Rect, Spot)>) {
     let z = BOY_ZOOM;
     let head_size = HEAD * z;
     let head = Vec2::new(STATUS.min.x + (STATUS.width() - head_size.x) / 2.0, STATUS.min.y + HEAD_Y);
@@ -640,14 +711,19 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Snapshot) {
     ];
     for (i, (file, place, bar_x, text_x, text_down)) in bars.into_iter().enumerate() {
         let b = head + place;
+        let path = format!("Interface\\VATS\\{file}.dds");
+        let w = c.picture_size(&path).map_or(256.0, |s| s.x);
+        let r = Rect::new(b.x, b.y, b.x + w, b.y + METER_HEIGHT);
+        if v.limb == Some(i) || v.hover == Some(Spot::Limb(i)) {
+            c.boxed(p, r, amber(LINE), None);
+        }
+        spots.push((r, Spot::Limb(i)));
         if crippled(i) {
             // The bracket gives way to the word [documented: the text shows when the bar
             // does not; hypothesis: the word, `sStatsCrippled` is not in the masters].
             c.text(p, 2, "Crippled", b.x + text_x, b.y + if text_down { BAR_Y } else { 0.0 }, Align::Left, bright());
             continue;
         }
-        let path = format!("Interface\\VATS\\{file}.dds");
-        let w = c.picture_size(&path).map_or(256.0, |s| s.x);
         c.image_cut(p, &path, b.x, b.y, w, METER_HEIGHT, 1.0, bright());
         c.line(p, b.x + bar_x, b.y + BAR_Y, BAR_LENGTH * s.limbs[i] as f32, METER_HEIGHT - BAR_Y, bright());
     }
@@ -910,12 +986,73 @@ fn centred(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &str, mid: f32, top: f3
     }
 }
 
+// ---- using the hints' items -------------------------------------------------------------
+
+/// Use a CND hint's item ([`model::STIMPAK`], [`model::DOCTORS_BAG`]) from the STATS
+/// page; `limb` the body part a Stimpak goes on (`model::LIMB_NAMES`), `None` the body.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UseHint {
+    pub hint: usize,
+    pub limb: Option<usize>,
+}
+
+/// Use the items the page asked for, as the inventory does (`crate::menu`): one is taken
+/// from the player, its sound plays, and the script runtime uses it (`crate::ItemUsed`,
+/// `crate::aid::use_item`), a Stimpak on the limb chosen (`fnv_game::Game::ingest_on`).
+/// An item that would not heal is not used (`model::refusal`). Log lines:
+/// `pipboy stats: used <item> on the <limb>|on the body (<n> left)`,
+/// `pipboy stats: <item> not used: <why>`.
+#[allow(clippy::too_many_arguments)]
+pub fn use_hints(
+    mut asks: MessageReader<UseHint>,
+    mut sim: ResMut<crate::sim::SimState>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut used: MessageWriter<crate::ItemUsed>,
+    mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
+    mut active: ResMut<crate::menu::ActiveMenu>,
+) {
+    use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+    for &UseHint { hint, limb } in asks.read() {
+        let Some(item) = read::hint_item(&sim, hint) else {
+            warn!("pipboy stats: hint {hint} names no item in the plugins");
+            continue;
+        };
+        let name = sim.name(item).unwrap_or("?").to_string();
+        let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
+        let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
+            info!("pipboy stats: {name} not used: the scripts' game is not running");
+            continue;
+        };
+        if let Some(why) = model::refusal(hint, limb, count, hp, &limbs, hardcore) {
+            info!("pipboy stats: {name} not used: {why}");
+            sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
+            continue;
+        }
+        if let Err(e) = sim.world.remove_item(FormId::PLAYER_REF, item, 1) {
+            warn!("pipboy stats: {name} not used: {e}");
+            continue;
+        }
+        let on = limb.map_or("on the body".to_string(), |i| format!("on the {}", model::LIMB_NAMES[i]));
+        info!("pipboy stats: used {name} {on} ({} left)", count - 1);
+        used.write(crate::ItemUsed { item: item.0, limb: limb.map(|i| model::LIMBS[i]) });
+        sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Used { item } });
+        // The ITEMS list counts it at once.
+        if let Some(m) = active.0.as_mut().filter(|m| m.mode == crate::menu::model::Mode::Inventory) {
+            if let Err(e) = m.refresh(&mut sim.world) {
+                warn!("pipboy stats: the inventory's lists: {e}");
+            }
+        }
+    }
+}
+
 // ---- test aid -------------------------------------------------------------------------
 
 /// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-2>` (CND, RAD, EFF),
 /// `down`, `up` (the list's selection), `mode` (General's lists), `desc=down|up`; and to
 /// have something to show, `perk=<FormID hex>` (the player gains a rank of it, as
-/// AddPerk) and `fame=<FormID hex>=<points>` (fame with a reputation).
+/// AddPerk) and `fame=<FormID hex>=<points>` (fame with a reputation); on CND
+/// `limb=<0-5>` chooses a limb (`model::LIMB_NAMES`), `limb=none` the whole body, and
+/// `use=stimpak` or `use=bag` uses the hint's item as its key does.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AidStep {
     Sub(usize),
@@ -925,6 +1062,8 @@ pub enum AidStep {
     Desc(i32),
     Perk(u32),
     Fame(u32, f64),
+    Limb(Option<usize>),
+    Use(usize),
 }
 
 fn parse_aid(v: &str) -> Vec<(f32, AidStep)> {
@@ -938,7 +1077,11 @@ fn parse_aid(v: &str) -> Vec<(f32, AidStep)> {
                 "mode" => Some(AidStep::Mode),
                 "desc=down" => Some(AidStep::Desc(1)),
                 "desc=up" => Some(AidStep::Desc(-1)),
+                "limb=none" => Some(AidStep::Limb(None)),
+                "use=stimpak" => Some(AidStep::Use(model::STIMPAK)),
+                "use=bag" => Some(AidStep::Use(model::DOCTORS_BAG)),
                 s => match s.split_once('=') {
+                    Some(("limb", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(|n| AidStep::Limb(Some(n))),
                     Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 3).map(AidStep::Sub),
                     Some(("perk", f)) => u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok().map(AidStep::Perk),
                     Some(("fame", r)) => r.split_once('=').and_then(|(f, n)| Some(AidStep::Fame(u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok()?, n.trim().parse().ok()?))),
@@ -963,7 +1106,8 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
         AidStep::Up => view.step(tab, -1),
         AidStep::Mode => view.switch(),
         AidStep::Desc(by) => view.scroll_desc(by),
-        AidStep::Perk(_) | AidStep::Fame(..) => {}
+        AidStep::Limb(l) => view.limb = l,
+        AidStep::Perk(_) | AidStep::Fame(..) | AidStep::Use(_) => {}
     }
 }
 
@@ -978,6 +1122,24 @@ mod tests {
             s,
             vec![(2.0, AidStep::Perk(0x44CB1)), (2.5, AidStep::Fame(0x104C22, 4.0)), (3.0, AidStep::Sub(1)), (4.0, AidStep::Down), (5.0, AidStep::Desc(1)), (9.0, AidStep::Mode)]
         );
+        let s = parse_aid("1:limb=2,2:use=stimpak,3:limb=none,4:use=bag,5:limb=6");
+        assert_eq!(s, vec![(1.0, AidStep::Limb(Some(2))), (2.0, AidStep::Use(0)), (3.0, AidStep::Limb(None)), (4.0, AidStep::Use(1))]);
+    }
+
+    #[test]
+    fn the_stimpak_goes_on_the_limb_pointed_at_or_chosen() {
+        let mut v = StatsView::default();
+        assert_eq!(hint_pressed(&v, model::STIMPAK), Some(UseHint { hint: 0, limb: None }));
+        v.choose_limb(4);
+        assert_eq!(v.aimed(), Some(4));
+        v.hover = Some(Spot::Limb(1));
+        assert_eq!(hint_pressed(&v, model::STIMPAK), Some(UseHint { hint: 0, limb: Some(1) }));
+        // The Doctor's Bag is for every limb; the same key again is the whole body.
+        assert_eq!(hint_pressed(&v, model::DOCTORS_BAG), Some(UseHint { hint: 1, limb: None }));
+        v.hover = None;
+        v.choose_limb(4);
+        assert_eq!(v.aimed(), None);
+        assert_eq!(hint_pressed(&v, 2), None);
     }
 
     #[test]

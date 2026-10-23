@@ -58,27 +58,30 @@ for natural lighting rather than a 1:1 copy. Branch `claude/beam-blend`.
 
 ## Open, in order of how much they show
 
-1. **Dead Money looks far darker and wrong-coloured** (owner: "most likely going to be an
-   issue in ours"; frames `dm_*`). In the original the red sky and haze fill every
-   street and buildings read clearly; in ours they are near-black silhouettes, and
-   Puesta del Sol is greenish where the original is warm yellow.
-   - Its weathers' fog: NVDLC01VillaWeather FNAM near 0, far 75,000, **power 0.35** day
-     and night [observed]. Our fog is linear and ignores the power (world.md §6 "Fog
-     power"), so there is next to no fog within a few thousand units; if the fog amount
-     were (distance / far)^power, a wall 1,000 units away would be 22 % fogged, as the
-     frames look. Needs a fog curve of our own in every world shader (Bevy's
-     DistanceFog has none), checked against the Mojave frames (power 0.5-0.6 there).
-   - Its image spaces and adapters (the yellow/red grades of the districts) need
-     checking against the frames the same way NVDefaultExterior was (world.md §6).
-2. **Dead Money's wall lantern looks far worse than the original's** (owner, frame
-   `dm_westtown_beams`, "make a note that it needs looking at, don't skip it").
-   `nvdlc01_sconceon.nif`: the glass (`SconceON:0`) is a lit shape with emissive
-   (0.76, 0.55, 0.20) × multiplier 10, a cut-out cage, and an additive glow card
-   (`fxsoftglowspot01.dds`, falloff); its light `NVDLC01ExtSconceKeyWT` has radius 200,
-   colour (224, 255, 117), fade 2.5. In the original the glass burns warm white and the
-   wall around it is washed warm yellow; ours is a dull lantern on a greenish wall. Check
-   after item 1's grade: whether the lit-shape emissive × 10 reaches the HDR view as it
-   should, and whether a 200-unit light should light that much wall.
+1. **Dead Money looks far darker and wrong-coloured** — mostly done on branch
+   `claude/dm-fog` (2026-10-23). The fog power is used, blended in display values
+   outdoors (world.md §6 "Fog power"); eye adaptation brightens dark pictures by the
+   image space's Target LUM ("Eye adaptation"); the image space's Emissive Mult scales
+   emitted light ("Emissive mult"). The Villa's frames now read like the original's
+   (red haze over the far buildings) and every Dead Money frame is within 0.5-1.1 EV of
+   the original's average (was 2.6-4 EV darker); the lab's Mojave and interior frames
+   hold or improve. Left: Puesta del Sol is still greenish in its lit parts. Its
+   Sunlight Dimmer (×0.4 + 0.1) is being applied by the Old World Blues follow-up; the
+   rest is the lamps (item 2).
+2. **Dead Money's wall lantern looks far worse than the original's** — partly done on
+   `claude/dm-fog`: the glow card takes its material's warm hue instead of drawing white,
+   it fades where it comes out of the glass (decal-flagged shapes now get soft
+   intersections, over a quarter of a small shape's size), and the glass burns brighter
+   under the Villa's / Puesta del Sol's Emissive Mult. Like-for-like original frames of the
+   lantern (front and three-quarter, `dm_lamp_front.png`, `dm_lamp_side.png`, private)
+   show what is left, and it is the main gap the owner sees in every light source: in
+   the original the lantern's light `NVDLC01ExtSconceKeyWT` (a separate LIGH reference
+   91 units in front of the wall, radius 200, (224, 255, 117) × 2.5) floods the wall to
+   clipped yellow (255, 255, 101); in ours the same view shows no pool of light on the
+   wall. Next: find why (the light is spawned; strength, reach and the tonemapper's
+   desaturation of bright warm light are the suspects) and make placed lights match,
+   starting from this lantern (owner: "get our lamps and light sources to match what the
+   base game is doing with this dead money lamp for now and expand from there").
 3. **Interiors are darker than the original's** (Vault 19, Hoover Dam): the original's HDR
    eye adaptation (Eye Adapt Speed, Target LUM, LUM ramps) brightens dark rooms and its
    ceiling tubes glow harder. Not built; Bevy's auto exposure on the HDR view is the

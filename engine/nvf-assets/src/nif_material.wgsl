@@ -60,7 +60,8 @@
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
     pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND, STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT},
     lighting::{EnvBRDFApprox, F_AB},
-    mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler},
+    mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler, fog},
+    mesh_view_types::FOG_MODE_ATMOSPHERIC,
     pbr_bindings,
     view_transformations::{frag_coord_to_uv, frag_coord_to_ndc, position_ndc_to_world, depth_ndc_to_view_z},
 }
@@ -185,6 +186,13 @@ fn blend_colour_scale(a: f32) -> f32 {
 
 
 #ifndef PREPASS_PIPELINE
+// The image space's Emissive Mult over the worldspace base image space's (nvforever
+// fog.rs and sky.rs `emissive_scale`), which the view's game fog carries in `bi.y`; 1
+// with any other fog.
+fn view_emissive_scale() -> f32 {
+    return select(1.0, fog.bi.y, fog.mode == FOG_MODE_ATMOSPHERIC && fog.bi.y > 0.0);
+}
+
 // Soft intersections (nif_material.rs module notes): the share of the shape kept at this
 // fragment, falling from 1 at `distance` in front of the opaque surface behind it (the
 // depth prepass) to 0 on it. Not faded where the shape lies along that surface (the two
@@ -369,7 +377,10 @@ fn fragment(
         pbr_input.material.emissive = pbr_bindings::material.emissive;
     }
 #endif
-    let e = pbr_input.material.emissive;
+    // The image space's Emissive Mult; an additive shape forms its light in display
+    // values (`add_display`), so there it is raised to the display gamma.
+    let emissive_scale = select(view_emissive_scale(), pow(view_emissive_scale(), 2.2), (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
+    let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
 
 #ifdef BLEND_MULTIPLY
@@ -398,16 +409,24 @@ fn fragment(
         out.color = vec4(max(out.color.rgb - view.exposure * ambient_spec, vec3(0.0)), out.color.a);
     } else {
         out.color = pbr_input.material.base_color;
-#ifndef TONEMAP_IN_SHADER
 #ifndef BLEND_MULTIPLY
-        // Light glow (nvforever graphics.rs), HDR views only, where the tonemapper runs
-        // after the main pass: an unlit shape is as bright as its emissive light (surface
-        // colour × emissive colour × emissive multiplier), so neon authored at multiplier
-        // 25 (Gomorrah's tubes) burns far brighter than white and glows, as in the
-        // original's HDR frames; never darker than its surface colour [hypothesis from the
-        // original's frames, nif.md §6 "Emissive multiplier of unlit shapes"].
-        out.color = vec4(max(out.color.rgb, pbr_input.material.emissive.rgb), out.color.a);
+        // An unlit shape with a non-black emissive colour is drawn at its emissive light:
+        // surface colour × emissive colour (a display colour, nif_spawn.rs
+        // `shape_emissive`) × emissive multiplier, so a warm colour tints a white glow
+        // texture (Dead Money's lantern glow) and neon authored at multiplier 25
+        // (Gomorrah's tubes) burns far brighter than white and glows in an HDR view, as in
+        // the original's frames. A black emissive colour leaves the surface colour
+        // [hypothesis from the original's frames, nif.md §6 "Emissive colour of unlit
+        // shapes"]. Without the light glow (tonemapped in the shader) it is never
+        // brighter than the surface colour.
+        let unlit_e = pbr_input.material.emissive.rgb;
+        if any(unlit_e > vec3(0.0)) {
+#ifdef TONEMAP_IN_SHADER
+            out.color = vec4(min(unlit_e, out.color.rgb), out.color.a);
+#else
+            out.color = vec4(unlit_e, out.color.a);
 #endif
+        }
 #endif
     }
     out.color = vec4(mix(out.color.rgb, surface.holes_edge.rgb, holes_band), out.color.a);

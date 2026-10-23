@@ -451,13 +451,49 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   unlit shape is drawn as bright as its emissive light, surface colour × emissive colour
   × multiplier, and never darker than its surface colour (so the 2,663 unlit shapes with
   a black emissive colour keep their look). Multiply shapes are left alone. Without the
-  light glow (LDR view, tonemapped in the shader) nothing changes. Additive shapes take
-  their multiplier in display values ("Additive blend").
+  light glow (LDR view, tonemapped in the shader) nothing changes.
+- **Emissive colour of unlit shapes** (2026-10-23). Dead Money's wall lantern
+  (`nvdlc01\clutter\lights\nvdlc01_sconceon.nif`) has an additive glow card
+  (`SconceON:4`, `fxsoftglowspot01.dds`, SRC_ALPHA / ONE, view-angle falloff, 58 units
+  across around the 14-unit glass) whose NiMaterialProperty emissive is warm (0.85, 0.65,
+  0.47) × 1. Drawn by the rule above (never darker than the surface colour) the white
+  texture won and the glow was white beside an orange lamp; the owner: "the lamp is
+  orange but the light beam is white, it does not match". Survey of the unlit
+  (BSShaderNoLightingProperty) shapes [observed, `fx_audit.rs`]: `Fallout - Meshes.bsa` and
+  `Update.bsa` 7,147 (3,305 black emissive, 2,514 at or over 1 in every channel after
+  the multiplier, 291 grey under 1, 1,037 coloured under 1); `DeadMoney - Main.bsa` 356
+  (174, 153, 7, 22). Among the grey ones Lucky 38's base and stair lights store 0.1 ×
+  1.25, yet are bright in game, so the colour cannot simply multiply the texture. Rule
+  in the renderers [hypothesis]: a non-black emissive colour tints an unlit shape by its
+  hue (the colour over its brightest channel, a display colour, raised to the display
+  gamma), and its brightness is max(1, multiplier × brightest channel); a black colour
+  leaves the surface colour. The lantern's card turns warm orange, Dead Money's
+  holograms ((0, 0.87, 1) × 6) cyan, grey colours change nothing, Gomorrah's white × 25
+  is as before. Without the light glow the result is held to the surface colour. An
+  additive shape takes the brightness in display values (raised to the display gamma
+  like its hue; "Additive blend"), as does the image space's Emissive Mult on it.
 
-  Until 2026-10-23 (branch `claude/additive-strength`) this rule did nothing: Bevy's
+  Until 2026-10-23 neither rule reached unlit shapes: Bevy's
   `pbr_input_from_standard_material` fills the emissive light in only for lit materials
   [observed: bevy_pbr 0.19 `pbr_fragment.wgsl`], so an unlit shape's stayed black. The
   shader now reads the material's emissive light for unlit shapes itself.
+- **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
+  (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
+  centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
+  [observed, `fnvtool nif decode`]. Each disc comes out of two opposite panes at their
+  middle, so the half-disc in front of a pane showed against the pane with a hard
+  vertical edge where it leaves the glass (owner's screenshots, twice: "the base game's
+  is seamless"). Two causes, both fixed by rule: the shape's shader flags (0xAE000148)
+  set both decal bits, and decals were left out of the soft intersections; and the
+  160-unit fade is far larger than such a shape. Now decal-flagged shapes fade like the
+  others (a decal laid on a surface lies along it and keeps its look; 738 unlit blended
+  base-game shapes and 32 in Dead Money carry the decal bits [observed, `fx_audit.rs`],
+  mostly light pools and grime cards on walls), and the fade distance is a quarter of the
+  shape's largest side when that is less than 160 units (`nif_material.rs`
+  `soft_distance`; 14.6 for the lantern glow) [engineering choice]; particle systems
+  keep 160 (their mesh is a unit quad). In the original's frame the glass also burns
+  near white ((255, 252, 235)), which hides any step; ours does since the image space's
+  Emissive Mult is applied (world.md §6 "Emissive mult").
 - **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
   destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
   colour, channel by channel, and the shape adds no light of its own [documented:
@@ -570,7 +606,8 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   linear light (`nif_material.wgsl` `add_display`, CPU mirror `nif_material::add_display`).
   The colour is fogged first (at alpha 1). The emissive colour × multiplier of an additive
   shape counts in display values (raised to 2.2 before the shader, as for "Multiply
-  blend"; `display_emissive`), so the texture × multiplier × alpha is the game's term.
+  blend"; `display_emissive`; for an unlit shape its brightness under "Emissive colour of
+  unlit shapes"), so the texture × multiplier × alpha is the game's term.
   The sum is held to display 2.0 (`ADD_DISPLAY_MAX`) or the frame's own value if
   brighter [engineering choice: it lets the Big MT's sky beams, display 1.5 at the core,
   through whole and keeps a multiplier of 30 (the Securitron's screen flash) from adding
@@ -700,7 +737,8 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   What the renderers do [engineering choice, nif_material.rs module notes "Soft
   intersections"]: every unlit shape that adds or blends (additive SRC_ALPHA / ONE and
   ONE / ONE, SRC_ALPHA / INV_SRC_ALPHA; light beams, glows, smoke and dust sheets and all
-  particle systems; not multiply shapes, decals or refracting shells) fades out linearly
+  particle systems, and since 2026-10-23 decal-flagged ones; not multiply shapes or
+  refracting shells) fades out linearly
   over `SOFT_DISTANCE` (160 units, view depth) in front of the opaque surface behind it,
   read from the view's depth prepass. Where the shape lies along that surface (the
   shape's and the surface's facings, both from screen derivatives, within about 25°;

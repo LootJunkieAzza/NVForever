@@ -8,6 +8,7 @@ points ([levelup](levelup.md) §9); this note adds the argument tabs, the other 
 and the combat entry points. Code: `fnv_game::perks` (evaluation),
 `fnv_combat::damage::PerkHooks` / `EntryOps` (the hit), `nvf-play` `combat.rs`
 (`hit_perks`, `player_weapon_perk`) and `vats_mode.rs` (AP cost).
+Every perk of the masters and whether NVForever acts on it: [perk-audit-2026-10-23](../handoff/perk-audit-2026-10-23.md).
 
 ## 1. Entries, functions and ranks
 

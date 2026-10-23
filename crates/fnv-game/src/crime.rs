@@ -588,6 +588,7 @@ impl Game<'_> {
                 let tracks = self.data.faction_flags.get(&f).is_some_and(|x| x & faction_flags::TRACK_CRIME != 0);
                 if tracks && self.player.enemy_of.insert(f) {
                     self.crimes.notes.push(Note::FactionEnemy { faction: f });
+                    crate::functions::actor::forget_relations(self);
                 }
             }
         }
