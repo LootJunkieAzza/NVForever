@@ -263,6 +263,9 @@ pub struct RefChanged {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ItemUsed {
     pub item: u32,
+    /// Used on one limb (its condition code, 25-30): the Pip-Boy's CND page puts a
+    /// Stimpak on the limb chosen (`fnv_game::Game::ingest_on`).
+    pub limb: Option<u16>,
 }
 
 pub struct PlayPlugin(pub PlayData);

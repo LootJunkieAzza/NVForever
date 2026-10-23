@@ -25,6 +25,21 @@ use std::collections::{BTreeMap, BTreeSet};
 const P: FormId = FormId::PLAYER_REF;
 const STRENGTH: u16 = 5;
 const CARRY_WEIGHT: u16 = 13;
+/// Perception Condition (the head) to Right Mobility Condition (the right leg).
+const LIMBS: std::ops::RangeInclusive<u16> = 25..=30;
+
+/// A limb by its condition code, for the log.
+pub fn limb_name(code: u16) -> &'static str {
+    match code {
+        25 => "head",
+        26 => "torso",
+        27 => "left arm",
+        28 => "right arm",
+        29 => "left leg",
+        30 => "right leg",
+        _ => "brain",
+    }
+}
 
 /// What the player's aid items did this run.
 #[derive(Debug, Default, Clone)]
@@ -64,19 +79,24 @@ fn change_text(c: &ValueChange, duration: f64) -> String {
     format!("{} {:+.1} {how}{limbs}", av_name(c.code), c.amount)
 }
 
-/// The player uses `item` (already taken from the inventory by the menu). Call with the
-/// world swapped in (`with_world`).
-pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
+/// The player uses `item` (already taken from the inventory by the menu), on one limb
+/// (its condition code) when the Pip-Boy's CND page aims it (`Game::ingest_on`). Call
+/// with the world swapped in (`with_world`).
+pub fn use_item(rt: &mut Runtime, item: FormId, limb: Option<u16>) -> Ingested {
     let data = rt.game.data;
     // The values the item's effects may touch, before.
-    let mut codes: BTreeSet<u16> = data
+    let changes: Vec<ValueChange> = data
         .effect_items
         .get(&item)
         .into_iter()
         .flatten()
         .filter_map(|e| data.magic_effects.get(&e.effect).and_then(|m| fnv_game::aid::value_change(m, e, 1.0, false)))
-        .map(|c| c.code)
         .collect();
+    let mut codes: BTreeSet<u16> = changes.iter().map(|c| c.code).collect();
+    // The six limbs the Pip-Boy shows, when an effect restores them too.
+    if changes.iter().any(|c| c.parts) {
+        codes.extend(LIMBS);
+    }
     // Strength carries the carry weight with it (aid-items.md §12).
     if codes.contains(&STRENGTH) {
         codes.insert(CARRY_WEIGHT);
@@ -84,7 +104,7 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
     let before: Vec<(u16, f64)> = codes.iter().map(|&c| (c, value(rt, c))).collect();
     let capacity = |rt: &mut Runtime| rt.game.world.encumbrance(P).ok().map(|e| e.capacity);
     let capacity_before = capacity(rt);
-    let r = rt.game.ingest(P, item);
+    let r = rt.game.ingest_on(P, item, limb);
     let changes: Vec<String> = r
         .applied
         .iter()
@@ -101,6 +121,7 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
         })
         .collect();
     let name = data.name(item);
+    let on = limb.map_or(String::new(), |l| format!(" on the {}", limb_name(l)));
     let mut extra = String::new();
     if let Some(u) = r.usage {
         extra.push_str(&format!("; usage {u:.0}"));
@@ -117,7 +138,7 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
         extra.push_str(&format!("; carry capacity {} → {}", whole(a), whole(b)));
     }
     info!(
-        "aid: the player used {name} (potency {:.2}): {}{extra}; {}",
+        "aid: the player used {name}{on} (potency {:.2}): {}{extra}; {}",
         r.potency,
         if changes.is_empty() { "no value changes".to_string() } else { changes.join(", ") },
         if values.is_empty() { "no values".to_string() } else { values.join(", ") }

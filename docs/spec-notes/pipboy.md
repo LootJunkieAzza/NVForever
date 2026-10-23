@@ -221,7 +221,17 @@ is the top left 85 × 92 of `head.dds`) [observed].
     the controller's healing mode's slot empty, "(3) Doctor's Bag E)"; on RAD "RadAway
     A)", "Rad-X X)" [documented: places, `_PCButton_*`; observed: the words; hypothesis:
     the count is left out at 0 (the RAD screenshot has none), dim unless pointed at].
-    Using the items from here is not built (the keys are logged).
+    **Using them on CND** (built 2026-10-23, owner's request) [design]: S or a click
+    on the Stimpak hint uses one on the body, or on the limb chosen (keys 1-6: head,
+    torso, left arm, right arm, left leg, right leg; the same key again the body; the
+    pointer on a limb's bar chooses it while there, and a click on the bar uses a
+    Stimpak on that limb); E or the Doctor's Bag hint uses one on every limb. An item is
+    not used when it would not heal: a Stimpak on the body at full health, on a limb
+    that is whole, a Doctor's Bag with no limb hurt, or none carried
+    (`model::refusal`). The chosen or pointed-at limb's bracket is boxed. The item is
+    taken, its consume sound plays and the runtime uses it as the inventory does
+    (`stats::use_hints`); what it does to the limbs: aid-items.md §3. RadAway and Rad-X
+    are not used from here (A also switches the tab; the keys are logged).
   - CND: the Vault Boy at zoom 145, head 40 down and centred, face, torso, arms and legs
     placed from it as the file gives; a bracket (`vats_*_divider.dds`, 38 high) with a
     solid bar (77 × 14 at 25 or 51, 24) at each of six body parts, the bar as long as the
@@ -231,6 +241,8 @@ is the top left 85 × 92 of `head.dds`) [observed].
     is `face_00.dds` always [hypothesis; when 01–04 and 10 show is not known]. Under him
     "<name> - Level <n>" centred on the area's foot [observed: "Loot - Level 1"].
     Limb damage comes from combat's actor value damage; a new run's parts are whole.
+    The bars read the same actor values combat lowers and cripples by
+    (`Game::damage_limb`, `PlayerLimbs`) [observed: smoke `pipboy-stats-heal`].
   - RAD (zoom 130): "RAD RESIST" and the value (actor value 20, "8%") in a window
     showing the right end of `rad_effects_bracket.dds`, 360 down; the meter
     (`rad_meter_bracket.dds`) beside it, its 0 at 186 and full at 482 of the picture,

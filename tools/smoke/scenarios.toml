@@ -4526,6 +4526,31 @@ expect = [
 order = [["pipboy repair: open", "pipboy repair: clicked row 1", "pipboy repair: 10mm Pistol"]]
 
 [[scenario]]
+name = "pipboy-stats-heal"
+source = "owner 2026-10-23: on the STATS page's CND the Stimpak is used on the body (health not full) or on a hurt limb, the Doctor's Bag heals every limb, and the bars show the player's limb conditions (engine/nvf-play/src/pipboy/stats/, crates/fnv-game/src/aid.rs PARTS_LIMB_SHARE, docs/spec-notes/pipboy.md 5.1, aid-items.md 3)"
+note = "the console gives 3 Stimpaks and a Doctor's Bag, cripples the left arm and takes 50 health; on CND a Stimpak on the body, one refused on the whole right arm, one on the left arm, the bag, a second bag refused with every limb whole (the start carries some of each already)"
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/aid.rs", "crates/fnv-game/src/aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,23:close", NVF_PLAY_TEST_PIPBOY_STATS = "15:use=stimpak,16:limb=3,16.5:use=stimpak,17:limb=2,17.5:use=stimpak,19:use=bag,20:use=bag", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_cnd_hurt.png,21:pipboy_cnd_healed.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  "combat: player's left arm crippled",
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm 0%, right arm 100%', label = "the bars show the crippled arm" },
+  { re = 'pipboy stats: used Stimpak on the body \(\d+ left\)', label = "a Stimpak on the body" },
+  { re = 'aid: the player used Stimpak \(potency [\d.]+\): Health \+[\d.]+ at once, limbs too', label = "the body's Stimpak heals health" },
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm [1-9]%', label = "the limbs get a small share" },
+  { re = 'pipboy stats: Stimpak not used: the right arm is not hurt', label = "no Stimpak on a whole limb" },
+  { re = 'pipboy stats: used Stimpak on the left arm \(\d+ left\)', label = "a Stimpak on the left arm" },
+  { re = 'aid: the player used Stimpak on the left arm', label = "the runtime aims it" },
+  { re = '''pipboy stats: used Doctor's Bag on the body \(\d+ left\)''', label = "the Doctor's Bag used" },
+  { re = 'pipboy stats: CND bars head 100%, torso 100%, left arm 100%, right arm 100%, left leg 100%, right leg 100%', label = "every bar whole after the bag" },
+  "combat: player's left arm healed",
+  { re = "pipboy stats: Doctor's Bag not used: no limb is hurt", label = "no bag with every limb whole" },
+]
+order = [["pipboy stats: used Stimpak on the body", "Stimpak not used: the right arm", "used Stimpak on the left arm", "used Doctor's Bag"]]
+
+[[scenario]]
 name = "pipboy-general-locations"
 source = "outstanding.md §2 Interface (2026-10-19; hud.md §11, misc-stats.md): leaving the start finds Goodsprings: the HUD's XP meter shows +10 XP and the Pip-Boy's General list counts it under Locations Discovered (the tab opens on its Reputation list: mode, then down from Quests Completed)"
 areas = ["hud", "pipboy"]
