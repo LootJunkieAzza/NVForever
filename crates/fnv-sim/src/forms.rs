@@ -65,6 +65,15 @@ pub struct Item {
     pub kind: ItemKind,
     /// `None` when the schema has no layout for this record type's value yet.
     pub value: Option<i32>,
+    /// CMNY (caravan money: the NCR notes and Legion coins found in the world) DATA
+    /// "Absolute Value": what the note or coin is worth in caps. Kept apart from `value`,
+    /// the record's Value field, which CMNY has none of; [`Item::worth`] is either
+    /// [observed: FalloutNV.esm MoneyNCR5/20/100 2, 8, 40, MoneyLegion1 4, MoneyLegion25
+    /// 100, the Value of the MISC notes and coins of the same names; the CMNY records are
+    /// the ones inventories and leveled lists name, the MISC ones hardly; owner's
+    /// playtest list 7, item 7].
+    #[serde(skip)]
+    pub money: Option<i32>,
     pub weight: Option<f32>,
     /// ARMO BMDT biped flags: the body slots the item occupies when worn.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -174,6 +183,12 @@ impl Item {
     /// and non-playable biped items (armour) not in the player's either, while
     /// non-playable weapons and ammo are [documented: GECK wiki "Unplayable Items"]. Other
     /// kinds never carry the flag in the records; set on one, it hides it everywhere.
+    /// What the item is worth in caps: its Value, or a note's or coin's
+    /// [`Item::money`].
+    pub fn worth(&self) -> Option<i32> {
+        self.value.or(self.money)
+    }
+
     pub fn listed(&self, players: bool) -> bool {
         !self.non_playable || (players && matches!(self.kind, ItemKind::Weapon | ItemKind::Ammo))
     }
@@ -520,6 +535,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     data: BaseData::Item(Item {
                         kind,
                         value: None,
+                        money: None,
                         weight: None,
                         slots: None,
                         projectile: None,
@@ -750,6 +766,10 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             && first(d, b"DNAM").and_then(|v| v.get("flags2")).is_some_and(|f| has_flag(f, "Player Only") || has_flag(f, "Not Used In Normal Combat")),
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
+        money: match kind {
+            ItemKind::CaravanMoney => data.and_then(Value::as_i64).map(|v| v as i32),
+            _ => None,
+        },
         weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),
         slots: slots.map(|s| s as u32),
         // File-local here; made global by the caller.
