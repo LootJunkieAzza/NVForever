@@ -7798,3 +7798,20 @@ expect = [
   { re = 'rooms: 00081D1F: camera in room 0008D44A, (?P<n>\d+) of 17 rooms in view', range = [2, 16], label = "some rooms are out of view from the start" },
   { re = 'rooms summary: \d+ frames culled by rooms and portals, at most (?P<n>\d+) meshes hidden', range = [500, 1e9], label = "meshes of the rooms out of view are hidden" },
 ]
+
+[[scenario]]
+name = "compass-sneaking-npc"
+source = "owner 2026-10-23: a sneaking NPC does not show on the HUD's compass (docs/spec-notes/hud.md §11, fnv_game::Game::compass_shows)"
+note = "as crouched-npc-weapon without the drawn weapons: Ringo is brought 300 units north of the player (heading north, so in the compass's window and within Perception × 300) at 3 s, forced to sneak at 5 s (SetForceSneak 1) and let up at 15 s; while he sneaks the compass leaves him off, after he stands nobody is left off"
+areas = ["hud"]
+paths = ["engine/nvf-play/src/compass.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:300:0,5:call:RingoRef:SetForceSneak:1,15:call:RingoRef:SetForceSneak:0" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'sneaking: RingoRef \S+ crouches and sneaks', label = "Ringo sneaks (SetForceSneak)" },
+]
+order = [[
+  { re = 'compass: \d+ actors .*, [1-9]\d* sneaking left off', label = "sneaking Ringo left off the compass" },
+  { re = 'compass: \d+ actors .*, 0 sneaking left off', label = "standing up, nobody is left off" },
+]]
