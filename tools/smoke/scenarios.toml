@@ -2112,6 +2112,7 @@ run_seconds = 22
 expect = [
   { re = 'script: trigger 0x0015834D has 1 trigger volume\(s\) in its model', label = "the bear trap's model box is its trigger" },
   { re = 'script: message .*"You have disarmed the trap\."', label = "the first trap is disarmed" },
+  { re = 'xp: \+2 XP from a script', label = "its script's RewardXP gives TrapXPRewardVeryEasy (requirement 0, below iLockLevelMaxEasy; playtest list 7 item 23)" },
   { text = "playgroup: 0x00165495 plays Forward", label = "the disarmed trap springs shut" },
   { text = "script: player entered trigger 0x0015834D", label = "the player steps into the second trap" },
   { re = 'script: OnTriggerEnter of .*SCPT 0x0002CBA1 ran on', label = "its OnTriggerEnter runs" },
@@ -2129,6 +2130,7 @@ args = ["--cell", "NiptonHouse8Paranoid", "--play", "--hour", "12", "--no-voice"
 run_seconds = 25
 expect = [
   { re = 'script: message .*"[^"]*disarm[^"]*"', label = "the second tripwire is disarmed" },
+  { re = 'xp: \+2 XP from a script', label = "its script's RewardXP gives TrapXPRewardVeryEasy (requirement 0, below iLockLevelMaxEasy; playtest list 7 item 23)" },
   { text = "script: player entered trigger 0x00139522", label = "the player walks into the armed tripwire" },
   { re = 'script: activate parent 0x00139522 sets off 0x0013951E after 0\.00 s', label = "the tripwire sets off its shotgun" },
   { re = 'script: OnActivate of FalloutNV\.esm\|SCPT 0x0003E877 ran on Some\(0x0013951E\)', label = "the shotgun's OnActivate runs (its action reference is not the player)" },
@@ -6933,6 +6935,9 @@ expect = [
   { re = 'mines: 0x00000014 sets off mine 0x00172DB5 at \d+ units .*fuse 0\.60 s at Explosives 20', label = "stepped on at Explosives 20: a 0.6 s fuse" },
   { re = 'mines: mine 0x00172DB5 goes off', label = "the fuse burns down" },
   { re = 'combat: explosion MineFragExplosion at', label = "the frag mine's explosion" },
+  { re = 'combat: blast MineFragExplosion on 0x00000014 at \d+', label = "its blast catches the player standing on it (playtest list 7 item 19)" },
+  { re = 'combat: .* hits the player for [1-9][\d.]* \(god mode: no damage taken\)', label = "with damage god mode stops" },
+  { re = 'xp: \+5 XP from a disarmed mine', label = "the disarmed mine gives iMineDisarmExperience (playtest list 7 item 23)" },
 ]
 forbid = [{ re = 'mines: mine 0x00172DDC goes off', label = "the disarmed mine goes off" }]
 
@@ -7239,4 +7244,63 @@ expect = [
 ]
 forbid = [
   { re = 'physics: placed 0015206B moved by physics: ([6-9]|\d\d+)\.\d units', label = "the car is pushed" },
+]
+
+[[scenario]]
+name = "thrown-dynamite"
+source = "owner's playtest list 7 item 22: a thrown weapon left the hand when the attack was pressed plus its wind-up, and only then did the throw clip start (dynamite waited, was spawned and thrown, then lit and thrown again in the clip); the clip now starts at the pull and the stick leaves at its Hit key (docs/design/combat.md §5.5)"
+note = "God mode in Goodsprings: the player is given three sticks of dynamite (000BA0F3), draws them and throws one at 17 s. The throw's wind-up line, the rig's clip start and the stick leaving the hand should come in that order, the stick the clip's Hit key after the pull"
+areas = ["combat", "animation"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "000BA0F3:3", NVF_PLAY_TEST_EQUIP = "000BA0F3", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'combat: WeapNVDynamite winds up, the throw leaves at the clip.s Hit key in (?P<n>[\d.]+) s', range = [0.1, 5.0], label = "the pull starts the throw's wind-up" },
+  { re = 'player \w+ rig: \S+ starts at the pull; the shot leaves at its Hit key', label = "the throw clip starts at the pull" },
+  { re = 'combat: WeapNVDynamite leaves the hand', label = "the stick leaves the hand" },
+  { gap = ["combat: WeapNVDynamite winds up", "combat: WeapNVDynamite leaves the hand"], range = [0.1, 5.0], label = "the stick leaves at the clip's Hit key, not at once" },
+]
+order = [["combat: WeapNVDynamite winds up", "starts at the pull", "combat: WeapNVDynamite leaves the hand"]]
+
+[[scenario]]
+name = "falls-player"
+source = "owner's playtest list 7 item 21: no fall damage; a fall onto land from above fJumpFallHeightMin (600) loses health by fJumpFallHeightMult x (h - 600)^1.65 (docs/spec-notes/physics.md §6.10)"
+note = "God mode in Goodsprings: at 8 s the console puts the player about 1,500 units up; the landing logs the height and the fall damage the formula gives (god mode deals none). The formula is checked against the capture's falls in falls.rs's tests"
+areas = ["physics", "combat"]
+paths = ["engine/nvf-play/src/falls.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.setpos z 10200;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'falls: 0x00000014 lands from (?P<n>\d+) units: [\d.]+ fall damage', range = [700, 5000], label = "the player lands from the drop" },
+  { re = 'falls: 0x00000014 lands from \d+ units: [1-9][\d.]* fall damage, 0\.0 dealt.*immune', label = "the formula gives damage; god mode deals none" },
+]
+
+[[scenario]]
+name = "incinerator-hurts-player"
+source = "owner's playtest list 7 items 29 and 19: an NPC's Incinerator did the player no harm, nor did mines: its damage is in its explosion (NVIncineratorFireBurst, 20 within 212), and blasts never reached the player, who has no hit volume (combat.rs view)"
+note = "God mode, the player put 500 units in front of Cook-Cook (FiendCookCookRef 000F5704), who draws his Incinerator (actors.md §9.3) and fires at the player; the flame globs' blasts now catch the player"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/projectile.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:moveto:player:0x000F5704:0:500:0,6:combat:0x000F5704:player" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'combat: explosion NVIncineratorFireBurst at', label = "the Incinerator's flame globs burst" },
+  { re = 'combat: blast NVIncineratorFireBurst on 0x00000014 at \d+', label = "a burst catches the player" },
+]
+
+[[scenario]]
+name = "impact-decals-blood"
+source = "owner's playtest list 7 item 27: blood decals floated off the bodies at wrong angles and came too often; they now lie on the drawn body where the shot's line meets it, at most 3 an actor, one each 0.3 s (docs/spec-notes/impact-decals.md §4)"
+note = "God mode in the Goodsprings general store (the energy-resist-hit setup): aimed at Chet's chest (aimnpc=0.6) the 10mm pistol with no spread shoots him four times from 14.1 s; a frame at 15.8 s shows the blood on him"
+areas = ["combat", "render"]
+paths = ["engine/nvforever/src/decals.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:20", NVF_PLAY_TEST_CONTROL = "10:weapon,14:aimnpc=0.6,14.1:fire,14.5:aimnpc=0.6,14.6:fire,15:aimnpc=0.6,15.1:fire,15.4:aimnpc=0.6,15.5:fire", NVF_PLAY_TEST_SHOTS = "15.8:decals_blood.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'decals: \w+ leaves \w+ \(\S+\) on actor [0-9A-F]{8}', label = "a shot leaves blood on Pete" },
+  { re = 'decals summary: \d+ placed \((?P<n>\d+) on actors\)', range = [1, 3], label = "no more than three on him" },
 ]

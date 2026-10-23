@@ -564,6 +564,14 @@ engine:
   shakes the view.
 - Semi-automatic fire rate follows the attack clip and the weapon's attack multiplier,
   as in the original; "Modify Attack Speed" and "Reload Speed" perks scale the clips.
+- **The clip starts at the pull** (the owner's playtest list 7 item 22, 2026-10-23): a
+  pull whose shot waits for the attack clip's `Hit` key (a thrown weapon's release, a
+  gun with a wind-up) starts the clip then, and the shot leaves when the clip reaches the
+  key, without starting it again. The clip used to start at the shot, so a stick of
+  dynamite waited for its wind-up with nothing playing, left the hand, and only then was
+  lit and thrown in the clip. Log: `combat: <weapon> winds up, the throw leaves at the
+  clip's Hit key in <s> s`, `player <view> rig: <clip> starts at the pull`, `combat:
+  <weapon> leaves the hand`. Smoke `thrown-dynamite`. NPCs throw nothing yet.
 
 ### 5.6 Feedback
 
@@ -611,6 +619,12 @@ engine:
   run their DEST stages (§4.2): model swaps, burning down, the final explosion. This
   is how the Mojave's cars blow up, and it uses the same damage path.
 - Thrown weapons arc under gravity as lobbers.
+- **Who a blast reaches**: every actor's hit volume within the radius, and the player,
+  whose capsule stands in for a body (it has no hit volume). Until 2026-10-23 the player
+  was never among them, so mines, grenades, missiles and an NPC's Incinerator (whose
+  damage is its explosion's, `NVIncineratorFireBurst` 20 within 212 [observed]) did the
+  player no harm (the owner's playtest list 7 items 19 and 29). The player's own blasts
+  reach the player too [design]. Swings and proximity fuses skip their own attacker.
 
 ### 5.9 Limb hits (step C8)
 

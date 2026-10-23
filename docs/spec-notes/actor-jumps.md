@@ -85,7 +85,8 @@ over FalloutNV.esm (2026-10-20). The player's own jump is physics.md §6.3 and �
   (`NpcBody::jump`: the controller's own jump, taken only on the ground); gravity and the
   collision carry the body. A climber that landed on top short of the landing walks on
   rather than jumping again.
-- **Fall damage**: actors' fall damage is not built (physics.md's rule is the player's).
+- **Fall damage**: physics.md §6.10. The rule applies to the player and to the NPCs whose
+  characters the physics walks; a ledge jump here (no physics) takes none.
 
 ### 3.1 A ledge in the data [observed: `fnvtool nav near` and `nav path`, 2026-10-20]
 

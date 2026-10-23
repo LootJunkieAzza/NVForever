@@ -2198,6 +2198,33 @@ the lift (`PhysState::drawn_lift_of`, `npc_drawn_feet`). A long hill is drawn as
 (the slope filter); the first quarter second of a steep climb lags a few units. The exit
 report says how many steps the player's lift took in and its largest value; smoke
 `camper-steps`.
+### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
+
+- **Settings** [observed: FalloutNV.esm GMST]: `fJumpFallHeightMin` 600,
+  `fJumpFallHeightExponent` 1.65, `fJumpFallVelocityMin` 2785. No plugin sets
+  `fJumpFallHeightMult` (an exe setting; its value is not read, the exe is encrypted).
+- **Measured** [observed: capture `sw_fall_breath`, §6.6]: land falls of 695.6, 1495.4 and
+  2995.3 units (start feet to landing feet) cost 46.7, 1858.6 and 9419.6 health; 300 cost
+  nothing; no fall into water cost anything.
+- **Rule built**: damage = `fJumpFallHeightMult` × (h − `fJumpFallHeightMin`)^
+  `fJumpFallHeightExponent` for a landing on land from h units above, none at or below
+  the minimum [hypothesis: the formula's shape is the fit k·(h − 600)^1.65 of the three
+  falls, within 0.8 %, and the link to the settings is from their names]. The factor
+  defaults to the fitted 0.0252 [observed fit] when no plugin sets `fJumpFallHeightMult`.
+  h runs from the highest point of the fall (the feet's since leaving the ground, so a
+  jump's apex counts) to the landing [hypothesis: the capture's falls started at rest].
+  A character put somewhere else in mid-air (a teleport, `SetPos`) falls from there
+  [design]. Entering water ends the fall without damage [observed].
+- **Applied** as a hit with no attacker and no body part through the combat hit path (god
+  mode spares the player; death as from any hit). Armour does not reduce it and no limb
+  is damaged [hypothesis: unmeasured]. `fJumpFallVelocityMin` is not used (what it
+  limits is open).
+- **Who**: the player, and the NPCs whose characters the physics walks
+  (`PhysState::npcs`) by the same rule [hypothesis: no NPC-specific fall setting exists in
+  FalloutNV.esm]. Actors moved by other systems (nav travellers, ledge jumps,
+  actor-jumps.md) take none.
+- **Checked**: unit tests in `falls.rs` (the capture's three falls within 1 %; the apex;
+  water; a mid-air placement), smoke `falls-player`.
 
 ## 7. CLI contract
 
