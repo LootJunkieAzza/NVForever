@@ -132,15 +132,60 @@ const GET_UPS: [[&str; 3]; 2] = [
     ["idleanims\\mt_knockdownfaceup.kf", "idleanims\\specialidle_getupfaceup.kf", "idleanims\\mtspecialidle_getupright.kf"],
     ["idleanims\\mt_knockdownfacedown.kf", "idleanims\\specialidle_getupfacedown.kf", "idleanims\\mtspecialidle_getupleft.kf"],
 ];
-/// Hit reactions: torso, head, left and right arm, left and right leg [observed: the
-/// `_male\idleanims` names; design: which location plays which].
-const FLINCHES: [&str; 6] = [
-    "idleanims\\mt_hittorso.kf",
-    "idleanims\\mt_hithead.kf",
-    "idleanims\\mt_hitarmleft.kf",
-    "idleanims\\mt_hitarmright.kf",
-    "idleanims\\mt_hitlegleft.kf",
-    "idleanims\\mt_hitlegright.kf",
+/// Hit reactions: torso, head, left and right arm, left and right leg, the first of each
+/// list that a skeleton's folder has [observed: the `_male\idleanims` names; the creature
+/// folders' `idleanims` names in `Fallout - Meshes.bsa`, 2026-10-23: `specialidle_hit…`
+/// (ghoul, deathclaw, super mutant, mantis …; some spell `hitleftarm` for `hitarmleft`),
+/// `mtspecialidle_hit…` (dog, brahmin, protectron, yao guai; the dog's and brahmin's
+/// `hitleft`/`hitright` for a side), `hitreaction_…` (gecko, mole rat, giant rat,
+/// bighorner), the cazador's `h2hhitlegs`; design: which location plays which]. Before,
+/// only the people's `mt_hit…` names were looked for and no creature ever staggered
+/// (owner's playtest list 7 item 13).
+const FLINCHES: [&[&str]; 6] = [
+    &["idleanims\\mt_hittorso.kf", "idleanims\\specialidle_hittorso.kf", "idleanims\\mtspecialidle_hittorso.kf", "idleanims\\hitreaction_torso.kf"],
+    &["idleanims\\mt_hithead.kf", "idleanims\\specialidle_hithead.kf", "idleanims\\mtspecialidle_hithead.kf", "idleanims\\hitreaction_head.kf"],
+    &[
+        "idleanims\\mt_hitarmleft.kf",
+        "idleanims\\specialidle_hitarmleft.kf",
+        "idleanims\\specialidle_hitleftarm.kf",
+        "idleanims\\mtspecialidle_hitarmleft.kf",
+        "idleanims\\mtspecialidle_hitleftarm.kf",
+        "idleanims\\hitreaction_leftarm.kf",
+        "idleanims\\specialidle_hitarms.kf",
+        "idleanims\\mtspecialidle_hitleft.kf",
+    ],
+    &[
+        "idleanims\\mt_hitarmright.kf",
+        "idleanims\\specialidle_hitarmright.kf",
+        "idleanims\\specialidle_hitrightarm.kf",
+        "idleanims\\mtspecialidle_hitarmright.kf",
+        "idleanims\\mtspecialidle_hitrightarm.kf",
+        "idleanims\\hitreaction_rightarm.kf",
+        "idleanims\\specialidle_hitarms.kf",
+        "idleanims\\mtspecialidle_hitright.kf",
+    ],
+    &[
+        "idleanims\\mt_hitlegleft.kf",
+        "idleanims\\specialidle_hitlegleft.kf",
+        "idleanims\\specialidle_hitleftleg.kf",
+        "idleanims\\mtspecialidle_hitlegleft.kf",
+        "idleanims\\mtspecialidle_hitleftleg.kf",
+        "idleanims\\hitreaction_leftleg.kf",
+        "idleanims\\specialidle_hitlegs.kf",
+        "idleanims\\h2hhitlegs.kf",
+        "idleanims\\mtspecialidle_hitleft.kf",
+    ],
+    &[
+        "idleanims\\mt_hitlegright.kf",
+        "idleanims\\specialidle_hitlegright.kf",
+        "idleanims\\specialidle_hitrightleg.kf",
+        "idleanims\\mtspecialidle_hitlegright.kf",
+        "idleanims\\mtspecialidle_hitrightleg.kf",
+        "idleanims\\hitreaction_rightleg.kf",
+        "idleanims\\specialidle_hitlegs.kf",
+        "idleanims\\h2hhitlegs.kf",
+        "idleanims\\mtspecialidle_hitright.kf",
+    ],
 ];
 
 /// A dead actor (combat C5): the death pose plays once and holds its last frame; without
@@ -215,9 +260,11 @@ impl ClipSet {
                 set.death.push(Arc::new(bind_clip(skel, clip)));
             }
         }
-        for (k, f) in FLINCHES.iter().enumerate() {
-            let path = format!("{folder}\\{f}");
-            set.flinch[k] = ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+        for (k, names) in FLINCHES.iter().enumerate() {
+            set.flinch[k] = names.iter().find_map(|f| {
+                let path = format!("{folder}\\{f}");
+                ctx.data().vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)))
+            });
         }
         for (k, names) in GET_UPS.iter().enumerate() {
             set.getup[k] = names.iter().find_map(|f| {

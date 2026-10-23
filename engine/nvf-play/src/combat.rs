@@ -848,6 +848,14 @@ pub struct Combat {
 }
 
 impl Combat {
+    /// Whether the player's flinch (a staggering hit, [`player_flinch`]) still plays: the
+    /// player does not walk meanwhile (`crate::player::flinch_holds_walk`).
+    pub fn player_flinching(&self) -> bool {
+        self.time < self.flinch_until
+    }
+}
+
+impl Combat {
     /// Seconds since the player's last shot.
     pub fn since_last_shot(&self) -> f32 {
         self.time - self.last_shot
