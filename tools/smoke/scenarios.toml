@@ -999,6 +999,25 @@ expect = [
 forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach', label = "she holds fire for the distance" }]
 
 [[scenario]]
+name = "combat-wall-hold"
+source = "owner 2026-10-23: NPCs in combat shoot at walls; a gun fires only with a clear line from the eyes and muzzle to the target's chest, else its head (combat_tactics module notes: a wall in the way; docs/design/combat-ai.md §12.6)"
+note = "Chet (GSChetRef) in the general store is given a .357 and set on the player (GOD), who is put in the back room behind the wall west of his counter at 2 s and out in the store at 20 s on the aids' clock. NVF_PLAY_TEST_SEE_THROUGH_WALLS has him count the player as seen through the wall (as stale detection would): he holds fire, closes in, and fires once the line is clear (first run 2026-10-23: held 7.8 s, 12 shots, all 12 hit the player, 0 world hits). The player fires nothing, so the combat summary's world hits are his shots that hit no actor"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SEE_THROUGH_WALLS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "2:-830:520:600,20:-320:600:600", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 35
+expect = [
+  { re = 'npc combat: GSChetRef \S+ holds fire: a wall stands between it and the player', label = "Chet holds fire with the wall between" },
+  { re = 'npc combat: GSChetRef \S+ has a clear shot at the player again', label = "he finds a clear line again" },
+  { re = 'npc combat: GSChetRef \S+ opens fire on the player', label = "he fires once the line is clear" },
+  { gap = ["holds fire: a wall stands between", "opens fire on the player"], range = [0.5, 1000], label = "his first shot comes after the hold, not at the wall" },
+  { re = 'npc combat summary: .*?(?P<n>\d+) shots', range = [1, 100000], label = "his shots in the npc combat summary" },
+  { re = 'combat: 0 shots .* (?P<n>\d+) world hits', range = [0, 2], label = "his shots hit the player, not the wall (a miss or two in the open may land on the store's walls)" },
+  { re = 'battle summary: .*?(?P<n>\d+) held for a wall', range = [1, 1000], label = "held for a wall in the battle summary" },
+]
+
+[[scenario]]
 name = "combat-npc-reload"
 source = "owner 2026-10-17: NPCs never reloaded in test runs; they need the same magazine and reload as the player (npc_combat module notes: Reloading)"
 note = "Chet (GSChetRef) in the general store is given and made to equip a .357 Magnum Revolver (WeapNV357Revolver: 6 rounds, ReloadX, round by round) and set on the player, who cannot die (GOD). He empties the cylinder, reloads all six round by round with the opening clip and a reload clip per round, and fires again. NPCs use no ammunition from their inventory (owner 2026-10-17)"
