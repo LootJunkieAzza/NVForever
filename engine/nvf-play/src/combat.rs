@@ -1540,6 +1540,30 @@ impl CombatWorld for PhysView<'_> {
         })
     }
 
+    fn cover_ray(&self, from: V3, to: V3) -> Option<WorldHit> {
+        let d = vec::sub(to, from);
+        let len = vec::len(d);
+        if len < 1e-4 {
+            return None;
+        }
+        // The world only: no body, living or dead, shields another from a blast.
+        let f = Filter { exclude_layers: layers::character_ignores(), no_actors: true, ..Default::default() };
+        let h = self.q.ray(from, d, len, &f)?;
+        Some(WorldHit {
+            point: h.point,
+            normal: h.normal,
+            distance: h.distance,
+            actor: None,
+            part: None,
+            small_transparent: matches!(h.owner, Owner::Ref { layer, .. } if layer == layers::TRANSPARENT_SMALL || layer == layers::TRANSPARENT_SMALL_ANIM),
+            material: h.material,
+            object: match h.owner {
+                Owner::Ref { form_id, .. } => Some(form_id as u64),
+                _ => None,
+            },
+        })
+    }
+
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
         // A blast passes a ghost too: it "cannot be harmed by a weapon or spell/magic
         // effect in any way" [documented: GECK wiki SetGhost notes] (no knock-down either).

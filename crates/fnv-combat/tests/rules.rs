@@ -768,8 +768,16 @@ fn melee_swing_and_blast() {
     // A wall between the blast and the actor shields it, unless the EXPL ignores LOS.
     let walled = Toy { actors: vec![(7, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: Some(100.0) };
     assert!(blast(&walled, &t, &e, [0.0, 0.0, 30.0]).is_empty());
-    let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e };
+    let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e.clone() };
     assert_eq!(blast(&walled, &t, &ignore, [0.0, 0.0, 30.0]).len(), 1);
+    // A pack in a line: the ones behind are not shielded by the bodies in front.
+    let pack = Toy { actors: vec![(7, [60.0, 0.0, 30.0], 30.0), (8, [130.0, 0.0, 30.0], 30.0), (9, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: None };
+    let mut ids: Vec<_> = blast(&pack, &t, &e, [0.0, 0.0, 30.0]).iter().map(|b| b.actor).collect();
+    ids.sort();
+    assert_eq!(ids, vec![7, 8, 9]);
+    // A wall still shields the pack behind it.
+    let behind = Toy { wall: Some(100.0), ..pack };
+    assert_eq!(blast(&behind, &t, &e, [0.0, 0.0, 30.0]).iter().map(|b| b.actor).collect::<Vec<_>>(), vec![7]);
 }
 
 #[test]

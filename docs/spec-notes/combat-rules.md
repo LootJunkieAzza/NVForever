@@ -229,7 +229,10 @@ each the identity by default. Reading PERK records is a later step.
   long as the reach. Each actor counts once [design]. The reach is `fCombatDistance` ×
   scale × weapon reach [documented formula; placeholder setting].
 - **Blast.** Every actor within the radius takes damage, unless a ray from the centre
-  is blocked first and the EXPL does not ignore line of sight [documented]. The damage
+  is blocked first and the EXPL does not ignore line of sight [documented]. Only the
+  world blocks that ray (walls, ground, doors); another body, living or dead, does not,
+  or the front of a pack shielded all behind it (`CombatWorld::cover_ray`) [design;
+  owner's playtest 2026-10-23, a grenade into a mantis swarm killed half]. The damage
   falls off [design]; the push is away from the centre with the EXPL force. In play the
   player counts, at the middle of its capsule (design/combat.md §5.8).
 
