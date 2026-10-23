@@ -3015,6 +3015,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "model-lights-lantern"
+source = "docs/spec-notes/model-lights.md §1-§2: the North sewers (OVNorthSewers01, 36 LamplightWarmBrighter lights) take their lantern model's Idle colour keys (lamplightwarm.nif, NiLightColorController); frames 0.3 s apart in target/smoke (model_lights_lantern_N.png)"
+areas = ["effects", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:model_lights_lantern_0.png,10.3:model_lights_lantern_1.png,10.6:model_lights_lantern_2.png" }
+args = ["--cell", "OVNorthSewers01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'model lights: \d+ following their models, (?P<n>\d+) coloured by a playing clip', range = [20, 200], label = "the sewer lanterns' lights follow their model's keys" },
+]
+
+[[scenario]]
+name = "model-lights-klaxon"
+source = "docs/spec-notes/model-lights.md §1-§3: REPCONN HQ (RepconHQ01) with the first floor's alarm raised: the klaxons' script (KlaxonLightScriptRepcon) plays Left, whose keys colour the light and whose spinning Dummy turns it 224 units out; frames in target/smoke (model_lights_klaxon_N.png)"
+areas = ["effects", "lights", "scripting"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set RepconHQFreeform.1stFloorAlarm to 1;4.3:close", NVF_PLAY_TEST_SHOTS = "10:model_lights_klaxon_0.png,10.5:model_lights_klaxon_1.png,11:model_lights_klaxon_2.png" }
+args = ["--cell", "RepconHQ01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'model lights: (?P<n>\d+) following their models', range = [5, 100], label = "the klaxon lights hang from their models" },
+  { re = 'playgroup: \S+ plays Left', min = 5, label = "the alarm script spins the klaxons" },
+  { re = 'model lights: \d+ following their models, (?P<n>\d+) coloured by a playing clip', range = [5, 100], label = "the spinning klaxons take Left's colour keys" },
+]
+
+[[scenario]]
 name = "strip-lamp-glow"
 source = "docs/spec-notes/nif.md §6 \"Soft intersections\", \"Emissive multiplier of unlit shapes\"; docs/design/graphics-enhanced.md §3.11: the Strip at night with scripts: the light glow is on (HDR view), the street lamp beams the scripts enable are drawn and take their stripStreetLight colour (0x0012762B) instead of white; a frame in target/smoke (strip_lamp_glow.png)"
 areas = ["renderer", "effects", "lights"]
