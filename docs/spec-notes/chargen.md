@@ -182,3 +182,28 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
 - The keys besides the hints, Reset's meaning, the counters' other wordings, a trait the
   player cannot take, the name's length limit: [hypothesis], listed in
   docs/owner-review.md.
+
+## 9. The character revision (VCG04)
+
+- **The original** [observed: FalloutNV.esm quest VCG04 "Player Character Revision",
+  script VCG04ActivatorScript 001164A4, `fnvtool script decompile`]: activating one of
+  the quest's activators at Goodsprings' edges stores the player's XP and shows message
+  VCG04Message. "Revise" calls `player.SetLevel 1`, `ResetXP`, `RemovePerk` on the ten
+  traits of FalloutNV.esm and eighteen perks of the early levels (Intense Training,
+  Swift Learner, Educated, …) and `ShowRaceMenu`; the next frames set each
+  S.P.E.C.I.A.L. to 5 with `SetSPECIALPoints 40` (the Vigor Tester), each skill to 0
+  with `SetActorValue` and open `SetTagSkills 3`, then `ShowTraitMenu`, then the
+  message again. "Done" gives the stored XP back with `RewardXP`, so the player levels
+  up again and spends the points and perks anew.
+- **Here** the revision keeps the player's progress [design: the owner's wish, playtest
+  list 7 item 1, "retain our currently selected perks and our skill levels … minus our 3
+  tag skills that are reapplied"] (`fnv_game::revision`): from that script only,
+  SetLevel, ResetXP and the closing RewardXP on the player do nothing, RemovePerk takes
+  traits only (the trait menu offers them again), and SetActorValue of a skill on the
+  player does nothing. A player's skill is the skill formula over the current
+  S.P.E.C.I.A.L. + the tag bonus of the current tags + the points spent at level-ups
+  (`fnv_game::actor_values`), so the spent points stay and the new S.P.E.C.I.A.L. and
+  tags re-derive the rest. The tag-skill menu starts with the old three tagged (the
+  SetTagSkills rule of §1). Each kept call is logged `revision: keeps …`.
+- Before this the revision zeroed every skill: SetActorValue overrides a value's base
+  (`functions::actor`), and a player's skill was then 0 whatever its formula.
