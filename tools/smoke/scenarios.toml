@@ -559,6 +559,89 @@ expect = [
 ]
 
 [[scenario]]
+name = "force-greet-door"
+source = "owner's playtest list 7 items 41/42: a force greet needs a clear line to the player (Game::greet_sight; actor-behaviour.md §5.6)"
+note = "REPCON basement: the player stands 586 units north of Davison (activate distance 600), behind his closed door (DavisonDoor 000BAE24, 500 units north of him); at 20 s the player opens it. Harland (activate distance 1200) is 2,400 units off"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "20:activate:0x000BAE24" }
+args = ["--cell", "RocketLabBasement", "--play", "--pos=464,-2250,8260", "--heading", "180", "--npc-packages", "DavisonREF,HarlandREF", "--no-voice"]
+run_seconds = 45
+order = [[
+  { re = 'DavisonREF: waits to talk to .* with something solid between', label = "Davison waits behind his closed door" },
+  { re = 'dialogue: conversation with DavisonREF started', label = "he greets once the door is open" },
+]]
+
+[[scenario]]
+name = "force-greet-after-loading"
+source = "owner's playtest list 7 item 24: no AI acts under a loading screen (Game::loading held by nvf_play::script while the screen is up)"
+note = "Primm: the player goes in through the Vikki and Vance casino door at 14 s; Johnson Nash's Dialogue package (activate distance 1024, trigger box by the door) greets the player, only once the screen is down"
+areas = ["ai", "dialogue-packages", "loading"]
+paths = ["engine/nvf-play/src/script.rs", "engine/nvf-play/src/loading.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:0x000E2888" }
+args = ["--play", "--world", "WastelandNV", "--pos=-53600,-51296,5815", "--heading", "270", "--hour", "12", "--npc-packages", "PrimmJohnsonNashRef", "--no-voice"]
+run_seconds = 50
+order = [[
+  { re = 'loading screen down after', label = "the casino's loading screen comes down" },
+  { re = 'dialogue: conversation with PrimmJohnsonNashRef started', label = "then Johnson Nash greets the player" },
+]]
+
+[[scenario]]
+name = "restrained-furniture"
+source = "owner's playtest list 7 items 30/34: a restrained actor still picks its package and uses the furniture it is placed by (fnv_ai begin_in_place); a package to a linked furniture reference (goal::package_furniture)"
+note = "Bison Steve hotel: Deputy Beagle's OnLoad restrains him; his Travel package PrimmDeputyCaptured goes to the captive marker (FFCaptiveMarker 000D7F58) he stands 84 units from"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "BisonSteve01", "--play", "--npc-packages", "PrimmDeputyRef", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'furniture: 000D7F59 is on 000D7F58', label = "Beagle sits on his captive marker" },
+]
+
+[[scenario]]
+name = "crucified-stay"
+source = "owner's playtest list 7 item 34: the crucified Powder Gangers of Nipton get on their crosses (a Travel package to the linked cross, goal::package_furniture) and stay (their script restrains them on it)"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/goal.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--play", "--world", "WastelandNV", "--pos=-33100,-92900,6840", "--hour", "12", "--npc-packages", "00139FDD,00139FDC", "--no-voice"]
+run_seconds = 60
+expect = [
+  { re = 'furniture: 00139FDD is on 001375D8', label = "a crucified Powder Ganger is on his cross" },
+  { re = 'furniture: 00139FDD gets off', count = 0, label = "and stays on it" },
+]
+
+[[scenario]]
+name = "patrol-point-furniture"
+source = "owner's playtest list 7 item 30: a patrol point that is furniture is used for its idle time (fnv_ai arrived)"
+note = "Gomorrah: a courtesan (0011A2FB, template vGOMVarProstitutes) patrols to her linked DanceMarker03 (0011A2F8, 800 s of idle time)"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Gomorrah00", "--play", "--hour", "21", "--npc-packages", "0011A2FB", "--no-voice"]
+run_seconds = 45
+expect = [
+  { re = 'furniture: 0011A2FB is on 0011A2F8', label = "the courtesan uses her dance marker" },
+]
+
+[[scenario]]
+name = "wake-to-talk"
+source = "owner's playtest list 7 item 38: talking to a sleeping actor wakes it; it gets up, then talks (Runtime::talk_when_awake, Game::wake)"
+note = "Easy Pete is put by his bed (00176ACE) at 2:00 and his Sleep package lays him on it; at 30 s the player talks to him"
+areas = ["ai", "furniture", "dialogue"]
+paths = ["engine/nvf-play/src/script.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0", NVF_PLAY_TEST_TALK = "30:EasyPeteRef" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice"]
+run_seconds = 60
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { re = 'dialogue: the player talks to .*, asleep: it wakes and gets up first', label = "talked to, he wakes" },
+  { text = "furniture: 00104C80 gets off 00176ACE", label = "he gets off the bed" },
+  { re = 'dialogue: .* is up after .*: the player talks to it', label = "then the conversation starts" },
+]]
+
+[[scenario]]
 name = "actor-values"
 kind = "tool"
 source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"

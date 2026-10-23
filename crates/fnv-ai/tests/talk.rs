@@ -421,6 +421,32 @@ fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
 }
 
+/// A wall or a closed door between the actor and the player holds the force greet back
+/// (`Game::greet_sight`, owner's playtest list 7 items 41/42): the actor waits, logged
+/// once, and greets once the engine measures a clear line.
+#[test]
+fn a_force_greet_waits_for_a_clear_line_to_the_player() {
+    use fnv_game::detection::Detection;
+    let f = fixture();
+    let mut s = sim(&f, R_GREET, [750.0, 1050.0, 0.0]);
+    s.game.detection.measures_player = true;
+    let blocked = Detection { clear: false, ..Detection::default() };
+    s.game.detection.record(FormId(R_GREET), FormId(PLAYER), blocked, 0.0);
+    s.run(2.0);
+    let unseen = s.events().iter().filter(|e| matches!(e, AiEvent::TalkUnseen { .. })).count();
+    assert_eq!((s.talks(), unseen), (0, 1), "{:?}", s.events());
+    assert!(s.game.dialogue.is_none());
+    // Not measured while the engine measures: still held back.
+    s.game.detection.forget(FormId(R_GREET));
+    s.run(1.0);
+    assert_eq!(s.talks(), 0);
+    let clear = Detection { clear: true, ..Detection::default() };
+    s.game.detection.record(FormId(R_GREET), FormId(PLAYER), clear, s.game.time);
+    s.run(1.0);
+    assert_eq!(s.talks(), 1, "{:?}", s.events());
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_GREET)));
+}
+
 /// A greeting with the Goodbye flag, started by the actor's Dialogue package, is a force
 /// greet: it opens a conversation that holds the player until the line is over, and the
 /// Goodbye flag ends it then (`Game::force_greet`; docs/spec-notes/dialogue.md §5). The

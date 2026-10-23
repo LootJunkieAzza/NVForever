@@ -281,6 +281,9 @@ pub struct Runtime {
     closing: Option<(u16, Option<FormId>)>,
     /// `--new-game`: the opening starts on the first frame scripts run.
     opening_pending: bool,
+    /// An actor the player woke by talking to it, and when (`Game::time`): the
+    /// conversation starts once it is off its bed ([`Runtime::talk_when_awake`]).
+    wake_talk: Option<(FormId, f64)>,
     /// The quest the opening starts (`crate::game_start`).
     start: GameStart,
     /// Where the player was last frame, and frames left whose time does not count (a
@@ -490,6 +493,7 @@ impl Runtime {
             skip: BTreeSet::new(),
             closing: None,
             opening_pending: new_game,
+            wake_talk: None,
             start: GameStart::default(),
             location: None,
             frozen_frames: 0,
@@ -830,6 +834,16 @@ impl Runtime {
                 }
                 info!("companion wheel: {} is a teammate, but a menu or conversation is open: talked to instead", g.data.name(actor));
             }
+            // Asleep in its bed: it wakes and gets up first; the conversation starts
+            // once it is up ([`Runtime::talk_when_awake`]; `Game::wake`).
+            if g.asleep(actor) && self.wake_talk.is_none() {
+                g.wake(actor);
+                self.skip.insert(i);
+                self.wake_talk = Some((actor, g.time));
+                info!("dialogue: the player talks to {}, asleep: it wakes and gets up first", g.data.name(actor));
+                done = Some(ByHand::Woken);
+                continue;
+            }
             match g.start_dialogue(actor, None) {
                 Ok(info) => {
                     // The activation's own effect (the "nothing to say" line) is void.
@@ -853,6 +867,29 @@ impl Runtime {
             }
         }
         done
+    }
+
+    /// The conversation with an actor the player woke ([`ByHand::Woken`]) starts once it
+    /// is off its bed (getting off played), or after [`WAKE_TALK_SECONDS`] whatever
+    /// the engine did; not while a menu or another conversation holds the game.
+    pub(crate) fn talk_when_awake(&mut self) {
+        let Some((actor, since)) = self.wake_talk else { return };
+        let g = &mut self.game;
+        if g.dialogue.is_some() || g.in_menu() {
+            return;
+        }
+        let up = g.furniture_use(actor).is_none();
+        if !up && g.time - since < WAKE_TALK_SECONDS {
+            return;
+        }
+        self.wake_talk = None;
+        match g.start_dialogue(actor, None) {
+            Ok(info) if g.dialogue.is_some() => {
+                info!("dialogue: {} is up after {:.1} s{}: the player talks to it, its greeting is {}", g.data.name(actor), g.time - since, if up { "" } else { " (still on its bed)" }, g.data.name(info))
+            }
+            Ok(info) => info!("dialogue: {} is up and says its greeting {} at the player (a Goodbye line: no conversation)", g.data.name(actor), g.data.name(info)),
+            Err(e) => info!("dialogue: {} is up, no conversation: {e}", g.data.name(actor)),
+        }
     }
 
     /// The Sleep menu opens for the player lying on `bed`: a bed with an OnActivate
@@ -1102,7 +1139,15 @@ pub enum ByHand {
     /// The target is a destroyed door or activator: nothing happened
     /// (`fnv_game::Game::activation_refused`).
     Refused,
+    /// The target is an actor asleep in its bed: it wakes and gets up, and the
+    /// conversation starts once it is up (`Runtime::talk_when_awake`).
+    Woken,
 }
+
+/// The longest wait for a woken actor to get off its bed before the conversation starts
+/// anyway, seconds of game time [our choice: the getting-off clips of beds last a few
+/// seconds].
+pub const WAKE_TALK_SECONDS: f64 = 8.0;
 
 /// The player activates `target` by hand (E): through the scripts when they run.
 pub fn activate_by_hand(script: Option<&mut ScriptState>, sim: &mut SimState, target: u32) -> Result<ByHand, String> {
@@ -1511,6 +1556,17 @@ pub(crate) fn run_scripts(
     // a loading screen (`crate::loading`) [observed: loading-screen time does not count,
     // layer5-captures.md §8.3 e].
     if paused.0 || screen.active() {
+        // Under a loading screen the game is held for everyone, not only for the
+        // scripts: the AI (`nvforever` residents: packages, Dialogue packages' force
+        // greets, hellos, combat) reads `Game::loading` and does nothing until the
+        // screen is down [owner's playtest list 7 item 24: Johnson Nash's Dialogue
+        // package greeted the player in the Vikki and Vance casino while the loading
+        // screen was still up]. The frozen frames after it (below) clear it again.
+        if screen.active() {
+            if let Some(rt) = st.rt.as_mut() {
+                rt.game.loading = true;
+            }
+        }
         return;
     }
     let Some(character) = phys.player.as_ref() else { return };
@@ -1622,6 +1678,7 @@ pub(crate) fn run_scripts(
         crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.
         rt.talk_after(from);
+        rt.talk_when_awake();
         rt.finish_answer();
         rt.snapshot_inventory();
         marked = rt.newly_marked();

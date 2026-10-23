@@ -165,6 +165,9 @@ pub enum AiEvent {
     CaughtUp { package: FormId, target: FormId },
     /// It was to talk and did not (it has no line to say).
     NoTalk { package: FormId, why: String },
+    /// It is near enough to force-greet `target`, `away` units off, but something solid
+    /// is between them (a wall, a closed door): it waits ([`Game::greet_sight`]).
+    TalkUnseen { package: FormId, target: FormId, away: f32 },
     /// It said hello to the passing player, `away` units from it (`crate::social`).
     Hello { line: FormId, away: f32 },
     /// It started a random conversation with `partner`, `away` units from it
@@ -432,6 +435,15 @@ pub struct Ai {
     /// The scripts' navmesh switches last applied to the graph
     /// ([`Ai::apply_navmesh_switches`]).
     applied_switches: Option<BTreeMap<u32, bool>>,
+    /// Actors near enough to force-greet the one their Dialogue package names but with a
+    /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
+    /// or the line clears.
+    unseen_greets: std::collections::BTreeSet<FormId>,
+    /// Restrained actors, whose package begins again once they are released
+    /// ([`Ai::begin_in_place`]).
+    restrained: std::collections::BTreeSet<FormId>,
+    /// Actors the player woke and who stay up (`Game::woken`).
+    woken: std::collections::BTreeSet<FormId>,
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -450,7 +462,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -833,15 +845,34 @@ impl Ai {
     fn step_actor_inner(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
         // SetActorsAI 0: no package choice, no steering and no turning until it is
         // switched on again, but a walk in progress goes on straight ahead ([`Ai::coast`]).
-        // A restrained actor stays in place though it still thinks and talks [documented:
-        // catalogue summary of SetRestrained]; an unconscious one does nothing [hypothesis].
-        let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.restrained || e.out_cold());
+        // An unconscious actor does nothing [hypothesis]. A restrained one stays in place
+        // but still picks packages [documented: GECK wiki SetRestrained, restrained
+        // actors "will not move from their current position, or enter combat, but will
+        // continue to \"think\" (pick packages ...)"; "will still attempt to run the
+        // package and perform various animations"]: see [`RESTRAINED_REACH`].
+        let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.out_cold());
         if !game.present(actor) || held || self.agents[&actor].rooted {
             return;
         }
         if game.ai_off(actor) {
             self.coast(game, actor, dt, open);
             return;
+        }
+        let restrained = game.extra.get(&actor).is_some_and(|e| e.restrained);
+        // Released: its package begins again, now with the walk to its place.
+        if !restrained && self.restrained.remove(&actor) {
+            self.agents.get_mut(&actor).expect("listed").package = None;
+        }
+        // Woken by the player talking to it (`Game::wake`): off its bed while it stays
+        // up; afterwards its package begins again, and takes it back to bed.
+        if game.woken(actor) {
+            self.woken.insert(actor);
+            let on_bed = self.agents[&actor].using.is_some_and(|f| is_bed(game, f));
+            if on_bed {
+                self.set_using(game, actor, None);
+            }
+        } else if self.woken.remove(&actor) {
+            self.agents.get_mut(&actor).expect("listed").package = None;
         }
         let current = game.current_package(actor);
         if self.agents[&actor].package != current {
@@ -873,9 +904,20 @@ impl Ai {
             if game.weapon_use(actor).is_some_and(|w| matches!(w.source, Source::Package(_))) {
                 game.drop_weapon_use(actor);
             }
-            if let Some(p) = current {
-                self.begin(game, nav, actor, p);
+            match current {
+                Some(p) if restrained => self.begin_in_place(game, nav, actor, p),
+                Some(p) => self.begin(game, nav, actor, p),
+                None => {}
             }
+        }
+        if restrained {
+            self.restrained.insert(actor);
+            // Restrained while walking: it stops where it is.
+            let a = self.agents.get_mut(&actor).expect("listed");
+            if a.activity == Activity::Travelling {
+                (a.walker.follower, a.activity, a.following) = (None, Activity::Staying, None);
+            }
+            return;
         }
         // A script's weapon use comes before the fight and the package
         // (`fnv_game::use_weapon`); a combat state before the package (`crate::alert`).
@@ -906,7 +948,7 @@ impl Ai {
                 if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
                     self.agents.get_mut(&actor).expect("listed").wait_until = None;
                     self.patrol_on(game, nav, actor);
-                } else if self.agents[&actor].sandbox.is_some() && self.awake(game, actor) {
+                } else if self.agents[&actor].sandbox.is_some() && self.awake(game, actor) && !game.woken(actor) {
                     self.sandbox_step(game, nav, actor);
                 }
             }
@@ -1141,6 +1183,16 @@ impl Ai {
     /// conversation that cannot start now because the game is held (another
     /// conversation, a menu) starts when it can.
     fn talk_start(&mut self, game: &mut Game, actor: FormId, package: FormId, talk: &Talk, away: f32) {
+        // A force greet needs a clear line to the target: not through a wall or a closed
+        // door (`Game::greet_sight`). The actor stays as it is (waiting, or at the end
+        // of its walk) and tries again every update.
+        if !talk.say_to && !game.greet_sight(actor, talk.target) {
+            if self.unseen_greets.insert(actor) {
+                self.log(game, actor, AiEvent::TalkUnseen { package, target: talk.target, away });
+            }
+            return;
+        }
+        self.unseen_greets.remove(&actor);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.follower = None;
         a.activity = Activity::There;
@@ -1441,6 +1493,35 @@ impl Ai {
         }
     }
 
+    /// A restrained actor's new package (it does not move): when the place the package
+    /// sends it to is within [`RESTRAINED_REACH`], it is there, and uses the furniture
+    /// the package gives it (`settle`): Deputy Beagle's Travel package to the captive
+    /// marker (FFCaptiveMarker, furniture "Restrained Sit") he stands 84 units from in
+    /// the Bison Steve hotel, his OnLoad block having restrained him [observed: the
+    /// records, PrimmDeputyScript; owner's playtest list 7 item 30, he stood beside the
+    /// marker]. Farther, it stays where it stands.
+    fn begin_in_place(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId) {
+        let Some(def) = game.data.package_defs.get(&package) else { return };
+        let goal = goal::resolve(game, nav, actor, def);
+        let feet = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
+        let near = match &goal {
+            Goal::Here => true,
+            Goal::Near { place, radius } => place.space == feet.space && hdist(feet.pos, place.pos) <= radius.max(RESTRAINED_REACH) && (feet.pos[2] - place.pos[2]).abs() <= 256.0,
+            Goal::Inside { space, .. } => *space == feet.space,
+            _ => false,
+        };
+        self.agents.get_mut(&actor).expect("listed").goal = Some(goal);
+        if near {
+            self.agents.get_mut(&actor).expect("listed").activity = Activity::There;
+            self.log(game, actor, AiEvent::AlreadyThere { package });
+            reached(game, actor);
+            self.settle(game, actor);
+        } else {
+            self.agents.get_mut(&actor).expect("listed").activity = Activity::Staying;
+            self.log(game, actor, AiEvent::NotCarriedOut { package, why: "restrained: it does not move to the package's place" });
+        }
+    }
+
     /// Where an actor standing at `feet` has to go to be at a place to stay at
     /// ([`Goal::Near`], [`Goal::Inside`]); `None`: it is there.
     pub(crate) fn way_to(&self, feet: Place, stay: &Goal) -> Option<Place> {
@@ -1728,6 +1809,17 @@ impl Ai {
                 a.activity = Activity::There;
                 a.wait_until = Some(game.time + seconds as f64);
                 self.log(game, actor, AiEvent::PatrolWait { patrol_point: point, seconds });
+                // A patrol point that is furniture is used for the idle time
+                // [observed: Gomorrah's courtesans (vGOMVarProstitutes, the template's
+                // DefaultPatrolCasual to "Near linked reference") are linked to
+                // DanceMarker03 references carrying 800 s of patrol idle time (XPRD);
+                // owner's playtest list 7 item 30: they did not use their markers;
+                // hypothesis: the original uses the furniture at the point, as the
+                // dance idles conditioned on it (furniture.md §3) say].
+                let furniture = game.world.placed.get(point).is_some_and(|p| game.data.furniture.contains_key(&p.base));
+                if furniture && self.taken.get(&point).is_none_or(|u| *u == actor) {
+                    self.set_using(game, actor, Some(point));
+                }
                 return;
             }
             self.patrol_on(game, nav, actor);
@@ -1746,6 +1838,7 @@ impl Ai {
         let a = &self.agents[&actor];
         let (Some(package), Some(Goal::Route(route))) = (a.package, a.goal.clone()) else { return };
         let at = a.route_at;
+        let on_point = a.using.is_some() && a.using == route.points.get(at).map(|p| p.0);
         let next = if at + 1 < route.points.len() {
             Some(at + 1)
         } else {
@@ -1753,6 +1846,10 @@ impl Ai {
         };
         match next {
             Some(n) => {
+                // Off the patrol point's furniture before walking on (`arrived`).
+                if on_point {
+                    self.set_using(game, actor, None);
+                }
                 self.agents.get_mut(&actor).expect("listed").route_at = n;
                 let (point, place) = route.points[n];
                 self.plan(game, nav, actor, package, place, Some(point));
@@ -1775,6 +1872,17 @@ fn reached(game: &mut Game, actor: FormId) {
         game.package_goal_met(actor);
     }
 }
+
+/// Whether a furniture reference is one to sleep on (FURN marker flags).
+fn is_bed(game: &Game, furniture: FormId) -> bool {
+    let base = game.world.placed.get(furniture).map(|p| p.base);
+    base.and_then(|b| game.data.furniture.get(&b)).is_some_and(|f| f & fnv_game::package::furniture::SLEEP != 0)
+}
+
+/// How far from its package's place a restrained actor counts as there, game units
+/// ([`Ai::begin_in_place`]) [our choice: the furniture code walks an actor the last steps
+/// to an entry point; a captive is placed beside its marker].
+pub const RESTRAINED_REACH: f32 = 256.0;
 
 /// The patrol point nearest the actor (points in its own space first).
 fn nearest_point(route: &Route, feet: Place) -> usize {
