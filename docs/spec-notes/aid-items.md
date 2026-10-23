@@ -372,7 +372,8 @@ Rules (`crates/fnv-game/src/needs.rs`):
   and the lower stage's comes [hypothesis]. Rads' stages hold in every mode; the needs'
   only in Hardcore, and go when Hardcore is turned off [hypothesis].
 - Only the player has needs [design].
-- Not done: the refusal of a wait or sleep that would kill; the HUD codes; the messages
+- The HUD's words H2O, FOD and SLP show each need's stage (hud.md §13).
+- Not done: the refusal of a wait or sleep that would kill; the messages
   `sDehydrationIncrease` and the like (the log says the stage instead).
 
 ## 12. Carry weight

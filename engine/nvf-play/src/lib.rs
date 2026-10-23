@@ -52,6 +52,7 @@ pub mod intro;
 pub mod levelup;
 pub mod hud;
 pub mod hud_limbs;
+pub mod hud_needs;
 pub mod hud_target;
 pub mod knockouts;
 pub mod loading;
