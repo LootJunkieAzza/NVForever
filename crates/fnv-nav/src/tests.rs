@@ -329,6 +329,19 @@ fn routes_chain_interiors_and_worldspaces_and_respect_locks() {
     // Unlocking the door at run time opens the way for anyone.
     g.set_door_lock(0xD2, None);
     assert!(g.can_reach(from, to, &open));
+    // The game's lock states brought in: 0xD1 locked by a script; a door the graph
+    // does not know is passed over; 0xD0 and 0xD2, not named, keep theirs.
+    assert_eq!(g.door_refs(), vec![0xD0, 0xD1, 0xD2]);
+    let lock = DoorLock { level: 50, key: None };
+    let changes = g.sync_door_locks([(0xD1, Some(lock)), (0xFF, Some(lock))]);
+    assert_eq!(changes, crate::graph::DoorLockChanges { unlocked: vec![], locked: vec![0xD1] });
+    assert!(!g.door_locks.contains_key(&0xFF));
+    assert!(!g.can_reach(from, to, &open));
+    assert!(g.sync_door_locks([(0xD1, Some(lock))]).is_empty(), "nothing new");
+    // Unlocked again (a script's Unlock): the way is open and the door is reported.
+    let changes = g.sync_door_locks([(0xD0, None), (0xD1, None)]);
+    assert_eq!(changes.unlocked, vec![0xD1]);
+    assert!(g.can_reach(from, to, &open));
 }
 
 #[test]

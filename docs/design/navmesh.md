@@ -58,8 +58,12 @@ Depends on `fnv-esm` and `fnv-world` only.
    the whole Mojave (575k triangles) before giving up, because no distance estimate
    exists between spaces; the door route avoids that.
 4. **Locked doors** are closed unless the actor holds the key (`keys`) or may open locks
-   (`open_locked`). The authored XLOC is the starting state; the game updates it with
-   `set_door_lock`.
+   (`open_locked`). The authored XLOC is the starting state. The game's own lock state
+   reaches the graph through `fnv_ai::Ai::apply_door_locks` (`NavGraph::sync_door_locks`),
+   whenever `fnv_sim::World::lock_serial` moved: a script's Lock or Unlock, a package's
+   lock/unlock flags, a key used, a lock picked. A door unlocked lets the packages set
+   aside as out of reach be chosen again at once; a door locked sends the actors whose
+   way goes through it to plan again (2026-10-23; before, nothing updated the graph).
 5. **Funnel** (string pulling) per leg over the corridor's portals, oriented by the
    counter-clockwise winding (spec-notes §2), with each outline end moved in by the
    clearance (24 units; the physics capsule is 22): corners round walls become short

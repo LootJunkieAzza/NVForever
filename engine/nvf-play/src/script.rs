@@ -422,6 +422,10 @@ fn secs(since: Instant) -> f64 {
 pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
         rt.game.open_menu(menu_code(mode));
+        // The container's OnOpen, next frame with the world in place (`Game::queue_ref_event`).
+        if let Mode::Container(c) = mode {
+            rt.game.queue_ref_event(c, event::ON_OPEN, Some(FormId::PLAYER_REF));
+        }
     }
 }
 
@@ -432,6 +436,9 @@ pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
 pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
         rt.game.engine_menu_closed(menu_code(mode));
+        if let Mode::Container(c) = mode {
+            rt.game.queue_ref_event(c, event::ON_CLOSE, Some(FormId::PLAYER_REF));
+        }
     }
 }
 
@@ -631,7 +638,7 @@ impl Runtime {
             g.item_event(FormId::PLAYER_REF, *item, event::ON_ADD, player);
         }
         for item in &changes.equipped {
-            g.item_event(FormId::PLAYER_REF, *item, event::ON_EQUIP, player);
+            g.equip_events(FormId::PLAYER_REF, *item, false);
         }
         for item in &changes.unequipped {
             g.item_event(FormId::PLAYER_REF, *item, event::ON_UNEQUIP, player);

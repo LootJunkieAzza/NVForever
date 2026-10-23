@@ -435,6 +435,8 @@ pub struct Ai {
     /// The scripts' navmesh switches last applied to the graph
     /// ([`Ai::apply_navmesh_switches`]).
     applied_switches: Option<BTreeMap<u32, bool>>,
+    /// The world's lock serial last brought into the graph ([`Ai::apply_door_locks`]).
+    applied_locks: Option<u64>,
     /// Actors near enough to force-greet the one their Dialogue package names but with a
     /// wall or a closed door between ([`Game::greet_sight`]), logged once until they talk
     /// or the line clears.
@@ -462,7 +464,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default() }
     }
 
     /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
@@ -496,6 +498,56 @@ impl Ai {
             a.following = None;
         }
         Some(blocked)
+    }
+
+    /// Bring the graph's door locks in line with the game's (`fnv_sim::World::lock`,
+    /// `unlock`: scripts' Lock and Unlock, packages' lock and unlock flags, keys, picked
+    /// locks) when one changed since the last call, or a new world came in. The graph
+    /// starts from the doors' authored XLOC, so without this a door a quest unlocked
+    /// stays shut to every path search [observed: gap found 2026-10-23,
+    /// docs/handoff/project-audit-2026-10-23.md §4.1 item 3].
+    ///
+    /// A door unlocked: the packages set aside as out of reach may be chosen again
+    /// (`Game::unblock_packages`) and their actors take up their package afresh. A door
+    /// locked: the actors whose way goes through it plan again (a locked door they cannot
+    /// open is no longer a way) [hypothesis: as for a navmesh switched off]. Returns the
+    /// actors sent to plan again, `None` when no lock changed.
+    pub fn apply_door_locks(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
+        let serial = game.world.lock_serial();
+        if self.applied_locks == Some(serial) {
+            return None;
+        }
+        self.applied_locks = Some(serial);
+        let states = game.world.changed().filter_map(|(id, s)| {
+            let lock = s.lock?;
+            Some((id.0, lock.locked.then_some(fnv_nav::graph::DoorLock { level: lock.level, key: lock.key.map(|k| k.0) })))
+        });
+        let changes = nav.sync_door_locks(states.collect::<Vec<_>>());
+        if changes.is_empty() {
+            return None;
+        }
+        let mut again: Vec<FormId> = Vec::new();
+        if !changes.unlocked.is_empty() {
+            again.extend(game.unblock_packages());
+        }
+        if !changes.locked.is_empty() {
+            again.extend(self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.through_doors(&changes.locked))).map(|(id, _)| *id));
+        }
+        again.sort();
+        again.dedup();
+        for actor in &again {
+            if let Some(a) = self.agents.get_mut(actor) {
+                a.walker.follower = None;
+                a.walker.tri = fnv_nav::graph::NONE;
+                a.activity = Activity::None;
+                a.package = None;
+                a.goal = None;
+                a.sandbox = None;
+                a.errand = None;
+                a.following = None;
+            }
+        }
+        Some(again)
     }
 
     /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
