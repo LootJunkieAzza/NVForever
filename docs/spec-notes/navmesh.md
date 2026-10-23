@@ -150,6 +150,47 @@ the actor jumps or drops over them (actor-jumps.md §3).
   the walkable stretch of navmesh along the door's line is taken as the opening instead
   (docs/design/navmesh.md §4).
 
+## 4b. Levels stacked over each other
+
+Navmesh runs over itself wherever a catwalk, a stairway or an upper floor stands over a
+lower floor (REPCONN's rocket hall, Hoover Dam's towers and power plants, HELIOS One,
+vaults, sewers, two-storey houses). Seen from above, a point there lies on several
+triangles at different heights, so nothing in the graph may treat "inside a triangle"
+as a 2D test alone.
+
+- **RocketLabMid** (0x00081D1F): the floor at z −128 and the catwalks at −6, 66, 194,
+  250, 320, 450 and 506 are joined by flights of 24-unit steps (`UtlCatStairs*`), and
+  the navmesh runs up every flight with its triangles linked: A* from the floor at
+  (1000, 3400, −120) to Jason Bright's intercom 0x000CD684 finds a 62-triangle corridor
+  up the stairs [observed: `fnvtool nav path`]. The navmesh data and the graph build are
+  sound there.
+- **What went wrong was ours** [observed, fixed 2026-10-23]: the shortcut pass
+  (docs/design/navmesh.md §3, step 6) asked `walkable_line` whether the straight line
+  from the floor to a catwalk corner could be walked. The line runs across floor
+  triangles and was accepted as soon as it came to a triangle containing the corner
+  *seen from above*: the floor triangle under the catwalk. The path then went
+  (1077, 3758, −128) → (1246, 3888, 448), 576 units up in one segment, and walkers
+  stuck on the floor under the catwalk. A straight walk stays on one surface, so where
+  it reaches the end point's spot, the end point must be on that surface: within
+  `LEVEL_GAP` (40 units) of its height, else the line is not walkable [engine choice].
+  Where the line crosses a seam, the triangle beyond is now found at the surface's
+  height there rather than the line's (which runs through the air between levels).
+- **How far apart levels are** [observed: every usable triangle of FalloutNV.esm, the
+  nearest other surface above or below its centre]: 14,788 triangle centres have
+  another surface more than 120 units away, 23 between 80 and 120, 4 between 60 and 80,
+  4 between 40 and 60, and 31 within 40. Those 31 are overlaps where neighbouring
+  navmeshes meet on a slope (WastelandNV seams, e.g. near (74496, 65400)), one surface in
+  effect. 40 units is under every gap between distinct levels seen.
+- **How common it was** [observed: 40 random paths in each of the 88 interiors with
+  stacked levels, before and after the fix]: 148 of 3,297 paths in 47 interiors had a
+  segment rising or falling more than 1.5 times its length (more than 40 units)
+  before; none after. Among them HiddenValley01 (11), HELIOSOneTower (12),
+  NorthVegasHouseTools (9), 1ESteelMill (9), HooverDamIntTower01Interior (8).
+- **Walking it** [observed: `fnvtool nav walk`, NPC capsule]: from the floor to
+  0x000CD684 the walker now arrives at 86.8 and 340 units/s. At 340 it falls off a
+  catwalk turn three times and climbs back (4 replans) until the character step-up of
+  physics.md §6.9.1 is in; with it, the walk has no detour or replan.
+
 ## 4a. Checked against NPCs recorded in the game [observed]
 
 `fnvtool nav observed` on the AI observer captures of 2026-10-08 (Goodsprings town by day,
