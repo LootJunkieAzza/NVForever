@@ -363,6 +363,14 @@ fn fragment(
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 #endif
     // base_color already holds texture × vertex colour × material colour.
+#ifndef BINDLESS
+    // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
+    // materials, so an unlit shape's stays black: it is read from the material here
+    // (without the glow map, which unlit effect shapes do not use).
+    if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
+        pbr_input.material.emissive = pbr_bindings::material.emissive;
+    }
+#endif
     let e = vec4(pbr_input.material.emissive.rgb * view_emissive_scale(), pbr_input.material.emissive.a);
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
 
