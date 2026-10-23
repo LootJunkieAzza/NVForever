@@ -562,6 +562,22 @@ fn hovering_selects_without_acting() {
 }
 
 #[test]
+fn the_pointer_never_scrolls_the_list() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(m.list(Side::Player).rows.len() >= 3);
+    m.scroll[1] = 2;
+    // A row out of the list's view under the pointer is selected; the list stays.
+    m.apply(&mut w, Command::Hover(Side::Player, 0));
+    assert_eq!((m.selected[1], m.scroll[1], m.pointer_pick), (0, 2, true));
+    // The keys bring the selection back into view.
+    m.apply(&mut w, Command::Down);
+    assert_eq!((m.selected[1], m.pointer_pick), (1, false));
+    assert!(m.visible(Side::Player).contains(&1));
+}
+
+#[test]
 fn stacks_of_more_than_five_ask_how_many() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());

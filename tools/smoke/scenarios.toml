@@ -1522,6 +1522,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "barter-figures-currency"
+note = "as the barter scenario: the caps are given at the start (see its note)"
+source = "playtest list 7 items 7 and 25 (docs/spec-notes/barter-menu.md §2, fnv_sim::forms::Item::money): the barter from Chet's dialogue with a 10mm Pistol (Weap10mmPistol 0000434F) and three Legion Denarii (the caravan money record MoneyLegion1 00176AC4, Absolute Value 4) given to the player: the coins have a price, and the selected pistol shows the Pip-Boy's figures (DAM, DPS, STR, CND, ammunition) beside its weight and value"
+areas = ["barter", "menus"]
+paths = ["engine/nvf-play/src/menu/look.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-sim/src/forms.rs"]
+env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0000000F:100,0000434F:1,00176AC4:3", NVF_PLAY_TEST_SHOT = "barter_figures.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
+run_seconds = 50
+expect = [
+  { re = 'Player: .*Legion Denarius x3 at (\d+|0\.\d)', label = "the denarii have a price (their Absolute Value)" },
+  { re = 'menu: figures of 10mm Pistol: DAM \d+, WG [\d.]+, VAL \d+, .*DPS \d+, .*CND', label = "the pistol's figures as the Pip-Boy's: damage, weight, value, DPS, condition" },
+]
+order = [["menu: a script opens the barter menu with 0x00104C79", "menu: figures of 10mm Pistol", "menu: close"]]
+
+[[scenario]]
 name = "barter"
 note = "the player is given 100 caps at the start (NVF_PLAY_TEST_GIVE, caps 0x0000000F): the add-on packs' GameMode scripts that hand out caps and items first run about one quest delay after the scripts start, the time of the 10 s talk, and wait while the conversation is open, so the player had nothing to pay with ('You don't have enough caps.' instead of Traded: 1 of 2 runs on main 2026-10-12, every run on main 539a8e6c and #408 2026-10-17)"
 source = "CLAUDE.md: after changes to the container or barter menus (docs/spec-notes/barter-menu.md §6): the barter from Chet's dialogue"
@@ -4303,6 +4318,22 @@ expect = [
   { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
 ]
 order = [["test aid calls AddItemHealthPercent on", "pipboy repair: open", "pipboy repair: 10mm Pistol"]]
+
+[[scenario]]
+name = "pipboy-repair-repeat"
+source = "playtest list 7 item 16 (engine/nvf-play/src/pipboy/repair.rs, docs/spec-notes/repair.md §5): the repair list stays open after a repair while the item is below full condition and parts are left; three 10mm Pistols (one at 40 %, two at 30 %): the first use leaves one part and the list open, the second uses it up and the list closes (unit test the_list_stays_open_until_full_or_out_of_parts)"
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs"]
+env = { NVFOREVER_HOME = "pipboy-repair-repeat-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,17:repair=use,18.5:repair=use,20:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy repair: open 10mm Pistol at 40% \(Repair \d+\): 10mm Pistol \(2\) 30%', label = "R lists the two other pistols as one part row" },
+  { re = 'pipboy repair: stays open: 10mm Pistol at \d+%, 1 part\(s\) left', label = "after the first repair the list stays open with one part left" },
+  { re = 'pipboy repair: closed: ', label = "the second repair uses the last part (or fills the pistol) and the list closes" },
+  { re = 'pipboy repair: 10mm Pistol \d+% with 10mm Pistol( \(2\))? 30% -> \d+%', count = 2, label = "two repairs in one opening" },
+]
+order = [["pipboy repair: open", "pipboy repair: stays open", "pipboy repair: closed"]]
 
 [[scenario]]
 name = "pipboy-item-mod"
