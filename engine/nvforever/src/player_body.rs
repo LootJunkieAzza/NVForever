@@ -901,11 +901,13 @@ fn ensure_body(
                     }
                 }
                 info!(
-                    "player body: third-person rig {} nodes (eye {:.1?} in the head's space), first-person rig {}, wearing {:?}",
+                    "player body: third-person rig {} nodes (eye {:.1?} in the head's space), first-person rig {}, wearing {:?} with the addons {:?}",
                     b.third.animator.nodes.len(),
                     b.third.eye_local,
                     b.first.as_ref().map_or("missing".to_string(), |f| format!("{} nodes from {}", f.animator.nodes.len(), f.folder)),
-                    worn.iter().map(|w| w.to_string()).collect::<Vec<_>>()
+                    worn.iter().map(|w| w.to_string()).collect::<Vec<_>>(),
+                    // Their biped model lists' armour addons (`fnv_actor::records::Armor::addons`).
+                    worn.iter().filter_map(|w| world.actors.armors.get(w)).flat_map(|a| a.addons.iter().map(|x| world.actors.armors.get(x).and_then(|x| x.edid.clone()).unwrap_or_else(|| x.to_string()))).collect::<Vec<_>>()
                 );
                 state.body = Some(b);
                 rebuilt = true;
@@ -927,7 +929,7 @@ fn ensure_body(
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
-    if weapon_mods != 0 {
+    if weapon.is_some() {
         info!("player weapon: mods {weapon_mods} on, models {:?} and {:?} (first person)", w.and_then(|w| w.model_for(false, weapon_mods)), w.and_then(|w| w.model_for(true, weapon_mods)));
     }
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
