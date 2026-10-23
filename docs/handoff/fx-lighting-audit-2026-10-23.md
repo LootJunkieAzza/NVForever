@@ -78,10 +78,14 @@ for natural lighting rather than a 1:1 copy. Branch `claude/beam-blend`.
    the original the lantern's light `NVDLC01ExtSconceKeyWT` (a separate LIGH reference
    91 units in front of the wall, radius 200, (224, 255, 117) × 2.5) floods the wall to
    clipped yellow (255, 255, 101); in ours the same view shows no pool of light on the
-   wall. Next: find why (the light is spawned; strength, reach and the tonemapper's
-   desaturation of bright warm light are the suspects) and make placed lights match,
-   starting from this lantern (owner: "get our lamps and light sources to match what the
-   base game is doing with this dead money lamp for now and expand from there").
+   wall. Since then (same branch): the glass burns white-hot as a hot light source
+   (nif.md §6 "Emitted light on screen") and the seam is gone. Left, and settled by a
+   capture with the weather forced to the Mojave's: our ambient matches the original's
+   and the lamp itself is at most half as strong and greenish (world.md §8 "Lamp
+   strength against the original"). The fix is a refit of the whole lighting sum in
+   display values, its own workstream (owner: "get our lamps and light sources to match
+   what the base game is doing with this dead money lamp for now and expand from
+   there").
 3. **Interiors are darker than the original's** (Vault 19, Hoover Dam): the original's HDR
    eye adaptation (Eye Adapt Speed, Target LUM, LUM ramps) brightens dark rooms and its
    ceiling tubes glow harder. Not built; Bevy's auto exposure on the HDR view is the
