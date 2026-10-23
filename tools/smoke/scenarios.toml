@@ -6927,6 +6927,30 @@ expect = [
 ]
 
 [[scenario]]
+name = "region-sounds"
+source = "ESM audit group 8 (docs/spec-notes/default-objects.md §2): in Doc Mitchell's house the sounds of the region its acoustic space names (AudioIntMitchellHouse, REGN RDSD) are tried every 10 s at their chance and some play"
+areas = ["audio"]
+paths = ["engine/nvf-play/src/ambient.rs", "crates/fnv-world/src/audio.rs"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 70
+expect = [
+  { re = 'ambient summary:.*; (?P<n>\d+) region sounds played', range = [1, 10], label = "region sounds play now and then (at most one a try, a try every 10 s)" },
+]
+
+[[scenario]]
+name = "death-music-dobj"
+source = "ESM audit group 8 (docs/spec-notes/default-objects.md §1): the default objects' Death Music (DefaultDeath, special\\death.mp3) is not shipped, so when the player dies the SOUN MUSDeath plays as before"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/music.rs", "crates/fnv-world/src/audio.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:player.kill;8.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'music: the player died: the music stops, MUSDeath \(0x[0-9A-F]{8}\) plays', label = "the SOUN fallback plays: the DOBJ's death music names no shipped file" },
+]
+forbid = [{ text = "the default objects' death music", label = "no default objects' death music file in the shipped data" }]
+
+[[scenario]]
 name = "anim-state-throw"
 source = "docs/spec-notes/anim-state.md §1: GetAnimAction 5 while gearing up to throw, 6 once the throwable left the hand, then 4 (GECK wiki GetAnimAction, New Vegas table)"
 note = "The player (GOD) is given five frag grenades (00004330), draws them and throws two; the anim state summary at exit counts how often each code began on the player"

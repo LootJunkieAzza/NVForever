@@ -130,7 +130,7 @@ under active work.
   linear. There is no HDR or bloom pass, so the IMGS HDR block and the IMAD HDR and bloom
   tracks are unused. WTHR transition speed and sun glare are hard-coded. IDLE animation
   group section (upper body or whole body) is stored only.
-- **Unparsed record types.** CAMS/CPTH (kill, VATS and death cameras); DOBJ (default
+- **Unparsed record types** (claude/em9-records, [default-objects](../spec-notes/default-objects.md): all four now in the schema; DOBJ read, its Death Music and Drug Wears Off Image Space used; REGN RDSD region sounds played; CAMS/CPTH (no kill camera) and RGDL (no feedback or pose matching) decoded only, RGDL's RAFD/RAFB/RAPS/ANAM left raw). Was: CAMS/CPTH (kill, VATS and death cameras); DOBJ (default
   objects: death and level-up music, the unarmed power-attack spells and others; death
   music is found by the hard-coded EDID `MUSDeath`); RGDL (ragdoll feedback and pose
   matching); REGN RDSD region sounds (no schema; ambient one-shots are not built); CSNO

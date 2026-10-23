@@ -8110,6 +8110,25 @@ Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
   merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
   All/Exit in the container menu on your screen?
 
+## Default objects, region sounds, camera and ragdoll records (2026-10-23, ESM audit medium group 8, branch claude/em9-records)
+
+DOBJ, CAMS, CPTH, RGDL and REGN's region sounds are in the schema. The default objects
+are read: the player's death plays the DOBJ's Death Music when its file is there (the
+shipped `special\death.mp3` is not, so `MUSDeath` plays as before), and a chem wearing
+off plays the DOBJ's Drug Wears Off image space (`Addiction01ISFX`). Outdoors the regions'
+sounds (wind, rumbles, rattles) play now and then by weather. Spec:
+[default-objects](spec-notes/default-objects.md). Decisions and guesses:
+
+- *Guess:* region sounds are tried every 10 s, one at a time, each at its stored chance
+  (40% is 40% a try); 2D ones at the listener, others about it.
+- *Guess:* the wear-off image space plays when the last effect of a chem (equip type
+  Chems) ends on the player.
+- *Decision:* CAMS/CPTH are decoded only (no kill camera), RGDL too (no ragdoll feedback
+  or pose matching); the level-up's DOBJ music names no shipped file and the level-up
+  keeps `UILevelUp`.
+- *Check:* how often does the desert wind or a rumble play in the original's Goodsprings?
+  Does the screen do anything when Med-X or Jet wears off?
+
 ## Gap audit: script functions, NIF data, compass, teammate perks (2026-10-23, list 7 W9)
 
 Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10-23.md.
