@@ -7788,3 +7788,64 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
   delays, Modulates Voice and the voice filter (audio.md §15.3 gives the reasons).
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
+
+## AI in the world: greets, captives, sleepers (2026-10-23, list 7 W6)
+
+Branch claude/l7-ai-world. Design notes: docs/design/actor-behaviour.md §5.6 (the
+paragraphs dated 2026-10-23).
+
+- **24 Johnson Nash under the loading screen.** *Cause:* the residents' AI ran under the
+  loading screen (only scripts were held), and Nash's Dialogue package
+  (PrimmNashDialogueGreeting, activate distance 1024, trigger box by the door) greeted at
+  once. *Fix:* the loading screen now holds `Game::loading`, which stops packages, force
+  greets, hellos and combat starts until it is down. *Check:* go into the Vikki and Vance
+  casino: Nash should greet only after the screen is gone.
+- **41/42 Davison and Harland through doors and walls.** *Records:* both are Dialogue
+  packages "case 2" (trigger location, wait location of radius 0), which talk as soon as
+  the player is within the activate distance: Davison 600, Harland 1200 units, measured
+  straight through walls. *Decision:* a force greet now also needs a clear line from the
+  actor to the player (walls and closed doors block it; the actor's facing does not
+  matter). The distances stay the records' (I did not shorten them). *Guess:* that the
+  original asks for the line and not for the actor's field of view. The greet settings
+  you named (fAIMinGreetingDistance etc.) are for hellos, not these packages. *Check:*
+  Davison should greet only once his door is open, Harland only once you can see him.
+  If the original also wants him to *see* you (facing), tell me.
+- **30 Deputy Beagle's captive marker.** *Cause:* his OnLoad block restrains him
+  (SetRestrained 1), and NVForever's AI ignored restrained actors entirely, so his Travel
+  package to FFCaptiveMarker ("Restrained Sit", 84 units from where he is placed) never
+  began. *Fix:* a restrained actor still picks its package (as the GECK wiki says) and
+  uses the furniture of a package whose place is within 256 units (my number), without
+  walking there. *Check:* Beagle sits tied on his marker; once freed he follows you.
+- **30 Gomorrah courtesans.** *Records:* their template's DefaultPatrolCasual patrols to
+  their linked DanceMarker03 references, which carry 800 s of patrol idle time.
+  *Decision:* a patrol point that is furniture is used for its idle time. *Guess:* that the
+  original uses it (the dance idles are conditioned on that furniture). *Check:* they
+  dance or lean on their markers in Gomorrah. (The courtesans *outside* Gomorrah were
+  handled before: their packages go straight to the marker.)
+- **31 Beagle's weapon while following.** *Confirmed from the records:* his follow
+  package PrimmBeagleFollow has only Defensive Combat and Continue During Combat, no
+  Weapon Drawn flag; the package that has him leave the hotel (PrimmDeputyLeaveBison) has
+  Always Run, Always Sneak and Pretend In Combat. So his weapon going out only when he
+  left the hotel matches the data; he should draw it when he fights. Nothing changed.
+- **32 Convicts at the Nevada Highway Patrol station.** *Records:* the two convicts the
+  ambush script enables there (VSpawnSpecialGangerPrimmAmbush01/02, script
+  VERT1PrimmJackalAmbushScript) are Aggressive, in VGSBanditFaction only (enemy of the
+  Mojave traveller merchants; no relation to the player), with a Weapon Drawn patrol to
+  the station, where the Jackals (Very Aggressive) are. By the records they attack their
+  enemies, not the player: no missed flag found, nothing changed. The Escaped Convicts
+  nearer Primm (PrimmPowderGangerOutside) are Very Aggressive and do attack the player.
+  *Check:* in the original, do the station convicts shoot at you unprovoked? If yes, tell
+  me what you did before (a reputation or a quest stage may be involved).
+- **34 Crucified Powder Gangers.** *Cause:* their Travel package goes to "Near linked
+  reference" (the cross, NVCrucifixFurniture) and the AI gave furniture only for packages
+  naming the reference directly, so they never got on the cross, were never restrained
+  by their script (which restrains them at GetSitting 3) and walked off. And the
+  crucifix's marker ID is 10, which NVForever counted as a bed (the catalogue says 1–10
+  are beds), so no getting-on clip was found. *Fix:* the linked reference counts, and
+  marker 10 is sat on (the crucifix's own idle group asks GetSitting 2/3/4; beds are 1–9
+  now). *Check:* they hang on their crosses in Nipton, scream and fidget, and stay.
+- **38 Talking to a sleeper.** *Decision:* activating an actor asleep in bed wakes it: it
+  gets off the bed, then the conversation starts (at most 8 s later); it stays up for 30
+  s of game time after (conversation time not counted), then goes back to bed. *Both
+  times are mine.* *Check:* talk to Easy Pete at night: does the original's sleeper also
+  go straight back to bed, and how soon?
