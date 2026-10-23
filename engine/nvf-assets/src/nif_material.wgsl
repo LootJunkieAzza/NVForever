@@ -11,8 +11,8 @@
 //   from lights (and environment maps, not drawn yet);
 // - a multiply-blended shape's colour is a factor on what lies behind it: summed in
 //   display values, held to 0..1, and neither fogged nor tonemapped;
-// - an additive shape adds about what it would add to display values: its alpha is
-//   raised to a power (`add_alpha`);
+// - an additive shape adds what it would add to the display values of the opaque frame
+//   behind it, read from Bevy's view transmission texture (`add_display`);
 // - an unlit alpha-blended shape (smoke, mist, dust, particles) puts about what it would
 //   put on display values: its colour term is colour × alpha^1.5 (`blend_colour_scale`).
 
@@ -159,12 +159,18 @@ fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
     return pow(saturate(display), vec3(2.2));
 }
 
-// The alpha an additive shape (blend factors SRC_ALPHA and ONE) is drawn with, for its
-// alpha `a` (CPU mirror and the reasons: nif_material.rs `add_alpha`, ADD_ALPHA_POWER).
-// The game adds colour × alpha to display values [hypothesis]; a fixed blend cannot,
-// and alpha^1.5 added as linear light comes near it in the Prospector Saloon.
-fn add_alpha(a: f32) -> f32 {
-    return pow(saturate(a), 1.5);
+// The linear light an additive shape (blend factors SRC_ALPHA or ONE, and ONE) of linear
+// colour `colour` and alpha `a` adds over the opaque frame `behind` (linear; CPU mirror
+// and the reasons: nif_material.rs `add_display`). The game adds colour × alpha to the
+// frame's display values [hypothesis]: the sum is formed in display values (gamma 2.2),
+// held to ADD_DISPLAY_MAX (2.0) or the frame's own value if brighter, and the difference
+// to the frame returned as linear light.
+fn add_display(colour: vec3<f32>, a: f32, behind: vec3<f32>) -> vec3<f32> {
+    let b = max(behind, vec3(0.0));
+    let shown = pow(b, vec3(1.0 / 2.2));
+    let added = pow(max(colour, vec3(0.0)), vec3(1.0 / 2.2)) * saturate(a);
+    let sum = min(shown + added, max(shown, vec3(2.0)));
+    return max(pow(sum, vec3(2.2)) - b, vec3(0.0));
 }
 
 // The factor on the colour of an unlit alpha-blended shape of alpha `a` (CPU mirror and
@@ -172,7 +178,7 @@ fn add_alpha(a: f32) -> f32 {
 // behind × (1 − alpha) in linear light; the game's is the same sum in display values
 // [hypothesis], where light smoke over a dark room adds far less. Scaled by √alpha, the
 // colour term becomes colour × alpha^1.5, as for additive shapes; the share of what lies
-// behind is kept.
+// behind is kept (nif_material.rs BLEND_ALPHA_POWER).
 fn blend_colour_scale(a: f32) -> f32 {
     return sqrt(saturate(a));
 }
@@ -371,7 +377,10 @@ fn fragment(
         pbr_input.material.emissive = pbr_bindings::material.emissive;
     }
 #endif
-    let e = vec4(pbr_input.material.emissive.rgb * view_emissive_scale(), pbr_input.material.emissive.a);
+    // The image space's Emissive Mult; an additive shape forms its light in display
+    // values (`add_display`), so there it is raised to the display gamma.
+    let emissive_scale = select(view_emissive_scale(), pow(view_emissive_scale(), 2.2), (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
+    let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
 
 #ifdef BLEND_MULTIPLY
@@ -430,10 +439,21 @@ fn fragment(
 #else
 #ifdef BLEND_PREMULTIPLIED_ALPHA
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
-        out.color.a = select(add_alpha(out.color.a), falloff, surface.add_whole > 0.5);
+        // Additive: fog (and, in views without HDR, the tonemapping) on the colour at
+        // alpha 1, which Bevy's premultiplying leaves as it is with alpha 0; then the
+        // display-value sum over the opaque frame behind (the anchor in nif_material.rs
+        // keeps Bevy's copy of it in every view). A ONE / ONE shape adds its colour whole,
+        // faded only by the view-angle falloff.
+        let add_a = select(out.color.a, falloff, surface.add_whole > 0.5);
+        let fogged = main_pass_post_lighting_processing(pbr_input, vec4(out.color.rgb, 1.0));
+        let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, frag_coord_to_uv(in.position.xy), 0.0).rgb;
+        out.color = vec4(add_display(fogged.rgb, add_a, behind), 0.0);
+    } else {
+        out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     }
-#endif
+#else
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+#endif
     let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
         out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);

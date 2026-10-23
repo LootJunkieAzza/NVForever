@@ -272,6 +272,28 @@ pub fn cinematic_at(base: &Cinematic, adapters: &[Option<Adapter>; 6], c: &Clima
     a.lerp(&b, if w0 + w1 > 0.0 { w1 / (w0 + w1) } else { 0.0 })
 }
 
+/// The sunlight dimmer ([`HDR_SUNLIGHT_DIMMER`]) the Mojave's outdoor light was fitted
+/// under, per time of day (sunrise, day, sunset, night): NVDefaultExterior's 1.1 with
+/// NVWastelandClear's adapters, ×1.5, ×1.1, +0.2 and ×1.0 [observed: fnvtool esm decode;
+/// world.md §6 "Sunlight Dimmer"].
+pub const REFERENCE_DIMMER: [f32; 4] = [1.65, 1.21, 1.3, 1.1];
+
+/// How much stronger the sun or moon is than the Mojave's at `hour`: `dimmer` (this
+/// world's blended sunlight dimmer) over [`REFERENCE_DIMMER`] blended the same way, so
+/// the Mojave's clear weather gives 1 [hypothesis: the dimmer scales the directional light
+/// directly; world.md §6 "Sunlight Dimmer"].
+pub fn sun_scale(dimmer: f32, c: &Climate, hour: f32) -> f32 {
+    let [(k0, w0), (k1, w1)] = time_keys(c, hour, false);
+    let r = |k: usize| REFERENCE_DIMMER.get(k).copied().unwrap_or(REFERENCE_DIMMER[3]);
+    let t = if w0 + w1 > 0.0 { w1 / (w0 + w1) } else { 0.0 };
+    let reference = r(k0 as usize) + (r(k1 as usize) - r(k0 as usize)) * t;
+    if reference > 0.0 && dimmer.is_finite() {
+        (dimmer / reference).max(0.0)
+    } else {
+        1.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +356,27 @@ mod tests {
         // 02:00 is full night; 12:00 has no day adapter, so the base grade.
         assert!((cinematic_at(&base, &adapters, &c, 2.0).contrast - 1.32).abs() < 1e-6);
         assert_eq!(cinematic_at(&base, &adapters, &c, 12.0), base);
+    }
+
+    #[test]
+    fn sun_scale_against_the_mojave() {
+        let c = Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() };
+        let mut base = Cinematic::default();
+        base.hdr.v[HDR_SUNLIGHT_DIMMER] = 1.1;
+        let m = |mult: f32, add: f32| {
+            let mut a = Adapter::default();
+            a.hdr[HDR_SUNLIGHT_DIMMER] = MultAdd { mult, add };
+            Some(a)
+        };
+        let dimmer = |adapters: &[Option<Adapter>; 6], h: f32| cinematic_at(&base, adapters, &c, h).hdr.v[HDR_SUNLIGHT_DIMMER];
+        // The Mojave's clear weather gives 1 at every hour.
+        let mojave = [m(1.5, 0.0), m(1.1, 0.0), m(1.0, 0.2), m(1.0, 0.0), m(1.1, 0.0), m(1.0, 0.0)];
+        for h in [0.0, 6.5, 7.0, 7.5, 12.0, 18.5, 19.0, 19.5, 22.0] {
+            let s = sun_scale(dimmer(&mojave, h), &c, h);
+            assert!((s - 1.0).abs() < 1e-5, "{h}: {s}");
+        }
+        // The Big MT's day adapter ×2.25: 2.475 / 1.21.
+        let big_mt = [m(3.0, 0.0), m(2.25, 0.0), m(2.0, 0.0), m(2.0, 0.0), None, None];
+        assert!((sun_scale(dimmer(&big_mt, 12.0), &c, 12.0) - 2.475 / 1.21).abs() < 1e-5);
     }
 }

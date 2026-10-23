@@ -31,7 +31,10 @@
 //! - **Click a thing in the world** while it is open: the reference under the pointer
 //!   (the collision ray, else the render bounds, as the crosshair picks) is selected and
 //!   its details printed and kept over the scrollback, and a box drawn around it: FormID,
-//!   Editor ID, base form, cell, position, enabled, script, health of an actor.
+//!   Editor ID, base form, cell, position, enabled, script, health of an actor. The
+//!   mouse wheel then steps the selection along that click's ray: up to the next
+//!   reference further away (behind walls too), down to the next nearer, round to the
+//!   other end past either end ([`along_ray`]).
 //! - Keys: Enter runs the line, Up/Down recall earlier lines, Page Up/Down scroll, `` ` ``
 //!   or Esc close it.
 //! - **Several statements on a line** (2026-10-19) [design; docs/design/console.md]: `;`
@@ -45,7 +48,8 @@
 //! the line at that time (a `;` not followed by `<seconds>:` stays in the line, so a line
 //! can hold several statements) (on the world aids' clock, `crate::pause::WorldAidClock`: with
 //! `NVF_PLAY_AIDS_FROM_SCRIPTS=1` the lines wait for the scripts to run); the line `click <x> <y>` clicks at that
-//! fraction of the window (0..1 from the top left), `close` closes the console.
+//! fraction of the window (0..1 from the top left), `wheel <steps>` turns the wheel (up
+//! positive), `close` closes the console.
 
 use crate::activate::pick::{self, RayHit};
 use crate::phys::PhysState;
@@ -54,6 +58,7 @@ use crate::sim::SimState;
 use crate::{space, PlayData, PlaySet, PlayState, PlayWorld, PlayerCamera, RefVisual, Travel};
 use bevy::camera::primitives::Aabb;
 use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use fnv_game::functions::console::{ConsoleCtx, ConsoleRequest};
@@ -67,6 +72,8 @@ const SCROLLBACK: usize = 400;
 const SHOWN: usize = 18;
 /// How far a click picks, game units [design: about a large interior or a town block].
 const CLICK_REACH: f32 = 20_000.0;
+/// Pixels of a touchpad scroll that make one wheel step [design].
+const WHEEL_PX: f32 = 40.0;
 /// Most functions `help` lists.
 const HELP_FUNCTIONS: usize = 25;
 /// Most records `help` lists; the rest are counted.
@@ -106,6 +113,9 @@ pub struct Console {
     pub selected: Option<u32>,
     /// The selected reference's details, for the top of the screen.
     selected_text: String,
+    /// The references the last click's ray passed through, nearest first: the mouse
+    /// wheel steps the selection along them ([`step_along`]).
+    along: Vec<u32>,
 }
 
 /// Render toggles the console asked for, for the renderer (nvforever) to switch and
@@ -302,6 +312,7 @@ fn typing(
         c.print(l);
     }
     let mut submit: Vec<String> = Vec::new();
+    let mut wheel_steps = 0i32;
     // A world aid (`crate::pause::WorldAidClock`): with NVF_PLAY_AIDS_FROM_SCRIPTS it
     // waits for the scripts, which most lines need.
     let now = time.world_secs();
@@ -430,6 +441,10 @@ fn typing(
                     _ => c.print("click <x> <y>: fractions of the window"),
                 }
             }
+            "wheel" => match rest.trim().parse::<i32>() {
+                Ok(n) => wheel_steps += n,
+                Err(_) => c.print("wheel <steps>: up (further) is positive"),
+            },
             // NVForever's own poker table (docs/design/poker.md §6); the console closes so
             // the table opens on the world.
             "poker" => match crate::poker::Casino::from_letter(rest) {
@@ -455,14 +470,14 @@ fn typing(
         }
     }
     // Clicks asked by the aid go to [`click`] through the console's queue.
-    if !clicks.is_empty() {
-        commands.insert_resource(AidClicks(std::mem::take(&mut *clicks)));
+    if !clicks.is_empty() || wheel_steps != 0 {
+        commands.insert_resource(AidClicks(std::mem::take(&mut *clicks), wheel_steps));
     }
 }
 
-/// Clicks the test aid asked for, as window fractions.
+/// Clicks the test aid asked for, as window fractions, and wheel steps (up positive).
 #[derive(Resource)]
-struct AidClicks(Vec<Vec2>);
+struct AidClicks(Vec<Vec2>, i32);
 
 /// The script frame's answers, and what console-only commands asked of the engine.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -678,22 +693,51 @@ fn click(
     mut script: Option<ResMut<ScriptState>>,
     panel: Query<&Interaction, With<ConsoleRoot>>,
     free_cam: Res<crate::free_cam::FreeCam>,
+    (mut wheel, mut wheel_px): (MessageReader<MouseWheel>, Local<f32>),
 ) {
+    // Read every frame so a turn made while the console is shut does not count later.
+    let mut steps = 0i32;
+    for w in wheel.read() {
+        match w.unit {
+            MouseScrollUnit::Line => steps += w.y.round() as i32,
+            MouseScrollUnit::Pixel => {
+                *wheel_px += w.y;
+                let n = (*wheel_px / WHEEL_PX).trunc();
+                *wheel_px -= n * WHEEL_PX;
+                steps += n as i32;
+            }
+        }
+    }
     if !c.open {
         return;
     }
     let Ok(window) = windows.single() else { return };
+    // A click on the console's own panel is not a pick, nor is the wheel turned over it.
+    let over_panel = panel.iter().any(|i| *i != Interaction::None);
+    if over_panel {
+        steps = 0;
+    }
     let mut at: Vec<Vec2> = Vec::new();
     if let Some(a) = aid {
         at.extend(a.0.iter().map(|f| Vec2::new(f.x * window.width(), f.y * window.height())));
+        steps += a.1;
         commands.remove_resource::<AidClicks>();
     }
-    // A click on the console's own panel is not a pick.
-    let over_panel = panel.iter().any(|i| *i != Interaction::None);
     if mouse.just_pressed(MouseButton::Left) && !over_panel {
         at.extend(window.cursor_position());
     }
-    let Some(at) = at.last().copied() else { return };
+    let Some(at) = at.last().copied() else {
+        // The wheel: up selects the next reference further along the last click's ray,
+        // down the next nearer, round to the other end past the last.
+        if let Some(id) = c.selected.filter(|_| steps != 0).and_then(|cur| step_along(&c.along, cur, steps)) {
+            let n = c.along.len();
+            let i = c.along.iter().position(|&a| a == id).unwrap_or(0);
+            info!("console: wheel {steps:+} selects {} ({} of {n} along the click)", FormId(id), i + 1);
+            select(&mut c, id, &play.0, &sim, script.as_deref_mut().and_then(|s| s.rt.as_mut()));
+            c.print(format!("{} of {n} along the click (wheel up: further, down: nearer)", i + 1));
+        }
+        return;
+    };
     let Ok((cam, cam_t)) = camera.single() else { return };
     let Ok(ray) = cam.viewport_to_world(cam_t, at) else { return };
     let (o, d) = (ray.origin, *ray.direction);
@@ -707,28 +751,85 @@ fn click(
         let e = space::to_game(o);
         [p[0] - e[0], p[1] - e[1], p[2] - e[2]]
     });
-    let hit = phys.and_then(|mut p| {
-        let mut filter = Filter::default();
-        filter.exclude_layers.insert(layers::TRIGGER);
-        let h = p.ray(eye, dir, CLICK_REACH, filter)?;
-        let form_id = match h.owner {
-            Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
-            _ => None,
-        };
-        Some(RayHit { form_id, distance: h.distance })
-    });
-    let bounds = visuals.iter().filter(|(_, _, _, v)| v.get()).filter_map(|(r, aabb, gt, _)| {
-        let t = gt.affine();
-        let (ce, he) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
-        Some((r.0, pick::ray_box(o, d, &t, ce, he)?))
-    });
-    match pick::choose(hit, bounds, CLICK_REACH, |_| true) {
+    // Every collision hit along the ray, walls too: the first is the crosshair's hit, the
+    // rest what the wheel steps to behind it.
+    let hits: Vec<(Option<u32>, f32)> = phys
+        .map(|mut p| {
+            let mut filter = Filter::default();
+            filter.exclude_layers.insert(layers::TRIGGER);
+            p.ray_all(eye, dir, CLICK_REACH, filter)
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|h| {
+            let form_id = match h.owner {
+                Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
+                _ => None,
+            };
+            (form_id, h.distance)
+        })
+        .collect();
+    let hit = hits.first().map(|&(form_id, distance)| RayHit { form_id, distance });
+    let bounds: Vec<(u32, f32)> = visuals
+        .iter()
+        .filter(|(_, _, _, v)| v.get())
+        .filter_map(|(r, aabb, gt, _)| {
+            let t = gt.affine();
+            let (ce, he) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
+            Some((r.0, pick::ray_box(o, d, &t, ce, he)?))
+        })
+        .collect();
+    match pick::choose(hit, bounds.iter().copied(), CLICK_REACH, |_| true) {
         Some(p) => {
-            info!("console: picked {} at {:.0} by {:?}", FormId(p.form_id), p.distance, p.source);
+            let refs = hits.iter().filter_map(|&(id, d)| Some((id?, d)));
+            c.along = along_ray(p.form_id, refs, bounds.iter().copied().filter(|&(_, d)| d <= CLICK_REACH));
+            info!("console: picked {} at {:.0} by {:?}; {} along the ray", FormId(p.form_id), p.distance, p.source, c.along.len());
             select(&mut c, p.form_id, &play.0, &sim, script.as_deref_mut().and_then(|s| s.rt.as_mut()));
+            let n = c.along.len();
+            if n > 1 {
+                c.print(format!("{n} references along the click: the mouse wheel selects the next further (up) or nearer (down)"));
+            }
         }
-        None => c.print("Nothing there to select"),
+        None => {
+            c.along.clear();
+            c.print("Nothing there to select");
+        }
     }
+}
+
+/// The references a click's ray passes through, nearest first: those its collision
+/// hits (at the hit) and those whose render bounds it enters (at the entry, for one with
+/// no collision hit; a box is looser than the shape in it). `picked`, the clicked one,
+/// is always among them.
+fn along_ray(picked: u32, collision: impl IntoIterator<Item = (u32, f32)>, bounds: impl IntoIterator<Item = (u32, f32)>) -> Vec<u32> {
+    let mut at: Vec<(u32, f32)> = Vec::new();
+    let put = |list: &mut Vec<(u32, f32)>, id: u32, d: f32, replace: bool| match list.iter_mut().find(|e| e.0 == id) {
+        Some(e) if replace => e.1 = e.1.min(d),
+        Some(_) => {}
+        None => list.push((id, d)),
+    };
+    for (id, d) in collision {
+        put(&mut at, id, d, true);
+    }
+    let hit_by_collision = at.len();
+    for (id, d) in bounds {
+        let replace = !at[..hit_by_collision].iter().any(|e| e.0 == id);
+        put(&mut at, id, d, replace);
+    }
+    at.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+    let mut ids: Vec<u32> = at.into_iter().map(|e| e.0).collect();
+    if !ids.contains(&picked) {
+        ids.insert(0, picked);
+    }
+    ids
+}
+
+/// The reference `by` steps from `current` along `along` (positive: further), round to
+/// the other end past either end; `None` when `current` is not on it.
+fn step_along(along: &[u32], current: u32, by: i32) -> Option<u32> {
+    let i = along.iter().position(|&id| id == current)?;
+    let n = along.len() as i64;
+    Some(along[(i as i64 + by as i64).rem_euclid(n) as usize])
 }
 
 fn spawn(commands: &mut Commands) {
@@ -1006,6 +1107,23 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn along_ray_orders_by_distance_and_steps_round() {
+        // An actor in front (capsule hit at 100) and one behind (at 180); a lamp seen only
+        // by its bounds at 140; the front actor's loose box enters at 80 but its hit counts.
+        let along = along_ray(1, [(1, 100.0), (1, 105.0), (2, 180.0)], [(1, 80.0), (3, 140.0), (3, 150.0)]);
+        assert_eq!(along, vec![1, 3, 2]);
+        assert_eq!(step_along(&along, 1, 1), Some(3));
+        assert_eq!(step_along(&along, 3, 1), Some(2));
+        assert_eq!(step_along(&along, 2, 1), Some(1), "past the last goes round to the first");
+        assert_eq!(step_along(&along, 1, -1), Some(2), "before the first goes round to the last");
+        assert_eq!(step_along(&along, 1, 4), Some(3));
+        assert_eq!(step_along(&along, 9, 1), None);
+        // The picked one is always on it.
+        assert_eq!(along_ray(7, [], []), vec![7]);
+        assert_eq!(step_along(&[7], 7, 1), Some(7));
+    }
 
     #[test]
     fn a_line_holds_several_statements() {

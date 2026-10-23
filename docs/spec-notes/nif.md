@@ -469,7 +469,14 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   gamma), and its brightness is max(1, multiplier × brightest channel); a black colour
   leaves the surface colour. The lantern's card turns warm orange, Dead Money's
   holograms ((0, 0.87, 1) × 6) cyan, grey colours change nothing, Gomorrah's white × 25
-  is as before. Without the light glow the result is held to the surface colour.
+  is as before. Without the light glow the result is held to the surface colour. An
+  additive shape takes the brightness in display values (raised to the display gamma
+  like its hue; "Additive blend"), as does the image space's Emissive Mult on it.
+
+  Until 2026-10-23 neither rule reached unlit shapes: Bevy's
+  `pbr_input_from_standard_material` fills the emissive light in only for lit materials
+  [observed: bevy_pbr 0.19 `pbr_fragment.wgsl`], so an unlit shape's stayed black. The
+  shader now reads the material's emissive light for unlit shapes itself.
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
@@ -590,12 +597,62 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   reading as "Multiply blend"). Bevy adds to linear light, where 0.1 added to black
   shows as 0.35 on the screen. The linear light a display-value sum needs depends on the
   frame behind the shape: for a white ray of 0.1, 0.1^2.2 on black, 0.032 on a wall of
-  display value 0.15, 0.1 on one of about 0.45. A fixed blend cannot read the frame, so
-  the engine raises the alpha of additive shapes to a single power, 1.5
-  (`nif_material.wgsl` `add_alpha`, CPU mirror `nif_material::add_alpha`,
-  `ADD_ALPHA_POWER`); the colour is already linear. A ray of 0.1 then adds 0.21 on black
-  (game 0.1) and 0.05 on a wall of 0.3 (game 0.1). Power 2.2 would be exact on black but
-  add 0.01 on that wall.
+  display value 0.15, 0.1 on one of about 0.45.
+
+  Rule (2026-10-23, replacing the fixed power below): an additive shape reads the opaque
+  frame behind it, `behind` (Bevy's view transmission texture: the copy of the frame
+  after the opaque pass that water and refracting shapes already read), and adds
+  `(behind^(1/2.2) + colour^(1/2.2) × alpha)^2.2 − behind`: the display-value sum, as
+  linear light (`nif_material.wgsl` `add_display`, CPU mirror `nif_material::add_display`).
+  The colour is fogged first (at alpha 1). The emissive colour × multiplier of an additive
+  shape counts in display values (raised to 2.2 before the shader, as for "Multiply
+  blend"; `display_emissive`; for an unlit shape its brightness under "Emissive colour of
+  unlit shapes"), so the texture × multiplier × alpha is the game's term.
+  The sum is held to display 2.0 (`ADD_DISPLAY_MAX`) or the frame's own value if
+  brighter [engineering choice: it lets the Big MT's sky beams, display 1.5 at the core,
+  through whole and keeps a multiplier of 30 (the Securitron's screen flash) from adding
+  thousands of times white in the HDR view]. Bevy copies the frame only for a view with
+  something in its transmissive phase, so the engine keeps a material that reads the
+  copy on a triangle of no area in every render layer (`TransmissionAnchor`); otherwise
+  the shader would read a white stand-in. Cost: one copy of the frame per view and frame.
+
+  Why the fixed power (alpha^1.5, `ADD_ALPHA_POWER`, fitted in the Saloon) was replaced
+  [observed, `nvforever` against the original's frames, `C:\fnv-private\references\owb`
+  and `fx_audit`, 2026-10-23]:
+  - The Big MT's sky beams (`nvdlc03\clutter\imposters\nvdlc03imposterbeamblue.nif`:
+    two crossed planes, SRC_ALPHA / ONE, texture `NVDLC03glowbeamblue.dds` 32 × 4 of
+    colour (0, 207, 255) with alpha 16 to 255 across the beam, vertex alpha 0.15 on the
+    centre line and 0 at the edges, emissive white × 10, view-angle falloff) are broad
+    bright cyan beams in the original: over a sky of (17, 17, 33) the core reads (102,
+    171, 204) halfway up. The power took 0.15 to 0.058 and the multiplier did not reach
+    the shader at all ("Emissive multiplier of unlit shapes"): the beams added about (8,
+    20, 20). With the display-value sum they are bright cyan beams as in the original.
+  - The Strip's lamp beams (`effects\ambient\fxlightbeamnvstrip.nif`: white, vertex
+    alpha 0.25 at most, multiplier 1) on the night sky: the game adds 0.25 at most, the
+    power added 0.39 (fx-lighting-audit-2026-10-23.md item 4, "too strong at night").
+    Now 0.25; in the frames of the Strip the beams are the faint haze of the original.
+  - X-13's door lamps (`fxlightbeambrt03`) show as two beams, as in the original; Primm
+    and the Strip's other effects are otherwise unchanged.
+  - The Prospector Saloon's window rays, from the camera of the table below (shown minus
+    `--hide indfxlightrays --hide fxbasicglow`): mean 2.8 grey levels added, 8 or more
+    on 14 % of the frame, the display-value-sum target's own numbers (alpha^1.5: 2.0 and
+    10 %).
+
+  Open: overlapping additive shapes. Each is summed with the opaque frame alone, so
+  where several overlap (crossed beam planes) the sum falls short of the game's: n equal
+  faint shapes on black add n × d^2.2 instead of (n × d)^2.2 (the Saloon's rays, which
+  overlap little over lit walls, did not show it). Exact would
+  be adding every additive shape into a buffer of display values of its own and adding
+  that to the frame once. The Sink's balcony force fields
+  (`nvdlc03x13fxforcefield01.nif`, emissive × 1.2 and 2.0, animated alpha) are brighter
+  than before but still faint panels where the original shows a solid cyan band; the
+  original's frame was taken from above the ring and ours from the balcony, so they have
+  not been compared from the same place.
+
+  The fitted power it replaced, kept for the record: the engine raised the alpha of
+  additive shapes to a single power, 1.5; a ray of 0.1 then added 0.21 on black (game
+  0.1) and 0.05 on a wall of 0.3 (game 0.1). Power 2.2 would be exact on black but add
+  0.01 on that wall.
 
   The 182 ONE / ONE shapes (source factor ONE) add their colour whole: their alpha is
   not part of the blend [documented: nif.xml AlphaFlags source blend mode 0 ONE], so the
@@ -624,7 +681,8 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the table, the edge of its texture's faint tail; with power 1.5 the streaks are there, and the lantern keeps a small halo on its
   glass with no ring. Pictures: `C:\fnv-private\references\light_rays\`.
 
-  Open: an exact display-value sum (drawing additive shapes into a buffer of their own
+  Open in 2026-10-11 (the display-value sum against the opaque frame, above, now covers
+  one shape at a time): an exact display-value sum (drawing additive shapes into a buffer of their own
   and adding it to the frame in display values afterwards; additive shapes commute, so
   the sum would be exact up to the blended shapes in front of them); whether the
   game's streaks are as strong as ours (the owner's frame and ours differ in field of

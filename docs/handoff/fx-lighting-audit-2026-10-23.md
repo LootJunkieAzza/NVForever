@@ -95,6 +95,12 @@ for natural lighting rather than a 1:1 copy. Branch `claude/beam-blend`.
    cannot serve both; candidates are a power that follows the brightness behind the
    shape (read from Bevy's copy of the opaque frame, which the refracting shapes and the
    water already use) or the light glow carrying more of the beams' look.
+   **Done on branch `claude/additive-strength`:** additive shapes add colour × alpha in
+   display values over the opaque frame behind them, with the emissive multiplier in
+   display values (nif.md §6 "Additive blend"); the Strip's beams are now the faint haze,
+   the Big MT's sky beams bright. Found on the way: the emissive multiplier of unlit
+   shapes (item "Fixed" 3) never reached the shader (Bevy fills emissive light in only
+   for lit materials); fixed there too. Left open: overlapping additive shapes sum short.
 5. **Gomorrah's exterior neon** (`GomorrahLights` 0x0013BA74, `GomorrahLightsAlwaysOn`,
    persistent references in TheStripWorldNew) showed nothing in our Strip frames where the
    original has a bright orange tube along the roof line; whether they are drawn at all
