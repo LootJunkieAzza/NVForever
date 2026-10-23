@@ -8,7 +8,7 @@
 //! by −90° about X.
 
 use crate::data::GameData;
-use crate::nif_material::{multiply_emissive, nif_material, Falloff, NifMaterial};
+use crate::nif_material::{display_emissive, emissive_in_display, nif_material, Falloff, NifMaterial};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -586,13 +586,14 @@ pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Fall
 
 /// Emitted light of a shape: emissive colour × emissive multiplier (× the glow map and the
 /// surface colour in the shader) [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"],
-/// `None` when the colour is black. A multiply-blended shape's light is part of the factor
-/// it puts on what lies behind it, which is formed in display values, so its value is
-/// raised to the display gamma ([`multiply_emissive`], nif.md §6 "Multiply blend").
+/// `None` when the colour is black. A multiply-blended or additive shape's light is part
+/// of what it does to the frame behind it, which is formed in display values, so its value
+/// is raised to the display gamma ([`display_emissive`], nif.md §6 "Multiply blend",
+/// "Additive blend").
 pub(crate) fn shape_emissive(props: &Props, alpha_mode: AlphaMode) -> Option<LinearRgba> {
     let e = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0))?;
     let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
-    let value = |c: f32| if matches!(alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * m) } else { c * m };
+    let value = |c: f32| if emissive_in_display(alpha_mode) { display_emissive(c * m) } else { c * m };
     Some(LinearRgba::rgb(value(e[0]), value(e[1]), value(e[2])))
 }
 
@@ -1074,7 +1075,9 @@ mod tests {
         // Its light is a display-value factor of 2.28 on the texture, 2.28^2.2 in linear.
         let e = shape_emissive(&cap, mode).unwrap();
         assert!((e.red - 2.283_398_f32.powf(2.2)).abs() < 1e-3 && e.red == e.green && e.green == e.blue);
-        // The same material on a shape that is not multiply-blended keeps the plain product.
+        // An additive shape forms its light in display values too (nif.md §6 "Additive
+        // blend"); one that is alpha-blended or opaque keeps the plain product.
+        assert!((shape_emissive(&cap, AlphaMode::Add).unwrap().red - e.red).abs() < 1e-6);
         assert!((shape_emissive(&cap, AlphaMode::Blend).unwrap().red - 2.283_398).abs() < 1e-5);
         assert!((shape_emissive(&cap, AlphaMode::Opaque).unwrap().red - 2.283_398).abs() < 1e-5);
         // A black emissive colour emits nothing, whatever the multiplier.

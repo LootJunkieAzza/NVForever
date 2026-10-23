@@ -10,9 +10,10 @@
 //!   what lies behind it: its lit colour and emissive light are summed in display values
 //!   and held to 0..1, without fog or tonemapping ([`multiply_factor`],
 //!   docs/spec-notes/nif.md §6, "Multiply blend");
-//! - an additive shape (light beams, glows, flames) adds about what it would add to
-//!   display values: its alpha is raised to a power ([`add_alpha`], nif.md §6
-//!   "Additive blend");
+//! - an additive shape (light beams, glows, flames) adds what it would add to the
+//!   display values of the opaque frame behind it, read from Bevy's copy of that frame
+//!   (the view transmission texture; [`add_display`], [`TransmissionAnchor`], nif.md §6
+//!   "Additive blend"); its emissive multiplier counts in display values;
 //! - an unlit alpha-blended shape (smoke, mist, dust, particles) puts about what it would
 //!   put on display values: its colour is scaled by √alpha ([`blend_colour_scale`],
 //!   nif.md §6 "Alpha blend of unlit shapes").
@@ -195,7 +196,7 @@ pub struct NifSurface {
     /// 1 for an additive shape whose source factor is ONE (NiAlphaProperty ONE / ONE): its
     /// colour is added whole, whatever its alpha [documented: nif.xml AlphaFlags, source
     /// blend mode 0 ONE]; the view-angle falloff still fades it [hypothesis]. 0 for every
-    /// other shape (an additive SRC_ALPHA / ONE shape adds colour × [`add_alpha`]).
+    /// other shape (an additive SRC_ALPHA / ONE shape adds colour × alpha, [`add_display`]).
     #[uniform(100)]
     pub add_whole: f32,
     /// The screen shift of a refracting shape per unit of its view-space normal (module
@@ -446,7 +447,7 @@ impl Falloff {
     }
 }
 
-/// Display gamma of [`multiply_factor`] and [`multiply_emissive`]: a plain power law, so a
+/// Display gamma of [`multiply_factor`], [`display_emissive`] and [`add_display`]: a plain power law, so a
 /// product of display values is the product of the linear values.
 pub const MULTIPLY_GAMMA: f32 = 2.2;
 
@@ -464,31 +465,54 @@ pub fn multiply_factor(lit: Vec3, emissive: Vec3) -> Vec3 {
     display.clamp(Vec3::ZERO, Vec3::ONE).powf(MULTIPLY_GAMMA)
 }
 
-/// The linear emissive light of a multiply-blended shape for a NiMaterialProperty emissive
-/// colour × multiplier `value`: `value` raised to the display gamma. The shader multiplies
-/// it by the linear texture colour, and [`multiply_factor`] takes the product back to
-/// display values, which gives texture (display) × `value`, the game's term [hypothesis].
-pub fn multiply_emissive(value: f32) -> f32 {
+/// Whether a shape of this alpha mode forms its emissive light in display values, so
+/// its stored emissive colour × multiplier is raised to the display gamma
+/// ([`display_emissive`]): multiply-blended shapes (nif.md §6 "Multiply blend") and
+/// additive ones (nif.md §6 "Additive blend").
+pub fn emissive_in_display(alpha_mode: AlphaMode) -> bool {
+    matches!(alpha_mode, AlphaMode::Multiply | AlphaMode::Add)
+}
+
+/// The linear emissive light of a shape whose light is formed in display values
+/// ([`emissive_in_display`]), for a NiMaterialProperty emissive colour × multiplier
+/// `value`: `value` raised to the display gamma. The shader multiplies it by the linear
+/// texture colour, and [`multiply_factor`] or [`add_display`] take the product back to
+/// display values, which gives texture (display) × `value`, the game's term
+/// [hypothesis].
+pub fn display_emissive(value: f32) -> f32 {
     value.max(0.0).powf(MULTIPLY_GAMMA)
 }
 
-/// Power on the alpha of additive shapes ([`add_alpha`]; nif_material.wgsl has the same
-/// number) [hypothesis, fitted: docs/spec-notes/nif.md §6 "Additive blend"].
-pub const ADD_ALPHA_POWER: f32 = 1.5;
+/// The largest display value the sum of a frame and an additive shape reaches in
+/// [`add_display`] [engineering choice: it keeps a shape of a very large emissive
+/// multiplier (the Securitron's screen flash, 0.99 × 30) from adding thousands of times
+/// white in the HDR view, while the Big MT's sky beams (display 1.5 at the core) pass
+/// whole].
+pub const ADD_DISPLAY_MAX: f32 = 2.0;
 
-/// The alpha an additive shape (NiAlphaProperty destination factor ONE, drawn as
-/// `AlphaMode::Add`) is drawn with, for its alpha `a` (CPU mirror of nif_material.wgsl).
+/// The linear light an additive shape (NiAlphaProperty destination factor ONE, drawn as
+/// `AlphaMode::Add`) adds to a pixel whose opaque frame is `behind` (linear), for its
+/// linear colour `colour` and its alpha `alpha` (1 for a ONE / ONE shape; CPU mirror of
+/// nif_material.wgsl).
 ///
 /// The game adds colour × alpha to the frame's display values [hypothesis,
-/// docs/spec-notes/nif.md §6 "Additive blend"]; Bevy adds linear colour × alpha to linear
-/// light, which on a dark wall shows far brighter (0.1 added to black shows as 0.35). How
-/// much linear light a display-value sum needs depends on the frame behind, which a fixed
-/// blend cannot read: alpha^2.2 is exact on black and leaves faint shapes nearly invisible
-/// on a lit wall, alpha^1 is the old look. [`ADD_ALPHA_POWER`] is the power that brought
-/// the Prospector Saloon's window rays nearest to a display-value sum of the same rays.
-pub fn add_alpha(a: f32) -> f32 {
-    a.clamp(0.0, 1.0).powf(ADD_ALPHA_POWER)
+/// docs/spec-notes/nif.md §6 "Additive blend"]. Bevy adds linear light, so the shader
+/// reads the frame behind the shape (Bevy's copy of the opaque frame, which
+/// [`TransmissionAnchor`] keeps in every view), adds in display values and returns the
+/// difference in linear light. The sum is held to [`ADD_DISPLAY_MAX`] (or the frame's
+/// own value, if brighter).
+pub fn add_display(colour: Vec3, alpha: f32, behind: Vec3) -> Vec3 {
+    let behind = behind.max(Vec3::ZERO);
+    let shown = behind.powf(1.0 / MULTIPLY_GAMMA);
+    let added = colour.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA) * alpha.clamp(0.0, 1.0);
+    let sum = (shown + added).min(shown.max(Vec3::splat(ADD_DISPLAY_MAX)));
+    (sum.powf(MULTIPLY_GAMMA) - behind).max(Vec3::ZERO)
 }
+
+/// Power on the alpha in the colour term of unlit alpha-blended shapes
+/// ([`blend_colour_scale`]; nif_material.wgsl has the same number) [hypothesis, fitted:
+/// docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"].
+pub const BLEND_ALPHA_POWER: f32 = 1.5;
 
 /// The factor on the colour of an unlit alpha-blended shape (smoke, mist, dust, every
 /// particle system; NiAlphaProperty SRC_ALPHA / INV_SRC_ALPHA) of alpha `a` (CPU mirror
@@ -498,7 +522,7 @@ pub fn add_alpha(a: f32) -> f32 {
 /// [hypothesis, docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"]; Bevy does it
 /// in linear light, where light smoke over a dark room shows about twice as bright
 /// (owner's Bison Steve lobby screenshots, 2026-10-23). Scaled by √alpha, the colour
-/// term becomes colour × alpha^[`ADD_ALPHA_POWER`], fitted against the display-value
+/// term becomes colour × alpha^[`BLEND_ALPHA_POWER`], fitted against the display-value
 /// blend; the share of what lies behind is kept.
 pub fn blend_colour_scale(a: f32) -> f32 {
     a.clamp(0.0, 1.0).sqrt()
@@ -511,8 +535,51 @@ impl Plugin for NifMaterialPlugin {
         bevy::asset::embedded_asset!(app, "nif_material.wgsl");
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
-        app.add_plugins(MaterialPlugin::<NifMaterial>::default()).add_systems(PostUpdate, see_through_casts_no_shadow);
+        app.add_plugins(MaterialPlugin::<NifMaterial>::default())
+            .add_systems(Startup, spawn_transmission_anchor)
+            .add_systems(PostUpdate, see_through_casts_no_shadow);
     }
+}
+
+/// Keeps Bevy's copy of the opaque frame (the view transmission texture) in every 3D
+/// view, for additive shapes to read what lies behind them ([`add_display`]). Bevy makes
+/// the copy only for a view with something in its transmissive phase (an opaque material
+/// that reads the texture: water, refracting shapes); without it the shader reads a white
+/// stand-in. This is such a material on a triangle of no area, in every render layer and
+/// never culled, so it draws nothing [engineering choice; cost: one copy of the frame per
+/// view and frame, which a view with water in sight made already].
+#[derive(Component)]
+pub struct TransmissionAnchor;
+
+/// Render layers the anchor is in: every layer a view of the game uses.
+const ANCHOR_LAYERS: usize = 32;
+
+fn spawn_transmission_anchor(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<NifMaterial>>) {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::mesh::PrimitiveTopology;
+    let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 0.0, 1.0]; 3])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32; 2]; 3]);
+    // Opaque and reading the texture (specular transmission), so in the transmissive
+    // phase; the refraction pipeline writes no depth, and every fragment would fall below
+    // the cut.
+    let material = NifMaterial {
+        base: StandardMaterial { base_color: Color::NONE, unlit: true, specular_transmission: 1.0, ..default() },
+        extension: NifSurface { refract: true, alpha_cut: 1.0, ..default() },
+    };
+    commands.spawn((
+        Name::new("Transmission anchor"),
+        TransmissionAnchor,
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(materials.add(material)),
+        Transform::IDENTITY,
+        Visibility::Visible,
+        bevy::camera::visibility::NoFrustumCulling,
+        bevy::camera::visibility::RenderLayers::from_layers(&(0..ANCHOR_LAYERS).collect::<Vec<_>>()),
+        bevy::light::NotShadowCaster,
+        bevy::light::NotShadowReceiver,
+    ));
 }
 
 /// Whether a material is see-through: blended, added or multiplied onto what lies behind
@@ -699,7 +766,7 @@ mod tests {
         // lies behind at texture × 2.28 in display values, blue held at 1: a light blue
         // glass, not black.
         let texture = Vec3::new(49.0, 87.0, 117.0) / 255.0;
-        let emissive = texture.powf(MULTIPLY_GAMMA) * multiply_emissive(0.190_283_18 * 12.0);
+        let emissive = texture.powf(MULTIPLY_GAMMA) * display_emissive(0.190_283_18 * 12.0);
         assert!(close(display(multiply_factor(Vec3::ZERO, emissive)), [0.439, 0.779, 1.0]));
         // Light on the cap adds in display values and cannot pass 1.
         let lit = Vec3::splat(0.25f32.powf(MULTIPLY_GAMMA));
@@ -711,28 +778,53 @@ mod tests {
         assert!(close(multiply_factor(Vec3::splat(4.0), Vec3::ZERO), [1.0; 3]));
         assert!(close(multiply_factor(Vec3::ZERO, Vec3::ZERO), [0.0; 3]));
         // An emissive value of 1 is 1 in both spaces; larger ones grow by the gamma.
-        assert_eq!(multiply_emissive(1.0), 1.0);
-        assert!((multiply_emissive(2.0) - 2f32.powf(2.2)).abs() < 1e-6);
-        assert_eq!(multiply_emissive(-1.0), 0.0);
+        assert_eq!(display_emissive(1.0), 1.0);
+        assert!((display_emissive(2.0) - 2f32.powf(2.2)).abs() < 1e-6);
+        assert_eq!(display_emissive(-1.0), 0.0);
     }
 
     #[test]
-    fn additive_blend_alpha() {
-        let display = |v: f32| v.powf(1.0 / MULTIPLY_GAMMA);
-        let linear = |v: f32| v.powf(MULTIPLY_GAMMA);
-        // What a white shape of alpha `a` adds to a display value `behind`.
-        let adds = |behind: f32, a: f32| display(linear(behind) + add_alpha(a)) - behind;
-        // The Saloon's window rays (indfxlightrays01.nif): a white texture, vertex alpha
-        // 0.1 at most, so the game adds 0.1 at most. With the alpha as stored a ray added
-        // 0.35 on black and 0.15 on a wall of 0.3; now 0.21 and 0.05, between that and
-        // alpha^2.2 (0.1 on black, but 0.01 on the wall).
-        assert!((adds(0.0, 0.1) - 0.208).abs() < 0.001);
-        assert!((adds(0.3, 0.1) - 0.055).abs() < 0.001);
-        assert!((display(0.1) - 0.351).abs() < 0.001);
-        // Full and no alpha are unchanged.
-        assert_eq!(add_alpha(1.0), 1.0);
-        assert_eq!(add_alpha(0.0), 0.0);
-        assert_eq!(add_alpha(2.0), 1.0);
+    fn additive_blend_in_display_values() {
+        let display = |v: Vec3| v.powf(1.0 / MULTIPLY_GAMMA);
+        let linear = |v: Vec3| v.powf(MULTIPLY_GAMMA);
+        // The display value of a frame `behind` (display) once a shape of display colour
+        // `colour` and alpha `a` is added.
+        let shown = |colour: Vec3, a: f32, behind: Vec3| display(linear(behind) + add_display(linear(colour), a, linear(behind)));
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 0.002;
+        let grey = Vec3::splat;
+        // The Saloon's window rays (indfxlightrays01.nif): white, vertex alpha 0.1 at
+        // most. The game adds 0.1 to the display value whatever lies behind; alpha^1.5
+        // (the rule before) added 0.21 on black and 0.05 on a wall of 0.3.
+        assert!(close(shown(Vec3::ONE, 0.1, Vec3::ZERO), grey(0.1)));
+        assert!(close(shown(Vec3::ONE, 0.1, grey(0.3)), grey(0.4)));
+        // The Strip's lamp beams (fxlightbeamnvstrip.nif): white, vertex alpha 0.25 at
+        // most, on the night sky: 0.25, not the 0.39 of alpha^1.5.
+        assert!(close(shown(Vec3::ONE, 0.25, Vec3::ZERO), grey(0.25)));
+        // The Big MT's sky beams (nvdlc03imposterbeamblue.nif): texture (0, 207, 255),
+        // emissive white × 10, vertex alpha 0.15 at the core, over a night sky of
+        // (17, 17, 33): 1.5 × the texture is added, past white in green and blue.
+        let texture = Vec3::new(0.0, 207.0, 255.0) / 255.0;
+        let sky = Vec3::new(17.0, 17.0, 33.0) / 255.0;
+        let beam = linear(texture) * display_emissive(10.0);
+        assert!(close(shown(display(beam), 0.15, sky), sky + texture * 1.5));
+        // A ONE / ONE shape (alpha 1) on black adds its colour as it is.
+        let c = Vec3::new(0.2, 0.5, 0.9);
+        assert!(close(add_display(c, 1.0, Vec3::ZERO), c));
+        // The sum is held to ADD_DISPLAY_MAX; a frame brighter than that gets nothing and
+        // loses nothing.
+        let flash = Vec3::splat(display_emissive(0.99 * 30.0));
+        assert!(close(shown(display(flash), 1.0, Vec3::ZERO), grey(ADD_DISPLAY_MAX)));
+        assert_eq!(add_display(flash, 1.0, grey(9.0)), Vec3::ZERO);
+        // No alpha adds nothing.
+        assert!(close(add_display(Vec3::ONE, 0.0, grey(0.2)), Vec3::ZERO));
+    }
+
+    #[test]
+    fn emissive_in_display_values_for_multiply_and_additive_shapes() {
+        assert!(emissive_in_display(AlphaMode::Multiply));
+        assert!(emissive_in_display(AlphaMode::Add));
+        assert!(!emissive_in_display(AlphaMode::Blend));
+        assert!(!emissive_in_display(AlphaMode::Opaque));
     }
 
     #[test]
@@ -745,8 +837,8 @@ mod tests {
         // blended before; now 0.22.
         assert!((blend(0.5, 0.3, 0.0) - 0.220).abs() < 0.002, "{}", blend(0.5, 0.3, 0.0));
         assert!((display(linear(0.5) * 0.3) - 0.290).abs() < 0.002);
-        // The colour term is colour × alpha^1.5, the add_alpha power.
-        assert!((blend_colour_scale(0.3) * 0.3 - add_alpha(0.3)).abs() < 1e-6);
+        // The colour term is colour × alpha^BLEND_ALPHA_POWER.
+        assert!((blend_colour_scale(0.3) * 0.3 - 0.3f32.powf(BLEND_ALPHA_POWER)).abs() < 1e-6);
         // Over a backdrop of its own colour it stays near it (display 0.5).
         assert!((blend(0.5, 0.3, 0.5) - 0.5).abs() < 0.04);
         // Full and no alpha are unchanged.
