@@ -260,6 +260,8 @@ pub struct Model {
     rows: [usize; 6],
     /// The chosen slider group of the Face, Detail, Skin, Hair and Eyes tabs.
     groups: [usize; 6],
+    /// The first row shown on each tab (the list scrolls apart from the chosen row).
+    scroll: [usize; 6],
     /// The starting face last chosen on the Basics tab (0 = none).
     preset: usize,
     /// The bottom buttons are chosen (Down past the last row).
@@ -300,6 +302,7 @@ impl Model {
             tab,
             rows: [0; 6],
             groups: [0; 6],
+            scroll: [0; 6],
             preset: 0,
             on_actions: None,
             view: if kind == RaceMenu::Barber { View::default() } else { View::face_on(Tab::Basics) },
@@ -412,10 +415,18 @@ impl Model {
                 if self.kind == RaceMenu::Barber {
                     return r;
                 }
+                // Each part's shading under its row, with no Region switch: the switch sat
+                // above sliders out of sight below, so it seemed to do nothing [owner
+                // 2026-10-23]; the labels name the part ("Beard …", "Eyebrows …").
+                let groups = self.groups(Tab::Hair);
+                let shading = |g: &str| if groups.iter().any(|x| x == g) { sliders_of(&Some(g.to_string()), Space::Skin) } else { vec![] };
+                // A woman has no beard [design], so no beard shading either.
+                if !self.look.female {
+                    r.extend(shading("Beard"));
+                }
                 r.push(Row::Brows);
-                r.push(Row::Group);
-                r.extend(sliders_of(&group, Space::Skin));
-                r
+                r.extend(shading("Eyebrows"));
+                return r;
             }
             // The surgeon's brows are here, with no Hair tab.
             Tab::Eyes if self.kind == RaceMenu::Surgeon => [vec![Row::Eyes, Row::Brows, Row::Group], sliders_of(&group, Space::Skin)].concat(),
@@ -429,6 +440,15 @@ impl Model {
 
     pub fn row(&self) -> usize {
         self.rows[tab_index(self.tab)].min(self.rows().len().saturating_sub(1))
+    }
+
+    /// The first row shown on the open tab.
+    pub fn scroll(&self) -> usize {
+        self.scroll[tab_index(self.tab)]
+    }
+
+    pub fn set_scroll(&mut self, first: usize) {
+        self.scroll[tab_index(self.tab)] = first;
     }
 
     pub fn chosen_row(&self) -> Option<Row> {
@@ -893,6 +913,7 @@ mod tests {
             slider("Skin Shade Dark / Light", Space::Skin, 0),
             slider("Eyeliner Light / Dark", Space::Skin, 1),
             slider("Beard Light / Dark", Space::Skin, 2),
+            slider("Eyebrows Thick / Thin", Space::Skin, 3),
         ];
         let catalogue = Catalogue {
             races: vec![race(1, "Caucasian"), race(2, "Hispanic")],
@@ -922,7 +943,9 @@ mod tests {
         m.set_tab(Tab::Eyes);
         assert_eq!(m.rows(), vec![Row::Eyes, Row::Group, Row::Slider(5)]);
         m.set_tab(Tab::Hair);
-        assert!(m.rows().contains(&Row::FacialHair) && m.rows().contains(&Row::Slider(6)));
+        // Each part's shading under its row, no Region switch.
+        let hair = vec![Row::Hair, Row::HairColour, Row::HairTone(0), Row::HairTone(1), Row::HairTone(2)];
+        assert_eq!(m.rows(), [hair, vec![Row::FacialHair, Row::Slider(6), Row::Brows, Row::Slider(7)]].concat());
     }
 
     #[test]
@@ -961,7 +984,8 @@ mod tests {
         assert!(m.look.female);
         assert_eq!(m.look.hair, Some(FormId(20)));
         assert!(m.look.head_parts.is_empty());
-        assert!(!m.rows().contains(&Row::FacialHair));
+        m.set_tab(Tab::Hair);
+        assert!(!m.rows().contains(&Row::FacialHair) && !m.rows().contains(&Row::Slider(6)), "no beard row nor its shading");
         m.adjust_row(Row::Race, 1, false);
         assert_eq!(m.look.race, FormId(2));
     }

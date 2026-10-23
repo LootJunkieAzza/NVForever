@@ -5641,7 +5641,7 @@ name = "character-creator"
 source = "docs/spec-notes/character-creator.md §7: the race menu (1036) drawn by the creator, live look, Done"
 areas = ["chargen", "menus", "actors"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:tab:hair,22.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png,21.8:creator_hair_tab.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 30
 order = [[
@@ -5669,7 +5669,7 @@ expect = [
   { re = 'creator: camera \(test aid NVF_PLAY_TEST_CREATOR\): turned 69°, tilted (?P<n>\d+)°', range = [16, 19], label = "turned 60° and tilted 15° on the face framing" },
   { re = 'creator: camera .*, 61 units away, looking (?P<n>\d+) under the eye', range = [5, 15], label = "zoomed in on the whole body: aimed near the face, not the pelvis" },
 ]
-manual = "creator_open.png … creator_body_zoomed.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders"
+manual = "creator_open.png … creator_hair_tab.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders; hair_tab: the Hair tab with no Region row, a scrollbar at the right of the rows"
 
 [[scenario]]
 name = "actor-creator"
