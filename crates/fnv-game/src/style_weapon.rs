@@ -133,7 +133,7 @@ impl Game<'_> {
         for u in e.unequipped {
             self.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
         }
-        self.item_event(actor, weapon, event::ON_EQUIP, Some(Value::Ref(actor.0)));
+        self.equip_events(actor, weapon, false);
         self.sync_actor_effects(actor);
     }
 }

@@ -2517,6 +2517,23 @@ expect = [
   { re = 'anim sounds summary:.*\b(?P<n>\d+) door sounds', range = [2, 1e9], label = "the locker's open and close sound keys played" },
 ]
 
+[[scenario]]
+name = "container-on-open"
+source = "project audit 2026-10-23 §3.2 (docs/spec-notes/script-functions.md §3.3): the Goodsprings schoolhouse safe (LootSafeGoodspringsSchoolhouse 0x001164C0, script 0x00116739) opened by the menu test aid runs its OnOpen block (VFreeformGoodsprings.openedsafe set, the note removed); before, OnOpen never ran"
+areas = ["scripts", "containers"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "001164C0", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "GSSchoolHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  "menu: open Container(0x001164C0)",
+  { re = 'script: OnOpen of FalloutNV\.esm\|SCPT 0x00116739 ran' },
+  "menu: close",
+]]
+expect = [
+  { re = 'script: OnOpen of FalloutNV\.esm\|SCPT 0x00116739 ran', count = 2, label = "the safe's OnOpen ran once per opening (the test aid opens it twice: Take All closes the menu, list 5 item 60)" },
+]
+
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
 
 [[scenario]]
