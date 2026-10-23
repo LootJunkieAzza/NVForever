@@ -27,6 +27,9 @@
 //!   ray to the chest from the player's eyes hit the counter]. Collision exists only around the player (3 × 3 cells): where either end is
 //!   out of it, only the landscape blocks sight (`fnv_game::sight::over_land`, the
 //!   heights read from the cells' LAND records) [engineering choice].
+//!   One ray answers both ways where two actors ask the same two points (eyes to eyes),
+//!   and a pair that stood still (within [`STILL`]) since the last measurement keeps
+//!   that measurement's answer once (`sights`, [`KeptSight`]) [design].
 //! - **Field of view**: 95° either side of where the body faces, for every actor and for
 //!   the player's detection [documented: GECK wiki GetLineOfSight; observed for the
 //!   player: player.GetDetected Ringo 1 to 90° off the facing on both sides and 0 from
@@ -172,6 +175,8 @@ struct Stats {
     /// Targets measured outdoors under the sun, and of those in shade.
     sun_measured: usize,
     shaded: usize,
+    /// What the lines of sight cost.
+    sight: SightCounts,
 }
 
 #[derive(Resource, Default)]
@@ -199,6 +204,8 @@ pub struct DetectionState {
     meter: Option<Band>,
     /// Landscape heights of the exterior cells, for sight out of the collision world.
     land: LandCache,
+    /// The pairs' lines of sight at the last measurement, for still pairs.
+    kept: KeptSights,
     stats: Stats,
 }
 
@@ -310,31 +317,55 @@ fn unseen() -> bool {
 /// `combat_tactics`).
 pub(crate) fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bool {
     let Some(phys) = phys else { return true };
-    let filter = sight_filter(phys);
-    clear_sight_in(&phys.world.queries(), &filter, from, to)
+    let filters = SightFilters::of(phys);
+    clear_sight_in(&phys.world.queries(), &filters, from, to, &mut 0)
 }
 
 /// What sight rays hit: not the layers sight passes through, actors' hit volumes or the
-/// player's own capsule (`PhysState::ray`'s rule).
-fn sight_filter(phys: &PhysState) -> Filter {
-    let mut filter = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()).union(see_through()), ..Default::default() };
-    filter.exclude.extend(phys.player.as_ref().map(|c| c.key()));
-    filter
+/// player's own capsule (`PhysState::ray`'s rule); `statics` neither the actors' capsules
+/// and bodies, which sight passes ([`clear_sight_in`]).
+struct SightFilters {
+    walk: Filter,
+    statics: Filter,
 }
 
-/// [`clear_sight`] on read-only queries, so many can run at once ([`clear_sights`]).
-fn clear_sight_in(q: &Queries, filter: &Filter, from: [f32; 3], to: [f32; 3]) -> bool {
+impl SightFilters {
+    fn of(phys: &PhysState) -> SightFilters {
+        let mut walk = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()).union(see_through()), ..Default::default() };
+        walk.exclude.extend(phys.player.as_ref().map(|c| c.key()));
+        let statics = Filter { no_actors: true, ..walk.clone() };
+        SightFilters { walk, statics }
+    }
+}
+
+/// [`clear_sight`] on read-only queries, so many can run at once ([`clear_sights`]);
+/// `rays` counts the rays cast.
+///
+/// Actors' capsules (the detector's own included: the ray starts inside it) do not hide
+/// what is behind them: the ray goes on past them, up to [`PAST_ACTORS`] times. First
+/// one ray that ignores the actors: where it meets nothing, nothing but actors is in the
+/// way and the walk past them could only end clear, so it is not cast (the same answer,
+/// one ray instead of two or more for every actor on the line) [engineering choice].
+fn clear_sight_in(q: &Queries, filters: &SightFilters, from: [f32; 3], to: [f32; 3], rays: &mut usize) -> bool {
     let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
     if len < 1.0 {
         return true;
     }
     let dir = d.map(|v| v / len);
-    // Actors' capsules (the detector's own included: the ray starts inside it) do not
-    // hide what is behind them: the ray goes on past them.
+    *rays += 1;
+    if q.ray(from, dir, len, &filters.statics).is_none() {
+        return true;
+    }
+    walk_past_actors(q, &filters.walk, from, dir, len, rays)
+}
+
+/// The line of sight from `from` along `dir` for `len`, going on past actors.
+fn walk_past_actors(q: &Queries, filter: &Filter, from: [f32; 3], dir: [f32; 3], len: f32, rays: &mut usize) -> bool {
     let mut at = 0.0;
     for _ in 0..PAST_ACTORS {
         let start = [from[0] + dir[0] * at, from[1] + dir[1] * at, from[2] + dir[2] * at];
+        *rays += 1;
         match q.ray(start, dir, len - at, filter) {
             None => return true,
             Some(h) if matches!(h.owner, Owner::Actor { .. } | Owner::Character { .. }) => at += h.distance + 1.0,
@@ -347,44 +378,141 @@ fn clear_sight_in(q: &Queries, filter: &Filter, from: [f32; 3], to: [f32; 3]) ->
     true
 }
 
+/// The line of sight as it was worked out before [`clear_sight_in`]'s first ray: the
+/// walk past actors alone, for `NVF_PLAY_TEST_SIGHT_CHECK`.
+fn clear_sight_walk(q: &Queries, filters: &SightFilters, from: [f32; 3], to: [f32; 3], rays: &mut usize) -> bool {
+    let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if len < 1.0 {
+        return true;
+    }
+    walk_past_actors(q, &filters.walk, from, d.map(|v| v / len), len, rays)
+}
+
+/// Test aid `NVF_PLAY_TEST_SIGHT_CHECK=1`: every line of sight cast is also worked out
+/// the old way (the walk past actors alone), every answer shared between askers
+/// ([`sights`]) is cast again from its own asker, and still pairs' lines of sight are not
+/// kept ([`STILL`]) but counted where keeping them would have answered otherwise. The
+/// detection summary gives the counts.
+fn sight_check() -> bool {
+    static CHECK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CHECK.get_or_init(|| std::env::var("NVF_PLAY_TEST_SIGHT_CHECK").is_ok_and(|v| v == "1"))
+}
+
 /// Sight rays at or above this many are cast on the compute pool, in chunks of
 /// [`RAY_CHUNK`] [engineering choice: fewer are cheaper on this thread].
 const PARALLEL_RAYS: usize = 32;
 const RAY_CHUNK: usize = 16;
 
 /// [`clear_sight`] for every (from, to) of `rays`, in order; the rays are cast on the
-/// compute pool at once (the queries are read-only). A 50-a-side battle casts some
-/// 20,000 a measurement [observed: CPU profile, 2026-10-23].
-fn clear_sights(phys: &mut PhysState, rays: &[([f32; 3], [f32; 3])]) -> Vec<bool> {
-    let filter = sight_filter(phys);
+/// compute pool at once (the queries are read-only). A 50-a-side battle asked some
+/// 20,000 lines of sight a measurement [observed: CPU profile, 2026-10-23].
+fn clear_sights(phys: &mut PhysState, rays: &[([f32; 3], [f32; 3])], counts: &mut SightCounts) -> Vec<bool> {
+    let filters = SightFilters::of(phys);
     let q = phys.world.queries();
-    if rays.len() < PARALLEL_RAYS {
-        return rays.iter().map(|&(a, b)| clear_sight_in(&q, &filter, a, b)).collect();
+    let check = sight_check();
+    let one = |chunk: &[([f32; 3], [f32; 3])]| {
+        let (mut cast, mut old_cast, mut differ) = (0, 0, 0);
+        let out: Vec<bool> = chunk
+            .iter()
+            .map(|&(a, b)| {
+                let clear = clear_sight_in(&q, &filters, a, b, &mut cast);
+                if check && clear_sight_walk(&q, &filters, a, b, &mut old_cast) != clear {
+                    differ += 1;
+                }
+                clear
+            })
+            .collect();
+        (out, cast, old_cast, differ)
+    };
+    let parts = if rays.len() < PARALLEL_RAYS { vec![one(rays)] } else { rays.par_chunk_map(ComputeTaskPool::get(), RAY_CHUNK, |_, chunk| one(chunk)) };
+    let mut out = Vec::with_capacity(rays.len());
+    for (o, cast, old_cast, differ) in parts {
+        out.extend(o);
+        counts.rays += cast;
+        counts.old_rays += old_cast;
+        counts.walk_differs += differ;
     }
-    rays.par_chunk_map(ComputeTaskPool::get(), RAY_CHUNK, |_, chunk| chunk.iter().map(|&(a, b)| clear_sight_in(&q, &filter, a, b)).collect::<Vec<_>>())
-        .into_iter()
-        .flatten()
-        .collect()
+    out
+}
+
+/// What the lines of sight cost, for the summary.
+#[derive(Debug, Default, Clone, Copy)]
+struct SightCounts {
+    /// Lines of sight asked through the collision world, and of them answered by a line
+    /// already cast for another asker: the same two points either way round.
+    asked: usize,
+    shared: usize,
+    /// Lines of sight of still pairs answered from the last measurement ([`STILL`]).
+    kept: usize,
+    /// Rays cast. With the sight check: the rays the old way cast for the same lines,
+    /// the answers that differ from the old way's, the shared answers that differ from
+    /// the asker's own ray, and the still pairs that could have been kept and of them
+    /// those whose kept answer would have differed.
+    rays: usize,
+    old_rays: usize,
+    walk_differs: usize,
+    shared_differs: usize,
+    kept_would: usize,
+    kept_differs: usize,
+}
+
+/// Two points as bits, the same whichever comes first: the key of a line of sight that
+/// serves both ways ([`sights`]).
+fn segment_key(a: [f32; 3], b: [f32; 3]) -> ([u32; 3], [u32; 3]) {
+    let (a, b) = (a.map(f32::to_bits), b.map(f32::to_bits));
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 /// Whether `from` sees for detection the first point, else the second, for each
 /// (from, [first, second]) of `asks`: through the collision world where both ends are in
 /// it, else over the landscape alone (the module notes). The rays of each step are cast at
 /// once ([`clear_sights`]).
-fn sights(phys: Option<&mut PhysState>, land: &mut LandCache, world: Option<&WorldData>, exterior: bool, asks: &[([f32; 3], [[f32; 3]; 2])]) -> Vec<bool> {
+///
+/// One line answers every asker of the same two points, either way round: A's eyes to
+/// B's eyes is B's eyes to A's (the second step of both, where both chests were hidden),
+/// and a detection event's two points are one, so its second step is its first. The
+/// collision world's solid shapes block a line whichever end it is cast from
+/// [hypothesis: parry's ray casts hit triangles from both sides and solid shapes from
+/// inside; checked with `NVF_PLAY_TEST_SIGHT_CHECK`].
+fn sights(phys: Option<&mut PhysState>, land: &mut LandCache, world: Option<&WorldData>, exterior: bool, asks: &[([f32; 3], [[f32; 3]; 2])], counts: &mut SightCounts) -> Vec<bool> {
     let Some(phys) = phys else { return vec![true; asks.len()] };
     let mut seen = vec![false; asks.len()];
+    // The answers of the lines cast so far, by their two points.
+    let mut known: HashMap<([u32; 3], [u32; 3]), bool> = HashMap::new();
+    let check = sight_check();
     for k in 0..2 {
         let mut rays = Vec::new();
+        let mut index: HashMap<([u32; 3], [u32; 3]), usize> = HashMap::new();
         let mut cast = Vec::new();
+        let mut shared = Vec::new();
         for i in 0..asks.len() {
             let (from, to) = (asks[i].0, asks[i].1[k]);
             if seen[i] {
                 continue;
             }
             if phys.ready_at(from) && phys.ready_at(to) {
-                rays.push((from, to));
-                cast.push(i);
+                counts.asked += 1;
+                let key = segment_key(from, to);
+                if let Some(&clear) = known.get(&key) {
+                    seen[i] = clear;
+                    counts.shared += 1;
+                    shared.push(i);
+                    continue;
+                }
+                let n = rays.len();
+                let r = *index.entry(key).or_insert(n);
+                if r == n {
+                    rays.push((from, to));
+                } else {
+                    counts.shared += 1;
+                    shared.push(i);
+                }
+                cast.push((i, r));
             } else {
                 // Not both in the collision world: over the landscape alone.
                 seen[i] = match (world, exterior) {
@@ -396,11 +524,58 @@ fn sights(phys: Option<&mut PhysState>, land: &mut LandCache, world: Option<&Wor
                 };
             }
         }
-        for (i, clear) in cast.into_iter().zip(clear_sights(phys, &rays)) {
-            seen[i] = clear;
+        let clear = clear_sights(phys, &rays, counts);
+        for (i, r) in cast {
+            seen[i] = clear[r];
+        }
+        for (key, r) in index {
+            known.insert(key, clear[r]);
+        }
+        if check && !shared.is_empty() {
+            // The shared answers against a ray of the asker's own.
+            let own: Vec<_> = shared.iter().map(|&i| (asks[i].0, asks[i].1[k])).collect();
+            let mut spare = SightCounts::default();
+            for (&i, clear) in shared.iter().zip(clear_sights(phys, &own, &mut spare)) {
+                counts.shared_differs += usize::from(clear != seen[i]);
+            }
+            counts.old_rays += spare.old_rays;
         }
     }
     seen
+}
+
+/// A line of sight of the last measurement, kept for still pairs ([`STILL`]): where it
+/// was seen from, the target's chest and eyes, the answer, and whether it was cast then
+/// (not itself kept).
+#[derive(Clone, Copy)]
+struct KeptSight {
+    from: [f32; 3],
+    chest: [f32; 3],
+    eyes: [f32; 3],
+    clear: bool,
+    cast: bool,
+}
+
+/// A pair's line of sight is kept for the next measurement when neither the detector's
+/// eyes (or the player's camera) nor the target's chest and eyes moved more than this
+/// many units since it was cast. A kept answer is not kept again, so every line of sight
+/// is cast at least every second measurement (half a second), and a door that opened
+/// between two shows at most one measurement late [design: 4 units, about 6 cm, less
+/// than a step].
+const STILL: f32 = 4.0;
+
+impl KeptSight {
+    fn still(&self, from: [f32; 3], chest: [f32; 3], eyes: [f32; 3]) -> bool {
+        self.cast && distance(self.from, from) <= STILL && distance(self.chest, chest) <= STILL && distance(self.eyes, eyes) <= STILL
+    }
+}
+
+/// The lines of sight of the last measurement, by (detector, target, the player's
+/// camera rather than its eyes), and when it was.
+#[derive(Default)]
+struct KeptSights {
+    at: f32,
+    sights: HashMap<(u32, u32, bool), KeptSight>,
 }
 
 /// A band change: detector and target (indices into the people), distance, the band
@@ -611,7 +786,7 @@ fn measure(
             (chest, std::array::from_fn(|k| chest[k] + d[k] * SUN_REACH))
         }).collect();
         if let Some(ph) = phys.as_deref_mut() {
-            for (&i, lit) in loaded.iter().zip(clear_sights(ph, &rays)) {
+            for (&i, lit) in loaded.iter().zip(clear_sights(ph, &rays, &mut state.stats.sight)) {
                 sunlit[i] = lit;
             }
         }
@@ -630,6 +805,12 @@ fn measure(
     let mut player_bands: Vec<(usize, fnv_game::detection::Detection)> = Vec::new();
     let (mut pairs, mut far_pairs, mut far_detected) = (0, 0, 0);
     let land = &mut state.land;
+    let mut counts = state.stats.sight;
+    let kept_before = std::mem::take(&mut state.kept);
+    // Kept lines of sight serve the measurement right after theirs only.
+    let kept_before = if now - kept_before.at <= INTERVAL * 1.5 { kept_before.sights } else { HashMap::new() };
+    let mut kept_now: HashMap<(u32, u32, bool), KeptSight> = HashMap::new();
+    let check = sight_check();
     let world = world.as_deref();
     let impacts = std::mem::take(&mut state.impacts);
     let explosions = std::mem::take(&mut state.explosions);
@@ -672,26 +853,47 @@ fn measure(
         // The lines of sight, cast at once (`sights`): the detector's eyes to the target's
         // chest, else its eyes; for the player also the camera's, where the target is in
         // the camera's view.
-        let eye_asks: Vec<usize> = (0..ordered.len()).filter(|&k| !(all_visible && ordered[k].0 != 0)).collect();
-        let asks: Vec<_> = eye_asks.iter().map(|&k| {
-            let (d, t) = (&people[ordered[k].0], &people[ordered[k].1]);
-            (d.view, [t.chest(), t.eyes])
-        }).collect();
+        // A still pair's line of sight of the last measurement serves again ([`STILL`]).
+        let mut look = |asked: Vec<(usize, [f32; 3], bool)>, answers: &mut Vec<bool>| {
+            let mut cast = Vec::new();
+            let mut would = Vec::new();
+            for (k, from, camera) in asked {
+                let (d, t) = (&people[ordered[k].0], &people[ordered[k].1]);
+                let key = (d.id, t.id, camera);
+                let (chest, eyes) = (t.chest(), t.eyes);
+                match kept_before.get(&key).filter(|s| s.still(from, chest, eyes)) {
+                    Some(s) if !check => {
+                        answers[k] = s.clear;
+                        counts.kept += 1;
+                        kept_now.insert(key, KeptSight { cast: false, ..*s });
+                    }
+                    kept => {
+                        if let Some(s) = kept {
+                            would.push((k, s.clear));
+                        }
+                        cast.push((k, from, key, chest, eyes));
+                    }
+                }
+            }
+            let asks: Vec<_> = cast.iter().map(|&(_, from, _, chest, eyes)| (from, [chest, eyes])).collect();
+            for (&(k, from, key, chest, eyes), clear) in cast.iter().zip(sights(phys.as_deref_mut(), land, world, exterior, &asks, &mut counts)) {
+                answers[k] = clear;
+                kept_now.insert(key, KeptSight { from, chest, eyes, clear, cast: true });
+            }
+            counts.kept_would += would.len();
+            counts.kept_differs += would.iter().filter(|&&(k, clear)| answers[k] != clear).count();
+        };
+        let eye_asks: Vec<_> = (0..ordered.len()).filter(|&k| !(all_visible && ordered[k].0 != 0)).map(|k| (k, people[ordered[k].0].view, false)).collect();
         let mut eye_sight = vec![true; ordered.len()];
-        for (&k, clear) in eye_asks.iter().zip(sights(phys.as_deref_mut(), land, world, exterior, &asks)) {
-            eye_sight[k] = clear;
-        }
-        let camera_asks: Vec<(usize, [f32; 3])> = (0..ordered.len())
+        look(eye_asks, &mut eye_sight);
+        let camera_asks: Vec<_> = (0..ordered.len())
             .filter_map(|k| {
                 let (d, t) = (&people[ordered[k].0], &people[ordered[k].1]);
-                d.camera.filter(|&(at, ahead)| in_view(at, ahead, t.chest())).map(|(at, _)| (k, at))
+                d.camera.filter(|&(at, ahead)| in_view(at, ahead, t.chest())).map(|(at, _)| (k, at, true))
             })
             .collect();
-        let asks: Vec<_> = camera_asks.iter().map(|&(k, at)| (at, [people[ordered[k].1].chest(), people[ordered[k].1].eyes])).collect();
         let mut camera_sight = vec![false; ordered.len()];
-        for (&(k, _), clear) in camera_asks.iter().zip(sights(phys.as_deref_mut(), land, world, exterior, &asks)) {
-            camera_sight[k] = clear;
-        }
+        look(camera_asks, &mut camera_sight);
         for (k, &(i, j)) in ordered.iter().enumerate() {
             let (d, t) = (&people[i], &people[j]);
             let by_player = i == 0;
@@ -766,7 +968,7 @@ fn measure(
             }
         }
         let asks: Vec<_> = hearers.iter().map(|&(e, i, _)| (people[i].eyes, [evs[e].at, evs[e].at])).collect();
-        let heard_sight = sights(phys.take(), land, world, exterior, &asks);
+        let heard_sight = sights(phys.take(), land, world, exterior, &asks, &mut counts);
         events += evs.len();
         for (&(e, i, dist), clear) in hearers.iter().zip(heard_sight) {
             let (ev, d) = (evs[e], &people[i]);
@@ -817,7 +1019,9 @@ fn measure(
     });
 
     // The log and the counts.
+    state.kept = KeptSights { at: now, sights: kept_now };
     let st = &mut state.stats;
+    st.sight = counts;
     st.measurements += 1;
     st.barks_held += held;
     st.pairs += pairs;
@@ -968,6 +1172,22 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
         s.far_detected,
         bands(s.own_changes),
         s.player_saw.len(),
+    );
+    let c = &s.sight;
+    info!(
+        "detection summary, lines of sight: {} asked through the collision world, {} answered by a line cast for another asker, {} kept for still pairs; {} rays cast{}",
+        c.asked,
+        c.shared,
+        c.kept,
+        c.rays,
+        if sight_check() {
+            format!(
+                "; sight check: the old way cast {} rays, {} answers differ from it, {} shared answers differ from the asker's own ray; {} still pairs could have been kept, {} of them would have answered otherwise",
+                c.old_rays, c.walk_differs, c.shared_differs, c.kept_would, c.kept_differs
+            )
+        } else {
+            String::new()
+        },
     );
     let changes: Vec<String> = s.changes.iter().map(|((f, t), n)| format!("{} → {} {n}", f.name(), t.name())).collect();
     info!(

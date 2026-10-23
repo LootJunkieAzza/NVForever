@@ -565,10 +565,12 @@ pub fn remove_from_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
-/// A script changed `r`'s factions: a detection round's kept list of them goes.
+/// A script changed `r`'s factions: the kept lists of them go ([`FactionKeep`]).
 fn forget_factions(g: &Game, r: FormId) {
-    if let Some(mut k) = g.detection_round.as_ref().and_then(|round| round.factions.lock().ok()) {
-        k.remove(&r);
+    for keep in keeps(g) {
+        if let Ok(mut k) = keep.factions.lock() {
+            k.remove(&r);
+        }
     }
     forget_relations(g);
 }
@@ -739,8 +741,8 @@ pub fn is_killer(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// The factions an actor is in now: the records' ([`base_factions`]) unless removed, and
 /// those added at run time.
 pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
-    // Kept for a detection round, which asks again and again (`Game::begin_detection_round`).
-    let kept = g.detection_round.as_ref().map(|round| &round.factions);
+    // Kept while asked again and again ([`FactionKeep`]).
+    let kept = keep(g).map(|k| &k.factions);
     if let Some(f) = kept.and_then(|k| k.lock().ok()?.get(&r).cloned()) {
         return f;
     }
@@ -749,6 +751,28 @@ pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
         k.insert(r, out.clone());
     }
     out
+}
+
+/// Each actor's factions ([`factions_of`]) and how it stands towards others by them
+/// ([`faction_relation`]), kept while something asks them again and again: a detection
+/// round (`Game::begin_detection_round`) and a frame of the combat AI
+/// (`Game::begin_faction_frame`). They change only by script (AddToFaction, SetEnemy and
+/// the like) and crimes (SetPCEnemyOfFaction's rule), which forget them
+/// ([`forget_factions`], [`forget_relations`]).
+#[derive(Debug, Default)]
+pub struct FactionKeep {
+    factions: std::sync::Mutex<std::collections::HashMap<FormId, Vec<FormId>>>,
+    relations: std::sync::Mutex<std::collections::HashMap<(FormId, FormId), i64>>,
+}
+
+/// The keep in use: the detection round's while one runs, else the combat AI frame's.
+fn keep<'a>(g: &'a Game) -> Option<&'a FactionKeep> {
+    g.detection_round.as_ref().map(|round| &round.kept).or(g.faction_frame.as_ref())
+}
+
+/// Every keep there is, for forgetting.
+fn keeps<'a>(g: &'a Game) -> impl Iterator<Item = &'a FactionKeep> {
+    g.detection_round.as_ref().map(|round| &round.kept).into_iter().chain(g.faction_frame.as_ref())
 }
 
 fn factions_now(g: &Game, r: FormId) -> Vec<FormId> {
@@ -784,8 +808,8 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// enemy first, then friend, then ally; the player counts as an enemy of an actor in a
 /// faction the player is a crime enemy of.
 pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
-    // Kept for a detection round, which asks again and again (`Game::begin_detection_round`).
-    let kept = g.detection_round.as_ref().map(|round| &round.relations);
+    // Kept while asked again and again ([`FactionKeep`]).
+    let kept = keep(g).map(|k| &k.relations);
     if let Some(v) = kept.and_then(|k| k.lock().ok()?.get(&(r, o)).copied()) {
         return v;
     }
@@ -796,11 +820,13 @@ pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     v
 }
 
-/// Factions, faction reactions or the player's faction enemies changed: a detection
-/// round's kept faction relations go.
+/// Factions, faction reactions or the player's faction enemies changed: the kept faction
+/// relations go ([`FactionKeep`]).
 pub(crate) fn forget_relations(g: &Game) {
-    if let Some(round) = g.detection_round.as_ref() {
-        round.forget_relations();
+    for keep in keeps(g) {
+        if let Ok(mut k) = keep.relations.lock() {
+            k.clear();
+        }
     }
 }
 

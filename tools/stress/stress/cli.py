@@ -77,6 +77,9 @@ def parser() -> argparse.ArgumentParser:
     b = tests.add_parser("battle", help=TESTS["battle"])
     common(b)
     b.add_argument("--per-side", type=int, default=10, help="fighters a side (10, 25, 50)")
+    b.add_argument("--aid", action="append", default=[], metavar="NAME=VALUE",
+                   help="a further test aid for the game, e.g. NVF_PLAY_TEST_SIGHT_CHECK=1 to check the detection's "
+                        "shared and kept lines of sight (repeatable)")
     b.add_argument("--third", type=int, default=0, help="fighters in a third group (creatures), 0 for none")
     b.add_argument("--seconds", type=float, default=180.0, help="how long the run lasts")
     b.add_argument("--every", type=float, default=2.0, help="seconds between samples")
@@ -156,7 +159,7 @@ def main(argv=None) -> int:
         bad = 0 if res["status"] == "ok" else 1
     else:
         cx, cy = (float(v) for v in a.centre.split(","))
-        res = battle.run(ctx, a.per_side, a.third, a.seconds, a.every, (cx, cy), a.gap)
+        res = battle.run(ctx, a.per_side, a.third, a.seconds, a.every, (cx, cy), a.gap, dict(kv.split("=", 1) for kv in a.aid))
         lines = battle.report(res)
         bad = 0 if res["status"] == "ok" else 1
     lib.write_results(ctx.out, res, lines)

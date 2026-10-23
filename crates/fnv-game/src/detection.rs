@@ -278,22 +278,10 @@ pub struct Round {
     sides: HashMap<FormId, Side>,
     /// `hostile_to(actor, other)` by (actor, other), until [`Game::end_detection_hostility`].
     pub(crate) hostile: Option<HashMap<(FormId, FormId), bool>>,
-    /// Each actor's factions (`functions::actor::factions_of`), for the whole round: they
-    /// change only by script (AddToFaction and the like), which forgets them.
-    pub(crate) factions: std::sync::Mutex<HashMap<FormId, Vec<FormId>>>,
-    /// How each actor stands towards another by their factions
-    /// (`functions::actor::faction_relation`), for the whole round: scripts and crimes that
-    /// change factions, faction reactions or the player's faction enemies forget them all.
-    pub(crate) relations: std::sync::Mutex<HashMap<(FormId, FormId), i64>>,
-}
-
-impl Round {
-    /// Forget the kept faction relations (something they read changed).
-    pub(crate) fn forget_relations(&self) {
-        if let Ok(mut k) = self.relations.lock() {
-            k.clear();
-        }
-    }
+    /// Each actor's factions and how it stands towards others by them, for the whole
+    /// round: they change only by script (AddToFaction and the like) and crimes, which
+    /// forget them (`functions::actor::FactionKeep`).
+    pub(crate) kept: crate::functions::actor::FactionKeep,
 }
 
 /// One actor's detection inputs ([`Pair`]'s detector and target fields).
@@ -580,6 +568,21 @@ impl Game<'_> {
     /// End the detection round: what it kept is dropped.
     pub fn end_detection_round(&mut self) {
         self.detection_round = None;
+    }
+
+    /// Start a frame of the combat AI: until [`Game::end_faction_frame`], each actor's
+    /// factions and faction relations are worked out once and kept, as in a detection
+    /// round (`functions::actor::FactionKeep`). Its comrade and hostility checks asked
+    /// them afresh for every pair [observed: CPU profile of a 50-a-side battle,
+    /// 2026-10-23, `Game::comrades` → `factions_of` in `npc_combat::fight`]. Scripts and
+    /// crimes that change them forget them, so what is read is always what is current.
+    pub fn begin_faction_frame(&mut self) {
+        self.faction_frame = Some(Default::default());
+    }
+
+    /// End the combat AI's frame: the factions it kept are dropped.
+    pub fn end_faction_frame(&mut self) {
+        self.faction_frame = None;
     }
 
     /// The weight and class of the armour an actor wears in the torso slot.
