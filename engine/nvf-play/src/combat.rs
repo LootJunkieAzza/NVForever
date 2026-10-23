@@ -1639,13 +1639,15 @@ fn entry_ops(g: &mut fnv_game::Game, owner: FormId, points: &[u8], tabs: &[Optio
 /// the tabs Weapon and Target; the target's change to the attacker's critical chance
 /// (Weapon, then the attacker [hypothesis: the second tab]) and its own DT (Attacker,
 /// Attacker's weapon) [documented: GECK wiki GetPerkModifier, the entry functions'
-/// arguments]. Only the player has perks; without a script runtime, none.
+/// arguments]. Only the player and its teammates have perks (a teammate the teammate
+/// perks, `fnv_game::Game::held_perks`); without a script runtime, none.
 fn hit_perks(script: Option<&mut ScriptState>, sim: &mut SimState, attacker: FormId, weapon: FormId, target: Option<FormId>) -> (damage::EntryOps, damage::EntryOps) {
     use fnv_game::perks as p;
-    if attacker != FormId::PLAYER_REF && target != Some(FormId::PLAYER_REF) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Default::default() };
+    let holds = |r: FormId| r == FormId::PLAYER_REF || rt.game.is_teammate(r);
+    if !holds(attacker) && !target.is_some_and(holds) {
         return Default::default();
     }
-    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Default::default() };
     with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         let mine = [p::CALCULATE_WEAPON_DAMAGE, p::CALCULATE_MY_CRITICAL_HIT_CHANCE, p::CALCULATE_MY_CRITICAL_HIT_DAMAGE, p::MODIFY_DAMAGE_THRESHOLD_ATTACKER];
@@ -2096,7 +2098,7 @@ pub(crate) fn fire(
 /// The target's DT and DR from the armour it wears (its carried ARMO by the wearing rule).
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
 /// Each piece protects by its condition (§17).
-fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
+pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
     let (dt, dr) = c.forms.armor_values_worn(&worn_armor(&c.forms, sim, target));
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).

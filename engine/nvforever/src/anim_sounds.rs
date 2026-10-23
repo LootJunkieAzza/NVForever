@@ -22,12 +22,16 @@
 //!   pass, else the DOOR record's open (SNAM) or close (ANAM) sound as they start.
 //! - **Creatures** (docs/spec-notes/audio.md §14): a creature whose record lists sounds
 //!   (CREA `CSDT`/`CSDI`/`CSDC`, its own, else those of the creature it inherits sounds
-//!   from, `CSCR`; of the creature a leveled list picked) hears its `Enum:` keys as those
+//!   from, `CSCR`; of the creature a leveled list picked, else of the creature its model
+//!   and animations come from, for a template-only creature such as `LvlFeralGhoul`) hears its `Enum:` keys as those
 //!   types (`Left`, `Right`, `BackLeft`, `BackRight`, `Idle`, `Aware`, `Attack`,
 //!   `Auxiliary1`–`8`): one of the type's sounds, at its chance [hypothesis: the keys
 //!   name the types]. A hit plays its Hit sound and a death its Death sound
 //!   (`nvf_play::combat::ActorHit`); the `Enum: Hit` keys of hit clips are not played
-//!   again [design]. A living creature in earshot sounds its Conscious Loop, and while it
+//!   again [design]. A creature that becomes aware (its awareness state goes from Normal
+//!   or Lost to Alert or Combat, `fnv_game::awareness`) plays its Aware sound
+//!   [hypothesis: by the name; the Aware lists of the radscorpion, mirelurk and lakelurk
+//!   king have no `Enum: Aware` key in any clip]. A living creature in earshot sounds its Conscious Loop, and while it
 //!   moves its Movement Loop, as `nvf_play::sfx::SoundSource`s (played by
 //!   `nvf_play::ambient`); the loop's chance is rolled once per creature [design]. A
 //!   creature without sounds steps like a person.
@@ -58,6 +62,7 @@ use nvf_assets::anim_play::{BlendPlayer, Clip};
 use nvf_play::doors::DoorSound;
 use nvf_play::phys::PhysState;
 use nvf_play::player::{Player, BodySet};
+use fnv_game::awareness::State;
 use nvf_play::combat::{is_dead, ActorHit};
 use nvf_play::script::ScriptState;
 use nvf_play::sfx::{PlaySound, Sfx, SoundSource};
@@ -152,6 +157,8 @@ pub struct AnimSounds {
     creatures: HashMap<u32, Option<Arc<Vec<CreatureSound>>>>,
     /// Each creature's conscious loop, rolled against its chance once.
     conscious: HashMap<u32, Option<FormId>>,
+    /// Whether each creature was aware (in the Alert or Combat state) last frame.
+    aware: HashMap<u32, bool>,
     /// Where each creature was last frame.
     last_pos: HashMap<Entity, Vec3>,
     /// The player on the ground last frame, and seconds in the air then.
@@ -175,6 +182,7 @@ impl Default for AnimSounds {
             steps: HashMap::new(),
             creatures: HashMap::new(),
             conscious: HashMap::new(),
+            aware: HashMap::new(),
             last_pos: HashMap::new(),
             air: None,
         }
@@ -454,6 +462,15 @@ fn actor_keys(
                 if let (true, Some(m)) = (speed > MOVING, list.iter().find(|c| c.kind == creature_sound::MOVEMENT_LOOP)) {
                     loops.write(SoundSource { key: SoundSource::key(MOVEMENT, r.reference), sound: FormId(m.sound), at: feet.to_array(), looping: false });
                 }
+                // Becoming aware: from Normal (or Lost) into Alert or Combat, its Aware
+                // sound (see the module notes). The first frame seen only notes the state.
+                let aware = script
+                    .as_deref()
+                    .and_then(|s| s.rt.as_ref())
+                    .is_some_and(|rt| matches!(rt.game.awareness.state(FormId(r.reference)), State::Alert | State::Combat));
+                if s.aware.insert(r.reference, aware) == Some(false) && aware {
+                    creature_heard(s, &mut out, who, creature_sound::AWARE, list, feet.to_array());
+                }
             }
         }
         let mut heard: Vec<(&Clip, KeySound)> = Vec::new();
@@ -514,9 +531,16 @@ fn creature_list(s: &mut AnimSounds, d: &PlayWorld, w: Option<&crate::actors::Ac
             if !crea {
                 return None;
             }
-            // The creature a leveled list picked, else the one placed.
-            let picked = w.and_then(|w| w.resolve_creature(rig.base, rig.reference).ok()).map(|c| c.creature.0);
-            let mut list = picked.map(|c| creature_sounds(d.lo, d.schema, c).0).unwrap_or_default();
+            // The creature a leveled list picked, else the one its model and animations
+            // come from (a template-only creature: `LvlFeralGhoul`, Model/Animation from
+            // the leveled list `TPLT` names, lists none itself), else the one placed.
+            let picked = w.and_then(|w| w.resolve_creature(rig.base, rig.reference).ok());
+            let mut list = picked.as_ref().map(|c| creature_sounds(d.lo, d.schema, c.creature.0).0).unwrap_or_default();
+            if list.is_empty() {
+                if let Some(c) = picked.as_ref().filter(|c| c.model_source != c.creature) {
+                    list = creature_sounds(d.lo, d.schema, c.model_source.0).0;
+                }
+            }
             if list.is_empty() {
                 list = creature_sounds(d.lo, d.schema, rig.base).0;
             }

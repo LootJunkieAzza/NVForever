@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(first_person_variant(r"meshes\characters\_male\lefthand.nif").as_deref(), Some(r"meshes\characters\_male\lefthand1st.nif"));
         assert_eq!(first_person_variant("x.dds"), None);
         let mut actors = ActorForms::default();
-        let armor = |slots| Armor { edid: None, slots, worn: [None, None], dt: 0.0, dr_raw: 0, power_armor: false, ragdoll_template: None };
+        let armor = |slots| Armor { edid: None, slots, worn: [None, None], dt: 0.0, dr_raw: 0, power_armor: false, ragdoll_template: None, addons: Vec::new() };
         actors.armors.insert(FormId(0x10), armor(slot::UPPER_BODY | slot::LEFT_HAND));
         actors.armors.insert(FormId(0x11), armor(slot::RIGHT_HAND));
         actors.armors.insert(FormId(0x12), armor(slot::HAT));

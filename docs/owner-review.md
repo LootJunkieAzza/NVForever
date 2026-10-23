@@ -7789,6 +7789,52 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
 
+## Armour gloves, bloatfly wings, Lucky's texture, creature sounds (2026-10-23, list 7 W7)
+
+Branch claude/l7-visuals-sound. Specs: [actors](spec-notes/actors.md) §2.3, §8.3, §9.3;
+[audio](spec-notes/audio.md) §16 (the creature sound audit).
+
+- **Item 3, the Lightweight Leather Armor's floating right hand.** The armour (CaravanPack
+  `PreordArmorLeather`) names, as the base leather armour does, a "Biped Model List"
+  (BIPL) of gloves (`LeatherArmorGloveR`/`L`), which NVForever never read: the bare race
+  hand was drawn instead, and this armour's right sleeve ends about 3 units short of the
+  base armour's, so the wrist showed a gap. Now every worn item's BIPL addons are worn
+  with it (142 armours name one: outfit gloves, power armour gauntlets, backpacks and
+  decals, the Chinese stealth armour's helmet).
+  - *Guess:* the addons are worn as parts of the item, covering their biped slots (the
+    hands under them are hidden).
+  - *Check:* the Lightweight Leather Armor's right wrist in third and first person;
+    whether power armour now shows the right gauntlets (it showed none, or bare hands,
+    before); the Tesla armour's `ArmorTeslaPowerFX`, which its list names as well.
+- **Item 17, bloatfly wings.** The bloatfly's walk and run clips have no wing tracks; only
+  its idle animates the wings. A creature's idle now plays under its other clips wherever
+  those leave a bone alone, so the wings (and head) keep moving in flight.
+  - *Decision:* creatures only; people keep the bind pose for the bones their walk clips
+    leave (pauldrons, twist bones).
+  - *Check:* the bloatfly's wings flapping while it flies at you; other creatures'
+    movement (anything stiff or doubled that was not before).
+- **Item 28, Lucky's texture in third person.** Lucky's MODL is the plain long-barrel .357
+  model; its "World Model" (MOD4) is the same gun with the engraved texture. NVForever now
+  holds MOD4 in third person when it differs from MODL and is not a ground object
+  (`…GO.nif`, `…WorldObject.nif`): in the base game only Lucky.
+  - *Guess:* the game holds that model (the owner's report says so; not captured).
+  - *Check:* Lucky in third person, the player's and an NPC's.
+- **Item 46, feral ghouls silent; creature sound audit.** The placed ghouls' base
+  (`LvlFeralGhoul`) is a template-only creature: its sounds were read from it (none)
+  instead of from the creature its model comes from. Fixed for all 468 template-only
+  creatures (283 now always sound, 159 depending on the leveled pick). Creatures now also
+  play their Aware sound when they become aware of something (Normal to Alert or Combat).
+  - *Guess:* the sounds come with the Model/Animation template group.
+  - *Guess:* Aware plays on becoming aware (once per change); the Aware lists of the
+    radscorpion, mirelurk and lakelurk king are keyed by no clip.
+  - *Decision:* Attack is still played only by the clips' keys: the ghoul's attack clips
+    already play its attack voice through Auxiliary keys, and an engine-played Attack
+    would double it.
+  - *Left (audio.md §16):* super mutants' and robots' combat voices (dialogue topics, not
+    creature sounds), the Idle type where no clip keys it, 26 creatures whose templates
+    give no sounds (ceiling turrets, trogs, a few quest creatures).
+  - *Check:* a feral ghoul fight: footsteps, attack and chase voices, hit and death; a
+    radscorpion's call when it notices you; whether anything now sounds twice.
 ## Physics: steps, deaths, small creatures, cars (2026-10-23, list 7 W5)
 
 Branch claude/l7-physics; docs/spec-notes/physics.md §6.8.1, §6.10, §6.11.
@@ -8005,3 +8051,63 @@ sounds (wind, rumbles, rattles) play now and then by weather. Spec:
 - *Check:* how often does the desert wind or a rumble play in the original's Goodsprings?
   Does the screen do anything when Med-X or Jet wears off?
 
+## Gap audit: script functions, NIF data, compass, teammate perks (2026-10-23, list 7 W9)
+
+Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10-23.md.
+
+- **Teammate perks** (`player.AddPerk perk 1`: Companion Suite, the companions' quest
+  rewards) now apply to the player's teammates: their damage and DT entry points, and
+  their abilities while the actor is a teammate. *Guesses:* a teammate holds them at rank 1
+  and only while it is a teammate; an ability of a teammate perk the player loses stays
+  (no shipped script does that). Calm Heart's ability has no condition of its own, so every
+  teammate gets its +50 health, not only Cass, unless the spell's effect carries one.
+  *Not built:* Old Vaquero's and Causeless Rebel's attack-speed entries. *Check:* Cass's
+  health after "Hand of Vengeance"/"Calm Heart", and whether Companion Suite's lower damage
+  and higher DR show on companions from the start (its description: "Mult Weap DAM 0.75,
+  Mult Target DT 0.75, Decrease Carry Weight 75, Increase DR 33%").
+- **Quest markers on the compass**: the active quest's marked targets, at any distance,
+  drawn in the map marker's box over the other marks. A target in another cell is marked at
+  one door towards it (outdoors the door into its interior; indoors a door to its cell or
+  its worldspace). *Guesses:* the box (the HUD file gives the picture the map marker's
+  40 x 50 at y 5, our map-marker box is fitted to your screenshots), no distance limit,
+  one door step, a mark behind the player is not shown at the compass's edge. *Check:*
+  where the marker sits on the compass in the original, and whether it clings to the edge
+  when the target is behind you.
+- **Smoke setups fixed, not the engine**: traps-tripwire and vats-mode-melee acted while
+  the add-ons' start-up message boxes were still coming (the button answered an add-on's
+  box; a box ended VATS mode), now later; furniture-fidgets-tree uses Chet, since Easy
+  Pete's fresh-game package is an eating one (procedure 10) and he rightly eats.
+  anim-sounds' "5 door sounds" is marked known failing: 10 doors are drawn and opened now.
+- **NiBoolTimelineInterpolator** in clips is read as the plain bool interpolator it
+  extends (show/hide tracks of a few effect and vehicle clips).
+## Pip-Boy items, Misc folders, Caravan cards (2026-10-23, list 7 W2)
+
+- **5 Aid effect lines**. The EFFECTS card now lists only the effects whose conditions
+  pass for you, one line per value, with the item's Medicine/Survival potency
+  (aid-items.md §14). Programmer's Digest: Science +10 (+20 with Comprehension); the
+  Blood Pack: HP +1 (with Hematophage the 4 a second for 5 s are added: HP +21); the
+  Stimpak one HP line (30 x potency outside Hardcore). *Guesses:* an effect over time is
+  shown as its total (HP +20, not "+4/s for 5 s"), and the potency is applied (your
+  original screenshot shows Stimpak HP +40 against a record value of 30). The barter and
+  container figures read the same. *Check:* a Stimpak and a Blood Pack in Hardcore, and a
+  magazine with Comprehension.
+- **6 Keyring and card deck**. Misc starts with a "Keyring (n)" row and a "Caravan Cards
+  (n)" row (only when you have some). Using one lists its keys/cards under a "Back" row;
+  Back, Backspace or another tab returns to Misc. Cards can't be used or dropped there.
+  *Decisions:* the names "Keyring"/"Caravan Cards" and their place at the top are mine;
+  the real "Caravan Deck" item Ringo gives stays a normal Misc row (it was easy to confuse
+  with the folder; say if it should be the folder instead). *Check:* the look of the rows.
+- **8 Caravan cards 0**. Cause: Ringo's Caravan Deck item moves the 54 cards into your
+  inventory with RemoveAllItems, and each card's own script (OnAdd) registers it; our
+  RemoveAllItems never ran OnAdd, so no card was registered. Now it does, once per stack.
+  *Check:* get the deck from Ringo and play him.
+- **15 Last inventory item**. The list assumed nine rows always fit; a two-line name
+  (e.g. Mercenary's Grenade Rifle) pushed the last row out of reach. The list now moves on
+  to keep the selection drawn. *Check:* a long weapons list, scroll to the end with the
+  wheel and the keys.
+- **20 HP and DT**. HP is the STATS page's health; DT is worn armour at its condition plus
+  the DT actor value (what combat uses), one decimal. *Guess:* the original may show
+  armour DT before condition. *Check:* with worn, damaged armour.
+- **33 Skill books on Aid**. Books that teach a skill are listed on the Aid tab (barter
+  categories too); books that teach nothing (Paradise Lost, You're SPECIAL!) stay in Misc
+  (*guess*).
