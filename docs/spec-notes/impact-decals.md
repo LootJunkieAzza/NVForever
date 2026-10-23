@@ -112,7 +112,30 @@ The log's `decals summary` line gives how many were placed, the most alive at on
 how many went at the cap, by fading and with their cell or actor (smoke
 `impact-decals-cap`).
 
-## 4. Not built, open
+## 4. Blood on actors (playtest list 7 item 27, 2026-10-23)
+
+The owner: blood decals "appear floating off the mesh, at the wrong rotations and look
+sideways", and too many. Cause [observed in code]: a shot meets the actor's hit volume
+(capsules round the bones, hitvol.rs), not its drawn skin, and the decal (a flat quad facing
+the hit normal) was put there, at the capsule's point and normal. The forward decal draws
+on whatever lies within its depth of its plane, so off the skin it showed in the air or
+turned with the capsule.
+
+- **Onto the body** [design]: the shot's line (from 48 units before the hit along the shot
+  to 48 past it) is cast against the actor's drawn shapes as they are posed this frame:
+  each shape's vertices skinned on the CPU (the joints' world matrices times their inverse
+  bind poses), shapes drawn with no triangles (exploded parts) and hidden ones left out
+  (`decals::ray_shape`). The decal goes where the line first meets a triangle, facing that
+  triangle's normal, and hangs from the bone nearest that point. A line that meets no
+  drawn shape (a hit on the capsule beside an arm) leaves no decal.
+- **Fewer and thinner** [design: "tone down"]: at most `MAX_PER_ACTOR` = 3 alive on one
+  actor, at least `ACTOR_GAP` = 0.3 s between two on it (a shotgun's pellets leave one),
+  no wider than `ACTOR_MAX_SIDE` = 16 units and shown within `ACTOR_DEPTH` = 4 units of
+  their plane, so the flat mark does not show past a limb's curve.
+- Log at exit: `decals: on actors, <n> hits whose line met no drawn shape left none, <m>
+  were left out by the actor limits`. Smoke `impact-decals-blood`.
+
+## 5. Not built, open
 
 - **Angle threshold** ("how far around in degrees a decal renders"): read as the largest
   angle between the decal's normal and a surface it is drawn on (glass 180, flesh 90,
