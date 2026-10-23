@@ -17,7 +17,10 @@
 //! Each window also logs `profile scene: <n> mesh entities (<v> visible, <c> moved this
 //! frame), <m> distinct meshes, <u> distinct materials in use (<a> material assets)`: what
 //! the renderer batches by, and how many entities it extracts again because their
-//! transform changed.
+//! transform changed. And from the render world `profile batches: <phase> <v> views,
+//! <m> multi-drawn sets, <b> batched bins, <u> unbatched bins; …` per binned phase,
+//! summed over its views: each multi-drawn set is one indirect draw, each other bin one
+//! draw, and the per-view preparing scales with them (graphics-enhanced.md §5.5).
 
 use bevy::log::tracing::field::{Field, Visit};
 use bevy::log::tracing::span::{Attributes, Id};
@@ -26,7 +29,10 @@ use bevy::log::tracing_subscriber::layer::Context;
 use bevy::log::tracing_subscriber::registry::LookupSpan;
 use bevy::log::tracing_subscriber::Layer;
 use bevy::log::BoxedLayer;
+use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d};
+use bevy::core_pipeline::prepass::{AlphaMask3dPrepass, Opaque3dPrepass};
 use bevy::prelude::*;
+use bevy::render::render_phase::ViewBinnedRenderPhases;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
@@ -129,7 +135,39 @@ impl Plugin for ProfilePlugin {
         let Some(every) = interval() else { return };
         info!("test aid NVF_PLAY_TEST_PROFILE: a span profile every {every} s");
         app.insert_resource(ProfileWindow { every, ..default() }).add_systems(Last, report);
+        if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render.add_systems(bevy::render::Render, (move |mut last: Local<Option<Instant>>, shadow: Res<ViewBinnedRenderPhases<bevy::pbr::Shadow>>, opaque: Res<ViewBinnedRenderPhases<Opaque3d>>, mask: Res<ViewBinnedRenderPhases<AlphaMask3d>>, prepass: Res<ViewBinnedRenderPhases<Opaque3dPrepass>>, mask_prepass: Res<ViewBinnedRenderPhases<AlphaMask3dPrepass>>| {
+                // The render world has no clock of its own: real time.
+                let now = Instant::now();
+                let at = *last.get_or_insert(now);
+                if now.duration_since(at).as_secs_f32() < every {
+                    return;
+                }
+                *last = Some(now);
+                info!(
+                    "profile batches: {}; {}; {}; {}; {}",
+                    batches("shadow", &shadow),
+                    batches("opaque", &opaque),
+                    batches("alpha-mask", &mask),
+                    batches("opaque prepass", &prepass),
+                    batches("alpha-mask prepass", &mask_prepass)
+                );
+            })
+            .in_set(bevy::render::RenderSystems::Render));
+        }
     }
+}
+
+/// `<phase> <v> views, <m> multi-drawn sets, <b> batched bins, <u> unbatched bins`, summed
+/// over the phase's views.
+fn batches<BPI: bevy::render::render_phase::BinnedPhaseItem>(name: &str, phases: &ViewBinnedRenderPhases<BPI>) -> String {
+    let (mut m, mut b, mut u) = (0, 0, 0);
+    for phase in phases.values() {
+        m += phase.multidrawable_meshes.len();
+        b += phase.batchable_meshes.len();
+        u += phase.unbatchable_meshes.len();
+    }
+    format!("{name} {} views, {m} multi-drawn sets, {b} batched bins, {u} unbatched bins", phases.len())
 }
 
 #[derive(Resource, Default)]
