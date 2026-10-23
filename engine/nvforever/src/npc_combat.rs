@@ -253,13 +253,9 @@ pub const CREATURE_BODY_REACH: f32 = 59.0;
 /// to another spot, at most [`HIDE_MOVES`] times a flight (§12.2.1) [design].
 pub const HIDE_SEEN_SECONDS: f32 = 4.0;
 pub const HIDE_MOVES: u8 = 2;
-/// Within this distance of its target an actor fires from the hip, beyond it down its
-/// sights: 20 m at 70 units per metre [owner's playtest list 2026-10-11; the units per
-/// metre: observed, gravity fits 9.81 m/s² at 70 units/m, physics.md §6.3].
-pub const HIP_FIRE_WITHIN: f32 = 1400.0;
-/// Once aiming down its sights, an actor keeps them up until its target is this much
-/// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
-pub const SIGHTS_HYSTERESIS: f32 = 50.0;
+/// The 20 m sights rule (hip fire within, sights beyond) is shared with the player's VATS
+/// mode shots in third person: `nvf_play::combat`.
+pub use nvf_play::combat::{aims_down_sights, HIP_FIRE_WITHIN};
 /// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
 pub(crate) const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
@@ -955,13 +951,6 @@ pub fn engage(arm_reach: Option<f32>, gun: Option<GunReach>) -> (f32, f32) {
             (reach * MELEE_ENGAGE_SHARE, reach)
         }
     }
-}
-
-/// Whether an actor fires down its sights at a target `distance` away (module notes):
-/// only a gun with sights (`sight_fov` above 0), beyond [`HIP_FIRE_WITHIN`]; `was`: it
-/// aimed down them last frame (they stay up to [`SIGHTS_HYSTERESIS`] nearer).
-pub fn aims_down_sights(was: bool, distance: f32, sight_fov: f32) -> bool {
-    sight_fov > 0.0 && distance > if was { HIP_FIRE_WITHIN - SIGHTS_HYSTERESIS } else { HIP_FIRE_WITHIN }
 }
 
 /// The extra spread of an actor that has fired at its target for `firing` seconds.

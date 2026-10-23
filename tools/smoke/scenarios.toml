@@ -6227,6 +6227,62 @@ expect = [
 forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
 
 [[scenario]]
+name = "vats-mode-aim-hold"
+source = "owner 2026-10-23: VATS mode works while aiming down the sights (scopes usable); a held right click aims, a tap still unmarks (docs/design/vats-mode.md §11.5)"
+note = "vats-mode-unmark's setup in first person: V at 10 s, one mark at 10.32; the right button goes down at 10.34 and is held 0.3 s of game time (6 s real at the 0.05 clock, past the 0.25 s tap) so the view zooms to the .357's sight FOV while marking; E at 10.42 with the button still down fires the mark, and the aim stays up through the shot: the zoom goes back only after it. Before 2026-10-23 the mode cleared aiming and no zoom came"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.34:mouse-right:0.3,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode, first person" },
+  { re = 'vats mode: marked .* mark 1;', label = "one mark, then the right button held" },
+  { re = 'aim zoom: WeapNV357Revolver \S+ sight FOV', label = "the held right click aims down the sights while marking" },
+  "vats mode: firing 1 marked shots",
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent', label = "the mark is fired" },
+  { re = 'aim zoom: back to the unzoomed view', label = "the aim stayed up through the shot and goes once the button is let go" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 1 marks, 1 shots, 26 AP spent', label = "one mark, one shot" },
+]
+forbid = [{ re = 'vats mode: unmarked', label = "a held right click is no unmark" }]
+
+[[scenario]]
+name = "vats-mode-third-person-hip"
+source = "owner 2026-10-23: in third person the VATS shots play the aiming clips for a target beyond 20 m and fire from the hip nearer, as the NPCs (docs/design/vats-mode.md §11.5, combat-ai.md §10.6)"
+note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357) in third person (view at 3 s): the dogs come at the player, so both marks are well within 20 m (1,400 units) and the shots leave from the hip"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode in third person" },
+  "vats mode: firing 2 marked shots",
+  { re = 'vats mode: third person, mark 1 (?P<n>\d+) units away: fires from the hip \(within 20 m\)', range = [0, 1400], label = "a near mark is shot from the hip in third person" },
+  { re = 'vats mode: off \(2 shots fired', label = "both marks fired" },
+]]
+forbid = [{ re = 'vats mode: third person, .* aims down the sights', label = "no sights for marks within 20 m" }]
+
+[[scenario]]
+name = "vats-mode-third-person-sights"
+source = "owner 2026-10-23: in third person the VATS shots play the aiming clips for a target beyond 20 m (docs/design/vats-mode.md §11.5, combat-ai.md §10.6)"
+note = "vats-mode-unmark's setup (the Goodsprings dogs on their packages, god mode, a .357) in third person (view at 3.2 s): V at 10 s, a dog marked at 10.32 (game time at the 0.05 clock), then at 10.38 the player is put about 2,000 units straight above the spot (GOTO z 6,500; the ground is about 4,290), so at E (10.42) the mark is beyond 20 m (1,400 units) and the shot is fired down the sights (the iron-sights clips). Earlier tries with a far target on the ground failed on the setup: aimvats after a GOTO found a Fiend guard dog 78 units off (hip fire, rightly), aimref finds no collision body for an actor, and Violet was out of sight from combat-sights' start"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_GOTO = "10.38:-45600:65000:6500", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode in third person, near the dogs" },
+  { re = 'vats mode: marked .* mark 1;', label = "a dog marked before the player is lifted" },
+  "vats mode: firing 1 marked shots",
+  { re = 'vats mode: third person, mark 1 (?P<n>\d+) units away: aims down the sights \(beyond 20 m\)', range = [1400, 6000], label = "a far mark is shot down the sights in third person" },
+  { re = 'vats mode: shot 1 of 1 at', label = "the mark is fired" },
+]]
+
+[[scenario]]
 name = "vats-mode-dof"
 source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode the view's depth of field is focused on the mark, what is beyond it blurred (fVATSDOFStrengthCap 0.6, fVATSDOFRange 500), faded with the mode's look"
 note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
