@@ -840,6 +840,16 @@ const MIN_STEP_UP: f32 = 1.0;
 /// [engineering choice].
 const STEP_BLOCKED: f32 = 0.9;
 
+/// The least rise, game units, that counts [`step_up_move`]'s result as a step up,
+/// measured from where flat ground would put the shape (the feet less the support's gap):
+/// flat ground and descents come out at 0 or lower, a cone resting on a step's edge with
+/// its flat tip just short of the top at about the gap or more. The rise was measured from
+/// the feet with a minimum of 0.5, which refused rises of a few tenths down to slightly
+/// below zero on such edges and held the player on 24-unit catwalk steps until a jump
+/// [observed: `fnvtool phys walk` up the REPCONN Facility's stairs, physics.md §6.9.1];
+/// [engineering choice].
+const MIN_STEP_RISE: f32 = 0.25;
+
 /// How far ahead of the axis a step's top must be walkable for [`step_up_move`] to climb
 /// onto it, game units: the cone bottom first rests on the edge with the axis this far
 /// short of it at most (3.2 + 24 / 1.58 for the highest step) [engineering choice].
@@ -885,9 +895,10 @@ fn step_up_move(
     let opts = ShapeCastOptions { max_time_of_impact: (lift + TERRAIN_SHELL) * k, target_distance: 0.0, stop_at_penetration: false, compute_impact_geometry_on_penetration: true };
     let (_, down) = q.cast_shape(&ahead, -Vector::Z, c.shape.as_ref(), opts)?;
     let drop = down.time_of_impact;
-    // Higher than before: a step, not flat ground or a descent.
-    let rise = lift * k - drop;
-    if rise < 0.5 * k {
+    // Higher than flat ground would put it: a step, not flat ground or a descent. The
+    // shape comes down onto the bare surface, the feet rest the support's gap above it.
+    let rise = lift * k - drop + c.gap * k;
+    if rise < MIN_STEP_RISE * k {
         return None;
     }
     let feet = ahead.translation - Vector::Z * (drop + c.params.height / 2.0 * k);

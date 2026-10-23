@@ -8,6 +8,8 @@
 //!   health bar decides (`crate::hud_target`) [observed: the owner's screenshots in
 //!   C:\fnv-private\Creature Markers, a red tick over a gecko, an amber one over an NCR
 //!   trooper; the pictures are the HUD file's `compass_npc_icon`, `glow_hud_tick_mark.dds`].
+//!   An actor that sneaks (as IsSneaking reads it) gets none (`fnv_game::Game::compass_shows`)
+//!   [observed: the owner, 2026-10-23].
 //! - **Map markers**: every map marker of the worldspace within Perception ×
 //!   [`MARKER_RANGE_PER_PERCEPTION`], while the player is outdoors: a hollow triangle
 //!   until the player has been there, a filled one after [observed: the owner's
@@ -191,7 +193,7 @@ fn gather(
     mut sim: ResMut<SimState>,
     mut poll: Local<f32>,
     mut view: ResMut<CompassView>,
-    mut logged: Local<[usize; 4]>,
+    mut logged: Local<[usize; 5]>,
     mut doors: Local<HashMap<u32, Vec<FormId>>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
 ) {
@@ -206,6 +208,8 @@ fn gather(
     let bodies: std::collections::HashMap<u32, [f32; 3]> = phys.npcs.iter().map(|(&id, b)| (id, b.ch.feet)).collect();
     let mut marks: Vec<(Mark, i32)> = Vec::new();
     let mut perception = 5.0;
+    // Actors in range and in the window left off because they sneak.
+    let mut sneakers = 0;
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         let found = with_world(rt, &mut sim, |rt| {
             let g = &mut rt.game;
@@ -219,6 +223,10 @@ fn gather(
                 }
                 let x = offset(heading, here, [at[0], at[1]]);
                 if !on_compass(x) {
+                    continue;
+                }
+                if !g.compass_shows(r) {
+                    sneakers += 1;
                     continue;
                 }
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
@@ -263,10 +271,10 @@ fn gather(
     }
     marks.sort();
     let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(&m.0)).count();
-    let counts = [count(&[Mark::Actor, Mark::Hostile]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found])];
+    let counts = [count(&[Mark::Actor, Mark::Hostile]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found]), sneakers];
     if counts != *logged {
-        let [actors, hostile, markers, found] = counts;
-        info!("compass: {actors} actors ({hostile} hostile), {markers} map markers ({found} found) on the compass, Perception {perception}");
+        let [actors, hostile, markers, found, sneakers] = counts;
+        info!("compass: {actors} actors ({hostile} hostile), {markers} map markers ({found} found) on the compass, Perception {perception}, {sneakers} sneaking left off");
         *logged = counts;
     }
     view.set_if_neq(CompassView(marks));

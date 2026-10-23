@@ -214,9 +214,7 @@ pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 }
 
 pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let on = a.num(0)? != 0.0;
-    g.player.hardcore = Some(on);
-    g.player.hardcore_was_off |= !on;
+    g.set_hardcore(a.num(0)? != 0.0);
     none()
 }
 

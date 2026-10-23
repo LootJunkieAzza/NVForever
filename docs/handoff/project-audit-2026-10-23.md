@@ -21,12 +21,15 @@ add-ons. Nothing was run in the game. Tags: [observed] = read in code, data or l
   outstanding-audit's "nothing in the engine is known to block a playthrough" is true only
   because nothing past Novac has been looked at.
 - **New blockers found by this audit** (not in any earlier list):
-  1. **Five script block types never fire**: OnOpen, OnClose, OnSell, OnActorEquip and
+  1. **Five script block types never fire** (*fixed 2026-10-23 on
+     claude/script-events-door-locks: four now fire; OnSell stays unfired because it never
+     ran in the original either, GECK wiki: "never ran prior to xNVSE v6.2.8"*): OnOpen, OnClose, OnSell, OnActorEquip and
      OnMagicEffectHit. OnOpen alone stalls Honest Hearts' *Prisoners of War*
      (NVDLC02MQ05aDoor never sets stage 100) and the Legion's turn in Render Unto Caesar
      (NVCCPlayerStorage, VMQ02 stage 110) [observed: `crates/fnv-game/src/game.rs` event
      table has no constant for them].
-  2. **Doors unlocked by scripts stay locked for NPC pathing**: `NavGraph::set_door_lock`
+  2. **Doors unlocked by scripts stay locked for NPC pathing** (*fixed 2026-10-23 on
+     claude/script-events-door-locks: `Ai::apply_door_locks`*): `NavGraph::set_door_lock`
      is never called outside tests. Escort and travel packages through quest-unlocked doors
      may be set aside as unreachable. `VMQYesMan01MoveToTerminal` already shows as
      unreachable [observed].
@@ -263,9 +266,9 @@ tools; point CLAUDE.md at this file, gap-audit §7 and playtest list 7.
 
 ## 7. What to do next, ranked
 
-1. **Fire OnOpen, OnClose, OnSell, OnActorEquip, OnMagicEffectHit** (small; unblocks
-   Honest Hearts and the Legion branch).
-2. **Pass script unlocks to NPC pathing** (`set_door_lock` from Unlock/Lock/SetLocked).
+1. ~~Fire OnOpen, OnClose, OnActorEquip, OnMagicEffectHit~~ (done 2026-10-23; OnSell
+   deliberately not fired, as in the original).
+2. ~~Pass script unlocks to NPC pathing~~ (done 2026-10-23, `Ai::apply_door_locks`).
 3. **Headless main-quest walkthroughs**: `fnvtool script run` chains like
    `walkthrough/intro.actions.json` for each main-quest chain, then one smoke scenario per
    milestone: the Strip gate, the Lucky 38 elevator, the Fort's confiscation, the Hoover

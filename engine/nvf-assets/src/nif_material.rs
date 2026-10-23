@@ -23,6 +23,16 @@
 //! Opaque, alpha-tested and alpha-blended shapes with a black emissive colour, no falloff
 //! and no decal flag render exactly as with StandardMaterial.
 //!
+//! Soft intersections: an unlit effect shape that adds or blends (light beams, glows,
+//! smoke and dust sheets, particles; [`soft_intersections`]) fades out over
+//! [`SOFT_DISTANCE`] towards the opaque surface behind it (the view's depth prepass), so
+//! a beam's panels end softly where they pass into a road or a wall instead of along a
+//! hard line, the way they blend in the game's frames [engineering choice: the game's
+//! own rule is not known; docs/spec-notes/nif.md §6 "Soft intersections"]. Where the
+//! shape lies along that surface (its facing within about 25° of the surface's, both
+//! taken from screen derivatives) it is not faded, so light pools and grime cards laid on
+//! a floor or wall stay. One rule for every such shape, not a setting per model.
+//!
 //! Soft edges: where the view is multisampled, the cut-out edges of alpha-tested shapes
 //! (plants, fences, hair) are anti-aliased ([`soft_edges`]), as the game's transparency
 //! multisampling does [observed: the owner's `FalloutPrefs.ini` has `iMultiSample=8` and
@@ -214,6 +224,11 @@ pub struct NifSurface {
     /// The colour of the holes' edge band (linear, alpha unused).
     #[uniform(100)]
     pub holes_edge: Vec4,
+    /// Soft intersections (module notes, "Soft intersections"): x the distance in game
+    /// units over which the shape fades out towards the opaque surface behind it, 0 for
+    /// none; y, z, w unused.
+    #[uniform(100)]
+    pub soft: Vec4,
     /// The holes texture; `None` with no holes.
     #[texture(101)]
     #[sampler(102)]
@@ -224,6 +239,18 @@ pub struct NifSurface {
     /// every shape but an NPC's face and skin.
     #[texture(103, sample_type = "float", filterable = false)]
     pub facegen_offset: Option<Handle<Image>>,
+}
+
+/// Game units over which a soft-intersecting shape fades out towards the surface behind
+/// it (module notes, "Soft intersections") [engineering choice, judged on the Strip's
+/// lamp beams against the owner's game frame].
+pub const SOFT_DISTANCE: f32 = 160.0;
+
+/// Whether a shape of this alpha mode fades out where it meets the surface behind it
+/// (module notes, "Soft intersections"): unlit, added or blended (not multiplied: those
+/// darken what they lie on), not a decal and not refracting.
+pub fn soft_intersections(alpha_mode: AlphaMode, unlit: bool, decal: bool, refracts: bool) -> bool {
+    unlit && !decal && !refracts && matches!(alpha_mode, AlphaMode::Add | AlphaMode::Blend | AlphaMode::Premultiplied)
 }
 
 /// [`NifSurface::holes`] of a shape with no holes.
@@ -243,6 +270,7 @@ impl Default for NifSurface {
             shade_light: false,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
+            soft: Vec4::ZERO,
             holes_texture: None,
             facegen_offset: None,
         }
@@ -628,6 +656,22 @@ mod tests {
     /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).
     fn edge(alpha: f32, cutoff: f32, width: f32) -> f32 {
         ((alpha - cutoff) / width.max(0.0001) + 1.0).clamp(0.0, 1.0)
+    }
+
+    #[test]
+    fn soft_intersections_for_unlit_added_and_blended_shapes_only() {
+        // Beams and glows (added), smoke and particles (blended), premultiplied.
+        for mode in [AlphaMode::Add, AlphaMode::Blend, AlphaMode::Premultiplied] {
+            assert!(soft_intersections(mode, true, false, false));
+        }
+        // Not lit shapes (glass), multiply cards, solid or cut-out shapes, decals or
+        // refracting shells.
+        assert!(!soft_intersections(AlphaMode::Blend, false, false, false));
+        assert!(!soft_intersections(AlphaMode::Multiply, true, false, false));
+        assert!(!soft_intersections(AlphaMode::Opaque, true, false, false));
+        assert!(!soft_intersections(AlphaMode::Mask(0.5), true, false, false));
+        assert!(!soft_intersections(AlphaMode::Add, true, true, false));
+        assert!(!soft_intersections(AlphaMode::Add, true, false, true));
     }
 
     #[test]

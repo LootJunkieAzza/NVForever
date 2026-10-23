@@ -7732,7 +7732,12 @@ saying their AvoidThreat line (unless Ignore Threats). Spec:
   within reach × (1 + Distance Mult); a rush's first melee decision on arrival is an
   attack, no hold or block.
 - *Guess:* the combat radius is measured from where the fighter stood when its fight began,
-  moved to where it stands each time it loses health; 0 is no limit.
+  moved to where it stands each time it loses health; 0 is no limit. (2026-10-23: it
+  limits how far the fighter itself goes out from there, not where its target may stand:
+  it pursues up to the radius, then holds. VCG02's geckos stand 3,600–3,950 units from
+  Sunny's sneak marker with a 3000 radius, so the old reading kept them from ever coming
+  at the player who shoots from there. *Check:* shot from Sunny's marker, do the first
+  well's geckos run all the way to the player, or stop about 3000 units out?)
 - *Guess:* Max Targeting FOV 0 is no limit (83 of 84 styles); only a new target is held
   back, and the fighter still turns to it, so the limit delays a fight.
 - *Guess:* iAvoidHurtingNonTargetsResponsibility (in no master) is 30: a fighter with less
@@ -8295,3 +8300,14 @@ documented effect; the spec lists each. Spec: [world-fields](spec-notes/world-fi
 - *Guess:* the ammo comes the first time the weapon is taken by hand.
 - *Check:* does picking up Primm's varmint rifle give 10 5.56mm rounds in the original?
 
+
+## REPCONN catwalk stairs (2026-10-23, owner's playtest, branch claude/repconn-steps)
+
+The stairs up to Chris Haversam's and Jason Bright's intercom in the REPCONN Facility climb
+without a jump, walking or running. They are 24-unit steps; the player's cone-shaped bottom
+came to rest on a step's edge, and the step-up refused the few tenths of a unit it gained
+there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/physics.md).
+
+- *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
+  the feet (was 0.5 above the feet themselves).
+- *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?

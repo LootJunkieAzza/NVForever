@@ -160,10 +160,40 @@ damaging water: ESM gap audit row 7, branch claude/e7-explosion-water-radiation.
   (567 × 120 at x −135), a pointer picture, `radiation_text_value` (font 8, right-justified
   at x 237, y 65) and `radiation_text` (font 7, from x 245); the texts are empty and every
   part's alpha 0 in the file: the code fills and shows them.
-- **Built** [hypothesis]: while rads are taken the meter shows "+n" (the rads a second
-  taken, whole, at least 1) and "RADS" (`sStatsRADAbbrev` is set by no master), with the
-  bracket; it stands at the health piece's left margin just over it (the file gives no
-  place). The pointer is not drawn (what it points at is not known).
+- **The file, the pointer** [documented]: `radiation_pointer` is
+  `glow_messages_radiation_seperator_arrow.dds` (from `InterfaceShared.tai`), 46 × 24 at
+  x 15, y 25; the bracket's own `texatlas` line is commented out, so the bracket is its
+  own file.
+- **The pictures** [observed: the textures]: the bracket (512 × 128) is a top-right
+  corner: a line across at rows 12–16 from about column 132 (fading in) to the upright at
+  columns 494–499, which runs down to row 105. Sixteen notches hang from the line every
+  20 columns from 173 to 473: slanted wedges at the two ends, long notches (to row 29) at
+  233, 293, 353 and 413, short ones (to row 18) between. The pointer (64 × 32) is a
+  triangle pointing up, its tip at row 8, its middle at column 32.
+- **Built**: while rads are taken the meter shows "+n" (the rads a second taken, whole,
+  at least 1) and "RADS" (`sStatsRADAbbrev` is set by no master), with the bracket and
+  the pointer [hypothesis: the texts and the word].
+  - **The pointer** [hypothesis]: its tip, just under the notches (6 under the picture's
+    top at y 25), points at the player's rads: the left end's notch is 0, the right end's
+    1000, so the long notches are 200, 400, 600 and 800, the radiation sickness steps
+    (death at 1000). Over 1000 it stays at the end. The file's x 15 is taken as a start
+    the code moves.
+  - **The place** [owner, 2026-10-23: "in the top right corner of the screen symmetrical
+    to the popup notification on the left side"]: the mirror of the corner messages'
+    bracket (corner-messages.md §2), whose line across stands 47 under the view's top
+    and upright 57 in from the left edge [observed: the atlas's picture as drawn]: the
+    piece's top 33.5 under the view's top and its right edge 105 from the view's right
+    edge, which puts the radiation bracket's line 47 under the top and its upright 57
+    in from the right. Smoke `environment-radiation` saves `radiation_meter.png`.
+  - **The pictures are stretched** to the file's sizes (567 × 120, 46 × 24), not fitted
+    to their own shape (which drew the bracket 480 wide and put the upright through
+    the text).
+  - **The texts** [owner, 2026-10-23: "lower and to the right against the bracket but not
+    interfering with the notches"]: "RADS" ends at x 396, inside the upright (the letters'
+    glow reaches about 10 past their width), the value before it with the file's gap of
+    8; their line 88 under the piece's top, so the capitals start below the pointer's
+    lowest place (y 49) and the notches (y 28). The file's x 237/245 and y 65 are not
+    used.
 
 ## 7. Log lines (smoke `environment-radiation`)
 
