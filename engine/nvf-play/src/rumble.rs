@@ -1,5 +1,6 @@
 //! Controller rumble (docs/design/controller.md §Rumble): the pad shakes when the player
-//! fires a weapon (harder for a heavier one), takes damage, lands a hard fall, and when an
+//! fires a weapon (its record's rumble when it sets one, else harder for a heavier one),
+//! takes damage, lands a hard fall, and when an
 //! explosion goes off near the player.
 //!
 //! The original rumbles the pad, by its `bGamePadRumble` switch (`1` in the owner's
@@ -58,6 +59,13 @@ pub const SHOT_HEAVY_WEIGHT: f32 = 20.0;
 pub fn shot(weight: f32) -> Pulse {
     let h = (weight.max(0.0) / SHOT_HEAVY_WEIGHT).clamp(0.0, 1.0);
     Pulse { strong: 0.7 * h, weak: 0.3 + 0.4 * h, secs: 0.07 + 0.13 * h }
+}
+
+/// A weapon's own rumble (WEAP DNAM left and right motor strength and duration)
+/// [documented: xEdit field names; hypothesis: the left motor is the strong one, as on the
+/// Xbox 360 pad; docs/spec-notes/item-fields.md §1].
+pub fn weapon_rumble((left, right, secs): (f32, f32, f32)) -> Pulse {
+    Pulse { strong: left.clamp(0.0, 1.0), weak: right.clamp(0.0, 1.0), secs: secs.clamp(0.02, 1.0) }
 }
 
 /// A hit that took `share` of the player's maximum health [design: any hit is felt, a
@@ -120,8 +128,10 @@ fn rumble(
 ) {
     let mut pulses: Vec<(Kind, Pulse)> = Vec::new();
     for s in shots.read().filter(|s| s.shooter == FormId::PLAYER_REF) {
-        let weight = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).map_or(0.0, |w| w.weight);
-        pulses.push((Kind::Shot, shot(weight)));
+        let w = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon));
+        // The weapon's own rumble when its record sets one, else by its weight.
+        let pulse = w.and_then(|w| w.rumble).map_or_else(|| shot(w.map_or(0.0, |w| w.weight)), weapon_rumble);
+        pulses.push((Kind::Shot, pulse));
     }
     for h in hits.read().filter(|h| h.form_id == FormId::PLAYER_REF.0 && h.share > 0.0) {
         pulses.push((Kind::Hurt, hurt(h.share)));
@@ -174,6 +184,15 @@ impl Plugin for RumblePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn weapon_rumble_from_the_record() {
+        let p = weapon_rumble((0.8, 0.4, 0.25));
+        assert_eq!((p.strong, p.weak, p.secs), (0.8, 0.4, 0.25));
+        // Out of range values are held to what the pad takes.
+        let p = weapon_rumble((2.0, -1.0, 0.0));
+        assert_eq!((p.strong, p.weak, p.secs), (1.0, 0.0, 0.02));
+    }
 
     #[test]
     fn heavier_weapons_kick_harder() {

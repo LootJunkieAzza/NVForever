@@ -25,6 +25,12 @@
 //!   Random Position starts somewhere in its file; while the listener is under water a
 //!   Mute When Submerged sound is held silent. A [`SoundSource`] may ask for a loop
 //!   whatever the flags (a weapon's idle sound).
+//! - **Region sounds** (REGN `RDSD`, [`region_sounds`]; docs/spec-notes/default-objects.md
+//!   §2): every [`REGION_ROLL`] seconds the sounds of the region the cell's acoustic space
+//!   names (and of the cell's own regions) that play in the weather shown are tried in a random order, each
+//!   at its chance, and the first that passes plays: at the listener when it is 2D, else
+//!   at a point about the listener [design: the interval, one at a time, the place;
+//!   hypothesis: the chance is per try].
 //! - Not built: sound markers that neither loop nor play at random (played by scripts
 //!   or once), Random Location, walla
 //!   and region sounds (REGN `RDSD`). Placed loops and random markers play through the
@@ -116,6 +122,8 @@ pub struct Ambient {
     pub source_random_played: u32,
     /// Loops started at a random place in their file (Start at Random Position).
     pub random_starts: u32,
+    /// Region sounds played (REGN `RDSD`).
+    pub region_played: u32,
     sources_heard: std::collections::HashSet<u64>,
     /// Why the loops are held now (`None`: they play), for the log.
     held_why: Option<&'static str>,
@@ -373,17 +381,97 @@ fn play(
     }
 }
 
+/// Seconds between two tries of the regions' sounds [design].
+pub const REGION_ROLL: f64 = 10.0;
+
+/// What [`region_sounds`] keeps: when it last tried, the regions of each cell, the
+/// classification of each weather, its own random numbers.
+#[derive(Default)]
+struct RegionRolls {
+    next: f64,
+    cells: HashMap<u32, Vec<u32>>,
+    weathers: HashMap<u32, u8>,
+    rng: Option<fnv_combat::rng::SplitMix>,
+}
+
+/// The regions' sounds (see the module notes).
+#[allow(clippy::too_many_arguments)]
+fn region_sounds(
+    time: Res<Time<Real>>,
+    mut amb: ResMut<Ambient>,
+    places: Option<Res<AudioPlaces>>,
+    (d, loc): (Res<PlayWorld>, Res<Location>),
+    player: Option<Res<Player>>,
+    script: Option<Res<crate::script::ScriptState>>,
+    (sfx, settings): (Option<Res<Sfx>>, Res<SfxSettings>),
+    mut st: Local<RegionRolls>,
+    mut out: MessageWriter<crate::sfx::PlaySound>,
+) {
+    let (Some(places), Some(player), Some(sfx)) = (places, player, sfx) else { return };
+    let now = time.elapsed_secs_f64();
+    if now < st.next || amb.held_why.is_some() || !settings.play || places.forms.region_sounds.is_empty() {
+        return;
+    }
+    st.next = now + REGION_ROLL;
+    let eye = player.eye();
+    let Some(cell) = cell_at(&d, &loc, eye) else { return };
+    let st = &mut *st;
+    let regions = st
+        .cells
+        .entry(cell)
+        .or_insert_with(|| {
+            // The region the cell's acoustic space names (the `Audio…` regions hold the
+            // sounds), then the cell's own regions (audio.md §6).
+            let space = audio::cell_audio(d.lo, d.schema, cell).acoustic_space.and_then(|s| places.forms.spaces.get(&s)?.region);
+            let all: Vec<u32> = space.into_iter().chain(audio::cell_regions(d.lo, d.schema, cell)).collect();
+            let mut with: Vec<u32> = all.iter().copied().filter(|r| places.forms.region_sounds.contains_key(r)).collect();
+            with.dedup();
+            debug!("ambient: cell {cell:08X}: regions {:08X?}, with sounds {:08X?}", all, with);
+            with
+        })
+        .clone();
+    if regions.is_empty() {
+        return;
+    }
+    // The weather shown, as the game was told (`fnv_game::weather`); none known: any.
+    let shown = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.weather.shown);
+    let class = shown.map_or(0xF, |w| *st.weathers.entry(w.0).or_insert_with(|| fnv_world::sky::weather(d.lo, d.schema, w.0).map_or(0xF, |x| x.classification)));
+    let rng = st.rng.get_or_insert(fnv_combat::rng::SplitMix(0x5EED_4E61));
+    let mut tries: Vec<audio::RegionSound> = regions.iter().flat_map(|r| places.forms.region_sounds[r].iter().copied()).filter(|s| s.plays_in(class)).collect();
+    // A random order (Fisher-Yates).
+    for i in (1..tries.len()).rev() {
+        let j = ((rng.next_f32() * (i + 1) as f32) as usize).min(i);
+        tries.swap(i, j);
+    }
+    for s in tries {
+        if rng.next_f32() * 100.0 >= s.chance {
+            continue;
+        }
+        let rec = sfx.forms.sounds.get(&FormId(s.sound));
+        let at = rec.filter(|r| !r.has("2D")).map(|r| {
+            let a = rng.next_f32() * std::f32::consts::TAU;
+            let d = r.min_distance.max(100.0) + rng.next_f32() * (r.max_distance * 0.5 - r.min_distance).max(0.0);
+            [eye[0] + a.cos() * d, eye[1] + a.sin() * d, eye[2]]
+        });
+        debug!("ambient: region sound {} ({:.0}%){}", rec.and_then(|r| r.edid.as_deref()).unwrap_or("?"), s.chance, if at.is_some() { " about the listener" } else { " at the listener" });
+        out.write(crate::sfx::PlaySound { sound: FormId(s.sound), at });
+        amb.region_played += 1;
+        break;
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, amb: Res<Ambient>) {
     if exit.read().last().is_some() {
         info!(
-            "ambient summary: {} placed loops started, {} random sounds played, {} background loops started; things that sound (objects, creatures, water, weapons, effects): {} heard, {} loops started, {} random sounds played; {} loops started at a random position",
+            "ambient summary: {} placed loops started, {} random sounds played, {} background loops started; things that sound (objects, creatures, water, weapons, effects): {} heard, {} loops started, {} random sounds played; {} loops started at a random position; {} region sounds played",
             amb.loops_started,
             amb.random_played,
             amb.beds_started,
             amb.sources_heard.len(),
             amb.source_loops_started,
             amb.source_random_played,
-            amb.random_starts
+            amb.random_starts,
+            amb.region_played
         );
     }
 }
@@ -394,7 +482,7 @@ impl Plugin for AmbientPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Ambient>()
             .add_audio_source::<Panned<LayeredMusic>>()
-            .add_systems(Update, play.after(crate::PlaySet::Activation))
+            .add_systems(Update, (play.after(crate::PlaySet::Activation), region_sounds.after(crate::PlaySet::Activation)))
             .add_systems(Last, report);
     }
 }

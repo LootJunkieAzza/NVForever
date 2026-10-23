@@ -8110,6 +8110,25 @@ Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
   merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
   All/Exit in the container menu on your screen?
 
+## Default objects, region sounds, camera and ragdoll records (2026-10-23, ESM audit medium group 8, branch claude/em9-records)
+
+DOBJ, CAMS, CPTH, RGDL and REGN's region sounds are in the schema. The default objects
+are read: the player's death plays the DOBJ's Death Music when its file is there (the
+shipped `special\death.mp3` is not, so `MUSDeath` plays as before), and a chem wearing
+off plays the DOBJ's Drug Wears Off image space (`Addiction01ISFX`). Outdoors the regions'
+sounds (wind, rumbles, rattles) play now and then by weather. Spec:
+[default-objects](spec-notes/default-objects.md). Decisions and guesses:
+
+- *Guess:* region sounds are tried every 10 s, one at a time, each at its stored chance
+  (40% is 40% a try); 2D ones at the listener, others about it.
+- *Guess:* the wear-off image space plays when the last effect of a chem (equip type
+  Chems) ends on the player.
+- *Decision:* CAMS/CPTH are decoded only (no kill camera), RGDL too (no ragdoll feedback
+  or pose matching); the level-up's DOBJ music names no shipped file and the level-up
+  keeps `UILevelUp`.
+- *Check:* how often does the desert wind or a rumble play in the original's Goodsprings?
+  Does the screen do anything when Med-X or Jet wears off?
+
 ## Gap audit: script functions, NIF data, compass, teammate perks (2026-10-23, list 7 W9)
 
 Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10-23.md.
@@ -8184,4 +8203,17 @@ Decisions and guesses:
 - *Decision:* nothing to build for RACE skill boosts, HAIR Fixed, LVLI owners and No
   Shadow (no master record uses them); the rest left with reasons in the spec.
 - *Check:* does a dog's bite on an NPC show a bite impact in the original?
+## Items: the low-impact fields (2026-10-23, ESM audit low-impact list "Items", branch claude/em10-items)
+
+The first shot after a reload of a weapon flagged No Jam After Reload cannot jam; a jam
+without a jam clip lasts the weapon's Jam Time; a shot rumbles the pad by the weapon's own
+rumble fields (128 weapons) instead of its weight; the one MISC with a looping sound plays
+it. Spec: [item-fields](spec-notes/item-fields.md). Decisions and guesses:
+
+- *Guess:* "No Jam After Reload" spares the first shot after a reload.
+- *Guess:* the left rumble motor is the strong (low) one.
+- *Decision:* not built: burst lengths, the iron-sights animation flags, Hide Backpack,
+  the ammo abbreviation, ARMO's female ground model and BNAM, CSNO's deck backs and chips
+  (item-fields.md gives each reason).
+- *Check:* with a controller, does the 10mm pistol's shot feel about as strong as before?
 
