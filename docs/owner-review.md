@@ -8032,6 +8032,35 @@ Branch claude/l7-menus. Items 1, 2, 7, 10, 11, 16 and 25 of todo 7.
   merchant's weapon (as the Pip-Boy's). *Check:* does the ammunition tile overlap Take
   All/Exit in the container menu on your screen?
 
+## Gap audit: script functions, NIF data, compass, teammate perks (2026-10-23, list 7 W9)
+
+Item 44. The audit and the queue of what is left: docs/handoff/gap-audit-2026-10-23.md.
+
+- **Teammate perks** (`player.AddPerk perk 1`: Companion Suite, the companions' quest
+  rewards) now apply to the player's teammates: their damage and DT entry points, and
+  their abilities while the actor is a teammate. *Guesses:* a teammate holds them at rank 1
+  and only while it is a teammate; an ability of a teammate perk the player loses stays
+  (no shipped script does that). Calm Heart's ability has no condition of its own, so every
+  teammate gets its +50 health, not only Cass, unless the spell's effect carries one.
+  *Not built:* Old Vaquero's and Causeless Rebel's attack-speed entries. *Check:* Cass's
+  health after "Hand of Vengeance"/"Calm Heart", and whether Companion Suite's lower damage
+  and higher DR show on companions from the start (its description: "Mult Weap DAM 0.75,
+  Mult Target DT 0.75, Decrease Carry Weight 75, Increase DR 33%").
+- **Quest markers on the compass**: the active quest's marked targets, at any distance,
+  drawn in the map marker's box over the other marks. A target in another cell is marked at
+  one door towards it (outdoors the door into its interior; indoors a door to its cell or
+  its worldspace). *Guesses:* the box (the HUD file gives the picture the map marker's
+  40 x 50 at y 5, our map-marker box is fitted to your screenshots), no distance limit,
+  one door step, a mark behind the player is not shown at the compass's edge. *Check:*
+  where the marker sits on the compass in the original, and whether it clings to the edge
+  when the target is behind you.
+- **Smoke setups fixed, not the engine**: traps-tripwire and vats-mode-melee acted while
+  the add-ons' start-up message boxes were still coming (the button answered an add-on's
+  box; a box ended VATS mode), now later; furniture-fidgets-tree uses Chet, since Easy
+  Pete's fresh-game package is an eating one (procedure 10) and he rightly eats.
+  anim-sounds' "5 door sounds" is marked known failing: 10 doors are drawn and opened now.
+- **NiBoolTimelineInterpolator** in clips is read as the plain bool interpolator it
+  extends (show/hide tracks of a few effect and vehicle clips).
 ## Pip-Boy items, Misc folders, Caravan cards (2026-10-23, list 7 W2)
 
 - **5 Aid effect lines**. The EFFECTS card now lists only the effects whose conditions
