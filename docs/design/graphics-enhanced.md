@@ -45,7 +45,7 @@ Constraints that decide what fits:
 | Finer, longer sun shadows (4096² maps, reach ×1.5) | Medium: sharper edges near, shadows further out | Shadow pass fill rate, 4 × 64 MB per shadowed directional light | **Built** (§3.2) |
 | Contact shadows (Bevy, screen-space ray march) | Low-medium | Tried: speckled self-shadowing on near surfaces and per-frame noise without TAA | Rejected (§4) |
 | Bloom (own LDR pass, thresholded) | Medium: lamps, windows, the sun glow as in the game's own frames (world.md §6 notes the halos the renderer lacks) | ~0.5 ms at quarter size | **Built** (§3.3) |
-| Bevy bloom | Medium | Needs an HDR main view: Rgba16Float targets (twice the traffic with MSAA 4x on the 1050) and every pass reading the picture runs on another format | Rejected for now |
+| Bevy bloom | Medium | Needs an HDR main view: Rgba16Float targets (twice the traffic with MSAA 4x on the 1050) and every pass reading the picture runs on another format | **Built** 2026-10-23 as the light glow, on in vanilla (§3.11; the owner's PC now has an RTX 4070) |
 | Sharpening (own contrast-adaptive pass) | Medium: the 2010 textures look crisper | ~0.2 ms; can add rims if overdone | **Built** (§3.4) |
 | Bevy CAS | Medium | Tried: garbled the non-HDR view (yellow/white noise) | Rejected |
 | Anisotropic filtering 16x | Low-medium: ground and roads at a slant | Nearly free on the GPU | **Built** (§3.5) |
@@ -255,6 +255,32 @@ Settings rows that are not improvements and do not change the vanilla picture un
   last (sleep, then spin the last millisecond); a late frame does not catch up. Bevy has no
   limiter of its own (`bevy_framepace` is a separate crate); this plain one is enough to keep
   a fast GPU from drawing hundreds of frames a second in menus [engineering choice].
+
+### 3.11 Light glow (`glow`; on in vanilla too)
+
+The original as the owner plays it (`bDoHighDynamicRange=1`) glows: neon, bulbs, lit
+signs, fire and beams bleed soft halos into the night (the fx audit frames of 2026-10-23,
+`C:\fnv-private\references\fx_audit\game`). The owner asked for that look, and for a
+natural one rather than a copy, so this is on by default in `vanilla` and in `enhanced`;
+`--graphics-only no-glow` or the settings switch "Light glow" turns it off, and the
+enhanced "Bloom" (§3.3), when on, stands in for it.
+
+- The main camera gets an HDR view (`bevy::camera::Hdr`: values over 1 survive until the
+  tonemapper, which then runs as its own pass) and Bevy's bloom with its NATURAL preset
+  (energy-conserving, no threshold: every pixel scatters a share of its light, so only
+  what is far brighter than its surroundings shows a halo) (`post.rs` `glow_bloom`).
+- Its strength is 0.15 at the image space's Bright Scale 2 (NVDefaultExterior) and
+  follows Bright Scale / 2 (held to half and twice) as the place's image space and the
+  weather's adapters change (`post.rs` `glow_intensity`, world.md §6 "HDR and bloom").
+- What emits light is brighter than white only in this view: unlit shapes are drawn at
+  their emissive colour × multiplier (nif.md §6 "Emissive multiplier of unlit shapes"),
+  so Gomorrah's neon at multiplier 25 burns; lit shapes' emissive light already is.
+- Every pass after the tonemapper (ambient occlusion, anti-aliasing, sun shafts, Bloom and
+  sharpening, the image-space grade) sees the same tonemapped values as before; the
+  passes key their pipelines on the view's format.
+
+Engineering choices made by eye against the original's frames; not used to explain
+differences in the parity frames.
 
 ## 4. Tried and dropped
 

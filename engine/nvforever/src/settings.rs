@@ -435,7 +435,7 @@ fn register_graphics(app: &mut App) {
     for s in choices {
         add_setting(app, s);
     }
-    let switches: [Switch; 7] = [
+    let switches: [Switch; 8] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -456,6 +456,13 @@ fn register_graphics(app: &mut App) {
             "On: light brighter than a sunlit white wall (the sun, lamps, windows) glows into its surroundings, on top of the game's own image space. (--graphics)",
             |w| w.resource::<Graphics>().bloom,
             |w, on| w.resource_mut::<Graphics>().bloom = on,
+        ),
+        (
+            "glow",
+            "Light glow",
+            "On: neon, lamps, glowing beams and fire glow softly into their surroundings, as the original's HDR glow does; how much follows the place's image space. Bloom, when on, replaces it. (--graphics-only no-glow turns it off)",
+            |w| w.resource::<Graphics>().glow,
+            |w, on| w.resource_mut::<Graphics>().glow = on,
         ),
         (
             "sharpen",

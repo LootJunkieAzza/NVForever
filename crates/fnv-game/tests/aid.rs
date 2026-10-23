@@ -275,10 +275,27 @@ fn a_stimpak_restores_at_once_with_medicine_potency() {
     let r = g.ingest(P, FormId(STIM));
     assert!(near(r.potency, 1.3));
     assert!(near(av(&mut g, HEALTH), 79.0));
-    assert!(near(av(&mut g, PERCEPTION_CONDITION), 100.0));
+    // On the body each limb gets a share of the 39 (fnv_game::aid::PARTS_LIMB_SHARE).
+    let share = 39.0 * fnv_game::aid::PARTS_LIMB_SHARE;
+    assert!(near(av(&mut g, PERCEPTION_CONDITION), 80.0 + share));
     // Never past the permanent value.
     g.ingest(P, FormId(STIM));
     assert!(near(av(&mut g, HEALTH), 100.0));
+}
+
+/// A Stimpak on one limb (the Pip-Boy's CND page) gives that limb the whole amount and
+/// the other limbs nothing.
+#[test]
+fn a_stimpak_on_a_limb_gives_it_the_whole_amount() {
+    let f = fixture();
+    let mut g = game(&f);
+    add_actor_value_damage(&mut g, P, HEALTH, 60.0);
+    add_actor_value_damage(&mut g, P, PERCEPTION_CONDITION, 50.0);
+    add_actor_value_damage(&mut g, P, PERCEPTION_CONDITION + 1, 50.0);
+    g.ingest_on(P, FormId(STIM), Some(PERCEPTION_CONDITION));
+    assert!(near(av(&mut g, HEALTH), 79.0));
+    assert!(near(av(&mut g, PERCEPTION_CONDITION), 89.0));
+    assert!(near(av(&mut g, PERCEPTION_CONDITION + 1), 50.0));
 }
 
 /// Without Recover and with a duration the magnitude is restored every second while
@@ -448,6 +465,19 @@ fn hardcore_needs_rise_with_time() {
     assert!((av(&mut g, HUNGER) - 23.8).abs() < 1e-6);
     g.ingest(P, FormId(BREAD));
     assert_eq!(av(&mut g, HUNGER), 0.0);
+}
+
+/// SetHardcore turns on the simulation's switch too (ammunition weighs), and turning it
+/// off marks the game as not always Hardcore.
+#[test]
+fn set_hardcore_reaches_the_ammunition_weight() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert!(!g.world.config().hardcore);
+    g.set_hardcore(true);
+    assert!(g.hardcore() && g.world.config().hardcore && !g.player.hardcore_was_off);
+    g.set_hardcore(false);
+    assert!(!g.hardcore() && !g.world.config().hardcore && g.player.hardcore_was_off);
 }
 
 /// A need past a stage's threshold gives the stage's effect; below it, or with

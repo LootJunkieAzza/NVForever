@@ -39,7 +39,7 @@ use nvf_assets::GameData;
 // ---- the interface files' numbers [documented: hud.md §2, §3] -------------------------
 
 /// The two corner pieces (`HitPoints`, `ActionPoints`): width and height.
-const HP_PANEL: Vec2 = Vec2::new(369.0, 127.0);
+pub(crate) const HP_PANEL: Vec2 = Vec2::new(369.0, 127.0);
 const AP_PANEL: Vec2 = Vec2::new(386.0, 127.0);
 /// The bracket pictures' room; the pictures are drawn texel for unit.
 const BRACKET: Vec2 = Vec2::new(512.0, 256.0);
@@ -110,8 +110,8 @@ const ENEMY_MARKS: (f32, f32) = (56.0, 307.0);
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
 
 /// From the view's side and bottom edges to the pieces.
-const MARGIN_X: f32 = 40.0;
-const MARGIN_Y: f32 = 30.0;
+pub(crate) const MARGIN_X: f32 = 40.0;
+pub(crate) const MARGIN_Y: f32 = 30.0;
 /// The bars stand this far above the long line.
 const METER_GAP: f32 = 4.0;
 /// Room between a label and what it labels.
@@ -141,8 +141,8 @@ const AP_METER_SHIFT: f32 = 2.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
 /// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
 /// the earlier 33 and 362].
-const UPPER_BASE: f32 = 33.0;
-const HP_LABEL_X: f32 = 23.0;
+pub(crate) const UPPER_BASE: f32 = 33.0;
+pub(crate) const HP_LABEL_X: f32 = 23.0;
 const AP_LABEL_END: f32 = 355.0;
 /// The condition bar ends this far before the divider, and its bottom stands this far
 /// above the line "CND" stands on; "CND" ends this far before the bar [observed: on the
@@ -161,13 +161,13 @@ const SNEAK_BASE: f32 = 51.0;
 
 /// The labels [hypothesis: the game takes them from its settings (`sStats…`); the
 /// owner's screenshot shows these words].
-const HP: &str = "HP";
+pub(crate) const HP: &str = "HP";
 const AP: &str = "AP";
 const CND: &str = "CND";
 
 /// The font of every text on the HUD: font 7 [documented: `hudtemplates.xml`;
 /// Fallout_default.ini `sFontFile_7`].
-const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
+pub(crate) const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
 const HUD_TEXTURES: &str = "textures\\interface\\hud\\";
 
@@ -438,7 +438,7 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
-            .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin))
+            .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin, crate::hud_needs::HudNeedsPlugin))
             .add_systems(Update, (gather, draw, pips, texts).chain().in_set(HudSet).in_set(PlaySet::Ui));
     }
 }

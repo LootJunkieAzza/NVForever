@@ -106,9 +106,11 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 
 - Twelve skills are settled by that table. Big Guns (unused in New Vegas) and Survival
   are not: no attribute fits all their stored values. The code uses Endurance for both
-  [hypothesis: Big Guns' best fit, and the pairing the game shows the player for
-  Survival; the stored Survival values fit Intelligence more often, 85.6 % against
-  25.6 %]. Only the player and creatures are affected (§3.2).
+  [hypothesis for Big Guns: its best fit]. For the player, Survival follows Endurance
+  [observed: the tag-skill screenshot, Endurance 7 and Intelligence 5, Survival tagged
+  at 35 = 2 + 14 + 4 + 15, chargen.md §2; the Fallout Wiki's skills page pairs it with
+  Endurance too], although the NPCs' stored Survival values fit Intelligence more often
+  (85.6 % against 25.6 %). Only the player and creatures are affected (§3.2).
 
 ### 3.2 NPCs
 
@@ -158,8 +160,8 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 16 | Health | the maximum health of combat-rules.md §9 | as there |
 | 17 | Melee Damage | `fAVDMeleeDamageStrengthMult` (0.5) × (`fAVDMeleeDamageStrengthOffset` (0) + Strength) | [documented: Weapon Damage Formula] |
 | 56 | Unarmed Damage | `fAVDUnarmedDamageBase` (0.5) + `fAVDUnarmedDamageMult` (0.05) × Unarmed | [documented: Weapon Damage Formula] |
-| 19 | Poison Resistance | (Endurance − 1) × 5 | "derived from Endurance" [documented: Stats Tab - NPC]; the figures [hypothesis: what the Pip-Boy shows; no setting in the masters] |
-| 20 | Rad Resistance | (Endurance − 1) × 2 | as Poison Resistance |
+| 19 | Poison Resistance | (Endurance − 1) × 5 | "derived from Endurance" [documented: Stats Tab - NPC]; the figures [documented: the Fallout Wiki's derived statistics table, END × 5 − 5; no setting in the masters] |
+| 20 | Rad Resistance | (Endurance − 1) × 2 | as Poison Resistance (the table: END × 2 − 2) |
 | 21 | Speed Multiplier | ACBS "Speed Multiplier" (percent) | [documented: xEdit; Stats Tab pages, "Speed Mult %"] |
 | 22 | Fatigue | ACBS "Fatigue" | creatures [documented: Stats Tab - Creatures]; NPCs [hypothesis: the page calls the field unused] |
 | 23 | Karma | ACBS "Karma" of the actor's own record | [documented: xEdit; GetBaseKarma] |

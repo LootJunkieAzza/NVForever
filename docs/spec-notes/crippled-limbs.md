@@ -187,14 +187,15 @@ them.
 - **A doctor** (already there, from the data): the doctors' limb service casts
   `DoctorLimbRestoration`, whose effect script restores the six conditions (§1). Not
   checked in game here.
-- **Stimpak and Doctor's Bag** (already there, aid-items.md §3): the normal Stimpak
-  restores every limb by the amount it heals; Doctor's Bag and Hydra restore every limb.
-- **A Stimpak on one limb from the Pip-Boy** (not built): the Pip-Boy's CND page shows
-  the Stimpak hint but using items from it is not built (pipboy.md §5.1).
-- **Hardcore: Stimpaks do not heal limbs** (not checked): the help text supports it
-  ("only … Doctor's Bags or … a doctor"). The Stimpak has a Hardcore effect of its own
-  (aid-items.md §3). Whether that effect leaves the limbs alone was not checked in
-  this pass.
+- **Stimpak and Doctor's Bag** (aid-items.md §3): the normal Stimpak gives each limb a
+  sixth of the amount it heals (a design number); Doctor's Bag and Hydra restore every
+  limb.
+- **A Stimpak on one limb from the Pip-Boy** (built 2026-10-23, pipboy.md §5.1): that
+  limb gets the whole amount; the Doctor's Bag is used from the same page.
+- **Hardcore: Stimpaks do not heal limbs** (checked 2026-10-23): the Hardcore Stimpak's
+  effect is a Value Modifier on Health alone, 5 a second for 6 s, no limbs [observed:
+  `fnvtool actor aid --use Stimpak --hardcore`], as the help text says; the Pip-Boy's
+  CND page refuses a Stimpak aimed at a limb in Hardcore.
 - Daturana, healing poultice and the weapon binding ritual: their own effects (aid
   items); not looked at here.
 
@@ -205,6 +206,5 @@ them.
 - Frenzy from crippled antennae or combat inhibitors: a separate behaviour (MGEF
   Frenzy, the creatures' body part data). It is not part of this pass.
 - Thrown explosives that are hit going off: held explosives are not hit-tested.
-- A Stimpak on one limb from the Pip-Boy (§6).
 - Over-encumbered speed (the notes compare the legs with it): no carry weight rule
   slows the player yet.

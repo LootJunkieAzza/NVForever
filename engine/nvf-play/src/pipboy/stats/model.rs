@@ -81,6 +81,34 @@ pub fn added(changes: &[(u16, f64, bool)], code: u16) -> f64 {
     changes.iter().filter(|c| c.0 == code).map(|c| if c.2 { -c.1 } else { c.1 }).sum()
 }
 
+/// The body parts of [`LIMBS`], for the log and the test aid.
+pub const LIMB_NAMES: [&str; 6] = ["head", "torso", "left arm", "right arm", "left leg", "right leg"];
+
+/// The CND page's hints that use an item: the Stimpak (0) and the Doctor's Bag (1).
+pub const STIMPAK: usize = 0;
+pub const DOCTORS_BAG: usize = 1;
+
+/// Why the CND page does not use a hint's item, or `None` when it does [design: owner's
+/// request 2026-10-23]: none carried; a Stimpak on the body at full health, or on a limb
+/// that is whole; a Stimpak on a limb in Hardcore mode, where it mends no limb
+/// [observed: FalloutNV.esm's help text, "In Hardcore Mode, a Doctor's Bag or an actual
+/// doctor is required"]; a Doctor's Bag when no limb is hurt. `hp` is current and whole,
+/// `limbs` each part's condition from 0 to 1 (as [`Snapshot::limbs`]).
+pub fn refusal(hint: usize, limb: Option<usize>, count: i32, hp: (f64, f64), limbs: &[f64; 6], hardcore: bool) -> Option<String> {
+    const WHOLE: f64 = 1.0 - 1e-6;
+    if count <= 0 {
+        return Some("none carried".into());
+    }
+    match (hint, limb) {
+        (STIMPAK, Some(_)) if hardcore => Some("a Stimpak mends no limb in Hardcore mode".into()),
+        (STIMPAK, Some(i)) if limbs.get(i).is_none_or(|&c| c >= WHOLE) => Some(format!("the {} is not hurt", LIMB_NAMES.get(i).unwrap_or(&"limb"))),
+        (STIMPAK, None) if hp.0 >= hp.1 - 1e-6 => Some("health is full".into()),
+        (DOCTORS_BAG, _) if limbs.iter().all(|&c| c >= WHOLE) => Some("no limb is hurt".into()),
+        (STIMPAK | DOCTORS_BAG, _) => None,
+        _ => Some("not used from the STATS page".into()),
+    }
+}
+
 /// A hint at the status page's top right: "(9) Stimpak", or just the name when the player
 /// has none [observed: "(9) Stimpak", "(3) Doctor's Bag", and "RadAway", "Rad-X" without
 /// a count on the owner's screenshots; hypothesis: the count is left out at 0].
@@ -321,6 +349,29 @@ mod tests {
         assert_eq!(modified_mark(30.0, 32.0), Some("(-)"));
         assert_eq!(modified_mark(32.2, 32.0), None);
         assert_eq!(hint_text("Stimpak", 9), "(9) Stimpak");
+    }
+
+    #[test]
+    fn the_cnd_hints_are_used_only_when_they_would_heal() {
+        let whole = [1.0; 6];
+        let mut arm = whole;
+        arm[2] = 0.4;
+        // A Stimpak on the body: only when health is not full.
+        assert_eq!(refusal(STIMPAK, None, 3, (100.0, 100.0), &arm, false).as_deref(), Some("health is full"));
+        assert_eq!(refusal(STIMPAK, None, 3, (60.0, 100.0), &whole, false), None);
+        // On a limb: only when that limb is hurt, whatever the health.
+        assert_eq!(refusal(STIMPAK, Some(2), 3, (100.0, 100.0), &arm, false), None);
+        assert_eq!(refusal(STIMPAK, Some(3), 3, (60.0, 100.0), &arm, false).as_deref(), Some("the right arm is not hurt"));
+        // A Doctor's Bag: when any limb is hurt.
+        assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, false), None);
+        assert_eq!(refusal(DOCTORS_BAG, None, 1, (60.0, 100.0), &whole, false).as_deref(), Some("no limb is hurt"));
+        // None carried; RadAway and Rad-X are not used from here.
+        assert_eq!(refusal(STIMPAK, None, 0, (10.0, 100.0), &arm, false).as_deref(), Some("none carried"));
+        assert!(refusal(2, None, 5, (10.0, 100.0), &arm, false).is_some());
+        // Hardcore: a Stimpak on a limb is refused, on the body it is not.
+        assert_eq!(refusal(STIMPAK, Some(2), 3, (60.0, 100.0), &arm, true).as_deref(), Some("a Stimpak mends no limb in Hardcore mode"));
+        assert_eq!(refusal(STIMPAK, None, 3, (60.0, 100.0), &arm, true), None);
+        assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, true), None);
         assert_eq!(hint_text("RadAway", 0), "RadAway");
     }
 

@@ -366,6 +366,21 @@ impl PhysWorld {
     /// (see [`wedged`]).
     pub fn move_character(&mut self, c: &mut Character, input: CharacterInput) -> CharacterStep {
         self.update_queries();
+        let (step, push) = self.plan_move(c, input);
+        self.apply_move(c, push);
+        step
+    }
+
+    /// [`Self::move_character`]'s work that only reads the world: the character's new
+    /// state, the step, and what it pushes. Call [`Self::update_queries`] first, then
+    /// [`Self::apply_move`] with the result. A character's move is put into the world as
+    /// its next kinematic position, which takes effect at [`PhysWorld::step`], and the
+    /// pushes change only loose bodies' velocities, which no move reads: so the moves of
+    /// many characters in one step can be planned at once and applied in turn with the
+    /// result each would have had alone [observed: the code; a 50-a-side battle spent
+    /// about 300 ms of CPU a second moving the characters one by one, CPU profile
+    /// 2026-10-23].
+    pub fn plan_move(&self, c: &mut Character, input: CharacterInput) -> (CharacterStep, Push) {
         let dt = self.params.dt;
         let g = self.params.gravity;
         let surface = self.water_surface_for(c.feet);
@@ -401,13 +416,7 @@ impl PhysWorld {
         let fall = c.vertical_speed * dt;
         let ignore = c.ignore_layers;
         let passes = c.passes_characters;
-        let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
-            Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
-            // Actor hit volumes are for shots, not for walking (combat.md §5.2).
-            Some(Owner::Actor { .. }) => false,
-            Some(Owner::Character { .. }) => !passes,
-            _ => true,
-        };
+        let solid = solid_for(ignore, passes);
         let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body).predicate(&solid);
         let walkable = c.params.max_slope_deg.to_radians().cos();
 
@@ -648,16 +657,7 @@ impl PhysWorld {
                 body.is_none_or(|b| !b.is_dynamic() || b.mass() <= PUSH_MAX_MASS)
             });
         }
-        if c.params.push_mass > 0.0 && !collisions.is_empty() {
-            let w = &mut self.w;
-            let mut q = w.broad_phase.as_query_pipeline_mut(
-                w.narrow_phase.query_dispatcher(),
-                &mut w.bodies,
-                &mut w.colliders,
-                filter,
-            );
-            kcc.solve_character_collision_impulses(dt, &mut q, c.shape.as_ref(), c.params.push_mass, &collisions);
-        }
+        let push = Push { kcc, dt, ignore, passes, collisions: if c.params.push_mass > 0.0 { collisions } else { Vec::new() } };
         let falling_speed = -c.vertical_speed;
         let was_grounded = c.grounded;
         c.grounded = moved.grounded;
@@ -734,12 +734,11 @@ impl PhysWorld {
                 c.since_landing = None;
             }
         }
-        self.w.bodies[c.body].set_next_kinematic_translation(c.center(k));
         let mut touched: Vec<Owner> =
             touched_handles.iter().filter_map(|&h| Owner::decode(self.w.colliders.get(h)?.user_data)).collect();
         touched.sort();
         touched.dedup();
-        CharacterStep {
+        let step = CharacterStep {
             feet: c.feet,
             grounded: c.grounded,
             sliding: moved.is_sliding_down_slope,
@@ -747,7 +746,51 @@ impl PhysWorld {
             gap: c.gap,
             swimming: c.swimming,
             touched,
+        };
+        (step, push)
+    }
+
+    /// Put a move planned by [`Self::plan_move`] into the world: the bodies heavy enough
+    /// to matter are not pushed (filtered in the plan); the rest take the character's
+    /// impulses, and the character goes to its new place at the next step.
+    pub fn apply_move(&mut self, c: &Character, push: Push) {
+        if !push.collisions.is_empty() {
+            let solid = solid_for(push.ignore, push.passes);
+            let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body).predicate(&solid);
+            let w = &mut self.w;
+            let mut q = w.broad_phase.as_query_pipeline_mut(
+                w.narrow_phase.query_dispatcher(),
+                &mut w.bodies,
+                &mut w.colliders,
+                filter,
+            );
+            push.kcc.solve_character_collision_impulses(push.dt, &mut q, c.shape.as_ref(), c.params.push_mass, &push.collisions);
         }
+        let k = self.k;
+        self.w.bodies[c.body].set_next_kinematic_translation(c.center(k));
+    }
+}
+
+/// What a planned move pushes ([`PhysWorld::plan_move`]): the controller and step it was
+/// planned with, which colliders count, and the collisions with bodies light enough to
+/// give way (none when the character pushes nothing).
+pub struct Push {
+    kcc: KinematicCharacterController,
+    dt: f32,
+    ignore: crate::layers::LayerSet,
+    passes: bool,
+    collisions: Vec<CharacterCollision>,
+}
+
+/// What a character collides with: placed objects not on the layers it ignores, other
+/// characters unless it passes through them; never actor hit volumes (shots only,
+/// combat.md §5.2).
+fn solid_for(ignore: crate::layers::LayerSet, passes: bool) -> impl Fn(ColliderHandle, &Collider) -> bool {
+    move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
+        Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
+        Some(Owner::Actor { .. }) => false,
+        Some(Owner::Character { .. }) => !passes,
+        _ => true,
     }
 }
 
@@ -797,6 +840,16 @@ const MIN_STEP_UP: f32 = 1.0;
 /// [engineering choice].
 const STEP_BLOCKED: f32 = 0.9;
 
+/// The least rise, game units, that counts [`step_up_move`]'s result as a step up,
+/// measured from where flat ground would put the shape (the feet less the support's gap):
+/// flat ground and descents come out at 0 or lower, a cone resting on a step's edge with
+/// its flat tip just short of the top at about the gap or more. The rise was measured from
+/// the feet with a minimum of 0.5, which refused rises of a few tenths down to slightly
+/// below zero on such edges and held the player on 24-unit catwalk steps until a jump
+/// [observed: `fnvtool phys walk` up the REPCONN Facility's stairs, physics.md §6.9.1];
+/// [engineering choice].
+const MIN_STEP_RISE: f32 = 0.25;
+
 /// How far ahead of the axis a step's top must be walkable for [`step_up_move`] to climb
 /// onto it, game units: the cone bottom first rests on the edge with the axis this far
 /// short of it at most (3.2 + 24 / 1.58 for the highest step) [engineering choice].
@@ -842,9 +895,10 @@ fn step_up_move(
     let opts = ShapeCastOptions { max_time_of_impact: (lift + TERRAIN_SHELL) * k, target_distance: 0.0, stop_at_penetration: false, compute_impact_geometry_on_penetration: true };
     let (_, down) = q.cast_shape(&ahead, -Vector::Z, c.shape.as_ref(), opts)?;
     let drop = down.time_of_impact;
-    // Higher than before: a step, not flat ground or a descent.
-    let rise = lift * k - drop;
-    if rise < 0.5 * k {
+    // Higher than flat ground would put it: a step, not flat ground or a descent. The
+    // shape comes down onto the bare surface, the feet rest the support's gap above it.
+    let rise = lift * k - drop + c.gap * k;
+    if rise < MIN_STEP_RISE * k {
         return None;
     }
     let feet = ahead.translation - Vector::Z * (drop + c.params.height / 2.0 * k);

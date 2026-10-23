@@ -8,7 +8,7 @@
 //! by −90° about X.
 
 use crate::data::GameData;
-use crate::nif_material::{multiply_emissive, nif_material, Falloff, NifMaterial};
+use crate::nif_material::{display_emissive, emissive_in_display, nif_material, Falloff, NifMaterial};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -586,14 +586,55 @@ pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Fall
 
 /// Emitted light of a shape: emissive colour × emissive multiplier (× the glow map and the
 /// surface colour in the shader) [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"],
-/// `None` when the colour is black. A multiply-blended shape's light is part of the factor
-/// it puts on what lies behind it, which is formed in display values, so its value is
-/// raised to the display gamma ([`multiply_emissive`], nif.md §6 "Multiply blend").
+/// `None` when the colour is black. An unlit shape's value is [`unlit_emissive`]. A
+/// multiply-blended or additive shape's light is part of what it does to the frame behind
+/// it, which is formed in display values, so its brightness is raised to the display gamma
+/// ([`display_emissive`], nif.md §6 "Multiply blend", "Additive blend").
 pub(crate) fn shape_emissive(props: &Props, alpha_mode: AlphaMode) -> Option<LinearRgba> {
     let e = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0))?;
     let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
-    let value = |c: f32| if matches!(alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * m) } else { c * m };
+    if props.unlit && !matches!(alpha_mode, AlphaMode::Multiply) {
+        let mut tint = unlit_emissive(e, m);
+        if emissive_in_display(alpha_mode) {
+            // The hue is already a display colour raised to the gamma; the brightness
+            // (max(1, m x brightest channel)) is raised too.
+            let top = e.iter().copied().fold(0.0f32, f32::max);
+            let scale = (m * top).max(1.0);
+            tint = tint.map(|c| c * scale.powf(crate::nif_material::MULTIPLY_GAMMA - 1.0));
+        }
+        let [r, g, b] = tint;
+        return Some(LinearRgba::rgb(r, g, b));
+    }
+    let value = |c: f32| if emissive_in_display(alpha_mode) { display_emissive(c * m) } else { c * m };
     Some(LinearRgba::rgb(value(e[0]), value(e[1]), value(e[2])))
+}
+
+/// The factor on an unlit shape's surface colour from its emissive colour `e` and
+/// multiplier `m` (nif.md §6 "Emissive colour of unlit shapes"): the colour's hue (the
+/// colour over its brightest channel, a display colour, so raised to the display gamma)
+/// times max(1, m × brightest channel). A warm or cyan colour tints a white glow texture;
+/// a grey colour changes nothing below 1 (Lucky 38's base lights store grey 0.1 × 1.25
+/// and are bright in the original); neon at white × 25 burns 25 times its texture
+/// [hypothesis from the original's frames].
+pub fn unlit_emissive(e: [f32; 3], m: f32) -> [f32; 3] {
+    let top = e.iter().copied().fold(0.0f32, f32::max);
+    if top <= 0.0 {
+        return [1.0; 3];
+    }
+    let scale = (m * top).max(1.0);
+    e.map(|c| (c.max(0.0) / top).powf(crate::nif_material::MULTIPLY_GAMMA) * scale)
+}
+
+/// The largest side of a mesh's bounding box in its own units (0 without positions).
+fn mesh_extent(mesh: &Mesh) -> f32 {
+    let Some(bevy::mesh::VertexAttributeValues::Float32x3(ps)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { return 0.0 };
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for p in ps {
+        let p = Vec3::from_array(*p);
+        lo = lo.min(p);
+        hi = hi.max(p);
+    }
+    if ps.is_empty() { 0.0 } else { (hi - lo).max_element() }
 }
 
 /// Where a shape's material takes its textures from: the texture cache and image store on
@@ -686,6 +727,9 @@ pub(crate) fn shape_material_with(props: &Props, mesh: &mut Mesh, textures: &mut
     material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.add_whole = if adds_whole(props) { 1.0 } else { 0.0 };
     material.extension.decal = props.decal;
+    if crate::nif_material::soft_intersections(alpha_mode, props.unlit, props.refraction.is_some()) {
+        material.extension.soft.x = crate::nif_material::soft_distance(mesh_extent(mesh));
+    }
     if let Some(strength) = props.refraction {
         refraction_material(&mut material, strength, props.fire_period);
         // The models' refracting shells bend all of their area, as before the cut was
@@ -1062,6 +1106,28 @@ mod tests {
     }
 
     #[test]
+    fn unlit_emissive_tints_by_hue() {
+        // Dead Money's lantern glow card: warm (0.85, 0.65, 0.47) x 1 tints a white texture.
+        let t = unlit_emissive([0.847, 0.651, 0.475], 1.0);
+        assert!((t[0] - 1.0).abs() < 1e-6 && t[1] < 0.6 && t[2] < 0.3, "{t:?}");
+        // Grey below 1 changes nothing; white x 25 is 25 times the texture.
+        assert_eq!(unlit_emissive([0.1; 3], 1.25), [1.0; 3]);
+        assert_eq!(unlit_emissive([1.0; 3], 25.0), [25.0; 3]);
+        // A multiplier of 0 keeps the surface colour.
+        assert_eq!(unlit_emissive([0.5; 3], 0.0), [1.0; 3]);
+        // An additive unlit shape takes the brightness in display values (nif.md §6
+        // "Additive blend"): the Big MT's sky beams, white × 10, are 10^2.2 in linear, so
+        // the shader's display value is 10 × the texture; alpha-blended ones keep 10.
+        let beam = Props { unlit: true, emissive: Some([1.0; 3]), emissive_mult: Some(10.0), ..Default::default() };
+        assert!((shape_emissive(&beam, AlphaMode::Add).unwrap().red - 10f32.powf(2.2)).abs() < 1e-2);
+        assert!((shape_emissive(&beam, AlphaMode::Blend).unwrap().red - 10.0).abs() < 1e-5);
+        // The hue stays a display colour raised to the gamma.
+        let warm = Props { unlit: true, emissive: Some([1.0, 0.5, 0.0]), emissive_mult: Some(2.0), ..Default::default() };
+        let w = shape_emissive(&warm, AlphaMode::Add).unwrap();
+        assert!((w.red - 2f32.powf(2.2)).abs() < 1e-4 && (w.green - (0.5f32 * 2.0).powf(2.2)).abs() < 1e-4 && w.blue == 0.0);
+    }
+
+    #[test]
     fn multiply_blended_emissive() {
         // Rex's skull cap (rex_skullcap.nif `##SkullCap:0`): NiAlphaProperty flags 4163
         // (blend, source ZERO, destination SRC_COLOR), emissive 0.19 × 12.
@@ -1071,7 +1137,9 @@ mod tests {
         // Its light is a display-value factor of 2.28 on the texture, 2.28^2.2 in linear.
         let e = shape_emissive(&cap, mode).unwrap();
         assert!((e.red - 2.283_398_f32.powf(2.2)).abs() < 1e-3 && e.red == e.green && e.green == e.blue);
-        // The same material on a shape that is not multiply-blended keeps the plain product.
+        // An additive shape forms its light in display values too (nif.md §6 "Additive
+        // blend"); one that is alpha-blended or opaque keeps the plain product.
+        assert!((shape_emissive(&cap, AlphaMode::Add).unwrap().red - e.red).abs() < 1e-6);
         assert!((shape_emissive(&cap, AlphaMode::Blend).unwrap().red - 2.283_398).abs() < 1e-5);
         assert!((shape_emissive(&cap, AlphaMode::Opaque).unwrap().red - 2.283_398).abs() < 1e-5);
         // A black emissive colour emits nothing, whatever the multiplier.

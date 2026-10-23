@@ -8,6 +8,13 @@
 //!   reaching half as far again (`SkyState::shadow_reach`), the first cascade as near.
 //! - **Bloom**: bright light (the sun and its glare, lamps, lit windows) glows into what
 //!   lies around it, thresholded on the tonemapped picture (`post.rs`).
+//!
+//! One switch is on in `vanilla` too: **Light glow** (`glow`), the soft glow around neon,
+//! lamps, glowing beams and fire that the original draws with its HDR pass (the owner
+//! plays with `bDoHighDynamicRange=1`), driven by the image space's HDR values
+//! (`post.rs` `glow_params`; docs/spec-notes/world.md §6 "HDR and bloom"). `--graphics-only
+//! no-glow` (or the settings switch) turns it off. With Bloom on, Bloom's own stronger
+//! values are used instead.
 //! - **Sharpening**: contrast-adaptive sharpening of the picture (`post.rs`).
 //! - **Anisotropic filtering 16x** (8x in vanilla) for the game's textures loaded from then on.
 //! - **Anti-aliasing**, one choice and not part of `enhanced`: multisampling (`--msaa`,
@@ -71,6 +78,8 @@ pub struct Graphics {
     pub ambient_occlusion: bool,
     pub fine_shadows: bool,
     pub bloom: bool,
+    /// Light glow from the image space's HDR values (on in vanilla; see the module notes).
+    pub glow: bool,
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
@@ -104,6 +113,7 @@ impl Graphics {
             ambient_occlusion: on,
             fine_shadows: on,
             bloom: on,
+            glow: true,
             sharpen: on,
             anisotropic: on,
             // Anti-aliasing after the picture is the other choice to multisampling, not
@@ -123,6 +133,7 @@ impl Graphics {
             "ambient-occlusion" => &mut self.ambient_occlusion,
             "fine-shadows" => &mut self.fine_shadows,
             "bloom" => &mut self.bloom,
+            "glow" => &mut self.glow,
             "sharpen" => &mut self.sharpen,
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
@@ -142,9 +153,10 @@ impl Graphics {
                 "taa" => g.screen_aa = ScreenAa::Taa,
                 "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
                 "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
+                "no-glow" => g.glow = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow", KEYS.join(", "))),
                 },
             }
         }
@@ -157,6 +169,7 @@ impl Graphics {
             (self.ambient_occlusion, "ambient occlusion"),
             (self.fine_shadows, "finer, longer shadows"),
             (self.bloom, "bloom"),
+            (self.glow && !self.bloom, "light glow"),
             (self.sharpen, "sharpening"),
             (self.anisotropic, "16x anisotropic filtering"),
             (self.screen_aa == ScreenAa::Fxaa, "FXAA"),
@@ -424,6 +437,7 @@ fn apply(
     mut shadow_map: ResMut<DirectionalLightShadowMap>,
     cams: Query<(Entity, &Msaa), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
+    eye: Res<crate::eye_adapt::EyeCurve>,
     mut done: Local<Option<(Graphics, Msaa, usize)>>,
 ) {
     let cam_count = cams.iter().count();
@@ -448,6 +462,15 @@ fn apply(
             e.insert(PostEffects::new(g.bloom, g.sharpen));
         } else {
             e.remove::<PostEffects>();
+        }
+        // The light glow: an HDR main view (values over 1 kept until the tonemapper) and
+        // Bevy's energy-conserving bloom on it, its strength set every frame from the
+        // image space (post.rs `image_space_glow`).
+        if g.glow && !g.bloom {
+            // With eye adaptation (eye_adapt.rs), which needs the HDR view.
+            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(eye.handle.clone())));
+        } else {
+            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
         }
         // Anti-aliasing after the picture replaces the multisampling.
         let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };
@@ -524,5 +547,17 @@ mod tests {
         assert_eq!(graphics, vec![vanilla, Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced, vanilla, vanilla]);
         assert_eq!(cycle.iter().map(|c| c.no_sun_shadows).collect::<Vec<_>>(), vec![false, false, false, true, false]);
         assert_eq!((cycle[4].shadow_distance, cycle[4].cascades), (Some(8000.0), Some(3)));
+    }
+
+    #[test]
+    fn light_glow_is_vanilla_and_can_be_switched_off() {
+        let vanilla = Graphics::preset(Preset::Vanilla);
+        assert!(vanilla.glow && !vanilla.bloom);
+        assert_eq!(vanilla.describe(), "light glow");
+        let off = Graphics::only(&["no-glow".into()]).expect("no-glow");
+        assert!(!off.glow);
+        assert_eq!(off.describe(), "vanilla (no engine-level improvements)");
+        // Bloom, when on, stands in for the glow.
+        assert!(!Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
     }
 }

@@ -140,10 +140,12 @@ def analyse(lines: list[str]) -> dict:
     }
 
 
-def run(ctx: lib.Ctx, per_side: int, third: int, seconds: float, every: float, centre, gap: float) -> dict:
+def run(ctx: lib.Ctx, per_side: int, third: int, seconds: float, every: float, centre, gap: float,
+        aids: dict[str, str] | None = None) -> dict:
+    """`aids`: further test aids for the game (`--aid`)."""
     aid, player = layout(per_side, third, centre, gap)
     args = ["--cell", "Goodsprings", f"--pos={player[0]:g},{player[1]:g},9000", "--heading", "0", "--hour", "12"]
-    launch = lib.Launch(f"battle-{per_side}", args, {"NVF_PLAY_TEST_BATTLE": aid, "NVF_PLAY_TEST_SAMPLE": f"{every:g}"},
+    launch = lib.Launch(f"battle-{per_side}", args, {"NVF_PLAY_TEST_BATTLE": aid, "NVF_PLAY_TEST_SAMPLE": f"{every:g}", **(aids or {})},
                         run_seconds=seconds, progress=PROGRESS, hang_seconds=120, memory_every=every)
     r = lib.run(ctx, launch)
     samples = tour.tag_laps(r.lines)

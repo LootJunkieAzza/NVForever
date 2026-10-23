@@ -100,10 +100,26 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   wiki's GetRadiationLevel reads the player's rads with GetAV]. The change goes to the
   value's base, where SetActorValue would put it [hypothesis].
 - **Value And Parts** ("Restore Health & Conditions", the normal Stimpak and Super
-  Stimpak) restores the value and every limb condition by the same amount [hypothesis from
-  the effect's name].
+  Stimpak) restores the value by the whole amount and each limb condition by
+  `fnv_game::aid::PARTS_LIMB_SHARE` (1/6) of it [design: owner's request 2026-10-23, "a
+  small amount of limb health across all limbs"; the share is in no record or setting of
+  FalloutNV.esm, so the number stands until the formula is found]. Used on one limb from
+  the Pip-Boy's CND page (pipboy.md §5.1, `Game::ingest_on`), that limb gets the whole
+  amount and the others nothing [design]. (Before 2026-10-23 every limb got the whole
+  amount [hypothesis from the effect's name].)
 - **Limb Condition** ("NVRestoreLimbs": Doctor's Bag at once, Hydra 10 a second for 60 s)
-  names no actor value: it restores every limb condition [hypothesis].
+  names no actor value: it restores every limb condition [hypothesis]. The Doctor's Bag
+  outside Hardcore also runs `RestoreAllBodyPartsSCRIPT` (effect `RestoreAllLimbs`): with
+  it every limb is whole after the use; in Hardcore its limbs get 36 × potency
+  [observed: `fnvtool actor aid --use NVDoctorBag`, 2026-10-23, Medicine 15: a left arm
+  at 0 went to 100, and to 46.8 with `--hardcore`].
+- **Hardcore on and off while the game runs** (SetHardcore, `Game::set_hardcore`):
+  the needs and the weight of ammunition follow it; the simulation counts ammunition's
+  weight by its own switch (`fnv_sim::World::set_hardcore`), which SetHardcore now
+  sets too (before 2026-10-23 only the start's configuration set it, so ammunition
+  stayed weightless after Doc Mitchell's question turned Hardcore on). RadAway is
+  6.5 rads a second for 10 s in Hardcore, 65 at once otherwise [observed: `fnvtool
+  actor aid --use RadAway`, Medicine 15].
 - The value changes of the masters' aid items [observed]: 257 at once, 173 modifiers while
   they last, 138 by the second.
 
@@ -356,7 +372,8 @@ Rules (`crates/fnv-game/src/needs.rs`):
   and the lower stage's comes [hypothesis]. Rads' stages hold in every mode; the needs'
   only in Hardcore, and go when Hardcore is turned off [hypothesis].
 - Only the player has needs [design].
-- Not done: the refusal of a wait or sleep that would kill; the HUD codes; the messages
+- The HUD's words H2O, FOD and SLP show each need's stage (hud.md §13).
+- Not done: the refusal of a wait or sleep that would kill; the messages
   `sDehydrationIncrease` and the like (the log says the stage instead).
 
 ## 12. Carry weight

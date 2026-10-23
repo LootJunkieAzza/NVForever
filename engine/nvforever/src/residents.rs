@@ -208,6 +208,9 @@ struct PhysMover<'a> {
     held: &'a HashSet<u32>,
     /// Actors walking on with their AI off ([`Mover::coast`]).
     coasting: &'a mut HashMap<u32, Coasting>,
+    /// People in combat (`Core::aims`, from the last update): physics walks them to the
+    /// end of their walks.
+    fighting: &'a HashMap<FormId, [f32; 3]>,
 }
 
 /// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
@@ -312,8 +315,11 @@ impl Mover for PhysMover<'_> {
                 return Some(WalkEvent::UsedDoor(d));
             }
             // The last steps to the place itself are the walker's: packages send actors
-            // to chairs, beds and markers, which the character cannot stand in.
-            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() => {
+            // to chairs, beds and markers, which the character cannot stand in. Not a
+            // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
+            // the walker, which keeps to the navmesh and not the collision, left it half
+            // inside walls by its cover (owner's screenshot 2026-10-23) [design].
+            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() && !self.fighting.contains_key(&actor) => {
                 self.skip_until.insert(id, self.now + 4.0);
                 walker.feet = feet;
                 give_up(phys, walker, f);
@@ -1092,14 +1098,22 @@ impl Core {
 
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
-    /// The scripts' navmesh switches (EnableNavMesh, DisableNavmesh) on the nav graph;
-    /// actors whose way crossed a navmesh disabled now plan again
-    /// (`fnv_ai::Ai::apply_navmesh_switches`).
+    /// The scripts' navmesh switches (EnableNavMesh, DisableNavmesh) and the game's door
+    /// locks on the nav graph; actors whose way crossed a navmesh disabled or a door
+    /// locked now plan again, and those that set a package aside as out of reach choose
+    /// again when a door was unlocked (`fnv_ai::Ai::apply_navmesh_switches`,
+    /// `apply_door_locks`).
     fn switch_navmeshes(&mut self, game: &mut Game, nav: &mut NavState) {
         if let Some(replanned) = self.ai.apply_navmesh_switches(game, &mut nav.graph) {
             let off: Vec<String> = game.nav_switches.navmeshes.iter().filter(|(_, on)| !**on).map(|(m, _)| format!("{:08X}", m.0)).collect();
             let on = game.nav_switches.navmeshes.len() - off.len();
             info!("nav: navmeshes switched by scripts: {on} enabled, disabled [{}]; {} actors plan their way again", off.join(", "), replanned.len());
+        }
+        // Doors locked and unlocked since (scripts, keys, picked locks) reach the paths
+        // (`fnv_ai::Ai::apply_door_locks`).
+        if let Some(again) = self.ai.apply_door_locks(game, &mut nav.graph) {
+            let who: Vec<String> = again.iter().map(|a| format!("{:08X}", a.0)).collect();
+            info!("nav: door locks changed; {} actors choose their package again [{}]", again.len(), who.join(", "));
         }
     }
 
@@ -1203,7 +1217,7 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting };
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, coasting: &mut self.coasting, fighting: &self.aims };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
         // Walks with the AI off that ended in this update (the AI back on, or nothing
         // left to carry the actor on), for the log.

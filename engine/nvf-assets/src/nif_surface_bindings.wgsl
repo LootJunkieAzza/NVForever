@@ -33,6 +33,8 @@ struct NifSurface {
     holes: vec4<f32>,
     // The edge band's colour (linear).
     holes_edge: vec4<f32>,
+    // Soft intersections: x the fade distance (game units), 0 for none.
+    soft: vec4<f32>,
 }
 
 #ifdef BINDLESS
