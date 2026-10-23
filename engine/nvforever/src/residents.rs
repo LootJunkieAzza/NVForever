@@ -634,6 +634,11 @@ struct Core {
     /// Seconds drawn fighters facing their target (`aims`) moved forward, sideways and
     /// back (within 45° of their heading, within 135°, beyond).
     fight_moves: [f32; 3],
+    /// Of those, seconds on the way to new cover (playtest list 7 item 43), and seconds
+    /// on the way there facing within 45° of the way it goes (turned to its cover).
+    cover_moves: [f32; 2],
+    /// Fighters on their way to new cover this frame.
+    to_cover: HashSet<FormId>,
     /// Frames of drawn residents on their way: all, those in which their character had
     /// not moved since the last frame (no physics step: drawn standing before the
     /// in-between drawing), and those drawn standing.
@@ -650,7 +655,7 @@ struct Core {
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
     /// People in Combat (standing, closing in, going to a flank or a step back, in and
-    /// out of their cover; not fleeing nor running to new cover): where their target is. They are drawn facing it
+    /// out of their cover, and on their way to new cover; not fleeing): where their target is. They are drawn facing it
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
@@ -760,6 +765,8 @@ impl Residents {
             fastest_turn: (0.0, String::new()),
             snaps: 0,
             fight_moves: [0.0; 3],
+            cover_moves: [0.0; 2],
+            to_cover: HashSet::new(),
             walk_frames: [0; 3],
             standing_by: [0; 6],
             held_now: false,
@@ -1232,18 +1239,24 @@ impl Core {
         // back away instead of turning to where they go (owner 2026-10-16: NCR troopers
         // fighting Fiends turned between their way and their target, as if they could
         // not decide whether to move or shoot) [design]. Not while fleeing (it runs
-        // away) or running to new cover (it runs there, out of the fight for a while);
-        // out to its peek point and back behind its cover it strafes (`PostKind::Duck`).
+        // away). Going to new cover it strafes too, keeping its target in front (owner's
+        // playtest list 7 item 43: Violet turned to face the cover she ran to; before,
+        // a fighter turned to its way to cover); out to its peek point and back behind
+        // its cover it strafes (`PostKind::Duck`).
         self.aims.clear();
+        self.to_cover.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let tactics = &game.awareness.tactics;
-            if tactics.flights.contains_key(&r.actor) || tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
+            if tactics.flights.contains_key(&r.actor) {
                 continue;
             }
             let Some((target, _)) = game.awareness.get(r.actor).filter(|x| x.state == fnv_game::awareness::State::Combat).and_then(|x| x.combat_target()) else { continue };
             if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
                 self.aims.insert(r.actor, p.pos);
+                if tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
+                    self.to_cover.insert(r.actor);
+                }
             }
         }
         self.no_room.retain(|_, until| now < *until);
@@ -1875,6 +1888,12 @@ pub fn drive(
         if strafe && moving && visible && core.aims.contains_key(&r.actor) {
             let off = heading_delta(heading, heading_of(step)).abs();
             core.fight_moves[usize::from(off > FRAC_PI_4) + usize::from(off > 3.0 * FRAC_PI_4)] += dt;
+            if core.to_cover.contains(&r.actor) {
+                core.cover_moves[0] += dt;
+                if off <= FRAC_PI_4 {
+                    core.cover_moves[1] += dt;
+                }
+            }
         }
         let stage = (&mut r.spawned, &mut r.root);
         if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe, air: agent.walker.air.is_some() }, stage, (feet, heading), moving, dt) {
@@ -1928,8 +1947,8 @@ pub fn report(
         SNAP_TURN.to_degrees()
     );
     info!(
-        "fight move summary: drawn fighters facing their target moved {:.1} s forward, {:.1} s sideways (strafing), {:.1} s back",
-        core.fight_moves[0], core.fight_moves[1], core.fight_moves[2]
+        "fight move summary: drawn fighters facing their target moved {:.1} s forward, {:.1} s sideways (strafing), {:.1} s back; {:.1} s of it on the way to new cover, {:.1} s of that facing the way to it",
+        core.fight_moves[0], core.fight_moves[1], core.fight_moves[2], core.cover_moves[0], core.cover_moves[1]
     );
     // Flights over ledges of actors on the navmesh surface (no physics), and landings.
     let (flights, landings) = core.ai.agents.values().fold((0, 0), |(f, l), a| (f + a.walker.flights, l + a.walker.landings));

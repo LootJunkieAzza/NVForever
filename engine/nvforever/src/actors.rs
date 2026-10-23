@@ -690,7 +690,7 @@ pub(crate) fn arm(
     player: &mut nvf_assets::anim_play::BlendPlayer,
     stats: &mut ActorStats,
 ) -> Option<WeaponHold> {
-    let held = if world.weapon_mode == WeaponMode::None { None } else { arm_weapon(commands, spawned, skel, a, reference, world, ctx, player, stats) };
+    let held = if world.weapon_mode == WeaponMode::None { None } else { arm_weapon(commands, spawned, skel, &a.skeleton, a.weapon, a.weapon_mods, reference, world, ctx, player, stats) };
     held.or_else(|| {
         let stance = world.anims.stance(ctx, &a.skeleton, skel, AnimType::HandToHand.prefix())?;
         let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
@@ -704,26 +704,30 @@ pub(crate) fn arm(
     })
 }
 
-/// [`arm`] with the actor's weapon model, or nothing when it has none to draw.
+/// [`arm`] with the actor's weapon model, or nothing when it has none to draw: `weapon`
+/// with its mod flags `weapon_mods`, on the skeleton at `skeleton` (archive path; a
+/// creature's too, `outfits::arm_creatures`).
 #[allow(clippy::too_many_arguments)]
-fn arm_weapon(
+pub(crate) fn arm_weapon(
     commands: &mut Commands,
     spawned: &nvf_assets::actor::SpawnedActor,
     skel: &nvf_assets::actor::PreparedSkeleton,
-    a: &Appearance,
+    skeleton: &str,
+    weapon: Option<fnv_sim::FormId>,
+    weapon_mods: u8,
     reference: u32,
     world: &ActorWorld,
     ctx: &mut ActorCtx,
     player: &mut nvf_assets::anim_play::BlendPlayer,
     stats: &mut ActorStats,
 ) -> Option<WeaponHold> {
-    let w = a.weapon.and_then(|id| world.actors.weapons.get(&id))?;
+    let w = weapon.and_then(|id| world.actors.weapons.get(&id))?;
     let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
     // A modded weapon's own model (weapon-mods.md §3 "In the world").
-    let model = w.model_for(false, a.weapon_mods)?;
-    let stance = world.anims.stance(ctx, &a.skeleton, skel, prefix);
+    let model = w.model_for(false, weapon_mods)?;
+    let stance = world.anims.stance(ctx, skeleton, skel, prefix);
     // With the weapon's alternate textures (texture-swaps.md §4).
-    let swaps = a.weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, false, a.weapon_mods));
+    let swaps = weapon.map_or(&[][..], |id| world.actors.weapon_alt_textures(id, false, weapon_mods));
     let (Some(stance), Some(part)) = (stance, ctx.part_swapped(&fnv_actor::resolve::mesh_path(model), swaps)) else {
         stats.weapon_missing += 1;
         return None;
@@ -734,7 +738,7 @@ fn arm_weapon(
     let shapes = crate::weapons::spawn_model(commands, spawned, skel, stance.weapon_node, &part, &bones, &stance.holstered_off, &held);
     for &e in &shapes.all {
         commands.entity(e).insert(RefVisual(reference));
-        if let Some(weapon) = a.weapon {
+        if let Some(weapon) = weapon {
             commands.entity(e).insert(crate::weapons::HeldWeapon { reference, weapon });
         }
     }

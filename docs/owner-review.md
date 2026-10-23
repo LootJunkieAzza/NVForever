@@ -7789,6 +7789,42 @@ sound. Spec: [audio](spec-notes/audio.md) §15. Decisions and guesses:
 - *Check:* do the Goodsprings fire barrels and terminals sound like the original? Is the
   bullet whiz heard when Powder Gangers miss, and how often? Does a knife block clink?
 
+## Combat AI: playtest list 7 items 12, 13, 36, 39, 40, 43, 45 (2026-10-23, list 7 W4)
+
+Branch `claude/l7-combat-ai`; details in docs/design/combat-ai.md §18.
+
+- **12 Trudy unarmed.** Her record has no weapon; the quest's stage 70 adds a shotgun list
+  by AddItem. Built the GECK wiki's AddItem rule: an NPC (or creature) given anything
+  re-equips its best weapon and armour (same "best" as the outfitting: highest damage,
+  armour by DT). Decision: applies to every actor but the player, on every AddItem (caps
+  too), as the wiki says; a scripted EquipItem of a weaker weapon can be undone by a later
+  AddItem. Check in game: Trudy has her shotgun drawn in the gunfight.
+- **13 staggers.** Creatures now play their own hit-reaction clips (they never staggered
+  before) and stand meanwhile; the player cannot walk or jump during a flinch (0.6 s,
+  the existing `flinch_time`). Guess: which creature clip plays for which body part.
+- **36 ghouls.** Guessed constant: feral ghouls ×1.25 on the creature pace (269 → 336
+  units/s, about the player's run), your number, not measured in the original. Creatures
+  now begin blows on the run (from up to 200 units beyond their reach, by their run speed × the clip's
+  time to its hit) and lunge with their forward power attack where they have the clip
+  (ghouls, radscorpions, geckos, deathclaws). Guessed: the 100 units/s minimum closing
+  speed and the 200-unit cap. Check: ghouls and radscorpions should hit a retreating
+  player and leap in.
+- **39 nightkin club.** Super mutants and nightkin are creatures and creatures were
+  never given their weapons. They now draw and use them where their skeleton has the
+  stance (two-handed melee, rifles, miniguns, launchers, grenades; their skeleton has no
+  one-handed pistol or melee stance, so such a weapon still leaves the mutant on its own
+  attack). Check: mutants with hunting rifles now shoot; weapons are not dropped when a
+  mutant dies (not built).
+- **40 firing distance.** Ordinary firearms now fire at any distance their bullet reaches
+  (10,000 units in the masters); flamers/incinerators and anything explosive keep their
+  reach as a firing limit. Where gunmen stand is unchanged (pistols still close to about
+  600 units, firing on the way). Two smokes were rewritten to the new rule.
+- **43 strafing into cover.** Fighters now face their target while going to cover (only
+  fleeing fighters turn to their way). Check: Violet backs or side-steps into cover.
+- **45 recorded fight.** Found and fixed: fighters stopping and starting 3 times a second
+  when sight of the target flickered (now 1.5 s grace before closing in blind). Left for
+  later: many shots held for a comrade in the line of fire (172 held vs 267 fired), melee
+  Fiends charging gunmen over 2,000 units of open ground and changing target mid-charge.
 ## Armour gloves, bloatfly wings, Lucky's texture, creature sounds (2026-10-23, list 7 W7)
 
 Branch claude/l7-visuals-sound. Specs: [actors](spec-notes/actors.md) §2.3, §8.3, §9.3;

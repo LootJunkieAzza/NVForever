@@ -165,6 +165,13 @@ impl<'a> Game<'a> {
         self.def_following(r, |d| d.template_stats)
     }
 
+    /// A creature's type (CREA DATA type code: 0 Animal … 5 Feral Ghoul … 7 Giant),
+    /// from the definition supplying its stats, as GetIsCreatureType reads it; `None`
+    /// for NPCs.
+    pub fn creature_type(&self, r: FormId) -> Option<i64> {
+        self.stats_def(r).and_then(|d| d.creature_type)
+    }
+
     /// The definition supplying `r`'s traits: race, sex, voice type, class (template
     /// flag "Traits") [documented: GECK wiki Category:NPC, Template Data: each flag stands
     /// for a tab; the Traits tab holds these].

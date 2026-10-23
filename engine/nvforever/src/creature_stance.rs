@@ -40,9 +40,14 @@ pub struct CreatureStancePlugin;
 
 impl Plugin for CreatureStancePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Stances>().add_systems(Update, (attach, alerted).chain().after(nvf_play::PlaySet::Scripts));
+        app.init_resource::<Stances>().add_systems(Update, (attach.in_set(StanceAttach), alerted).chain().after(nvf_play::PlaySet::Scripts));
     }
 }
+
+/// Where creatures are given their stance (`outfits::arm_creatures` runs after it, so a
+/// creature that takes up a weapon loses the stance at once).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StanceAttach;
 
 /// The unarmed stance clips of one creature skeleton, shared by the creatures using it.
 pub struct CreatureClips {
