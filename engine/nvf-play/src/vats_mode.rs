@@ -8,14 +8,17 @@
 //!   [`time_scale_at`]); left click (Use) marks the actor under the crosshair, on the body
 //!   part the crosshair's ray strikes; each mark reserves the shot's AP
 //!   (`fnv_combat::vats::MarkQueue`: no more marks than the AP left and the rounds loaded
-//!   allow). Right click (Block) takes the last mark back, or with none ends the mode; V
-//!   again ends it; E (Activate) fires.
+//!   allow). A tap of right click (Block, let go within [`UNMARK_TAP`] real seconds)
+//!   takes the last mark back, or with none ends the mode; held, it aims down the sights
+//!   (§11.5); V again ends it; E (Activate) fires.
 //! - **Firing** (§9): the clock runs at [`FIRE_SCALE`] (half speed); every
 //!   [`SHOT_INTERVAL`] of game time the next mark in
 //!   order: the view snaps to it and `crate::combat` fires one shot straight at it
 //!   ([`VatsMode::take_shot`]: no spread, no recoil, no jam, whatever the weapon's
 //!   cooldown), and its AP is spent. [`AFTER_LAST`] after the last shot the mode is off
-//!   and the clock is back at 1.
+//!   and the clock is back at 1. In first person the player's own aim stays (a scope
+//!   stays up); in third person a gun with sights is raised for a mark farther than 20 m
+//!   and fired from the hip nearer, as the NPCs do (`crate::combat::aims_down_sights`).
 //! - **The look** (§5): the swipe, the amber grade and its fading out are four numbers
 //!   ([`VatsMode::look`]) the renderer's image-space pass draws (nvforever
 //!   `imagespace.rs`); the marks' "x"s are drawn here ([`draw_marks`]).
@@ -82,6 +85,11 @@ pub const SHOT_INTERVAL: f32 = 0.2;
 /// From the last shot to the end of the mode, game seconds (0.6 s real at
 /// [`FIRE_SCALE`]) [design].
 pub const AFTER_LAST: f32 = 0.3;
+/// A right click let go within this many real seconds of its press, while marking, is a
+/// tap: it takes the last mark back; held longer it aims down the sights (§11.5)
+/// [design: owner 2026-10-23, "let the player aim or not whilst vats slow time is
+/// running"; the aim waits out the tap so a tap does not twitch the zoom].
+pub const UNMARK_TAP: f32 = 0.25;
 /// How far the crosshair's ray looks for a target when the projectile has no range of
 /// its own, units [design].
 pub const REACH: f32 = 8192.0;
@@ -165,6 +173,8 @@ struct InHand {
     style: AttackStyle,
     /// A melee weapon's own reach, units.
     melee_reach: f32,
+    /// Its WEAP Sight FOV (0: no sights).
+    sight_fov: f32,
 }
 
 /// How the marks are being spent (§9, §16).
@@ -220,6 +230,12 @@ pub struct VatsMode {
     /// This stay's shots and AP spent.
     fired: u32,
     spent: f32,
+    /// Real seconds when Block went down while marking (a tap unmarks, §11.5).
+    block_at: Option<f64>,
+    /// The mark the third-person sights rule looks at while firing (the one being fired
+    /// or the next), and whether that rule has the sights up (`None`: not decided yet).
+    aim_mark: usize,
+    sights_up: Option<bool>,
     /// SOUN FormIDs by Editor ID, found on first use.
     sounds: Option<HashMap<String, FormId>>,
     pub stats: VatsStats,
@@ -380,12 +396,44 @@ impl Sounds<'_> {
 }
 
 /// The keys the mode takes (after the frame's input, test aids and script locks), and
-/// what it holds back from the rest of the game (§11.5): the trigger, aiming down the
-/// sights, reloading and Ammo Swap while it is on. V with the weapon away draws it.
-fn read_keys(input: ControlInput, state: Res<State<PlayState>>, locks: Res<ControlLocks>, mut vats: ResMut<VatsMode>, mut control: ResMut<PlayerControl>) {
+/// what it holds back from the rest of the game (§11.5): the trigger, reloading and Ammo
+/// Swap while it is on. Aiming down the sights is the player's while marking (a tap of
+/// Block unmarks instead) and, in first person, while firing; in third person the
+/// marked shots raise a gun's sights by the mark's distance. V with the weapon away
+/// draws it.
+#[allow(clippy::too_many_arguments)]
+fn read_keys(
+    input: ControlInput,
+    real: Res<Time<Real>>,
+    state: Res<State<PlayState>>,
+    locks: Res<ControlLocks>,
+    mut vats: ResMut<VatsMode>,
+    mut control: ResMut<PlayerControl>,
+    player: Res<Player>,
+) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
     let pressed = |c: Control| playing && input.just_pressed(c);
-    vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: pressed(Control::Block), accept: pressed(Control::Activate) };
+    let now = real.elapsed_secs_f64();
+    vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate) };
+    // Block while marking: a tap unmarks, a hold aims (the aim waits out the tap).
+    if vats.phase == Phase::Marking {
+        if pressed(Control::Block) {
+            vats.block_at = Some(now);
+        }
+        let held_for = vats.block_at.map(|t| (now - t) as f32);
+        let tap = held_for.is_some_and(|h| h < UNMARK_TAP);
+        if tap && playing && input.just_released(Control::Block) {
+            vats.keys.unmark = true;
+        }
+        if !(playing && input.pressed(Control::Block)) {
+            vats.block_at = None;
+        }
+        if tap {
+            control.aiming = false;
+        }
+    } else {
+        vats.block_at = None;
+    }
     if vats.phase == Phase::Off && vats.keys.toggle && !control.weapon_out && !locks.fighting {
         control.weapon_out = true;
         vats.phase = Phase::Drawing;
@@ -394,9 +442,32 @@ fn read_keys(input: ControlInput, state: Res<State<PlayState>>, locks: Res<Contr
     }
     if vats.holds_input() {
         control.trigger = false;
-        control.aiming = false;
         control.reload = false;
         control.ammo_swap = false;
+    }
+    match vats.phase {
+        Phase::Drawing => control.aiming = false,
+        Phase::Firing => {
+            let gun = vats.weapon.as_ref().filter(|w| matches!(w.style, AttackStyle::Single | AttackStyle::Burst { .. }));
+            match gun.map(|w| w.sight_fov) {
+                // The body's clips show it: a gun's sights up for a far mark, from the hip
+                // for a near one, as the NPCs fire (`crate::combat::aims_down_sights`).
+                Some(fov) if control.third_person_view() => {
+                    let away = vats.spots.get(vats.aim_mark).map(|s| crate::combat::distance(player.eye(), s.point));
+                    let up = away.is_some_and(|d| crate::combat::aims_down_sights(vats.sights_up == Some(true), d, fov));
+                    if vats.sights_up != Some(up) {
+                        vats.sights_up = Some(up);
+                        let how = if up { "aims down the sights (beyond 20 m)" } else { "fires from the hip (within 20 m)" };
+                        info!("vats mode: third person, mark {} {:.0} units away: {how}", vats.aim_mark + 1, away.unwrap_or(0.0));
+                    }
+                    control.aiming = up;
+                }
+                // First person: the player's own aim (a scope stays usable).
+                Some(_) => {}
+                None => control.aiming = false,
+            }
+        }
+        _ => {}
     }
 }
 
@@ -475,6 +546,7 @@ fn update(
                     info!("vats mode: nothing marked to fire");
                 } else {
                     v.phase = Phase::Firing;
+                    (v.aim_mark, v.sights_up) = (0, None);
                     let n = v.queue.len();
                     let style = v.weapon.as_ref().map_or(AttackStyle::Single, |w| w.style);
                     let (run, what) = match style {
@@ -574,7 +646,8 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         (AttackStyle::Thrown, Some(kind)) => info!("vats mode: on ({}, {kind}, {:.0} AP a mark, {} carried, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.rounds),
         (_, Some(kind)) => info!("vats mode: on ({}, {kind}, {:.0} AP a mark, {} rounds loaded, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.rounds),
     }
-    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach });
+    let sight_fov = combat.sight_fov().filter(|&(id, _)| id == w.id).map_or(0.0, |(_, f)| f);
+    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach, sight_fov });
     sounds.play(v, "UIVATSEnter");
     sounds.looping(v, true);
 }
@@ -706,6 +779,12 @@ fn shoot(v: &mut VatsMode, i: usize, round: u32, script: Option<&mut ScriptState
     v.shooting = Some(i);
     v.fired += 1;
     v.stats.shots += 1;
+    // The sights rule looks at this mark until its burst is out, then at the next.
+    let rounds = match v.weapon.as_ref().map(|w| w.style) {
+        Some(AttackStyle::Burst { shots, .. }) => shots,
+        _ => 1,
+    };
+    v.aim_mark = if round + 1 < rounds { i } else { (i + 1).min(v.spots.len().saturating_sub(1)) };
     if round > 0 {
         debug!("vats mode: round {} of mark {}", round + 1, i + 1);
         return;
@@ -953,11 +1032,22 @@ mod tests {
     }
 
     #[test]
+    fn third_person_shots_use_the_sights_beyond_20_m_only() {
+        use crate::combat::aims_down_sights;
+        // 20 m = 1,400 units; once up, the sights stay up to 1,350.
+        assert!(!aims_down_sights(false, 1400.0, 55.0) && aims_down_sights(false, 1401.0, 55.0));
+        assert!(aims_down_sights(true, 1360.0, 55.0) && !aims_down_sights(true, 1350.0, 55.0));
+        // A gun without sights (Sight FOV 0) never raises them.
+        assert!(!aims_down_sights(false, 5000.0, 0.0));
+        assert_eq!(crate::combat::distance([0.0, 0.0, 0.0], [3.0, 4.0, 12.0]), 13.0);
+    }
+
+    #[test]
     fn the_melee_mark_is_the_one_being_swung_at_while_firing() {
         let mut v = VatsMode { phase: Phase::Firing, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
         v.queue.push(FormId(7), None, 92.0).unwrap();
         v.spots.push(Spot { point: [1.0, 2.0, 3.0], name: "dog".into(), part: "whole".into(), condition: None });
-        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0 });
+        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0 });
         assert_eq!(v.melee_mark(), None, "no swing yet");
         v.striking = Some(0);
         assert_eq!(v.melee_mark(), Some((7, [1.0, 2.0, 3.0], 75.0 + CLOSE_SLACK)));

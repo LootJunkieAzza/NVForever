@@ -425,6 +425,28 @@ pub const OBJECT_PUSH: f32 = 1.0;
 /// The most speed one shot gives an object, game units per second [design].
 pub const OBJECT_PUSH_MAX_SPEED: f32 = 700.0;
 
+/// Within this distance of its target a shooter fires from the hip, beyond it down its
+/// sights: 20 m at 70 units per metre [owner's playtest list 2026-10-11; the units per
+/// metre: observed, gravity fits 9.81 m/s² at 70 units/m, physics.md §6.3]. The NPCs
+/// (docs/design/combat-ai.md §10.6) and the player's VATS mode shots in third person
+/// (docs/design/vats-mode.md §11.5) follow it.
+pub const HIP_FIRE_WITHIN: f32 = 1400.0;
+/// Once aiming down the sights, a shooter keeps them up until its target is this much
+/// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
+pub const SIGHTS_HYSTERESIS: f32 = 50.0;
+
+/// Whether a shooter fires down its sights at a target `distance` away: only a gun with
+/// sights (`sight_fov` above 0), beyond [`HIP_FIRE_WITHIN`]; `was`: it aimed down them
+/// last frame (they stay up to [`SIGHTS_HYSTERESIS`] nearer).
+pub fn aims_down_sights(was: bool, distance: f32, sight_fov: f32) -> bool {
+    sight_fov > 0.0 && distance > if was { HIP_FIRE_WITHIN - SIGHTS_HYSTERESIS } else { HIP_FIRE_WITHIN }
+}
+
+/// The straight-line distance between two points, units.
+pub fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
 /// The player's limb conditions (codes 25–31, 100 healthy, 0 or less crippled), read
 /// from the script runtime each frame (step C8).
 #[derive(Resource, Debug, Clone, Copy)]

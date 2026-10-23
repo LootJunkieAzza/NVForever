@@ -54,12 +54,13 @@ quoted as "owner".
 
 - **Off**: the game as usual.
 - **Marking**: the clock runs at [`MARK_SCALE`](#4-time-scale); the view still turns at
-  full speed (the mouse is read per event, not per game second); left click marks, right
-  click unmarks, E accepts. The weapon's own trigger, aiming down the sights and
-  activation are held (§11.5).
+  full speed (the mouse is read per event, not per game second); left click marks, a
+  right-click tap unmarks, E accepts. The weapon's own trigger and activation are held;
+  a held right click aims down the sights (§11.5, since 2026-10-23).
 - **Firing**: the clock runs at half speed (`FIRE_SCALE`, §4); the marked shots leave one after another
   (§9); all other input is held until the mode is off [design: the sequence is the
-  player's committed action, like the original's VATS playback].
+  player's committed action, like the original's VATS playback], except aiming down
+  the sights (§11.5, since 2026-10-23).
 - Leaving takes the grade off over [`LEAVE_FADE`](#5-the-look) (§5); the state is Off
   at once, only the look lingers.
 
@@ -345,9 +346,35 @@ not overlap.
 - `Control::Vats` (V) leaves `NOT_BUILT`; it enters, and in Marking leaves without
   firing [design: a second V is "never mind", as a right click with no marks].
 - In Marking and Firing the mode takes Use (left mouse: mark), Block (right mouse:
-  unmark) and Activate (E: accept) for itself: `PlayerControl::trigger` and
-  `PlayerControl::aiming` are cleared and activation is held (`activate.rs`) [design].
-  Movement, looking, sneaking and the camera (Toggle POV too) keep working, slowed with
+  unmark) and Activate (E: accept) for itself: `PlayerControl::trigger` is cleared and
+  activation is held (`activate.rs`) [design].
+- **Aiming down the sights** (owner 2026-10-23: "vats mode to also work whilst the
+  player is aiming down sight … so that snipers scopes are still usable in vats … let
+  the player aim or not whilst vats slow time is running"):
+  - Marking: Block is shared. A **tap** (let go within `UNMARK_TAP` = 0.25 real
+    seconds of the press) unmarks, or with no marks ends the mode; a **hold** aims down
+    the sights (or blocks, with a melee weapon), the zoom and a scope included. The aim
+    waits out the tap, so a tap does not twitch the zoom; the unmark comes on the
+    release, not the press [design]. Aiming held from before V goes on aiming; its
+    release is no tap.
+  - Firing, first person: the player's own aim stays as it is: a scoped rifle keeps
+    its scope up through the marked shots, or the player lets go and fires unaimed
+    [design]. Melee and thrown weapons do not aim while firing.
+  - Firing, third person: the body follows the NPCs' 20 m rule (owner 2026-10-23: "the
+    player will play his aiming animation if the target is far away greater than 20
+    metres but he hip fires if its close by"; docs/design/combat-ai.md §10.6): a gun
+    with sights (Sight FOV above 0) aims down them for a mark beyond 1,400 units of the
+    eye and fires from the hip nearer, held up to 1,350 once raised
+    (`nvf_play::combat::aims_down_sights`, shared with `npc_combat`). The mark looked at
+    is the one being fired until its burst is out, then the next. The aim clips, the
+    third-person zoom and the walk while aiming follow as for a held Block. Log:
+    `vats mode: third person, mark k N units away: aims down the sights (beyond 20 m)`
+    or `… fires from the hip (within 20 m)`.
+  - The zoom runs on real time (`aim_zoom.rs`), so the sights come up at their usual
+    pace on the slowed clock; the arms' own aim clips run on the game clock and are
+    slowed with the world [observed in code; with true iron sights on, the gun is put
+    on the eye by the zoom's share, so the sight picture arrives at the usual pace].
+- Movement, looking, sneaking and the camera (Toggle POV too) keep working, slowed with
   the world. Ready Item's reload and Ammo Swap are held while the mode is on [design: no
   reload or ammunition change mid-mode].
 - Controller: the same controls on their pad bindings (`Bindings::pad`), nothing extra.

@@ -333,6 +333,8 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   Sight FOV above 0 [documented: GECK wiki Weapons, Sight FOV 0 "essentially disables
   iron sights"]) at a target beyond 1,400 units aims down them; nearer it fires from the
   hip; once up, the sights stay up to 1,350 units [design: no switching at the edge].
+  The rule lives in `nvf_play::combat::aims_down_sights`; the player's VATS mode shots
+  in third person follow it too (owner 2026-10-23, docs/design/vats-mode.md §11.5).
 - Aimed shots lose the unaimed spread penalty, fUnaimedSpreadPenalty [documented: Gun
   Spread Formula (New Vegas)].
 - It plays the stance's iron-sights clips: `2hraimis.kf` with `2hraimisup/down.kf` in
