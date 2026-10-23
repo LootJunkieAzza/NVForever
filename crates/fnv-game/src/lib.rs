@@ -78,6 +78,7 @@ pub mod package;
 pub mod perks;
 pub mod poker;
 pub mod provocation;
+pub mod revision;
 pub mod quest;
 pub mod quest_targets;
 pub mod radiation;

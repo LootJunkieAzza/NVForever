@@ -219,8 +219,13 @@ epairmenuPlayer, Repair 17]:
   chooses it, a click on the part already chosen uses it, a click on "Cancel E)" cancels.
   Log `pipboy repair: clicked row <n>`.
 - Using a part: one unit of it leaves the inventory, the item's condition becomes
-  `merged_condition` (above) at the player's Repair skill when the list opened, and the
-  ITEMS list comes back; `UIRepairWeapon` plays [hypothesis, as the vendor's].
+  `merged_condition` (above) at the player's Repair skill when the list opened;
+  `UIRepairWeapon` plays [hypothesis, as the vendor's]. The list then stays open on the
+  same item, with the parts left, for the next repair; the ITEMS list comes back only
+  when the item is at full condition, when nothing is left to repair it with, or on
+  Cancel [design: the owner's rule, playtest list 7 item 16; the original's screenshots
+  show the ITEMS list back after one repair]. Log `pipboy repair: stays open: …` or
+  `pipboy repair: closed: …`.
 - The hint: "Maintain R)" from 75 % (weapons) or 50 % (apparel), "Repair R)" below;
   dim when R would do nothing. "Mod X)" is drawn under it for weapons with mod slots
   (pipboy.md §5); the mod menu itself is not built.

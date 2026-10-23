@@ -87,8 +87,9 @@ const BUTTON_STEP: f32 = 47.0;
 /// and the background fill alpha, 1134 by 910 from (-55, -115)]: faint, as the original's,
 /// whose edge cannot be seen [observed: the owner's screenshot, 2026-10-19; the 0.75 of
 /// the other menus drew a dark box far past the frame]. The original also blurs the world
-/// behind the menu (not built).
-const SHEET_ALPHA: f32 = crate::interface::BACKGROUND_FILL_ALPHA;
+/// behind the menu (not built). Ours darkens the whole screen as the character menus do:
+/// the owner found the world behind too bright for the text (playtest list 7 item 2,
+/// `crate::interface::top_menu_backing`) [design].
 /// A row or a figure that cannot be had: dimmer than the rest [observed: the dim rows of
 /// the owner's screenshots stand at about two thirds of the bright ones].
 const DIM: f32 = 165.0;
@@ -473,9 +474,8 @@ fn spawn(commands: &mut Commands, look: &mut RepairLook, v: &View, data: Option<
     let arrow = look.pictures.picture("interface\\shared\\arrow\\repair_arrow_down.dds", data, images, bc);
     let chosen = v.rows.get(v.selected);
     let icon = chosen.and_then(|r| r.icon.as_deref()).and_then(|i| look.pictures.picture(i, data, images, bc));
-    commands.spawn((RepairRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(105))).with_children(|root| {
+    commands.spawn((RepairRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(crate::interface::TOP_MENU_Z), crate::interface::top_menu_backing())).with_children(|root| {
         root.spawn(node).with_children(|m| {
-            m.spawn((at(-55.0, -115.0, 1134.0, 910.0), BackgroundColor(Color::BLACK.with_alpha(SHEET_ALPHA))));
             // The headline: "Repair Services", the vendor's skill and the player's caps,
             // each part closed by a short side fading down [documented].
             let title = "Repair Services";

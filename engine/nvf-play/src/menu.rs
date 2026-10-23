@@ -714,13 +714,15 @@ fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
-    active: Res<ActiveMenu>,
+    mut active: ResMut<ActiveMenu>,
     roots: Query<Entity, With<MenuRoot>>,
-    sim: Res<SimState>,
+    mut sim: ResMut<SimState>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut kit: Local<Option<look::Kit>>,
+    (combat, play): (Option<Res<crate::combat::Combat>>, Option<Res<crate::PlayWorld>>),
+    mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
 ) {
     if !active.is_changed() && !roots.is_empty() {
         return;
@@ -735,6 +737,14 @@ fn draw(
     }
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| look::Kit::load(data.as_deref(), &mut images, bc));
+    // The lists' scroll positions follow the rows drawn (`MenuModel::pointer_pick`).
+    if m.mode != Mode::Inventory {
+        let first = [Side::Container, Side::Player].map(|s| look::drawn_first(m, s, kit));
+        if let Some(m) = active.bypass_change_detection().0.as_mut() {
+            m.scroll = first;
+        }
+    }
+    let Some(m) = active.0.as_ref() else { return };
     let screen = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
@@ -745,8 +755,14 @@ fn draw(
     };
     if m.mode != Mode::Inventory {
         let note = note(m, &sim);
+        // The selected item's figures, as the Pip-Boy's ITEMS page reads them
+        // (`crate::pipboy::items::info_of`; owner's playtest list 7 item 25).
+        if forms.is_none() {
+            *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
+        }
+        let info = m.selected_row(m.focus).map(|r| crate::pipboy::items::info_of(r, combat.as_deref(), sim.bypass_change_detection(), forms.as_mut()));
         commands.spawn((MenuRoot, screen.clone(), GlobalZIndex(100))).with_children(|root| {
-            look::spawn(root, m, note.as_deref(), kit, data.as_deref(), &mut images, bc);
+            look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
         });
     }
     if let Some(q) = &m.quantity {
