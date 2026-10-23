@@ -589,7 +589,8 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   horizon colour (also too blue-white in the renderer: (235, 236, 210) against (224, 216,
   181) a few degrees up) made the mean colour worse at both shares tried (0.5, 1.0) and
   was dropped. The FNAM fog powers (day 0.6, night 0.5 [documented: xEdit names]) are
-  still unused; the fog's share already fits these frames.
+  were unused then; they are used since 2026-10-23 ("Fog power" below), which kept these
+  frames as they were or better.
 - **What holds the exterior frames under the threshold** [observed 2026-10-21]: with the
   game's own pixels pasted over the renderer's top quarter (the sky, mostly clouds), the
   eight exterior frames would score SSIM 0.63-0.85, all passing (goodsprings_noon 0.477
@@ -691,7 +692,45 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   HDR block applies [hypothesis from the names]. What the original computes from them
   is not documented. The renderer's light glow (docs/design/graphics-enhanced.md §3.11)
   uses Bevy's bloom on an HDR view, its strength scaled by Bright Scale / 2
-  [engineering choice]; the eye adaptation is not built.
+  [engineering choice]; eye adaptation: next item.
+- **Eye adaptation** (2026-10-23). The HDR tab's Eye Adapt Speed "controls how quickly
+  the adapted scene lum chases the actual lum", and Target LUM exists ("changing this
+  just seems to break everything") [documented: GECK wiki ImageSpace, HDR tab]; what the
+  adapted lum does to the picture is not documented. Measured on 31 original frames
+  against renders of the same cameras without adaptation [observed: mean log2 luminance
+  of the 10-90 % pixels, display values linearised]: the lab's eight Mojave exterior
+  frames (−3.2 to −1.8 EV) agree within 0.9 EV (most within 0.3); the saloon (Target LUM
+  0.75) agrees, Doc Mitchell's house (1.0) is 0.5-0.9 EV darker in the renderer; the
+  effects audit's night spots above −7 EV agree within ±0.8; darker pictures are lifted
+  in the original: Jacobstown lodge −9.6 → −7.9, Hoover Dam's lower level −10.5 → −9.2,
+  Dead Money's Villa −9.1 → −6.5, −10.3 → −7.8 and −11.7 → −7.8, Puesta del Sol (whose
+  adapter triples Target LUM) −10.0 → −6.6. As built [hypothesis, fitted to those
+  numbers]: the renderer meters its HDR view (Bevy's auto exposure, 10-90 % of a log
+  histogram) and brightens only, by 0.85 EV per EV the average lies under a reference,
+  at most 5 EV; the reference is −6.8 EV at Target LUM 1.4 (NVDefaultExterior) and moves
+  by log2(Target LUM / 1.4) with the image space and its adapters (Puesta del Sol −5.2,
+  the saloon −7.7). Adaptation runs at 3 EV a second either way [engineering choice; Eye
+  Adapt Speed is not used]. It needs the HDR view, so it is on with the light glow (the
+  default) and off without it (`nvforever/src/eye_adapt.rs`). With the fog changes
+  below, the Dead Money frames come out within 1 EV of the original's; the lab's frames
+  move by under 0.1 EV.
+- **Emissive mult** (2026-10-23). "Emissive Mult: (non-imagespace) Multiplier applied to
+  the emittance of an object" [documented: GECK wiki ImageSpace, HDR tab]. Values
+  [observed]: NVDefaultExterior 1.5 (the Mojave's adapters leave it), interiors 1.0-1.3;
+  Dead Money's NVDLC01VillaExtIS ×3.5 (5.25) and NVDLC01WestTownIS ×2 (3.0). In the
+  original's frame of Puesta del Sol the lantern glass (emissive (0.76, 0.55, 0.20) ×
+  10) burns near white; ours was dim orange. As built [hypothesis]: outdoors, emitted
+  light (lit shapes' emissive and unlit shapes' emissive brightness) is scaled by the
+  adapted value over the worldspace base image space's own (the Mojave 1, the Villa
+  3.5, Puesta del Sol 2); indoors 1. Carried to the NIF shader in the view's fog
+  uniform (`nvforever/src/fog.rs`).
+- **Sunlight dimmer** in Dead Money (2026-10-23): NVDLC01WestTownIS sets it ×0.4 + 0.1
+  (1.1 → 0.54), about half the Mojave's day value (1.21), and Puesta del Sol's original
+  frames are lit by its yellow ambient ((119, 81, 9)) with the blue channel at 0, where
+  the renderer's white moonlight ((182, 188, 226)) still shows. The rule for every world
+  is being built with the Old World Blues comparison (docs/handoff/owb-comparison-2026-10-23.md);
+  a trial that only dimmed (never above 1, relative to the base image space) moved
+  Puesta del Sol's median from (10, 0, 0) to (28, 13, 0) against the game's (36, 18, 0).
 - **IMAD as a screen effect**: the same record type played by scripts (fade colour,
   blur, double vision, radial blur, every key of every track) is in
   docs/spec-notes/image-modifiers.md; the weather grade above reads only the first
@@ -892,8 +931,40 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   in 55 it is nearer than the fog's end (WinsResidence 1,800 against 3,300). As built:
   indoors the camera's far plane is the clip distance, 0 for none [hypothesis: 0 is no
   clip]; outdoors 400,000 units as before.
-- **Fog power** (XCLL, LGTM, WTHR) varies (1.0 in 189 interiors, 0.5–2.0 in the rest)
-  but what curve it sets is not documented, and the fog stays linear.
+- **Fog power** (XCLL, LGTM, WTHR) varies (1.0 in 189 interiors, 0.5–2.0 in the rest;
+  0.2–1.0 in the masters' 98 weathers, the Mojave's 0.6 by day and 0.5 by night, Dead
+  Money's 0.21–0.5 [observed, `weather_dump.rs --fog`]). What curve it sets is not
+  documented. As built since 2026-10-23 [hypothesis, fitted to the frames below]: the
+  fog's share at a distance d is ((d − near) / (far − near))^power, clamped to 0..1, so
+  a power under 1 fogs near things more than a straight line. Outdoors the fog colour is
+  blended in display values (gamma 2.2), indoors in linear light. Every world shader
+  reaches it through Bevy's fog function, which the renderer patches
+  (`nvforever/src/fog.rs`); the weather's fog colour, distances and fades are as before.
+  Evidence (original frames against renders of the same cameras; SSIM as the lab's
+  frame scenarios score it):
+  - Dead Money's Villa (NVDLC01VillaWeather 0..75,000, power 0.35, fog (119, 46, 28)):
+    in the original the far buildings read through a red haze ((50, 23, 22) on a facade
+    about 2,000 units away; the mountains (56, 19, 11), the colour of the sky just above
+    them). Straight-line fog leaves 3 % of fog there and the facades black ((10, 0, 0));
+    the power curve mixed in linear light washes the picture in orange ((75, 16, 5),
+    mountains (104, 29, 12)); mixed in display values the facades are (35, 2, 2) and the
+    picture reads like the original's. Worked through by hand in display values
+    (texture × ambient, then fog, then the grade) the curve predicts (54, 15, 19) for that
+    facade and (35, 7, 19) for a wall 200 units away (game (24, 5, 12)).
+  - The lab's Mojave frames: the power curve mixed in linear light lowered every exterior
+    frame (spring_mountains_east 0.703 → 0.625, black_mountain_north 0.605 → 0.584, under
+    the 0.6 threshold); mixed in display values they score as before or better
+    (spring_mountains_east 0.726, goodsprings_dusk 0.508 → 0.514, lake_shore_noon 0.515 →
+    0.524, black_mountain_north 0.605). In the original the land in the middle distance
+    is clear and the haze gathers at the horizon, as this curve does.
+  - Interiors: the power curve in linear light left Doc Mitchell's house better (bedroom
+    0.713 → 0.758) and the saloon as it was (0.811 → 0.807); in display values the
+    saloon fell to 0.715-0.663, its dark corners losing a faint neutral veil the original
+    has ((14, 12, 12) in the game, (5, 4, 5) in display values, (13, 11, 16) before). So
+    indoors the blend stays linear. Why the two differ is not known.
+  - Not checked: the fog clip distance's interplay, Honest Hearts' and the other add-ons'
+    worldspaces (Honest Hearts' archive is a lab holdout), the underwater fog (still
+    linear, water.md).
 
 ## 7. Distant LOD
 

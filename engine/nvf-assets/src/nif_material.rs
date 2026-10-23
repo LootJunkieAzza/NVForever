@@ -246,11 +246,32 @@ pub struct NifSurface {
 /// lamp beams against the owner's game frame].
 pub const SOFT_DISTANCE: f32 = 160.0;
 
+/// Share of a shape's size (the largest side of its box) that its soft intersection may
+/// span: a glow card a few dozen units across around a lantern's glass (Dead Money's
+/// `nvdlc01_sconceon.nif`, 58 units) faded over 160 units was a dim card with a visible
+/// seam where it meets the glass, while the original's glow is seamless [engineering
+/// choice, owner's frame of the lantern; nif.md §6 "Soft intersections"].
+pub const SOFT_SIZE_SHARE: f32 = 0.25;
+
+/// The fade distance of a soft-intersecting shape whose largest side is `extent` units:
+/// [`SOFT_DISTANCE`], or [`SOFT_SIZE_SHARE`] of the shape when that is less. A shape of
+/// unknown size (extent 0) keeps [`SOFT_DISTANCE`].
+pub fn soft_distance(extent: f32) -> f32 {
+    if extent <= 0.0 {
+        return SOFT_DISTANCE;
+    }
+    (extent * SOFT_SIZE_SHARE).clamp(1.0, SOFT_DISTANCE)
+}
+
 /// Whether a shape of this alpha mode fades out where it meets the surface behind it
 /// (module notes, "Soft intersections"): unlit, added or blended (not multiplied: those
-/// darken what they lie on), not a decal and not refracting.
-pub fn soft_intersections(alpha_mode: AlphaMode, unlit: bool, decal: bool, refracts: bool) -> bool {
-    unlit && !decal && !refracts && matches!(alpha_mode, AlphaMode::Add | AlphaMode::Blend | AlphaMode::Premultiplied)
+/// darken what they lie on), and not refracting. Shapes with the decal flags are
+/// included: a decal laid on a surface lies along it and is not faded, while Dead Money's
+/// lantern glow (three crossed discs through the glass, decal flags set) must fade where
+/// it comes out of a pane, or the pane shows a hard seam (nif.md §6 "Soft intersections
+/// of small shapes").
+pub fn soft_intersections(alpha_mode: AlphaMode, unlit: bool, refracts: bool) -> bool {
+    unlit && !refracts && matches!(alpha_mode, AlphaMode::Add | AlphaMode::Blend | AlphaMode::Premultiplied)
 }
 
 /// [`NifSurface::holes`] of a shape with no holes.
@@ -659,19 +680,27 @@ mod tests {
     }
 
     #[test]
+    fn soft_distance_follows_small_shapes() {
+        assert_eq!(soft_distance(0.0), SOFT_DISTANCE);
+        assert_eq!(soft_distance(2_000.0), SOFT_DISTANCE);
+        assert!((soft_distance(58.5) - 14.625).abs() < 1e-4);
+        assert_eq!(soft_distance(1.0), 1.0);
+    }
+
+    #[test]
     fn soft_intersections_for_unlit_added_and_blended_shapes_only() {
         // Beams and glows (added), smoke and particles (blended), premultiplied.
         for mode in [AlphaMode::Add, AlphaMode::Blend, AlphaMode::Premultiplied] {
-            assert!(soft_intersections(mode, true, false, false));
+            assert!(soft_intersections(mode, true, false));
         }
         // Not lit shapes (glass), multiply cards, solid or cut-out shapes, decals or
         // refracting shells.
-        assert!(!soft_intersections(AlphaMode::Blend, false, false, false));
-        assert!(!soft_intersections(AlphaMode::Multiply, true, false, false));
-        assert!(!soft_intersections(AlphaMode::Opaque, true, false, false));
-        assert!(!soft_intersections(AlphaMode::Mask(0.5), true, false, false));
-        assert!(!soft_intersections(AlphaMode::Add, true, true, false));
-        assert!(!soft_intersections(AlphaMode::Add, true, false, true));
+        assert!(!soft_intersections(AlphaMode::Blend, false, false));
+        assert!(!soft_intersections(AlphaMode::Multiply, true, false));
+        assert!(!soft_intersections(AlphaMode::Opaque, true, false));
+        assert!(!soft_intersections(AlphaMode::Mask(0.5), true, false));
+        // Decal-flagged shapes are included (the along-the-surface rule keeps decals).
+        assert!(!soft_intersections(AlphaMode::Add, true, true));
     }
 
     #[test]
