@@ -262,7 +262,7 @@ impl Settings {
         };
 
         let value = self.base_value + sound + visual + self.skill_mult * (detector_skill - target_skill);
-        Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen: s.camera_sight.unwrap_or(seen) }
+        Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen: s.camera_sight.unwrap_or(seen), clear: s.line_of_sight }
     }
 }
 
@@ -382,12 +382,23 @@ pub struct Detection {
     /// The detector could see the target (line of sight and field of view; for the player
     /// the camera's, `Situation::camera_sight`): what GetLineOfSight reads.
     pub seen: bool,
+    /// Nothing solid between the detector's eyes and the target (walls, closed doors),
+    /// whichever way the detector faces: `Situation::line_of_sight`. A force greet needs
+    /// it ([`Game::greet_sight`]).
+    pub clear: bool,
 }
+
+/// Seconds of game time an actor the player woke stays up ([`Game::wake`]) [our choice].
+pub const WAKE_SECONDS: f64 = 30.0;
 
 /// The latest detection of each (detector, target) pair the engine measured, and when.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Detections {
     pub pairs: BTreeMap<(FormId, FormId), (Detection, f64)>,
+    /// The engine measures the actors' sight of the player (set by the engine at each
+    /// measurement; off without one, and under the `tdetect` toggle or the test aid
+    /// that leaves the player unseen, where no pair to the player is measured).
+    pub measures_player: bool,
 }
 
 impl Detections {
@@ -423,6 +434,22 @@ impl Detections {
 }
 
 impl Game<'_> {
+    /// Whether `actor` may force-greet `target` as far as sight goes: nothing solid
+    /// (a wall, a closed door) between them at the engine's last measurement of the pair
+    /// [owner statement 2026-10-23, playtest list 7 items 41/42: Davison and Harland must
+    /// not start a conversation through a closed door or a wall; hypothesis: the
+    /// original asks for a clear line, not for the speaker's field of view, the line
+    /// being what the owner names]. A pair the engine has not measured blocks the greet
+    /// while the engine measures the player at all (the pair comes within a fraction of
+    /// a second); with no measuring (headless runs, `tdetect`, the unseen test aid) sight
+    /// does not hold anyone back [engineering choice].
+    pub fn greet_sight(&self, actor: FormId, target: FormId) -> bool {
+        match self.detection.get(actor, target) {
+            Some(d) => d.clear,
+            None => !self.detection.measures_player,
+        }
+    }
+
     /// What the records and actor values say for `detector` perceiving `target`.
     pub fn detection_pair(&mut self, detector: FormId, target: FormId) -> Pair {
         let av = |g: &mut Game, r: FormId, code: u16| actor_value(g, r, code).unwrap_or(0.0);
@@ -453,6 +480,22 @@ impl Game<'_> {
             (it.kind == ItemKind::Armor && it.slots.is_some_and(|s| s & UPPER_BODY != 0))
                 .then(|| (it.weight.unwrap_or(0.0) as f64, it.armor_class))
         })
+    }
+
+    /// The player talks to `actor`, asleep in its bed: it wakes and gets up first, and
+    /// stays up for [`WAKE_SECONDS`] of game time (the conversation's own time not
+    /// counted: the game is held then), after which its package takes it back to bed
+    /// (`fnv_ai`) [owner's playtest list 7 item 38: "talking to a sleeping npc should get
+    /// them out of their bed/sleep animation", as the original does; the time awake is
+    /// our choice].
+    pub fn wake(&mut self, actor: FormId) {
+        let until = self.time + WAKE_SECONDS;
+        self.extra.entry(actor).or_default().woken_until = Some(until);
+    }
+
+    /// Whether `actor` was woken by the player lately ([`Game::wake`]) and stays up.
+    pub fn woken(&self, actor: FormId) -> bool {
+        self.extra.get(&actor).and_then(|e| e.woken_until).is_some_and(|t| self.time < t)
     }
 
     /// The actor lies on a bed (furniture marker 1–10, on it, not getting on or off): it
