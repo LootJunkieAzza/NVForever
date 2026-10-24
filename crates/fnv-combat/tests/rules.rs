@@ -259,6 +259,8 @@ fn spread_formula_cone_bloom_recoil() {
     let running = Stance { moving: true, running: true, ..hip.clone() };
     assert!(close(spread::actor_spread(&r, &t, &w, &running), 0.5));
     assert!(close(spread::deviation_deg(1.0, 0.0), 5.955));
+    // The deviation is a diameter: the cone's half-angle is half of it.
+    assert!(close(spread::cone_deg(1.0, 0.0, &fnv_combat::data::WeaponStats::default(), &[]), 5.955 / 2.0));
     assert_eq!(spread::spread_dir([1.0, 0.0, 0.0], 0.0, 0.5, 0.5), [1.0, 0.0, 0.0]);
     for k in 0..20 {
         let d = spread::spread_dir([1.0, 0.0, 0.0], 10.0, k as f32 / 20.0, 0.37);

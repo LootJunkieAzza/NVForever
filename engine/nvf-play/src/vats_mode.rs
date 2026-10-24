@@ -960,13 +960,16 @@ fn mark(
             let perk_text = if names.is_empty() { String::new() } else { format!(", perks {}", names.join(", ")) };
             let cf = if spot.perks.concentrated_fire && earlier > 0 { format!(", concentrated fire +{earlier}") } else { String::new() };
             info!(
-                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf})",
+                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf}); {:.0} units, skill {:.0}, cone {}",
                 spot.name,
                 spot.part,
                 v.queue.reserved(),
                 if ap_now.is_finite() { format!("{:.0}", ap_now - v.queue.reserved()) } else { "unlimited".into() },
                 spot.chance,
                 spot.base,
+                crate::combat::distance(player.eye(), spot.point),
+                v.weapon.as_ref().map_or(0.0, |w| w.skill),
+                combat.vats_cone.map_or("none".to_string(), |c| format!("{c:.2} deg")),
             );
             v.spots.push(spot);
             sounds.play(v, if part.is_some() { "UIVATSSelectTargetPart" } else { "UIVATSSelectTarget" });
