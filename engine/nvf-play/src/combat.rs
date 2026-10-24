@@ -2226,7 +2226,7 @@ pub(crate) fn fire(
                 let cone = if c.no_spread {
                     0.0
                 } else if vats_shot.is_some() {
-                    spread::deviation_deg(spread::crippled_spread(&c.rules, &c.tuning, &w, &stance), 0.0)
+                    spread::half_angle(spread::deviation_deg(spread::crippled_spread(&c.rules, &c.tuning, &w, &stance), 0.0))
                 } else {
                     spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects)
                 };
