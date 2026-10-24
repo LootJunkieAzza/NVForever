@@ -760,6 +760,7 @@ mod tests {
             visibility: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
+            lights: Vec::new(),
         }
     }
 

@@ -1259,7 +1259,8 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   The renderer takes, for a black DATA colour, the diffuse colour times the dimmer of the
   first `NiPointLight` or `NiSpotLight` of the LIGH's model, as display values like the
   DATA colour [hypothesis], and draws no light when there is none
-  (`nvf_assets::model_light`, nvforever `lights.rs`). Not done: the flicker.
+  (`nvf_assets::model_light`, nvforever `lights.rs`). The flicker is played from the
+  model's keys since 2026-10-23 ([model-lights](model-lights.md)).
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
