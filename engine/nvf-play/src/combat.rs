@@ -887,6 +887,8 @@ pub struct Combat {
     /// When (`time`) the player's block last stopped a blow: Scribe Counter's window
     /// (perk-entry-points.md §11).
     player_blocked_at: Option<f32>,
+    /// The special move the swing playing is (chosen as it starts), for its strike.
+    special_swing: Option<SpecialMove>,
     /// The cone (half-angle, degrees) VATS mode's hit chance reads for the gun in hand
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
@@ -1225,6 +1227,9 @@ pub const COUNTER_WINDOW: f32 = 1.0;
 #[derive(Debug, Clone, Copy)]
 struct SpecialMove {
     name: &'static str,
+    /// Its clip's stem: the weapon's prefix and this are the clip file
+    /// (`h2hattackcustom1power.kf`), perk-entry-points.md §11.3.
+    stem: &'static str,
     /// The DOBJ's effect for the direction, put on with the blow.
     spell: Option<FormId>,
     /// Legion Assault knocks the target back [the fandom wiki, "Knock back opponents";
@@ -1237,21 +1242,29 @@ fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_c
     use fnv_combat::melee::PowerDir;
     use fnv_game::data::DefaultObject as D;
     use fnv_game::perks as p;
-    let (point, slot, name) = match dir {
-        PowerDir::Forward => (p::HAS_UNARMED_FORWARD_POWER_ATTACK, D::UnarmedForwardPa, "Legion Assault"),
-        PowerDir::Back => (p::HAS_UNARMED_BACK_POWER_ATTACK, D::UnarmedBackwardPa, "Ranger Takedown"),
-        PowerDir::Left => (p::HAS_UNARMED_LEFT_POWER_ATTACK, D::UnarmedLeftPa, "Khan Trick"),
-        PowerDir::Right => (p::HAS_UNARMED_RIGHT_POWER_ATTACK, D::UnarmedRightPa, "Khan Trick"),
+    // The clips [observed: `h2hattackcustom1power.kf` … in both rigs' folders of Fallout -
+    // Meshes.bsa; custom1's Bip01 goes 332 units forward over its 1.6 s, a lunge;
+    // documented: GECK wiki GetForceHitReaction, "Khan Trick (AttackCustom4Power and
+    // AttackCustom5Power)"; hypothesis: custom2 for the back by elimination, 4 left and 5
+    // right in the entry points' order].
+    let (point, slot, name, stem) = match dir {
+        PowerDir::Forward => (p::HAS_UNARMED_FORWARD_POWER_ATTACK, D::UnarmedForwardPa, "Legion Assault", "attackcustom1power"),
+        PowerDir::Back => (p::HAS_UNARMED_BACK_POWER_ATTACK, D::UnarmedBackwardPa, "Ranger Takedown", "attackcustom2power"),
+        PowerDir::Left => (p::HAS_UNARMED_LEFT_POWER_ATTACK, D::UnarmedLeftPa, "Khan Trick", "attackcustom4power"),
+        PowerDir::Right => (p::HAS_UNARMED_RIGHT_POWER_ATTACK, D::UnarmedRightPa, "Khan Trick", "attackcustom5power"),
         PowerDir::Stand => return None,
     };
     let rt = script.and_then(|s| s.rt.as_mut())?;
     let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(point), rt.game.data.default_object(slot)));
-    has.then_some(SpecialMove { name, spell, knock_back: dir == PowerDir::Forward })
+    has.then_some(SpecialMove { name, stem, spell, knock_back: dir == PowerDir::Forward })
 }
 
-/// Whether the player has a flag entry point's perk now.
-fn player_entry(script: Option<&mut ScriptState>, sim: &mut SimState, point: u8) -> bool {
-    script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.game.player_has_entry(point)))
+/// Scribe Counter: its clip `h2hcounter.kf` [observed: both rigs' folders; hypothesis:
+/// the move by the name], the DOBJ's counter effect (none in FalloutNV.esm).
+fn scribe_counter(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<SpecialMove> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(fnv_game::perks::HAS_UNARMED_COUNTER_ATTACK), rt.game.data.default_object(fnv_game::data::DefaultObject::UnarmedCounterPa)));
+    has.then_some(SpecialMove { name: "Scribe Counter", stem: "counter", spell, knock_back: false })
 }
 
 /// Knock `target` down away along `dir`, as a blast's knockdown does; logged with `why`.
@@ -1529,6 +1542,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         player_spread: None,
         vats_cone: None,
         player_blocked_at: None,
+        special_swing: None,
         throw_logged: None,
         flinch_until: 0.0,
         flinch_end: None,
@@ -2812,6 +2826,34 @@ fn melee(
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
             MeleeEvent::Started { stem, power, chained } => {
+                // The unarmed special moves (perk-entry-points.md §11) are chosen as the
+                // swing starts, so it plays the move's own clip: a power attack in a
+                // direction whose move the player has; Scribe Counter, a plain blow begun
+                // within COUNTER_WINDOW of the player's block, a standing power attack.
+                let (mut stem, mut power) = (stem, power);
+                let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
+                c.special_swing = None;
+                if unarmed {
+                    let countering = power.is_none() && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW);
+                    let special = match power {
+                        Some(d) => special_move(script.as_deref_mut(), &mut sim, d),
+                        None if countering => scribe_counter(script.as_deref_mut(), &mut sim),
+                        None => None,
+                    };
+                    if let Some(m) = special {
+                        if power.is_none() {
+                            power = Some(fnv_combat::melee::PowerDir::Stand);
+                            c.player_blocked_at = None;
+                        }
+                        info!("combat: {} ({:?} power attack, unarmed): clip {}", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand), m.stem);
+                        stem = m.stem.to_string();
+                        if let Some(s) = c.swings.swing.as_mut() {
+                            s.stem = stem.clone();
+                            s.power = power;
+                        }
+                        c.special_swing = Some(m);
+                    }
+                }
                 if power.is_some() {
                     stats.power_attacks += 1;
                     // Without a clip to time it, a power attack takes longer [design].
@@ -2833,19 +2875,9 @@ fn melee(
             MeleeEvent::Ended => {}
         }
     }
-    if let Some(mut power) = strike {
-        // The unarmed special moves (perk-entry-points.md §11): Scribe Counter makes a
-        // plain blow within COUNTER_WINDOW of a block a standing power attack.
-        let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
-        if power.is_none() && unarmed && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW) && player_entry(script.as_deref_mut(), &mut sim, fnv_game::perks::HAS_UNARMED_COUNTER_ATTACK) {
-            power = Some(fnv_combat::melee::PowerDir::Stand);
-            c.player_blocked_at = None;
-            info!("combat: Scribe Counter: the blow after the block is a power attack");
-        }
-        let special = if unarmed { power.and_then(|d| special_move(script.as_deref_mut(), &mut sim, d)) } else { None };
-        if let Some(m) = special {
-            info!("combat: {} ({:?} power attack, unarmed)", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand));
-        }
+    if let Some(power) = strike {
+        // The special move chosen as the swing started (its clip is playing).
+        let special = c.special_swing.take();
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();

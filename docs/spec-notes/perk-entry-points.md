@@ -291,8 +291,30 @@ NVForever:
   blow begun within `COUNTER_WINDOW` (1 s) of the player's block stopping one is a
   standing power attack (its damage bonus, breaking a block), without the power attack's
   hold; logged `combat: Scribe Counter: the blow after the block is a power attack`.
-- Not built: the moves' own clips (they play the direction's power clip), Khan Trick's
-  need for dirt or sand underfoot (the fandom wiki), the crouched move (no perk), the
-  moves in VATS mode.
+- Not built: Khan Trick's need for dirt or sand underfoot (the fandom wiki), its forced
+  hit reaction on the target (below), the crouched move (no perk), the moves in VATS mode,
+  Legion Assault's travel (its clip's root goes 332 units forward; the body holds its root
+  still, so the player does not lunge).
 
-Checks: smoke `perk-unarmed-moves`, `perk-super-slam`, `perk-and-stay-back`.
+### 11.3 The moves' clips (2026-10-24)
+
+Owner 2026-10-24: "the animations should exist so lets add them". They do, in both rigs'
+folders (`meshes\characters\_male`, `_1stperson`) of Fallout - Meshes.bsa [observed]:
+
+| Move | Clip (prefix `h2h`) | Why this one |
+|---|---|---|
+| Legion Assault (forward) | `attackcustom1power` (AttackCustom1Power, 1.6 s) | [observed: its Bip01 goes 332 units straight ahead over the clip, a running lunge] |
+| Ranger Takedown (back) | `attackcustom2power` (AttackCustom2Power, 1.43 s) | [hypothesis: by elimination; its motion is in compressed splines not read here] |
+| Khan Trick (left, right) | `attackcustom4power`, `attackcustom5power` (1.83 s) | [documented: GECK wiki GetForceHitReaction, "Khan Trick (AttackCustom4Power and AttackCustom5Power)"; hypothesis: 4 left and 5 right, the entry points' order] |
+| crouched (no perk) | `sneakh2hattackcustom3power` | not used |
+| Scribe Counter | `counter` (`h2hcounter.kf`, its `a:L` key chains a swing) | [hypothesis: by the name] |
+
+The move is chosen as its swing starts (`combat::melee`, `MeleeEvent::Started`): the
+swing's stem becomes the move's, so the body plays the move's clip and the strike comes at
+that clip's `Hit` key; Scribe Counter's swing becomes a standing power attack then. Logged
+`combat: <move> (<dir> power attack, unarmed): clip <stem>`.
+
+Khan Trick in the original also sets the target's forced hit reaction (GetForceHitReaction
+1, which plays its crippled-limb hit idles) [documented: the same page]; not built.
+
+Checks: smoke `perk-unarmed-moves` (with frames of each move), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`.

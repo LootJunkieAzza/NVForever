@@ -3652,17 +3652,34 @@ forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }
 [[scenario]]
 name = "perk-unarmed-moves"
 source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: the unarmed special moves (Ranger Takedown, Khan Trick, Legion Assault) and Super Slam's knockdown chance (docs/spec-notes/perk-entry-points.md §11)"
-note = "combat-block-break's fist fight (an NCR trooper with no weapon, put 90 units north of the player every 3 s, god mode) with the perks RangerTakedown, KhanTrick and LegionAssault from 3 s; three power attacks (Use held 1.5 s) with the movement keys held while each starts: back at 6.9 (Ranger Takedown), right at 9.9 (Khan Trick), forward at 12.9 (Legion Assault). Super Slam is perk-super-slam's: its conditions want a weapon of WeaponListMeleeALL or WeaponsAutomaticMeleeLIST, which the Fists are not in (a first run here gave the Fists no roll)"
+note = "combat-block-break's fist fight (an NCR trooper with no weapon, put 90 units north of the player every 3 s, god mode) with the perks RangerTakedown, KhanTrick and LegionAssault from 3 s; three power attacks (Use held 1.5 s) with the movement keys held until well after each starts (let go at the 0.8 s mark, a loaded run started the backward one a frame after the keys were up: a standing power attack): back at 9.9 (Ranger Takedown), right at 12.9 (Khan Trick), forward at 15.9 (Legion Assault), 3 s later than first written: early in a run on a loaded machine a 2.8 s stall turned the first hold into a tap. Third person from 3.2 s; frames mid-swing of each move (move_*.png) for the owner to check the clips. Super Slam is perk-super-slam's: its conditions want a weapon of WeaponListMeleeALL or WeaponsAutomaticMeleeLIST, which the Fists are not in (a first run here gave the Fists no roll)"
 areas = ["combat", "perks", "melee"]
 paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/data.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:RangerTakedown,3:perk:KhanTrick,3:perk:LegionAssault,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0,15:moveto:0x000F36F5:player:0:90:0,18:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:-1:0,7.7:0:0,9.85:0:1,10.7:0:0,12.85:1:0,13.7:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,8.4:fire,9.8:aimnpc,9.9:fire,11.4:fire,12.8:aimnpc,12.9:fire,14.4:fire,15.8:aimnpc,15.9:fire,16.4:fire,16.9:fire,18.8:aimnpc,18.9:fire,19.4:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:RangerTakedown,3:perk:KhanTrick,3:perk:LegionAssault,4:combat:0x000F36F5:player,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0,15:moveto:0x000F36F5:player:0:90:0,18:moveto:0x000F36F5:player:0:90:0,21:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "9.85:-1:0,11.3:0:0,12.85:0:1,14.3:0:0,15.85:1:0,17.3:0:0", NVF_PLAY_TEST_SHOTS = "10.5:move_ranger_takedown.png,13.5:move_khan_trick.png,16.5:move_legion_assault.png", NVF_PLAY_TEST_CONTROL = "3:weapon,3.2:view,9.8:aimnpc,9.9:fire,11.4:fire,12.8:aimnpc,12.9:fire,14.4:fire,15.8:aimnpc,15.9:fire,17.4:fire,18.8:aimnpc,18.9:fire,19.4:fire,19.9:fire,21.8:aimnpc,21.9:fire,22.4:fire" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
-run_seconds = 26
+run_seconds = 29
 expect = [
-  { re = 'combat: Ranger Takedown \(Back power attack, unarmed\)', label = "a backward power attack is Ranger Takedown" },
-  { re = 'combat: Khan Trick \(Right power attack, unarmed\)', label = "a power attack to the right is Khan Trick" },
-  { re = 'combat: Legion Assault \(Forward power attack, unarmed\)', label = "a forward power attack is Legion Assault" },
+  { re = 'combat: Ranger Takedown \(Back power attack, unarmed\): clip attackcustom2power', label = "a backward power attack is Ranger Takedown, with its own clip" },
+  { re = 'combat: Khan Trick \(Right power attack, unarmed\): clip attackcustom5power', label = "a power attack to the right is Khan Trick, with its own clip" },
+  { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault, with its own clip" },
+  { re = 'combat: Fists swing attackcustom1power', label = "the swing plays the Legion Assault clip" },
 ]
+
+manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png: the player's body in each move's own clip (h2hattackcustom2power, custom5power, custom1power), not the plain directional power attack"
+
+[[scenario]]
+name = "perk-scribe-counter"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24: Scribe Counter, a quick counter-attack after a block, with its clip h2hcounter (docs/spec-notes/perk-entry-points.md §11)"
+note = "perk-unarmed-moves' NCR trooper fist fight with the perk ScribeCounter from 3 s; five times the player holds Block (the right button) for 1.5 s facing the trooper while it punches, then strikes at once: a blow begun within a second of a blocked punch is the counter (a first version with one window saw no punch blocked in one of two runs, one with three 2.6 s windows struck more than a second after the last block in one of three: the block counts against a blow from the front only, and the trooper moves)"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:ScribeCounter,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9.5:moveto:0x000F36F5:player:0:90:0,13:moveto:0x000F36F5:player:0:90:0,16.5:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.4:aimnpc,8.05:fire,8.15:fire,9:aimnpc,10.65:fire,10.75:fire,11.6:aimnpc,13.25:fire,13.35:fire,14.2:aimnpc,15.85:fire,15.95:fire,16.8:aimnpc,18.45:fire,18.55:fire", NVF_PLAY_TEST_KEYS = "6.5:mouse-right:1.5,9.1:mouse-right:1.5,11.7:mouse-right:1.5,14.3:mouse-right:1.5,16.9:mouse-right:1.5" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 24
+order = [[
+  { re = '''combat: 0x00000014 blocks \S+'s blow''', label = "the player blocks a punch" },
+  { re = 'combat: Scribe Counter \(Stand power attack, unarmed\): clip counter', label = "the blow after it is Scribe Counter, with h2hcounter" },
+]]
 
 [[scenario]]
 name = "perk-super-slam"
