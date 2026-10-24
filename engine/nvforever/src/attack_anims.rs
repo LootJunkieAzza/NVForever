@@ -508,6 +508,8 @@ impl Plugin for AttackAnimsPlugin {
 struct AttackClips {
     bound: HashMap<(String, String), Option<Arc<BoundClip>>>,
     creature: HashMap<String, Vec<String>>,
+    /// A body weapon's attack clips by (skeleton folder, stance prefix) ([`body_attack_names`]).
+    body: HashMap<(String, String), Vec<String>>,
     turn: HashMap<u32, usize>,
     stats: Stats,
 }
@@ -531,7 +533,12 @@ struct Stats {
 impl AttackClips {
     fn bind(&mut self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, path: &str) -> Option<Arc<BoundClip>> {
         let key = (skeleton.to_string(), fnv_vfs::normalize(path));
-        self.bound.entry(key).or_insert_with(|| ctx.clip(path).map(|c| Arc::new(bind_clip(skel, c)))).clone()
+        // A creature's clips may be in its `specialanims` folder (Mister Handy and Gutsy,
+        // protectrons: `fnv_actor::anims::special_anims_path`).
+        self.bound
+            .entry(key)
+            .or_insert_with(|| ctx.clip(path).or_else(|| fnv_actor::anims::special_anims_path(path).and_then(|p| ctx.clip(&p))).map(|c| Arc::new(bind_clip(skel, c))))
+            .clone()
     }
 
     /// The first of `paths` (file names in `folder`) that loads.
@@ -745,7 +752,21 @@ fn start(
                         reload.map_or(Vec::new(), |r| if opens { reload_open_clips(stance, prefix, &r).into_iter().chain(reload_clips(stance, prefix, &r)).collect() } else { reload_clips(stance, prefix, &r) })
                     }
                 };
-                clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
+                let body = hold.is_some_and(|h| h.body) && a.kind == Move::Attack;
+                clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names).or_else(|| {
+                    // A creature's body weapon without the people's clip names (Mister
+                    // Handy's buzzsaw: `1hmattackright_chop.kf`, `…_stab`, `…_uppercut`):
+                    // its stance's attack clips in its folder, in turn (module notes).
+                    if !body {
+                        return None;
+                    }
+                    let list = clips.body.entry((folder.clone(), prefix.to_string())).or_insert_with(|| body_attack_names(&ctx.models.data.vfs.paths(|p| p.starts_with(&folder)), &folder, prefix)).clone();
+                    let k = clips.turn.entry(id).or_insert(0);
+                    let n = list.len().max(1);
+                    let names: Vec<String> = (0..list.len()).map(|i| list[(*k + i) % n].clone()).collect();
+                    *k = (*k + 1) % n;
+                    clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
+                })
             };
             let Some((path, clip)) = found else {
                 *clips.stats.missing.entry(format!("{folder} {}", if creature { "creature attack".to_string() } else { weapon_prefix(a.weapon).to_string() })).or_default() += 1;
@@ -829,6 +850,29 @@ pub fn reaction_clips(stance: Stance, prefix: &str, kind: &str) -> Vec<String> {
             out.push(name);
         }
     }
+    out
+}
+
+/// The attack clips of stance `prefix` among `paths` (archive paths) in a creature's
+/// skeleton `folder` or its `specialanims` folder, as file names: `<prefix>attack….kf`
+/// without the up and down forms (`2hlattackspinup.kf`), the iron-sights forms and the
+/// power attacks [design: as the creatures' own attacks, module notes]. Mister Handy's
+/// `1hm`: `1hmattackleft_chop.kf`, `1hmattackright_chop.kf`, `1hmattackright_stab.kf`,
+/// `1hmattackright_uppercut.kf` [observed: `Fallout - Meshes.bsa`, 2026-10-24].
+pub fn body_attack_names(paths: &[String], folder: &str, prefix: &str) -> Vec<String> {
+    let stem = format!("{prefix}attack");
+    let mut out: Vec<String> = paths
+        .iter()
+        .filter_map(|p| {
+            let rest = p.strip_prefix(folder)?.strip_prefix('\\')?;
+            let name = rest.strip_prefix("specialanims\\").unwrap_or(rest);
+            (!name.contains('\\') && name.starts_with(&stem) && name.ends_with(".kf")).then_some(name)
+        })
+        .filter(|n| !n.ends_with("up.kf") && !n.ends_with("down.kf") && !n.ends_with("is.kf") && !n.contains("power"))
+        .map(str::to_string)
+        .collect();
+    out.sort();
+    out.dedup();
     out
 }
 
@@ -937,6 +981,23 @@ mod tests {
         player.layers = Default::default();
         pose.layers(&mut player, true, 0.01);
         assert!(pose.held.is_none() && player.layers[ATTACK_LAYER].is_none());
+    }
+
+    #[test]
+    fn a_body_weapons_attacks_are_its_stances_attack_clips() {
+        let folder = r"meshes\creatures\mistergutsy";
+        let paths: Vec<String> = [
+            r"meshes\creatures\mistergutsy\specialanims\1hmattackright_chop.kf",
+            r"meshes\creatures\mistergutsy\specialanims\1hmattackright_uppercut.kf",
+            r"meshes\creatures\mistergutsy\specialanims\1hmaim.kf",
+            r"meshes\creatures\mistergutsy\specialanims\2hlattackspin.kf",
+            r"meshes\creatures\mistergutsy\specialanims\2hlattackspinup.kf",
+            r"meshes\creatures\mistergutsy\idleanims\1hmattackleft.kf",
+        ]
+        .map(String::from)
+        .into();
+        assert_eq!(body_attack_names(&paths, folder, "1hm"), ["1hmattackright_chop.kf", "1hmattackright_uppercut.kf"]);
+        assert_eq!(body_attack_names(&paths, folder, "2hl"), ["2hlattackspin.kf"]);
     }
 
     #[test]

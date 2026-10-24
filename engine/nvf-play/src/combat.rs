@@ -2290,6 +2290,12 @@ pub fn wear_weapon(
     } else {
         points
     };
+    // A creature's body weapon ("Embedded Weapon") is part of it and does not wear
+    // [design: docs/design/combat-ai.md §19; what harms it is its limb, the record's
+    // Embedded Weapon Actor Value].
+    if forms.weapons.get(&item).is_some_and(|w| w.embedded) {
+        return None;
+    }
     let health = forms.item_health(item);
     let w = condition::wear_item(sim.world.inventory_mut(actor).ok()?, item, points, health)?;
     if actor == FormId::PLAYER_REF {

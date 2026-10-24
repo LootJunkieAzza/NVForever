@@ -67,8 +67,9 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
                 let why = if fleeing { " (it flees)" } else if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };
                 info!("alert: {} {id} {} its weapon{why}", game.data.name(id), if want { "draws" } else { "holsters" });
             }
-            // Hidden while holstered under Weapons Unequipped.
-            let hide = unequipped && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
+            // Hidden while holstered under Weapons Unequipped; a creature's body weapon is
+            // part of its body (its `Weapon` node carries body parts).
+            let hide = unequipped && !hold.body && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
             if hide != hidden {
                 // The parts on the back (the flamer's tank) go with it.
                 for &part in rig.nodes.get(hold.stance.weapon_node).into_iter().chain(&hold.back) {

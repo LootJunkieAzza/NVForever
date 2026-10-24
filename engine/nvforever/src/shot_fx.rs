@@ -382,8 +382,15 @@ fn load(models: &mut ModelCtx, fx: &mut ShotFx, what: &str, model: &str) -> Opti
 /// Load the flash and projectile models of the weapon in use before its first shot: a
 /// model first asked for in the frame it is drawn in can miss that frame, which is the
 /// whole of a 0.04 s flash. The same for each weapon drawn on another actor, once per
-/// weapon: its default ammo's.
-fn preload(combat: Res<Combat>, mut models: ModelCtx, mut fx: ResMut<ShotFx>, mut last: Local<Option<fnv_sim::FormId>>, drawn: Query<&HeldWeapon, Added<HeldWeapon>>) {
+/// weapon: its default ammo's (a creature's body weapon too, `body_weapons.rs`).
+fn preload(
+    combat: Res<Combat>,
+    mut models: ModelCtx,
+    mut fx: ResMut<ShotFx>,
+    mut last: Local<Option<fnv_sim::FormId>>,
+    drawn: Query<&HeldWeapon, Added<HeldWeapon>>,
+    body: Query<&crate::body_weapons::BodyWeapon, Changed<crate::body_weapons::BodyWeapon>>,
+) {
     let fx = &mut *fx;
     let mut models_of = |fx: &mut ShotFx, id: fnv_sim::FormId| {
         let Some(p) = combat.forms.projectiles.get(&id) else { return };
@@ -394,9 +401,9 @@ fn preload(combat: Res<Combat>, mut models: ModelCtx, mut fx: ResMut<ShotFx>, mu
             load(&mut models, fx, "projectile", m);
         }
     };
-    for h in &drawn {
-        if fx.actor_weapons_loaded.insert(h.weapon) {
-            if let Some(p) = combat.forms.chain(h.weapon, None).and_then(|c| c.projectile) {
+    for w in drawn.iter().map(|h| h.weapon).chain(body.iter().map(|b| b.weapon)) {
+        if fx.actor_weapons_loaded.insert(w) {
+            if let Some(p) = combat.forms.chain(w, None).and_then(|c| c.projectile) {
                 models_of(fx, p);
             }
         }

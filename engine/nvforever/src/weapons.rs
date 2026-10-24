@@ -74,7 +74,9 @@ impl Stance {
         let mut facts = StanceFacts::new();
         for c in EquipClip::ALL {
             let path = clip_path(&folder, prefix, c);
-            if let Some(clip) = ctx.clip(&path) {
+            // A creature's stance may be in its `specialanims` folder (Mister Handy and
+            // Gutsy, protectrons: `fnv_actor::anims::special_anims_path`).
+            if let Some(clip) = ctx.clip(&path).or_else(|| fnv_actor::anims::special_anims_path(&path).and_then(|p| ctx.clip(&p))) {
                 facts.insert(c, fnv_actor::weapon::ClipFacts::from_parts(clip.start, clip.stop, &clip.text_keys));
                 clips.insert(c, Arc::new(bind_clip(skel, clip)));
             }
@@ -193,11 +195,14 @@ pub struct WeaponHold {
     prev_crouched: bool,
     /// The crouched clip files logged for this actor ([`WeaponHold::crouched_clip_news`]).
     logged: Vec<String>,
+    /// A creature's body weapon (`body_weapons.rs`): no model of its own, nothing to hide
+    /// or drop.
+    pub body: bool,
 }
 
 impl WeaponHold {
     pub fn new(stance: Arc<Stance>, drawn: bool, skel_parent: usize) -> WeaponHold {
-        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new(), parts: Vec::new(), parts_in_hand: None, crouched: false, prev_crouched: false, logged: Vec::new() }
+        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new(), parts: Vec::new(), parts_in_hand: None, crouched: false, prev_crouched: false, logged: Vec::new(), body: false }
     }
 
     /// Crouch with the weapon or stand up with it (the actor's locomotion sneaking,
@@ -365,13 +370,14 @@ pub fn drop_broken(
     mut commands: Commands,
     mut broken: MessageReader<WeaponBroken>,
     held: Query<(Entity, &HeldWeapon)>,
-    mut holds: Query<(Entity, &crate::limbs::ActorRig, &mut BlendPlayer), With<WeaponHold>>,
+    mut holds: Query<(Entity, &crate::limbs::ActorRig, &mut BlendPlayer, &WeaponHold)>,
 ) {
     for b in broken.read() {
         for (e, _) in held.iter().filter(|(_, h)| h.reference == b.form_id) {
             commands.entity(e).despawn();
         }
-        for (e, _, mut player) in holds.iter_mut().filter(|(_, rig, _)| rig.reference == b.form_id) {
+        // A body weapon is part of the creature (it does not wear, `nvf_play::combat`).
+        for (e, _, mut player, _) in holds.iter_mut().filter(|(_, rig, _, h)| rig.reference == b.form_id && !h.body) {
             commands.entity(e).remove::<WeaponHold>();
             (player.layers[2], player.layers[3]) = (None, None);
         }
