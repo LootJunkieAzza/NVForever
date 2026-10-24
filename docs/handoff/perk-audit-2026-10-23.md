@@ -83,7 +83,7 @@ original before building (an AI observer capture), or a decision to adapt them t
 mode, which is NVForever's own (vats-mode.md): VATS mode fires every mark at once, so the
 roll would be one per mark as it fires.
 
-### 3.2 Attack, reload, equip and run speed (run speed built 2026-10-24, perk-entry-points.md §8)
+### 3.2 Attack, reload, equip and run speed (built 2026-10-24: run speed perk-entry-points.md §8; attack, reload, equip §10; the teammates' attack speed not yet)
 
 | Entry point | Perks |
 |---|---|
