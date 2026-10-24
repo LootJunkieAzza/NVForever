@@ -1796,10 +1796,10 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.s
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 22
 order = [[
-  { text = "perks: GoodNatured's ability PerkGoodNatured on", label = "the trait's ability joins the player" },
+  { text = "perks: 0x00000014: GoodNatured's ability PerkGoodNatured on", label = "the trait's ability joins the player" },
   { re = 'console: GetActorValue on player >> 25(\.0+)?$', label = "Speech 20 + 5" },
   { re = 'console: GetActorValue on player >> 15(\.0+)?$', label = "Guns 20 - 5" },
-  { text = "perks: ability PerkGoodNatured off", label = "RemovePerk takes the ability off" },
+  { text = "perks: 0x00000014's ability PerkGoodNatured off", label = "RemovePerk takes the ability off" },
   { re = 'console: GetActorValue on player >> 20(\.0+)?$', label = "Speech back to 20" },
   { re = 'levelup: \d+ skill points \(\d+ before Educated\)', label = "Educated's +2" },
   { re = 'levelup: menu open, level 2, \d+ skill points', label = "the menu opens with them" },
