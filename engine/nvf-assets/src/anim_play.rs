@@ -39,6 +39,44 @@ pub struct Clip {
     /// sequence (circling vultures, turning light-ray fans; `model::free_transform_tracks`,
     /// docs/spec-notes/effects-animation-audit.md §3): node name, track, own timing.
     pub free: Vec<(String, Arc<TransformTrack>, OwnCycle)>,
+    /// Tracks on a light of the model: its colour and dimmer (`NiLightColorController`,
+    /// `NiLightDimmerController`; docs/spec-notes/model-lights.md).
+    pub lights: Vec<LightTrack>,
+}
+
+/// What a light track drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightTarget {
+    /// `NiLightColorController` with controller ID `Diffuse` (target colour 0,
+    /// LC_DIFFUSE): the light's diffuse colour [documented: nif.xml LightColor; observed
+    /// controller ID, docs/spec-notes/model-lights.md §1].
+    Diffuse,
+    /// `NiLightDimmerController`: the light's dimmer [documented: nif.xml].
+    Dimmer,
+}
+
+/// One track of a sequence on a light (`NiPointLight`, `NiSpotLight`), by light name.
+#[derive(Debug, Clone)]
+pub struct LightTrack {
+    pub light: String,
+    pub target: LightTarget,
+    pub values: Arc<ValueTrack>,
+}
+
+impl LightTrack {
+    /// The light track of a sequence's track, if it drives a light's diffuse colour or
+    /// dimmer. Ambient colour tracks (controller ID `Ambient`) are not taken: the
+    /// engine draws no light's ambient colour.
+    pub fn of(t: &fnv_nif::anim::Track) -> Option<LightTrack> {
+        let light = t.node_name.clone()?;
+        let values = t.values.clone()?;
+        let target = match (t.controller_type.as_deref()?, &values) {
+            ("NiLightColorController", ValueTrack::Point3(_)) if t.controller_id.as_deref() == Some("Diffuse") => LightTarget::Diffuse,
+            ("NiLightDimmerController", ValueTrack::Float(_)) => LightTarget::Dimmer,
+            _ => return None,
+        };
+        Some(LightTrack { light, target, values: Arc::new(values) })
+    }
 }
 
 /// What a material track drives.
@@ -149,8 +187,10 @@ impl Clip {
         let mut skipped = 0;
         let mut visibility = Vec::new();
         let mut materials = Vec::new();
+        let mut lights = Vec::new();
         for t in &seq.tracks {
             materials.extend(MaterialTrack::of(t));
+            lights.extend(LightTrack::of(t));
             if let (Some(n), Some(b), Some("NiVisController")) = (&t.node_name, &t.bools, t.controller_type.as_deref()) {
                 visibility.push((n.clone(), t.priority.unwrap_or(0) as i32, b.clone()));
             }
@@ -176,6 +216,7 @@ impl Clip {
             visibility,
             materials,
             free: Vec::new(),
+            lights,
         }
     }
 
@@ -199,6 +240,7 @@ impl Clip {
             visibility: Vec::new(),
             materials: tracks,
             free,
+            lights: Vec::new(),
         }
     }
 
@@ -264,6 +306,9 @@ pub struct Playing {
     /// Tracks of the clip's controllers that run by themselves ([`Clip::free`]), each on
     /// its own cycle after `time - start` seconds of play.
     pub free: Vec<(Entity, Arc<TransformTrack>, OwnCycle)>,
+    /// The clip's light tracks ([`Clip::lights`]), read by whoever draws the light
+    /// (nvforever `lights.rs`) at [`Self::sequence_time`].
+    pub lights: Vec<LightTrack>,
 }
 
 impl Playing {
@@ -291,6 +336,7 @@ impl Playing {
             root_motion: None,
             held: false,
             free,
+            lights: clip.lights.clone(),
         }
     }
 
@@ -312,6 +358,12 @@ impl Playing {
     pub fn at_phase(mut self, phase: f32) -> Playing {
         self.time = self.start + phase.clamp(0.0, 1.0) * (self.stop - self.start);
         self
+    }
+
+    /// The value the clip gives light `light`'s member `target` now, if it drives it.
+    pub fn light_value(&self, light: &str, target: LightTarget) -> Option<[f32; 3]> {
+        let t = self.sequence_time();
+        self.lights.iter().find(|l| l.target == target && l.light == light)?.values.at(t)
     }
 
     /// The time within the sequence after the cycle rule.
@@ -766,6 +818,38 @@ mod tests {
     }
 
     #[test]
+    fn light_tracks_follow_the_playing_clip() {
+        use fnv_nif::anim::{Key, KeyKind, Keys};
+        // The lantern light's Idle: diffuse 0.78 → 0.65 red over 0.6 s, looping over 3 s
+        // (`lamplightwarm.nif`, docs/spec-notes/model-lights.md §1); an ambient track and
+        // a material track are not light tracks.
+        let key = |time: f32, r: f32| Key { time, value: [r, 0.58, 0.16], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
+        let colour = ValueTrack::Point3(Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, 0.78), key(0.6, 0.65), key(3.0, 0.78)] }));
+        let light = |ty: &str, id: &str| Track {
+            node_name: Some("object0".into()),
+            controller_type: Some(ty.into()),
+            priority: None,
+            bools: None,
+            controller_id: Some(id.into()),
+            values: Some(colour.clone()),
+            interpolator_id: None,
+            data: TrackData::Other("NiPoint3Interpolator".into()),
+        };
+        let mut s = seq(&[]);
+        s.stop_time = 3.0;
+        s.tracks = vec![light("NiLightColorController", "Diffuse"), light("NiLightColorController", "Ambient"), light("NiMaterialColorController", "SELF_ILLUM")];
+        let clip = Clip::from_sequence(&s);
+        assert_eq!(clip.lights.len(), 1);
+        assert_eq!(clip.lights[0].target, LightTarget::Diffuse);
+        let mut p = Playing::new("lantern", &clip, |_| None);
+        p.time = 3.6; // one cycle and 0.6 s on
+        let c = p.light_value("object0", LightTarget::Diffuse).unwrap();
+        assert!((c[0] - 0.65).abs() < 1e-4, "{c:?}");
+        assert_eq!(p.light_value("object0", LightTarget::Dimmer), None);
+        assert_eq!(p.light_value("object1", LightTarget::Diffuse), None);
+    }
+
+    #[test]
     fn undriven_accum_root_is_held_then_restored() {
         let (root, non_accum) = (Entity::from_raw_u32(1).unwrap(), Entity::from_raw_u32(2).unwrap());
         let nodes = HashMap::from([("Bip01".to_string(), root), ("Bip01 NonAccum".to_string(), non_accum)]);
@@ -819,6 +903,7 @@ mod tests {
             visibility: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
+            lights: Vec::new(),
         })
     }
 

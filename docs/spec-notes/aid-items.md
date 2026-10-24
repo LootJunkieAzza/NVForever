@@ -359,11 +359,16 @@ Rules (`crates/fnv-game/src/needs.rs`):
   setting [hypothesis: the unit; the larger setting is the slower need, so it is time
   per point]. At TimeScale 30: hunger 4.8 an hour (Minor after 42 hours), sleep
   deprivation 2.4 an hour (Minor after 83 hours). Dehydration: `fHCDehydrationRate` if a
-  plugin sets it [hypothesis: the name], else 12.5 [guess: twice starvation's pace],
-  9.6 an hour.
+  plugin sets it [hypothesis: the name], else 10 s a point, 12 an hour [documented: the
+  owner's Hardcore table, 2026-10-23, "~12/h (1 every 10s)"; it gives hunger ~4.75/h and
+  sleep ~2.4/h as the settings do; before, a guess of 12.5].
 - An hour waited raises them by an hour's worth (120 s of play at TimeScale 30); an hour
-  slept does the same for dehydration and hunger and lowers sleep deprivation by 100
-  [guess] (§6).
+  slept does the same for dehydration and hunger and lowers sleep deprivation by 60
+  [documented: the owner's Hardcore table, "~ -60/h Sleep"; before, a guess of 100] (§6).
+- The stage effects are the records' [observed: FalloutNV.esm SPEL Dehydration200 …
+  SleepDeprivation1000, 2026-10-23]; they agree with the owner's table but for Deadly
+  Dehydration (800), whose record has Endurance −3, Agility −2, Perception −2 and no
+  Intelligence −1 (the table lists −1 INT). The record is what is applied.
 - Restore / Damage on a need lowers / raises it (items, and the script functions
   RestoreActorValue and DamageActorValue, e.g. the Cannibal perk's `RestoreActorValue
   Hunger 50`), never below 0 (§3).

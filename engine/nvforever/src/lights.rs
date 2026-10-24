@@ -206,7 +206,7 @@ impl Plugin for LightsPlugin {
             .insert_resource(FunctionsShader { handle: functions, patched: false })
             .insert_resource(TonemapShader { handle: tonemapping, patched: false })
             .add_systems(PreUpdate, patch_clip)
-            .add_systems(Update, (patch_attenuation, patch_display_sum, animate_lights));
+            .add_systems(Update, (patch_attenuation, patch_display_sum, animate_lights, bind_model_lights, animate_model_lights).chain());
     }
 }
 
@@ -348,6 +348,73 @@ fn animate_lights(time: Res<Time>, mut lights: Query<(&MovingLight, Option<&mut 
     }
 }
 
+/// On a LIGH reference's light whose model has a sequence driving that light's colour or
+/// dimmer (docs/spec-notes/model-lights.md): the reference, the light in the model, and,
+/// once the model's rig is drawn ([`LightRig`]), the rig root whose [`Playing`] clip it
+/// follows.
+///
+/// [`Playing`]: nvf_assets::anim_play::Playing
+#[derive(Component, Debug, Clone)]
+pub struct ModelDrivenLight {
+    pub reference: u32,
+    pub light: nvf_assets::model::ModelLight,
+    pub root: Option<Entity>,
+}
+
+/// On the root of a LIGH reference's drawn rig whose clips drive its light (world.rs):
+/// the reference and the rig node the light hangs from.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct LightRig {
+    pub reference: u32,
+    pub anchor: Entity,
+}
+
+/// Hang each model-driven point light from its rig's node, where the model holds the
+/// light: it then moves as the model's sequences move that node (the Vault klaxon's
+/// light turns 224 units out on its spinning `Dummy`, model-lights.md §2). Spot lights
+/// keep their place and aim [design: no base-game model drives a spot light].
+fn bind_model_lights(mut commands: Commands, rigs: Query<(Entity, &LightRig), Added<LightRig>>, mut lights: Query<(Entity, &mut ModelDrivenLight), With<PointLight>>) {
+    if rigs.is_empty() {
+        return;
+    }
+    for (root, rig) in &rigs {
+        let Some((e, mut l)) = lights.iter_mut().find(|(_, l)| l.reference == rig.reference && l.root.is_none()) else { continue };
+        l.root = Some(root);
+        commands.entity(e).insert((ChildOf(rig.anchor), l.light.local));
+        debug!("model lights: 0x{:08X} light {} hangs from {}", rig.reference, l.light.name, l.light.parent.as_deref().unwrap_or("the root"));
+    }
+}
+
+/// Colour the model-driven lights by their rig's playing clip: the diffuse key times
+/// the dimmer (its key, else the stored dimmer), held to 0..1, as display values like the
+/// LIGH colour, for the display-value lighting sum ([`display_color`]) [hypothesis: as the
+/// model colour of a black LIGH colour, world.md §8]. A light no
+/// playing clip drives keeps the colour it was spawned with (the klaxon until its alarm
+/// script plays `Left`) [hypothesis, model-lights.md §3].
+fn animate_model_lights(
+    roots: Query<&nvf_assets::anim_play::Playing>,
+    mut lights: Query<(&ModelDrivenLight, &mut PointLight), Without<crate::emittance::LightEmittance>>,
+    mut seen: Local<(usize, usize)>,
+) {
+    use nvf_assets::anim_play::LightTarget;
+    let mut driven = 0;
+    for (l, mut p) in &mut lights {
+        let Some(playing) = l.root.and_then(|r| roots.get(r).ok()) else { continue };
+        let Some(c) = playing.light_value(&l.light.name, LightTarget::Diffuse) else { continue };
+        driven += 1;
+        let dimmer = playing.light_value(&l.light.name, LightTarget::Dimmer).map_or(l.light.dimmer, |v| v[0]);
+        let color = display_color(c.map(|v| (v * dimmer.max(0.0)).clamp(0.0, 1.0)));
+        if p.color != color {
+            p.color = color;
+        }
+    }
+    let n = (lights.iter().len(), driven);
+    if n != *seen {
+        *seen = n;
+        info!("model lights: {} following their models, {} coloured by a playing clip", n.0, n.1);
+    }
+}
+
 #[derive(Resource)]
 struct LightingShader {
     handle: Handle<Shader>,
@@ -427,7 +494,9 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 /// Negative and off-by-default lights are not drawn. A reference with an emittance
 /// source (XEMI) has its colour scaled by it (emittance.rs). A black record colour takes
 /// the colour of the light inside the LIGH's model (`model`, as stored under `meshes\`)
-/// when it has one (world.md §8 "Black LIGH colours").
+/// when it has one (world.md §8 "Black LIGH colours"). A light whose model drives its
+/// colour by a sequence gets [`ModelDrivenLight`] (docs/spec-notes/model-lights.md) and is
+/// drawn even when both colours are black: its keys light it.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_light(
     commands: &mut Commands,
@@ -447,12 +516,14 @@ pub fn spawn_light(
         return false;
     }
     let from_model = (l.color == [0; 3]).then(|| model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")))).flatten();
+    let model_driven = model.and_then(|m| models.model(&format!(r"meshes\{m}"))).and_then(|pm| pm.light.clone());
     let shown = match from_model {
         // The NIF holds the colour as stored (display values) [hypothesis, as LIGH DATA].
         Some(c) => c.map(|v| v.clamp(0.0, 1.0)),
-        None if l.color == [0; 3] => return false,
+        None if l.color == [0; 3] && model_driven.is_none() => return false,
         None => l.color.map(|b| b as f32 / 255.0),
     };
+    let model_driven = model_driven.map(|light| ModelDrivenLight { reference: placed.form_id, light, root: None });
     let color = display_color(shown);
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, LinearRgba::rgb(shown[0], shown[1], shown[2])));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
@@ -475,12 +546,18 @@ pub fn spawn_light(
         if let Some(m) = moving {
             e.insert(m);
         }
+        if let Some(m) = model_driven {
+            e.insert(m);
+        }
     } else {
         let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e)));
         if let Some(d) = driven {
             e.insert(d);
         }
         if let Some(m) = moving {
+            e.insert(m);
+        }
+        if let Some(m) = model_driven {
             e.insert(m);
         }
     }

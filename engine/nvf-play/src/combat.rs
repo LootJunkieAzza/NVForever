@@ -152,6 +152,10 @@ pub struct WeaponAnim {
     /// clip when it sees a new count.
     pub attacks: u32,
     pub reloads: u32,
+    /// Set by combat: how fast the reload clips play, a multiple of their own speed
+    /// (Agility and the Reload Speed perks, `fnv_combat::attack::reload_rate`); the cycle
+    /// takes the same share of time. 0 before combat has set it: read as 1.
+    pub reload_rate: f32,
     /// Counted up by combat when a round-by-round reload starts on a round: the body
     /// plays the reload clip from its start (a reload count plays the opening clip).
     pub reload_rounds: u32,
@@ -1680,8 +1684,17 @@ fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Ru
         crit_chance_bonus: av(avs::CRITICAL_CHANCE, crit) - crit,
         arm_condition: damage::arm_condition(w, left, right),
         in_vats: aiming_vats,
+        nerve: companion_nerve(script, sim, p),
         ..d
     }
+}
+
+/// Companion Nerve of `actor` (`Game::companion_nerve`): for one of the player's
+/// teammates the share its damage and armour go up by, from the player's Charisma; 0
+/// for anyone else or without a script runtime.
+fn companion_nerve(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId) -> f32 {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return 0.0 };
+    with_world(rt, sim, |rt| rt.game.companion_nerve(actor)) as f32
 }
 
 /// A perk entry's resolved function as combat applies it.
@@ -1889,7 +1902,16 @@ pub(crate) fn fire(
         }
         return;
     }
-    cycle.timing = Timing::of(&w, &anim.timing, &c.tuning);
+    // The reload at the player's rate: Agility, then the Reload Speed perks (Rapid
+    // Reload); the body plays the reload clips at the same rate (`WeaponAnim::reload_rate`).
+    let agility = actor_av(script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
+    let (rate, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::RELOAD_SPEED, id, fnv_combat::attack::reload_rate(agility));
+    let rate = if rate.is_finite() && rate > 0.0 { rate } else { 1.0 };
+    if (rate - anim.reload_rate).abs() > 1e-4 {
+        info!("combat: reloads at x{rate:.2} (Agility {agility:.0})");
+    }
+    anim.reload_rate = rate;
+    cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate);
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
     if vats_shot.is_some() {
@@ -2709,7 +2731,8 @@ fn melee(
                 continue;
             }
             let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
-            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, ..Target::default() }, &ap, &tp, roll);
+            let nerve = companion_nerve(script.as_deref_mut(), &mut sim, target);
+            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
             log_hit_perks(FormId::PLAYER_REF, Some(target), &ap, &tp, &d);
             // A person blocking it from the front stops part of it (combat-ai.md §14.3); a
             // power attack breaks through and staggers it (combat-rules.md §12).
@@ -2960,7 +2983,8 @@ fn actor_attacks(
         let roll = c.rng.next_f32();
         let (ap, tp) = hit_perks(script.as_deref_mut(), &mut sim, b.attacker, id, Some(b.target));
         let resist = target_resist(script.as_deref_mut(), &mut sim, b.target, &w);
-        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, ..Target::default() }, &ap, &tp, roll);
+        let nerve = companion_nerve(script.as_deref_mut(), &mut sim, b.target);
+        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
         log_hit_perks(b.attacker, Some(b.target), &ap, &tp, &d);
         // A blocker facing the blow stops part of it (docs/design/combat-ai.md §14.3); a
         // power attack (a creature's, `ActorStrike::anim`) breaks through (combat-rules.md
@@ -3401,7 +3425,8 @@ fn fly(
         }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
         let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
-        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, ..Target::default() }, &ap, &tp, roll);
+        let nerve = companion_nerve(script.as_deref_mut(), &mut sim, target);
+        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
         log_hit_perks(shooter, Some(target), &ap, &tp, &d);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);
