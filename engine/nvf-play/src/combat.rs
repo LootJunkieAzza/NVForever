@@ -292,6 +292,16 @@ impl Cause {
 
 /// The hit an explosion's blast makes on an actor: its cause's, with no place on the body
 /// (GetHitLocation −1) and no critical.
+/// A weapon hit's object effects with an area reach the actors around the one hit
+/// (`hit_effects::spread`); a blast's do not.
+fn spread_hit_areas(script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, target: FormId, items: &[FormId], attacker: Option<FormId>) {
+    if items.is_empty() {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    with_world(rt, sim, |rt| hit_effects::spread(&mut rt.game, &mut stats.hit_effects, target, items, attacker));
+}
+
 fn blast_hit_info(cause: Option<Cause>) -> HitInfo {
     HitInfo { attacker: cause.map(|c| c.actor), weapon: cause.map(|c| c.weapon), location: -1, critical: false, limb: None }
 }
@@ -361,6 +371,10 @@ pub struct ExplosionFx {
     pub point: V3,
     /// Who set it off, when known (nvforever `detection` raises its event as theirs).
     pub cause: Option<FormId>,
+    /// The normal of the ground under the blast, when there is ground near enough
+    /// (`nvforever::shot_fx` aligns the model with it unless the EXPL always uses the
+    /// world's orientation).
+    pub normal: Option<V3>,
 }
 
 /// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
@@ -2760,6 +2774,7 @@ fn melee(
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
             let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
+            spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
             if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
                 dm.checks.push(check);
             }
@@ -3041,6 +3056,7 @@ fn actor_attacks(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
+        spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, b.target, &items, info.attacker);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
         }
@@ -3240,7 +3256,8 @@ fn fly(
         }
         stats.explosions += 1;
         let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
-        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor) });
+        let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal) });
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -3249,7 +3266,6 @@ fn fly(
             // is near: the dirt it throws up (`ImpactExplosionDirt.nif`) [hypothesis:
             // that the game shows the EXPL's IPDS on what lies under the blast, as a
             // shot's on what it hits; the reach is a design choice].
-            let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
             let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
             if let (Some(impact), Some(g)) = (impact, ground) {
                 // The dirt is the cause's (no one's without one): detection hears it as theirs.
@@ -3437,6 +3453,7 @@ fn fly(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
+        spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
         // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
         // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
         // hypothesis: from 0, once a hit; logic-fields.md §3].

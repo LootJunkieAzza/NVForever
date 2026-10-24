@@ -223,3 +223,14 @@ The owner saw the Fat Man leave "a white mushroom cloud shape" behind.
 - The Fat Man file's mesh emitters emit from two hidden mushroom-shaped meshes
   (`pCloudSkyEmit01:0`, `pCloudGroundEmit02:0`, Hidden flag set, no texture); they are
   never drawn (§8: mesh emitters belong to the particles session).
+
+## 10. Orientation [2026-10-24, ESM audit gap 28]
+
+An EXPL with DATA flag 1 "Always Uses World Orientation" [documented: xEdit EXPL] stands upright (112 of the masters' 225
+EXPL, the missile's and the Fat Man's among them [observed]); one without it (the frag
+grenade's, the 40mm grenade's) has its model's +z along the normal of the ground under
+the blast when there is ground within reach [hypothesis: that the other orientation is
+the surface's, the audit's reading of the flag, and that the ground below stands for
+the surface hit; a wall hit still gives the floor's normal]. Log at exit: `shot fx: N
+explosions turned to the ground under them, M upright` (smoke
+`explosion-ground-orientation`, `missile-explosion`).
