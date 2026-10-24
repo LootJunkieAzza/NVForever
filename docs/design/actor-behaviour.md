@@ -156,15 +156,17 @@ SunnyRef at 128 units, stayed behind when Sunny went to the wells and was missin
 the saloon afterwards, because the package type was not carried out). The actor stands
 while its target is within the distance plus 64 units [our choice]; farther, it sets off
 after the target (through the doors between, if the target is in another cell), walking,
-or running when the package says Always Run or the target is more than 512 units away
-[our choice]; the way is planned again when the target has moved 64 units, at most twice
-a second, and the actor stops once within the distance. On its way after a target that
-moves it keeps step (`carry::follow_speed`): the target's own pace since the last plan
-plus the gap beyond the distance closed in 3 seconds, between half its walk and its run,
-so the walk clip plays faster or slower and the run clip comes only when it is well
-behind [our choice; owner's playtest 2026-10-24: the Novac pack brahmin swapped between
-running and walking all the way after its merchant, and an actor slower than its target
-fell behind until it ran, caught up and walked again]. A target that is gone or dead
+or running when the package says Always Run or it is more than 384 units beyond its
+distance (512 from the target at the usual 128) [our choice]; the way is planned again
+when the target has moved 64 units, at most twice a second. On its way after a target
+that moves it keeps step (`carry::follow_speed`): the target's own pace since the last
+plan plus the gap beyond the distance closed in 3 seconds, between half its walk and its
+run, so the walk clip plays faster or slower and the run clip comes only when it is well
+behind; it stops once within the distance when the target has stopped (no new plan for a
+second, or slower than 20 units/s), else only 64 units inside it [our choice; owner's
+playtest 2026-10-24: the Novac pack brahmin, kept about 450 units back by its package, stood,
+set off running past a fixed 512, caught up and stood again all the way after its
+merchant]. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The

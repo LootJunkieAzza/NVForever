@@ -304,14 +304,21 @@ fn greets(game: &Game, actor: FormId) -> bool {
 /// A follower stands until its target is this much farther than its distance, so that
 /// it does not set off at every step the target takes, game units [our choice].
 pub const FOLLOW_SLACK: f32 = 64.0;
-/// A follower whose target is farther than this runs, game units [our choice].
-pub const FOLLOW_RUN_FROM: f32 = 512.0;
+/// A follower this much farther from its target than its distance sets off running,
+/// game units [our choice: 512 from the target at the usual distance of 128; owner's
+/// playtest 2026-10-24: the Novac pack brahmin, whose package keeps it about 450 units back,
+/// set off past a fixed 512 at once and so ran at every start].
+pub const FOLLOW_RUN_BEHIND: f32 = 384.0;
 /// A follower on its way after a moving target goes at the target's own pace plus the
 /// gap beyond its distance over this many seconds, between [`FOLLOW_SLOWEST`] of its
 /// walk and its run [our choice; owner's playtest 2026-10-24: the Novac pack brahmin
 /// swapped between running and walking all the way after its merchant, where it should
 /// run only to catch up and then keep step].
 pub const FOLLOW_CLOSE_SECONDS: f32 = 3.0;
+/// A target going at least this fast, game units per second, is one a follower keeps
+/// step with: it goes on at the target's pace within its distance rather than stopping
+/// there and setting off again [our choice].
+pub const FOLLOW_MOVING: f32 = 20.0;
 /// The slowest a follower keeps step with its target, a share of its walk [our choice].
 pub const FOLLOW_SLOWEST: f32 = 0.5;
 
@@ -413,8 +420,9 @@ pub struct Agent {
     /// [design; owner's playtest 2026-10-11: actors turned half about in a frame].
     pub face_to: Option<f32>,
     /// A Follow or Accompany package: where the target was when the way to it was last
-    /// planned, and from when (`Game::time`) it may be planned again.
-    following: Option<(Place, f64)>,
+    /// planned, from when (`Game::time`) it may be planned again, and how fast the
+    /// target went before that plan, when known.
+    following: Option<(Place, f64, Option<f32>)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
     weapon_order: Option<u64>,
     /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
@@ -1153,9 +1161,10 @@ impl Ai {
     /// (in another space: through the doors between), and the way is planned again when
     /// the target has moved [`REPLAN_DISTANCE`] since, at most every
     /// [`REPLAN_SECONDS`]; it stops once within the distance. It runs when the package
-    /// says Always Run or the target is more than [`FOLLOW_RUN_FROM`] away, else walks;
-    /// on its way after a target that moves it keeps step with it ([`follow_speed`])
-    /// [our choice]. A target that is gone or dead is not followed: the actor stands.
+    /// says Always Run or it is more than [`FOLLOW_RUN_BEHIND`] beyond its distance, else
+    /// walks; on its way after a target that moves it keeps step with it
+    /// ([`follow_speed`]), and stops only once the target stops or it is
+    /// [`FOLLOW_SLACK`] nearer than its distance [our choice]. A target that is gone or dead is not followed: the actor stands.
     /// Without a way to the target the package is set aside like any other that cannot
     /// be reached.
     fn follow_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
@@ -1174,14 +1183,19 @@ impl Ai {
         let away = if feet.space == target.space { hdist(feet.pos, target.pos) } else { f32::INFINITY };
         let keep = f.distance.max(self.cfg.arrive);
         if travelling {
-            if away <= keep && (feet.pos[2] - target.pos[2]).abs() <= 256.0 {
+            let following = self.agents[&actor].following;
+            let moved = following.is_none_or(|(to, _, _)| to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE);
+            // In step with a target on the move: one that went at least FOLLOW_MOVING and
+            // has not stood about since (a second more without the way planned again).
+            let in_step = following.is_some_and(|(_, replan, pace)| pace.is_some_and(|v| v >= FOLLOW_MOVING) && (moved || game.time < replan + 1.0));
+            let stop_at = if in_step { (keep - FOLLOW_SLACK).max(self.cfg.arrive) } else { keep };
+            if away <= stop_at && (feet.pos[2] - target.pos[2]).abs() <= 256.0 {
                 let a = self.agents.get_mut(&actor).expect("listed");
                 (a.walker.follower, a.activity, a.following) = (None, Activity::There, None);
                 self.log(game, actor, AiEvent::CaughtUp { package, target: f.target });
                 return;
             }
-            let Some((to, replan)) = self.agents[&actor].following else { return };
-            let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
+            let Some((to, replan, _)) = following else { return };
             if moved && game.time >= replan {
                 // The target's pace since the way was last planned.
                 let since = (game.time - (replan - REPLAN_SECONDS)) as f32;
@@ -1199,10 +1213,11 @@ impl Ai {
     /// has gone since the last plan, when known.
     #[allow(clippy::too_many_arguments)]
     fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, target_pace: Option<f32>, first: bool) {
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || away > FOLLOW_RUN_FROM;
+        let keep = f.distance.max(self.cfg.arrive);
+        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || away > keep + FOLLOW_RUN_BEHIND;
         let params = self.path_params(game, actor);
         let speed = match target_pace {
-            Some(v) if !running => follow_speed(v, away, f.distance.max(self.cfg.arrive), self.pace(game, actor, false), self.pace(game, actor, true)),
+            Some(v) if !running => follow_speed(v, away, keep, self.pace(game, actor, false), self.pace(game, actor, true)),
             _ => self.pace(game, actor, running),
         };
         let a = self.agents.get_mut(&actor).expect("listed");
@@ -1215,7 +1230,7 @@ impl Ai {
                     a.trip_from = a.walker.travelled;
                 }
                 a.activity = Activity::Travelling;
-                a.following = Some((target, game.time + REPLAN_SECONDS));
+                a.following = Some((target, game.time + REPLAN_SECONDS, target_pace));
                 if first {
                     let away = away.is_finite().then_some(away);
                     self.log(game, actor, AiEvent::Follow { package, target: f.target, away, length, doors, running });

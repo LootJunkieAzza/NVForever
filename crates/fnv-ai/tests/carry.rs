@@ -765,8 +765,8 @@ fn a_follower_keeps_step_with_a_walking_target() {
     s.ai.set_speeds(mate, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
     s.run(1.0);
     let (mut speeds, mut gaps) = (Vec::new(), Vec::new());
-    // The player walks on in a straight line at 100 units/s for 7 seconds.
-    for _ in 0..14 {
+    // The player walks on in a straight line at 100 units/s for 8 seconds.
+    for _ in 0..16 {
         s.game.world.get(player).unwrap().pos[1] += 50.0;
         s.run(0.5);
         if s.ai.agents[&mate].activity == Activity::Travelling {
@@ -776,9 +776,11 @@ fn a_follower_keeps_step_with_a_walking_target() {
     }
     let ev = s.events(R_COMPANION);
     let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
-    // It sets off once and keeps going: no stop and start, never its run.
+    // It sets off once, walking, and keeps going: no stop and start, never its run.
     assert_eq!(follows, 1, "{ev:?}");
-    assert!(speeds.len() >= 8, "{speeds:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Follow { running: false, .. })), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::CaughtUp { .. })), "{ev:?}");
+    assert!(speeds.len() >= 10, "{speeds:?}");
     assert!(speeds.iter().all(|v| *v < 200.0), "{speeds:?}");
     // In step: at the player's pace, not its own slower walk, and the gap stays near its
     // distance (256) rather than growing.
