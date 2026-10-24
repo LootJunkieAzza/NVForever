@@ -83,7 +83,7 @@ original before building (an AI observer capture), or a decision to adapt them t
 mode, which is NVForever's own (vats-mode.md): VATS mode fires every mark at once, so the
 roll would be one per mark as it fires.
 
-### 3.2 Attack, reload, equip and run speed (run speed built 2026-10-24, perk-entry-points.md §8)
+### 3.2 Attack, reload, equip and run speed (built 2026-10-24: run speed perk-entry-points.md §8; attack, reload, equip §10; the teammates' attack speed not yet)
 
 | Entry point | Perks |
 |---|---|
@@ -120,7 +120,7 @@ run speed has no such block.
 | 59 Modify Throwing Velocity | Heave, Ho! × 1.5, Loose Cannon × 0.75 (with a condition) |
 | 4 Calculate Mine Explode Chance | Light Step (Set 0), In My Footsteps (Set 0, Dead Money), ED-E's Light Step (Lonesome Road, for ED-E) |
 
-### 3.6 Melee, unarmed and knockdowns
+### 3.6 Melee, unarmed and knockdowns (knockdowns and the special moves built 2026-10-24, perk-entry-points.md §11)
 
 | Entry point | Perks |
 |---|---|

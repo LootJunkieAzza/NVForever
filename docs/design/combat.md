@@ -299,7 +299,9 @@ pages), fills the formula gaps [documented: GECK wiki, page named]:
   - For NPCs the total is scaled up by `fNPCMaxGunWobbleAngle` (15).
   - The page's authors measured the angles in the game: one unit of actor spread is
     about 5.955°, and weapon spread maps through 0.0125·W² + 0.125·W before the same
-    factor. These numbers are their measurements, not the editor's.
+    factor. These numbers are their measurements, not the editor's. They are the
+    diameter of the circle the shots fall in, so a shot's cone has half that angle
+    (spec-notes/combat-rules.md, Cone).
   - Requirement penalty: 0.025 per missing point of Strength. The skill requirement
     is bugged in the original (its own setting is ignored).
 - **Explosion Knockdown Formula.** The chance is (damage × `fKnockdownDamageMult` 0.3

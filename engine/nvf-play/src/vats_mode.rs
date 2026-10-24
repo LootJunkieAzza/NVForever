@@ -151,10 +151,18 @@ pub const HELPER_STAY: f32 = 1.2;
 /// A helper's eye above its feet, units: where its shot leaves from [design: a person's].
 pub const HELPER_EYE: f32 = 110.0;
 /// A mark's "x": its size as a share of the screen width, and its colour: the interface's
-/// amber (`crate::interface::AMBER`) [design: the owner's wish, 2026-10-24, to match the
-/// HUD; it was a dark red before].
+/// amber (`crate::interface::AMBER`) lifted [`MARK_LIFT`] of the way to white, so it
+/// stands out on the amber grade [design: the owner's wishes, 2026-10-24, to match the HUD
+/// and then to be brighter; it was a dark red before].
 pub const MARK_SIZE: f32 = 0.019;
-const MARK_COLOUR: Color = Color::srgb(crate::interface::AMBER[0], crate::interface::AMBER[1], crate::interface::AMBER[2]);
+/// How far the marks' amber is lifted towards white (0 = the HUD's amber) [design].
+const MARK_LIFT: f32 = 0.25;
+const MARK_COLOUR: Color = Color::srgb(lift(crate::interface::AMBER[0]), lift(crate::interface::AMBER[1]), lift(crate::interface::AMBER[2]));
+
+/// One channel of the interface's amber lifted [`MARK_LIFT`] of the way to white.
+const fn lift(c: f32) -> f32 {
+    c + (1.0 - c) * MARK_LIFT
+}
 /// The most marks drawn at once (more are kept but not drawn) [engineering choice].
 const MAX_DRAWN: usize = 32;
 
@@ -389,10 +397,25 @@ impl VatsMode {
         look_at(self.active(), since(self.entered_at), since(self.left_at))
     }
 
-    /// The marks not yet fired, on the screen to draw.
-    fn unfired(&self) -> impl Iterator<Item = &Spot> {
+    /// The marks to draw (§8, §17.5): one "x" and one chance for each actor and part with
+    /// marks not yet fired, in the order first marked. Marks on the same part share a point,
+    /// so drawing each would stack them; the chance shown is the newest mark's, the one
+    /// Concentrated Fire has raised the most.
+    fn drawn(&self) -> Vec<([f32; 3], f32)> {
         let skip = if self.phase == Phase::Firing { self.started } else { 0 };
-        self.spots.iter().skip(skip).take(if self.active() { usize::MAX } else { 0 })
+        let mut seen: Vec<(u32, Option<u8>)> = Vec::new();
+        let mut out: Vec<([f32; 3], f32)> = Vec::new();
+        for (m, s) in self.queue.marks().iter().zip(&self.spots).skip(skip).take(if self.active() { usize::MAX } else { 0 }) {
+            let key = (m.target.0, m.part);
+            match seen.iter().position(|k| *k == key) {
+                Some(i) => out[i].1 = s.chance,
+                None => {
+                    seen.push(key);
+                    out.push((s.point, s.chance));
+                }
+            }
+        }
+        out
     }
 
     /// Roll a hit at `chance` percent (§17.4); the test aid `NVF_PLAY_TEST_VATS_ROLL`
@@ -937,13 +960,16 @@ fn mark(
             let perk_text = if names.is_empty() { String::new() } else { format!(", perks {}", names.join(", ")) };
             let cf = if spot.perks.concentrated_fire && earlier > 0 { format!(", concentrated fire +{earlier}") } else { String::new() };
             info!(
-                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf})",
+                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf}); {:.0} units, skill {:.0}, cone {}",
                 spot.name,
                 spot.part,
                 v.queue.reserved(),
                 if ap_now.is_finite() { format!("{:.0}", ap_now - v.queue.reserved()) } else { "unlimited".into() },
                 spot.chance,
                 spot.base,
+                crate::combat::distance(player.eye(), spot.point),
+                v.weapon.as_ref().map_or(0.0, |w| w.skill),
+                combat.vats_cone.map_or("none".to_string(), |c| format!("{c:.2} deg")),
             );
             v.spots.push(spot);
             sounds.play(v, if part.is_some() { "UIVATSSelectTargetPart" } else { "UIVATSSelectTarget" });
@@ -1287,7 +1313,7 @@ fn draw_marks(
     let width = windows.iter().next().map_or(1280.0, |w| w.width());
     let size = (MARK_SIZE * width).max(6.0);
     let camera = cameras.single().ok();
-    let spots: Vec<[f32; 3]> = vats.unfired().map(|s| s.point).collect();
+    let spots: Vec<[f32; 3]> = vats.drawn().into_iter().map(|(p, _)| p).collect();
     for (c, mut node, mut vis) in &mut crosses {
         let at = spots.get(c.0).zip(camera).and_then(|(p, (cam, t))| cam.world_to_viewport(t, space::to_bevy(*p)).ok());
         let want = if at.is_some() { Visibility::Inherited } else { Visibility::Hidden };
@@ -1317,8 +1343,8 @@ const LABEL_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 const LABEL_BASE: f32 = 30.0;
 /// Its height, interface units, for centring it on the "x".
 const LABEL_HEIGHT: f32 = 36.0;
-/// The interface's amber, as the HUD's text [design: the owner's wish, 2026-10-24; it was
-/// a creamy white before].
+/// The marks' brightened amber [design: the owner's wishes, 2026-10-24; it was a creamy
+/// white before].
 const LABEL_COLOUR: Color = MARK_COLOUR;
 
 /// The text of a chance: whole percent.
@@ -1343,7 +1369,7 @@ fn draw_labels(
     let size = (MARK_SIZE * width).max(6.0);
     let tall = LABEL_HEIGHT / 960.0 * height;
     let camera = cameras.single().ok();
-    let spots: Vec<([f32; 3], f32)> = vats.unfired().map(|s| (s.point, s.chance)).collect();
+    let spots = vats.drawn();
     for (e, mut label, mut node, mut vis) in &mut labels {
         let spot = spots.get(label.i);
         let at = spot.zip(camera).and_then(|((p, _), (cam, t))| cam.world_to_viewport(t, space::to_bevy(*p)).ok());
@@ -1506,6 +1532,19 @@ mod tests {
         // A gun without sights (Sight FOV 0) never raises them.
         assert!(!aims_down_sights(false, 5000.0, 0.0));
         assert_eq!(crate::combat::distance([0.0, 0.0, 0.0], [3.0, 4.0, 12.0]), 13.0);
+    }
+
+    #[test]
+    fn marks_on_one_part_draw_once_with_the_newest_chance() {
+        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
+        for (target, part, chance) in [(7, Some(1), 63.0), (7, Some(1), 68.0), (9, None, 40.0), (7, Some(1), 73.0), (7, Some(2), 30.0)] {
+            v.queue.push(FormId(target), part, f32::INFINITY).unwrap();
+            v.spots.push(Spot { point: [target as f32, part.unwrap_or(0) as f32, 0.0], chance, ..Default::default() });
+        }
+        assert_eq!(v.drawn(), vec![([7.0, 1.0, 0.0], 73.0), ([9.0, 0.0, 0.0], 40.0), ([7.0, 2.0, 0.0], 30.0)]);
+        v.phase = Phase::Firing;
+        v.started = 3;
+        assert_eq!(v.drawn(), vec![([7.0, 1.0, 0.0], 73.0), ([7.0, 2.0, 0.0], 30.0)], "the fired marks go");
     }
 
     #[test]

@@ -21,7 +21,7 @@ them.
 | `dt_floor` | 0.2 | DT never removes more than 80 % of a hit |
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
 | `bloom_per_shot`, `bloom_per_min_spread`, `bloom_auto_mult` | 0.08 + 0.04 × Min Spread, × 0.5 for automatics | spread added per shot (spread units) |
-| `bloom_max`, `bloom_recovery` | 1.0 (about 6°), 2.0 /s | bloom cap; how fast it shrinks once settling |
+| `bloom_max`, `bloom_recovery` | 1.0 (about 6° of deviation, 3° of cone), 2.0 /s | bloom cap; how fast it shrinks once settling |
 | `settle_delay` | 0.3 s | rest beyond the weapon's own time between shots before bloom shrinks; closer shots build on each other |
 | `jump_spread` | 0.3 | actor-spread penalty while airborne |
 | `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_auto_mult` | 0.6°, 0.04°/damage, × 0.5 for automatics | view kick up per shot |
@@ -119,9 +119,15 @@ each the identity by default. Reading PERK records is a later step.
 - **Degrees** [documented as the page authors' in-game measurement]:
   (actor + 0.0125·W² + 0.125·W) × 5.955, where W is Min Spread. Ammo Spread Mod effects
   multiply the result.
-- **Cone** [design]:
+- **Cone**:
+  - The degrees are the full width of the circle the shots fall in: the authors measured
+    "the diameter of the sway circle" for the actor spread and fitted "the diameters of
+    those circles" of shot impacts for the weapon spread [documented: the page's Testing
+    Methods]. So the cone's half-angle is half the degrees (`spread::half_angle`; until
+    2026-10-24 the whole figure was used as the half-angle, which made every gun's
+    spread twice as wide as measured).
   - The shot leaves inside a cone of that half-angle around the view direction, uniform
-    over the cone's disc, so the crosshair is always the centre.
+    over the cone's disc, so the crosshair is always the centre [design].
   - Bloom adds to the actor spread per shot, up to its cap. It recovers only after the
     weapon has rested for its own time between shots plus `settle_delay`, so fire as
     fast as the weapon allows keeps widening the cone, whatever its rate, and a short

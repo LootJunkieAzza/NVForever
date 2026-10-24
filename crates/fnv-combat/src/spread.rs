@@ -82,15 +82,23 @@ pub fn crippled_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance)
 /// Degrees of deviation for an actor spread `p` and a weapon spread `w` (Min Spread): the
 /// page authors' in-game measurement, 5.955° per unit of actor spread and
 /// (0.0125·w² + 0.125·w) units for the weapon spread [documented as their measurement].
+/// It is the full width of the circle the shots fall in: the authors measured "the
+/// diameter of the sway circle" and fitted "the diameters of those circles" of shot
+/// impacts [documented: the page's Testing Methods]; [`half_angle`] turns it into a cone.
 pub fn deviation_deg(p: f32, w: f32) -> f32 {
     (p + 0.0125 * w * w + 0.125 * w) * 5.955
 }
 
+/// The cone half-angle for a deviation (a diameter, [`deviation_deg`]).
+pub fn half_angle(deviation_deg: f32) -> f32 {
+    deviation_deg / 2.0
+}
+
 /// The cone half-angle in degrees for one shot: actor spread (after perks) plus bloom,
-/// weapon spread, times the ammo's spread effects.
+/// weapon spread, times the ammo's spread effects, halved (the deviation is a diameter).
 pub fn cone_deg(actor: f32, bloom: f32, w: &WeaponStats, ammo_effects: &[&AmmoEffect]) -> f32 {
     let m = apply_effects(1.0, ammo_effects, "Spread Mod").max(0.0);
-    deviation_deg(actor + bloom, w.min_spread.max(0.0)) * m
+    half_angle(deviation_deg(actor + bloom, w.min_spread.max(0.0)) * m)
 }
 
 /// A direction inside a cone of half-angle `cone_deg` around `forward` (unit), uniform over

@@ -76,10 +76,8 @@ Not wired yet, with why:
 |---|---|---|---|
 | 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
 | 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
-| 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
-| 61–66 | the unarmed power attacks' Has … | the unarmed moves | the special moves are not built |
 
 ## 3. Conditions by tab
 
@@ -225,3 +223,125 @@ Pip-Boy holds only a shared borrow of the game [design: the masters' entry has n
 Checks: `fnv-game` `repair` `jury_rigging_pairs_like_weapons_and_armour`, `data`
 `default_objects_by_their_place`; smoke `perk-jury-rigging`, `perk-meltdown-anatomy`,
 `perk-implant-y3`.
+
+## 10. Attack, reload and equip speed (2026-10-24)
+
+Owner 2026-10-24: "Build the clip-speed perks next: Rapid Reload, Quick Draw, and the
+attack-speed perks (Fast Shot, Slayer, Loose Cannon …)" (perk-audit-2026-10-23 §3.2). §2
+left these until the player body's clips could play faster; they now can: an animation
+layer has a rate, and the reload already used it.
+
+| Code | Entry point | Perks [observed: the entries] | NVForever |
+|---|---|---|---|
+| 37 | Reload Speed | Rapid Reload × 1.25 | already built with Companion Nerve (feb023fa): the reload rate is 0.5 + 0.1 × Agility × the Reload Speed entries, for the cycle and the reload clips (`fnv_combat::attack::reload_rate`, `WeaponAnim::reload_rate`) |
+| 43 | Modify Attack Speed | Fast Shot × 1.2 and Trigger Discipline × 0.8 (IsWeaponSkillType Guns or Energy Weapons on tab 1), Loose Cannon × 1.3 (its list on tab 1), Slayer × 1.3 (Melee or Unarmed), Melee Hacker × 1.05 / 1.1 (Melee), Elijah's Last Words, Atomic!, Ain't Like That Now; Old Vaquero and Causeless Rebel (teammate perks) | the player's attack: a gun's shot cycle (`Timing::with_attack_rate`: the time between shots, the wind-up to the shot and the `Attach` key ÷ the rate; an automatic weapon's fire rate × it [design]) and a melee swing's timing (`SwingTiming`), and the body's attack clip plays at the weapon's Animation × Animation Attack multipliers × the perks (`WeaponAnim::attack_rate`), logged `combat: attacks at x<r> (<weapon>; perks x<p>: <perks>)` and `combat: swings at x<r> …` |
+| 38 | Equip Speed | Quick Draw × 1.5 | the draw and holster of the weapon in hand: their timings (the hands' `Transition`s, the `Attach`/`Detach` switch with them) ÷ the rate and their clips at the rate (`WeaponAnim::equip_rate`), logged `combat: draws and holsters at x<r> (<perks>)` |
+
+- The attack clip now plays at the weapon's own multipliers too [documented: GECK wiki
+  Weapons, "Animation Multiplier", "Animation Attack Multiplier" scale the animation];
+  before, the cycle was timed by them while the clip played at its own speed. For a
+  weapon with both at 1 nothing changes.
+- Not built: the teammates' attack speed (Old Vaquero, Causeless Rebel), which needs the
+  NPCs' fire and swing rates to ask the entry point (§6).
+
+Checks: `fnv-combat` `rules` `attack_rate_shortens_the_cycle_not_the_reload`; smoke
+`perk-fast-shot-quick-draw`, `perk-slayer`.
+
+## 11. Knockdowns and the unarmed special moves (2026-10-24)
+
+Owner 2026-10-24: "Build melee knockdowns (Super Slam, And Stay Back) and the unarmed
+special moves next" (perk-audit-2026-10-23 §3.6).
+
+### 11.1 Knockdown Chance (52)
+
+[observed: the entries] Super Slam Set 0.15 and 0.30 (conditions on tab 0: IsWeaponInList
+and GetWeaponAnimType; the fandom wiki: "15% for Unarmed or one-handed melee, 30% for
+two-handed melee"; the conditions want the weapon in WeaponListMeleeALL or
+WeaponsAutomaticMeleeLIST, which the Fists are not in [observed: the FLSTs], so bare fists
+get no roll whatever the fandom page says), And Stay Back Set 0.1 (IsWeaponInList on tab 0, the shotguns; the
+fandom wiki: "per pellet"), Elijah's Last Words Set 0.25 (Melee on tab 1).
+
+NVForever [design where the wiki is silent]: from 0, the attacker's entries with its
+weapon on tab 1 (`combat::perk_knockdown`), rolled once a hit that does not kill: each
+melee blow, each projectile (so each pellet); the player's and a teammate's with the
+perk. A success knocks the target down away from the attacker as a blast's knockdown
+does (`Game::knock_down`: No Knockdowns and the rest refuse it). Every roll is logged
+`combat: Knockdown Chance <c> (<perks>): rolled <r>, <ref> stays up`, a success
+`combat: Knockdown Chance … knocks <ref> down`.
+
+### 11.2 The unarmed special moves (61–66)
+
+[observed: the entries, each Set 1 with no conditions] Legion Assault 61 (forward), Ranger
+Takedown 62 (back), Scribe Counter 64 (counter), Khan Trick 65 and 66 (left, right); no
+perk uses 63 (crouched). The DOBJ names each direction's effect [documented: xEdit DOBJ,
+places 25–30; observed: FalloutNV.esm]: none for forward and counter,
+`VictoryRifleKnockdownSpell` for back (its script pushes the target away: a knockdown,
+unless it has Stonewall), `HeadCrippleEffect` (Perception −4) for left, right and
+crouched. The perks' DESC [observed]: "perform a Power Attack while running forward /
+moving backwards / moving left or right".
+
+NVForever:
+- An unarmed power attack (the Fists or an Unarmed-skill weapon) in a direction whose move
+  the player has is that move (`combat::special_move`, logged `combat: <move> (<dir> power
+  attack, unarmed)`): Ranger Takedown and Khan Trick put the DOBJ's effect on the target
+  with the blow (as a weapon's object effect, `apply_hit`'s items); Legion Assault knocks
+  the target back [the fandom wiki, "Knock back opponents"; design: as a knockdown away
+  from the player].
+- Scribe Counter [the fandom wiki: "Quick counter-attack after Block"; design]: an unarmed
+  blow begun within `COUNTER_WINDOW` (1 s) of the player's block stopping one is a
+  standing power attack (its damage bonus, breaking a block), without the power attack's
+  hold; logged `combat: Scribe Counter: the blow after the block is a power attack`.
+- Not built: Khan Trick's need for dirt or sand underfoot (the fandom wiki), the crouched
+  move (no perk), the moves in VATS mode. Khan Trick's forced hit reaction and Legion
+  Assault's lunge: §11.4.
+
+### 11.3 The moves' clips (2026-10-24)
+
+Owner 2026-10-24: "the animations should exist so lets add them". They do, in both rigs'
+folders (`meshes\characters\_male`, `_1stperson`) of Fallout - Meshes.bsa [observed]:
+
+| Move | Clip (prefix `h2h`) | Why this one |
+|---|---|---|
+| Legion Assault (forward) | `attackcustom1power` (AttackCustom1Power, 1.6 s) | [observed: its Bip01 goes 332 units straight ahead over the clip, a running lunge] |
+| Ranger Takedown (back) | `attackcustom2power` (AttackCustom2Power, 1.43 s) | [hypothesis: by elimination; its motion is in compressed splines not read here] |
+| Khan Trick (left, right) | `attackcustom4power`, `attackcustom5power` (1.83 s) | [documented: GECK wiki GetForceHitReaction, "Khan Trick (AttackCustom4Power and AttackCustom5Power)"; hypothesis: 4 left and 5 right, the entry points' order] |
+| crouched (no perk) | `sneakh2hattackcustom3power` | not used |
+| Scribe Counter | `counter` (`h2hcounter.kf`, its `a:L` key chains a swing) | [hypothesis: by the name] |
+
+The move is chosen as its swing starts (`combat::melee`, `MeleeEvent::Started`): the
+swing's stem becomes the move's, so the body plays the move's clip and the strike comes at
+that clip's `Hit` key; Scribe Counter's swing becomes a standing power attack then. Logged
+`combat: <move> (<dir> power attack, unarmed): clip <stem>`.
+
+Khan Trick in the original also sets the target's forced hit reaction (GetForceHitReaction
+1, which plays its crippled-limb hit idles) [documented: the same page]; built in §11.4.
+
+### 11.4 Khan Trick's stun, Legion Assault's lunge (2026-10-24)
+
+Owner 2026-10-24: "Add Khan Trick's forced hit reaction (the stun) and move the player
+forward during Legion Assault's lunge."
+
+- Khan Trick: GetForceHitReaction is 1 on the target of AttackCustom4Power and
+  AttackCustom5Power [documented: GECK wiki GetForceHitReaction]. FalloutNV.esm's IDLE
+  `3rdPersonHitReactionsForce` (0014CC29, condition GetForceHitReaction == 1) and
+  `3rdPCrouchedHitForce` (0014CC2A) hold one child per hit location
+  (`3rdPHitTorsoForce` 0014CC2B for location 0, `…HeadForce` 1–2, `…ArmLeftForce` 3–4,
+  `…ArmRightForce` 5–6, `…LegLeftForce` 7–9, `…LegRightForce` 10–12, by GetHitLocation),
+  whose model is the IdleAnims folder alone: they play the actor's hit reaction for that
+  location [observed: the records; hypothesis: the same clips as the stagger's]. So a Khan
+  Trick blow that leaves its target alive and conscious sends `combat::ForcedHitReaction`
+  (logged `combat: Khan Trick: <target> is forced into its hit reaction (location <n>)`),
+  and the body plays the reaction for the location at once, without the stagger rule's
+  crippling or wait (nvforever `deaths`; logged `hit reaction: <ref> staggers for <s> s
+  (location <n>, forced: Khan Trick)`). The condition function itself stays a stub: no
+  idle picker here asks it.
+- Legion Assault: its clip `h2hattackcustom1power.kf` moves `Bip01` 332 units straight
+  ahead over 1.6 s [observed: 18 keys]. The body holds `Bip01` still, so the swing's start
+  sets `player::Lunge` (`combat::LUNGE`): the player moves forward along their heading at
+  332 / 1.6 units a second for the clip's length, both scaled by the swing's speed (the
+  attack-speed perks), on top of walking; walls and actors stop it as they stop walking
+  [design: an even speed, not the clip's key by key]. Logged `combat: Legion Assault: the
+  player lunges 332 units over <s> s` and, at its end, `player: lunge done: <d> units from
+  where it started`.
+
+Checks: smoke `perk-unarmed-moves` (with frames of each move; the stun and the lunge), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`; `player::tests::lunge_*`.

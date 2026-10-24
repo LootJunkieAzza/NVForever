@@ -144,6 +144,16 @@ pub const HAS_MELTDOWN: u8 = 46;
 pub const SEE_ENEMY_HEALTH: u8 = 47;
 pub const HAS_JURY_RIGGING: u8 = 48;
 
+/// The unarmed special moves (docs/spec-notes/perk-entry-points.md §11) [documented: GECK
+/// wiki GetNthPerkEntryFunction, codes 61–66; observed: Legion Assault 61, Ranger Takedown
+/// 62, Scribe Counter 64, Khan Trick 65 and 66, each Set 1 with no conditions].
+pub const HAS_UNARMED_FORWARD_POWER_ATTACK: u8 = 61;
+pub const HAS_UNARMED_BACK_POWER_ATTACK: u8 = 62;
+pub const HAS_UNARMED_CROUCHED_POWER_ATTACK: u8 = 63;
+pub const HAS_UNARMED_COUNTER_ATTACK: u8 = 64;
+pub const HAS_UNARMED_LEFT_POWER_ATTACK: u8 = 65;
+pub const HAS_UNARMED_RIGHT_POWER_ATTACK: u8 = 66;
+
 /// The weight Adjust Heavy Weapon Weight starts at: "a Weapon which weighs 10.0 lbs or more
 /// (after the DecreaseWeight Weapon Mod effect)" [documented: GECK wiki Entry Point].
 pub const HEAVY_WEAPON_WEIGHT: f32 = 10.0;
