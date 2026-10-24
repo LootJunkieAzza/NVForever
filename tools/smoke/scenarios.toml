@@ -6033,6 +6033,22 @@ expect = [
 order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
 
 [[scenario]]
+name = "grab-corpse"
+source = "docs/spec-notes/grab.md §1 (quests have the player carry corpses with Grab, Z: VMS18CarlyleStClairREF into the dumpster, ProperBurialCorpseref into the grave): Ringo killed in the gas station is picked up with Z by his ragdoll and carried 6 s while the view turns 180°, longer than the 3 s after which a moving ragdoll is held at rest; it is not held at rest while carried, so it is dropped when Z comes up, away from where it lay, and comes to rest"
+areas = ["grab", "physics", "ragdoll"]
+paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C7D", NVF_PLAY_TEST_CONSOLE = "6:00104C7D.killactor;10:player.moveto 00104C7D 80 0 0;10.5:close", NVF_PLAY_TEST_GRAB = "13:z:6:180:at=00104C7D" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'grab: picked up corpse .*00104C7D\) by Aid', label = "Z picks up Ringo's corpse" },
+  { re = 'grab: carrying .*00104C7D\) at .*, (?P<n>[\d.]+) units from where it is held', range = [0, 40], label = "held where it is wanted" },
+  { re = 'grab: dropped .*00104C7D\) after 6\.\d s \(let go\) at .*, (?P<n>[\d.]+) units from where it was picked up', range = [120, 260], label = "carried the whole 6 s, half way round the player with the view (held ~90 units from the eye: 180 apart), dropped when Z comes up" },
+  { re = 'grab: .*00104C7D\) came to rest at .*, (?P<n>[\d.]+) units from where it was picked up', range = [100, 300], label = "it rests where it was carried to" },
+]
+forbid = [{ re = 'grab: .*\(it caught on something\)', label = "never held at rest while carried (it would stay put and catch)" }]
+
+[[scenario]]
 name = "ragdoll-armour-template"
 source = "docs/spec-notes/ragdoll.md §6: an armour's BMCT names a Ragdoll Template laid over the wearer's ragdoll; the 17 armours that name one (the power armours among them) all name RagdollConstraint\\default.rdt, which no archive of the game holds, so Ringo killed in T-45d power armour falls on his skeleton's own bodies and joints, and the log says why"
 areas = ["combat", "ragdoll"]
