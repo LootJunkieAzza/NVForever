@@ -83,6 +83,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   runs scenarios one by one. Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
   `NVF_FNVTOOL`, `NVF_SMOKE_LOCKS` (other machines), `NVF_OBSERVER_SAMPLES` (the AI observer
   captures).
+- **Stop only your own runner, by the PID you started.** Never stop processes by a
+  command-line match or with `taskkill /T` on a shell you did not start: on 2026-10-24 one
+  such match stopped every session's smoke runner on the machine.
 - Fix or explain every FAIL. KNOWN marks a check that fails on main for a stated reason;
   it does not fail the run, and a "now passes" line says the mark can go.
 - **After merging anything into a branch: `python tools/smoke verify`** (fails when the
