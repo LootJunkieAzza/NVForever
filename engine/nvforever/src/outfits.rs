@@ -148,13 +148,17 @@ fn follow_inventory(
         // The mods of the unit held: a modded weapon draws its mods' model.
         let mods = weapon.map_or(0, |w| sim.world.peek(FormId(rig.reference)).and_then(|s| s.inventory.as_ref()).map_or(0, |inv| inv.mods_in_use(w)));
         let dressed = &mut *dressed;
-        let same_worn = worn.len() == dressed.worn.len() && worn.iter().all(|w| dressed.worn.contains(w));
+        // A weapon with "Hide Backpack" taken up or put away dresses the body again
+        // (`Resolver::resolve_wearing`).
+        let hides = |w: Option<FormId>| w.and_then(|w| world.actors.weapons.get(&w)).is_some_and(|w| w.hide_backpack);
+        let same_worn = worn.len() == dressed.worn.len() && worn.iter().all(|w| dressed.worn.contains(w)) && hides(weapon) == hides(dressed.weapon);
         let same_weapon = weapon == dressed.weapon && mods == dressed.weapon_mods;
         if same_worn && same_weapon {
             continue;
         }
         let who = format!("{:08X}", rig.reference);
-        let mut new = match world.resolve_wearing(rig.base, rig.reference, Some(&worn)) {
+        let wearing: Vec<FormId> = worn.iter().copied().chain(weapon.filter(|w| hides(Some(*w)))).collect();
+        let mut new = match world.resolve_wearing(rig.base, rig.reference, Some(&wearing)) {
             Ok(n) => n,
             Err(e) => {
                 warn!("outfit: actor {who}: cannot be dressed again ({e})");

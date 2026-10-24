@@ -836,6 +836,8 @@ pub struct Combat {
     flying: Vec<Flying>,
     /// Thrown mines that came to rest this frame, for `crate::mines` to place.
     settled: Vec<SettledMine>,
+    /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
+    landed: Vec<LandedThrow>,
     ghosts: Vec<Ghost>,
     /// The weapon's looping shoot sound while it plays, and the seconds it has left
     /// unless another shot comes.
@@ -930,11 +932,30 @@ impl Combat {
         std::mem::take(&mut self.settled)
     }
 
+    /// The thrown weapons that landed since the last call (`crate::thrown`).
+    pub(crate) fn take_landed(&mut self) -> Vec<LandedThrow> {
+        std::mem::take(&mut self.landed)
+    }
+
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
     /// `by` (the actor who put it down and that weapon), when someone did.
     pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
         self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon })));
     }
+}
+
+/// A thrown weapon whose projectile ended (`crate::thrown`): the weapon it was, its PROJ,
+/// where it ended, the surface's normal there (none when it ran out of range in the
+/// air), the way it flew, the actor it struck, and who threw it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LandedThrow {
+    pub weapon: FormId,
+    pub proj: FormId,
+    pub point: V3,
+    pub normal: Option<V3>,
+    pub dir: V3,
+    pub struck: Option<FormId>,
+    pub by: FormId,
 }
 
 /// A thrown mine that came to rest ([`ProjEvent::Settled`]): its PROJ, where, the way it
@@ -1183,7 +1204,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, death_drops, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1439,6 +1460,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         kick: Kick::default(),
         flying: Vec::new(),
         settled: Vec::new(),
+        landed: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
         ejects_seen: 0,
@@ -2704,7 +2726,8 @@ fn melee(
     // Both legs crippled: no directional power attacks outside VATS mode (crippled-limbs.md
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
-    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
+    // The weapon's power attack override plays for the standing power attack.
+    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref() };
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
@@ -3252,6 +3275,12 @@ fn fly(
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
             let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
+            // A thrown weapon lands where its flight ends (`crate::thrown`): the weapon
+            // thrown, else the PROJ's Default Weapon Source.
+            let lands = c.forms.projectiles.get(&f.proj).filter(|p| p.lands_as_weapon()).and_then(|p| {
+                let thrown = c.forms.weapons.get(&f.by.weapon).is_some_and(|w| w.projectile == Some(f.proj));
+                if thrown { Some(f.by.weapon) } else { p.default_weapon }
+            });
             let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
@@ -3261,6 +3290,10 @@ fn fly(
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
                         c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, normal, material, projectiles: f.projectiles_per_shot, force: f.force, by: f.by });
+                        if let Some(weapon) = lands {
+                            let struck = actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) });
+                            c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: Some(normal), dir: f.dir, struck, by: f.by.actor });
+                        }
                         if f.tracer {
                             debug!(
                                 "combat: tracer from ({:.1}, {:.1}, {:.1}) to the hit at ({:.1}, {:.1}, {:.1})",
@@ -3278,6 +3311,9 @@ fn fly(
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
+                        if let Some(weapon) = lands {
+                            c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: None, dir: f.dir, struck: None, by: f.by.actor });
+                        }
                         if f.tracer {
                             c.marks.push(line(point, hold.unwrap_or(0.08)));
                         }

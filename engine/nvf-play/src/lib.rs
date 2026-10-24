@@ -67,6 +67,7 @@ pub mod challenges;
 pub mod poker;
 pub mod menu;
 pub mod mines;
+pub mod thrown;
 pub mod message_menu;
 pub mod moved;
 pub mod music;
@@ -104,6 +105,7 @@ pub mod stress;
 pub mod vats_mode;
 pub mod kill_cam;
 pub mod voice;
+pub mod voice_filter;
 pub mod wait;
 pub mod world_sounds;
 pub mod xp_meter;
@@ -318,6 +320,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(mines::MinesPlugin)
+            .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)
             .add_plugins(pickpocket::PickpocketPlugin)
             .add_plugins(repair::RepairPlugin)

@@ -547,10 +547,11 @@ mod tests {
             placed_count: None,
             teaches: None,
             cant_be_taken: false,
+            modulates_voice: false,
         };
         assert_eq!([0, 1, 2, 4, 6].map(|m| it.weight_with_mods(m)), [Some(6.0), Some(6.0), Some(3.5), Some(0.0), Some(0.0)]);
         let mut forms = FormStore::default();
-        forms.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: None, script: None, prompt: None, data: BaseData::Item(it) });
+        forms.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
         let mut inv = Inventory::new();
         inv.add(id, 2);
         inv.add_extra(id, 1, Extra { mods: 2, ..Extra::default() });
