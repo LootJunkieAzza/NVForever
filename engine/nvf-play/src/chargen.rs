@@ -185,7 +185,10 @@ pub struct ChargenSet;
 fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
-    if st.open.as_ref().map(OpenMenu::code) == code {
+    // Answered and closed, yet the same code is open: another menu of that code opened
+    // in its place (the character revision's attributes page, then its tag-skill page).
+    let reopened = st.answered && script.rt.as_ref().is_some_and(|rt| !rt.closing());
+    if st.open.as_ref().map(OpenMenu::code) == code && !reopened {
         return;
     }
     if st.open.is_some() {

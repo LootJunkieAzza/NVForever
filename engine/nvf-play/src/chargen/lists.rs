@@ -187,9 +187,10 @@ pub struct ListView {
 
 impl ListMenu {
     /// The menu for `code` (1048 or 1084), from the player as the game holds them; 1048
-    /// is the attributes page when AddSPECIALPoints opened it.
+    /// is the attributes page when AddSPECIALPoints opened it (or SetSPECIALPoints from
+    /// the character revision, `fnv_game::functions::ui::set_special_points`).
     pub fn open(code: u16, g: &mut Game) -> ListMenu {
-        let sheet = if code == menus::TAG_SKILLS && matches!(g.ui.special, Some(SpecialMenu::Add(_))) {
+        let sheet = if code == menus::TAG_SKILLS && matches!(g.ui.special, Some(SpecialMenu::Add(_) | SpecialMenu::Set(_))) {
             let s = SpecialSheet::for_menu(g);
             Sheet::Special { now: s, start: s }
         } else if code == menus::TAG_SKILLS {

@@ -259,8 +259,23 @@ pub fn add_special_points(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
 
 /// `SetSPECIALPoints n`: opens the S.P.E.C.I.A.L. menu, which may be left once the
 /// attributes add up to n [documented: GECK wiki SetSPECIALPoints].
-pub fn set_special_points(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.ui.special = Some(SpecialMenu::Set(a.int(0)?));
+///
+/// From the character revision's script (`crate::revision`), which has just set each
+/// attribute to 5, it opens Intense Training's attributes page (1048) instead of the
+/// Vigor Tester, with one point more for each rank of Intense Training the player keeps
+/// [design: the owner's wish, 2026-10-24: "the same menu as the intense training just
+/// with more specials to distribute ... accounting for any intense training points
+/// taken already"].
+pub fn set_special_points(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let n = a.int(0)?;
+    if crate::revision::by_revision(ctx) {
+        let trained = g.data.by_edid("IntenseTraining").and_then(|p| g.player.perks.get(&p)).map_or(0, |&r| i32::from(r));
+        tracing::info!("revision: attributes page, {n} points + {trained} from Intense Training");
+        g.ui.special = Some(SpecialMenu::Set(n + trained));
+        g.open_menu(menus::TAG_SKILLS);
+        return none();
+    }
+    g.ui.special = Some(SpecialMenu::Set(n));
     g.open_menu(menus::LOVE_TESTER);
     none()
 }

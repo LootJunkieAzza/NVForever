@@ -596,6 +596,11 @@ impl Runtime {
         true
     }
 
+    /// The player answered the open script menu and it has not closed yet.
+    pub fn closing(&self) -> bool {
+        self.closing.is_some()
+    }
+
     /// After the tick: close the menu the player answered, if it is still the one open.
     fn finish_answer(&mut self) {
         if let Some((menu, front)) = self.closing.take() {

@@ -205,5 +205,12 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
   (`fnv_game::actor_values`), so the spent points stay and the new S.P.E.C.I.A.L. and
   tags re-derive the rest. The tag-skill menu starts with the old three tagged (the
   SetTagSkills rule of §1). Each kept call is logged `revision: keeps …`.
+- The revision's `SetSPECIALPoints 40` opens Intense Training's attributes page (1048,
+  levelup.md §8) instead of the Vigor Tester [design: the owner's wish, 2026-10-24]: the
+  attributes start at 5 (the script's SetActorValue calls), the total is 40 plus one per
+  rank of Intense Training the player keeps, and an attribute may go down to 1 as in the
+  Vigor Tester (`fnv_game::functions::ui::set_special_points`). The tag-skill page that
+  follows has the same menu code; the engine opens it afresh once the attributes page
+  was answered and closed.
 - Before this the revision zeroed every skill: SetActorValue overrides a value's base
   (`functions::actor`), and a player's skill was then 0 whatever its formula.
