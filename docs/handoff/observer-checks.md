@@ -1,0 +1,253 @@
+# Observer checks: gameplay guesses the original game can settle
+
+Guesses about how the original behaves that a capture can settle without the owner.
+The observer can run scripts, take screenshots, record video, and tap keys, so it can
+also drive menus. Sorted by how much of the game each check moves, most first.
+Taken from the old owner-review log on 2026-10-24 (full log:
+`git show 85dcaace:docs/owner-review.md`); decisions that need the owner are in
+[owner-review.md](../owner-review.md).
+
+Tools: [ai-observer](../spec-notes/ai-observer.md) (campaigns, fight field set, events,
+timed actions, shots), [xnvse-capture](../spec-notes/xnvse-capture.md) (jobs and short
+scripts), [owner-decision-captures](../spec-notes/owner-decision-captures.md) (what
+earlier rounds settled). Start from the `nvfstrip` save unless a check needs an early
+game state. When a check is settled, write the answer into the linked spec, fix the
+engine if needed, and delete the item here.
+
+## P1: changes many fights or the whole run
+
+1. **Which weapon NPCs carry and draw.** Ours ranks weapons by base damage plus
+   explosion damage, so about 40 NPCs now draw grenade rifles or launchers. Any AddItem
+   (even caps) makes an NPC equip its best weapon and armour again. Melee Only / Ranged
+   Only styles switch weapons only in combat. To check: read GetEquippedObject 5 on
+   those 40 NPCs and on a sample of armed NPCs at first load, and again after AddItem
+   and after a combat start. ([npc-behaviour-compare §9.1](../spec-notes/npc-behaviour-compare.md),
+   [combat-ai §18](../design/combat-ai.md), [companion-wheel §4](../spec-notes/companion-wheel.md))
+2. **Who attacks you, and who joins a fight.** Ours:
+   - 618 placed Aggressive (not Very Aggressive) animals ignore you until attacked.
+   - Inside an aggro radius, an actor warns twice 5 s apart, then attacks.
+   - Actors of a leveled template take the factions of our level-1 entry (192 types).
+   - Sharing a faction or base NPC makes actors allies.
+   - Onlookers who would be attacked by the attacker join at once.
+   - Cowardly actors never help.
+   - An escort fights its charge's attackers.
+   - Anyone hostile to you is hostile to your teammates, and teammates ignore your hits.
+   - People on Find with Allow Killing attack only actors carrying the item (creatures
+     hunt anything; already captured).
+   To check: run campaigns near coyotes, rats and bighorners at Goodsprings, the Primm
+   ambushers, a gecko attack on a settler, an escort, and shots at Boone, with the fight
+   field set and OnStartCombat events. ([factions](../spec-notes/factions.md),
+   [combat-ai §10, §12, §13](../design/combat-ai.md), [followers](../design/followers.md),
+   [packages §3.1](../spec-notes/packages.md))
+3. **Damage numbers.** Ours:
+   - Power attacks do 3× standing and 2× moving.
+   - A damage type uses its resistance in place of DR (capped at 85 %, after DT).
+   - Rippers, Chainsaw and Thermic Lance ignore DT/DR.
+   - `fCombatPlayerLimbDamageMult` halves damage to the player's limbs.
+   - Difficulty multipliers are 2/1.5/1/0.75/0.5 dealt and the inverse taken, including
+     limb, burn and poison damage and your own grenades.
+   - Your own explosives hurt you.
+   - A second burn or poison hit restarts the timer rather than stacking.
+   - Every weapon's Crit Effect applies.
+   - Fall damage is 0.0252 × (h − 600)^1.65, with no leg crippling.
+   To check: OnHit events plus Health and limb values for each case.
+   ([combat-rules §10](../spec-notes/combat-rules.md),
+   [weapon-data-fields](../spec-notes/weapon-data-fields.md),
+   [crippled-limbs](../spec-notes/crippled-limbs.md), [difficulty](../spec-notes/difficulty.md),
+   [hit-effects](../spec-notes/hit-effects.md), [physics §6.12](../spec-notes/physics.md))
+4. **Hardcore needs and waiting.** Ours:
+   - Hunger rises 4.8/h and sleep deprivation 2.4/h. Dehydration is guessed at 9.6/h
+     (Minor at about 21 h).
+   - An hour slept takes 100 off sleep deprivation. Needs rise while asleep.
+   - Beer and Nuka-Cola make you thirstier (their "Damage Dehydration" read literally).
+   - An hour waited counts as 120 s of effect time.
+   - Plain beds don't heal, sleeping heals limbs only outside Hardcore, and waiting is
+     refused while you are being irradiated.
+   To check: read the need actor values over waits and sleeps, after drinks, and with
+   Buffout active. ([aid-items §2, §6, §11](../spec-notes/aid-items.md),
+   [wait-menu](../spec-notes/wait-menu.md))
+5. **Weapon wear.** Ours:
+   - A melee swing wears the weapon only when it lands (once per swing).
+   - A record's Damage-to-Weapon Mult replaces 0.2 rather than multiplying it, so the
+     Flamer, Incinerator, chainsaw and Rippers now wear 5× faster.
+   - NPC weapons wear like the player's.
+   To check: weapon health before and after N swings and shots, per weapon.
+   ([combat-rules §17–§18](../spec-notes/combat-rules.md))
+6. **Detection.** Ours:
+   - Light level is ambient + sun + lamps; sunlight counts only where unshaded.
+   - FOV is 95° each side, and sneak-running counts as running.
+   - A lit flashlight doesn't raise your light.
+   - Impacts and explosions alert at their own sound levels, and creature footsteps
+     count ×2 Loud / ×0.2 Silent.
+   - Lying on a bed counts as asleep.
+   To check: GetDetected player while walking up to Sunny at noon and at night, with the
+   flashlight on, on a porch, and with a missed shot near a sleeper.
+   ([detection §8](../design/detection.md))
+7. **Casino payouts.**
+   - Slots: ours pays back about 1.35 per chip, so max winnings come fast. Check the
+     reading of "= BET × N", the cherry rule and the middle row.
+   - Blackjack: the dealer doesn't peek, split aces play on, one split only, surrender
+     returns half rounded up, comps come at ¼ / ½ / ¾ of max winnings.
+   To check: drive many hands and spins by key taps and read caps and chips.
+   ([slots](../spec-notes/slots.md), [blackjack](../spec-notes/blackjack.md))
+8. **Package timing.**
+   - SetPackDuration 60 switched every 10–70 game minutes in the original. What does
+     the number count?
+   - A schedule duration with no start hour ends only when the goal is met.
+   - Sandbox sit and stand times are our own numbers.
+   - An unreachable package is set aside for 1 h.
+   - MP A gives up her escort half-way in the original.
+   - Random NPC chats start only with you within 300 units.
+   - Force greets need a clear line, but facing doesn't matter.
+   - A woken sleeper talks within 8 s and stays up 30 game-seconds.
+   - People during a wait walk an hour's worth each hour.
+   To check: observer timelines, which already record packages.
+   ([actor-behaviour §3, §5.5–§5.6](../design/actor-behaviour.md),
+   [owner-decision-captures §7](../spec-notes/owner-decision-captures.md))
+
+## P2: rules met often
+
+9. **Aid, perks and stats.** Ours:
+   - Medicine/Food potency is 1 + 2 × the user's skill / 100, and Buffout boosts food
+     healing.
+   - Addiction: +30 usage per use, chance (usage − 70)/100, and it never wears off.
+   - The Hardcore Stimpak heals 5/s for 6 s, and a normal Stimpak heals every limb.
+   - A second dose doesn't re-run Start.
+   - Only the highest rank of a ranked perk applies, and perks are the player's only.
+   - Chemist doubles the Stealth Boy.
+   - Skill books give 3 points (4 with Comprehension).
+   - Worn bonuses (Vault Jumpsuit Speech +2) are not in actor values.
+   - GetBaseActorValue includes ModActorValue.
+   - Calm Heart's +50 Health goes to every teammate.
+   - Four Eyes ignores "PER > 1".
+   To check: read actor values in scripts around each use.
+   ([aid-items](../spec-notes/aid-items.md), [levelup §9](../spec-notes/levelup.md),
+   [skill-books](../spec-notes/skill-books.md))
+10. **Karma, reputation and crime.** Ours:
+    - Killing Very Evil gives +100, Good −100, and murdering a Neutral −25.
+    - Each owned take or lock is −5.
+    - A seen theft is +2 infamy and any seen kill +30, including hostile Powder Gangers.
+    - An owner who sees a theft attacks at once.
+    - Trespass: two warnings 5 s apart, then attack.
+    - Crime fights can't be yielded.
+    - Templated NPCs take their template's karma.
+    - Unclamped AddReputationExact; 15/50/100 % levels for the eight reputations not
+      captured.
+    To check: read GetAV Karma (already in the header) and GetReputation around each act.
+    ([crime-karma](../spec-notes/crime-karma.md))
+11. **Vendors and loot.** Ours:
+    - Vendors sell only their flagged categories and their vendor chest, but buy
+      anything.
+    - Restock follows Ringo's days for everyone.
+    - Death items are rolled at death; the template's list wins.
+    - Spent casings are player only, doubled by Hand Loader.
+    - Respawn-flagged corpses return after 72 h at full health.
+    - An encounter zone's level is fixed when its cell enters the loaded area (Easy to
+      Boss is 50/75/125/200 %).
+    - The three placed weapons that name their ammo give it once.
+    To check: barter screenshots, inventory dumps, and timelines over 72 h.
+    ([vendor-services](../spec-notes/vendor-services.md),
+    [death-items](../spec-notes/death-items.md), [encounter-zones](../spec-notes/encounter-zones.md),
+    [dead-on-spawn §4](../spec-notes/dead-on-spawn.md))
+12. **Dialogue rules.** Ours:
+    - Greetings flagged Goodbye are said at you; when an actor starts the conversation
+      they hold you for one line.
+    - A generic Goodbye is added where the only Goodbye has an end script (100+ lists).
+    - Tab leaves only where a Goodbye is offered.
+    - A skipped line still runs its end script.
+    - Spent Say Once questions vanish.
+    - No pause is added between voiced lines (scenes run 0.3–0.4 s short per line).
+    - Shared (Info Connection) lines count as the topic's own.
+    - Corner and quest messages wait until the conversation ends.
+    - Voices without Allow Default Dialog get no generic lines.
+    To check: screenshots and video of Ringo, Nash, Red Lucy and Doc Mitchell's stage 40.
+    ([dialogue-play](../design/dialogue-play.md), [dialogue](../spec-notes/dialogue.md),
+    [voice](../spec-notes/voice.md))
+13. **Speeds and turning.** Ours:
+    - NPCs walk at 86.8 units/s and turn ≤180°/s walking, 120°/s standing.
+    - Creatures move at clip × scale × SpeedMult × 0.70 and turn 300°/s (measured on
+      cazadors only); their Turning Speed field is unused.
+    - Follow distances: stand within distance + 64, run beyond 512.
+    - A two-handed weapon cuts run speed by 10 %.
+    - Aiming or blocking slows you to a walk.
+    - Swimming starts at 115 units deep.
+    - The step-up is 24 units with a 45° slope limit.
+    To check: the fight field set at every loop gives positions and headings.
+    ([actors §8.9–§8.10](../spec-notes/actors.md), [physics §6.4.2](../spec-notes/physics.md))
+14. **Script rules that differ from the wiki.**
+    - A call on an empty ref is skipped.
+    - Return ends one block only.
+    - Scripted items in other inventories don't run.
+    - Message boxes don't freeze the player, and MenuMode 1002 is our guess.
+    - The GetWeaponAnimType table (Sunny's tutorial depends on it).
+    - tgm lifts carry weight and keeps magazines full.
+    - Scripted UseWeapon runs before the combat AI; melee UseWeapon walks up to the
+      target.
+    - Quest items can be stored in containers.
+    To check: short-script jobs for each.
+    ([script-language](../spec-notes/script-language.md), [scripts §10](../spec-notes/scripts.md),
+    [use-weapon](../design/use-weapon.md))
+15. **Survival hazards.**
+    - Environment radiation: strongest marker wins, and water gives 1 rad/s (2 if
+      radioactive).
+    - The Fat Man zone fades from 10 to 0 rads/s over 12 s within 616 units.
+    - Turbo slows the world to 0.5.
+    - A crippled head means a 40 s concussion.
+    - A crippled arm makes an NPC drop its weapon.
+    - Knockdowns last 3 s.
+    - Only BMDT Power Armor needs training.
+    - Traps give 2 XP (your note said 5).
+    To check: actor values and events.
+    ([radiation](../spec-notes/radiation.md), [magic-archetypes](../spec-notes/magic-archetypes.md),
+    [unconscious §5.4](../spec-notes/unconscious.md), [traps](../spec-notes/traps.md))
+
+## P3: smaller or rarer
+
+16. **HUD and menus.**
+    - The enemy health bar and red crosshair show only for hostiles, or for anyone hit in
+      the last 5 s.
+    - Sneak-indicator states.
+    - Compass ticks within PER × 300; markers within PER × 2048.
+    - "How many?" asks only above 5 (barter) or above 1 (crafting).
+    - The crafting filter arrows.
+    - Wait pace: 1 hour per 0.5 s, and it can be cancelled.
+    - Wait refusals: within 2,048 units outdoors, 1,024 indoors.
+    - Hacking word lengths by difficulty; a bracket resets attempts 1 in 5.
+    - Holotapes keep playing with the Pip-Boy closed.
+    - A second ShowTutorialMenu adds a page.
+    - Aid effects are shown as totals.
+    - The order of misc stats after #16, and what Barter Amount Traded counts.
+    - Caravan currencies: caps first, then the least valued notes.
+    - Cannibal and Sandman show a choice box.
+    Screenshots. ([hud §8–§10](../spec-notes/hud.md), [wait-menu §9](../spec-notes/wait-menu.md),
+    [hacking](../spec-notes/hacking.md), [misc-stats](../spec-notes/misc-stats.md))
+17. **Weapons and bodies, by video.**
+    - Minigun spin-up on every press and after a reload.
+    - The Grenade Launcher reloads round by round.
+    - Bodies go limp at once, with no death clip.
+    - Shove speeds: shots 140, blows 220, bottles about 3 m/s.
+    - Corpses: the player walks through them.
+    - Small creatures block the player.
+    - Bodies over 250 mass can't be pushed.
+    - Loose items rest until touched.
+    - Pushed NPCs move at half speed and return after 2 s (the `pc_actor_push` capture is
+      ready).
+    ([animation §9.8](../spec-notes/animation.md), [ragdoll §4](../spec-notes/ragdoll.md),
+    [physics §4.3.1, §6.8, §6.10–§6.11](../spec-notes/physics.md))
+18. **NPC odds and ends.**
+    - Doors stay open behind NPCs.
+    - No ledge links.
+    - Locked doors are closed to NPCs unless they carry the key.
+    - Idle conditions ignored for PlayIdle.
+    - Sitting is instant for the player and holsters the weapon.
+    - Followers arrive 160 units to your left (captured) and every teammate follows
+      through doors.
+    - Package-less actors walk home after a fight.
+    - Creatures with Can't Open Doors never use load doors (the Searchlight ghouls
+      following Edwards).
+    - The companion-wheel details.
+    - Challenges count every kill.
+    - Quest targets indoors are marked at one door.
+    ([navmesh §7](../design/navmesh.md), [idles](../spec-notes/idles.md),
+    [furniture §5, §7](../spec-notes/furniture.md), [packages §7](../spec-notes/packages.md),
+    [challenges](../spec-notes/challenges.md))
