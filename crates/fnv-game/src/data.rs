@@ -455,10 +455,10 @@ pub struct ActorDef {
     /// carry No VATS Melee [documented: GECK wiki Category:NPC], so it is read off the
     /// actor's own record.
     pub no_vats_melee: bool,
-    /// ACBS "Not Pushable" (NPC_ bit 27; CREA bit 27 "Not Pushable / Allow Pickpocket"),
-    /// "No Rotating To Head-track" (NPC_ bit 30, CREA bit 29), and the creatures' "No
-    /// Head", "No Right Arm", "No Left Arm" (bits 15–17) [documented: xEdit ACBS flags]
-    /// (docs/spec-notes/actor-fields.md §1).
+    /// ACBS "Not Pushable" (bit 27), "No Rotating To Head-track" (bit 30, NPC_ and CREA),
+    /// and the creatures' "No Head", "No Right Arm", "No Left Arm" (bits 15–17)
+    /// [documented: GECK wiki ActorHasBaseFlag flag table] (docs/spec-notes/actor-fields.md
+    /// §1, actor-flags.md §3).
     pub not_pushable: bool,
     pub no_head_track: bool,
     pub no_head: bool,
@@ -475,8 +475,13 @@ pub struct ActorDef {
     pub calc_max: i64,
     /// ACBS template flag "Stats": the template supplies the stats.
     pub template_stats: bool,
-    /// CREA ACBS "Invulnerable".
+    /// CREA ACBS "Invulnerable" (bit 31) [documented: GECK wiki ActorHasBaseFlag].
     pub invulnerable: bool,
+    /// CREA ACBS "Is Ghost" (bit 29): as SetGhost 1 from the start (actor-flags.md §3).
+    pub is_ghost: bool,
+    /// CREA ACBS "Allow Pickpocket" (bit 28): the player may pickpocket the creature;
+    /// NPCs always may (docs/spec-notes/pickpocket.md).
+    pub allow_pickpocket: bool,
     /// ACBS flag "No Knockdowns" (NPC_ and CREA): PushActorAway and explosions do not
     /// knock the actor down [documented: GECK wiki PushActorAway notes]. Never from the
     /// template: "Base Data does not include … No Knockdowns" [documented: GECK wiki
@@ -2558,7 +2563,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
-                        a.invulnerable = has_flag(f, "Invulnerable");
+                        a.invulnerable = &sig == b"CREA" && has_flag(f, "Invulnerable");
+                        a.is_ghost = &sig == b"CREA" && has_flag(f, "Is Ghost");
+                        a.allow_pickpocket = &sig == b"CREA" && has_flag(f, "Allow Pickpocket");
                         a.no_knockdowns = has_flag(f, "No Knockdowns");
                         a.immobile = &sig == b"CREA" && has_flag(f, "Immobile");
                         a.cant_open_doors = &sig == b"CREA" && has_flag(f, "Can't Open Doors");
@@ -2568,7 +2575,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         a.autocalc_service = &sig == b"NPC_" && has_flag(f, "Autocalc Service");
                         a.no_vats_melee = has_flag(f, "No VATS Melee");
-                        a.not_pushable = has_flag(f, "Not Pushable") || has_flag(f, "Not Pushable / Allow Pickpocket");
+                        a.not_pushable = has_flag(f, "Not Pushable");
                         a.no_head_track = has_flag(f, "No Rotating To Head-track");
                         a.no_head = has_flag(f, "No Head");
                         a.no_right_arm = has_flag(f, "No Right Arm");

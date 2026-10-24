@@ -567,9 +567,24 @@ impl Game<'_> {
         !self.is_ghost(other) && self.hostile_to(actor, other)
     }
 
-    /// Whether `r` is a ghost now (SetGhost 1).
+    /// Whether `r` is a ghost now: SetGhost 1, or its base is flagged Is Ghost (CREA ACBS
+    /// bit 29, from the definition supplying its base data) and no SetGhost 0 cleared it
+    /// (docs/spec-notes/actor-flags.md §3).
     pub fn is_ghost(&self, r: FormId) -> bool {
-        self.extra.get(&r).is_some_and(|e| e.ghost)
+        let e = self.extra.get(&r);
+        if e.is_some_and(|e| e.ghost) {
+            return true;
+        }
+        if e.is_some_and(|e| e.ghost_off) {
+            return false;
+        }
+        // Only creatures carry the flag: an NPC base skips the template walk (detection
+        // asks this for every pair of actors).
+        let base = crate::functions::base_of(self, r);
+        if base.and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"NPC_") {
+            return false;
+        }
+        self.base_data_def(r).is_some_and(|d| d.is_ghost)
     }
 
     /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not

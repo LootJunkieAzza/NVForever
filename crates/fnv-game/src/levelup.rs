@@ -32,7 +32,10 @@ pub const PERKS_PER_LEVEL: usize = 1;
 /// The skill points a level brings at a permanent Intelligence:
 /// ⌊min(Intelligence, 9) × 0.5 + 10⌋, and one more when the level and Intelligence are
 /// both even [documented: GECK wiki "Skill Rate", New Vegas; observed: 12 points at
-/// level 3 on the owner's screenshot, which Intelligence 4 or 5 gives].
+/// level 3 on the owner's screenshot, which Intelligence 4 or 5 gives]. The settings
+/// `iLevelUpSkillPointsBase` / `iLevelUpSkillPointsInterval` are Fallout 3's rule and are
+/// not read: "Unused in New Vegas" [documented: GECK wiki "Skill Rate", Individual
+/// Settings].
 pub fn skill_points(intelligence: i32, level: i32) -> i32 {
     let base = (intelligence.min(9) as f64 * 0.5 + 10.0).floor() as i32;
     base + i32::from(level % 2 == 0 && intelligence % 2 == 0)

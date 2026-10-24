@@ -8261,7 +8261,8 @@ loses that part; a creature's own bite or claw shows its CREA CNAM impact (bite,
 ghoul) instead of the player's fists'. Spec: [actor-fields](spec-notes/actor-fields.md).
 Decisions and guesses:
 
-- *Guess:* CREA bit 27 ("Not Pushable / Allow Pickpocket") is Not Pushable for creatures.
+- *Settled 2026-10-24:* CREA bit 27 is Not Pushable; Allow Pickpocket is bit 28 (GECK wiki
+  ActorHasBaseFlag; actor-flags.md §3).
 - *Guess:* No Rotating To Head-track acts as a package's HeadTracking Off.
 - *Decision:* nothing to build for RACE skill boosts, HAIR Fixed, LVLI owners and No
   Shadow (no master record uses them); the rest left with reasons in the spec.
@@ -8311,3 +8312,41 @@ there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/phy
 - *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
   the feet (was 0.5 above the feet themselves).
 - *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+## Actors and logic: ESM full audit gaps (2026-10-24, branch claude/esm-actors-bec8d0)
+
+The creature flag bits 28–31 were named one bit off in the schema: Mr. House, Yes Man,
+Festus, ARCHIMEDES and the Dead Money holograms are now invulnerable, and the tumbleweeds
+and CG02Andy no longer are. Creatures flagged Is Ghost (the tumbleweeds, Festus, the Gun
+Runners' protectron, the Dead Money holograms) let shots pass and take no damage. NPCs
+move at their Speed Mult (Legion raiders 130–150, Lanius 180). Sneaking, E on an NPC (or a
+creature flagged Allow Pickpocket) shows Steal and opens its pocket; each take or
+placement rolls the wiki's chance; a live grenade placed in a pocket goes off after 2 s.
+A completed quest's Next Quest becomes the active quest. An NPC that dies holding its
+weapon drops it (iDeathDropWeaponChance 100). Flee packages without a distance read
+fFleeDistanceExterior/Interior; leveled actors read fLeveledActorMult*; Dead Money's West
+Town spares NPCs fall damage. Specs: [actor-flags §3](spec-notes/actor-flags.md),
+[pickpocket](spec-notes/pickpocket.md).
+
+- *Guess:* SetGhost 0 clears a base Is Ghost flag for that reference.
+- *Guess:* NPC clips play faster with their Speed Mult so the feet keep up (the wiki says
+  the original's do not: "the animations only sync up with a speed of 100%"). Say if
+  you would rather have the original's sliding feet.
+- *Guess:* the pickpocket prompt reads "Steal"; the menu's line shows the chance for one
+  unit of the selected row; a stack's value counts all the units moved.
+- *Guess:* a take or placement is one roll each; Take All is refused while stealing; a
+  stack with one equipped unit is hidden whole.
+- *Guess:* caught: the victim says Pickpocket and attacks as a seen thief's victim does;
+  no karma for the failed try; an unseen take costs karma as theft does.
+- *Guess:* companions and unconscious actors cannot be pickpocketed.
+- *Guess:* the planted explosive's blast is the player's and hurts others nearby.
+- *Guess:* iDeathDropWeaponChance is the chance a dying actor drops its weapon; corpses
+  laid out dead keep theirs.
+- *Guess:* fFleeDistanceExterior (5000) / Interior (3000) are the Flee package's
+  distances (before: 2048).
+- *Guess:* WRLD "Don't Allow NPC Fall Damage" spares NPCs only; the player still falls.
+- *Decision:* iLevelUpSkillPointsBase / Interval are not read: the wiki's Skill Rate page
+  says both are unused in New Vegas (the audit's §3 item was wrong).
+- *Check:* sneak up to someone in the original: does the prompt say "Steal"? Does a caught
+  attempt make them attack, or only talk?
+- *Check:* do the Gun Runners' protectron and Festus let bullets through in the original?

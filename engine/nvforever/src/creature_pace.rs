@@ -98,6 +98,8 @@ struct PacedCreature;
 #[derive(Resource, Default)]
 struct PaceStats {
     paced: usize,
+    /// People whose Speed Mult is not 100 (among `paced`).
+    npcs: usize,
     alerted: usize,
     calmed: usize,
     /// Frames of paced creatures playing a movement clip, and changes between a walk
@@ -138,7 +140,12 @@ fn give_speeds(
         };
         for (e, rig, mut lo, global) in &mut actors {
             commands.entity(e).insert(Paced);
-            if game.data.actors.get(&FormId(rig.base)).is_none_or(|d| &d.sig != b"CREA") {
+            let Some(def) = game.data.actors.get(&FormId(rig.base)) else { continue };
+            if &def.sig != b"CREA" {
+                if let Some(s) = npc_speeds(game, FormId(rig.reference), default, &mut lo) {
+                    given.push((FormId(rig.reference), s));
+                    stats.npcs += 1;
+                }
                 continue;
             }
             commands.entity(e).insert(PacedCreature);
@@ -168,6 +175,29 @@ fn give_speeds(
         res.set_speeds(id, s);
         stats.paced += 1;
     }
+}
+
+/// A person's speeds: the configured walking and running speeds × its Speed Mult
+/// (percent, NPC_ ACBS through the template chain as GetBaseAV gives it): "A Speed actor
+/// value is used as a multiplier times a standard movement speed. The Player Character
+/// would have a Speed of 100%" [documented: GECK wiki Stats Tab - NPC]. Its clips play
+/// that much faster so its feet keep up, as a creature's do [design: the wiki says the
+/// original's do not ("the animations only sync up with a speed of 100%"); the owner's
+/// pick between the two is asked in docs/owner-review.md]. `None` at 100 (most people):
+/// they keep the defaults.
+fn npc_speeds(game: &mut fnv_game::Game<'_>, id: FormId, default: Speeds, lo: &mut Locomotion) -> Option<ActorSpeeds> {
+    if id == FormId::PLAYER_REF {
+        return None;
+    }
+    let mult = game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok().filter(|v| *v > 0.0).map_or(100.0, |v| v as f32);
+    if (mult - 100.0).abs() < 0.5 {
+        return None;
+    }
+    let f = mult / 100.0;
+    lo.pace = f;
+    let calm = Speeds { walk: default.walk * f, run: default.run * f };
+    info!("npc pace: {} {id} walks {:.0} and runs {:.0} units/s (Speed Mult {mult:.0})", game.data.name(id), calm.walk, calm.run);
+    Some(ActorSpeeds { calm, alert: calm, turn_rate: None, spot_turn_start: None })
 }
 
 /// Creatures with an alert stance take it outside the Normal detection state.
@@ -211,8 +241,8 @@ fn stance(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut L
 fn report(mut exit: MessageReader<AppExit>, stats: Res<PaceStats>) {
     if exit.read().next().is_some() {
         info!(
-            "creature pace summary: {} creatures given their own speeds; alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
-            stats.paced, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
+            "creature pace summary: {} creatures given their own speeds ({} people by Speed Mult); alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
+            stats.paced - stats.npcs, stats.npcs, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
         );
     }
 }

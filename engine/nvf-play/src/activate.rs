@@ -293,6 +293,11 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
         return Action::Name;
     }
+    // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
+    // the player before still shows Steal and says so on E.
+    if g.is_sneaking(FormId::PLAYER_REF) && g.pickpocket_refusal(r) != Some(fnv_game::pickpocket::Refusal::NotAllowed) {
+        return Action::Steal;
+    }
     if !creature {
         return Action::Talk;
     }
@@ -328,6 +333,11 @@ fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, 
 /// lock to pick (a terminal to hack among them) that someone other than the player owns
 /// (`fnv_game::crime`). A dead actor's inventory is not [hypothesis].
 fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
+    // Picking a pocket is theft: the prompt shows as a crime's does [design: the
+    // original's steal prompt is red].
+    if *action == Action::Steal {
+        return true;
+    }
     let Some(g) = game else { return false };
     let container = sim.base_of(form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Container(_)));
     let judged = match action {
@@ -387,7 +397,7 @@ pub(crate) fn activate(
         MessageWriter<crate::terminal::OpenTerminal>,
         MessageWriter<crate::lockpick::OpenLockpick>,
     ),
-    mut seat: ResMut<crate::furniture::PlayerSeat>,
+    (mut seat, mut steal): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>),
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
@@ -449,6 +459,22 @@ pub(crate) fn activate(
     // nothing (playtest list 4, item 19).
     if t.action == Action::Name {
         info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);
+        return;
+    }
+    if t.action == Action::Steal {
+        let refusal = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.pickpocket_refusal(FormId(t.form_id))));
+        match refusal {
+            Some(None) => {
+                info!("activate 0x{:08X} {} (Steal): its pocket opens", t.form_id, t.name);
+                steal.write(crate::pickpocket::OpenPickpocket { victim: t.form_id });
+            }
+            Some(Some(fnv_game::pickpocket::Refusal::CaughtBefore)) => {
+                let line = crate::pickpocket::caught_before_line(&sim, &t.name);
+                info!("activate 0x{:08X} {} (Steal): refused, {line}", t.form_id, t.name);
+                hud.show(line);
+            }
+            _ => info!("activate 0x{:08X} {} (Steal): it cannot be pickpocketed now", t.form_id, t.name),
+        }
         return;
     }
     if t.action == Action::Inaccessible {

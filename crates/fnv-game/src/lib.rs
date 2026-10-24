@@ -20,6 +20,7 @@
 //! - [`lockpick`]: the lockpicking game (sweet spot, torque, bobby pins, Force Lock)
 //! - [`combat_lines`]: Combat-tab lines (Hit, Attack, PowerAttack, Death …) and effort sounds
 //! - [`crime`]: karma, ownership, theft, trespass, assault and murder
+//! - [`pickpocket`]: pickpocketing, its chance, being caught, planted explosives
 //! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
 //! - [`chargen`]: the character-creation menus' rules (name, S.P.E.C.I.A.L., tag skills, traits)
 //! - [`intro`]: the intro chain's units (coverage)
@@ -76,6 +77,7 @@ pub mod misc_stats;
 pub mod needs;
 pub mod package;
 pub mod perks;
+pub mod pickpocket;
 pub mod poker;
 pub mod provocation;
 pub mod revision;

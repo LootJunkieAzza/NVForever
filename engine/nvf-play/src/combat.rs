@@ -649,6 +649,8 @@ pub struct CombatStats {
     pub armor_broken: u32,
     /// Actors disarmed by a crippled arm ([`disarm`]).
     pub disarmed: u32,
+    /// Weapons dropped by actors that died holding them ([`death_drops`]).
+    pub death_drops: u32,
     /// Other actors' shots and blows (combat AI), their hits on the player and the
     /// damage those did, and whether the player died.
     pub actor_shots: u32,
@@ -1181,7 +1183,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, death_drops, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1290,6 +1292,80 @@ fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stat
                 broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
             }
             Err(e) => warn!("combat: {actor}'s arm crippled: its {} could not be dropped: {e}", item_name(&sim, item)),
+        }
+    }
+}
+
+/// The default of `iDeathDropWeaponChance`, percent [observed: FalloutNV.esm, 100].
+const DEATH_DROP_CHANCE: f32 = 100.0;
+
+/// Actors seen alive with a weapon in the hand ([`death_drops`]).
+#[derive(Default)]
+struct DeathDrops {
+    armed: HashMap<u32, FormId>,
+    rng: Option<SplitMix>,
+}
+
+/// An actor other than the player that dies with a weapon in its hand drops it, with the
+/// chance `iDeathDropWeaponChance` (percent; 100 in the masters) [hypothesis: the
+/// setting's meaning, from its name; the original's corpses lie with their gun beside
+/// them]. The weapon falls as a disarmed one does (`WeaponBroken`): a reference in front
+/// of the body, out of its inventory. A weapon flagged "Can't Drop" stays with the body
+/// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
+/// actors"; hypothesis: death too]. Only deaths seen in play count: an actor dead when it
+/// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
+/// own (`Game::starts_dead`).
+fn death_drops(
+    mut st: Local<DeathDrops>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    parts: Res<ActorParts>,
+    script: Option<Res<ScriptState>>,
+    mut broken: MessageWriter<WeaponBroken>,
+) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    for (&id, p) in &parts.by_ref {
+        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
+            continue;
+        }
+        match p.weapon {
+            Some(item) => st.armed.insert(id, item),
+            None => st.armed.remove(&id),
+        };
+    }
+    let died: Vec<(FormId, FormId)> = st.armed.iter().filter(|(id, _)| rt.game.is_dead(FormId(**id))).map(|(id, item)| (FormId(*id), *item)).collect();
+    for (actor, _) in &died {
+        st.armed.remove(&actor.0);
+    }
+    if died.is_empty() {
+        return;
+    }
+    let chance = sim.forms.setting_f32("iDeathDropWeaponChance").unwrap_or(DEATH_DROP_CHANCE);
+    for (actor, item) in died {
+        let roll = st.rng.get_or_insert(SplitMix(5)).next_f32() * 100.0;
+        if roll >= chance {
+            info!("combat: {actor} died holding its {} ({item}): kept (roll {roll:.0} against iDeathDropWeaponChance {chance:.0})", item_name(&sim, item));
+            continue;
+        }
+        if sim.forms.item(item).is_some_and(|it| it.cant_drop) {
+            info!("combat: {actor} died holding its {} ({item}): it can't be dropped and stays with the body", item_name(&sim, item));
+            continue;
+        }
+        if sim.world.inventory_mut(actor).is_ok_and(|i| i.count(item) == 0) {
+            continue;
+        }
+        let dropped = match sim.world.drop_equipped(actor, item) {
+            Ok(refs) if !refs.is_empty() => Ok(refs),
+            _ => sim.world.drop_item(actor, item, 1),
+        };
+        match dropped {
+            Ok(refs) => {
+                stats.death_drops += 1;
+                let dropped = refs.first().copied();
+                info!("combat: {actor} died: it drops its {} ({item}){} (iDeathDropWeaponChance {chance:.0})", item_name(&sim, item), dropped.map_or(String::new(), |r| format!(": reference {r}")));
+                broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
+            }
+            Err(e) => warn!("combat: {actor} died: its {} could not be dropped: {e}", item_name(&sim, item)),
         }
     }
 }
@@ -1522,6 +1598,10 @@ pub fn jam_anim(reload: &str) -> Option<String> {
     (!rest.is_empty()).then(|| format!("Jam{rest}"))
 }
 
+/// Rays (shots, swings, blast lines) that passed a ghost's hit volume ([`ghosts`]), for
+/// the exit summary.
+static GHOST_PASSES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// The physics world as combat sees it: rays that skip the player's capsule and the
 /// layers nothing solid is on, and actor hit volumes.
 struct PhysView<'a> {
@@ -1559,6 +1639,13 @@ impl CombatWorld for PhysView<'_> {
         // wall, dust and no damage, and one past a flying or low creature's capsule
         // missed its body (the owner's playtest list 5 items 16 and 25) [design].
         f.exclude.extend(self.npcs.iter().copied());
+        // A ghost's hit volume is passed; counted when it would have been struck.
+        if !self.ghosts.is_empty() {
+            let struck = self.q.ray(from, d, len, &f).map(|h| h.owner.key());
+            if struck.is_some_and(|k| self.ghosts.iter().any(|&a| k == Key::Actor(a as u32))) {
+                GHOST_PASSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         f.exclude.extend(self.ghosts.iter().map(|&a| Key::Actor(a as u32)));
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
@@ -1625,13 +1712,18 @@ impl CombatWorld for PhysView<'_> {
 /// [hypothesis: the note names projectiles; a ghost "cannot be harmed by a weapon" in any
 /// way, so a blow that stopped on it would only be wasted]. A ghosted player is still
 /// struck, as "the player can" be damaged [documented: same notes; hypothesis: that its
-/// body still stops projectiles].
-fn ghosts(script: Option<&ScriptState>) -> Vec<ActorId> {
+/// body still stops projectiles]. Creatures whose base is flagged Is Ghost count as
+/// ghosts too (docs/spec-notes/actor-flags.md §3).
+fn ghosts(script: Option<&ScriptState>, phys: &PhysState) -> Vec<ActorId> {
     let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
-    rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect()
+    let set: Vec<ActorId> = rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect();
+    let flagged = phys.world.actor_volumes().filter(|&id| id != FormId::PLAYER_REF.0 && !set.contains(&(id as ActorId)) && rt.game.is_ghost(FormId(id)));
+    let flagged: Vec<ActorId> = flagged.map(|id| id as ActorId).collect();
+    set.into_iter().chain(flagged).collect()
 }
 
-fn view(phys: &mut PhysState, ghosts: Vec<ActorId>) -> PhysView<'_> {
+fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>) -> PhysView<'p> {
+    let ghosts = ghosts(script, phys);
     let mut actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
     // The player has no hit volume (its capsule is its body), so it was never among the
@@ -2079,7 +2171,7 @@ pub(crate) fn fire(
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
-                    let world = view(&mut phys, ghosts(script.as_deref()));
+                    let world = view(&mut phys, script.as_deref());
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
                         _ if vats_shot.is_some() => {
@@ -2649,7 +2741,7 @@ fn melee(
         // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
         let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
         let hits = {
-            let world = view(&mut phys, ghosts(script.as_deref()));
+            let world = view(&mut phys, script.as_deref());
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
                 // The hit roll missed (vats-mode.md §17.4): the blow lands on no one.
                 if !lands {
@@ -2907,7 +2999,7 @@ fn actor_attacks(
         let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
-            let world = view(&mut phys, ghosts(script.as_deref()));
+            let world = view(&mut phys, script.as_deref());
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -3141,7 +3233,7 @@ fn fly(
         return;
     }
     {
-        let world = view(&mut phys, ghosts(script.as_deref()));
+        let world = view(&mut phys, script.as_deref());
         let hold = c.tracer_hold;
         for f in &mut c.flying {
             let before = f.p.pos;
@@ -3262,7 +3354,7 @@ fn fly(
             }
         }
         let hits = {
-            let world = view(&mut phys, ghosts(script.as_deref()));
+            let world = view(&mut phys, script.as_deref());
             blast(&world, &c.tuning, &x, at)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
@@ -3568,6 +3660,13 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken
         );
         info!("{}", hit_effects::summary(&s.hit_effects));
+        let passes = GHOST_PASSES.load(std::sync::atomic::Ordering::Relaxed);
+        if passes > 0 {
+            info!("combat summary: {passes} rays passed through ghosts (SetGhost or Is Ghost)");
+        }
+        if s.death_drops > 0 {
+            info!("combat summary: {} weapons dropped by actors that died holding them", s.death_drops);
+        }
         if s.disarmed > 0 {
             info!("crippled limbs summary: {} actors disarmed by a crippled arm", s.disarmed);
         }
@@ -3764,7 +3863,7 @@ mod tests {
     fn shots_pass_an_npcs_character_and_strike_its_body() {
         // The playtest list 5 item 16: the character was struck as a wall (dust, no damage).
         let mut phys = npc_world();
-        let world = view(&mut phys, Vec::new());
+        let world = view(&mut phys, None);
         let h = world.ray([-300.0, 0.0, 45.0], [300.0, 0.0, 45.0], &[PLAYER]).expect("the body is struck");
         assert_eq!(h.actor, Some(0x1234));
         assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);
