@@ -1168,7 +1168,9 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
     g.close_menu();
     call_as(&mut g, fnv_game::revision::REVISION_UNIT, 0x1218, None, &[n(40.0)]);
     assert_eq!((g.menu, g.ui.special), (Some(1048), Some(SpecialMenu::Set(40))));
-    let _ = SpecialSheet::for_menu(&mut g);
+    // Unlike Intense Training's (floor = the old values), each may go down to 1.
+    let s = SpecialSheet::for_menu(&mut g);
+    assert_eq!((s.total, s.floor), (40, [1; 7]));
     // The tag-skill menu with one more to tag.
     g.player.tag_skills.extend([41u16, 43, 44]);
     call(&mut g, 0x121B, None, &[n(1.0)]);
