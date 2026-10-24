@@ -68,11 +68,13 @@
 //!   (`Game::idle_picks`); the actor's folder walked as for its fidgets, with no branch
 //!   kept out (`Game::pick_idle`), and the pick played as a script's idle.
 //!
-//! - **Creatures' combat idles** (idles.md §14). A creature standing still while
-//!   alerted (fighting, or warning the player, `Game::warning_to`) is checked every
-//!   [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that wants GetIsAlerted
-//!   (the gecko's hiss and side hops, the mirelurk's and sentry bot's warnings); the
-//!   tree's random percentages decide whether one plays. It ends when the creature moves
+//! - **Creatures' combat idles** (idles.md §14). A creature standing still with its
+//!   stance drawn (`Game::draws_weapon`: fighting, alerted, or warning the player) is
+//!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
+//!   names GetIsAlerted (the gecko's hiss and side hops, the mirelurk's and sentry bot's
+//!   warnings); the tree's own conditions decide: the gecko's want alerted, combat or
+//!   flee, so a gecko hisses standing in a fight and not while it warns (GetIsAlerted 0,
+//!   procedure 44 then, as observed in the original). It ends when the creature moves
 //!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
 //!   People keep their drawn-weapon fidgets [design].
 //!
@@ -506,7 +508,7 @@ pub fn drive(
             c.play.stop();
         }
         // A creature's combat idle ends when it moves or is calm again [design].
-        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::CombatIdle && (moving || !game.is_alerted(FormId(v.0)))) {
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::CombatIdle && (moving || !game.draws_weapon(FormId(v.0)))) {
             c.play.stop();
         }
         // A fidget on furniture ends when its actor starts getting off: it fades out over
@@ -639,7 +641,7 @@ pub fn drive(
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
                 on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
             } else if folder.split('\\').any(|p| p == "creatures") {
-                (still && game.is_alerted(FormId(v.0))).then_some(FidgetKind::Alerted)?
+                (still && game.draws_weapon(FormId(v.0))).then_some(FidgetKind::Alerted)?
             } else {
                 (still && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
             };

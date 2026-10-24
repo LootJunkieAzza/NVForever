@@ -30,16 +30,18 @@
 //! - **The look** [hypothesis: the idle tree; owner's playtest 2026-10-24, "baby geckos
 //!   were not showing the aggressive stay away from me warnings"]: while it warns (from
 //!   its first warning until it attacks or the player is out of its radius or unwatched
-//!   at an aggro tick) the actor is alerted (`Game::is_alerted`, GetIsAlerted 1): a
-//!   person draws its weapon, a creature its unarmed stance; the AI stops it and turns
-//!   it to the player (`fnv_ai::alert`); standing alerted, a creature plays its idle
-//!   tree's combat idles (the gecko's hiss and side hops under NVGeckoCombatIdles, which
-//!   wants IsMoving != 1 and GetIsAlerted 1, or the combat or flee procedure [observed:
-//!   FalloutNV.esm IDLE 0x0011D9E9]; the mirelurk's and sentry bot's SpecialIdle_Warning
-//!   want GetIsAlerted 1 [observed: MWarning 0x00072DC2, StBWarning 0x00099837]). No
-//!   page says what the original's warning looks like; these idles wanting the alerted
-//!   state are the evidence. Without the look a creature warned in silence while it
-//!   walked on, and the player saw nothing before the attack.
+//!   at an aggro tick) the actor draws (`Game::draws_weapon`): a person its weapon, a
+//!   creature its unarmed stance; the AI stops it and turns it to the player
+//!   (`fnv_ai::alert`); GetCurrentAIPackage reads 35 and GetCurrentAIProcedure 44
+//!   (GUARD). It is not alerted: GetIsAlerted stays 0, so the gecko's combat idles
+//!   (NVGeckoCombatIdles 0x0011D9E9: IsMoving != 1 and GetIsAlerted 1 or the combat or
+//!   flee procedure) wait for the fight [observed, original game, capture `warnings`
+//!   young_gecko 2026-10-24: Young Gecko VERGSGecko6REF stopped and turned to the player
+//!   (within 1 degree) in the sample after the player came inside 500 units; package a
+//!   form made at run time, type 35, procedure 44; GetAnimAction 0 "equip weapon",
+//!   IsWeaponOut 0 and GetIsAlerted 0 until it fought, then IsWeaponOut 1 and procedure
+//!   13]. Without the look a creature warned in silence while it walked on, and the
+//!   player saw nothing before the attack.
 //! - **Guard packages** [documented: GuardTrespass is "said when issuing a warning …
 //!   from a Guard package"; fAITrespassWarningTimer and iGuardWarnings are the "Guard
 //!   Package Settings" (GECK wiki Settings); the Guard package page, as packages.md §3

@@ -721,20 +721,30 @@ combat branch that the engine never played.
 ### 14.2 Rules as built (`FidgetKind::Alerted`, `engine/nvforever/src/idles.rs`)
 
 - A creature (a skeleton folder with a `creatures` part, DLC folders included) standing
-  still while `Game::is_alerted` (a combat state, SetAlert, or an aggro radius or
-  trespass warning, `Game::warning_to`) is checked every 2 s, as the drawn-weapon
+  still with its stance drawn (`Game::draws_weapon`: a combat state, SetAlert, or a
+  warning to the player, `Game::warning_to`) is checked every 2 s, as the drawn-weapon
   fidgets are (§11), for the first leaf of its tree below a node naming
   `GetIsAlerted == 1`, alone or joined by OR [hypothesis: the folder match and walk of
-  §11]. The tree's own percentages decide which plays.
+  §11]. The tree's own conditions decide: a warning gecko reads GetIsAlerted 0 and
+  procedure 44, so it does not hiss until it fights (procedure 13) [observed in the
+  original, §14.3].
 - It ends when the creature moves or is calm again [design]; an attack stops it as it
   stops any idle (`attack_anims.rs`). People keep their drawn-weapon fidgets: their tree
   is not walked for this [design].
 - Log: `idle: … plays … (CombatIdle)`; `creature combat idle summary` at exit. Smoke
   `aggro-warning-look`.
 
-### 14.3 Open
+### 14.3 The original's warning [observed: capture `warnings`, session young_gecko, save nvfstrip, 2026-10-24, plugin version 7]
 
-- What the original's warning looks like is not documented; that the warning idles want
-  the alerted state is the evidence that a warning creature is alerted. A capture of
-  `GetIsAlerted`, `IsMoving` and `IsIdlePlaying` on a young gecko the player walks up to
-  would settle it.
+The player walked up to Young Gecko VERGSGecko6REF 0x00157B3C (aggro radius 500,
+sandboxing) from 900 units, sampled every 5 game loops:
+- Outside 500: it wandered (procedure 7), detecting the player from about 900.
+- At 467 (the first sample inside 500): it stopped (IsMoving 0) and faced the player
+  (within 1 degree, from 9.5 off the sample before); its package read a form made at
+  run time (FF001319), GetCurrentAIPackage 35 (GUARD), GetCurrentAIProcedure 44 (GUARD);
+  GetAnimAction 0 ("equip weapon"), IsWeaponOut 0, GetIsAlerted 0.
+- 21 game seconds later (0.7 s at TimeScale 30), the player at 246: combat (procedure
+  13, package type 5); IsWeaponOut 1 a sample later; GetIsAlerted stayed 0 in the fight.
+- So a warning creature draws but is not alerted, and the combat idles that want the
+  alerted state or the combat procedure come with the fight. IsIdlePlaying and the
+  warning count need plugin version 9 (not installed); not read.

@@ -18,8 +18,8 @@
 //!   the whole body that would stop their legs [design]. The draw cycle is
 //!   `fnv_actor::weapon::WeaponAnim`, as for people's weapons (`weapons.rs`), on the same
 //!   blend layers 2 and 3 (a creature has no `WeaponHold`).
-//! - **When**: `fnv_game` says the creature is alerted (a combat state, or SetAlert), as
-//!   `alert.rs` draws people's weapons.
+//! - **When**: `fnv_game` says the creature draws (`Game::draws_weapon`: a combat state,
+//!   SetAlert, or a warning to the player), as `alert.rs` draws people's weapons.
 //! - Attacks (`attack_anims.rs`) play over the aim on layers 4 and 5 and are found as
 //!   before: a creature with a stance still has no `WeaponHold`.
 
@@ -167,7 +167,7 @@ fn alerted(script: Option<Res<ScriptState>>, mut q: Query<(&ActorRig, &mut Creat
         let id = FormId(rig.reference);
         // As `detection.rs` names actors: the base's editor ID from the entity's name.
         let label = || format!("{} {:08X}", name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or(""), rig.reference).trim().to_string();
-        let want = game.is_alerted(id);
+        let want = game.draws_weapon(id);
         if s.drawn != want {
             s.drawn = want;
             info!("creature stance: {} {}", label(), if want { "draws (alerted)" } else { "puts away (calm)" });

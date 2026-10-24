@@ -89,6 +89,9 @@ const GET_FACTION_RANK: u16 = 0x1049;
 const GET_FACTION_RELATION: u16 = 0x11C2;
 const ADD_TO_FACTION: u16 = 0x117F;
 const SET_ENEMY: u16 = 0x1078;
+const GET_CURRENT_AI_PACKAGE: u16 = 0x106E;
+const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+const GET_IS_ALERTED: u16 = 0x105B;
 
 /// Template flags: Factions (bit 2), AI Data (bit 4) and AI Packages (bit 5).
 const FACTIONS: u16 = 0x4;
@@ -720,17 +723,22 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     assert_eq!(g.aggro_tick(), 0);
     assert!(g.provocations.take_notes().is_empty(), "outside the radius");
     assert_eq!(g.warning_to(lurker), None);
-    assert!(!g.is_alerted(lurker));
+    assert!(!g.draws_weapon(lurker));
     g.world.get(lurker).unwrap().pos = [600.0, 0.0, 0.0];
     for (level, step) in [(1, 0.0), (2, 5.0)] {
         g.time += step;
         seen(&mut g);
         assert_eq!(g.aggro_tick(), 0);
         assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroWarned { actor, level: l, .. } if *actor == lurker && *l == level)));
-        // While it warns it is alerted (GetIsAlerted; the AI stops it and turns it to
-        // the player, a creature draws its stance and plays its combat idles).
+        // While it warns it draws (a creature its stance; the AI stops it and turns it
+        // to the player) but is not alerted: GetIsAlerted 0, as the original's gecko.
         assert_eq!(g.warning_to(lurker), Some(player));
-        assert!(g.is_alerted(lurker));
+        assert!(g.draws_weapon(lurker) && !g.is_alerted(lurker));
+        // GetCurrentAIPackage 35 and GetCurrentAIProcedure 44 (GUARD), GetIsAlerted 0
+        // (the original's young gecko, capture `warnings`).
+        assert_eq!(call(&mut g, GET_CURRENT_AI_PROCEDURE, LURKER_REF, &[]), 44.0);
+        assert_eq!(call(&mut g, GET_CURRENT_AI_PACKAGE, LURKER_REF, &[]), 35.0);
+        assert_eq!(call(&mut g, GET_IS_ALERTED, LURKER_REF, &[]), 0.0);
     }
     // Not again before the timer; it still warns meanwhile.
     g.time += 1.0;
@@ -830,7 +838,7 @@ fn an_aggro_warning_ends_when_the_player_leaves_the_radius() {
     seen(&mut g);
     g.aggro_tick();
     assert_eq!(g.warning_to(lurker), None);
-    assert!(!g.is_alerted(lurker));
+    assert!(!g.draws_weapon(lurker));
     assert_eq!(g.provocations.aggro_warnings[&lurker].0, 1, "the count is kept for the grace");
 }
 

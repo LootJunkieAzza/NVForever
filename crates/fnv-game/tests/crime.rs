@@ -278,9 +278,9 @@ fn a_seen_trespasser_is_warned_twice_then_attacked() {
     assert_eq!(g.warning_to(keeper), None);
     g.crime_tick();
     assert_eq!(call(&mut g, GET_TRESPASS_WARNING_LEVEL, Some(SHOPKEEPER_REF), &[ArgValue::Value(Value::Ref(0x14))]), 1.0);
-    // Warning, it is alerted: it draws its weapon, stops and faces the player.
+    // Warning, it draws its weapon, stops and faces the player (not alerted).
     assert_eq!(g.warning_to(keeper), Some(FormId::PLAYER_REF));
-    assert!(g.is_alerted(keeper));
+    assert!(g.draws_weapon(keeper) && !g.is_alerted(keeper));
     // Too soon for the next warning; it still warns while it sees the player.
     g.time += 1.0;
     sees(&mut g, SHOPKEEPER_REF);

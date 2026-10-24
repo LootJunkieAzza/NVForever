@@ -1198,7 +1198,7 @@ fn an_actor_warning_the_player_stops_faces_it_then_walks_on() {
         (p.cell, p.pos) = (cell, [at[0] + 300.0, at[1], at[2]]);
     }
     s.game.provocations.aggro_inside.insert(me);
-    assert!(s.game.is_alerted(me));
+    assert!(s.game.draws_weapon(me));
     s.run(3.0);
     assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Warn { target, .. } if *target == player)), "{:?}", s.events(R_TRAVEL));
     let a = &s.ai.agents[&me];

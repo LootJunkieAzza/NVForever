@@ -1,44 +1,143 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "warnings",
- "title": "What a warning looks like in the original (owner's playtest 2026-10-24; crates/fnv-game/src/aggro.rs 'The look', docs/spec-notes/idles.md section 14.3, docs/design/combat-ai.md section 13.1). young_gecko: the player walks up to VERGSGecko6REF 0x00157B3C (a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512) from 900 units to 300 and stays: does it stop, face the player, read GetIsAlerted 1, play idles (IsIdlePlaying), count warnings (GetTrespassWarningLevel), then attack, and when? The samples outside 500 are the control. gomorrah_cashroom / gomorrah_bouncer: Guard packages' own warnings. vGomorrahGuardPackage (Guard, near editor location radius 0, target the linked reference within 25, warn/attack allowed): the cash-room guard 0x00127950 guards door 0x0010D6B9 (140 units from him), bouncer vGOMBouncerRef01 0x0011945E guards door 0x0010DAFA (167 units). The player walks to the door and stands there: where does warning begin (distance to the door and to the guard at the first warning level change), does the guard draw (weapon out), stop, face, attack after iGuardWarnings? Run each session alone (--only): a fight in Gomorrah spoils the other Gomorrah session. God mode only (no tdetect: it would hide the player from the very detection being observed).",
+ "title": "What a warning looks like in the original (owner's playtest 2026-10-24; crates/fnv-game/src/aggro.rs 'The look', docs/spec-notes/idles.md section 14.3, docs/design/combat-ai.md section 13.1). young_gecko: the player walks up to VERGSGecko6REF 0x00157B3C (a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512) from 900 units to 300 and stays: does it stop, face the player, read GetIsAlerted 1, play idles (IsIdlePlaying), count warnings (GetTrespassWarningLevel), then attack, and when? The samples outside 500 are the control. cashroom_* / bouncer_*: Guard packages' own warnings. vGomorrahGuardPackage (Guard, near editor location radius 0, target the linked reference within 25, warn/attack allowed): the cash-room guard 0x00127950 guards door 0x0010D6B9 (140 units from him), bouncer vGOMBouncerRef01 0x0011945E guards door 0x0010DAFA (167 units). The player is put (MoveTo, no walk: the straight-line walk stuck on 2026-10-24) at the door and 90 units from it: where does warning begin (distance to the door and to the guard at the first warning level change), does the guard draw (weapon out), stop, face, attack after iGuardWarnings? Run each session alone (--only): a fight in Gomorrah spoils the other Gomorrah session. God mode only (no tdetect: it would hide the player from the very detection being observed). Written for plugin version 7 (the installed one, 2026-10-24): no game events, extra fields or screenshots; the warning count is read from when combat starts (two warnings, 5 s apart, are expected before it). young_gecko (2026-10-24 run): the gecko stopped and faced the player at 467 units (procedure 44, a package made at run time, GetAnimAction 0, not alerted, weapon not out) and fought 21 game seconds later as the player came within 246 units; gecko_stay_400 / gecko_stay_150 tell a timer from an inner distance.",
  "save": "nvfstrip",
  "defaults": {
   "fields": "full",
-  "events": "fight",
   "every": 5,
   "depth": 1,
   "settle_frames": 300,
   "hour": 12,
   "hours": 0.25,
-  "console_first": ["tgm"],
-  "extra": [
-   ["idle_playing", "num", "IsIdlePlaying"],
-   ["warning_level", "num", "GetTrespassWarningLevel player"],
-   ["anim_action", "num", "GetAnimAction"]
+  "console_first": [
+   "tgm"
   ]
  },
  "sessions": [
   {
    "name": "young_gecko",
-   "go": {"cow": ["WastelandNV", -17, -6]},
-   "track": ["0x00157B3C", "0x0016518B", "0x0016518C"],
-   "walk": {"to": "0x00157B3C", "within": 300, "approach": 900},
-   "shots": {"label": "gecko", "when": ["{0}.GetIsAlerted == 1", "0x00157B3C"], "gap": 6, "max": 15}
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00157B3C",
+    "0x0016518B",
+    "0x0016518C"
+   ],
+   "walk": {
+    "to": "0x00157B3C",
+    "within": 300,
+    "approach": 900
+   }
   },
   {
-   "name": "gomorrah_cashroom",
-   "go": {"coc": "Gomorrah01"},
-   "track": ["0x00127950"],
-   "walk": {"to": "0x0010D6B9", "within": 30, "approach": 400},
-   "shots": {"label": "cashroom", "when": ["{0}.GetTrespassWarningLevel player > 0 || {0}.GetIsAlerted == 1 || {0}.IsWeaponOut == 1", "0x00127950"], "gap": 6, "max": 15}
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00157B3C"
+   ],
+   "name": "gecko_stay_400",
+   "do": [
+    [
+     "player.MoveTo {0} 0 400 0",
+     "0x00157B3C"
+    ]
+   ],
+   "note": "the player put 400 units from the gecko (inside its 500, outside half of it) and left there: an attack after a timer, or never (an inner attack distance)?"
   },
   {
-   "name": "gomorrah_bouncer",
-   "go": {"coc": "Gomorrah01"},
-   "track": ["0x0011945E"],
-   "walk": {"to": "0x0010DAFA", "within": 30, "approach": 400},
-   "shots": {"label": "bouncer", "when": ["{0}.GetTrespassWarningLevel player > 0 || {0}.GetIsAlerted == 1 || {0}.IsWeaponOut == 1", "0x0011945E"], "gap": 6, "max": 15}
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -17,
+     -6
+    ]
+   },
+   "track": [
+    "0x00157B3C"
+   ],
+   "name": "gecko_stay_150",
+   "do": [
+    [
+     "player.MoveTo {0} 0 150 0",
+     "0x00157B3C"
+    ]
+   ],
+   "note": "the player put 150 units from the gecko, inside half its radius: an attack at once?"
+  },
+  {
+   "name": "cashroom_at_door",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 -20 0",
+     "0x0010D6B9"
+    ]
+   ],
+   "note": "the player 20 units from door 0x0010D6B9, inside its 25: the cash-room guard (140 from the door) should warn, then attack"
+  },
+  {
+   "name": "cashroom_near",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x00127950"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 0 -90 0",
+     "0x0010D6B9"
+    ]
+   ],
+   "note": "the player 90 units from the door, outside 25, about 60 from the guard: does he warn anyway (which radius)?"
+  },
+  {
+   "name": "bouncer_at_door",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x0011945E"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 20 0 0",
+     "0x0010DAFA"
+    ]
+   ],
+   "note": "the player 20 units from door 0x0010DAFA, inside its 25: bouncer vGOMBouncerRef01 (167 from the door) should warn, then attack"
+  },
+  {
+   "name": "bouncer_near",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "track": [
+    "0x0011945E"
+   ],
+   "do": [
+    [
+     "player.MoveTo {0} 90 0 0",
+     "0x0010DAFA"
+    ]
+   ],
+   "note": "the player 90 units from the door, outside 25, about 75 from the bouncer: does he warn anyway?"
   }
  ]
 }

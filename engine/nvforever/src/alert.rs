@@ -68,7 +68,7 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
                     " (it flees)"
                 } else if game.active_weapon_use(id).is_some() {
                     " (a weapon use)"
-                } else if !fighting && want != game.is_alerted(id) {
+                } else if !fighting && want != game.draws_weapon(id) {
                     " (its package's flags)"
                 } else if !fighting && want && game.warning_to(id).is_some() {
                     " (it warns the player)"
