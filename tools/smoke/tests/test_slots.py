@@ -205,6 +205,28 @@ def launch(name: str, home: str | None = None, kind: str = GAME) -> Launch:
     return Launch(name, kind, [Scenario(name)], ["--play"], env, 1.0)
 
 
+class GateTests(unittest.TestCase):
+    def gate(self, d, *argv):
+        a = cli.parser().parse_args(["run", "--repo", d, *argv])
+        lock = Path(d) / "smoke.lock"
+        real = cli.default_lock_paths
+        cli.default_lock_paths = lambda repo: [Path(d) / "run.lock", lock]
+        try:
+            return cli.game_gate(a, quiet)
+        finally:
+            cli.default_lock_paths = real
+
+    def test_one_slot_means_the_machine_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            for argv in (["--slots", "1"], ["--exclusive"], ["--slots", "1", "--jobs", "3"]):
+                g, jobs = self.gate(d, *argv)
+                self.assertIsInstance(g, Locks, argv)
+                self.assertEqual(jobs, 1, argv)
+            g, jobs = self.gate(d, "--slots", "3")
+            self.assertIsInstance(g, Slots)
+            self.assertEqual(jobs, 3)
+
+
 class ParallelRunTests(unittest.TestCase):
     def test_launches_with_the_same_home_stay_in_order_on_one_worker(self):
         ls = [launch("save-write", "save-home"), launch("a"), launch("save-load", "save-home"),

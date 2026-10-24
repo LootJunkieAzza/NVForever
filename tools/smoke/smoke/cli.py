@@ -77,7 +77,8 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument("--no-locks", action="store_true", help="for machines where nobody else runs the game")
             q.add_argument("--slots", type=int, default=None,
                            help="nvforever smoke games this machine runs at once, across all runners "
-                                f"(default NVF_SMOKE_SLOTS or {slots.DEFAULT_SLOTS}; 1 = one at a time)")
+                                f"(default NVF_SMOKE_SLOTS or {slots.DEFAULT_SLOTS}; 1 = the machine to itself, "
+                                "as --exclusive)")
             q.add_argument("--jobs", type=int, default=None,
                            help="this run's launches at once (default: the slots; the queue's share caps it)")
             q.add_argument("--exclusive", action="store_true",
@@ -254,10 +255,12 @@ def game_gate(a, say):
     paths = default_lock_paths(a.repo)
     if a.no_locks or not paths:
         return None, max(1, a.jobs or 1)
-    if a.exclusive:
+    count = a.slots or slots.default_count()
+    if a.exclusive or count == 1:
+        # One game on the machine: both locks, as before the slots. A one-slot pool would
+        # only cap this runner, and other runners' games could still run beside it.
         return Locks(paths, poll=a.lock_poll, say=say), 1
-    pool = slots.Slots(paths[-1], paths[:-1], count=a.slots or slots.default_count(),
-                       poll=min(a.lock_poll, 10.0), say=say)
+    pool = slots.Slots(paths[-1], paths[:-1], count=count, poll=min(a.lock_poll, 10.0), say=say)
     return pool, max(1, a.jobs or pool.count)
 
 

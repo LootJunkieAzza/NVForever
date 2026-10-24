@@ -70,7 +70,8 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 - It picks the scenarios whose paths your branch changed (`--only NAME…`, `--area A…`,
   `--all` otherwise), shares a game launch between scenarios where that was checked to be
   safe, and runs up to 3 nvforever games on the machine at once (smoke slots,
-  `tools/smoke/smoke/slots.py`; `--slots N` / `NVF_SMOKE_SLOTS`, `--jobs N` for this run).
+  `tools/smoke/smoke/slots.py`; `--slots N` / `NVF_SMOKE_SLOTS`, `--jobs N` for this run;
+  `--slots 1` is the same as `--exclusive`, the way to rerun a FAIL with the machine alone).
   While any slot runs, `.claude\smoke.lock` exists as a shared lock, so captures (which
   `mkdir` both game locks) wait; smoke never takes the capture lock `run.lock`, it only
   waits while it is held. Runners queue first-come, first-served (`smoke-queue` beside
