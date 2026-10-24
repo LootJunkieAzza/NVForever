@@ -70,6 +70,12 @@ fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     return nvf_point_display(light_id, P, N) * (cone * cone);
 }
 
+// What is left of Bevy's ambient light in a world view, its highlight, takes the ambient
+// colour as linear light: the factor from the display value to it (a^2.2 / a).
+fn nvf_ambient_ratio() -> vec3<f32> {
+    return pow(max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(1e-6)), vec3(1.2));
+}
+
 // A directional light's diffuse light on a surface facing N, as display values.
 fn nvf_directional_display(i: u32, N: vec3<f32>) -> vec3<f32> {
     let light = &view_bindings::lights.directional_lights[i];
@@ -114,14 +120,15 @@ const DISPLAY_EDITS: [(&str, &str); 7] = [
     ),
     (
         "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);",
-        "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, select(diffuse_color, vec3(0.0), nvf_display), F0, perceptual_roughness, diffuse_occlusion);",
+        "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, select(diffuse_color, vec3(0.0), nvf_display), F0, perceptual_roughness, diffuse_occlusion) * select(vec3(1.0), nvf_ambient_ratio(), nvf_display);",
     ),
     (
         "    // Total light\n",
         "    if nvf_display {
         let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
         let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
-        direct_light += diffuse_color * pow(nvf_sum, vec3(2.2)) / view_bindings::view.exposure;
+        // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
+        direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;
     }
 
     // Total light\n",
@@ -162,16 +169,81 @@ pub fn display_ambient(c: [f32; 3]) -> Color {
     Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], -1.0))
 }
 
+/// The embedded asset path under which bevy_core_pipeline registers its tonemapping
+/// functions (`bevy_core_pipeline::tonemapping`).
+const TONEMAPPING_SHARED: &str = "embedded://bevy_core_pipeline/tonemapping/tonemapping_shared.wgsl";
+
+/// Bevy's Tony McMapface curve [observed: bevy_core_pipeline 0.19.1
+/// `tonemapping_shared.wgsl`], the main view's tonemapper (every other view here has
+/// none).
+const BEVY_TONY: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color = sample_tony_mc_mapface_lut(color);";
+
+/// The original's display: its lit colour, a display value, is shown as it is and held to
+/// 1 per channel (world.md §8 "Light on surfaces in display values") [hypothesis, from the
+/// original's frames: the Dead Money lantern's wall clips to (255, 255, 255) and, under
+/// Dead Money's weather, to (255, 255, 101), saturated, where Tony McMapface turns bright
+/// light pale and never reaches white]. The tonemapping pass keeps running, and with it
+/// the eye adaptation's exposure (eye_adapt.rs), which Bevy applies in that pass.
+const GAME_CLIP: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color = min(color, vec3(1.0));";
+
+/// Set once the clip is in place (`NVF_TONEMAP=tony` keeps Bevy's curve, a test aid);
+/// sky.rs then leaves out its inverse of Tony McMapface.
+static CLIP_INSTALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the main view shows display values clipped (see [`GAME_CLIP`]).
+pub fn display_clip() -> bool {
+    CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct LightsPlugin;
 
 impl Plugin for LightsPlugin {
     fn build(&self, app: &mut App) {
         let handle: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_LIGHTING);
         let functions: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_FUNCTIONS);
+        let tonemapping: Handle<Shader> = app.world().resource::<AssetServer>().load(TONEMAPPING_SHARED);
         app.insert_resource(LightingShader { handle, patched: false })
             .insert_resource(FunctionsShader { handle: functions, patched: false })
+            .insert_resource(TonemapShader { handle: tonemapping, patched: false })
+            .add_systems(PreUpdate, patch_clip)
             .add_systems(Update, (patch_attenuation, patch_display_sum, animate_lights));
     }
+}
+
+#[derive(Resource)]
+struct TonemapShader {
+    handle: Handle<Shader>,
+    patched: bool,
+}
+
+/// Once Bevy's tonemapping functions have loaded, swap Tony McMapface's curve for the
+/// clip; the sky system is told to set its colours again.
+fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shader>>, sky: Option<ResMut<crate::sky::SkyState>>) {
+    if state.patched {
+        return;
+    }
+    let Some(shader) = shaders.get(&state.handle) else { return };
+    state.patched = true;
+    if std::env::var("NVF_TONEMAP").is_ok_and(|v| v.eq_ignore_ascii_case("tony")) {
+        info!("lights: NVF_TONEMAP=tony, the main view keeps Tony McMapface");
+        return;
+    }
+    let bevy::shader::Source::Wgsl(source) = &shader.source else {
+        error!("{TONEMAPPING_SHARED}: not WGSL; the main view keeps Tony McMapface");
+        return;
+    };
+    if !source.contains(BEVY_TONY) {
+        error!("{TONEMAPPING_SHARED}: Tony McMapface not found (Bevy changed?); the main view keeps it");
+        return;
+    }
+    let patched = source.replace(BEVY_TONY, GAME_CLIP);
+    let path = shader.path.clone();
+    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    CLIP_INSTALLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Some(mut sky) = sky {
+        sky.refresh();
+    }
+    info!("lights: display values shown clipped (in Tony McMapface's place)");
 }
 
 #[derive(Resource)]
@@ -298,38 +370,55 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
         warn!("{PBR_LIGHTING}: distance attenuation not found (Bevy changed?); lights keep Bevy's inverse-square falloff");
         return;
     }
-    let patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
+    let mut patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
+    if SPECULAR_EDITS.iter().all(|(from, _)| patched.matches(from).count() == 1) {
+        for (from, to) in SPECULAR_EDITS {
+            patched = patched.replace(from, to);
+        }
+    } else {
+        error!("{PBR_LIGHTING}: light colour lines not found (Bevy changed?); highlights take display colours as light");
+    }
     let path = shader.path.clone();
     let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
     info!("lights: game attenuation installed");
 }
+
+/// Bevy's point and directional lights apply their colour to what is left of their light
+/// in a world view, the specular highlight ([`DISPLAY_HELPERS`]: the diffuse part is
+/// summed apart). There the colour holds display values: the highlight takes its linear
+/// light, the display value raised to the display gamma, as before the display-value sum
+/// [observed: bevy_pbr 0.19.1 `pbr_lighting.wgsl`; the helper goes in front of
+/// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
+/// Jacobstown's lodge that the original does not show.
+const SPECULAR_EDITS: [(&str, &str); 3] = [
+    (
+        "fn getDistanceAttenuation(",
+        "// NVForever (nvforever lights.rs SPECULAR_EDITS): a light's colour uniform as linear light;
+// in a world view it holds display values (scaled by pi and the light unit).
+fn nvf_light_colour(c: vec3<f32>) -> vec3<f32> {
+    if view_bindings::lights.ambient_color.a >= 0.0 {
+        return c;
+    }
+    let k = view_bindings::view.exposure / PI;
+    return pow(max(c * k, vec3(0.0)), vec3(2.2)) / k;
+}
+
+fn getDistanceAttenuation(",
+    ),
+    (
+        "    return color_times_NdotL * (*light).color_inverse_square_range.rgb *
+        rangeAttenuation * texture_sample;",
+        "    return color_times_NdotL * nvf_light_colour((*light).color_inverse_square_range.rgb) *
+        rangeAttenuation * texture_sample;",
+    ),
+    ("color *= (*light).color.rgb * texture_sample;", "color *= nvf_light_colour((*light).color.rgb) * texture_sample;"),
+];
 
 /// Bevy lumens for a light that adds `brightness` × colour × attenuation × N·L on screen:
 /// Bevy divides lumens by 4π (candela) and Lambert diffuse by π; the camera exposure is
 /// undone by the light unit.
 pub fn lumens(brightness: f32, unit: f32) -> f32 {
     4.0 * PI * PI * brightness * unit
-}
-
-/// Factors on the three parts of the display-value sum while they are fitted:
-/// `NVF_LIGHT_FIT=ambient,sun,lights` (default 1 each) [test aid, temporary].
-#[derive(Clone, Copy)]
-pub struct LightFit {
-    pub ambient: f32,
-    pub sun: f32,
-    pub lights: f32,
-}
-
-pub fn light_fit() -> LightFit {
-    static FIT: std::sync::OnceLock<LightFit> = std::sync::OnceLock::new();
-    *FIT.get_or_init(|| {
-        let v: Vec<f32> = std::env::var("NVF_LIGHT_FIT").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
-        let f = LightFit { ambient: v.first().copied().unwrap_or(1.0), sun: v.get(1).copied().unwrap_or(1.0), lights: v.get(2).copied().unwrap_or(1.0) };
-        if !v.is_empty() {
-            info!("lights: fit factors ambient {} sun {} lights {}", f.ambient, f.sun, f.lights);
-        }
-        f
-    })
 }
 
 /// A LIGH reference's light: a point light (spot light for spot types) with the light's
@@ -366,7 +455,7 @@ pub fn spawn_light(
     };
     let color = display_color(shown);
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, LinearRgba::rgb(shown[0], shown[1], shown[2])));
-    let intensity = lumens(l.fade.max(0.0) * scale * light_fit().lights, crate::sky::light_unit());
+    let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
     let t = Transform::from_translation(at);
     // Lights out of step with each other: a phase from the reference.
     let moving = LightMotion::of(l.flags).map(|motion| MovingLight { motion, full: intensity, seed: (placed.form_id.wrapping_mul(2_654_435_761) >> 8) as f32 / 16_777_216.0 });
@@ -415,6 +504,29 @@ mod tests {
         }
         // Two lights out of step.
         assert_ne!(LightMotion::Pulse.factor(1.0, 0.1), LightMotion::Pulse.factor(1.0, 0.6));
+    }
+
+    #[test]
+    fn display_sum_patch_goes_in_order() {
+        // The anchors as bevy_pbr 0.19.1 has them, in its order, with stand-in text between.
+        let source = "head\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {\n    lighting_input.diffuse_color = diffuse_color;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);\n    // Total light\n    tail\n";
+        let out = display_patched(source).expect("all anchors found");
+        let at = |s: &str| out.find(s).unwrap_or_else(|| panic!("{s} missing"));
+        assert!(at("nvf_point_display(light_id") < at("nvf_spot_display(light_id"));
+        assert!(at("nvf_spot_display(light_id") < at("nvf_directional_display(i,"));
+        assert!(at("nvf_directional_display(i,") < at("let nvf_sum"));
+        assert!(at("let nvf_sum") < at("// Total light"));
+        assert_eq!(out.matches("fn apply_pbr_lighting(").count(), 1);
+        assert!(out.starts_with("head\n") && out.ends_with("tail\n"));
+        // A missing anchor (Bevy changed) leaves the source alone.
+        assert!(display_patched(&source.replace("    // Total light\n", "")).is_none());
+    }
+
+    #[test]
+    fn display_values_round_trip() {
+        for b in [0u8, 1, 10, 50, 128, 200, 255] {
+            assert!((linear_to_display(fnv_world::sky::srgb_to_linear(b)) - b as f32 / 255.0).abs() < 1e-4, "{b}");
+        }
     }
 
     #[test]
