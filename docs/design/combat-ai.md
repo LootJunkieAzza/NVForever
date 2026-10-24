@@ -917,7 +917,15 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` �
   (`fnv_ai::alert`, `AiEvent::Warn`, back to its package after); standing, a creature
   plays its tree's combat idles (the gecko's hiss and side hops, docs/spec-notes/idles.md
   §14). A trespass warning (`crate::crime`) gives the same look, so a warning owner or
-  guard draws its weapon (owner 2026-10-24). Guard packages' own warnings are not built.
+  guard draws its weapon (owner 2026-10-24).
+- **Guard packages** (2026-10-24): an actor on a Guard package without "No Warn/Attack
+  Behavior" warns and attacks a player inside the area it guards, by the same timer,
+  count and look: the guarded reference is the package target (a reference or the
+  linked reference), the area its Count / Distance, else the location radius
+  [hypothesis; packages.md §3]; a `Why::Guard` grudge. Log `provocation: … warns the
+  player inside the area its Guard package guards (warning n; d of r units from …)`.
+  GetTrespassWarningLevel counts these warnings and the aggro radius's as well as the
+  trespass ones [documented].
   Smoke `aggro-warning-look` (VERGSGecko6REF, a Young Gecko, radius 500).
 
 ### 13.2 Cowards stay out (`fnv_game::provocation`, item 14)

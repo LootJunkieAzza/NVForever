@@ -272,7 +272,17 @@ location, in cell (radius ignored), near reference; the radius is editable.
   food if allowed, else wander there.
 - **Guard**: stand at the guard location (wander within its radius), warn intruders near
   the guarded reference (topic GuardTrespass, `fAITrespassWarningTimer` 5 s,
-  `iGuardWarnings`), then attack.
+  `iGuardWarnings`), then attack. Built 2026-10-24 (`fnv_game::aggro`, "Guard
+  packages"; combat-ai.md §13.1): the guarded reference is the target (a reference or the
+  linked reference), the area its Count / Distance, else the location radius
+  [hypothesis]; "No Warn/Attack Behavior" turns it off. Of the 175 Guard packages of
+  FalloutNV.esm 114 set that flag; the 61 that warn include vGomorrahGuardPackage (the
+  Gomorrah bouncers', room guards' and cash-room guard's: each stands 140–210 units from
+  the door it guards, its linked reference, with a target distance of 25),
+  DefaultGuardNPC (Strip securitrons, super mutant guards; 128), the Nellis Boomer tower
+  guards (256 around a tower marker), PowderGangerGuardMixedPackage (linked reference,
+  distance 0, radius 256 around the editor location) and V22MantisFemaleEggGuardPackage
+  (300) [observed: `fnvtool ai show`].
 - **Follow / Accompany / Escort**: keep a distance to a target actor (follow walks
   behind it; accompany paths to its destination; escort leads it to a destination);
   follow can have start and end locations.

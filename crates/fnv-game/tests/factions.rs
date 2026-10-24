@@ -751,6 +751,65 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
 }
 
 #[test]
+fn a_guard_package_warns_then_attacks_a_player_inside_the_guarded_area() {
+    // `fnv_game::aggro` "Guard packages": the lurker's current package guards OWN_REF
+    // within 100 units (the target's Count / Distance). Far outside its own aggro radius
+    // (650) it still warns a player standing by the guarded reference, twice, 5 s apart,
+    // then attacks; a grudge of its own kind.
+    use fnv_game::package::{flags, PackageDef, PackageType, Target, TargetKind};
+    use fnv_game::provocation::Why;
+    let guard_pack = |extra_flags: u32| PackageDef { ty: PackageType::Guard, flags: extra_flags, target: Some(Target { kind: TargetKind::Reference(Some(FormId(OWN_REF))), count_distance: 100 }), ..PackageDef::default() };
+    for (warns, flag) in [(true, 0), (false, flags::NO_WARN_ATTACK_BEHAVIOR)] {
+        let mut f = fixture();
+        f.data.package_defs.insert(FormId(0x8F0), guard_pack(flag));
+        let mut g = game(&f);
+        let (lurker, guarded, player) = (FormId(LURKER_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+        g.extra.entry(lurker).or_default().current_package = Some(FormId(0x8F0));
+        g.world.get(player).unwrap().pos = [0.0; 3];
+        g.world.get(guarded).unwrap().pos = [60.0, 0.0, 0.0];
+        g.world.get(lurker).unwrap().pos = [2000.0, 0.0, 0.0];
+        assert_eq!(g.guard_area(lurker).is_some(), warns);
+        let seen = |g: &mut Game| {
+            let now = g.time;
+            g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+        };
+        seen(&mut g);
+        assert_eq!(g.aggro_tick(), 0);
+        let notes = g.provocations.take_notes();
+        if !warns {
+            assert!(notes.is_empty(), "No Warn/Attack Behavior: {notes:?}");
+            assert_eq!(g.warning_to(lurker), None);
+            continue;
+        }
+        assert!(notes.iter().any(|n| matches!(n, Note::GuardWarned { actor, level: 1, guarded: gd, .. } if *actor == lurker && *gd == guarded)), "{notes:?}");
+        assert_eq!(g.warning_to(lurker), Some(player));
+        g.time += 5.0;
+        seen(&mut g);
+        assert_eq!(g.aggro_tick(), 0);
+        assert_eq!(g.provocations.aggro_warnings[&lurker].0, 2);
+        g.time += 5.0;
+        seen(&mut g);
+        assert_eq!(g.aggro_tick(), 1);
+        assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::GuardAttacks { actor, .. } if *actor == lurker)));
+        assert_eq!(g.provocations.grudges[&(lurker, player)].why, Why::Guard);
+        assert!(g.would_attack(lurker, player));
+    }
+    // Outside the guarded area (and its aggro radius): nothing.
+    let mut f = fixture();
+    f.data.package_defs.insert(FormId(0x8F0), guard_pack(0));
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    g.extra.entry(lurker).or_default().current_package = Some(FormId(0x8F0));
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(FormId(OWN_REF)).unwrap().pos = [300.0, 0.0, 0.0];
+    g.world.get(lurker).unwrap().pos = [2000.0, 0.0, 0.0];
+    let now = g.time;
+    g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    assert_eq!(g.aggro_tick(), 0);
+    assert!(g.provocations.take_notes().is_empty());
+}
+
+#[test]
 fn an_aggro_warning_ends_when_the_player_leaves_the_radius() {
     // The warning look (`fnv_game::aggro`, "The look") lasts while the player is inside;
     // the count is kept for the grace, the look is not.

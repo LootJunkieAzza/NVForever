@@ -6,8 +6,9 @@
 //!   off) is a yield [documented: GECK wiki Yielding]; `Game::player_yields` decides who
 //!   accepts it.
 //! - **Log**: `provocation:` lines for each assault, friendly hit let pass, hit ignored,
-//!   ally joining, coward staying out, yield accepted or refused, aggro radius warning
-//!   and attack (`fnv_game::aggro`), and a `provocation summary` at exit.
+//!   ally joining, coward staying out, yield accepted or refused, aggro radius and Guard
+//!   package warning and attack (`fnv_game::aggro`), and a `provocation summary` at exit
+//!   (its "aggro radius" counts count the Guard package's too).
 
 use bevy::prelude::*;
 use fnv_game::provocation::Note;
@@ -105,6 +106,14 @@ fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<Stats>) 
             Note::AggroAttacks { actor, distance, radius } => {
                 stats.aggro_attacks += 1;
                 info!("provocation: {} attacks the player, who stayed inside its aggro radius ({distance:.0} of {radius:.0} units)", name(actor));
+            }
+            Note::GuardWarned { actor, level, guarded, distance, radius } => {
+                stats.aggro_warnings += 1;
+                info!("provocation: {} warns the player inside the area its Guard package guards (warning {level}; {distance:.0} of {radius:.0} units from {})", name(actor), name(guarded));
+            }
+            Note::GuardAttacks { actor, guarded, distance, radius } => {
+                stats.aggro_attacks += 1;
+                info!("provocation: {} attacks the player, who stayed inside the area its Guard package guards ({distance:.0} of {radius:.0} units from {})", name(actor), name(guarded));
             }
             Note::StaysOut { helper, victim } => {
                 stats.stayed_out += 1;

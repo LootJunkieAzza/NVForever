@@ -8327,9 +8327,26 @@ trespasser do the same. Spec: [idles §14](spec-notes/idles.md), [combat-ai §13
 - *Guess:* the warner stops and faces you instead of walking on with its package.
 - *Decision:* only creatures walk their tree's combat idles; people keep their
   drawn-weapon fidgets.
-- *Not built:* Guard packages' own warnings (only aggro radius and trespass warnings exist).
+- *Built after:* Guard packages' own warnings (same day, below).
 - *Which young geckos warn:* plain Young Geckos (radius 500) and the Goodsprings Young
   Gecko Hunters (650). Young Golden and Fire Geckos, and the Crescent, Nopah and roach
   hunters, are Aggressive or Very Aggressive and attack on sight, as their records say.
 - *Check:* walk up to a Young Gecko near Goodsprings: does it stop, face you, hiss or hop,
   and attack after two warnings?
+
+
+## Guard packages warn (2026-10-24, branch claude/aggro-warning-look)
+
+An NPC or creature on a Guard package now warns you when you come into the area it
+guards, twice, 5 s apart, then attacks, with the same look as the aggro warnings (it
+stops, faces you, draws its weapon or stance). Gomorrah's bouncers, room guards and
+cash-room guard guard their doors this way, as do the Strip securitrons and super mutant
+guards on DefaultGuardNPC and the Nellis Boomer tower guards. Spec: [packages §3](spec-notes/packages.md), [combat-ai §13.1](design/combat-ai.md).
+
+- *Guess:* the guarded area is the package target's Count / Distance around the guarded
+  reference (25 units around a Gomorrah guard's door), else the package location's radius.
+  The capture campaign `warnings` (sessions gomorrah_cashroom, gomorrah_bouncer) checks it
+  in the original.
+- *Decision:* one warning count serves the Guard package and the aggro radius;
+  GetTrespassWarningLevel answers the larger of that and the trespass count.
+- *Check:* walk up to a door a Gomorrah guard stands by: two warnings, then a fight?

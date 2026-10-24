@@ -40,6 +40,21 @@
 //!   page says what the original's warning looks like; these idles wanting the alerted
 //!   state are the evidence. Without the look a creature warned in silence while it
 //!   walked on, and the player saw nothing before the attack.
+//! - **Guard packages** [documented: GuardTrespass is "said when issuing a warning …
+//!   from a Guard package"; fAITrespassWarningTimer and iGuardWarnings are the "Guard
+//!   Package Settings" (GECK wiki Settings); the Guard package page, as packages.md §3
+//!   took it down: "warn intruders near the guarded reference …, then attack"]: an actor
+//!   whose current package is a Guard package without "No Warn/Attack Behavior" warns
+//!   and then attacks a player it watches inside the guarded area, by the same timer,
+//!   count and look as the aggro radius. The guarded reference is the package's target
+//!   (a reference, or the actor's linked reference: vGomorrahGuardPackage's is the door
+//!   each Gomorrah guard stands by), the area the target's Count / Distance around it, or
+//!   the package location's radius when that is 0 [hypothesis: which field is the
+//!   area's radius; capture campaign `warnings`, sessions gomorrah_*]; a package
+//!   guarding the player, or with neither radius, warns nobody. The area comes before
+//!   the actor's aggro radius; one count serves both (GetTrespassWarningLevel). A grudge
+//!   [`Why::Guard`]. In FalloutNV.esm 61 of the 175 Guard packages allow it
+//!   [observed: `fnvtool ai show`].
 //! - **Who**: the player only [design: other actors' aggro radii are not measured];
 //!   never an actor that is the player's ally or friend or teammate, one already hostile
 //!   by its records, a dead, unconscious or restrained one.
@@ -51,7 +66,7 @@
 
 use crate::detection::Band;
 use crate::game::Game;
-use crate::package::{fallout, flags};
+use crate::package::{fallout, flags, PackageType};
 use crate::provocation::{Grudge, Note, Why, ALLY, FRIEND};
 use fnv_sim::FormId;
 
@@ -78,8 +93,23 @@ impl Game<'_> {
         }
     }
 
-    /// After a round of detection measurements: aggro radius warnings and attacks (module
-    /// notes). Returns how many actors turned on the player.
+    /// What `actor`'s current Guard package has it guard (module notes, "Guard
+    /// packages"): the guarded reference and the radius around it, game units. None for
+    /// any other package, one with "No Warn/Attack Behavior", one guarding the player, or
+    /// one with no radius.
+    pub fn guard_area(&mut self, actor: FormId) -> Option<(FormId, f64)> {
+        let data = self.data;
+        let d = self.current_package(actor).and_then(|p| data.package_defs.get(&p))?;
+        if d.ty != PackageType::Guard || d.has(flags::NO_WARN_ATTACK_BEHAVIOR) {
+            return None;
+        }
+        let guarded = self.package_target(actor, d).filter(|g| *g != FormId::PLAYER_REF)?;
+        let radius = d.target.map(|t| t.count_distance).filter(|r| *r > 0).or(d.location.map(|l| l.radius).filter(|r| *r > 0))?;
+        Some((guarded, radius as f64))
+    }
+
+    /// After a round of detection measurements: aggro radius and Guard package warnings
+    /// and attacks (module notes). Returns how many actors turned on the player.
     pub fn aggro_tick(&mut self) -> usize {
         let s = self.crime_settings();
         let now = self.time;
@@ -100,15 +130,22 @@ impl Game<'_> {
         // after a grace of two warning timers (module notes).
         let mut inside = Vec::new();
         let mut turned = 0;
+        let at = |g: &Game, r: FormId| g.world.peek(r).map(|p| p.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos));
+        let gap = |a: [f32; 3]| (0..3).map(|i| (a[i] - player[i]).powi(2)).sum::<f32>().sqrt() as f64;
         for w in watchers {
-            let Some(radius) = self.aggro_radius(w) else { continue };
             let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained || e.teammate);
             if out(self, w) || !self.present(w) || self.provocations.holds(w, FormId::PLAYER_REF) {
                 continue;
             }
-            let Some(pos) = self.world.peek(w).map(|p| p.pos).or_else(|| self.world.placed.get(w).map(|p| p.pos)) else { continue };
-            let distance = (0..3).map(|i| (pos[i] - player[i]).powi(2)).sum::<f32>().sqrt() as f64;
-            if distance > radius || matches!(self.reaction_to(w, FormId::PLAYER_REF), ALLY | FRIEND) || !self.package_allows_aggro(w) {
+            // A Guard package's area comes first; else the aggro radius around the actor.
+            let guard = self.guard_area(w).and_then(|(g, r)| Some((g, at(self, g)?, r))).map(|(g, p, r)| (Some(g), gap(p), r)).filter(|(_, d, r)| d <= r);
+            let aggro = || -> Option<(Option<FormId>, f64, f64)> {
+                let r = self.aggro_radius(w)?;
+                let d = gap(at(self, w)?);
+                (d <= r).then_some((None, d, r))
+            };
+            let Some((guarded, distance, radius)) = guard.or_else(aggro) else { continue };
+            if matches!(self.reaction_to(w, FormId::PLAYER_REF), ALLY | FRIEND) || (guarded.is_none() && !self.package_allows_aggro(w)) {
                 continue;
             }
             if self.would_attack(w, FormId::PLAYER_REF) {
@@ -122,10 +159,17 @@ impl Game<'_> {
             if (level as f64) < s.guard_warnings {
                 self.provocations.aggro_warnings.insert(w, (level + 1, now));
                 self.detection_bark(w, Some(FormId::PLAYER_REF), "GuardTrespass");
-                self.provocations.notes.push(Note::AggroWarned { actor: w, level: level + 1, distance, radius });
+                self.provocations.notes.push(match guarded {
+                    Some(guarded) => Note::GuardWarned { actor: w, level: level + 1, guarded, distance, radius },
+                    None => Note::AggroWarned { actor: w, level: level + 1, distance, radius },
+                });
             } else {
-                self.provocations.grudges.insert((w, FormId::PLAYER_REF), Grudge { why: Why::Aggro, since: now });
-                self.provocations.notes.push(Note::AggroAttacks { actor: w, distance, radius });
+                let why = if guarded.is_some() { Why::Guard } else { Why::Aggro };
+                self.provocations.grudges.insert((w, FormId::PLAYER_REF), Grudge { why, since: now });
+                self.provocations.notes.push(match guarded {
+                    Some(guarded) => Note::GuardAttacks { actor: w, guarded, distance, radius },
+                    None => Note::AggroAttacks { actor: w, distance, radius },
+                });
                 turned += 1;
             }
         }
@@ -145,7 +189,7 @@ impl Game<'_> {
         // Just turned on the player and not yet in Combat (detection settles a moment
         // later): still the warning, so the stance is not put away and drawn again
         // [design; observed in NVForever: 0.23 s, smoke `aggro-warning-look`].
-        let turning = self.provocations.grudges.get(&(actor, FormId::PLAYER_REF)).is_some_and(|g| g.why == Why::Aggro && self.time - g.since < AGGRO_TURN_SECONDS) && !self.awareness.state(actor).in_combat();
+        let turning = self.provocations.grudges.get(&(actor, FormId::PLAYER_REF)).is_some_and(|g| matches!(g.why, Why::Aggro | Why::Guard) && self.time - g.since < AGGRO_TURN_SECONDS) && !self.awareness.state(actor).in_combat();
         (self.provocations.aggro_inside.contains(&actor) || turning || self.crimes.warning_now.contains(&actor)).then_some(FormId::PLAYER_REF)
     }
 }

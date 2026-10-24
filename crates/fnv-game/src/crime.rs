@@ -769,14 +769,18 @@ pub fn is_trespassing(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     yes(r == FormId::PLAYER_REF && g.trespass_cell().is_some())
 }
 
-/// `actor.GetTrespassWarningLevel target`: the warnings the actor gave the player
-/// [documented].
+/// `actor.GetTrespassWarningLevel target`: the warnings the actor gave the player, by a
+/// Guard package, for trespassing or for its aggro radius [documented: "the number of
+/// warnings an actor on a Guard Package (or responding to trespassing or responding to an
+/// aggro radius violation) has given"]; the larger count of the two kept.
 pub fn get_trespass_warning_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if a.opt_form(0).is_some_and(|t| t != FormId::PLAYER_REF) {
         return Ok(Value::Num(0.0));
     }
-    Ok(Value::Num(g.crimes.warnings.get(&r).map_or(0, |w| w.0) as f64))
+    let trespass = g.crimes.warnings.get(&r).map_or(0, |w| w.0);
+    let guard = g.provocations.aggro_warnings.get(&r).map_or(0, |w| w.0);
+    Ok(Value::Num(trespass.max(guard) as f64))
 }
 
 /// `[reportedTo.]SendTrespassAlarm [reportedTo]`: that actor goes "all the way to fully
