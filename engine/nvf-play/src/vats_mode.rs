@@ -150,10 +150,11 @@ pub const HELPER_DRAW: f32 = 0.3;
 pub const HELPER_STAY: f32 = 1.2;
 /// A helper's eye above its feet, units: where its shot leaves from [design: a person's].
 pub const HELPER_EYE: f32 = 110.0;
-/// A mark's "x": its size as a share of the screen width, and its colour [design, after
-/// the references: a small dark-red x].
+/// A mark's "x": its size as a share of the screen width, and its colour: the interface's
+/// amber (`crate::interface::AMBER`) [design: the owner's wish, 2026-10-24, to match the
+/// HUD; it was a dark red before].
 pub const MARK_SIZE: f32 = 0.019;
-const MARK_COLOUR: Color = Color::srgb(0.45, 0.05, 0.03);
+const MARK_COLOUR: Color = Color::srgb(crate::interface::AMBER[0], crate::interface::AMBER[1], crate::interface::AMBER[2]);
 /// The most marks drawn at once (more are kept but not drawn) [engineering choice].
 const MAX_DRAWN: usize = 32;
 
@@ -1316,8 +1317,9 @@ const LABEL_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 const LABEL_BASE: f32 = 30.0;
 /// Its height, interface units, for centring it on the "x".
 const LABEL_HEIGHT: f32 = 36.0;
-/// A creamy white that reads on the amber grade [design].
-const LABEL_COLOUR: Color = Color::srgb(1.0, 0.94, 0.8);
+/// The interface's amber, as the HUD's text [design: the owner's wish, 2026-10-24; it was
+/// a creamy white before].
+const LABEL_COLOUR: Color = MARK_COLOUR;
 
 /// The text of a chance: whole percent.
 pub fn chance_text(chance: f32) -> String {
