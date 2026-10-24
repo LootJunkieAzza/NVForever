@@ -879,6 +879,8 @@ pub struct Combat {
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
     pub vats_cone: Option<f32>,
+    /// The weapon and factor of the last Modify Throwing Velocity line (one a change).
+    throw_logged: Option<(FormId, u32)>,
     /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
     /// last one ended, and its own rolls (the view's kick).
     flinch_until: f32,
@@ -1181,7 +1183,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1198,6 +1200,27 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
     if pace.0 != want {
         pace.0 = want;
         info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
+    }
+}
+
+/// The player's Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …,
+/// perk-entry-points.md §8): their factor on the player's movement, walking and running
+/// alike, their conditions (armour, sneaking) asked every frame (`crate::player::PerkSpeed`).
+fn perk_speed(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, speed: Option<ResMut<crate::player::PerkSpeed>>) {
+    let (Some(mut speed), Some(rt)) = (speed, script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
+    let (want, by) = with_world(rt, &mut sim, |rt| {
+        let g = &mut rt.game;
+        let (v, applied) = g.entry_point(FormId::PLAYER_REF, fnv_game::perks::MODIFY_RUN_SPEED, 1.0);
+        (v as f32, applied.iter().map(|a| g.data.name(a.perk)).collect::<Vec<_>>())
+    });
+    let want = want.clamp(0.1, 5.0);
+    if (speed.0 - want).abs() > 1e-4 {
+        speed.0 = want;
+        if by.is_empty() {
+            info!("movement: no Modify Run Speed perks apply: the player moves at 100%");
+        } else {
+            info!("movement: the Modify Run Speed perks make the player move at {:.0}% ({})", want * 100.0, by.join(", "));
+        }
     }
 }
 
@@ -1384,6 +1407,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         crosshair_cone: None,
         player_spread: None,
         vats_cone: None,
+        throw_logged: None,
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
@@ -1756,9 +1780,18 @@ fn hit_perks(script: Option<&mut ScriptState>, sim: &mut SimState, attacker: For
 /// of spread, AP cost and the weapon's other figures) [documented: GECK wiki
 /// GetPerkModifier], and the perks that changed it.
 pub(crate) fn player_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimState, point: u8, weapon: FormId, v: f32) -> (f32, Vec<String>) {
+    owner_weapon_perk(script, sim, FormId::PLAYER_REF, point, weapon, v)
+}
+
+/// [`player_weapon_perk`] for any owner: the player, or a teammate with the teammate
+/// perks (`fnv_game::Game::held_perks`); others hold none.
+pub(crate) fn owner_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimState, owner: FormId, point: u8, weapon: FormId, v: f32) -> (f32, Vec<String>) {
     use damage::PerkHooks;
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return (v, Vec::new()) };
-    let ops = with_world(rt, sim, |rt| entry_ops(&mut rt.game, FormId::PLAYER_REF, &[point], &[Some(weapon)], None));
+    if owner != FormId::PLAYER_REF && !rt.game.is_teammate(owner) {
+        return (v, Vec::new());
+    }
+    let ops = with_world(rt, sim, |rt| entry_ops(&mut rt.game, owner, &[point], &[Some(weapon)], None));
     (ops.entry(point, v), ops.names().into_iter().map(str::to_string).collect())
 }
 
@@ -2072,10 +2105,17 @@ pub(crate) fn fire(
                 // In third person the view ray is the camera's, through the crosshair over
                 // the shoulder: the shot aims from the eye at what lies under it, as the
                 // eye's view ray does in first person (playtest list 4, item 12).
+                // Heave Ho!'s Modify Throwing Velocity: "run when ANY projectile is
+                // created … the velocity of ANY projectile spawned by the perk owner
+                // (filtered by conditions)" [documented: GECK wiki Entry Point]
+                // (perk-entry-points.md §8).
+                let (throw_mult, throw_by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_THROWING_VELOCITY, id, 1.0);
+                let throw_mult = throw_mult.max(0.01);
                 let leaving = if let Some(point) = vats_shot.filter(|_| c.self_ammo) {
                     // VATS mode's throw: from the eye on the low arc that lands on the mark
-                    // (vats-mode.md §16.3), at 45° when it is out of reach.
-                    let (speed, g) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.speed, p.gravity * gravity));
+                    // (vats-mode.md §16.3), at 45° when it is out of reach; at the speed the
+                    // throw will leave with.
+                    let (speed, g) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.speed * throw_mult, p.gravity * gravity));
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
@@ -2106,6 +2146,13 @@ pub(crate) fn fire(
                 // A mod's Increase Projectile Speed (weapon-data-fields.md §5).
                 if let Some(m) = w.projectile_speed_mult {
                     shots.iter_mut().for_each(|p| p.speed_up(m));
+                }
+                if (throw_mult - 1.0).abs() > 1e-4 {
+                    shots.iter_mut().for_each(|p| p.speed_up(throw_mult));
+                    if c.throw_logged != Some((id, throw_mult.to_bits())) {
+                        info!("combat: perks change {}'s projectile speed x {throw_mult:.2} ({})", w.edid.as_deref().unwrap_or("?"), throw_by.join(", "));
+                        c.throw_logged = Some((id, throw_mult.to_bits()));
+                    }
                 }
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
@@ -3239,7 +3286,16 @@ fn fly(
             break;
         }
         stats.explosions += 1;
-        let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        let Some(mut x) = c.forms.explosions.get(&id).cloned() else { continue };
+        // Splash Damage's Adjust Explosion Radius, for the cause's blasts (the player's
+        // and its teammates'; perk-entry-points.md §8).
+        if let Some(cause) = cause {
+            let (r, by) = owner_weapon_perk(script.as_deref_mut(), &mut sim, cause.actor, fnv_game::perks::ADJUST_EXPLOSION_RADIUS, cause.weapon, x.radius);
+            if !by.is_empty() && (r - x.radius).abs() > 1e-3 {
+                info!("combat: perks change {}'s radius {:.0} -> {:.0} ({})", x.edid.as_deref().unwrap_or("?"), x.radius, r.max(0.0), by.join(", "));
+                x.radius = r.max(0.0);
+            }
+        }
         effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor) });
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {

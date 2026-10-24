@@ -79,7 +79,6 @@ Not wired yet, with why:
 | 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
-| 59, 72 | Modify Throwing Velocity, Adjust Explosion Radius | Heave Ho!, Loose Cannon, Splash Damage | not asked for yet; easy follow-ups at the throw and the explosion |
 | 61–66 | the unarmed power attacks' Has … | the unarmed moves | the special moves are not built |
 
 ## 3. Conditions by tab
@@ -183,3 +182,20 @@ conditions, and all are the player's (`perks::player_has_entry`, `Game::sync_per
   `perk_combat` `weight_perks_change_the_players_load`,
   `silent_running_ignores_the_players_running`, `a_second_failure_spends_the_extra_try`;
   smoke `perk-infiltrator`, `perk-computer-whiz`, `perk-long-haul`, `perk-weights`.
+
+## 8. Mines, explosions, throws and movement (2026-10-24)
+
+Owner 2026-10-24: "Build the next batch: Splash Damage, Heave Ho!, Light Step, and the
+run-speed perks (Travel Light, Tunnel Runner, Implant M-5)" (perk-audit-2026-10-23 §3.2,
+§3.5). What each entry point does [documented: GECK wiki Entry Point]; the entries
+[observed: the PERK records].
+
+| Code | Entry point | Perks | NVForever |
+|---|---|---|---|
+| 4 | Calculate Mine Explode Chance: "run when the actor comes within proximity of an armed mine; modifies the chance of an armed mine detonating" | Light Step Set 0; In My Footsteps (Dead Money) Set 0; ED-E's Light Step (Lonesome Road, NVDLC04EDENoMines) Set 0 under GetIsID ED-E | an actor whose chance is 0 does not start a mine's fuse (`nvf-play` `mines::tick`), logged once a mine `mines: <actor> does not set off mine <ref> … (… Light Step)`; the player's own, and a teammate's with the teammate perks. Chances between 0 and 1 are not rolled [design: the masters set only 0] |
+| 72 | Adjust Explosion Radius | Splash Damage × 1.25 | the radius of every explosion the player (or a teammate with the perk) causes, before its hits, the pushed bodies and the destructibles are found (`combat::owner_weapon_perk` with the cause's weapon on tab 1); the explosion's look is not scaled [design] |
+| 59 | Modify Throwing Velocity: "run when ANY projectile is created; modifies the velocity of ANY projectile spawned by the perk owner (filtered by conditions); use GetWeaponAnimType == 9 to restrain the effect to throwing-type weapons" | Heave, Ho! × 1.5 (no conditions); Loose Cannon × 0.75 (its condition) | every projectile the player fires leaves that much faster, as the page says (Heave Ho!'s entry has no condition, so the player's bullets too); VATS mode's throws aim their arc at that speed |
+| 42 | Modify Run Speed: "changes the actor's movement speed" | Travel Light × 1.1 (GetEquipped NVTravelLightBadArmorList, the armours it does not allow), Tunnel Runner × 1.25 (sneaking, the same list), Implant M-5 × 1.2 (sneaking), Atomic! × 1.25, Stealth Suit Mk II × 1.2 | the player's movement, walking, running and sneaking alike (`player::PerkSpeed`, worked out every frame by `combat::perk_speed`), logged `movement: the Modify Run Speed perks make the player move at <p>% (<perks>)`. NPCs' speeds (the Lobotomites' × 0.75) are not changed [not built] |
+
+Checks: `fnv-game` `perk_combat` `mine_blast_throw_and_speed_perks`; smoke
+`perk-light-step`, `perk-heave-ho-splash`, `perk-run-speed`.

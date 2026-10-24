@@ -83,7 +83,7 @@ original before building (an AI observer capture), or a decision to adapt them t
 mode, which is NVForever's own (vats-mode.md): VATS mode fires every mark at once, so the
 roll would be one per mark as it fires.
 
-### 3.2 Attack, reload, equip and run speed
+### 3.2 Attack, reload, equip and run speed (run speed built 2026-10-24, perk-entry-points.md §8)
 
 | Entry point | Perks |
 |---|---|
@@ -112,7 +112,7 @@ run speed has no such block.
 | 20 Ignore Locked Terminal | Computer Whiz: another try at a locked-out terminal |
 | 31 Ignore Running During Detection | Silent Running: running no longer counts against sneaking (`fSneakRunningMult` is read in detection) |
 
-### 3.5 Explosives, throwing, mines
+### 3.5 Explosives, throwing, mines (built 2026-10-24, perk-entry-points.md §8)
 
 | Entry point | Perks |
 |---|---|
