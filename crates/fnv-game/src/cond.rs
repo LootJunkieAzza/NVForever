@@ -124,9 +124,20 @@ impl ParamTypes {
 }
 
 /// Condition indices xEdit knows that the catalogue has no entry for, with their
-/// parameter types: 451 IsLastIdlePlayed takes an IDLE [documented: xEdit
+/// parameter types: 451 IsLastIdlePlayed takes an IDLE; 518–521 and 525–528, the VATS
+/// area functions (`crate::vats::is_area_function`), a reference [documented: xEdit
 /// wbCTDAFunctions].
-const XEDIT_ONLY: &[(u16, &[&str])] = &[(451, &["ptIdleForm"])];
+const XEDIT_ONLY: &[(u16, &[&str])] = &[
+    (451, &["ptIdleForm"]),
+    (518, &["ptReference"]),
+    (519, &["ptReference"]),
+    (520, &["ptReference"]),
+    (521, &["ptReference"]),
+    (525, &["ptReference"]),
+    (526, &["ptReference"]),
+    (527, &["ptReference"]),
+    (528, &["ptReference"]),
+];
 
 /// How a raw 4-byte parameter is read for an xEdit parameter type. Types that name a
 /// record are FormIDs (mapped through the plugin's master list); enumerations are codes;

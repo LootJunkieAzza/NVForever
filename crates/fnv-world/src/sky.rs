@@ -107,7 +107,9 @@ pub struct Weather {
     pub cloud_textures: [Option<String>; 4],
     /// PNAM `cloud_colors[layer][time]` as RGB bytes; 4 or 6 times per layer, like NAM0.
     pub cloud_colors: Vec<Vec<[u8; 3]>>,
-    /// ONAM cloud speed per layer (raw bytes).
+    /// ONAM cloud speed per layer, 0-255 [documented: xEdit wbWeatherCloudSpeed, one byte
+    /// per layer; GECK wiki GetWeatherTraitNumeric, traits 0-3 "Layer N Cloud Speed"]. The
+    /// unit is not documented: [`Weather::cloud_scroll`].
     pub cloud_speeds: [u8; 4],
     /// LNAM maximum cloud layers.
     pub max_cloud_layers: Option<u32>,
@@ -168,7 +170,26 @@ impl WeatherSoundKind {
     }
 }
 
+/// Cloud texture scroll per real second per ONAM speed unit, in texture repeats
+/// [hypothesis: neither xEdit nor the GECK wiki gives the unit. 1/25,600 is the first sky
+/// pass's placeholder, kept: at it NVWastelandClear's top layer (speed 65) drifts one
+/// texture width in about 6.6 minutes. To be measured from two game screenshots of the
+/// same view some seconds apart (docs/owner-review.md)].
+pub const CLOUD_SCROLL_PER_UNIT: f32 = 1.0 / 25_600.0;
+
 impl Weather {
+    /// Texture repeats per real second that cloud layer `layer` (0-3) scrolls by: its ONAM
+    /// speed times [`CLOUD_SCROLL_PER_UNIT`] [hypothesis: linear in the byte, 0 still].
+    pub fn cloud_scroll(&self, layer: usize) -> f32 {
+        self.cloud_speeds.get(layer).map_or(0.0, |&s| f32::from(s) * CLOUD_SCROLL_PER_UNIT)
+    }
+
+    /// The layer's texture offset (0..1 repeats) `secs` real seconds after the clock's
+    /// start. Worked in f64 so that a long session keeps a smooth drift.
+    pub fn cloud_offset(&self, layer: usize, secs: f64) -> f32 {
+        (secs * f64::from(self.cloud_scroll(layer))).rem_euclid(1.0) as f32
+    }
+
     /// Real seconds a change to this weather takes: 30 × Trans Delta ÷ 255, at most the
     /// documented 30 s; 0 is at once [hypothesis: the time grows with the byte;
     /// docs/spec-notes/world.md §6 "Weather transitions and glare"].
@@ -717,6 +738,22 @@ mod tests {
 
     fn clim() -> Climate {
         Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() }
+    }
+
+    #[test]
+    fn cloud_scroll_from_onam() {
+        let w = Weather { cloud_speeds: [52, 0, 0, 65], ..Default::default() };
+        assert_eq!(w.cloud_scroll(0), 52.0 / 25_600.0);
+        assert_eq!(w.cloud_scroll(1), 0.0);
+        assert_eq!(w.cloud_scroll(4), 0.0);
+        // A still layer stays put; a moving one wraps at one repeat.
+        assert_eq!(w.cloud_offset(1, 1.0e6), 0.0);
+        assert!((w.cloud_offset(3, 100.0) - 6_500.0 / 25_600.0).abs() < 1e-6);
+        let one_repeat = 25_600.0 / 65.0;
+        assert!(w.cloud_offset(3, one_repeat) < 1e-4 || w.cloud_offset(3, one_repeat) > 1.0 - 1e-4);
+        // Hours into a session the offset still moves smoothly.
+        let (a, b) = (w.cloud_offset(3, 36_000.0), w.cloud_offset(3, 36_001.0));
+        assert!(((b - a).rem_euclid(1.0) - 65.0 / 25_600.0).abs() < 1e-5);
     }
 
     #[test]

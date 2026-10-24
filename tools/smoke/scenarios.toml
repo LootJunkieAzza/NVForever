@@ -6573,6 +6573,28 @@ order = [[
 forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
 
 [[scenario]]
+name = "vats-kill-cam"
+source = "ESM full audit gap 10 (2026-10-24): the masters' camera paths and shots (CPTH, CAMS) play as VATS mode's kill cameras (docs/design/vats-mode.md §19)"
+note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "crates/fnv-game/src/camera_paths.rs", "engine/nvf-assets/src/camera_shot.rs", "engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 28
+order = [[
+  { re = 'vats mode: marked .* mark 1; ', label = "one mark" },
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
+  { re = 'kill camera: .* killed by the last mark: path \S+ \(0x[0-9A-F]{8}\), shots \S', label = "the dog dies and the tree picks a path with shots" },
+  { re = 'kill camera: shot 1 of \d+ \S+: ', label = "the first shot plays" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself" },
+]]
+expect = [{ re = 'kill camera summary: 1 shown', label = "one kill camera shown" }]
+forbid = [
+  { text = "no camera path chosen", label = "the tree gave no path for a VATS kill" },
+  { text = "not loaded, the view stays", label = "a shot's camera model did not load" },
+]
+
+[[scenario]]
 name = "vats-mysterious-stranger"
 source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Mysterious Stranger appears in VATS mode and finishes off the mark (docs/design/vats-mode.md §18)"
 note = "vats-mode-hit-chance's setup (the Goodsprings dogs set on the player, god mode, a .357) with the perk MysteriousStranger given at 3 s; the helper forced to the Stranger for every mark his odds allow (NVF_PLAY_TEST_VATS_HELPER=stranger: a dog has at most iVATSStrangerMaxHP 150 health) and the player's own roll forced to miss, so the kill is his: his .44 (MysteriousStranger44Magnum) does 9,000. Both dogs' health is set to 100 at 3.2 s, under iVATSStrangerMaxHP (150): the first run marked Violetta, whose health is above it, and the Stranger rightly did not come. One mark, E"
@@ -7958,6 +7980,19 @@ order = [[
 ]]
 
 [[scenario]]
+name = "cloud-scroll-onam"
+source = "ESM full audit 2026-10-24 §3 (docs/spec-notes/world.md §6 \"Cloud scroll\"): each cloud layer scrolls by its weather's WTHR ONAM speed, not a fixed placeholder rate"
+note = "NVWastelandClear is pinned over Goodsprings at noon; its ONAM speeds are 52, 0, 0, 65 [observed]. The scale (1/25,600 texture repeats per second per unit) is a hypothesis awaiting the owner's timed screenshots (owner-review.md); the line checks that the shown weather's own speeds drive the layers"
+areas = ["sky", "weather"]
+paths = ["engine/nvforever/src/sky.rs", "crates/fnv-world/src/sky.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--weather", "NVWastelandClear", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'clouds: NVWastelandClear layer speeds \[52, 0, 0, 65\] \(ONAM\), scrolling 0\.00203, 0\.00000, 0\.00000, 0\.00254 texture repeats/s', label = "the shown weather's ONAM speeds drive its cloud layers" },
+]
+
+[[scenario]]
 name = "weather-sound-precip"
 source = "ESM gap audit row 9 (docs/spec-notes/world.md §6 \"Weather sound, precipitation and lightning\"): a weather's SNAM sounds loop at the listener outdoors, its precipitation model is drawn about the camera, and lightning flashes with thunder after it"
 note = "NVDLC02ZVRainWeather (Honest Hearts' Zion rain, Rainy, lightning frequency 138, one Thunder sound AMBNVDLC02ThunderDis1) is pinned with --weather over Goodsprings. No weather in the masters has a precipitation model or a looping sound, so the test aid NVF_PLAY_TEST_WEATHER_FX gives the shown weather Honest Hearts' rain model and rain loop, as a mod's weather would carry them. The first flash comes 11-33 s after the start (the lightning roll is seeded), the thunder 1-4 s after it"
@@ -8303,4 +8338,47 @@ expect = [
 order = [[
   { re = 'compass: \d+ actors .*, [1-9]\d* sneaking left off', label = "sneaking Ringo left off the compass" },
   { re = 'compass: \d+ actors .*, 0 sneaking left off', label = "standing up, nobody is left off" },
+]]
+
+[[scenario]]
+name = "pipboy-map-reputation"
+source = "ESM full audit gap 16 (docs/spec-notes/pipboy.md §5.3): map markers carry their reputation (REFR WMI1), shown under the name on world-map hover"
+note = "FalloutNV.esm has 36 markers with WMI1 (Goodsprings, NCR, Powder Gangers …), no add-on has any; the hover line itself needs the pointer on a marker and is not asserted"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'pipboy data: \d+ map markers \((\d+) with a reputation\)', range = [30, 1000], label = "the markers' reputations are read (36 in FalloutNV.esm)" },
+]
+
+[[scenario]]
+name = "main-menu-screens"
+source = "ESM full audit gap 25 (docs/spec-notes/loading-screens.md §5): the main menu shows the loading screens flagged Displays In Main Menu (33 in FalloutNV.esm), not the 196 with no location"
+areas = ["main-menu"]
+paths = ["engine/nvf-play/src/main_menu.rs", "crates/fnv-world/src/loadscreen.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--menu"]
+run_seconds = 8
+expect = [
+  { re = 'main menu: (\d+) loading screens flagged Displays In Main Menu of \d+', range = [1, 1000], label = "flagged screens found (33 in FalloutNV.esm)" },
+  { re = 'main menu: open \((\d+) loading screens', range = [1, 33], label = "only the flagged screens' pictures (at most 33, was about 196)" },
+]
+
+[[scenario]]
+name = "nav-obstacles"
+source = "ESM full audit gap 22 (docs/spec-notes/navmesh.md §4c): objects flagged Obstacle that can be enabled or disabled cut the navmesh while enabled"
+note = "000F3EF2 is a BoxCar placed Initially Disabled near the rail yard north of Camp McCarran (-31162, 63842); enabled by the console at 9 s, disabled at 14 s. The switch is applied to the whole graph, loaded cells or not. If the box car stands on no navmesh triangle it is not in the graph and the switch lines do not come: then pick another of the 149 (navmesh.md §4c)"
+areas = ["ai", "nav"]
+paths = ["crates/fnv-nav/src/obstacles.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/nav.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "9:000F3EF2.enable 0;9.3:close;14:000F3EF2.disable;14.3:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+expect = [
+  { re = 'nav: (\d+) obstacles that can be enabled or disabled stand on the navmesh', range = [20, 1000], label = "the obstacles that come and go are learnt (149 placed in FalloutNV.esm)" },
+]
+order = [[
+  { re = 'nav: obstacles switched \[000F3EF2 on\]; [1-9]\d* triangles cut now', label = "the box car enabled cuts the navmesh" },
+  { re = 'nav: obstacles switched \[000F3EF2 off\]; \d+ triangles cut now', label = "disabled, it frees it" },
 ]]

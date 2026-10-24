@@ -34,7 +34,11 @@
 //!   are public cannot have trespassing"]; an owner who sees the player there warns
 //!   (GuardTrespass) every `fAITrespassWarningTimer` (5 s) up to `iGuardWarnings` (2)
 //!   times, then attacks [documented for Guard packages, GECK wiki Guard Package;
-//!   hypothesis: the same for owned cells].
+//!   hypothesis: the same for owned cells]. A door whose XTEL is flagged No Alarm
+//!   sends "no trespass alarm … when the player uses the door" [documented: GECK wiki
+//!   Reference, Teleport]: arriving through one, the player is not trespassing in the
+//!   cell arrived in until leaving it ([`Game::arrived_through`]) [hypothesis: the alarm
+//!   is the owners' warnings and attack; docs/owner-review.md].
 //!
 //! The engine tells the game what the player did ([`Game::player_stole`],
 //! [`Game::player_opened_lock`], [`Game::crime_tick`]); kills and hits come through
@@ -227,6 +231,9 @@ pub enum Note {
     FactionEnemy { faction: FormId },
     /// The player started or stopped trespassing in `cell` (owned by `owner`).
     Trespassing { cell: FormId, owner: FormId, now: bool },
+    /// The player came through `door`, flagged No Alarm, into `cell`: no trespass alarm
+    /// there until the player leaves it.
+    NoAlarm { door: FormId, cell: FormId },
     /// A seen theft or kill raised the player's infamy with `reputation`
     /// (`functions::crime_infamy`).
     Infamy { reputation: FormId, before: f64, after: f64 },
@@ -284,6 +291,9 @@ pub struct Crimes {
     pub warnings: BTreeMap<FormId, (u32, f64)>,
     /// The cell the player trespasses in, with its owner.
     pub trespassing: Option<(FormId, FormId)>,
+    /// The cell the player arrived in through a No Alarm door, while the player is in it
+    /// ([`Game::arrived_through`]).
+    pub no_alarm_cell: Option<FormId>,
     /// The current crime victim (IsActorAVictim).
     pub victim: Option<FormId>,
 }
@@ -616,10 +626,24 @@ impl Game<'_> {
         n
     }
 
+    /// The player came through door `door` into `cell` (`None`: not known): a door
+    /// flagged No Alarm (REFR XTEL) excuses the player's trespassing in that cell until
+    /// the player leaves it; any other door ends an earlier excuse (module notes).
+    pub fn arrived_through(&mut self, door: FormId, cell: Option<FormId>) {
+        let no_alarm = self.world.placed.get(door).and_then(|p| p.teleport).is_some_and(|t| t.no_alarm);
+        self.crimes.no_alarm_cell = cell.filter(|_| no_alarm);
+        if let Some(cell) = self.crimes.no_alarm_cell {
+            self.crimes.notes.push(Note::NoAlarm { door, cell });
+        }
+    }
+
     /// Where the player trespasses now: an owned cell, not public, that the player does
-    /// not own (module notes).
+    /// not own, unless the player came in through a No Alarm door (module notes).
     pub fn trespass_cell(&self) -> Option<(FormId, Ownership)> {
         let cell = self.cell_of(FormId::PLAYER_REF)?;
+        if self.crimes.no_alarm_cell == Some(cell) {
+            return None;
+        }
         let o = self.cell_ownership(cell)?;
         (!self.cell_public(cell) && !self.counts_as_owner(FormId::PLAYER_REF, &o)).then_some((cell, o))
     }
@@ -629,6 +653,10 @@ impl Game<'_> {
     pub fn crime_tick(&mut self) -> usize {
         let s = self.crime_settings();
         let now = self.time;
+        // The No Alarm door's excuse ends once the player is out of its cell.
+        if self.crimes.no_alarm_cell.is_some() && self.crimes.no_alarm_cell != self.cell_of(FormId::PLAYER_REF) {
+            self.crimes.no_alarm_cell = None;
+        }
         let here = self.trespass_cell();
         let key = here.map(|(c, o)| (c, o.owner));
         if key != self.crimes.trespassing {

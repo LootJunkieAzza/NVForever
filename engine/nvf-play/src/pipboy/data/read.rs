@@ -62,7 +62,9 @@ pub fn note(lo: &LoadOrder, schema: &Schema, form: u32) -> Option<Note> {
 }
 
 /// A map marker: the reference, its worldspace and place, name, type (`TNAM`), flags
-/// (`FNAM`: 1 visible, 2 can travel to) and the radius the player finds it in (`XRDS`).
+/// (`FNAM`: 1 visible, 2 can travel to), the radius the player finds it in (`XRDS`) and
+/// its reputation (`WMI1`, a REPU: "the reputation that is shown when the player hovers
+/// over the icon on the world map" [documented: GECK wiki Reference, Map Marker]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Marker {
     pub form: u32,
@@ -72,6 +74,8 @@ pub struct Marker {
     pub kind: u8,
     pub flags: u8,
     pub radius: f32,
+    /// The reputation (REPU FormID) and its name (`FULL`).
+    pub reputation: Option<(u32, String)>,
 }
 
 /// Every placed map marker that has a name, by worldspace.
@@ -85,7 +89,13 @@ pub fn markers(lo: &LoadOrder, schema: &Schema, refs: &RefTable) -> Vec<Marker> 
         }
         let Some(name) = text(&f, b"FULL") else { continue };
         let radius = f.raw(b"XRDS").and_then(|s| s.data.get(..4)).map_or(0.0, |b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-        out.push(Marker { form: r.id.0, world: world.0, pos: r.pos, name, kind: byte(&f, b"TNAM").unwrap_or(0), flags: byte(&f, b"FNAM").unwrap_or(0), radius });
+        let reputation = f
+            .raw(b"WMI1")
+            .and_then(|s| s.data.get(..4))
+            .and_then(|b| global(lo, f.plugin, u32::from_le_bytes([b[0], b[1], b[2], b[3]])))
+            .filter(|&rep| rep != 0)
+            .and_then(|rep| Some((rep, fields(lo, schema, rep).and_then(|rf| text(&rf, b"FULL"))?)));
+        out.push(Marker { form: r.id.0, world: world.0, pos: r.pos, name, kind: byte(&f, b"TNAM").unwrap_or(0), flags: byte(&f, b"FNAM").unwrap_or(0), radius, reputation });
     }
     out.sort_by_key(|m| m.form);
     out
@@ -162,15 +172,39 @@ pub struct Door {
     pub name: String,
 }
 
+/// REFR header flag "Hidden From Local Map" (bit 6): "The reference will not be displayed
+/// on the local map" [documented: GECK wiki Reference, Reference Data Flags; xEdit
+/// wbDefinitionsFNV.pas REFR flags; schemas/fnv/world.json].
+pub const HIDDEN_FROM_LOCAL_MAP: u32 = 0x40;
+
+/// DOOR `FNAM` flag "Hidden" (bit 2) [documented: xEdit wbDefinitionsFNV.pas DOOR;
+/// schemas/fnv/objects.json]. What it does is not documented; NVForever leaves such a
+/// door off the local map [hypothesis: the three doors flagged in FalloutNV.esm are
+/// secret ones, `CG04SecretDoor`, `NVLucky38RmLoWallNoShadowDoor` and
+/// `SewerLidExit01NoMinUse`, observed; docs/owner-review.md].
+pub const DOOR_HIDDEN: u8 = 0x04;
+
+/// Whether a door is left off the local map: its reference is flagged Hidden From Local
+/// Map, or its base door is flagged Hidden (`door_flags`, DOOR `FNAM`).
+pub fn door_hidden(ref_flags: u32, door_flags: u8) -> bool {
+    ref_flags & HIDDEN_FROM_LOCAL_MAP != 0 || door_flags & DOOR_HIDDEN != 0
+}
+
 /// The doors leading elsewhere among the references of `cells`, named by the place their
 /// destination door stands in [observed: the owner's Local Map screenshot labels the door
-/// icon "Goodsprings Gas Station", the name of the cell `GSGasStation`].
+/// icon "Goodsprings Gas Station", the name of the cell `GSGasStation`]. Doors left off
+/// the local map ([`door_hidden`]) are not listed; whether a door is enabled now is the
+/// caller's to ask (it changes while the list is kept).
 pub fn doors(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, refs: &RefTable, cells: &[u32]) -> Vec<Door> {
     let mut out = Vec::new();
     for c in cells {
         for id in refs.by_cell.get(&FormId(*c)).into_iter().flatten() {
             let Some(r) = refs.get(*id) else { continue };
             let Some(t) = r.teleport else { continue };
+            let door_flags = fields(lo, schema, r.base.0).filter(|f| &f.sig == b"DOOR").and_then(|f| byte(&f, b"FNAM")).unwrap_or(0);
+            if door_hidden(r.flags, door_flags) {
+                continue;
+            }
             let Some(dest) = refs.get(t.door) else { continue };
             let Some(dest_cell) = dest.cell else { continue };
             let name = match refs.cell_world.get(&dest_cell) {
@@ -183,4 +217,21 @@ pub fn doors(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, refs: &RefTabl
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doors_hidden_from_the_local_map() {
+        assert!(!door_hidden(0, 0));
+        // Hidden From Local Map on the reference (the Dead Money doors 0x0100BFB1 …).
+        assert!(door_hidden(HIDDEN_FROM_LOCAL_MAP | 0x400, 0));
+        // Hidden on the base door (`CG04SecretDoor`, FNAM 28: Hidden, Minimal Use,
+        // Sliding Door).
+        assert!(door_hidden(0, 28));
+        // Automatic Door and Minimal Use alone keep it on the map.
+        assert!(!door_hidden(0x400, 0x02 | 0x08));
+    }
 }

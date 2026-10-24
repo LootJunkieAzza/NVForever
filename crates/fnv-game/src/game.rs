@@ -2780,6 +2780,7 @@ impl<'a> Game<'a> {
                 self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
+                self.arrived_through(target, cell);
                 self.player_entered(cell);
                 self.bring_teammates(from);
             }
@@ -3282,6 +3283,10 @@ impl<'a> Game<'a> {
         // IsLastIdlePlayed has a condition index but no script opcode (`crate::idles`).
         if c.function == crate::idles::IS_LAST_IDLE_PLAYED {
             return crate::idles::is_last_idle_played(self, on, &c.params);
+        }
+        // The VATS area functions have condition indices only, too (`crate::vats`).
+        if crate::vats::is_area_function(c.function) {
+            return crate::vats::area_value(self, c.function);
         }
         self.call_function(&ctx, &c.params).num()
     }

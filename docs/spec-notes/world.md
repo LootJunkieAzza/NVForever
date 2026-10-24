@@ -589,6 +589,18 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
   fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
   Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Cloud scroll** (2026-10-24): ONAM is one byte of speed per cloud layer [documented:
+  xEdit wbWeatherCloudSpeed; GECK wiki GetWeatherTraitNumeric, traits 0-3 "Layer N Cloud
+  Speed"]; neither source gives a unit. Each layer's texture scrolls along u by
+  speed × 1/25,600 texture repeats per real second (`fnv_world::sky::CLOUD_SCROLL_PER_UNIT`,
+  `Weather::cloud_scroll`) [hypothesis: linear, 0 still; the scale is the first sky pass's
+  placeholder, so NVWastelandClear's top layer (65) drifts one texture width in about 6.6
+  minutes; to be measured from two game screenshots of the same view some seconds apart].
+  During a weather fade the outgoing weather's layers keep their own speeds and the
+  incoming weather's theirs, each faded by the transition (the two cloud sets of
+  `nvforever::sky::update_clouds`). The renderer logs `clouds: <weather> layer speeds
+  [..] (ONAM), scrolling .. texture repeats/s` when a weather first shows (smoke
+  `cloud-scroll-onam`).
 - **Fog colour by day** [observed 2026-10-21, the eight exterior reference frames against
   renders of the same cameras, mean colour per 30-pixel row]: distant land fades into a
   warm haze in the game and into a light blue-grey in the renderer. At
@@ -1278,7 +1290,13 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     day and black at night; their shader sets bit 29 too. In game they are warm yellow
     by day.
 
-  The renderer resolves XEMI to the region's highest-chance weather or the light's
+  The renderer resolves XEMI to a region's weather or the light's colour times its fade.
+  The region's weather is the one on screen when the region lists it, else the region's
+  highest-chance weather (the only one before 2026-10-24); while the sky fades between
+  weathers, the colour fades from the outgoing weather's pick to the incoming one's
+  [hypothesis: a region's weather is rolled only where the camera stands, so a region the
+  camera is not in shows its likeliest; `fnv_world::lighting::RegionEmittance::shown`;
+  headless callers without a sky get the highest-chance weather]. The light's
   colour times its fade (the GECK tutorials: emittance takes the light's colour and
   brightness, level-design.md section 2) and scales by its sunlight colour at the current
   hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,

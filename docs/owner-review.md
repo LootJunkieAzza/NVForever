@@ -8311,3 +8311,71 @@ there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/phy
 - *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
   the feet (was 0.5 above the feet themselves).
 - *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+## Cloud scroll, emittance weather, default objects (2026-10-24, ESM full audit §3/§7, branch claude/esm-world)
+
+The clouds scroll by each weather's own per-layer speeds (WTHR ONAM), and a weather fade
+blends the two weathers' layers each moving at its own rate. Glowing beams and lights that
+name a region (REFR XEMI) now follow the weather on screen when that region lists it.
+The companion wheel's stimpak and Paralyzing Palm's spell come from the default-object
+list (DOBJ places 0 and 5; the same forms as before with the shipped data). Specs:
+[world §6 "Cloud scroll", §8 "External emittance"](spec-notes/world.md),
+[default-objects](spec-notes/default-objects.md).
+
+- *Guess:* cloud speed scale. No source gives ONAM's unit; one speed unit is 1/25,600 of
+  a texture width per second (the old placeholder, kept), so NVWastelandClear's top layer
+  (speed 65) drifts one texture width in about 6.6 minutes.
+- *Guess:* a region the camera is not in shows its highest-chance weather for emittance.
+- *Check:* two screenshots of the same sky in the original, 30 s apart in clear weather:
+  how far do the clouds move? That fixes the scale.
+
+## VATS kill cameras (2026-10-24, ESM full audit gap 10, branch claude/esm-world)
+
+When the last mark of a VATS-mode run kills its actor, the game's own camera paths (CPTH)
+pick camera shots (CAMS), and each shot's camera model plays around the kill in slow
+motion with its screen effect. Earlier kills in the run get no camera. Spec:
+[vats-mode §19](design/vats-mode.md).
+
+- *Guess:* how the path tree is walked: the first passing path in order, then its first
+  passing child, else its own shots.
+- *Guess:* what the eight VATS area functions measure: free room beside the player, and
+  how far from the target a camera still sees it, on each side.
+- *Guess:* where a shot's camera stands: the model's camera about the actor the shot is
+  held by, facing along the line from the player to the target.
+- *Guess:* each shot plays for its Max Time in real seconds.
+- *Design:* a kill camera plays on every such kill, with no chance roll and no setting
+  to turn it off. The HUD stays up and movement keys still work while it plays.
+- *Decision for you:* the masters' death cameras are loaded but not played, because your
+  own death camera plays instead. Should the game's death camera replace yours?
+- *Check:* kill the last marked actor, a dog or a raider. Does the camera frame the kill
+  from the front or side, and not from inside a wall?
+
+## World items from the ESM audit (2026-10-24, ESM full audit gaps 16, 22, 24, 25, 26, 30, branch claude/esm-world)
+
+The world map's markers show their reputation; the local map leaves out doors marked
+hidden and doors that are switched off; the STATS hints read the default-object list;
+leveled locks get harder with level; the main menu shows only the flagged loading screens;
+sandbags, force fields and similar objects block NPC paths while they are switched on;
+the "No Alarm" doors excuse trespassing. Specs: [pipboy §5.3](spec-notes/pipboy.md),
+[simulation §5](spec-notes/simulation.md), [loading-screens §5](spec-notes/loading-screens.md),
+[navmesh §4c](spec-notes/navmesh.md), [crime-karma §3.3](spec-notes/crime-karma.md).
+
+- *Guess:* a marker's reputation shows on a second line under the name, as
+  "Goodsprings: Neutral" (the reputation's name, then your standing's title). The wiki only
+  says the reputation "is shown" on hover.
+- *Guess:* a door whose base is flagged Hidden is not drawn on the local map. The three such
+  doors in the base game are secret doors (CG04SecretDoor, a Lucky 38 wall door, a sewer
+  lid), and none leads elsewhere, so nothing on screen changes with the shipped data.
+- *Guess:* leveled locks get one step harder (Very Easy → Easy → …) for every 10 levels
+  past level 1, up to Very Hard, never needing a key. The level is fixed the first time the
+  lock is met, from the area's level (else yours). Only the add-ons use them (Dead Money 22,
+  Old World Blues 3, Honest Hearts 1), so at level 21 a Dead Money "Easy" locker shows Hard.
+- *Guess:* only obstacles that can be switched on and off (Initially Disabled or with an
+  enable parent: 149 in the base game) cut the navmesh, by their bounding box. The other
+  59,000 (rocks, cliffs) are already holes in the navmesh.
+- *Guess:* coming through a "No Alarm" door, you are not trespassing in the room you arrive
+  in until you leave it (5 doors: Dead Money 2, Lonesome Road 3).
+- *Design:* if no loading screen is flagged for the main menu (a mod's load order), the
+  menu falls back to the screens with no location.
+- *Check:* hover Goodsprings on the world map in the original: what does the text under
+  the name say? And does a Dead Money locker show a harder lock at level 30 than at 20?
