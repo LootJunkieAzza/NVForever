@@ -117,7 +117,7 @@ pub fn choose_weapon(carried: &[FormId], weapons: &HashMap<FormId, Weapon>) -> O
     for &id in carried {
         let Some(w) = weapons.get(&id).filter(|w| drawable(w) && !w.not_for_npcs) else { continue };
         let key = (!is_thrown(w), choice_damage(w));
-        if best.is_none_or(|(k, _)| key.0 > k.0 || (key.0 == k.0 && key.1 > k.1)) {
+        if best.is_none_or(|(k, _)| (key.0 && !k.0) || (key.0 == k.0 && key.1 > k.1)) {
             best = Some((key, id));
         }
     }

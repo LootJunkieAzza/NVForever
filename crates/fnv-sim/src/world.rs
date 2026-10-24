@@ -547,7 +547,7 @@ impl<'a> World<'a> {
         for &i in &carried {
             let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable && !it.not_for_npcs) else { continue };
             let key = (!it.thrown, it.weapon_damage.unwrap_or(0.0));
-            if weapon.is_none_or(|(best, _)| key.0 > best.0 || (key.0 == best.0 && key.1 > best.1)) {
+            if weapon.is_none_or(|(best, _)| (key.0 && !best.0) || (key.0 == best.0 && key.1 > best.1)) {
                 weapon = Some((key, i));
             }
         }
