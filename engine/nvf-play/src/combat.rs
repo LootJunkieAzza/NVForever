@@ -117,7 +117,7 @@ use fnv_combat::vec::{self, V3};
 use fnv_combat::{shot, CombatForms, CombatTuning, Rules};
 use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::activate::HudMessage;
 use crate::sfx::{LoopSound, PlaySound, Sfx};
@@ -156,6 +156,13 @@ pub struct WeaponAnim {
     /// (Agility and the Reload Speed perks, `fnv_combat::attack::reload_rate`); the cycle
     /// takes the same share of time. 0 before combat has set it: read as 1.
     pub reload_rate: f32,
+    /// Set by combat: how fast the attack clip plays, a multiple of its own speed: the
+    /// weapon's Animation and Animation Attack multipliers and the Modify Attack Speed
+    /// perks; the shot cycle takes the same share of time. 0 before combat has set it.
+    pub attack_rate: f32,
+    /// Set by combat: how fast the draw and holster clips play (the Equip Speed perks:
+    /// Quick Draw); the draw and holster take the same share of time. 0: read as 1.
+    pub equip_rate: f32,
     /// Counted up by combat when a round-by-round reload starts on a round: the body
     /// plays the reload clip from its start (a reload count plays the opening clip).
     pub reload_rounds: u32,
@@ -388,6 +395,8 @@ pub struct ActorHit {
     pub share: f32,
     /// A power attack broke through its block (`damage::against_block`): it staggers.
     pub guard_broken: bool,
+    /// The weapon of the hit, when known (Meltdown, perk-entry-points.md §9).
+    pub weapon: Option<FormId>,
 }
 
 /// An actor's weapon left its hand: it reached zero condition and fell (§17), or a hit
@@ -875,10 +884,15 @@ pub struct Combat {
     /// The player's spread (PSp, spread units, after "Calculate Gun Spread" perks) at the
     /// same time: a scope's sway (docs/spec-notes/weapon-scopes.md §5).
     pub player_spread: Option<f32>,
+    /// When (`time`) the player's block last stopped a blow: Scribe Counter's window
+    /// (perk-entry-points.md §11).
+    player_blocked_at: Option<f32>,
     /// The cone (half-angle, degrees) VATS mode's hit chance reads for the gun in hand
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
     pub vats_cone: Option<f32>,
+    /// The weapon and factor of the last Modify Throwing Velocity line (one a change).
+    throw_logged: Option<(FormId, u32)>,
     /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
     /// last one ended, and its own rolls (the view's kick).
     flinch_until: f32,
@@ -1181,7 +1195,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1198,6 +1212,136 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
     if pace.0 != want {
         pace.0 = want;
         info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
+    }
+}
+
+/// Scribe Counter's window: a blow begun this long (combat seconds) after the player's
+/// block stopped one is the counter [design: "quick counter-attack after Block", the
+/// fandom wiki; the original's window is not documented].
+pub const COUNTER_WINDOW: f32 = 1.0;
+
+/// An unarmed special move the player's perks give a power attack (perk-entry-points.md
+/// §11).
+#[derive(Debug, Clone, Copy)]
+struct SpecialMove {
+    name: &'static str,
+    /// The DOBJ's effect for the direction, put on with the blow.
+    spell: Option<FormId>,
+    /// Legion Assault knocks the target back [the fandom wiki, "Knock back opponents";
+    /// the DOBJ names no effect for it].
+    knock_back: bool,
+}
+
+/// The special move a power attack in `dir` is, when the player has its perk.
+fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_combat::melee::PowerDir) -> Option<SpecialMove> {
+    use fnv_combat::melee::PowerDir;
+    use fnv_game::data::DefaultObject as D;
+    use fnv_game::perks as p;
+    let (point, slot, name) = match dir {
+        PowerDir::Forward => (p::HAS_UNARMED_FORWARD_POWER_ATTACK, D::UnarmedForwardPa, "Legion Assault"),
+        PowerDir::Back => (p::HAS_UNARMED_BACK_POWER_ATTACK, D::UnarmedBackwardPa, "Ranger Takedown"),
+        PowerDir::Left => (p::HAS_UNARMED_LEFT_POWER_ATTACK, D::UnarmedLeftPa, "Khan Trick"),
+        PowerDir::Right => (p::HAS_UNARMED_RIGHT_POWER_ATTACK, D::UnarmedRightPa, "Khan Trick"),
+        PowerDir::Stand => return None,
+    };
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(point), rt.game.data.default_object(slot)));
+    has.then_some(SpecialMove { name, spell, knock_back: dir == PowerDir::Forward })
+}
+
+/// Whether the player has a flag entry point's perk now.
+fn player_entry(script: Option<&mut ScriptState>, sim: &mut SimState, point: u8) -> bool {
+    script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.game.player_has_entry(point)))
+}
+
+/// Knock `target` down away along `dir`, as a blast's knockdown does; logged with `why`.
+fn knock_down(script: Option<&mut ScriptState>, by: FormId, target: FormId, dir: V3, why: &str) -> bool {
+    let shove = [dir[0] * BLAST_KNOCKDOWN_SPEED, dir[1] * BLAST_KNOCKDOWN_SPEED, BLAST_KNOCKDOWN_SPEED * fnv_game::unconscious::PUSH_LIFT];
+    let down = script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, Some(by), shove));
+    if down {
+        info!("combat: {why} knocks {target} down");
+    } else {
+        info!("combat: {why}: {target} cannot be knocked down (No Knockdowns, or seated or talking)");
+    }
+    down
+}
+
+/// The Knockdown Chance perks of `attacker`'s hit with `weapon` on `target` (Super Slam
+/// 0.15 / 0.30, And Stay Back 0.1, Elijah's Last Words 0.25; perk-entry-points.md §11):
+/// from 0, rolled once a hit.
+fn perk_knockdown(c: &mut Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, attacker: FormId, weapon: FormId, target: FormId, dir: V3) {
+    let (chance, by) = owner_weapon_perk(script.as_deref_mut(), sim, attacker, fnv_game::perks::KNOCKDOWN_CHANCE, weapon, 0.0);
+    if chance <= 0.0 || by.is_empty() {
+        return;
+    }
+    let roll = c.rng.next_f32();
+    if roll >= chance {
+        info!("combat: Knockdown Chance {chance:.2} ({}): rolled {roll:.2}, {target} stays up", by.join(", "));
+        return;
+    }
+    knock_down(script, attacker, target, dir, &format!("Knockdown Chance {chance:.2} ({}, rolled {roll:.2})", by.join(", ")));
+}
+
+/// Meltdown (Has Meltdown, perk-entry-points.md §9): a foe the player (or a teammate with
+/// the perk) kills with an Energy Weapons weapon gives off the DOBJ's Meltdown Explosion
+/// (`MinePlasmaExplosion` in FalloutNV.esm) at its body, the killer's blast with the same
+/// weapon, so a kill by it does the same again: "this can cause a chain reaction" [observed:
+/// the perk's DESC]. A body gives one off once.
+#[allow(clippy::too_many_arguments)]
+fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, phys: Res<PhysState>, mut done: Local<HashSet<u32>>) {
+    let kills: Vec<(u32, FormId, FormId)> = hits.read().filter(|h| h.died).filter_map(|h| Some((h.form_id, h.by?, h.weapon?))).collect();
+    for (victim, by, weapon) in kills {
+        let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+        if done.contains(&victim) || (by != FormId::PLAYER_REF && !rt.game.is_teammate(by)) {
+            continue;
+        }
+        let energy = rt.game.data.weapon_skills.get(&weapon).copied() == Some(fnv_game::actor_values::ENERGY_WEAPONS as i64);
+        let (has, explosion) = with_world(rt, &mut sim, |rt| {
+            let g = &mut rt.game;
+            (energy && g.entry_point(by, fnv_game::perks::HAS_MELTDOWN, 0.0).0 != 0.0, g.data.default_object(fnv_game::data::DefaultObject::MeltdownExplosion))
+        });
+        if !has {
+            continue;
+        }
+        let Some(explosion) = explosion else {
+            warn!("combat: Meltdown: the load order's DOBJ names no Meltdown Explosion");
+            continue;
+        };
+        let Some(at) = phys.world.actor_aim_point(victim).or_else(|| sim.world.peek(FormId(victim)).map(|r| [r.pos[0], r.pos[1], r.pos[2] + 60.0])) else { continue };
+        done.insert(victim);
+        info!("combat: Meltdown: {} gives off {} ({by}'s kill with {})", FormId(victim), c.forms.explosions.get(&explosion).and_then(|x| x.edid.as_deref()).unwrap_or("?"), c.forms.weapons.get(&weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"));
+        c.mine_explodes(explosion, at, Some((by, weapon)));
+    }
+}
+
+/// The player's Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …,
+/// perk-entry-points.md §8): their factor on the player's movement, walking and running
+/// alike, their conditions (armour, sneaking) asked every frame (`crate::player::PerkSpeed`).
+fn perk_speed(c: Res<Combat>, mut anim: ResMut<WeaponAnim>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, speed: Option<ResMut<crate::player::PerkSpeed>>) {
+    // The Equip Speed perks (Quick Draw) on the weapon in hand: the draw and holster
+    // clips play that much faster (`WeaponAnim::equip_rate`, perk-entry-points.md §10).
+    if let Some(weapon) = c.weapon {
+        let (eq, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::EQUIP_SPEED, weapon, 1.0);
+        let eq = if eq.is_finite() && eq > 0.0 { eq } else { 1.0 };
+        if (eq - anim.equip_rate).abs() > 1e-4 && (anim.equip_rate > 0.0 || !by.is_empty()) {
+            info!("combat: draws and holsters at x{eq:.2}{}", if by.is_empty() { String::new() } else { format!(" ({})", by.join(", ")) });
+        }
+        anim.equip_rate = eq;
+    }
+    let (Some(mut speed), Some(rt)) = (speed, script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
+    let (want, by) = with_world(rt, &mut sim, |rt| {
+        let g = &mut rt.game;
+        let (v, applied) = g.entry_point(FormId::PLAYER_REF, fnv_game::perks::MODIFY_RUN_SPEED, 1.0);
+        (v as f32, applied.iter().map(|a| g.data.name(a.perk)).collect::<Vec<_>>())
+    });
+    let want = want.clamp(0.1, 5.0);
+    if (speed.0 - want).abs() > 1e-4 {
+        speed.0 = want;
+        if by.is_empty() {
+            info!("movement: no Modify Run Speed perks apply: the player moves at 100%");
+        } else {
+            info!("movement: the Modify Run Speed perks make the player move at {:.0}% ({})", want * 100.0, by.join(", "));
+        }
     }
 }
 
@@ -1384,6 +1528,8 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         crosshair_cone: None,
         player_spread: None,
         vats_cone: None,
+        player_blocked_at: None,
+        throw_logged: None,
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
@@ -1756,9 +1902,18 @@ fn hit_perks(script: Option<&mut ScriptState>, sim: &mut SimState, attacker: For
 /// of spread, AP cost and the weapon's other figures) [documented: GECK wiki
 /// GetPerkModifier], and the perks that changed it.
 pub(crate) fn player_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimState, point: u8, weapon: FormId, v: f32) -> (f32, Vec<String>) {
+    owner_weapon_perk(script, sim, FormId::PLAYER_REF, point, weapon, v)
+}
+
+/// [`player_weapon_perk`] for any owner: the player, or a teammate with the teammate
+/// perks (`fnv_game::Game::held_perks`); others hold none.
+pub(crate) fn owner_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimState, owner: FormId, point: u8, weapon: FormId, v: f32) -> (f32, Vec<String>) {
     use damage::PerkHooks;
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return (v, Vec::new()) };
-    let ops = with_world(rt, sim, |rt| entry_ops(&mut rt.game, FormId::PLAYER_REF, &[point], &[Some(weapon)], None));
+    if owner != FormId::PLAYER_REF && !rt.game.is_teammate(owner) {
+        return (v, Vec::new());
+    }
+    let ops = with_world(rt, sim, |rt| entry_ops(&mut rt.game, owner, &[point], &[Some(weapon)], None));
     (ops.entry(point, v), ops.names().into_iter().map(str::to_string).collect())
 }
 
@@ -1911,7 +2066,21 @@ pub(crate) fn fire(
         info!("combat: reloads at x{rate:.2} (Agility {agility:.0})");
     }
     anim.reload_rate = rate;
-    cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate);
+    // The attack at the player's rate: the Modify Attack Speed perks (Fast Shot, Loose
+    // Cannon, Trigger Discipline …, perk-entry-points.md §10); the body plays the attack
+    // clip at the weapon's speed times that (`WeaponAnim::attack_rate`).
+    let (atk, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_ATTACK_SPEED, id, 1.0);
+    let atk = if atk.is_finite() && atk > 0.0 { atk } else { 1.0 };
+    let clip_rate = w.attack_mult.max(0.01) * w.anim_mult.max(0.01) * atk;
+    if (clip_rate - anim.attack_rate).abs() > 1e-4 {
+        if by.is_empty() {
+            info!("combat: attacks at x{clip_rate:.2} ({})", w.edid.as_deref().unwrap_or("?"));
+        } else {
+            info!("combat: attacks at x{clip_rate:.2} ({}; perks x{atk:.2}: {})", w.edid.as_deref().unwrap_or("?"), by.join(", "));
+        }
+    }
+    anim.attack_rate = clip_rate;
+    cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate).with_attack_rate(atk);
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
     if vats_shot.is_some() {
@@ -2072,10 +2241,17 @@ pub(crate) fn fire(
                 // In third person the view ray is the camera's, through the crosshair over
                 // the shoulder: the shot aims from the eye at what lies under it, as the
                 // eye's view ray does in first person (playtest list 4, item 12).
+                // Heave Ho!'s Modify Throwing Velocity: "run when ANY projectile is
+                // created … the velocity of ANY projectile spawned by the perk owner
+                // (filtered by conditions)" [documented: GECK wiki Entry Point]
+                // (perk-entry-points.md §8).
+                let (throw_mult, throw_by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_THROWING_VELOCITY, id, 1.0);
+                let throw_mult = throw_mult.max(0.01);
                 let leaving = if let Some(point) = vats_shot.filter(|_| c.self_ammo) {
                     // VATS mode's throw: from the eye on the low arc that lands on the mark
-                    // (vats-mode.md §16.3), at 45° when it is out of reach.
-                    let (speed, g) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.speed, p.gravity * gravity));
+                    // (vats-mode.md §16.3), at 45° when it is out of reach; at the speed the
+                    // throw will leave with.
+                    let (speed, g) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.speed * throw_mult, p.gravity * gravity));
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
@@ -2106,6 +2282,13 @@ pub(crate) fn fire(
                 // A mod's Increase Projectile Speed (weapon-data-fields.md §5).
                 if let Some(m) = w.projectile_speed_mult {
                     shots.iter_mut().for_each(|p| p.speed_up(m));
+                }
+                if (throw_mult - 1.0).abs() > 1e-4 {
+                    shots.iter_mut().for_each(|p| p.speed_up(throw_mult));
+                    if c.throw_logged != Some((id, throw_mult.to_bits())) {
+                        info!("combat: perks change {}'s projectile speed x {throw_mult:.2} ({})", w.edid.as_deref().unwrap_or("?"), throw_by.join(", "));
+                        c.throw_logged = Some((id, throw_mult.to_bits()));
+                    }
                 }
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
@@ -2515,7 +2698,7 @@ pub(crate) fn apply_hit(
             feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken, weapon: info.weapon });
     }
     Some(r)
 }
@@ -2602,7 +2785,19 @@ fn melee(
     let w = c.player_stats(id).expect("weapon present");
     // The clip the body timed for the swing playing; a new swing runs on the weapon's
     // own timing until the body has read its clip (the next frame).
-    let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01);
+    // The Modify Attack Speed perks (Slayer, Melee Hacker …) speed the swing as the
+    // weapon's own multipliers do; the body plays the swing clip at the same rate.
+    let (atk, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_ATTACK_SPEED, id, 1.0);
+    let atk = if atk.is_finite() && atk > 0.0 { atk } else { 1.0 };
+    let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01) * atk;
+    if (speed - anim.attack_rate).abs() > 1e-4 {
+        if by.is_empty() {
+            info!("combat: swings at x{speed:.2} ({})", w.edid.as_deref().unwrap_or("?"));
+        } else {
+            info!("combat: swings at x{speed:.2} ({}; perks x{atk:.2}: {})", w.edid.as_deref().unwrap_or("?"), by.join(", "));
+        }
+    }
+    anim.attack_rate = speed;
     if let Some(stem) = anim.timed.as_deref() {
         let t = &anim.timing;
         c.swings.set_timing(stem, SwingTiming::of(t.attack_len, t.hit_time, t.next_attack, speed, 1.0));
@@ -2638,7 +2833,19 @@ fn melee(
             MeleeEvent::Ended => {}
         }
     }
-    if let Some(power) = strike {
+    if let Some(mut power) = strike {
+        // The unarmed special moves (perk-entry-points.md §11): Scribe Counter makes a
+        // plain blow within COUNTER_WINDOW of a block a standing power attack.
+        let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
+        if power.is_none() && unarmed && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW) && player_entry(script.as_deref_mut(), &mut sim, fnv_game::perks::HAS_UNARMED_COUNTER_ATTACK) {
+            power = Some(fnv_combat::melee::PowerDir::Stand);
+            c.player_blocked_at = None;
+            info!("combat: Scribe Counter: the blow after the block is a power attack");
+        }
+        let special = if unarmed { power.and_then(|d| special_move(script.as_deref_mut(), &mut sim, d)) } else { None };
+        if let Some(m) = special {
+            info!("combat: {} ({:?} power attack, unarmed)", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand));
+        }
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();
@@ -2758,8 +2965,23 @@ fn melee(
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
-            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            let mut items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            // A special move's effect goes on with the blow (Ranger Takedown's knockdown
+            // spell, Khan Trick's head crippling: the DOBJ's).
+            if let Some(spell) = special.and_then(|m| m.spell) {
+                items.push(spell);
+            }
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
+            if r.as_ref().is_some_and(|r| !r.died && !r.immune) {
+                // Legion Assault knocks back (no DOBJ spell); the Knockdown Chance perks
+                // (Super Slam, Elijah's Last Words) may knock the target down.
+                let away = player.look_dir();
+                if special.is_some_and(|m| m.knock_back) {
+                    knock_down(script.as_deref_mut(), FormId::PLAYER_REF, target, away, "Legion Assault");
+                } else {
+                    perk_knockdown(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, target, away);
+                }
+            }
             if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
                 dm.checks.push(check);
             }
@@ -3004,6 +3226,9 @@ fn actor_attacks(
             } else {
                 stats.blows_blocked += 1;
                 info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
+                if b.target == FormId::PLAYER_REF {
+                    c.player_blocked_at = Some(c.time);
+                }
                 c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
                 if let Some(sound) = block_sound(c, &sim, sfx.as_deref(), b.target) {
                     sounds.write(sound);
@@ -3239,7 +3464,16 @@ fn fly(
             break;
         }
         stats.explosions += 1;
-        let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        let Some(mut x) = c.forms.explosions.get(&id).cloned() else { continue };
+        // Splash Damage's Adjust Explosion Radius, for the cause's blasts (the player's
+        // and its teammates'; perk-entry-points.md §8).
+        if let Some(cause) = cause {
+            let (r, by) = owner_weapon_perk(script.as_deref_mut(), &mut sim, cause.actor, fnv_game::perks::ADJUST_EXPLOSION_RADIUS, cause.weapon, x.radius);
+            if !by.is_empty() && (r - x.radius).abs() > 1e-3 {
+                info!("combat: perks change {}'s radius {:.0} -> {:.0} ({})", x.edid.as_deref().unwrap_or("?"), x.radius, r.max(0.0), by.join(", "));
+                x.radius = r.max(0.0);
+            }
+        }
         effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor) });
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
@@ -3446,6 +3680,10 @@ fn fly(
                 with_world(rt, &mut sim, |rt| rt.game.damage_fatigue(target, f64::from(fatigue)));
                 info!("combat: {target} loses {fatigue:.0} fatigue to the ammo");
             }
+        }
+        // The Knockdown Chance perks on the shooter's hit (And Stay Back, per pellet).
+        if r.as_ref().is_some_and(|r| !r.died && !r.immune) && target != FormId::PLAYER_REF {
+            perk_knockdown(c, script.as_deref_mut(), &mut sim, shooter, id, target, p.dir);
         }
         if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
             dm.checks.push(check);

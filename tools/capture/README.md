@@ -570,7 +570,8 @@ python tools/capture/function_probe.py game C:/fnv-private/capture/probe/audit2 
 python tools/capture/function_probe.py compare C:/fnv-private/capture/probe/audit2 -o compare.md --json compare.json
 ```
 
-`game` takes both game locks (as the smoke runner does), then runs the jobs unattended
+`game` takes both game locks (the smoke runner's `--exclusive` way; it waits while smoke
+slots run), then runs the jobs unattended
 through `capture_run.py` from the save `nvftest`; `ours` runs `fnvtool script run` with the
 runner's `call` action. `function_coverage.py` writes the coverage doc's tables from
 `fnvtool script coverage`, `fnvtool script uses`, `function_systems.toml` and the

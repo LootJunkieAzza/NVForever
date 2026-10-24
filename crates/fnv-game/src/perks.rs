@@ -123,6 +123,37 @@ pub const HAS_FAST_TRAVEL_ALWAYS: u8 = 51;
 pub const MODIFY_LIGHT_ITEMS: u8 = 55;
 pub const ADJUST_HEAVY_WEAPON_WEIGHT: u8 = 73;
 
+/// The entry points of mines, explosions, throws and movement (docs/spec-notes/
+/// perk-entry-points.md §8) [documented: GECK wiki GetNthPerkEntryFunction, the codes;
+/// Entry Point, what each does; observed: the perks' entries]: Calculate Mine Explode
+/// Chance (Light Step Set 0; In My Footsteps Set 0; ED-E's Light Step Set 0 under GetIsID
+/// conditions), Modify Run Speed (Travel Light × 1.1, Tunnel Runner × 1.25, Implant M-5 ×
+/// 1.2, Atomic! × 1.25, Stealth Suit Mk II × 1.2, each with its own conditions), Adjust
+/// Explosion Radius (Splash Damage × 1.25).
+pub const CALCULATE_MINE_EXPLODE_CHANCE: u8 = 4;
+pub const MODIFY_RUN_SPEED: u8 = 42;
+pub const ADJUST_EXPLOSION_RADIUS: u8 = 72;
+
+/// The entry points of kills, the HUD, repair and drinking (docs/spec-notes/
+/// perk-entry-points.md §9) [documented: GECK wiki GetNthPerkEntryFunction, the codes;
+/// Entry Point, what each does; observed: the perks' one entry each, no conditions]:
+/// Adjust Drinking Radiation (Implant Y-3 × 0.01), Has Meltdown (Meltdown Set 1), See Enemy
+/// Health (Living Anatomy Set 1), Has Jury Rigging (Jury Rigging Set 1).
+pub const ADJUST_DRINKING_RADIATION: u8 = 26;
+pub const HAS_MELTDOWN: u8 = 46;
+pub const SEE_ENEMY_HEALTH: u8 = 47;
+pub const HAS_JURY_RIGGING: u8 = 48;
+
+/// The unarmed special moves (docs/spec-notes/perk-entry-points.md §11) [documented: GECK
+/// wiki GetNthPerkEntryFunction, codes 61–66; observed: Legion Assault 61, Ranger Takedown
+/// 62, Scribe Counter 64, Khan Trick 65 and 66, each Set 1 with no conditions].
+pub const HAS_UNARMED_FORWARD_POWER_ATTACK: u8 = 61;
+pub const HAS_UNARMED_BACK_POWER_ATTACK: u8 = 62;
+pub const HAS_UNARMED_CROUCHED_POWER_ATTACK: u8 = 63;
+pub const HAS_UNARMED_COUNTER_ATTACK: u8 = 64;
+pub const HAS_UNARMED_LEFT_POWER_ATTACK: u8 = 65;
+pub const HAS_UNARMED_RIGHT_POWER_ATTACK: u8 = 66;
+
 /// The weight Adjust Heavy Weapon Weight starts at: "a Weapon which weighs 10.0 lbs or more
 /// (after the DecreaseWeight Weapon Mod effect)" [documented: GECK wiki Entry Point].
 pub const HEAVY_WEAPON_WEIGHT: f32 = 10.0;
@@ -353,6 +384,16 @@ impl Game<'_> {
         for (perk, spell) in new {
             tracing::info!("perks: {who}: {}'s ability {} on", data.name(perk), data.name(spell));
         }
+    }
+
+    /// Whether `actor` holds a perk with an entry of `point` at the rank it has, its
+    /// conditions not asked: for flag entry points whose entries have none (Jury Rigging),
+    /// where only a shared borrow of the game is at hand.
+    pub fn holds_entry_point(&self, actor: FormId, point: u8) -> bool {
+        let data = self.data;
+        self.held_perks(actor).into_iter().any(|(perk, rank)| {
+            data.perks.get(&perk).is_some_and(|d| d.entries.iter().any(|e| matches!(&e.effect, PerkEffect::EntryPoint(ep) if ep.point == point) && e.rank < rank.max(1)))
+        })
     }
 
     /// Whether the player's entries of a flag entry point (Set 1: Silent Running, Long

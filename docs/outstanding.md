@@ -262,6 +262,14 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   longer split up and early waiters do not starve (`tools/smoke/smoke/runner.py` `Queue`).
   Plain `mkdir` lockers (captures) take no ticket; the runner at the head of the queue
   polls every 5 s so they do not keep winning the race.
+- **Smoke slots** (2026-10-24): up to 3 nvforever smoke games at once on the machine
+  (`tools/smoke/smoke/slots.py`). A slot is an OS file lock in `.claude\smoke-slots\`
+  (it goes with a crashed runner); while any is held, `.claude\smoke.lock` is a shared
+  lock (owner file `shared …`) so a capture's `mkdir` fails and it waits. Smoke only waits
+  on `run.lock`, never takes it. The first 3 slot runners in the queue split the slots
+  (oldest gets the remainder); an old-style ticket ahead (function_probe, the stress tool,
+  `--exclusive`, an older runner) gets its turn alone. Launches with the same
+  `NVFOREVER_HOME` run in order on one worker (save-write before save-load).
 - **`scenarios.toml` merges**: git's merge of two branches that both append scenarios at
   the end drops the `]` and `[[scenario]]` lines between them (at least five times on
   2026-10-16/17). After a merge, check the file parses and holds every scenario of both

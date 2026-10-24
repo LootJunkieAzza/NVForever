@@ -932,6 +932,19 @@ fn reload_time_follows_agility() {
     assert!(close(base.with_reload_rate(0.0).reload, 2.0));
 }
 
+/// The Modify Attack Speed perks: the shot cycle runs `rate` times as fast; the reload
+/// does not change (perk-entry-points.md §10).
+#[test]
+fn attack_rate_shortens_the_cycle_not_the_reload() {
+    let base = Timing { interval: 0.6, fire_delay: 0.2, reload: 2.0, spin_up: 0.0, rounds: None, attach: Some(0.4) };
+    let fast = base.with_attack_rate(1.2);
+    assert!(close(fast.interval, 0.5) && close(fast.fire_delay, 0.2 / 1.2) && close(fast.attach.unwrap(), 0.4 / 1.2), "{fast:?}");
+    assert!(close(fast.reload, 2.0));
+    let slow = base.with_attack_rate(0.8);
+    assert!(close(slow.interval, 0.75));
+    assert!(close(base.with_attack_rate(0.0).interval, 0.6), "0 is read as 1");
+}
+
 /// Companion Nerve: a teammate's hits do 5 % more per point of the player's Charisma
 /// and its DT and DR go up by the same share [documented: Fallout Wiki, Charisma (Fallout:
 /// New Vegas), "+5% to their damage and armor"].

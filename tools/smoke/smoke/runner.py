@@ -75,10 +75,11 @@ class Queue:
     Tickets of processes that are gone are cleared. Plain `mkdir` lockers (captures)
     take no ticket and are not held back by the queue."""
 
-    def __init__(self, folder: Path, pid: int | None = None, alive=None):
+    def __init__(self, folder: Path, pid: int | None = None, alive=None, label: str = "smoke runner"):
         self.folder = Path(folder)
         self.pid = os.getpid() if pid is None else pid
         self.alive = alive or pid_alive
+        self.label = label  # the ticket's text after the pid ("smoke runner slots": a slot runner)
         self.ticket: Path | None = None
 
     def join(self) -> None:
@@ -86,7 +87,7 @@ class Queue:
             return
         self.folder.mkdir(parents=True, exist_ok=True)
         self.ticket = self.folder / f"{time.time_ns():020d}-{self.pid}.ticket"
-        self.ticket.write_text(f"{self.pid} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        self.ticket.write_text(f"{self.pid} {self.label} {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     def leave(self) -> None:
         if self.ticket is not None:
@@ -98,12 +99,17 @@ class Queue:
 
     def ahead(self) -> list[Path]:
         """The live tickets before this runner's, oldest first (dead ones cleared)."""
+        return self.live()[0]
+
+    def live(self) -> tuple[list[Path], list[Path]]:
+        """The live tickets before and after this runner's, oldest first (dead ones cleared)."""
         if self.ticket is None:
-            return []
-        out = []
+            return [], []
+        out, behind, after = [], [], False
         for t in sorted(self.folder.glob("*.ticket")):
             if t == self.ticket:
-                break
+                after = True
+                continue
             try:
                 pid = int(t.stem.split("-")[1])
             except (IndexError, ValueError):
@@ -116,8 +122,8 @@ class Queue:
                 except OSError:
                     pass
                 continue
-            out.append(t)
-        return out
+            (behind if after else out).append(t)
+        return out, behind
 
 
 class Locks:
@@ -222,7 +228,7 @@ class Locks:
             # without a ticket does not keep winning the race.
             time.sleep(self.poll if ahead else min(self.poll, 5.0))
 
-    def release(self) -> None:
+    def release(self, _held=None) -> None:
         """Give the locks back between launches; the place in the queue is kept."""
         for p in reversed(self.held):
             shutil.rmtree(p, ignore_errors=True)
@@ -363,8 +369,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
         (env.out / f"{launch.name}.cmd.txt").write_text(
             "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
         (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
-        if locks:
-            locks.acquire()
+        held = locks.acquire() if locks else None  # a smoke slot, or None for the old locks
         started = time.monotonic()  # the launch's own time, without waiting for the locks
         try:
             with open(log, "w", encoding="utf-8", errors="replace") as f:
@@ -382,7 +387,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
         finally:
             if locks:
-                locks.release()
+                locks.release(held)
     else:
         s = launch.scenarios[0]
         ctx = {"data": str(env.data), "repo": str(env.repo)}
