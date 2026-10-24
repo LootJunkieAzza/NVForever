@@ -101,8 +101,17 @@ engine if needed, and delete the item here.
    - Force greets need a clear line, but facing doesn't matter.
    - A woken sleeper talks within 8 s and stays up 30 game-seconds.
    - People during a wait walk an hour's worth each hour.
+   - **Actors heading for you from outside the loaded area** (owner 2026-10-24: on the
+     map they seem to jump closer about once a minute, not walk). Does the original walk
+     them or move them in jumps, how often and how far? Do they turn when you move? Do they
+     cross into worldspaces with no door link (they should not)? Ours: actors outside the
+     loaded area walk the navmesh in updates every 18 s or 120 s, and they skip Dialogue
+     packages, so Malcolm Holmes never comes after the first star cap. Campaign ready:
+     `tools/capture/observe/holmes_far_travel.campaign.json` (sessions near, mid, far,
+     far_moving; one run each with `--only`, as his move happens once per save; the
+     `nvfstrip` save must have no star cap picked up yet).
    To check: observer timelines, which already record packages.
-   ([actor-behaviour §3, §5.5–§5.6](../design/actor-behaviour.md),
+   ([actor-behaviour §3, §5.5–§5.6, §5.9](../design/actor-behaviour.md),
    [owner-decision-captures §7](../spec-notes/owner-decision-captures.md))
 
 ## P2: rules met often
