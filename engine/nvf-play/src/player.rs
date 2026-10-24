@@ -354,6 +354,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
             .init_resource::<RunPace>()
+            .init_resource::<PerkSpeed>()
             .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks, flinch_holds_walk).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
@@ -603,6 +604,21 @@ pub struct RunPace(pub f32);
 impl Default for RunPace {
     fn default() -> Self {
         RunPace(1.0)
+    }
+}
+
+/// What slows or speeds the player's steps: crippled legs, a two-handed weapon's run, the
+/// Modify Run Speed perks.
+type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>);
+
+/// The player's Modify Run Speed perks' factor on its movement, walking, running and
+/// sneaking (`crate::combat`'s `perk_speed`; perk-entry-points.md §8).
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct PerkSpeed(pub f32);
+
+impl Default for PerkSpeed {
+    fn default() -> Self {
+        PerkSpeed(1.0)
     }
 }
 
@@ -918,7 +934,7 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
-    (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
+    (limbs, pace, perk_pace): Paces,
     turbo: Option<Res<crate::script::PlayerTimeScale>>,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
@@ -1030,6 +1046,8 @@ fn step(
             let k = limbs.as_deref().map_or(1.0, crate::combat::PlayerLimbs::speed_mult);
             // Running with a two-handed weapon drawn is slower (`RunPace`).
             let k = if intent.walk { k } else { k * pace.as_deref().map_or(1.0, |p| p.0) };
+            // The Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …).
+            let k = k * perk_pace.as_deref().map_or(1.0, |p| p.0);
             let [x, y] = velocity(&intent, player.heading, *speeds);
             [x * k, y * k, 0.0]
         };

@@ -8280,6 +8280,48 @@ expect = [
 order = [["combat: WeapNVDynamite winds up", "starts at the pull", "combat: WeapNVDynamite leaves the hand"]]
 
 [[scenario]]
+name = "perk-light-step"
+source = "perk audit 2026-10-23 §3.5, owner 2026-10-24: with Light Step the player never sets off a mine (docs/spec-notes/perk-entry-points.md §8)"
+note = "mines-placed's last step (god mode, Explosives 20, the player put on the Primm bridge's frag mine 0x00172DB5, where it went off after 0.6 s) with the perk LightStep given at 4 s: the mine is not set off"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:player.setav explosives 20;4.3:player.addperk LightStep;4.6:close", NVF_PLAY_TEST_SCRIPT = "8:moveto:player:0x00172DB5:0:0:0" }
+args = ["--play", "--pos=-61200,-52600,6300", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'mines: 0x00000014 does not set off mine 0x00172DB5 at \d+ units \(Calculate Mine Explode Chance 0: Light Step\)', label = "standing on the mine, it does not go off" },
+]
+forbid = [{ re = 'mines: 0x00000014 sets off mine', label = "the player sets off a mine" }]
+
+[[scenario]]
+name = "perk-heave-ho-splash"
+source = "perk audit 2026-10-23 §3.5, owner 2026-10-24: Heave Ho! throws 1.5 x as fast, Splash Damage widens the player's explosions by 1.25 (docs/spec-notes/perk-entry-points.md §8)"
+note = "thrown-dynamite's setup (god mode in Goodsprings, three sticks of dynamite, one thrown at 17 s) with the perks HeaveHo and SplashDamage given by the console at 12 s"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "000BA0F3:3", NVF_PLAY_TEST_EQUIP = "000BA0F3", NVF_PLAY_TEST_CONSOLE = "12:player.addperk HeaveHo;12.3:player.addperk SplashDamage;12.6:close", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = '''combat: perks change WeapNVDynamite's projectile speed x 1\.50 \(.*HeaveHo''', label = "Heave Ho! speeds the throw" },
+  { re = '''combat: perks change \S+'s radius (?P<n>\d+) -> \d+ \(.*SplashDamage''', range = [1, 100000], label = "Splash Damage widens the dynamite's blast" },
+]]
+
+[[scenario]]
+name = "perk-run-speed"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24: the Modify Run Speed perks (Travel Light, Implant M-5 …) speed the player up, under their conditions (docs/spec-notes/perk-entry-points.md §8)"
+note = "in Doc Mitchell's house (the player in no armour from Travel Light's bad-armour list) Travel Light at 12 s: 110 %; Implant M-5 (NVDLC03ImplantM5Perk, IsSneaking) at 13 s does nothing until the player sneaks at 15 s: 1.1 x 1.2 = 132 %"
+areas = ["perks", "movement"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.addperk TravelLight;12.3:close;13:player.addperk NVDLC03ImplantM5Perk;13.3:close", NVF_PLAY_TEST_CONTROL = "15:sneak" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  { re = 'movement: the Modify Run Speed perks make the player move at 110% \(TravelLight\)', label = "Travel Light: 10 % faster in no armour" },
+  { re = 'movement: the Modify Run Speed perks make the player move at 132% \(TravelLight, NVDLC03ImplantM5Perk\)', label = "sneaking adds Implant M-5's 20 %" },
+]]
+
+[[scenario]]
 name = "falls-player"
 source = "owner's playtest list 7 item 21: no fall damage; a fall onto land from above fJumpFallHeightMin (600) loses health by fJumpFallHeightMult x (h - 600)^1.65 (docs/spec-notes/physics.md §6.10)"
 note = "God mode in Goodsprings: at 8 s the console puts the player about 1,500 units up; the landing logs the height and the fall damage the formula gives (god mode deals none). The formula is checked against the capture's falls in falls.rs's tests"

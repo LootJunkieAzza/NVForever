@@ -123,6 +123,17 @@ pub const HAS_FAST_TRAVEL_ALWAYS: u8 = 51;
 pub const MODIFY_LIGHT_ITEMS: u8 = 55;
 pub const ADJUST_HEAVY_WEAPON_WEIGHT: u8 = 73;
 
+/// The entry points of mines, explosions, throws and movement (docs/spec-notes/
+/// perk-entry-points.md §8) [documented: GECK wiki GetNthPerkEntryFunction, the codes;
+/// Entry Point, what each does; observed: the perks' entries]: Calculate Mine Explode
+/// Chance (Light Step Set 0; In My Footsteps Set 0; ED-E's Light Step Set 0 under GetIsID
+/// conditions), Modify Run Speed (Travel Light × 1.1, Tunnel Runner × 1.25, Implant M-5 ×
+/// 1.2, Atomic! × 1.25, Stealth Suit Mk II × 1.2, each with its own conditions), Adjust
+/// Explosion Radius (Splash Damage × 1.25).
+pub const CALCULATE_MINE_EXPLODE_CHANCE: u8 = 4;
+pub const MODIFY_RUN_SPEED: u8 = 42;
+pub const ADJUST_EXPLOSION_RADIUS: u8 = 72;
+
 /// The weight Adjust Heavy Weapon Weight starts at: "a Weapon which weighs 10.0 lbs or more
 /// (after the DecreaseWeight Weapon Mod effect)" [documented: GECK wiki Entry Point].
 pub const HEAVY_WEAPON_WEIGHT: f32 = 10.0;
