@@ -52,7 +52,7 @@ The appendix lists all 257.
 Values are the records' [observed]; what the entry point changes is the GECK wiki's Entry
 Point page [documented] unless tagged.
 
-### 3.1 VATS helpers and VATS mode's AP (the owner's example)
+### 3.1 VATS helpers and VATS mode's AP (the owner's example; built 2026-10-24, vats-mode.md §18)
 
 | Perk | Entry point | Record |
 |---|---|---|
