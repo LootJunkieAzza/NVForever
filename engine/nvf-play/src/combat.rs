@@ -14,8 +14,8 @@
 //!   up and gives their timing back.
 //! - **Shots** leave the eye along the view, inside the spread cone (the documented New
 //!   Vegas spread plus bloom, which builds while shots follow each other and shrinks once
-//!   the weapon rests); recoil climbs the view up in a random pattern and eases most of
-//!   the way back once it rests (`fnv_combat::spread::Kick`) [design]. They are
+//!   the weapon rests); recoil climbs the view up in a random pattern and stays there
+//!   for the player to pull down (`fnv_combat::spread::Kick`) [design]. They are
 //!   drawn from the muzzle of the held weapon ([`WeaponAnim::muzzle`], the model's
 //!   `ProjectileNode`), closing on the view ray by the point aimed at; in third person a
 //!   shot with something between the muzzle and that point leaves the muzzle instead
@@ -1952,14 +1952,16 @@ pub(crate) fn fire(
             c.looping = None;
         }
     }
-    // Bloom and recoil recover whatever happens, once the weapon has rested for the
-    // settle delay.
+    // Bloom shrinks whatever happens, once the weapon has rested for the settle delay.
+    // The recoil's climb stays: pulling the view back down is the player's (owner,
+    // 2026-10-24).
     let was_settled = c.kick.settled();
-    let back = c.kick.recover(&c.tuning, dt);
-    player.pitch = (player.pitch - back.pitch_deg.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
-    player.heading -= back.yaw_deg.to_radians();
+    c.kick.recover(&c.tuning, dt);
     if !was_settled && c.kick.settled() {
-        info!("combat: kick settled {:.2} s after the last shot", c.kick.since_shot);
+        info!(
+            "combat: kick settled {:.2} s after the last shot; the burst climbed the view {:.2} deg up, {:.2} deg sideways",
+            c.kick.since_shot, c.kick.climb_deg, c.kick.climb_yaw_deg
+        );
     }
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);

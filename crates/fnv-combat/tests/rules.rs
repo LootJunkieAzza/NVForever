@@ -274,7 +274,8 @@ fn spread_formula_cone_bloom_recoil() {
 }
 
 /// Shots closer together than the settle delay build bloom and climb; once the trigger
-/// rests, nothing recovers until the delay has passed, then all of it does.
+/// rests, bloom waits for the delay and then shrinks away. The climb never comes back
+/// by itself: pulling the view down is the player's.
 #[test]
 fn continuous_fire_blooms_and_climbs_then_settles() {
     let t = CombatTuning::default();
@@ -283,20 +284,17 @@ fn continuous_fire_blooms_and_climbs_then_settles() {
     let mut rng = fnv_combat::rng::SplitMix(11);
     let mut rnd = || rng.next_f32();
     let dt = 1.0 / 60.0;
-    let (mut climb, mut side, mut kicked) = (0.0f32, 0.0f32, 0.0f32);
+    let (mut climb, mut side) = (0.0f32, 0.0f32);
     let mut blooms = Vec::new();
     for _ in 0..8 {
         let k = kick.shot(&t, &w, 0.5, &mut rnd);
         climb += k.pitch_deg;
-        kicked += k.pitch_deg;
         side += k.yaw_deg;
         blooms.push(kick.bloom);
         // 0.55 s between shots, a pistol at its fastest: longer than the bare settle
         // delay, shorter than the weapon's interval plus it.
         for _ in 0..33 {
-            let b = kick.recover(&t, dt);
-            climb -= b.pitch_deg;
-            side -= b.yaw_deg;
+            kick.recover(&t, dt);
         }
     }
     assert!(blooms.windows(2).all(|p| p[1] >= p[0]), "bloom only grows during the burst: {blooms:?}");
@@ -305,20 +303,20 @@ fn continuous_fire_blooms_and_climbs_then_settles() {
     assert_eq!(kick.burst, 8);
     assert!(climb > 8.0, "the view climbs over the burst: {climb}");
     assert!(side.abs() < climb, "mostly up: {side} sideways for {climb} up");
-    // Resting: the delay first, then everything recovers.
+    assert!((kick.climb_deg - climb).abs() < 1e-3 && (kick.climb_yaw_deg - side).abs() < 1e-3);
+    // Resting: the delay first, then bloom shrinks away; the climb stays.
     let before = kick.bloom;
     kick.recover(&t, kick.settle_after - kick.since_shot - 0.01);
     assert_eq!(kick.bloom, before);
     for _ in 0..120 {
-        let b = kick.recover(&t, dt);
-        climb -= b.pitch_deg;
+        kick.recover(&t, dt);
     }
     assert!(kick.settled(), "settled within two seconds: {kick:?}");
-    // The share not given back stays for the player to pull down.
-    assert!((climb - kicked * (1.0 - t.recoil_return)).abs() < 0.05, "{climb} left of {kicked}");
+    assert!((kick.climb_deg - climb).abs() < 1e-3, "nothing pulls the view back");
     // The next burst starts from nothing.
     kick.shot(&t, &w, 0.5, &mut rnd);
     assert_eq!(kick.burst, 1);
+    assert!(kick.climb_deg < climb / 4.0);
 }
 
 /// Two bursts climb differently (the lean and jitter are random); automatics kick and

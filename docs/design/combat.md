@@ -442,7 +442,7 @@ role; their exact names come from C1.
   - **Bloom**: each shot widens the cone, scaled by the weapon's spread. Continuous fire
     keeps widening it; it closes again once the trigger has rested a moment.
   - **Recoil**: the view climbs up in a random pattern that leans side to side,
-    stronger for heavier weapons, and eases most of the way back after a rest.
+    stronger for heavier weapons. It stays there: the player pulls it back down.
   - Jumping adds a penalty of its own.
 
   Bloom, recoil and the jump penalty are tuning values.

@@ -22,11 +22,10 @@ them.
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
 | `bloom_per_shot`, `bloom_per_min_spread`, `bloom_auto_mult` | 0.08 + 0.04 × Min Spread, × 0.5 for automatics | spread added per shot (spread units) |
 | `bloom_max`, `bloom_recovery` | 1.0 (about 6°), 2.0 /s | bloom cap; how fast it shrinks once settling |
-| `settle_delay` | 0.3 s | rest beyond the weapon's own time between shots before bloom and recoil recover; closer shots build on each other |
+| `settle_delay` | 0.3 s | rest beyond the weapon's own time between shots before bloom shrinks; closer shots build on each other |
 | `jump_spread` | 0.3 | actor-spread penalty while airborne |
 | `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_auto_mult` | 0.6°, 0.04°/damage, × 0.5 for automatics | view kick up per shot |
 | `recoil_jitter`, `recoil_side_share`, `recoil_lean_flip` | ±25 %, up to 0.4 × the kick up, 30 % per shot | the climb's random pattern |
-| `recoil_return`, `recoil_return_time` | 70 %, 0.12 s time constant | how much of the climb the view gives back once settling, and how fast |
 | `melee_window`, `melee_rays`, `melee_arc_deg` | 0.1 s, 5, 35° | melee swing |
 | `explosion_edge` | 0.25 | blast damage at the edge of the radius |
 | `default_bounce` | 0.3 | lobbers whose PROJ has no bounce value |
@@ -39,7 +38,7 @@ with a cap of 1.0, the 10mm SMG hit 2 of 60 shots at 1000 units from the hip [ob
 with `fnvtool combat sim`]. That went too far: with 0.03 × Min Spread recovering at
 1.0 /s from the first frame, a pistol's bloom was gone before its next shot and the
 crosshair never opened, and the 1° kick was back in under 0.1 s (owner, 2026-10-24).
-The values above (2026-10-24) let a run of shots build, recover only after a rest, and
+The values above (2026-10-24) let a run of shots build, shrink only after a rest, and
 keep automatics at half the per-shot growth and kick, so the SMG's long-range hip fire
 stays poor but not hopeless.
 
@@ -131,8 +130,8 @@ each the identity by default. Reading PERK records is a later step.
   - Recoil kicks the view up per shot (more for harder-hitting weapons, ±`recoil_jitter`)
     and sideways by up to `recoil_side_share` of that. The sideways part leans to one
     side for a few shots and swaps with `recoil_lean_flip` per shot, so each burst
-    climbs in a different pattern. After the same rest the view eases back by
-    `recoil_return` of the climb; the rest is the player's to pull down.
+    climbs in a different pattern. Nothing brings the view back: pulling it down is the
+    player's (owner, 2026-10-24; a 70 % automatic return was tried first).
   - VATS mode's shots and the `NVF_PLAY_TEST_NO_SPREAD` test aid's kick nothing and
     grow no bloom. The recoil's rolls have their own random stream.
 

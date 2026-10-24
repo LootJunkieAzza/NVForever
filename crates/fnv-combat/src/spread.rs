@@ -115,19 +115,19 @@ pub fn spread_dir(forward: [f32; 3], cone_deg: f32, u1: f32, u2: f32) -> [f32; 3
 ///   fired as fast as it can always builds, however slow its cycle.
 /// - Recoil: every shot kicks the view up, with a random share sideways that leans one
 ///   way for a few shots and then the other, so a burst climbs in a different pattern
-///   each time. After the same settle delay the view eases back by
-///   [`CombatTuning::recoil_return`] of the climb; the rest is the wielder's to pull down.
+///   each time. Nothing brings the view back: pulling it down is the wielder's to do
+///   (owner, 2026-10-24).
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Kick {
     /// Extra actor spread (spread units).
     pub bloom: f32,
-    /// View pitch the recovery will still give back, degrees (positive = up).
-    pub recoil_deg: f32,
-    /// View yaw the recovery will still give back, degrees (the sign of the kick's).
-    pub recoil_yaw_deg: f32,
+    /// The view kick of this burst so far, degrees: pitch (positive = up) and yaw. A new
+    /// burst starts it again; the view itself keeps it until the wielder pulls it back.
+    pub climb_deg: f32,
+    pub climb_yaw_deg: f32,
     /// Seconds since the last shot.
     pub since_shot: f32,
-    /// The rest after the last shot before recovery starts: that weapon's time between
+    /// The rest after the last shot before bloom shrinks: that weapon's time between
     /// shots plus the settle delay.
     pub settle_after: f32,
     /// Shots fired without a settle between them.
@@ -151,6 +151,8 @@ impl Kick {
         let auto = |m: f32| if w.automatic { m } else { 1.0 };
         if self.since_shot >= self.settle_after {
             self.burst = 0;
+            self.climb_deg = 0.0;
+            self.climb_yaw_deg = 0.0;
         }
         self.settle_after = interval.max(0.0) + t.settle_delay;
         let per_shot = (t.bloom_per_shot + t.bloom_per_min_spread * w.min_spread.max(0.0)) * auto(t.bloom_auto_mult);
@@ -165,33 +167,24 @@ impl Kick {
         let up = (t.recoil_base_deg + t.recoil_per_damage_deg * w.base_damage.max(0) as f32) * auto(t.recoil_auto_mult);
         let pitch = up * (1.0 + t.recoil_jitter * (2.0 * rnd() - 1.0));
         let yaw = up * t.recoil_side_share * (0.6 * self.lean + 0.4 * (2.0 * rnd() - 1.0));
-        self.recoil_deg += pitch * t.recoil_return;
-        self.recoil_yaw_deg += yaw * t.recoil_return;
+        self.climb_deg += pitch;
+        self.climb_yaw_deg += yaw;
         self.since_shot = 0.0;
         self.burst += 1;
         ViewKick { pitch_deg: pitch, yaw_deg: yaw }
     }
 
-    /// Recover over `dt` seconds. Returns the view change the recovery gives back
-    /// (subtracted from the view): nothing until the settle delay has passed.
-    pub fn recover(&mut self, t: &CombatTuning, dt: f32) -> ViewKick {
+    /// Over `dt` seconds: once the weapon has rested past the settle delay, bloom
+    /// shrinks. The view is left where the recoil put it.
+    pub fn recover(&mut self, t: &CombatTuning, dt: f32) {
         self.since_shot += dt;
-        if self.since_shot < self.settle_after {
-            return ViewKick::default();
+        if self.since_shot >= self.settle_after {
+            self.bloom = (self.bloom - t.bloom_recovery * dt).max(0.0);
         }
-        self.bloom = (self.bloom - t.bloom_recovery * dt).max(0.0);
-        // The view eases back: most of the way quickly, then the last of it.
-        let share = 1.0 - (-dt / t.recoil_return_time.max(1e-3)).exp();
-        let back = |left: &mut f32| {
-            let b = if left.abs() < 0.01 { *left } else { *left * share };
-            *left -= b;
-            b
-        };
-        ViewKick { pitch_deg: back(&mut self.recoil_deg), yaw_deg: back(&mut self.recoil_yaw_deg) }
     }
 
-    /// Whether the weapon has settled: no bloom and no climb left to give back.
+    /// Whether the weapon has settled: no bloom left.
     pub fn settled(&self) -> bool {
-        self.bloom == 0.0 && self.recoil_deg == 0.0 && self.recoil_yaw_deg == 0.0
+        self.bloom == 0.0
     }
 }

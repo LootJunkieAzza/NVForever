@@ -295,8 +295,8 @@ pub struct CombatTuning {
     pub bloom_recovery: f32,
     /// Bloom cap (spread units).
     pub bloom_max: f32,
-    /// Seconds of rest, beyond the weapon's own time between shots, before bloom and
-    /// recoil start to recover; shots closer together than that build on each other.
+    /// Seconds of rest, beyond the weapon's own time between shots, before bloom starts
+    /// to shrink and a new burst's recoil pattern starts; closer shots build on each other.
     pub settle_delay: f32,
     /// Actor-spread penalty while airborne (spread units, like the documented penalties).
     pub jump_spread: f32,
@@ -311,10 +311,6 @@ pub struct CombatTuning {
     pub recoil_side_share: f32,
     /// The chance per shot that the climb's lean swaps sides.
     pub recoil_lean_flip: f32,
-    /// The share of the climb the view gives back once the weapon settles.
-    pub recoil_return: f32,
-    /// How fast it gives it back: the time constant in seconds (about 95 % in three).
-    pub recoil_return_time: f32,
     /// Melee damage window after the `Hit` key, seconds.
     pub melee_window: f32,
     /// Rays across a melee swing, and the swing's half-angle in degrees.
@@ -388,8 +384,6 @@ impl Default for CombatTuning {
             recoil_jitter: 0.25,
             recoil_side_share: 0.4,
             recoil_lean_flip: 0.3,
-            recoil_return: 0.7,
-            recoil_return_time: 0.12,
             melee_window: 0.1,
             melee_rays: 5,
             melee_arc_deg: 35.0,
