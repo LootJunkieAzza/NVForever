@@ -698,3 +698,43 @@ The creatures' combat idles (mole rat, giant rat, mantis, gecko) want procedure 
   it again on the run. A capture of `GetCurrentAIProcedure`, `IsMoving`, `IsSneaking`,
   `IsIdlePlaying` and `IsWeaponOut` on a fleeing NPC would settle it
   (`tools/capture/observe.py`); none was taken.
+
+## 14. Creatures' combat idles: alerted and standing (owner's playtest 2026-10-24)
+
+The owner saw young geckos give no sign before they attacked. The gecko's idle tree has a
+combat branch that the engine never played.
+
+### 14.1 What the data holds [observed: FalloutNV.esm, `fnvtool esm decode`]
+
+- `NVGeckoCombatIdles` 0x0011D9E9, a root of the `creatures\NVGecko\IdleAnims` branches,
+  wants `IsMoving != 1` AND (`GetIsAlerted == 1` OR `GetCurrentAIProcedure == 13` OR
+  `== 16`), i.e. standing while alerted, fighting or fleeing. Its children:
+  `NVgeckoHiss` (CombatIdle_Hiss.kf, GetRandomPercent < 50), `NVgeckoHopLeft`
+  (CombatIdle_HopLeft.kf, < 50) and `NVgeckoHopRight` (CombatIdle_HopRight.kf, none).
+- The gecko roots in chain order: `NVGeckoHitReactions`, `NVGeckoGetupAnims`,
+  `NVGeckoCombatIdles`, `NVGeckoGeneralIdles` (IsInCombat == 0: scratching, eye licks).
+  The combat branch comes before the general one.
+- Other creatures' warning idles want `GetIsAlerted == 1` alone: `MWarning` 0x00072DC2
+  (mirelurk SpecialIdle_Warning.kf), `StBWarning` 0x00099837 (sentry bot). The giant
+  rat's `NVgrGrowl` and the mole rat's growl sit under their own combat nodes.
+
+### 14.2 Rules as built (`FidgetKind::Alerted`, `engine/nvforever/src/idles.rs`)
+
+- A creature (a skeleton folder with a `creatures` part, DLC folders included) standing
+  still while `Game::is_alerted` (a combat state, SetAlert, or an aggro radius or
+  trespass warning, `Game::warning_to`) is checked every 2 s, as the drawn-weapon
+  fidgets are (§11), for the first leaf of its tree below a node naming
+  `GetIsAlerted == 1`, alone or joined by OR [hypothesis: the folder match and walk of
+  §11]. The tree's own percentages decide which plays.
+- It ends when the creature moves or is calm again [design]; an attack stops it as it
+  stops any idle (`attack_anims.rs`). People keep their drawn-weapon fidgets: their tree
+  is not walked for this [design].
+- Log: `idle: … plays … (CombatIdle)`; `creature combat idle summary` at exit. Smoke
+  `aggro-warning-look`.
+
+### 14.3 Open
+
+- What the original's warning looks like is not documented; that the warning idles want
+  the alerted state is the evidence that a warning creature is alerted. A capture of
+  `GetIsAlerted`, `IsMoving` and `IsIdlePlaying` on a young gecko the player walks up to
+  would settle it.

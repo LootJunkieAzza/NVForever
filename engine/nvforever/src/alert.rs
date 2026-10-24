@@ -64,7 +64,17 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
-                let why = if fleeing { " (it flees)" } else if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };
+                let why = if fleeing {
+                    " (it flees)"
+                } else if game.active_weapon_use(id).is_some() {
+                    " (a weapon use)"
+                } else if !fighting && want != game.is_alerted(id) {
+                    " (its package's flags)"
+                } else if !fighting && want && game.warning_to(id).is_some() {
+                    " (it warns the player)"
+                } else {
+                    ""
+                };
                 info!("alert: {} {id} {} its weapon{why}", game.data.name(id), if want { "draws" } else { "holsters" });
             }
             // Hidden while holstered under Weapons Unequipped.

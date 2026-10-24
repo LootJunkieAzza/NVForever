@@ -274,13 +274,19 @@ fn a_seen_trespasser_is_warned_twice_then_attacked() {
     let mut g = game(&f);
     assert_eq!(call(&mut g, IS_TRESPASSING, Some(0x14), &[]), 1.0);
     sees(&mut g, SHOPKEEPER_REF);
+    let keeper = FormId(SHOPKEEPER_REF);
+    assert_eq!(g.warning_to(keeper), None);
     g.crime_tick();
     assert_eq!(call(&mut g, GET_TRESPASS_WARNING_LEVEL, Some(SHOPKEEPER_REF), &[ArgValue::Value(Value::Ref(0x14))]), 1.0);
-    // Too soon for the next warning.
+    // Warning, it is alerted: it draws its weapon, stops and faces the player.
+    assert_eq!(g.warning_to(keeper), Some(FormId::PLAYER_REF));
+    assert!(g.is_alerted(keeper));
+    // Too soon for the next warning; it still warns while it sees the player.
     g.time += 1.0;
     sees(&mut g, SHOPKEEPER_REF);
     g.crime_tick();
     assert_eq!(call(&mut g, GET_TRESPASS_WARNING_LEVEL, Some(SHOPKEEPER_REF), &[ArgValue::Value(Value::Ref(0x14))]), 1.0);
+    assert_eq!(g.warning_to(keeper), Some(FormId::PLAYER_REF));
     g.time += 5.0;
     sees(&mut g, SHOPKEEPER_REF);
     g.crime_tick();
@@ -289,6 +295,8 @@ fn a_seen_trespasser_is_warned_twice_then_attacked() {
     sees(&mut g, SHOPKEEPER_REF);
     assert_eq!(g.crime_tick(), 1);
     assert!(g.would_attack(FormId(SHOPKEEPER_REF), FormId::PLAYER_REF));
+    // It fights now: no longer a warning.
+    assert_eq!(g.warning_to(keeper), None);
     // A public cell is no trespass.
     g.forms.public_cells.insert(FormId(SHOP), true);
     assert_eq!(call(&mut g, IS_TRESPASSING, Some(0x14), &[]), 0.0);

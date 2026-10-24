@@ -4332,6 +4332,28 @@ order = [[
 ]]
 expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<m>\d+) attacks', label = "the aggro radius in the provocation summary" }]
 
+
+[[scenario]]
+name = "aggro-warning-look"
+source = "owner's playtest 2026-10-24, \"baby geckos were not showing the aggressive stay away from me warnings\" (crates/fnv-game/src/aggro.rs \"The look\", crates/fnv-ai/src/alert.rs Warnings, engine/nvforever/src/idles.rs creatures' combat idles): a young gecko warning the player is alerted, stops and faces the player, draws its unarmed stance and plays its idle tree's combat idles (hiss, side hops), then attacks"
+note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined"
+areas = ["combat", "alert", "idles"]
+paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
+args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 50
+order = [[
+  { re = 'provocation: VERGSGecko6REF 0x00157B3C warns the player inside its aggro radius \(warning 1;', label = "the gecko's first warning" },
+  { re = '0x00157B3C: stops and faces the player to warn it', label = "it stops and turns to the player" },
+  { re = 'provocation: VERGSGecko6REF 0x00157B3C warns the player inside its aggro radius \(warning 2;', label = "its second warning" },
+  { re = 'provocation: VERGSGecko6REF 0x00157B3C attacks the player, who stayed inside its aggro radius', label = "then it attacks" },
+]]
+expect = [
+  { re = 'creature stance: .*00157B3C draws \(alerted\)', label = "warning, it draws its unarmed stance" },
+  { re = 'idle: .*VERGSGecko6REF.* plays .*NVgecko(Hiss|HopLeft|HopRight).*\(CombatIdle\)', label = "standing alerted, it plays a gecko combat idle" },
+  { re = 'creature combat idle summary: (?P<n>[1-9]\d*) combat idles started', label = "combat idles in the idle summary" },
+]
+
 [[scenario]]
 name = "package-duration-geckos"
 source = "playtest list 4 item 18, follow-up L6 (crates/fnv-game/src/ai.rs start_schedule_duration / end_timed_packages, docs/design/actor-behaviour.md §3): a list package with a duration and no starting hour ends that long after it was chosen, Once Per Day keeps it from coming back that day, and the next package takes over"

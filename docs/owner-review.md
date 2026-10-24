@@ -8311,3 +8311,25 @@ there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/phy
 - *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
   the feet (was 0.5 above the feet themselves).
 - *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+
+## Warnings you can see (2026-10-24, owner's playtest, branch claude/aggro-warning-look)
+
+Young geckos (and every creature with an aggro radius) warned in silence while they walked
+on, so the attack came with no sign. Now, from its first warning until it attacks or you
+leave its radius, an actor that warns you is alerted: it stops, turns to you and draws its
+stance (a creature) or its weapon (a person); a creature standing alerted plays its idle
+tree's combat idles (the gecko's hiss and side hops). Owners and guards warning a
+trespasser do the same. Spec: [idles §14](spec-notes/idles.md), [combat-ai §13.1](design/combat-ai.md).
+
+- *Guess:* the original's warning look (no page describes it; the creatures' warning
+  idles want GetIsAlerted, which is the evidence).
+- *Guess:* the warner stops and faces you instead of walking on with its package.
+- *Decision:* only creatures walk their tree's combat idles; people keep their
+  drawn-weapon fidgets.
+- *Not built:* Guard packages' own warnings (only aggro radius and trespass warnings exist).
+- *Which young geckos warn:* plain Young Geckos (radius 500) and the Goodsprings Young
+  Gecko Hunters (650). Young Golden and Fire Geckos, and the Crescent, Nopah and roach
+  hunters, are Aggressive or Very Aggressive and attack on sight, as their records say.
+- *Check:* walk up to a Young Gecko near Goodsprings: does it stop, face you, hiss or hop,
+  and attack after two warnings?

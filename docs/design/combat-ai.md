@@ -909,6 +909,16 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` �
 - Log: `provocation: … warns the player inside its aggro radius (warning n; d of r
   units)`, `provocation: … attacks the player, who stayed inside its aggro radius`; the
   provocation summary counts both. Smoke `aggro-radius` (a Goodsprings coyote).
+- **The look** (owner's playtest 2026-10-24: young geckos showed no warning before they
+  attacked) [hypothesis]: from its first warning until it attacks or the player leaves
+  its radius (or its sight, at an aggro tick), the actor is alerted (`Game::warning_to`,
+  `Game::is_alerted`, GetIsAlerted 1): a person draws its weapon, a creature its unarmed
+  stance (`creature_stance.rs`); the AI stops it and turns it to the player
+  (`fnv_ai::alert`, `AiEvent::Warn`, back to its package after); standing, a creature
+  plays its tree's combat idles (the gecko's hiss and side hops, docs/spec-notes/idles.md
+  §14). A trespass warning (`crate::crime`) gives the same look, so a warning owner or
+  guard draws its weapon (owner 2026-10-24). Guard packages' own warnings are not built.
+  Smoke `aggro-warning-look` (VERGSGecko6REF, a Young Gecko, radius 500).
 
 ### 13.2 Cowards stay out (`fnv_game::provocation`, item 14)
 

@@ -1029,18 +1029,19 @@ pub fn set_alert(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// `actor.GetIsAlerted`: 1 in the alerted animation state [documented: catalogue notes]:
-/// set with SetAlert, or while the actor is in a combat state [hypothesis: Alert is
-/// "weapon out", Category:Detection, which is the alerted animation state].
+/// set with SetAlert, while the actor is in a combat state [hypothesis: Alert is
+/// "weapon out", Category:Detection, which is the alerted animation state], or while it
+/// gives aggro radius or trespass warnings (`Game::warning_to`) [hypothesis].
 pub fn get_is_alerted(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     yes(g.is_alerted(r))
 }
 
 impl Game<'_> {
-    /// Whether `actor` has its weapon out for alertness: SetAlert, or a combat state
-    /// ([`get_is_alerted`]).
+    /// Whether `actor` has its weapon out for alertness: SetAlert, a combat state, or an
+    /// aggro radius warning ([`get_is_alerted`]).
     pub fn is_alerted(&self, actor: FormId) -> bool {
-        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat()
+        self.extra.get(&actor).is_some_and(|e| e.alerted) || self.awareness.state(actor).in_combat() || self.warning_to(actor).is_some()
     }
 
     fn player_pos(&self) -> Option<[f32; 3]> {

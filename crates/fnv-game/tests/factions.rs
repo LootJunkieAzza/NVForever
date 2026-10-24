@@ -719,23 +719,57 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 0);
     assert!(g.provocations.take_notes().is_empty(), "outside the radius");
+    assert_eq!(g.warning_to(lurker), None);
+    assert!(!g.is_alerted(lurker));
     g.world.get(lurker).unwrap().pos = [600.0, 0.0, 0.0];
     for (level, step) in [(1, 0.0), (2, 5.0)] {
         g.time += step;
         seen(&mut g);
         assert_eq!(g.aggro_tick(), 0);
         assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroWarned { actor, level: l, .. } if *actor == lurker && *l == level)));
+        // While it warns it is alerted (GetIsAlerted; the AI stops it and turns it to
+        // the player, a creature draws its stance and plays its combat idles).
+        assert_eq!(g.warning_to(lurker), Some(player));
+        assert!(g.is_alerted(lurker));
     }
-    // Not again before the timer.
+    // Not again before the timer; it still warns meanwhile.
     g.time += 1.0;
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 0);
+    assert_eq!(g.warning_to(lurker), Some(player));
     g.time += 4.0;
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 1);
     assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
     assert!(g.would_attack(lurker, player));
     assert_eq!(g.provocations.grudges[&(lurker, player)].why, Why::Aggro);
+    // It fights now: no longer a warning.
+    assert_eq!(g.warning_to(lurker), None);
+}
+
+#[test]
+fn an_aggro_warning_ends_when_the_player_leaves_the_radius() {
+    // The warning look (`fnv_game::aggro`, "The look") lasts while the player is inside;
+    // the count is kept for the grace, the look is not.
+    let f = fixture();
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(lurker).unwrap().pos = [600.0, 0.0, 0.0];
+    let seen = |g: &mut Game| {
+        let now = g.time;
+        g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    };
+    seen(&mut g);
+    g.aggro_tick();
+    assert_eq!(g.warning_to(lurker), Some(player));
+    g.world.get(lurker).unwrap().pos = [700.0, 0.0, 0.0];
+    g.time += 1.0;
+    seen(&mut g);
+    g.aggro_tick();
+    assert_eq!(g.warning_to(lurker), None);
+    assert!(!g.is_alerted(lurker));
+    assert_eq!(g.provocations.aggro_warnings[&lurker].0, 1, "the count is kept for the grace");
 }
 
 #[test]

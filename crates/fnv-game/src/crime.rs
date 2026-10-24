@@ -34,7 +34,11 @@
 //!   are public cannot have trespassing"]; an owner who sees the player there warns
 //!   (GuardTrespass) every `fAITrespassWarningTimer` (5 s) up to `iGuardWarnings` (2)
 //!   times, then attacks [documented for Guard packages, GECK wiki Guard Package;
-//!   hypothesis: the same for owned cells].
+//!   hypothesis: the same for owned cells]. While it warns (it has warned and sees the
+//!   player at the tick) it is alerted: it draws its weapon, stops and faces the
+//!   player (`Game::warning_to`; `crate::aggro`, "The look") [hypothesis; owner
+//!   2026-10-24: warning guards draw their weapon]. Guard packages' own warnings are not
+//!   built.
 //!
 //! The engine tells the game what the player did ([`Game::player_stole`],
 //! [`Game::player_opened_lock`], [`Game::crime_tick`]); kills and hits come through
@@ -282,6 +286,9 @@ pub struct Crimes {
     pub settings: Option<Settings>,
     /// Warnings each actor gave the trespassing player, and when it gave the last.
     pub warnings: BTreeMap<FormId, (u32, f64)>,
+    /// Actors warning the trespassing player now: they have warned it and saw it at the
+    /// last crime tick, and have not turned on it (`Game::warning_to`).
+    pub warning_now: std::collections::BTreeSet<FormId>,
     /// The cell the player trespasses in, with its owner.
     pub trespassing: Option<(FormId, FormId)>,
     /// The current crime victim (IsActorAVictim).
@@ -641,6 +648,7 @@ impl Game<'_> {
             self.crimes.trespassing = key;
             self.crimes.warnings.clear();
         }
+        self.crimes.warning_now.clear();
         let Some((_, o)) = here else { return 0 };
         let mut turned = 0;
         for w in self.crime_witnesses() {
@@ -649,10 +657,12 @@ impl Game<'_> {
             }
             let (level, last) = self.crimes.warnings.get(&w).copied().unwrap_or((0, f64::NEG_INFINITY));
             if now - last < s.warning_timer {
+                self.crimes.warning_now.insert(w);
                 continue;
             }
             if (level as f64) < s.guard_warnings {
                 self.crimes.warnings.insert(w, (level + 1, now));
+                self.crimes.warning_now.insert(w);
                 self.detection_bark(w, Some(FormId::PLAYER_REF), "GuardTrespass");
                 self.crimes.notes.push(Note::Warned { actor: w, level: level + 1 });
             } else {

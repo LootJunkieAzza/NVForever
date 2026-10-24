@@ -46,6 +46,11 @@
 //!   the minimum search radius, later ones within the medium one; after
 //!   iCombatTargetLostRemoveSearchCount complete searches the alarm is dropped
 //!   (`Game::searched_once`).
+//! - **Warnings** (in Normal; aggro radius and trespass, `Game::warning_to`,
+//!   `fnv_game::aggro` "The look"): an actor warning the player stops and turns to it
+//!   until the warning is over (it attacks, or the player is out of its radius or of the
+//!   owned cell, or out of its sight), then goes back to its package as after a search
+//!   [hypothesis].
 //! - Back in **Normal**, the actor goes back to its package's place, as after a random
 //!   conversation.
 
@@ -116,6 +121,8 @@ pub enum Search {
     Looking { at: [f32; 3], until: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
     /// In Combat: standing, facing its target.
     Holding { target: FormId },
+    /// In Normal, giving aggro radius or trespass warnings: standing, facing whom it warns.
+    Warning { target: FormId },
     /// In Combat: running up to its target, last planned for where it stood (`to`) at
     /// `since`.
     Closing { target: FormId, to: [f32; 3], since: f64 },
@@ -143,8 +150,19 @@ impl Ai {
     pub(crate) fn alert_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
         let state = game.awareness.state(actor);
         if !state.in_combat() || game.continues_during_combat(actor) {
-            if self.agents[&actor].search.is_some() {
-                let why = if state.in_combat() { "its package continues during combat" } else { "back to Normal" };
+            if let Some(target) = game.warning_to(actor).filter(|_| !state.in_combat()) {
+                if self.warn_step(game, actor, target, dt) {
+                    return true;
+                }
+            }
+            if let Some(s) = self.agents[&actor].search {
+                let why = if matches!(s, Search::Warning { .. }) {
+                    "its warning is over"
+                } else if state.in_combat() {
+                    "its package continues during combat"
+                } else {
+                    "back to Normal"
+                };
                 self.search_over(game, nav, actor, why);
             }
             return false;
@@ -273,6 +291,33 @@ impl Ai {
                 self.search_at(game, nav, actor, c, c, alarm.at, 0, alarm.owner);
             }
         }
+        true
+    }
+
+    /// An actor giving aggro radius or trespass warnings (`Game::warning_to`) stops where
+    /// it is and turns to whom it warns, at the standing turn rate, until the warning is
+    /// over; then it goes back to its package as after a search [hypothesis: the
+    /// creatures' warning idles want the actor standing, IsMoving != 1]. One on furniture
+    /// stays on it. Returns whether the warning holds the actor.
+    fn warn_step(&mut self, game: &mut Game, actor: FormId, target: FormId, dt: f32) -> bool {
+        let Some(at) = goal::place_of_ref(game, target) else { return false };
+        let a = &self.agents[&actor];
+        if a.using.is_some() {
+            return false;
+        }
+        if a.search != Some(Search::Warning { target }) {
+            let away = goal::dist(a.walker.feet, at.pos);
+            let a = self.agents.get_mut(&actor).expect("listed");
+            if let Some(s) = a.sandbox.as_mut() {
+                s.pending = None;
+            }
+            a.wait_until = None;
+            a.walker.follower = None;
+            a.activity = Activity::There;
+            a.search = Some(Search::Warning { target });
+            self.log(game, actor, AiEvent::Warn { target, away });
+        }
+        self.face(game, actor, at, dt);
         true
     }
 

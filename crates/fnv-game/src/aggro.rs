@@ -27,6 +27,19 @@
 //!   An actor that has started warning also keeps counting while the player is only in
 //!   its alert band (Noticed: it knows where the player is but does not see them, e.g.
 //!   walking past with its back turned) [decision, same reason].
+//! - **The look** [hypothesis: the idle tree; owner's playtest 2026-10-24, "baby geckos
+//!   were not showing the aggressive stay away from me warnings"]: while it warns (from
+//!   its first warning until it attacks or the player is out of its radius or unwatched
+//!   at an aggro tick) the actor is alerted (`Game::is_alerted`, GetIsAlerted 1): a
+//!   person draws its weapon, a creature its unarmed stance; the AI stops it and turns
+//!   it to the player (`fnv_ai::alert`); standing alerted, a creature plays its idle
+//!   tree's combat idles (the gecko's hiss and side hops under NVGeckoCombatIdles, which
+//!   wants IsMoving != 1 and GetIsAlerted 1, or the combat or flee procedure [observed:
+//!   FalloutNV.esm IDLE 0x0011D9E9]; the mirelurk's and sentry bot's SpecialIdle_Warning
+//!   want GetIsAlerted 1 [observed: MWarning 0x00072DC2, StBWarning 0x00099837]). No
+//!   page says what the original's warning looks like; these idles wanting the alerted
+//!   state are the evidence. Without the look a creature warned in silence while it
+//!   walked on, and the player saw nothing before the attack.
 //! - **Who**: the player only [design: other actors' aggro radii are not measured];
 //!   never an actor that is the player's ally or friend or teammate, one already hostile
 //!   by its records, a dead, unconscious or restrained one.
@@ -114,6 +127,17 @@ impl Game<'_> {
         }
         let grace = 2.0 * s.warning_timer;
         self.provocations.aggro_warnings.retain(|w, (_, last)| inside.contains(w) || now - *last < grace);
+        // One that turned on the player fights now; it no longer warns.
+        self.provocations.aggro_inside = inside.into_iter().filter(|w| !self.provocations.holds(*w, FormId::PLAYER_REF)).collect();
         turned
+    }
+
+    /// Whom `actor` is warning now (module notes, "The look"): the player while it stands
+    /// inside its aggro radius between its first warning and its attack, or while it
+    /// sees the player trespass after warning it (`crate::crime`) [hypothesis: the same
+    /// look; the owner, 2026-10-24: "guards that are alerted/warning are supposed to draw
+    /// their weapon"].
+    pub fn warning_to(&self, actor: FormId) -> Option<FormId> {
+        (self.provocations.aggro_inside.contains(&actor) || self.crimes.warning_now.contains(&actor)).then_some(FormId::PLAYER_REF)
     }
 }
