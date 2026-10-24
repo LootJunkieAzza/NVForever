@@ -520,7 +520,12 @@ struct Stats {
     /// Shots that went on with a looping clip already playing.
     kept: usize,
     missing: BTreeMap<String, usize>,
+    /// Clips started, by file name (the summary).
     clips: BTreeMap<String, usize>,
+    /// Clip paths logged once when first played: by path, not file name, as creatures
+    /// share file names (a ghoul's and a deathclaw's `h2hattackforwardpower.kf`) and the
+    /// one whose clip happened to start first in a frame hid the other's line.
+    logged: std::collections::HashSet<String>,
     /// Blows that went on a combo from the last one's `a:` key.
     chained: usize,    /// Reload clips started (an opening clip and each round count once).
     reloads: usize,
@@ -786,7 +791,7 @@ fn start(
             let name = path.rsplit('\\').next().unwrap_or(&path).to_string();
             // The opening clips are named `<stem>reloadxstart.kf` [observed: base archives].
             let opening = a.kind == Move::Reload && name.to_ascii_lowercase().ends_with("start.kf");
-            if !st.clips.contains_key(&name) {
+            if st.logged.insert(path.to_ascii_lowercase()) {
                 info!("attack anims: {id:08X} plays {path} ({len:.2} s{})", hit_time(&clip).map_or(String::new(), |h| format!(", hit at {h:.2} s")));
             }
             *st.clips.entry(name).or_default() += 1;
