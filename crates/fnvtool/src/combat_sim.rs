@@ -191,11 +191,12 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                 Event::Fired { .. } => {
                     shots += 1;
                     let cone = spread::cone_deg(actor_spread, kick.bloom, w, &eff);
-                    let pitch = kick.recoil_deg.to_radians();
-                    let aim = [pitch.cos(), 0.0, pitch.sin()];
+                    // The shooter pulls down what the recovery does not give back.
+                    let (pitch, yaw) = (kick.recoil_deg.to_radians(), kick.recoil_yaw_deg.to_radians());
+                    let aim = [pitch.cos() * yaw.cos(), pitch.cos() * yaw.sin(), pitch.sin()];
                     let mut rnd = || rng.next_f32();
                     flying.extend(shot::fire(c, &ch, eye, aim, cone, Some(SHOOTER), g, &t, &mut rnd));
-                    kick.shot(&t, w.min_spread, w.base_damage as f32);
+                    kick.shot(&t, w, timing.interval, &mut rnd);
                 }
                 Event::Reloaded { taken } => {
                     carried -= taken;

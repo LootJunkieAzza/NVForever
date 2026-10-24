@@ -265,10 +265,81 @@ fn spread_formula_cone_bloom_recoil() {
         assert!(d[0].acos().to_degrees() <= 10.0 + 1e-3);
     }
     let mut kick = Kick::default();
-    let up = kick.shot(&t, 1.0, 20.0);
-    assert!(up > 0.0 && kick.bloom > 0.0);
+    let mut rng = fnv_combat::rng::SplitMix(7);
+    let mut rnd = || rng.next_f32();
+    let up = kick.shot(&t, &gun(20), 0.5, &mut rnd);
+    assert!(up.pitch_deg > 0.0 && kick.bloom > 0.0);
     kick.recover(&t, 5.0);
-    assert_eq!((kick.bloom, kick.recoil_deg), (0.0, 0.0));
+    assert!(kick.settled());
+}
+
+/// Shots closer together than the settle delay build bloom and climb; once the trigger
+/// rests, nothing recovers until the delay has passed, then all of it does.
+#[test]
+fn continuous_fire_blooms_and_climbs_then_settles() {
+    let t = CombatTuning::default();
+    let w = gun(20);
+    let mut kick = Kick::default();
+    let mut rng = fnv_combat::rng::SplitMix(11);
+    let mut rnd = || rng.next_f32();
+    let dt = 1.0 / 60.0;
+    let (mut climb, mut side, mut kicked) = (0.0f32, 0.0f32, 0.0f32);
+    let mut blooms = Vec::new();
+    for _ in 0..8 {
+        let k = kick.shot(&t, &w, 0.5, &mut rnd);
+        climb += k.pitch_deg;
+        kicked += k.pitch_deg;
+        side += k.yaw_deg;
+        blooms.push(kick.bloom);
+        // 0.55 s between shots, a pistol at its fastest: longer than the bare settle
+        // delay, shorter than the weapon's interval plus it.
+        for _ in 0..33 {
+            let b = kick.recover(&t, dt);
+            climb -= b.pitch_deg;
+            side -= b.yaw_deg;
+        }
+    }
+    assert!(blooms.windows(2).all(|p| p[1] >= p[0]), "bloom only grows during the burst: {blooms:?}");
+    assert!(blooms[7] > 4.0 * blooms[0], "eight shots bloom well past one: {blooms:?}");
+    assert!(spread::deviation_deg(kick.bloom, 0.0) > 3.0, "the burst widens the cone by degrees");
+    assert_eq!(kick.burst, 8);
+    assert!(climb > 8.0, "the view climbs over the burst: {climb}");
+    assert!(side.abs() < climb, "mostly up: {side} sideways for {climb} up");
+    // Resting: the delay first, then everything recovers.
+    let before = kick.bloom;
+    kick.recover(&t, kick.settle_after - kick.since_shot - 0.01);
+    assert_eq!(kick.bloom, before);
+    for _ in 0..120 {
+        let b = kick.recover(&t, dt);
+        climb -= b.pitch_deg;
+    }
+    assert!(kick.settled(), "settled within two seconds: {kick:?}");
+    // The share not given back stays for the player to pull down.
+    assert!((climb - kicked * (1.0 - t.recoil_return)).abs() < 0.05, "{climb} left of {kicked}");
+    // The next burst starts from nothing.
+    kick.shot(&t, &w, 0.5, &mut rnd);
+    assert_eq!(kick.burst, 1);
+}
+
+/// Two bursts climb differently (the lean and jitter are random); automatics kick and
+/// bloom less per shot than a semi-automatic of the same damage.
+#[test]
+fn recoil_patterns_differ_and_automatics_kick_less() {
+    let t = CombatTuning::default();
+    let burst = |seed: u64, w: &WeaponStats| {
+        let mut kick = Kick::default();
+        let mut rng = fnv_combat::rng::SplitMix(seed);
+        let mut rnd = || rng.next_f32();
+        (0..6).map(|_| kick.shot(&t, w, 0.5, &mut rnd).yaw_deg).collect::<Vec<_>>()
+    };
+    assert_ne!(burst(1, &gun(20)), burst(2, &gun(20)));
+    let semi = gun(20);
+    let auto = WeaponStats { automatic: true, ..gun(20) };
+    let (mut a, mut b) = (Kick::default(), Kick::default());
+    let mut rnd = || 0.5;
+    let ka = a.shot(&t, &semi, 0.5, &mut rnd);
+    let kb = b.shot(&t, &auto, 0.1, &mut rnd);
+    assert!(kb.pitch_deg < ka.pitch_deg && b.bloom < a.bloom);
 }
 
 fn run(c: &mut Cycle, t: &CombatTuning, ticks: usize, dt: f32, trigger: impl Fn(usize) -> bool, carried: u32) -> Vec<Event> {

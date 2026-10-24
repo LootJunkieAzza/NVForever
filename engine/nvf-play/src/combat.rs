@@ -13,7 +13,9 @@
 //!   attack and reload clips when [`WeaponAnim::attacks`] / [`WeaponAnim::reloads`] count
 //!   up and gives their timing back.
 //! - **Shots** leave the eye along the view, inside the spread cone (the documented New
-//!   Vegas spread plus bloom); recoil kicks the view up and recovers [design]. They are
+//!   Vegas spread plus bloom, which builds while shots follow each other and shrinks once
+//!   the weapon rests); recoil climbs the view up in a random pattern and eases most of
+//!   the way back once it rests (`fnv_combat::spread::Kick`) [design]. They are
 //!   drawn from the muzzle of the held weapon ([`WeaponAnim::muzzle`], the model's
 //!   `ProjectileNode`), closing on the view ray by the point aimed at; in third person a
 //!   shot with something between the muzzle and that point leaves the muzzle instead
@@ -861,7 +863,7 @@ pub struct Combat {
     swing_rng: SplitMix,
     time: f32,
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
-    /// spread, no bloom), so an unattended check hits what it aims at.
+    /// spread, no bloom, no recoil), so an unattended check hits what it aims at.
     no_spread: bool,
     /// A save's weapon and magazine, applied when that weapon is next taken in hand
     /// (`crate::save`).
@@ -888,6 +890,8 @@ pub struct Combat {
     flinch_until: f32,
     flinch_end: Option<f32>,
     flinch_rng: SplitMix,
+    /// The recoil's rolls, its own so other rolls keep their order.
+    kick_rng: SplitMix,
     /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
     /// leave the shots' rolls as they were.
     spent_rng: SplitMix,
@@ -1445,6 +1449,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
+        kick_rng: SplitMix(5),
         spent_rng: SplitMix(4),
     });
 }
@@ -1947,9 +1952,15 @@ pub(crate) fn fire(
             c.looping = None;
         }
     }
-    // Recoil recovers whatever happens.
+    // Bloom and recoil recover whatever happens, once the weapon has rested for the
+    // settle delay.
+    let was_settled = c.kick.settled();
     let back = c.kick.recover(&c.tuning, dt);
-    player.pitch = (player.pitch - back.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+    player.pitch = (player.pitch - back.pitch_deg.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+    player.heading -= back.yaw_deg.to_radians();
+    if !was_settled && c.kick.settled() {
+        info!("combat: kick settled {:.2} s after the last shot", c.kick.since_shot);
+    }
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
     c.crosshair_cone = None;
@@ -2219,10 +2230,21 @@ pub(crate) fn fire(
                     p3(seen_from),
                     if leaving.covered { "; cover in front of the barrel: it leaves the muzzle" } else { "" }
                 );
-                // VATS mode's shots kick nothing and grow no bloom [design, vats-mode.md §11.1].
-                if vats_shot.is_none() {
-                    let kick = c.kick.shot(&c.tuning, w.min_spread, w.base_damage as f32);
-                    player.pitch = (player.pitch + kick.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+                // VATS mode's shots kick nothing and grow no bloom [design, vats-mode.md §11.1],
+                // nor do the NO_SPREAD test aid's, so each lands where it was aimed.
+                if vats_shot.is_none() && !c.no_spread {
+                    let rng = &mut c.kick_rng;
+                    let kick = c.kick.shot(&c.tuning, &w, cycle.timing.interval, &mut || rng.next_f32());
+                    player.pitch = (player.pitch + kick.pitch_deg.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+                    player.heading += kick.yaw_deg.to_radians();
+                    info!(
+                        "combat: kick: shot {} in a row, bloom {:.2} ({:.2} deg wider), view up {:.2} deg, sideways {:.2} deg",
+                        c.kick.burst,
+                        c.kick.bloom,
+                        spread::deviation_deg(c.kick.bloom, 0.0),
+                        kick.pitch_deg,
+                        kick.yaw_deg
+                    );
                 }
                 debug!("combat: shot, cone {cone:.2}°, magazine {}", cycle.magazine);
                 // The shot wears the weapon (§17); a thrown weapon is spent instead.

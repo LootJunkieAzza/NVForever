@@ -107,30 +107,91 @@ pub fn spread_dir(forward: [f32; 3], cone_deg: f32, u1: f32, u2: f32) -> [f32; 3
     crate::vec::normalize(crate::vec::add(crate::vec::scale(f, c), off))
 }
 
-/// Bloom and recoil state of one wielder [design].
+/// Bloom and recoil state of one wielder [design] (docs/spec-notes/combat-rules.md §3).
+///
+/// - Bloom: every shot widens the cone; while the wielder keeps firing it builds up to
+///   [`CombatTuning::bloom_max`]. It starts to shrink only once no shot has left for the
+///   weapon's own time between shots plus [`CombatTuning::settle_delay`], so a weapon
+///   fired as fast as it can always builds, however slow its cycle.
+/// - Recoil: every shot kicks the view up, with a random share sideways that leans one
+///   way for a few shots and then the other, so a burst climbs in a different pattern
+///   each time. After the same settle delay the view eases back by
+///   [`CombatTuning::recoil_return`] of the climb; the rest is the wielder's to pull down.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Kick {
     /// Extra actor spread (spread units).
     pub bloom: f32,
-    /// View pitch offset still to recover, degrees (positive = up).
+    /// View pitch the recovery will still give back, degrees (positive = up).
     pub recoil_deg: f32,
+    /// View yaw the recovery will still give back, degrees (the sign of the kick's).
+    pub recoil_yaw_deg: f32,
+    /// Seconds since the last shot.
+    pub since_shot: f32,
+    /// The rest after the last shot before recovery starts: that weapon's time between
+    /// shots plus the settle delay.
+    pub settle_after: f32,
+    /// Shots fired without a settle between them.
+    pub burst: u32,
+    /// The side the climb leans to now: -1 or 1 (0 before the first shot).
+    pub lean: f32,
+}
+
+/// A view change in degrees: pitch (positive = up) and yaw.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct ViewKick {
+    pub pitch_deg: f32,
+    pub yaw_deg: f32,
 }
 
 impl Kick {
-    /// After a shot of `damage_per_shot` with a weapon of Min Spread `min_spread`. Returns
-    /// the view kick in degrees for this shot.
-    pub fn shot(&mut self, t: &CombatTuning, min_spread: f32, damage_per_shot: f32) -> f32 {
-        self.bloom = (self.bloom + t.bloom_per_shot * min_spread.max(0.1)).min(t.bloom_max);
-        let kick = t.recoil_base_deg + t.recoil_per_damage_deg * damage_per_shot.max(0.0);
-        self.recoil_deg += kick;
-        kick
+    /// After a shot of weapon `w`, which fires every `interval` seconds at its fastest;
+    /// `rnd` gives uniform numbers in [0, 1). Returns the view kick for this shot (added
+    /// to the view).
+    pub fn shot(&mut self, t: &CombatTuning, w: &WeaponStats, interval: f32, rnd: &mut impl FnMut() -> f32) -> ViewKick {
+        let auto = |m: f32| if w.automatic { m } else { 1.0 };
+        if self.since_shot >= self.settle_after {
+            self.burst = 0;
+        }
+        self.settle_after = interval.max(0.0) + t.settle_delay;
+        let per_shot = (t.bloom_per_shot + t.bloom_per_min_spread * w.min_spread.max(0.0)) * auto(t.bloom_auto_mult);
+        self.bloom = (self.bloom + per_shot).min(t.bloom_max);
+        // The lean: a new burst picks a side; then each shot may swap it.
+        let flip = rnd();
+        if self.burst == 0 || self.lean == 0.0 {
+            self.lean = if flip < 0.5 { -1.0 } else { 1.0 };
+        } else if flip < t.recoil_lean_flip {
+            self.lean = -self.lean;
+        }
+        let up = (t.recoil_base_deg + t.recoil_per_damage_deg * w.base_damage.max(0) as f32) * auto(t.recoil_auto_mult);
+        let pitch = up * (1.0 + t.recoil_jitter * (2.0 * rnd() - 1.0));
+        let yaw = up * t.recoil_side_share * (0.6 * self.lean + 0.4 * (2.0 * rnd() - 1.0));
+        self.recoil_deg += pitch * t.recoil_return;
+        self.recoil_yaw_deg += yaw * t.recoil_return;
+        self.since_shot = 0.0;
+        self.burst += 1;
+        ViewKick { pitch_deg: pitch, yaw_deg: yaw }
     }
 
-    /// Recover over `dt` seconds. Returns the view pitch change (degrees, down).
-    pub fn recover(&mut self, t: &CombatTuning, dt: f32) -> f32 {
+    /// Recover over `dt` seconds. Returns the view change the recovery gives back
+    /// (subtracted from the view): nothing until the settle delay has passed.
+    pub fn recover(&mut self, t: &CombatTuning, dt: f32) -> ViewKick {
+        self.since_shot += dt;
+        if self.since_shot < self.settle_after {
+            return ViewKick::default();
+        }
         self.bloom = (self.bloom - t.bloom_recovery * dt).max(0.0);
-        let back = (t.recoil_recovery_deg * dt).min(self.recoil_deg);
-        self.recoil_deg -= back;
-        back
+        // The view eases back: most of the way quickly, then the last of it.
+        let share = 1.0 - (-dt / t.recoil_return_time.max(1e-3)).exp();
+        let back = |left: &mut f32| {
+            let b = if left.abs() < 0.01 { *left } else { *left * share };
+            *left -= b;
+            b
+        };
+        ViewKick { pitch_deg: back(&mut self.recoil_deg), yaw_deg: back(&mut self.recoil_yaw_deg) }
+    }
+
+    /// Whether the weapon has settled: no bloom and no climb left to give back.
+    pub fn settled(&self) -> bool {
+        self.bloom == 0.0 && self.recoil_deg == 0.0 && self.recoil_yaw_deg == 0.0
     }
 }
