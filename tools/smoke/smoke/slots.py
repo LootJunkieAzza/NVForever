@@ -179,7 +179,14 @@ class Slots:
         if len(ahead) >= self.count:
             return 0
         room = self.count - len(ahead) - 1
-        sharing = len(ahead) + 1 + min(room, sum(1 for t in behind if is_slot_ticket(t)))
+        # Slot runners behind an old-style ticket wait for its turn alone, so they do not
+        # share the slots now (counting them left one runner on one slot, 2026-10-24).
+        before_old = 0
+        for t in behind:
+            if not is_slot_ticket(t):
+                break
+            before_old += 1
+        sharing = len(ahead) + 1 + min(room, before_old)
         runners = min(sharing, self.count)
         return self.count // runners + (1 if len(ahead) < self.count % runners else 0)
 

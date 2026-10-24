@@ -208,6 +208,27 @@ class SlotTests(unittest.TestCase):
             a.finish()
             b.finish()
 
+    def test_runners_behind_an_old_style_ticket_do_not_take_a_share(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            first = m.runner(1, count=3)
+            first.queue.join()
+            time.sleep(0.002)
+            m.live.add(9)
+            old = Queue(m.gate.parent / "smoke-queue", pid=9, alive=lambda p: p in m.live)
+            old.join()  # an --exclusive run waits for its turn alone
+            later = []
+            for pid in (2, 3):
+                time.sleep(0.002)
+                r = m.runner(pid, count=3)
+                r.queue.join()
+                later.append(r)
+            self.assertEqual(first.share(), 3)  # the ones behind the old ticket cannot run now
+            self.assertEqual([r.share() for r in later], [0, 0])
+            for r in (first, *later):
+                r.finish()
+            old.leave()
+
     def test_one_slot_is_the_old_one_game_at_a_time(self):
         with tempfile.TemporaryDirectory() as d:
             m = Machine(d)
