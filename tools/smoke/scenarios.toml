@@ -273,6 +273,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-bindless-batches"
+source = "docs/design/graphics-enhanced.md §5.6 (2026-10-23): NIF materials are bindless, so shapes of different materials share batch sets: at the Goodsprings start with sun shadows about 49 shadow sets (830 before) and 9 opaque sets (169 before) in the profile aid's batch line"
+note = "fails on a device Bevy runs without bindless (the counts go back to hundreds); this machine's RTX 4070 has it"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvf-assets/src/nif_surface_bindings.wgsl", "engine/nvforever/src/profile.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PROFILE = "5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--sun-shadows"]
+run_seconds = 22
+expect = [
+  { re = 'profile batches: shadow 4 views, (?P<n>\d+) multi-drawn sets', range = [1, 200], label = "shadow batch sets stay few (about 49; about 830 without bindless)" },
+  { re = 'profile batches: .*; opaque 1 views, (?P<n>\d+) multi-drawn sets', range = [1, 60], label = "main-view opaque batch sets stay few (about 9; 169 without bindless)" },
+]
+
+[[scenario]]
 name = "shadows-thin"
 source = "docs/design/graphics-enhanced.md §5.5 (2026-10-23): the test aid --shadow-thin (graphics-cycle key shadow-thin=) takes the sun shadows of small far objects away and gives them back, off by default, and the frame-time log breaks the sun's last cascade down by angular size"
 areas = ["renderer", "graphics"]
@@ -4213,6 +4227,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-wheel"
+source = "owner 2026-10-23: after a click, the mouse wheel selects the next reference behind (up) or in front (down) along the click, round at the ends (docs/design/console.md, Selecting by clicking)"
+areas = ["console"]
+paths = ["engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:click 0.5 0.5;11:wheel 1;12:wheel 1;13:wheel -2;14:wheel -1;15:close" }
+args = ["--cell", "Gomorrah00", "--play", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'console: picked 0x[0-9A-F]{8} at \d+ by \w+; ([3-9]|\d{2,}) along the ray', label = "the click finds three or more references along its ray" },
+  { re = 'console: wheel \+1 selects 0x[0-9A-F]{8} \(2 of \d+ along the click\)', label = "wheel up selects the next one further" },
+  { re = 'console: wheel -2 selects 0x[0-9A-F]{8} \(1 of \d+ along the click\)', label = "wheel down comes back to the clicked one" },
+  { re = 'console: wheel -1 selects 0x[0-9A-F]{8} \((\d+) of \1 along the click\)', label = "down past the nearest goes round to the furthest" },
+]
+
+[[scenario]]
 name = "console-camera"
 source = "coordinator 2026-10-16: the console's camera commands tfc, sucsm, fov and tm work in --play (docs/design/console.md, Camera commands)"
 areas = ["console"]
@@ -6031,6 +6060,22 @@ expect = [
   { re = 'resurrect: 0x00104C7D drawn standing again [\d.]+ s after, package \S', label = "drawn standing, running a package" },
 ]
 order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
+
+[[scenario]]
+name = "grab-corpse"
+source = "docs/spec-notes/grab.md §1 (quests have the player carry corpses with Grab, Z: VMS18CarlyleStClairREF into the dumpster, ProperBurialCorpseref into the grave): Ringo killed in the gas station is picked up with Z by his ragdoll and carried 6 s while the view turns 180°, longer than the 3 s after which a moving ragdoll is held at rest; it is not held at rest while carried, so it is dropped when Z comes up, away from where it lay, and comes to rest"
+areas = ["grab", "physics", "ragdoll"]
+paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C7D", NVF_PLAY_TEST_CONSOLE = "6:00104C7D.killactor;10:player.moveto 00104C7D 80 0 0;10.5:close", NVF_PLAY_TEST_GRAB = "13:z:6:180:at=00104C7D" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'grab: picked up corpse .*00104C7D\) by Aid', label = "Z picks up Ringo's corpse" },
+  { re = 'grab: carrying .*00104C7D\) at .*, (?P<n>[\d.]+) units from where it is held', range = [0, 40], label = "held where it is wanted" },
+  { re = 'grab: dropped .*00104C7D\) after 6\.\d s \(let go\) at .*, (?P<n>[\d.]+) units from where it was picked up', range = [120, 260], label = "carried the whole 6 s, half way round the player with the view (held ~90 units from the eye: 180 apart), dropped when Z comes up" },
+  { re = 'grab: .*00104C7D\) came to rest at .*, (?P<n>[\d.]+) units from where it was picked up', range = [100, 300], label = "it rests where it was carried to" },
+]
+forbid = [{ re = 'grab: .*\(it caught on something\)', label = "never held at rest while carried (it would stay put and catch)" }]
 
 [[scenario]]
 name = "ragdoll-armour-template"

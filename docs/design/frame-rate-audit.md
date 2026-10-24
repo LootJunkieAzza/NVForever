@@ -137,10 +137,9 @@ does not remove most of the render thread's work here; what does scale is not se
 ## 4. Left to do
 
 - **Batching** (REPCONN, and every interior): about one material asset per mesh, and
-  `NifMaterial` is not bindless, so Bevy draws every mesh with its own bind group. Sharing
-  materials between models with the same textures and settings, or a bindless
-  `NifSurface`, would let it draw them instanced. A renderer change of its own; not
-  started.
+  `NifMaterial` was not bindless, so Bevy drew every mesh with its own bind group. Done
+  2026-10-23: `NifSurface` is bindless (graphics-enhanced.md §5.6); at Goodsprings the main
+  view's batch sets went from 316 to 23. REPCONN not measured again.
 - **What the render thread's 15 ms scale with** in REPCONN is not settled: a third fewer
   visible meshes left it unchanged within the noise. A profile on an idle machine (no
   other builds or games) is the next step; xperf when elevation can be granted.

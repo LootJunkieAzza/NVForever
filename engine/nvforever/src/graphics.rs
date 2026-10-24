@@ -468,7 +468,7 @@ fn apply(
         // image space (post.rs `image_space_glow`).
         if g.glow && !g.bloom {
             // With eye adaptation (eye_adapt.rs), which needs the HDR view.
-            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(eye.handle.clone())));
+            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(&eye)));
         } else {
             e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
         }
