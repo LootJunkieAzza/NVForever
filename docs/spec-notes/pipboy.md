@@ -167,16 +167,28 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     hypothesis: WG].
   - Added 2026-10-19 (`items.rs`):
     - **DPS** [documented: `item_stats_display.xml` `DPSInfo`, `sInventoryDamagePerSecond`;
-      hypothesis: formula and place]: a card "DPS" over DAM, as STR stands over VAL. The
-      file puts DPSInfo and DAMInfo both at the first card's place and sets which shows in
-      code; NVForever keeps DAM there (the owner's screenshots show DAM) and puts DPS in
-      the free place above it. The figure: the damage a shot does at the item's condition
+      hypothesis: formula]: the damage a shot does at the item's condition
       (combat-rules.md §17) times its shots a second (an automatic weapon's fire rate,
       else its attack shots a second, else one), rounded [hypothesis: the GECK wiki's
-      Weapons page names damage and fire rate as the DPS calculator's inputs].
-    - **The ammunition's badge** [documented: `IM_ItemIconBadge` at (390, 260), 64
-      square; hypothesis: the picture is the ammunition's own ICON, of the ammunition the
-      ammo card names].
+      Weapons page names damage and fire rate as the DPS calculator's inputs]. Shown in
+      the container and barter figures only: the original's ITEMS page has no DPS card
+      (2026-10-24, below) [observed: the owner's ITEMS screenshots].
+    - **The weapon's skill badge** (2026-10-24; replaces the ammunition's picture and
+      the DPS card guessed on 2026-10-19) [documented: `IM_ItemIconBadge` at (390, 260),
+      64 square, and the text `IM_StrReq` at (440, 300), font 7, left-justified;
+      `textures\interface\icons\typeicons\weap_skill_icon_*.dds` (sm_arms, big_guns,
+      energy, explosives, melee, unarmed), 64 square, a boxed picture in the lower left
+      48; observed: the owner's screenshots show the bullets picture with 0, 25 and 50
+      for the Single Shotgun, Service Rifle and Sawed-Off Shotgun (their Guns skill
+      requirements, WEAP DNAM) and the knife picture with 25 for the Throwing Spear
+      (Melee Weapons 25)]: the picture of the skill the weapon uses and, beside it, the
+      skill it needs, "0" too. A weapon of another skill (binoculars: Barter) shows
+      neither [hypothesis].
+    - **The buttons' text** (Repair/Maintain R), Mod X), the repair and mod lists'
+      Cancel/Exit) [documented: `text_box.xml`: the text sits half the box's 15 spare
+      height plus 10 under the button's y; observed: "Maintain R)" clear of the heading's
+      cards on the owner's screenshot]. Before 2026-10-24 it was drawn at the button's y
+      and touched the Caps card (the owner's report).
     - **"Mod X)"** [documented: `IM_ModButton`, 47 under the Repair hint, `sInventoryMod`,
       PC key X; hypothesis: shown for weapons with mod slots (WMI1–3), bright when the
       player carries a mod that fits a free slot, dim otherwise]. X on a bright hint opens

@@ -350,7 +350,7 @@ pub fn draw_hint(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Option<&Offer>) {
     let label = format!("{} R)", hint(o.gear, o.condition));
     info!("pipboy items: {} {label}{}", o.name, if o.usable() { "" } else { " (dim)" });
     let color = amber(if o.usable() { TEXT } else { frame::DIMMED });
-    c.text(p, 2, &label, MAIN.min.x + HINT.x - 10.0, MAIN.min.y + HINT.y, Align::Right, color);
+    c.text(p, 2, &label, MAIN.min.x + HINT.x - 10.0, MAIN.min.y + HINT.y + frame::BUTTON_TEXT_Y, Align::Right, color);
 }
 
 /// The figure a card shows for an item at a condition: damage or DT by our condition
@@ -374,9 +374,10 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading(p, c, Page::Items.title(), &[Card::new(MAIN.width() - SKILL_W, SKILL_W, "Repair Skill", format!("{:.0}", s.skill.max(0.0).floor()))]);
-    c.text(p, 2, "Cancel E)", MAIN.min.x + BUTTONS.x - 10.0, MAIN.min.y + BUTTONS.y, Align::Right, bright);
+    let by = MAIN.min.y + BUTTONS.y + frame::BUTTON_TEXT_Y;
+    c.text(p, 2, "Cancel E)", MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
     let cw = c.width(2, "Cancel E)");
-    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - cw, MAIN.min.y + BUTTONS.y - 5.0, cw + 10.0, 40.0), RepairCancel, Pickable::default())).observe(on_cancel_click);
+    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - cw, by - 5.0, cw + 10.0, 40.0), RepairCancel, Pickable::default())).observe(on_cancel_click);
     // The rows: the item, then its parts.
     let rows: Vec<(&str, f32, bool)> = std::iter::once((o.name.as_str(), o.condition, o.extra.equipped)).chain(o.parts.iter().map(|q| (q.name.as_str(), q.condition, q.extra.equipped))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;

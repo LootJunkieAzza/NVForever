@@ -4782,15 +4782,15 @@ order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu:
 
 [[scenario]]
 name = "pipboy-items-extras"
-source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's DPS card, the ammunition's badge and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
+source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's skill badge (the Guns picture and the skill the pistol needs, in place of a DPS card, which the original does not show there) and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
 areas = ["repair", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs"]
-env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:point=260:201,17.5:click=260:201,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_extras.png" }
+env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=items,15.5:tab=0,17:repair=open,18:point=260:201,19.5:click=260:201,22:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_items_extras.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 23
+run_seconds = 25
 expect = [
-  { re = 'pipboy items: 10mm Pistol selected: .*dps: Some\("[1-9]\d*"\)', label = "a DPS figure for the pistol" },
-  { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("', label = "the ammunition's badge" },
+  { re = 'pipboy items: 10mm Pistol selected: .*dps: None', label = "no DPS card on the ITEMS page" },
+  { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("[^"]*weap_skill_icon_sm_arms\.dds"\), skill_req: Some\(\d+\)', label = "the Guns badge and the skill the pistol needs" },
   { re = 'pipboy items: 10mm Pistol Mod X\)', label = "Mod X) for a weapon with mod slots" },
   "pipboy repair: clicked row 1",
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
