@@ -662,6 +662,8 @@ impl IngestibleDef {
 /// DOBJ, the list's names in order] (docs/spec-notes/default-objects.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefaultObject {
+    Stimpak = 0,
+    PerkParalysis = 5,
     DeathMusic = 11,
     LevelUpMusic = 13,
     DrugWearsOffImageSpace = 20,
@@ -686,6 +688,8 @@ mod default_object_tests {
     #[test]
     fn default_objects_by_their_place() {
         let list: Vec<Option<FormId>> = (0..34).map(|i| (i != 19).then_some(FormId(0x100 + i))).collect();
+        assert_eq!(default_in(&list, DefaultObject::Stimpak), Some(FormId(0x100)));
+        assert_eq!(default_in(&list, DefaultObject::PerkParalysis), Some(FormId(0x105)));
         assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
         assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
         assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
@@ -887,6 +891,9 @@ pub struct GameData {
     pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
     /// RCPE: the recipes (`crate::crafting`).
     pub recipes: HashMap<FormId, crate::crafting::RecipeDef>,
+    /// CPTH and CAMS: the camera paths and shots (`crate::camera_paths`).
+    pub camera_paths: HashMap<FormId, crate::camera_paths::CameraPathDef>,
+    pub camera_shots: HashMap<FormId, crate::camera_paths::CameraShotDef>,
     /// RCCT: the recipe categories and subcategories.
     pub recipe_categories: HashMap<FormId, crate::crafting::RecipeCategoryDef>,
     /// CSNO: the casinos (`crate::casino`).
@@ -1293,6 +1300,8 @@ struct Read {
     perk: Option<PerkDef>,
     av_info: Option<ActorValueInfo>,
     recipe: Option<crate::crafting::RecipeDef>,
+    camera_path: Option<crate::camera_paths::CameraPathDef>,
+    camera_shot: Option<crate::camera_paths::CameraShotDef>,
     recipe_category: Option<crate::crafting::RecipeCategoryDef>,
     casino: Option<crate::casino::CasinoDef>,
     class_services: Option<u32>,
@@ -1396,6 +1405,8 @@ impl GameData {
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
+            camera_paths: HashMap::new(),
+            camera_shots: HashMap::new(),
             recipe_categories: HashMap::new(),
             casinos: HashMap::new(),
             caravan_cards: HashMap::new(),
@@ -1620,6 +1631,12 @@ impl GameData {
             }
             if let Some(v) = r.recipe {
                 d.recipes.insert(id, v);
+            }
+            if let Some(v) = r.camera_path {
+                d.camera_paths.insert(id, v);
+            }
+            if let Some(v) = r.camera_shot {
+                d.camera_shots.insert(id, v);
             }
             if let Some(v) = r.recipe_category {
                 d.recipe_categories.insert(id, v);
@@ -2024,6 +2041,26 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         };
         let recipe = crate::crafting::RecipeDef::from_raw(FormId(g), &subs, &map, &mut cond);
         out.recipe = Some(recipe);
+    }
+    // Camera paths and shots (`crate::camera_paths`): a path's conditions are the common
+    // CTDA, read as a recipe's.
+    if &sig == b"CPTH" {
+        let mut ctx = DecodeCtx { schema, on_formid: None };
+        let issues = &mut out.issues;
+        let mut cond = |s: &fnv_esm::Subrecord| {
+            let v = decode_sub(&sig, s, &mut ctx).value.or_else(|| decode_sub(b"PACK", s, &mut ctx).value)?;
+            match cond::parse(&v, types, &map) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    issues.note("condition unreadable", || format!("0x{g:08X}: {e}"));
+                    None
+                }
+            }
+        };
+        out.camera_path = Some(crate::camera_paths::CameraPathDef::from_raw(&subs, &map, &mut cond));
+    }
+    if &sig == b"CAMS" {
+        out.camera_shot = crate::camera_paths::CameraShotDef::from_raw(&subs, &map);
     }
     if &sig == b"RCCT" {
         out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));

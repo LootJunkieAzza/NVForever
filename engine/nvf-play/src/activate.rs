@@ -118,11 +118,9 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
     let name = sim.name(base.id)?.to_string();
     let state = sim.world.peek(id);
     let placed = sim.refs.get(id);
-    // A reference with lock data starts locked [hypothesis, as fnv_sim::World does].
-    let lock = match state {
-        Some(s) => s.lock.filter(|l| l.locked).map(|l| (l.level, l.key)),
-        None => placed.and_then(|p| p.lock).map(|l| (l.level, l.key)),
-    };
+    // A reference with lock data starts locked, a leveled lock at the reference's level
+    // [hypothesis, as fnv_sim::World does: `World::lock_of`].
+    let lock = sim.world.lock_of(id).filter(|l| l.locked).map(|l| (l.level, l.key));
     let carried = |k: FormId| {
         sim.world.peek(FormId::PLAYER_REF).and_then(|p| p.inventory.as_ref()).is_some_and(|inv| inv.count(k) > 0)
     };

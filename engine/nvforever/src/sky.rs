@@ -96,9 +96,6 @@ const MOON_FADE: (f32, f32) = (5.0, -6.0);
 const SUN_SOUTH: f32 = 9.0 * PI / 180.0;
 /// Elevation (radians) below which the directional light fades out towards the horizon.
 const HORIZON_FADE: f32 = 0.1;
-/// Cloud texture scroll per second per ONAM speed unit, in texture repeats [placeholder
-/// rate, to tune against the game].
-const CLOUD_SCROLL: f32 = 1.0 / 25_600.0;
 /// Game hours per real second at the default TimeScale of 30 [documented: GECK wiki
 /// TimeScale]: a weather's transition, given in real seconds
 /// (`Weather::transition_seconds`), fades over that many game hours.
@@ -1363,9 +1360,10 @@ pub fn update_clouds(
     mut materials: ResMut<Assets<SkyMaterial>>,
     cam: Query<&Transform, (With<FlyCam>, Without<CloudLayer>)>,
     mut clouds: Query<(&mut CloudLayer, &MeshMaterial3d<SkyMaterial>, &mut Transform, &mut Visibility), Without<FlyCam>>,
+    mut logged: Local<Option<u32>>,
 ) {
     let Ok(cam_t) = cam.single() else { return };
-    let secs = time.elapsed_secs();
+    let secs = time.elapsed_secs_f64();
     // Set 0 shows the current weather while no fade runs; during a fade the set whose
     // texture already shows the new weather keeps it.
     for (mut cl, m, mut t, mut vis) in &mut clouds {
@@ -1390,8 +1388,19 @@ pub fn update_clouds(
         *vis = if mat.base.base_color_texture.is_some() && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
         let c = sky.cloud_tint(w.cloud_color(&sky.climate, cl.layer, sky.hour));
         mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], alpha));
-        let speed = w.cloud_speeds[cl.layer] as f32;
-        mat.base.uv_transform = Affine2::from_translation(Vec2::new((secs * speed * CLOUD_SCROLL).fract(), 0.0));
+        // Each set scrolls at its own weather's ONAM speeds, so a fade blends the two
+        // weathers' layers each moving at its own rate (fnv_world::sky::Weather::cloud_scroll).
+        mat.base.uv_transform = Affine2::from_translation(Vec2::new(w.cloud_offset(cl.layer, secs), 0.0));
+        if cl.set == 0 && cl.layer == 0 && *logged != Some(w.form_id) {
+            *logged = Some(w.form_id);
+            let rates = [0, 1, 2, 3].map(|i| format!("{:.5}", w.cloud_scroll(i)));
+            info!(
+                "clouds: {} layer speeds {:?} (ONAM), scrolling {} texture repeats/s",
+                w.edid.as_deref().unwrap_or("?"),
+                w.cloud_speeds,
+                rates.join(", ")
+            );
+        }
     }
 }
 

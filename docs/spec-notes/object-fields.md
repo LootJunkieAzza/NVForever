@@ -24,7 +24,10 @@ like any other (owner 2026-10-19).
 ## 3. Nothing to build: no master record uses the field
 
 - TERM "Hide Welcome Text when displaying Image": 5 terminals, none placed.
-- DOOR "Automatic" and "Hidden": none.
+- DOOR "Automatic": none.
+- DOOR "Hidden" was listed here as unused; it is set on 3 doors [observed:
+  docs/handoff/esm-full-audit-2026-10-24.md gap 30], so it belongs in §4 (see gap 30 of
+  esm-full-audit-2026-10-24).
 - PMIS/PBEA/PFLA/PCBE (world-fields.md).
 
 ## 4. Not built, and why
@@ -34,8 +37,13 @@ like any other (owner 2026-10-19).
 - **PWAT reflection and refraction flags** (3 of 29 refract without reflecting): the
   water material reflects by its type's settings; how each flag maps to the passes is not
   documented.
-- **Header bits Visible When Distant, On Local Map, Obstacle, Navmesh**: LOD is built
-  from the shipped LOD files and the local map from collision.
+- **Header bits Visible When Distant, On Local Map, Navmesh**: LOD is built from the
+  shipped LOD files and the local map from collision.
+- **Header bit 25 Obstacle** (307 STAT, 24 MSTT, 20 ACTI, 7 SCOL [observed: esm-full-audit
+  gap 22]): not a LOD matter, as this list once said. An Obstacle object "will dynamically
+  cut the navmesh in game preventing actors from walking into it", and only with a model of
+  the right collision layer [documented: GECK wiki Activator and Container, "Obstacle"].
+  fnv-nav cuts no navmesh at run time; see gap 22 of esm-full-audit-2026-10-24.
 - **ACTI "Dangerous"**, **GRAS "Vertex Lighting"**, **TREE seeds, leaf angles, shadow
   radius**, **PROJ Supersonic, Pins Limbs, Rotation**, **EXPL world orientation and push
   flags**, **IPCT angle threshold**, **ADDN particle cap**, **DEBR collision**, **TERM

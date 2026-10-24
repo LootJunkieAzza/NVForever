@@ -151,7 +151,13 @@ a terminal that opens at its menu (unlocked, hacked before, password held) is no
   the cell clears them [design].
 - SendTrespassAlarm turns the actor at once ("all the way to fully trespassed on one
   call") [documented: notes].
-- The doors' "No Alarm" flag [documented: Reference page] is not read.
+- The doors' "No Alarm" flag (REFR XTEL): "No trespass alarm will be sent when the
+  player uses the door" [documented: GECK wiki Reference, Teleport]; 5 doors, Dead Money
+  2, Lonesome Road 3 [observed]. As built (`Game::arrived_through`): arriving through such
+  a door, the player is not trespassing in the cell arrived in (no warnings, no attack,
+  IsTrespassing 0) until leaving that cell; any other door ends it [hypothesis: the alarm
+  is the owners' trespass reaction; owner-review.md]. Log: `crime: the player came
+  through … a No Alarm door …`.
 
 ### 3.4 Murder
 
@@ -286,7 +292,7 @@ GetOwnerOfCell, HasOwnership, SetIsPCAMurderer, ClearActorsFactionsPlayerEnemyFl
 ## 9. Not built
 
 Taking a stolen item back, running for help; pickpocketing; items' own owners in
-containers (COED); hacking an owned terminal as a crime; the doors' No Alarm flag and
-alarms on entering through a door; the Off Limits flag; guard packages' warnings;
+containers (COED); hacking an owned terminal as a crime; alarms on entering
+through a door (beyond the No Alarm excuse, §3.3); the Off Limits flag; guard packages' warnings;
 "NoCrime" topics; crimes by actors other than the player; stolen items marked in the
 inventory; the karma title; saving the trespass warnings.
