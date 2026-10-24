@@ -399,6 +399,19 @@ pub struct ActorHit {
     pub weapon: Option<FormId>,
 }
 
+/// A hit that forces its target's hit reaction whatever it crippled: Khan Trick
+/// [documented: GECK wiki GetForceHitReaction, "set by Khan Trick (AttackCustom4Power and
+/// AttackCustom5Power)"; perk-entry-points.md §11.4]. The body plays the reaction for
+/// `location` (nvforever `deaths`), without the stagger rule's wait.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ForcedHitReaction {
+    pub form_id: u32,
+    /// Where it was hit (`GetHitLocation`'s numbering).
+    pub location: i32,
+    /// The move that forced it, for the log.
+    pub by: &'static str,
+}
+
 /// An actor's weapon left its hand: it reached zero condition and fell (§17), or a hit
 /// crippled the actor's arm ([`disarm`]). The renderer takes it out of the hand
 /// (nvforever `weapons`); `dropped` is the reference lying on the ground, drawn like any
@@ -1188,6 +1201,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<HitMarks>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
+            .add_message::<ForcedHitReaction>()
             .add_message::<ActorPush>()
             .add_message::<WeaponBroken>()
             .add_message::<ActorFire>()
@@ -1235,7 +1249,17 @@ struct SpecialMove {
     /// Legion Assault knocks the target back [the fandom wiki, "Knock back opponents";
     /// the DOBJ names no effect for it].
     knock_back: bool,
+    /// Khan Trick forces the target's hit reaction ([`ForcedHitReaction`]).
+    forces_reaction: bool,
+    /// Legion Assault's clip lunges forward: the player moves with it ([`LUNGE`]).
+    lunges: bool,
 }
+
+/// Legion Assault's lunge: `h2hattackcustom1power.kf` moves its `Bip01` 332 units
+/// forward over its 1.6 s [observed: the clip's root track, 18 keys; perk-entry-points.md
+/// §11.4]. The body holds `Bip01` still (`nvf_assets::anim_blend`), so the player is moved
+/// that far over that time, at the swing's speed (`crate::player::Lunge`).
+pub const LUNGE: (f32, f32) = (332.0, 1.6);
 
 /// The special move a power attack in `dir` is, when the player has its perk.
 fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_combat::melee::PowerDir) -> Option<SpecialMove> {
@@ -1256,7 +1280,8 @@ fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_c
     };
     let rt = script.and_then(|s| s.rt.as_mut())?;
     let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(point), rt.game.data.default_object(slot)));
-    has.then_some(SpecialMove { name, stem, spell, knock_back: dir == PowerDir::Forward })
+    let side = matches!(dir, PowerDir::Left | PowerDir::Right);
+    has.then_some(SpecialMove { name, stem, spell, knock_back: dir == PowerDir::Forward, forces_reaction: side, lunges: dir == PowerDir::Forward })
 }
 
 /// Scribe Counter: its clip `h2hcounter.kf` [observed: both rigs' folders; hypothesis:
@@ -1264,7 +1289,7 @@ fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_c
 fn scribe_counter(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<SpecialMove> {
     let rt = script.and_then(|s| s.rt.as_mut())?;
     let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(fnv_game::perks::HAS_UNARMED_COUNTER_ATTACK), rt.game.data.default_object(fnv_game::data::DefaultObject::UnarmedCounterPa)));
-    has.then_some(SpecialMove { name: "Scribe Counter", stem: "counter", spell, knock_back: false })
+    has.then_some(SpecialMove { name: "Scribe Counter", stem: "counter", spell, knock_back: false, forces_reaction: false, lunges: false })
 }
 
 /// Knock `target` down away along `dir`, as a blast's knockdown does; logged with `why`.
@@ -2781,10 +2806,10 @@ fn melee(
     mut script: Option<ResMut<ScriptState>>,
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
-    (mut messages, mut pushes, mut broken): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>),
+    (mut messages, mut pushes, mut broken, mut forced): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>, MessageWriter<ForcedHitReaction>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    (mut vats, mut dm): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>),
+    (mut vats, mut dm, mut lunge): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, ResMut<crate::player::Lunge>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -2846,6 +2871,13 @@ fn melee(
                             c.player_blocked_at = None;
                         }
                         info!("combat: {} ({:?} power attack, unarmed): clip {}", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand), m.stem);
+                        if m.lunges {
+                            // At the swing's speed: the clip plays faster, the lunge too.
+                            let (far, secs) = LUNGE;
+                            let rate = if speed > 0.0 { speed } else { 1.0 };
+                            lunge.start(far, secs / rate);
+                            info!("combat: {}: the player lunges {far:.0} units over {:.2} s", m.name, secs / rate);
+                        }
                         stem = m.stem.to_string();
                         if let Some(s) = c.swings.swing.as_mut() {
                             s.stem = stem.clone();
@@ -3004,6 +3036,12 @@ fn melee(
                 items.push(spell);
             }
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
+            if r.as_ref().is_some_and(|r| !r.died && !r.immune && !r.knocked_out) {
+                if let Some(m) = special.filter(|m| m.forces_reaction) {
+                    info!("combat: {}: {target} is forced into its hit reaction (location {location})", m.name);
+                    forced.write(ForcedHitReaction { form_id: target.0, location, by: m.name });
+                }
+            }
             if r.as_ref().is_some_and(|r| !r.died && !r.immune) {
                 // Legion Assault knocks back (no DOBJ spell); the Knockdown Chance perks
                 // (Super Slam, Elijah's Last Words) may knock the target down.

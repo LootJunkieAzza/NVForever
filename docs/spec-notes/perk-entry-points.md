@@ -291,10 +291,9 @@ NVForever:
   blow begun within `COUNTER_WINDOW` (1 s) of the player's block stopping one is a
   standing power attack (its damage bonus, breaking a block), without the power attack's
   hold; logged `combat: Scribe Counter: the blow after the block is a power attack`.
-- Not built: Khan Trick's need for dirt or sand underfoot (the fandom wiki), its forced
-  hit reaction on the target (below), the crouched move (no perk), the moves in VATS mode,
-  Legion Assault's travel (its clip's root goes 332 units forward; the body holds its root
-  still, so the player does not lunge).
+- Not built: Khan Trick's need for dirt or sand underfoot (the fandom wiki), the crouched
+  move (no perk), the moves in VATS mode. Khan Trick's forced hit reaction and Legion
+  Assault's lunge: §11.4.
 
 ### 11.3 The moves' clips (2026-10-24)
 
@@ -315,6 +314,34 @@ that clip's `Hit` key; Scribe Counter's swing becomes a standing power attack th
 `combat: <move> (<dir> power attack, unarmed): clip <stem>`.
 
 Khan Trick in the original also sets the target's forced hit reaction (GetForceHitReaction
-1, which plays its crippled-limb hit idles) [documented: the same page]; not built.
+1, which plays its crippled-limb hit idles) [documented: the same page]; built in §11.4.
 
-Checks: smoke `perk-unarmed-moves` (with frames of each move), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`.
+### 11.4 Khan Trick's stun, Legion Assault's lunge (2026-10-24)
+
+Owner 2026-10-24: "Add Khan Trick's forced hit reaction (the stun) and move the player
+forward during Legion Assault's lunge."
+
+- Khan Trick: GetForceHitReaction is 1 on the target of AttackCustom4Power and
+  AttackCustom5Power [documented: GECK wiki GetForceHitReaction]. FalloutNV.esm's IDLE
+  `3rdPersonHitReactionsForce` (0014CC29, condition GetForceHitReaction == 1) and
+  `3rdPCrouchedHitForce` (0014CC2A) hold one child per hit location
+  (`3rdPHitTorsoForce` 0014CC2B for location 0, `…HeadForce` 1–2, `…ArmLeftForce` 3–4,
+  `…ArmRightForce` 5–6, `…LegLeftForce` 7–9, `…LegRightForce` 10–12, by GetHitLocation),
+  whose model is the IdleAnims folder alone: they play the actor's hit reaction for that
+  location [observed: the records; hypothesis: the same clips as the stagger's]. So a Khan
+  Trick blow that leaves its target alive and conscious sends `combat::ForcedHitReaction`
+  (logged `combat: Khan Trick: <target> is forced into its hit reaction (location <n>)`),
+  and the body plays the reaction for the location at once, without the stagger rule's
+  crippling or wait (nvforever `deaths`; logged `hit reaction: <ref> staggers for <s> s
+  (location <n>, forced: Khan Trick)`). The condition function itself stays a stub: no
+  idle picker here asks it.
+- Legion Assault: its clip `h2hattackcustom1power.kf` moves `Bip01` 332 units straight
+  ahead over 1.6 s [observed: 18 keys]. The body holds `Bip01` still, so the swing's start
+  sets `player::Lunge` (`combat::LUNGE`): the player moves forward along their heading at
+  332 / 1.6 units a second for the clip's length, both scaled by the swing's speed (the
+  attack-speed perks), on top of walking; walls and actors stop it as they stop walking
+  [design: an even speed, not the clip's key by key]. Logged `combat: Legion Assault: the
+  player lunges 332 units over <s> s` and, at its end, `player: lunge done: <d> units from
+  where it started`.
+
+Checks: smoke `perk-unarmed-moves` (with frames of each move; the stun and the lunge), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`; `player::tests::lunge_*`.
