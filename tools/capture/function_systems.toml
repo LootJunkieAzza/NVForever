@@ -342,9 +342,8 @@ system = "environment radiation"
 note = "0 in the gas station matches [observed: probes]."
 
 [function.IsActorTalkingThroughActivator]
-status = "no-system"
-system = "talking activators"
-note = "0 at rest matches [observed: probes]."
+status = "match"
+note = "0 at rest matches [observed: probes]; 1 on the talking actor while its lines are chosen and said through the activator (docs/spec-notes/talking-activators.md; smoke `talking-activator-intercom`)."
 
 [function.IsPlayerGrabbedRef]
 status = "no-system"
