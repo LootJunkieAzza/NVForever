@@ -166,7 +166,11 @@ behind; it stops once within the distance when the target has stopped (no new pl
 second, or slower than 20 units/s), else only 64 units inside it [our choice; owner's
 playtest 2026-10-24: the Novac pack brahmin, kept about 450 units back by its package, stood,
 set off running past a fixed 512, caught up and stood again all the way after its
-merchant]. A target that is gone or dead
+merchant]. In the original game the same brahmin walked at its merchant's pace 440–530
+units behind it, ran only once it was about 800–1,060 behind, and closed to about 300
+when the merchant stopped [observed: AI observer 2026-10-24, docs/spec-notes/actors.md
+§8.10, Brahmin]: the rule above agrees except for that last stop, which is at the
+distance here. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The
