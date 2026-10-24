@@ -432,6 +432,10 @@ impl Picking {
 pub struct Locks {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub broken: BTreeSet<FormId>,
+    /// Broken locks whose Infiltrator try was spent too: broken again (§7 of
+    /// perk-entry-points.md).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub retried: BTreeSet<FormId>,
     /// The help message ([`HELP_MESSAGE`]) has been shown: it comes the first time the menu
     /// opens only [hypothesis: "Auto Display" shows a help message once per game].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -440,7 +444,7 @@ pub struct Locks {
 
 impl Locks {
     pub fn is_empty(&self) -> bool {
-        self.broken.is_empty() && !self.help_shown
+        self.broken.is_empty() && self.retried.is_empty() && !self.help_shown
     }
 }
 
@@ -485,7 +489,15 @@ pub fn opening(g: &mut Game, reference: FormId, skill: f32) -> Opening {
     let Some(lock) = g.world.get(reference).ok().and_then(|s| s.lock).filter(|l| l.locked) else { return Opening::NotLocked };
     let level = Level::of(lock.level);
     let n = pins(g);
-    match may_pick(level, skill, n, g.locks.broken.contains(&reference)) {
+    // Infiltrator's Ignore Broken Lock: one more try at a broken lock [documented: GECK
+    // wiki Entry Point, "if the value is modified to be non-zero, another chance will be
+    // granted"; observed: the perk, "can make one more attempt to pick a broken lock"].
+    let broken = g.locks.broken.contains(&reference);
+    let again = broken && !g.locks.retried.contains(&reference) && g.player_has_entry(crate::perks::IGNORE_BROKEN_LOCK);
+    if again {
+        tracing::info!("lockpick: {reference} is broken; Ignore Broken Lock (Infiltrator) gives one more try");
+    }
+    match may_pick(level, skill, n, broken && !again) {
         Ok(()) => Opening::Pick { level, skill, pins: n },
         Err(r) => Opening::Refused(r),
     }
@@ -521,7 +533,10 @@ pub fn opened(g: &mut Game, reference: FormId, level: Level, picked: bool) -> Op
 /// Forcing failed: the lock is broken for good; GetLocked reads 2 and GetIsLockBroken 1
 /// [documented: GECK wiki GetLocked, GetIsLockBroken]. The pin goes too.
 pub fn broke(g: &mut Game, reference: FormId) {
-    g.locks.broken.insert(reference);
+    // Broken again on Infiltrator's try: that try is spent.
+    if !g.locks.broken.insert(reference) {
+        g.locks.retried.insert(reference);
+    }
     pin_broke(g);
 }
 

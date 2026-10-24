@@ -95,7 +95,7 @@ roll would be one per mark as it fires.
 perk-entry-points.md §2 left 37/38/43 until the player body's clips can play faster; the
 run speed has no such block.
 
-### 3.3 Weight, carrying and fast travel
+### 3.3 Weight, carrying and fast travel (built 2026-10-24, perk-entry-points.md §7)
 
 | Entry point | Perks |
 |---|---|
@@ -104,7 +104,7 @@ run speed has no such block.
 | 22 Get Max Carry Weight | Hoarder + 25 (its −1 SPECIAL ability works) |
 | 51 Has Fast Travel Always | Long Haul: fast travel while over-encumbered |
 
-### 3.4 Locks, terminals, sneaking
+### 3.4 Locks, terminals, sneaking (built 2026-10-24, perk-entry-points.md §7)
 
 | Entry point | Perks |
 |---|---|
