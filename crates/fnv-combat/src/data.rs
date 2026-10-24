@@ -139,6 +139,11 @@ pub struct WeaponStats {
     pub semi_auto_fire_delay: [f32; 2],
     pub strength_req: u32,
     pub skill_req: u32,
+    /// DNAM Base VATS To-Hit Chance: the chance to hit the weapon in another actor's
+    /// hands, percent [documented: GECK wiki Weapons] (VATS mode, vats-mode.md §17.2). Not
+    /// part of any report.
+    #[serde(skip)]
+    pub base_vats_to_hit: u32,
     pub regen_rate: f32,
     pub kill_impulse: f32,
     pub impulse_dist: f32,
@@ -947,6 +952,7 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         semi_auto_fire_delay: [f(dn, "semi_automatic_fire_delay_min"), f(dn, "semi_automatic_fire_delay_max")],
         strength_req: u(dn, "strength_req"),
         skill_req: u(dn, "skill_req"),
+        base_vats_to_hit: u(dn, "base_vats_to_hit_chance"),
         regen_rate: f(dn, "regen_rate"),
         kill_impulse: f(dn, "kill_impulse"),
         impulse_dist: f(dn, "impulse_dist"),

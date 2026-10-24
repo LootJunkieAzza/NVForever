@@ -13,7 +13,8 @@
 //!   (§11.5); V again ends it; E (Activate) fires.
 //! - **Firing** (§9): the clock runs at [`FIRE_SCALE`] (half speed); every
 //!   [`SHOT_INTERVAL`] of game time the next mark in
-//!   order: the view snaps to it and `crate::combat` fires one shot straight at it
+//!   order: the view snaps to it, the hit is rolled on the mark's chance (§17) and
+//!   `crate::combat` fires one shot straight at it, or wide of it on a miss
 //!   ([`VatsMode::take_shot`]: no spread, no recoil, no jam, whatever the weapon's
 //!   cooldown), and its AP is spent. [`AFTER_LAST`] after the last shot the mode is off
 //!   and the clock is back at 1. In first person the player's own aim stays (a scope
@@ -22,6 +23,10 @@
 //! - **The look** (§5): the swipe, the amber grade and its fading out are four numbers
 //!   ([`VatsMode::look`]) the renderer's image-space pass draws (nvforever
 //!   `imagespace.rs`); the marks' "x"s are drawn here ([`draw_marks`]).
+//! - **Hit chance** (§17): each mark's chance to hit (`fnv_combat::vats::raw_chance`,
+//!   `final_chance`: the part's BPTD To Hit Chance, the weapon's skill, the spread at the
+//!   mark's distance, the player's to-hit perks, Concentrated Fire, the 95 % cap) is worked
+//!   out again every frame and drawn as "NN%" beside its "x" ([`draw_labels`]).
 //! - **Sounds** (§10): the base game's `UIVATS*` SOUN records, found by Editor ID.
 //! - **AP** (§7.2): reserved while marking (the HUD's bar shows what is left after the
 //!   reservations, [`VatsMode::reserved`]), spent per shot; outside the mode spent AP comes
@@ -44,7 +49,12 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use fnv_combat::vats::{restored_damage, AttackStyle, MarkQueue, MeleeAction, MeleeLimits, MeleeRun, Volley, VolleyEvent};
+use fnv_combat::rng::SplitMix;
+use fnv_combat::vats::{
+    final_chance, miss_point, raw_chance, restored_damage, rolled_hit, throw_miss_point, AttackStyle, HitInputs, HitTuning, MarkQueue, MeleeAction, MeleeLimits, MeleeRun, Volley, VolleyEvent, HELD_WEAPON_TO_HIT,
+    WHOLE_TO_HIT,
+};
+use fnv_game::vats::HitPerks;
 use fnv_game::actor_values::ACTION_POINTS;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::FormId;
@@ -54,7 +64,10 @@ use crate::activate::HudMessage;
 use crate::bindings::{Control, ControlInput};
 use crate::combat::{Combat, WeaponAnim};
 use crate::control::{ControlLocks, Crosshair, PlayerControl};
-use crate::hitvol::ActorParts;
+use crate::hitvol::{ActorParts, WEAPON_PART};
+use crate::interface::{bc_supported, face as font_face, plain_font, set_line, Face};
+use bevy::image::CompressedImageFormatSupport;
+use nvf_assets::GameData;
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
@@ -154,7 +167,7 @@ struct Keys {
 }
 
 /// Where a mark is and what it is on.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Spot {
     /// Its point now (game space): the part's capsule centre, followed while the actor
     /// moves; the last one seen once it has no volume.
@@ -163,6 +176,16 @@ struct Spot {
     part: String,
     /// The part's condition actor value (GetVATSValue Targeted Part).
     condition: Option<u16>,
+    /// The part's base chance to hit, percent (§17.2).
+    base: f32,
+    /// The player's to-hit perks for this mark, read when it was made (§17.3).
+    perks: HitPerks,
+    /// Marks made before it on the same actor and part (Concentrated Fire).
+    earlier: u32,
+    /// Its chance to hit now, percent (§17.2): drawn beside its "x", rolled on firing.
+    chance: f32,
+    /// Its last roll while firing (GetVATSValue Is Success).
+    landed: Option<bool>,
 }
 
 /// The weapon VATS mode was entered with.
@@ -175,6 +198,9 @@ struct InHand {
     melee_reach: f32,
     /// Its WEAP Sight FOV (0: no sights).
     sight_fov: f32,
+    /// The player's skill with it, and the VATS settings of the hit chance (§17).
+    skill: f32,
+    hit: HitTuning,
 }
 
 /// How the marks are being spent (§9, §16).
@@ -202,6 +228,9 @@ pub struct VatsStats {
     pub shots: u32,
     pub ap_spent: f32,
     pub refused: u32,
+    /// Rolls that hit and missed (§17.4).
+    pub hits: u32,
+    pub misses: u32,
 }
 
 #[derive(Resource, Default)]
@@ -236,6 +265,12 @@ pub struct VatsMode {
     /// or the next), and whether that rule has the sights up (`None`: not decided yet).
     aim_mark: usize,
     sights_up: Option<bool>,
+    /// The hit rolls' generator (seeded, so a run repeats) and this stay's hits and misses.
+    rng: Option<SplitMix>,
+    hits: u32,
+    misses: u32,
+    /// The roll of the melee swing being made (§17.4).
+    blow_lands: bool,
     /// SOUN FormIDs by Editor ID, found on first use.
     sounds: Option<HashMap<String, FormId>>,
     pub stats: VatsStats,
@@ -267,16 +302,16 @@ impl VatsMode {
         std::mem::take(&mut self.swing_now)
     }
 
-    /// The melee mark being swung at: its actor, its point now, and how close across the
+    /// The melee mark being swung at: its actor, its point now, how close across the
     /// ground it must be for the blow to land on it (the weapon's reach plus
-    /// [`CLOSE_SLACK`]) (§16.2).
-    pub fn melee_mark(&self) -> Option<(u32, [f32; 3], f32)> {
+    /// [`CLOSE_SLACK`]) (§16.2), and whether the hit roll lets it land (§17.4).
+    pub fn melee_mark(&self) -> Option<(u32, [f32; 3], f32, bool)> {
         if self.phase != Phase::Firing {
             return None;
         }
         let w = self.weapon.as_ref().filter(|w| w.style == AttackStyle::Melee)?;
         let i = self.striking?;
-        Some((self.queue.marks().get(i)?.target.0, self.spots.get(i)?.point, w.melee_reach + CLOSE_SLACK))
+        Some((self.queue.marks().get(i)?.target.0, self.spots.get(i)?.point, w.melee_reach + CLOSE_SLACK, self.blow_lands))
     }
 
     /// Where the view's depth of field is focused (image-modifiers.md §8.4): the mark
@@ -320,6 +355,27 @@ impl VatsMode {
         self.spots.iter().skip(skip).take(if self.active() { usize::MAX } else { 0 })
     }
 
+    /// Roll a hit at `chance` percent (§17.4); the test aid `NVF_PLAY_TEST_VATS_ROLL`
+    /// (`hit` or `miss`) decides instead. The roll, 0–100, and whether it hit.
+    fn roll(&mut self, chance: f32) -> (f32, bool) {
+        let u = self.rng.get_or_insert(SplitMix(0x7A75_4D0D)).next_f32();
+        let hit = forced_roll().unwrap_or_else(|| rolled_hit(chance, u));
+        if hit {
+            self.hits += 1;
+            self.stats.hits += 1;
+        } else {
+            self.misses += 1;
+            self.stats.misses += 1;
+        }
+        (u * 100.0, hit)
+    }
+
+    /// Two numbers in [0, 1) for where a miss goes.
+    fn two(&mut self) -> (f32, f32) {
+        let r = self.rng.get_or_insert(SplitMix(0x7A75_4D0D));
+        (r.next_f32(), r.next_f32())
+    }
+
     fn sound(&mut self, sfx: Option<&Sfx>, edid: &str) -> Option<FormId> {
         let sfx = sfx?;
         let by = self.sounds.get_or_insert_with(|| sfx.forms.sounds.iter().filter_map(|(&id, s)| s.edid.clone().map(|e| (e, id))).collect());
@@ -328,6 +384,38 @@ impl VatsMode {
             debug!("vats mode: no sound {edid}");
         }
         found
+    }
+}
+
+/// The test aid `NVF_PLAY_TEST_VATS_ROLL`: `hit` or `miss` makes every roll come out so
+/// (vats-mode.md §13), for checks about something other than the chance.
+fn forced_roll() -> Option<bool> {
+    static FORCED: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| match std::env::var("NVF_PLAY_TEST_VATS_ROLL").ok()?.trim() {
+        "hit" => Some(true),
+        "miss" => Some(false),
+        other => {
+            warn!("vats mode: NVF_PLAY_TEST_VATS_ROLL={other}: not hit or miss, rolls are rolled");
+            None
+        }
+    })
+}
+
+/// A mark's chance to hit now, percent (§17.2): `cone` is the gun's cone in VATS
+/// (`Combat::vats_cone`); a melee weapon has none.
+fn chance_of(spot: &Spot, w: &InHand, eye: [f32; 3], cone: Option<f32>) -> f32 {
+    let distance = crate::combat::distance(eye, spot.point);
+    let cone = if w.style == AttackStyle::Melee { None } else { Some(cone.unwrap_or(0.0)) };
+    let raw = raw_chance(&HitInputs { base: spot.base, skill: w.skill, distance, cone_deg: cone }, &w.hit);
+    final_chance(raw, |c| spot.perks.apply(c as f64) as f32, spot.perks.concentrated_fire.then_some(spot.earlier), &w.hit)
+}
+
+/// Every mark's chance again (the marks and the player move).
+fn rechance(v: &mut VatsMode, combat: &Combat, eye: [f32; 3]) {
+    let Some(w) = v.weapon.as_ref() else { return };
+    let cone = combat.vats_cone;
+    for s in &mut v.spots {
+        s.chance = chance_of(s, w, eye, cone);
     }
 }
 
@@ -530,6 +618,7 @@ fn update(
         }
         (Phase::Marking, None) => {
             follow(v, &phys);
+            rechance(v, &combat, player.eye());
             if keys.toggle {
                 end(v, "V pressed again", &mut sounds);
             } else if keys.unmark {
@@ -566,6 +655,7 @@ fn update(
         }
         (Phase::Firing, None) => {
             follow(v, &phys);
+            rechance(v, &combat, player.eye());
             let dt = time.delta_secs();
             match v.run.as_mut() {
                 Some(Run::Volley(vo)) => match vo.step(dt) {
@@ -617,7 +707,7 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         Err(why) => return refused(v, why, hud, sounds),
     };
     // The Action Point Cost perks (docs/spec-notes/perk-entry-points.md §2).
-    let (cost, by) = crate::combat::player_weapon_perk(script, sim, fnv_game::perks::ACTION_POINT_COST, w.id, w.cost);
+    let (cost, by) = crate::combat::player_weapon_perk(script.as_deref_mut(), sim, fnv_game::perks::ACTION_POINT_COST, w.id, w.cost);
     if !by.is_empty() {
         info!("vats mode: perks change the AP cost {:.1} -> {:.1} ({})", w.cost, cost.max(0.0), by.join(", "));
         w.cost = cost.max(0.0);
@@ -647,7 +737,9 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         (_, Some(kind)) => info!("vats mode: on ({}, {kind}, {:.0} AP a mark, {} rounds loaded, {ap_text} AP; at most {most} marks)", w.edid, w.cost, w.rounds),
     }
     let sight_fov = combat.sight_fov().filter(|&(id, _)| id == w.id).map_or(0.0, |(_, f)| f);
-    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach, sight_fov });
+    let skill = combat.player_weapon_skill(script, sim);
+    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach, sight_fov, skill, hit: combat.rules.vats_hit });
+    (v.hits, v.misses) = (0, 0);
     sounds.play(v, "UIVATSEnter");
     sounds.looping(v, true);
 }
@@ -669,12 +761,16 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
         sounds.play(v, "UIVATSExit");
         v.left_at = Some(v.now);
         info!("vats mode: off ({} shots fired, {:.0} AP spent; {why})", v.fired, v.spent);
+        if v.hits + v.misses > 0 {
+            info!("vats mode: rolls: {} hit, {} missed", v.hits, v.misses);
+        }
     } else if was == Phase::Drawing {
         info!("vats mode: entering cancelled ({why})");
     }
     v.entered_at = None;
     v.queue = MarkQueue::default();
     v.spots.clear();
+    v.blow_lands = false;
 }
 
 /// The point to aim at on an actor: its part's capsule centre, the whole capsule's aim
@@ -702,7 +798,7 @@ fn mark(
     v: &mut VatsMode,
     combat: &Combat,
     parts: &ActorParts,
-    script: Option<&mut ScriptState>,
+    mut script: Option<&mut ScriptState>,
     sim: &mut SimState,
     phys: &mut PhysState,
     player: &Player,
@@ -738,7 +834,8 @@ fn mark(
         info!("vats mode: {actor:08X} is flagged No VATS Melee: not marked with a melee weapon");
         return;
     }
-    let ap_now = player_ap(script, sim).map_or(f32::INFINITY, |a| a.0);
+    let ap_now = player_ap(script.as_deref_mut(), sim).map_or(f32::INFINITY, |a| a.0);
+    let earlier = v.queue.marks().iter().filter(|m| m.target.0 == actor && m.part == part).count() as u32;
     match v.queue.push(FormId(actor), part, ap_now) {
         Ok(k) => {
             let bp = combat.vats_part(parts, actor, part);
@@ -752,12 +849,45 @@ fn mark(
             let name = sim.base_of(actor).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| "?".into());
             let point = point_of(phys, actor, part).or(hit.map(|h| h.point)).unwrap_or(from);
             v.stats.marks += 1;
+            // The part's base chance (§17.2): its BPTD To Hit Chance; an actor without
+            // parts, or the weapon it holds, our own.
+            let base = match (part, bp.as_ref()) {
+                (Some(WEAPON_PART), _) => HELD_WEAPON_TO_HIT,
+                (_, Some(b)) => b.to_hit_chance as f32,
+                (_, None) => WHOLE_TO_HIT,
+            };
+            // The to-hit perks see this mark as the shot (§17.3).
+            let shot = v.weapon.as_ref().map(|w| fnv_game::vats::VatsShot {
+                weapon: w.id,
+                target: FormId(actor),
+                distance: crate::combat::distance(player.eye(), point) as f64,
+                condition,
+                success: false,
+            });
+            let (perks, names) = match (shot, script.and_then(|s| s.rt.as_mut())) {
+                (Some(shot), Some(rt)) => with_world(rt, sim, |rt| {
+                    let perks = rt.game.vats_hit_perks(shot);
+                    let names: Vec<String> = perks.ops.iter().map(|(p, _)| rt.game.data.name(*p)).collect();
+                    (perks, names)
+                }),
+                _ => (HitPerks::default(), Vec::new()),
+            };
+            let mut spot = Spot { point, name, part: part_name, condition, base, perks, earlier, chance: 0.0, landed: None };
+            if let Some(w) = v.weapon.as_ref() {
+                spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
+            }
+            let perk_text = if names.is_empty() { String::new() } else { format!(", perks {}", names.join(", ")) };
+            let cf = if spot.perks.concentrated_fire && earlier > 0 { format!(", concentrated fire +{earlier}") } else { String::new() };
             info!(
-                "vats mode: marked {name} {actor:08X} ({part_name}), mark {k}; {:.0} AP reserved, {} AP left",
+                "vats mode: marked {} {actor:08X} ({}), mark {k}; {:.0} AP reserved, {} AP left; {:.0}% to hit (base {:.0}{perk_text}{cf})",
+                spot.name,
+                spot.part,
                 v.queue.reserved(),
-                if ap_now.is_finite() { format!("{:.0}", ap_now - v.queue.reserved()) } else { "unlimited".into() }
+                if ap_now.is_finite() { format!("{:.0}", ap_now - v.queue.reserved()) } else { "unlimited".into() },
+                spot.chance,
+                spot.base,
             );
-            v.spots.push(Spot { point, name, part: part_name, condition });
+            v.spots.push(spot);
             sounds.play(v, if part.is_some() { "UIVATSSelectTargetPart" } else { "UIVATSSelectTarget" });
         }
         Err(r) => {
@@ -773,9 +903,26 @@ fn mark(
 /// `crate::combat` fires at it this frame (a throw on its arc); the mark's first round
 /// spends its AP.
 fn shoot(v: &mut VatsMode, i: usize, round: u32, script: Option<&mut ScriptState>, sim: &mut SimState, player: &mut Player, control: &PlayerControl) {
-    let Some(point) = v.spots.get(i).map(|s| s.point) else { return };
+    let Some((point, chance)) = v.spots.get(i).map(|s| (s.point, s.chance)) else { return };
     face(player, control, point);
-    v.shot = Some(point);
+    // Every round is rolled on the mark's chance now (§17.4); a miss goes wide of it.
+    let (rolled, hit) = v.roll(chance);
+    let thrown = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Thrown);
+    let aim = if hit {
+        point
+    } else {
+        let (u1, u2) = v.two();
+        if thrown {
+            throw_miss_point(point, u1, u2)
+        } else {
+            miss_point(player.eye(), point, u1, u2)
+        }
+    };
+    if let Some(s) = v.spots.get_mut(i) {
+        s.landed = Some(hit);
+    }
+    let outcome = format!("{chance:.0}% to hit: {} (rolled {rolled:.0})", if hit { "hit" } else { "missed" });
+    v.shot = Some(aim);
     v.shooting = Some(i);
     v.fired += 1;
     v.stats.shots += 1;
@@ -786,16 +933,16 @@ fn shoot(v: &mut VatsMode, i: usize, round: u32, script: Option<&mut ScriptState
     };
     v.aim_mark = if round + 1 < rounds { i } else { (i + 1).min(v.spots.len().saturating_sub(1)) };
     if round > 0 {
-        debug!("vats mode: round {} of mark {}", round + 1, i + 1);
+        debug!("vats mode: round {} of mark {}: {outcome}", round + 1, i + 1);
         return;
     }
     let cost = start_mark(v, i, script, sim);
     let (Some(m), Some(s)) = (v.queue.marks().get(i), v.spots.get(i)) else { return };
     let n = v.queue.len();
     match v.weapon.as_ref().map(|w| w.style) {
-        Some(AttackStyle::Burst { shots, .. }) => info!("vats mode: burst {} of {n} at {} {} ({}), {shots} shots, {cost:.0} AP spent", i + 1, s.name, m.target, s.part),
-        Some(AttackStyle::Thrown) => info!("vats mode: throw {} of {n} at {} {} ({}), {cost:.0} AP spent", i + 1, s.name, m.target, s.part),
-        _ => info!("vats mode: shot {} of {n} at {} {} ({}), {cost:.0} AP spent", i + 1, s.name, m.target, s.part),
+        Some(AttackStyle::Burst { shots, .. }) => info!("vats mode: burst {} of {n} at {} {} ({}), {shots} shots, {cost:.0} AP spent; round 1 {outcome}", i + 1, s.name, m.target, s.part),
+        Some(AttackStyle::Thrown) => info!("vats mode: throw {} of {n} at {} {} ({}), {cost:.0} AP spent; {outcome}", i + 1, s.name, m.target, s.part),
+        _ => info!("vats mode: shot {} of {n} at {} {} ({}), {cost:.0} AP spent; {outcome}", i + 1, s.name, m.target, s.part),
     }
 }
 
@@ -844,8 +991,13 @@ fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, script: Option<&mut Sc
             face(player, control, p);
         }
         Some(MeleeAction::Swing(i)) => {
-            let Some(p) = v.spots.get(i).map(|s| s.point) else { return };
+            let Some((p, chance)) = v.spots.get(i).map(|s| (s.point, s.chance)) else { return };
             face(player, control, p);
+            let (rolled, hit) = v.roll(chance);
+            v.blow_lands = hit;
+            if let Some(s) = v.spots.get_mut(i) {
+                s.landed = Some(hit);
+            }
             v.swing_now = true;
             v.striking = Some(i);
             v.shooting = Some(i);
@@ -853,7 +1005,15 @@ fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, script: Option<&mut Sc
             v.stats.shots += 1;
             let cost = start_mark(v, i, script, sim);
             let (m, s) = (v.queue.marks()[i], &v.spots[i]);
-            info!("vats mode: swing {} of {} at {} {} ({}), {across:.0} units across, {cost:.0} AP spent", i + 1, v.queue.len(), s.name, m.target, s.part);
+            info!(
+                "vats mode: swing {} of {} at {} {} ({}), {across:.0} units across, {cost:.0} AP spent; {chance:.0}% to hit: {} (rolled {rolled:.0})",
+                i + 1,
+                v.queue.len(),
+                s.name,
+                m.target,
+                s.part,
+                if hit { "hit" } else { "missed" }
+            );
         }
         // The view stays on the mark being swung at.
         Some(MeleeAction::Wait(i)) => {
@@ -879,7 +1039,7 @@ fn tell_scripts(v: &VatsMode, script: Option<&mut ScriptState>, player: &Player)
         let (m, s) = (v.queue.marks().get(i)?, v.spots.get(i)?);
         let eye = player.eye();
         let d = ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2) + (s.point[2] - eye[2]).powi(2)).sqrt();
-        Some(VatsShot { weapon: v.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition })
+        Some(VatsShot { weapon: v.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false) })
     });
     if rt.game.vats.mode != mode || rt.game.vats.shot != shot {
         rt.game.set_vats(mode, shot);
@@ -891,6 +1051,9 @@ fn tell_scripts(v: &VatsMode, script: Option<&mut ScriptState>, player: &Player)
 struct MarkCross(usize);
 
 fn spawn_marks(mut commands: Commands) {
+    for i in 0..MAX_DRAWN {
+        commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), MarkLabel { i, shown: String::new() }));
+    }
     for i in 0..MAX_DRAWN {
         commands
             .spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), MarkCross(i)))
@@ -932,6 +1095,69 @@ fn draw_marks(
     }
 }
 
+/// A mark's chance to hit, "NN%", beside its "x" (§17.5); `shown` is the text its glyphs
+/// now spell.
+#[derive(Component)]
+struct MarkLabel {
+    i: usize,
+    shown: String,
+}
+
+/// The labels' font: the HUD's (`crate::hud`), and where the line stands in it.
+const LABEL_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
+/// The label's baseline below its top, interface units (960 to the view's height).
+const LABEL_BASE: f32 = 30.0;
+/// Its height, interface units, for centring it on the "x".
+const LABEL_HEIGHT: f32 = 36.0;
+/// A creamy white that reads on the amber grade [design].
+const LABEL_COLOUR: Color = Color::srgb(1.0, 0.94, 0.8);
+
+/// The text of a chance: whole percent.
+pub fn chance_text(chance: f32) -> String {
+    format!("{:.0}%", chance.clamp(0.0, 100.0))
+}
+
+/// Put each mark's chance beside its "x" (§17.5): to its right, centred on it.
+#[allow(clippy::too_many_arguments)]
+fn draw_labels(
+    mut commands: Commands,
+    vats: Res<VatsMode>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    mut face_: Local<Option<Face>>,
+    mut labels: Query<(Entity, &mut MarkLabel, &mut Node, &mut Visibility)>,
+) {
+    let (width, height) = windows.iter().next().map_or((1280.0, 720.0), |w| (w.width(), w.height()));
+    let size = (MARK_SIZE * width).max(6.0);
+    let tall = LABEL_HEIGHT / 960.0 * height;
+    let camera = cameras.single().ok();
+    let spots: Vec<([f32; 3], f32)> = vats.unfired().map(|s| (s.point, s.chance)).collect();
+    for (e, mut label, mut node, mut vis) in &mut labels {
+        let spot = spots.get(label.i);
+        let at = spot.zip(camera).and_then(|((p, _), (cam, t))| cam.world_to_viewport(t, space::to_bevy(*p)).ok());
+        let want = if at.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        let (Some(at), Some((_, chance))) = (at, spot) else { continue };
+        node.left = Val::Px(at.x + size * 0.75);
+        node.top = Val::Px(at.y - tall / 2.0);
+        let text = chance_text(*chance);
+        if label.shown != text {
+            let f = face_.get_or_insert_with(|| font_face(LABEL_FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
+            commands.entity(e).despawn_related::<Children>().with_children(|p| {
+                if let Some(line) = f.font.lines(&text, None).into_iter().next() {
+                    set_line(p, f, &line, 0.0, LABEL_BASE, LABEL_COLOUR);
+                }
+            });
+            label.shown = text;
+        }
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, vats: Res<VatsMode>) {
     if exit.read().next().is_none() {
         return;
@@ -940,7 +1166,7 @@ fn report(mut exit: MessageReader<AppExit>, vats: Res<VatsMode>) {
     if s.entered == 0 && s.refused == 0 {
         return;
     }
-    info!("vats mode summary: entered {} times, {} marks, {} shots, {:.0} AP spent, {} refused", s.entered, s.marks, s.shots, s.ap_spent, s.refused);
+    info!("vats mode summary: entered {} times, {} marks, {} shots, {:.0} AP spent, {} refused, {} hit, {} missed", s.entered, s.marks, s.shots, s.ap_spent, s.refused, s.hits, s.misses);
 }
 
 pub struct VatsModePlugin;
@@ -951,7 +1177,7 @@ impl Plugin for VatsModePlugin {
             .add_systems(Startup, spawn_marks)
             .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).after(crate::player::encumbered_walks).before(PlaySet::Physics))
             .add_systems(Update, update.in_set(PlaySet::Activation).before(crate::combat::fire))
-            .add_systems(Update, draw_marks.after(PlaySet::Activation))
+            .add_systems(Update, (draw_marks, draw_labels).after(PlaySet::Activation))
             .add_systems(Last, report);
     }
 }
@@ -959,6 +1185,34 @@ impl Plugin for VatsModePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chance_reads_as_whole_percent() {
+        assert_eq!(chance_text(62.4), "62%");
+        assert_eq!(chance_text(94.6), "95%");
+        assert_eq!(chance_text(0.0), "0%");
+        assert_eq!(chance_text(-3.0), "0%");
+    }
+
+    #[test]
+    fn a_marks_chance_follows_skill_range_and_perks() {
+        let w = |style, skill| InHand { id: FormId(1), reach: REACH, style, melee_reach: 75.0, sight_fov: 0.0, skill, hit: HitTuning { spread_mult: 1.1, ..HitTuning::default() } };
+        let torso = Spot { point: [500.0, 0.0, 0.0], base: 60.0, ..Default::default() };
+        let gun = w(AttackStyle::Single, 50.0);
+        let near = chance_of(&torso, &gun, [0.0; 3], Some(1.0));
+        let far = chance_of(&Spot { point: [3000.0, 0.0, 0.0], ..torso.clone() }, &gun, [0.0; 3], Some(1.0));
+        assert!(near > far && far > 0.0, "{near} {far}");
+        // Melee ignores the range: the player is put beside the mark.
+        let blade = w(AttackStyle::Melee, 50.0);
+        assert_eq!(chance_of(&torso, &blade, [0.0; 3], None), chance_of(&Spot { point: [300.0, 0.0, 0.0], ..torso.clone() }, &blade, [0.0; 3], None));
+        // Skill 100 at close range: capped at fVATSMaxChance.
+        assert_eq!(chance_of(&torso, &w(AttackStyle::Single, 100.0), [490.0, 0.0, 0.0], Some(1.0)), 95.0);
+        // Concentrated Fire's bonus counts only with the perk.
+        let again = Spot { earlier: 2, ..torso.clone() };
+        assert_eq!(chance_of(&again, &gun, [0.0; 3], Some(1.0)), near);
+        let cf = Spot { perks: HitPerks { ops: Vec::new(), concentrated_fire: true }, ..again };
+        assert!((chance_of(&cf, &gun, [0.0; 3], Some(1.0)) - (near + 10.0)).abs() < 1e-3);
+    }
 
     #[test]
     fn the_clock_eases_down_over_the_swipe() {
@@ -1046,11 +1300,13 @@ mod tests {
     fn the_melee_mark_is_the_one_being_swung_at_while_firing() {
         let mut v = VatsMode { phase: Phase::Firing, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
         v.queue.push(FormId(7), None, 92.0).unwrap();
-        v.spots.push(Spot { point: [1.0, 2.0, 3.0], name: "dog".into(), part: "whole".into(), condition: None });
-        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0 });
+        v.spots.push(Spot { point: [1.0, 2.0, 3.0], name: "dog".into(), part: "whole".into(), ..Default::default() });
+        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0, skill: 50.0, hit: HitTuning::default() });
         assert_eq!(v.melee_mark(), None, "no swing yet");
         v.striking = Some(0);
-        assert_eq!(v.melee_mark(), Some((7, [1.0, 2.0, 3.0], 75.0 + CLOSE_SLACK)));
+        assert_eq!(v.melee_mark(), Some((7, [1.0, 2.0, 3.0], 75.0 + CLOSE_SLACK, false)), "the roll has not let it land");
+        v.blow_lands = true;
+        assert_eq!(v.melee_mark(), Some((7, [1.0, 2.0, 3.0], 75.0 + CLOSE_SLACK, true)));
         v.swing_now = true;
         assert!(v.take_swing() && !v.take_swing(), "one tap");
         v.weapon.as_mut().unwrap().style = AttackStyle::Thrown;

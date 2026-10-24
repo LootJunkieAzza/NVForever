@@ -10,6 +10,11 @@ paused target menu, no hit chances, no kill camera). The original's VATS stays "
 started" in docs/status.md; the script functions that ask about VATS answer for this
 mode (§12).
 
+2026-10-23: **hit chances** (§17, owner: "lets build hit chance into our vats … show a
+percentage hit chance against the X"): each mark shows its chance to hit beside its "x"
+and every shot is rolled on it; a miss goes wide. Built, unit-tested, not yet seen in a
+game run.
+
 2026-10-20: **beyond single-shot guns** (§16): automatic weapons fire a burst per mark,
 melee and unarmed weapons teleport beside each mark and swing, grenades and thrown weapons
 are lobbed at each mark; melee marks are within 5 m and the player teleports beside each
@@ -33,7 +38,8 @@ quoted as "owner".
   with 6 rounds loaded takes at most 6 marks). Single-shot pistols and rifles first.
 - **Accept** (owner): E (Activate) fires every marked shot in real time (since 2026-10-18 at half speed, §4), auto-aimed at
   each mark in order, faster than the weapon's normal rate.
-- **Accuracy** (owner): 100 %; no shot misses.
+- **Accuracy** (owner): 100 %; no shot misses. Replaced 2026-10-23 by a hit chance per
+  mark (owner, §17).
 - **Sound** (owner): the base game's VATS sounds for entering, marking, accepting and
   leaving.
 - **Look** (owner's references): two Dead Eye clips in `C:\fnv-private\VATS` (private,
@@ -261,6 +267,8 @@ On E with at least one mark (`UIVATSReady`):
      fire now whatever its cooldown or wind-up (the fire-rate override), it takes its
      rounds from the magazine as any shot, plays the weapon's sounds, muzzle flash,
      casing and OnFire blocks, wears the weapon, and counts in the stats;
+   - the hit is rolled on the mark's chance (§17.4); a miss leaves through a point beside
+     the mark instead of the mark's own;
    - the shot leaves along the line from the eye to the point with **no spread, bloom or
      recoil** (owner: 100 % accuracy) and never jams [design];
    - the shot's AP is spent (§7.2).
@@ -420,7 +428,7 @@ while a shot leaves see it:
 | 4 | Target Distance | the distance from the player to the target, units |
 | 5 | Targeted Part (a body part's condition actor value) | 1 if the mark's part names that condition: the BPTD part's own Actor Value, as combat's limb hits read it (`fnv_game::combat::limb_condition`, 25–31) |
 | 6 | VATS Action | 1 for the code of the attack action (0) [hypothesis: Attack is the first] |
-| 7 | Is Success | 1 (owner: no shot misses) [design] |
+| 7 | Is Success | 1 if the shot's hit roll succeeded (§17.4); 0 while a mark's chance is worked out |
 | 8–14 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design] |
 | 15 | Weapon Type Is (an animation type) | 1 if the weapon's DNAM animation type is it |
 
@@ -434,6 +442,8 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 
 ## 13. Test aids and smoke tests
 
+- `NVF_PLAY_TEST_VATS_ROLL=hit` (or `miss`) makes every hit roll come out so (§17.4), for
+  checks about something other than the chance; unset, the rolls are rolled.
 - `NVF_PLAY_TEST_KEYS` presses V, the left mouse button and E through the bindings
   (`v`, `mouse-left`, `mouse-right`, `e`), so the real key path is tested.
 - New `NVF_PLAY_TEST_CONTROL` press **`aimvats`**: turn the view (and the third-person
@@ -450,7 +460,8 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
   - `vats mode: firing <n> marked shots`
   - `vats mode: shot <k> of <n> at <name> <ref> (<part>), <cost> AP spent`
   - `vats mode: off (<n> shots fired, <ap> AP spent; <why>)`
-  - at exit: `vats mode summary: entered <e> times, <m> marks, <s> shots, <ap> AP spent, <r> refused`
+  - at exit: `vats mode summary: entered <e> times, <m> marks, <s> shots, <ap> AP spent, <r> refused, <h> hit, <x> missed`
+  - the hit chance's lines: §17.6
 - Scenarios in `tools/smoke/scenarios.toml`: `vats-mode-two-marks` (the Goodsprings dogs,
   a .357: enter, mark both, accept, two shots, 52 AP), `vats-mode-unmark` (mark, unmark,
   right click again: off with nothing fired or spent) and `vats-mode-ammo-limit` (one
@@ -460,8 +471,7 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 
 - Bursts, melee and thrown weapons: built 2026-10-20 (§16). Left: power attacks and
   chained swings in VATS mode, a short last burst, mines.
-- Perk entry points on the AP cost and the "Action Point Cost" effect; the original's
-  hit chances and the perks that change them (owner: 100 % for now).
+- The "Action Point Cost" effect. Hit chances: built 2026-10-23 (§17).
 - A kill camera, the original's VATS menu, GetVATSTargetHeight, SetVatsTarget.
 - Tuning by eye: `MARK_SCALE`, the swipe and grade colours, `SHOT_INTERVAL`, the mark's
   size, all [design] and owner-checkable in one run.
@@ -598,3 +608,132 @@ at each mark; replaced before it was built into a run.)
   44 AP), `vats-mode-melee` (a machete, one mark on a dog: teleport, swing, 20 AP),
   `vats-mode-thrown` (frag grenades, one mark: one throw, 24 AP). Written 2026-10-20 by a
   worker session that does not run the game: not yet run.
+
+## 17. Hit chance (2026-10-23)
+
+Owner 2026-10-23: "lets build hit chance into our vats we'll need to extend the UI when
+marking targets to show a percentage hit chance against the X too". Each mark has a
+chance to hit, drawn beside its "x" and rolled for every shot. The original's formula is
+not documented (the GECK wiki names its settings, not how they combine), so the
+formula is ours [design], built from what is documented and observed.
+
+### 17.1 What is documented and observed
+
+- Each BPTD part has a "To Hit Chance", "the base percentage chance to hit this body part
+  target in VATS" [documented: GECK wiki Body Part, BodyPartData]. FalloutNV.esm
+  [observed: `fnvtool combat form`]: DefaultBodyPartData (people) Head 30, Torso 60, arms
+  45, legs 50; DogBodyPartData Torso 75, Head 30, legs 40.
+- A WEAP's DNAM "Base VATS To-Hit Chance": the chance to hit the weapon in another actor's
+  hands, "factored before distance, gun skill and screen percentage" [documented: GECK
+  wiki Weapons]. So the original's chance reads the part, the distance, the skill and how
+  big the target is on the screen.
+- The settings [documented: GECK wiki VATS Settings, the defaults; observed:
+  FalloutNV.esm sets `fVATSDistanceFactor` 2 (the wiki says it does not exist in New
+  Vegas; the game data has it, so it is read) and `fVATSSpreadMult` 1.1, and none of the
+  others, so their wiki defaults are used]: `fVATSMaxChance` 95 ("the maximum chance to
+  hit a target in VATS"), `fVATSHitChanceMult` 1, `fVATSSkillFactor` 1,
+  `fVATSDistanceFactor` ("how rapidly the chance to hit decreases as the range of the
+  target increases … non linear"), `fVATSSpreadMult` ("gun spread … multiplied by this
+  value while in VATS"), `iVATSConcentratedFireBonus` 5 ("+ [bonus/100] × [current shot −
+  1]": 63 % on a limb becomes 68 on the second shot, 73 on the third).
+- The perks: entry point 8 Calculate To Hit Chance (Commando × 1.25 with rifles,
+  Gunslinger × 1.25 with pistols, Sniper × 1.25 on the head, Hobbler × 1.25 on the legs,
+  Wired Reflexes × 1.1, Fast Shot × 0.8 and Trigger Discipline × 1.2 with guns and energy
+  weapons, Sneering Imperialist × 1.25 against some factions, Camarader-E, Lonesome Road)
+  and 33 Has Concentrated Fire (Concentrated Fire, Set 1) [observed: the PERK records;
+  documented: GECK wiki GetNthPerkEntryFunction, the codes; docs/handoff/
+  perk-audit-2026-10-23.md §3.9].
+
+### 17.2 The chance [design]
+
+```
+chance = clamp( perks( base × skill × range × fVATSHitChanceMult )
+                + concentrated, 0, fVATSMaxChance )
+skill  = 0.5 + 1.5 × weapon skill / 100 × fVATSSkillFactor      (0.5 … 2.0)
+range  = 1 / (1 + (open / 32)^fVATSDistanceFactor)              (1 for a melee mark)
+open   = distance × tan(cone × fVATSSpreadMult)
+```
+
+- **base**: the marked part's BPTD To Hit Chance; an actor marked whole (no parts)
+  `WHOLE_TO_HIT` 75; an NPC's held weapon `HELD_WEAPON_TO_HIT` 30 (its WEAP's own value is
+  read into `WeaponStats::base_vats_to_hit` but the NPC's weapon is not looked up yet).
+- **skill**: the player's actor value for the weapon's WEAP skill (Guns, Energy Weapons,
+  Melee Weapons, Unarmed, Explosives), read on entering. Skill 0 halves the base, 50
+  gives 1.25 ×, 100 doubles it, so a torso (60) at skill 100 close by reaches the cap
+  and a head (30) about 60 %.
+- **range**: how wide the shot's spread has opened by the time it reaches the mark,
+  against `FOCUS` 32 units (about a torso's width): half the chance where the spread is
+  that wide. The cone is the gun's own (`Combat::vats_cone`): the Gun Spread Formula
+  with the sights up, the stance (moving, sneaking, crippled arms), the skill's wobble,
+  the weapon's Min Spread and the ammo's spread effects, after the Calculate Gun Spread
+  perks, no bloom. So a rifle keeps its chance far longer than a pistol or a shotgun,
+  sneaking helps, and the spread perks help. A melee mark has no range: the player is put
+  beside it (§16.2). A grenade's own cone is used for throws.
+- The distance is the eye's to the mark's point now: the chance is worked out again
+  every frame while marking and firing, so it changes as the actor and the player move.
+- **perks**: the player's Calculate To Hit Chance entries with the tabs Weapon and
+  Target (the conditions of each tab as for the other entry points,
+  perk-entry-points.md §3), read when the mark is made, with GetVATSValue answering for
+  that mark (so Sniper's head and Hobbler's legs see the marked part) and GetVATSMode for
+  the mode as it is (`fnv_game::Game::vats_hit_perks`). Not read again while the mark
+  stays [design: the conditions are about the weapon, the target and the part, which do
+  not change].
+- **concentrated**: with Concentrated Fire, `iVATSConcentratedFireBonus` for each mark
+  made before it on the same actor and part [documented].
+- Examples [from the formula, a cone of 1° and `fVATSSpreadMult` 1.1]: at skill 50 a
+  human torso (60) is 69 % at 500 units (7 m), 55 % at 1,000, 29 % at 2,100 (30 m); its
+  head (30) 34 %, 28 %, 14 %; at skill 100 the torso 95 %, 88 %, 46 %.
+
+### 17.3 Where it is worked out
+
+- `fnv_combat::vats`: `HitTuning` (the settings, `Rules::vats_hit`), `raw_chance`,
+  `final_chance`, `rolled_hit`, `miss_point`, `throw_miss_point`; unit-tested.
+- `fnv_game::vats`: `HAS_CONCENTRATED_FIRE`, `HitPerks`, `Game::vats_hit_perks`;
+  `tests/perk_combat.rs` `vats_to_hit_perks_see_the_mark`.
+- `nvf-play` `vats_mode.rs`: each mark's base, perks and earlier marks when it is made,
+  its chance every frame (`chance_of`, `rechance`), the rolls, the labels.
+
+### 17.4 Rolling and missing [design]
+
+- Every round is rolled on its mark's chance at the moment it leaves: a single shot once,
+  each round of a burst on its own, each throw, each swing. The rolls come from their
+  own seeded generator, so a run with the same inputs repeats.
+- **A gun's miss** leaves from the eye through a point beside the mark, across the line
+  of fire, 45–80 units from it (`MISS_MIN`, `MISS_SPAN`), to a side or above, never more
+  than 30° below the side (where the legs are, which would turn a miss into a hit). The
+  shot then flies as any other and hits what it meets: another actor behind, a wall.
+- **A throw's miss** is thrown on the low arc onto a point 120–240 units from the mark
+  across the ground (`THROW_MISS_*`); its explosion may still reach the mark.
+- **A swing's miss** strikes no one: the blow is not dealt, the swing plays.
+- The AP is spent either way. GetVATSValue Is Success answers the roll while the shot
+  leaves.
+
+### 17.5 On the screen
+
+- Beside each mark's "x" (to its right, centred on it) its chance in whole percent,
+  "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), a creamy
+  white that reads on the amber grade [design]. It follows the mark and changes as the
+  chance does; it goes with the "x" once the mark is fired.
+- Nothing shows the chance of what is under the crosshair before it is marked [design:
+  the owner asked for the marks; a later step if wanted].
+
+### 17.6 Log lines
+
+- `vats mode: marked <name> <ref> (<part>), mark <k>; <r> AP reserved, <left> AP left;
+  <c>% to hit (base <b>[, perks <names>][, concentrated fire +<n>])`
+- `vats mode: shot <k> of <n> at … , <cost> AP spent; <c>% to hit: hit|missed (rolled
+  <r>)` (`burst …; round 1 …`, `throw …`, `swing …` alike; later rounds of a burst at
+  debug)
+- `combat: vats mode blow on <ref>: missed (the hit roll)` for a swing's miss
+- `vats mode: rolls: <h> hit, <x> missed` after `off (…)`
+- the summary's `<h> hit, <x> missed`
+
+### 17.7 Checks
+
+- Unit: `fnv-combat` `vats` (`the_hit_chance_grows_with_skill_and_falls_with_range`,
+  `perks_concentrated_fire_and_the_cap`, `a_miss_passes_wide_and_never_below`),
+  `nvf-play` `vats_mode` (`a_marks_chance_follows_skill_range_and_perks`,
+  `a_chance_reads_as_whole_percent`), `fnv-game` `perk_combat`.
+- Smoke: `vats-mode-hit-chance` (two marks on the Goodsprings dogs show their chances and
+  are rolled), `vats-mode-miss` (every roll forced to miss: the shot goes wide and the
+  dog is not hit by it).

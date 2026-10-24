@@ -463,6 +463,119 @@ pub fn restored_damage(damage: f32, max: f32, rate: f32, dt: f32) -> f32 {
     (damage - max.max(0.0) * rate.max(0.0) * dt.max(0.0)).max(0.0)
 }
 
+/// The VATS settings the hit chance reads (docs/design/vats-mode.md §17.1): from the load
+/// order, the GECK wiki's defaults where it has none.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct HitTuning {
+    /// `fVATSMaxChance`: the highest chance, percent.
+    pub max_chance: f32,
+    /// `fVATSHitChanceMult`: on the whole chance.
+    pub hit_chance_mult: f32,
+    /// `fVATSSkillFactor`: on the skill's share.
+    pub skill_factor: f32,
+    /// `fVATSDistanceFactor`: how steeply the chance falls with distance.
+    pub distance_factor: f32,
+    /// `fVATSSpreadMult`: the gun's spread in VATS.
+    pub spread_mult: f32,
+    /// `iVATSConcentratedFireBonus`: percent a mark gains for each earlier mark on the
+    /// same part, with Concentrated Fire.
+    pub concentrated_fire_bonus: f32,
+}
+
+impl Default for HitTuning {
+    /// The GECK wiki's defaults (VATS Settings).
+    fn default() -> HitTuning {
+        HitTuning { max_chance: 95.0, hit_chance_mult: 1.0, skill_factor: 1.0, distance_factor: 2.0, spread_mult: 0.5, concentrated_fire_bonus: 5.0 }
+    }
+}
+
+/// The skill's share at skill 0, and what 100 skill adds (§17.2) [design].
+pub const SKILL_BASE: f32 = 0.5;
+pub const SKILL_SPAN: f32 = 1.5;
+/// How wide the spread may open at the target, units, before the range halves the
+/// chance (§17.2) [design: about a torso's width].
+pub const FOCUS: f32 = 32.0;
+/// The to-hit chance of an actor marked whole (no body parts), percent [design: as a
+/// large part, a dog's torso is 75].
+pub const WHOLE_TO_HIT: f32 = 75.0;
+/// The to-hit chance of a held weapon whose WEAP gives none, percent [design].
+pub const HELD_WEAPON_TO_HIT: f32 = 30.0;
+
+/// What one mark's chance is worked out from.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct HitInputs {
+    /// The part's base chance, percent: its BPTD To Hit Chance, [`WHOLE_TO_HIT`], or the
+    /// held weapon's Base VATS To-Hit Chance.
+    pub base: f32,
+    /// The weapon's skill, 0–100.
+    pub skill: f32,
+    /// From the eye to the mark, units.
+    pub distance: f32,
+    /// The cone the shot would leave in (half-angle, degrees), before `fVATSSpreadMult`;
+    /// `None` for a melee mark (the player is put beside it).
+    pub cone_deg: Option<f32>,
+}
+
+/// The skill's share of the chance.
+pub fn skill_term(skill: f32, t: &HitTuning) -> f32 {
+    SKILL_BASE + SKILL_SPAN * skill.clamp(0.0, 100.0) / 100.0 * t.skill_factor
+}
+
+/// The range's share: 1 when the spread at the target is narrow, falling as it opens past
+/// [`FOCUS`]; 1 for a melee mark.
+pub fn range_term(distance: f32, cone_deg: Option<f32>, t: &HitTuning) -> f32 {
+    let Some(cone) = cone_deg else { return 1.0 };
+    let half = (cone.max(0.0) * t.spread_mult.max(0.0)).min(89.0).to_radians();
+    let open = distance.max(0.0) * half.tan();
+    1.0 / (1.0 + (open / FOCUS).powf(t.distance_factor.max(0.1)))
+}
+
+/// The chance before the perks and the cap, percent.
+pub fn raw_chance(i: &HitInputs, t: &HitTuning) -> f32 {
+    i.base.max(0.0) * skill_term(i.skill, t) * range_term(i.distance, i.cone_deg, t) * t.hit_chance_mult
+}
+
+/// The chance shown and rolled, percent: the perks' Calculate To Hit Chance on the raw
+/// chance, Concentrated Fire's bonus for `earlier` marks on the same part when the
+/// player has it, between 0 and `fVATSMaxChance`.
+pub fn final_chance(raw: f32, perks: impl Fn(f32) -> f32, concentrated: Option<u32>, t: &HitTuning) -> f32 {
+    let bonus = concentrated.map_or(0.0, |n| t.concentrated_fire_bonus * n as f32);
+    (perks(raw) + bonus).clamp(0.0, t.max_chance.max(0.0))
+}
+
+/// A roll `u` in [0, 1) hits at `chance` percent.
+pub fn rolled_hit(chance: f32, u: f32) -> bool {
+    u * 100.0 < chance
+}
+
+/// How far beside a missed mark a shot passes, units: at least [`MISS_MIN`], up to
+/// [`MISS_MIN`] + [`MISS_SPAN`] [design: wide of a torso or a head].
+pub const MISS_MIN: f32 = 45.0;
+pub const MISS_SPAN: f32 = 35.0;
+/// How far from a missed mark a throw lands, units [design].
+pub const THROW_MISS_MIN: f32 = 120.0;
+pub const THROW_MISS_SPAN: f32 = 120.0;
+
+/// The point a missed shot goes through: beside `point` across the line from `eye`, to a
+/// side or above, never below (where the legs are) [design]. `u1`, `u2` in [0, 1).
+pub fn miss_point(eye: V3, point: V3, u1: f32, u2: f32) -> V3 {
+    let f = vec::normalize(vec::sub(point, eye));
+    let up = if f[2].abs() < 0.99 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+    let right = vec::normalize(vec::cross(f, up));
+    let up = vec::cross(right, f);
+    // From 30° below the right through the top to 30° below the left.
+    let phi = (-30.0 + 240.0 * u2.clamp(0.0, 1.0)).to_radians();
+    let off = MISS_MIN + MISS_SPAN * u1.clamp(0.0, 1.0);
+    vec::add(point, vec::scale(vec::add(vec::scale(right, phi.cos()), vec::scale(up, phi.sin())), off))
+}
+
+/// Where a missed throw is aimed: off `point` across the ground in any direction.
+pub fn throw_miss_point(point: V3, u1: f32, u2: f32) -> V3 {
+    let phi = std::f32::consts::TAU * u2;
+    let off = THROW_MISS_MIN + THROW_MISS_SPAN * u1.clamp(0.0, 1.0);
+    [point[0] + off * phi.cos(), point[1] + off * phi.sin(), point[2]]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -749,5 +862,56 @@ mod tests {
         // No gravity: straight at it.
         let d = lob_dir(from, [100.0, 0.0, 120.0], speed, 0.0).unwrap();
         assert!((d[0] - 1.0).abs() < 1e-6);
+    }
+    #[test]
+    fn the_hit_chance_grows_with_skill_and_falls_with_range() {
+        let t = HitTuning { spread_mult: 1.1, ..HitTuning::default() };
+        // A human torso (BPTD 60) with a 1° cone: close, the skill decides.
+        let at = |skill, distance| raw_chance(&HitInputs { base: 60.0, skill, distance, cone_deg: Some(1.0) }, &t);
+        assert!(at(100.0, 0.0) > at(50.0, 0.0) && at(50.0, 0.0) > at(0.0, 0.0));
+        assert!((at(0.0, 0.0) - 30.0).abs() < 1e-4, "skill 0: half the base");
+        assert!((at(100.0, 0.0) - 120.0).abs() < 1e-3, "skill 100: twice the base, before the cap");
+        // Farther, the spread opens past the focus and the chance falls.
+        assert!(at(50.0, 500.0) > at(50.0, 1000.0) && at(50.0, 1000.0) > at(50.0, 3000.0));
+        // Where the spread at the target is FOCUS wide the range halves the chance.
+        let d = FOCUS / (1.1f32).to_radians().tan();
+        assert!((range_term(d, Some(1.0), &t) - 0.5).abs() < 1e-3);
+        // Melee: no range.
+        assert_eq!(range_term(5000.0, None, &t), 1.0);
+        // No spread at all (a perk set it to 0): range never matters.
+        assert_eq!(range_term(5000.0, Some(0.0), &t), 1.0);
+    }
+
+    #[test]
+    fn perks_concentrated_fire_and_the_cap() {
+        let t = HitTuning::default();
+        // Commando's Multiply 1.25 on a raw 40 %.
+        assert!((final_chance(40.0, |v| v * 1.25, None, &t) - 50.0).abs() < 1e-4);
+        // Concentrated Fire: +5 for each earlier mark on the part [documented example 63 → 68 → 73].
+        assert!((final_chance(63.0, |v| v, Some(1), &t) - 68.0).abs() < 1e-4);
+        assert!((final_chance(63.0, |v| v, Some(2), &t) - 73.0).abs() < 1e-4);
+        // Never above fVATSMaxChance nor below 0.
+        assert_eq!(final_chance(120.0, |v| v, None, &t), 95.0);
+        assert_eq!(final_chance(10.0, |_| -5.0, None, &t), 0.0);
+        assert!(rolled_hit(50.0, 0.49) && !rolled_hit(50.0, 0.5));
+        assert!(!rolled_hit(0.0, 0.0) && rolled_hit(95.0, 0.9499));
+    }
+
+    #[test]
+    fn a_miss_passes_wide_and_never_below() {
+        let eye = [0.0, 0.0, 100.0];
+        let point = [1000.0, 0.0, 100.0];
+        for (u1, u2) in [(0.0, 0.0), (1.0, 1.0), (0.5, 0.5), (0.3, 0.9), (0.9, 0.1)] {
+            let m = miss_point(eye, point, u1, u2);
+            let off = vec::len(vec::sub(m, point));
+            assert!((MISS_MIN - 1e-3..=MISS_MIN + MISS_SPAN + 1e-3).contains(&off), "{off}");
+            // Across the line, not along it.
+            assert!(vec::dot(vec::sub(m, point), [1.0, 0.0, 0.0]).abs() < 1e-3);
+            // Never more than 30° below the side.
+            assert!(m[2] - point[2] >= -off * 0.5 - 1e-3, "{m:?}");
+        }
+        let land = throw_miss_point([0.0, 0.0, 10.0], 0.0, 0.25);
+        assert!((vec::len(vec::sub(land, [0.0, 0.0, 10.0])) - THROW_MISS_MIN).abs() < 1e-3);
+        assert_eq!(land[2], 10.0);
     }
 }
