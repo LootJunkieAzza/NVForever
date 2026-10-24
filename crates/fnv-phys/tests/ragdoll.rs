@@ -468,3 +468,27 @@ fn a_held_corpse_is_dragged_and_lies_again_when_let_go() {
     }
     assert!(nodes(&w, 0x10)[0].translation[0] > grip[0] + 50.0);
 }
+
+#[test]
+fn a_held_corpse_is_not_put_at_rest() {
+    let mut w = ground();
+    let (_, _, slept) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 20.0);
+    assert!(slept);
+    let grip = nodes(&w, 0x10)[0].translation;
+    assert!(w.grab(GripOn::Ragdoll(0x10), grip, HoldParams::default()).is_some());
+    assert!(w.ragdoll_held(0x10) && !w.ragdoll_held(0x11));
+    // The engine's rest guard fires while it is carried: refused, it still follows.
+    for _ in 0..30 {
+        w.step();
+    }
+    assert!(!w.set_ragdoll_at_rest(0x10) && !w.ragdoll_asleep(0x10));
+    let target = [grip[0] + 80.0, grip[1], grip[2] + 20.0];
+    w.set_grip_target(target);
+    for _ in 0..120 {
+        w.step();
+    }
+    let p = w.grip_point().unwrap();
+    assert!((p[0] - target[0]).abs() < 10.0, "{p:?} {target:?}");
+    w.release_grip(None);
+    assert!(!w.ragdoll_held(0x10) && w.set_ragdoll_at_rest(0x10));
+}

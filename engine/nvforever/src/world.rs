@@ -1029,6 +1029,12 @@ pub fn spawn_model(
                 crate::particles::place_addon(commands, e, r, &model.nodes, i, index);
             }
         }
+        // A light whose model's sequences drive it: the reference's light hangs from the
+        // node holding it and takes its keys (lights.rs, docs/spec-notes/model-lights.md).
+        if let Some(l) = model.light.as_ref().filter(|_| &base.sig == b"LIGH") {
+            let anchor = l.parent.as_ref().and_then(|n| nodes.get(n)).copied().unwrap_or(root);
+            commands.entity(root).insert(crate::lights::LightRig { reference: r, anchor });
+        }
         if !rig.groups.is_empty() {
             commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
             stats.refs_group_rigs += 1;

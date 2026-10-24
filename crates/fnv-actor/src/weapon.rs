@@ -107,20 +107,28 @@ pub fn choice_damage(w: &Weapon) -> f32 {
     fnv_sim::forms::weapon_choice_damage(w.damage as f32, w.explosion_damage, w.anim_type.as_deref())
 }
 
-/// The weapon an actor draws among its carried items: the drawable weapon with the highest
-/// [`choice_damage`], the first carried on ties [engine choice standing in for Layer 6's
-/// equip logic, actors.md §9.3]; never one flagged Player Only or Not Used In Normal
-/// Combat (docs/spec-notes/weapon-data-fields.md §1).
+/// The weapon an actor draws among its carried items: a weapon held in the hands (melee,
+/// gun) before one thrown or laid ([`is_thrown`]), then the drawable weapon with the
+/// highest [`choice_damage`], the first carried on ties [engine choice standing in for
+/// Layer 6's equip logic, actors.md §9.3]; never one flagged Player Only or Not Used In
+/// Normal Combat (docs/spec-notes/weapon-data-fields.md §1).
 pub fn choose_weapon(carried: &[FormId], weapons: &HashMap<FormId, Weapon>) -> Option<FormId> {
-    let mut best: Option<(f32, FormId)> = None;
+    let mut best: Option<((bool, f32), FormId)> = None;
     for &id in carried {
         let Some(w) = weapons.get(&id).filter(|w| drawable(w) && !w.not_for_npcs) else { continue };
-        let damage = choice_damage(w);
-        if best.is_none_or(|(d, _)| damage > d) {
-            best = Some((damage, id));
+        let key = (!is_thrown(w), choice_damage(w));
+        if best.is_none_or(|(k, _)| (key.0 && !k.0) || (key.0 == k.0 && key.1 > k.1)) {
+            best = Some((key, id));
         }
     }
     best.map(|b| b.1)
+}
+
+/// Whether a weapon is thrown or laid rather than held (its animation type is Grenade
+/// Throw, Thrown, Land Mine or Mine Drop, `fnv_sim::forms::THROWN_ANIM_TYPES`). An actor
+/// holds one only when it carries no other weapon it can draw (actors.md §9.3).
+pub fn is_thrown(w: &Weapon) -> bool {
+    w.anim_type.as_deref().is_some_and(|a| fnv_sim::forms::THROWN_ANIM_TYPES.contains(&a))
 }
 
 /// The four clips of a weapon stance.
@@ -436,6 +444,19 @@ mod tests {
         assert_eq!(choose_weapon(&[flamer, inc], &ws), Some(inc));
         // A thrown weapon's explosion does not count: it is not held as the weapon.
         assert_eq!(choose_weapon(&[grenade, bat], &ws), Some(bat));
+    }
+
+    #[test]
+    fn weapon_choice_holds_a_hand_weapon_before_a_thrown_one() {
+        // A ghost harvester's pair: throwing spear (145) and spear (81): the spear is held.
+        let (thrown, spear) = (FormId(1), FormId(2));
+        let ws = HashMap::from([
+            (thrown, weapon(Some("w\\t.nif"), "Thrown (1 Hand)", 145, false)),
+            (spear, weapon(Some("w\\s.nif"), "Melee (2 Hand)", 81, false)),
+        ]);
+        assert_eq!(choose_weapon(&[thrown, spear], &ws), Some(spear));
+        // Carrying only thrown weapons, the actor holds one.
+        assert_eq!(choose_weapon(&[thrown], &ws), Some(thrown));
     }
 
     #[test]

@@ -62,7 +62,6 @@
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view, globals, view_transmission_texture, view_transmission_sampler, fog},
     mesh_view_types::FOG_MODE_ATMOSPHERIC,
-    pbr_bindings,
     view_transformations::{frag_coord_to_uv, frag_coord_to_ndc, position_ndc_to_world, depth_ndc_to_view_z},
 }
 #ifdef DEPTH_PREPASS
@@ -78,48 +77,22 @@
 #endif
 #endif
 
-struct NifSurface {
-    // x start angle (cosine), y stop angle (cosine), z start opacity, w stop opacity;
-    // (1, 0, 1, 1) when the shape has no falloff.
-    falloff: vec4<f32>,
-    // Fragments with a lower alpha are not drawn (the alpha test of a shape that is
-    // drawn blended); 0 on every other shape. nif_prepass.wgsl has the same struct.
-    alpha_cut: f32,
-    // 1: an additive shape with source factor ONE, which adds its colour whole (only the
-    // view-angle falloff fades it); 0 otherwise.
-    add_whole: f32,
-    // REFRACT: the screen shift (UV) per unit of the view-space normal; 0 otherwise.
-    refraction: f32,
-    // REFRACT: seconds for the normal map to scroll once up its texture (fire
-    // refraction); 0: it does not move.
-    fire_period: f32,
-    // Holes: x the value (alpha units, negative: no holes), y the edge band's width.
-    holes: vec4<f32>,
-    // The edge band's colour (linear).
-    holes_edge: vec4<f32>,
-    // Soft intersections: x the fade distance (game units), 0 for none.
-    soft: vec4<f32>,
-}
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var holes_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var holes_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(103) var facegen_offset: texture_2d<f32>;
+#import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, normal_map_texel}
 
 #ifdef FACEGEN_TINT
 // The FaceGen offset at texture coordinate `uv` (CPU: fnv_actor::facegen::add_offset):
 // the offset image stretched over the texture, flipped vertically (its first row is the
 // texture's bottom row) and read bilinearly between texel centres, held at its edges. A
 // coordinate outside 0..1 reads the offset where the repeated texture is read.
-fn facegen_offset_at(uv: vec2<f32>) -> vec3<f32> {
-    let size = vec2<f32>(textureDimensions(facegen_offset));
+fn facegen_offset_at(ii: u32, uv: vec2<f32>) -> vec3<f32> {
+    let size = vec2<f32>(facegen_size(ii));
     let t = fract(uv);
     let p = clamp(vec2(t.x, 1.0 - t.y) * size - 0.5, vec2(0.0), size - 1.0);
     let p0 = vec2<i32>(floor(p));
     let p1 = min(p0 + 1, vec2<i32>(size) - 1);
     let f = p - floor(p);
-    let top = mix(textureLoad(facegen_offset, p0, 0).rgb, textureLoad(facegen_offset, vec2(p1.x, p0.y), 0).rgb, f.x);
-    let bottom = mix(textureLoad(facegen_offset, vec2(p0.x, p1.y), 0).rgb, textureLoad(facegen_offset, p1, 0).rgb, f.x);
+    let top = mix(facegen_texel(ii, p0), facegen_texel(ii, vec2(p1.x, p0.y)), f.x);
+    let bottom = mix(facegen_texel(ii, vec2(p0.x, p1.y)), facegen_texel(ii, p1), f.x);
     return mix(top, bottom, f.y);
 }
 
@@ -287,11 +260,12 @@ fn fragment(
 #ifdef VISIBILITY_RANGE_DITHER
     visibility_range_dither(in.position, in.visibility_range_dither);
 #endif
+    let surface = nif_surface(in.instance_index);
     // Holes (nif_material.rs "Holes"): 1 in the edge band, 0 elsewhere.
     var holes_band = 0.0;
 #ifdef VERTEX_UVS_A
     if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
-        let h = textureSampleLevel(holes_texture, holes_sampler, in.uv, 0.0).a * 255.0;
+        let h = holes_alpha(in.instance_index, in.uv) * 255.0;
         if h >= surface.holes.x {
             discard;
         }
@@ -301,37 +275,34 @@ fn fragment(
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 #ifdef FACEGEN_TINT
 #ifdef VERTEX_UVS_A
-#ifndef BINDLESS
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
         // base_color is material colour × vertex colour × texel: the texel is read again
         // as pbr_input_from_standard_material reads it, and its tinted value takes its
         // place in that product.
-        let uv = (pbr_bindings::material.uv_transform * vec3(in.uv, 1.0)).xy;
-        let texel = textureSampleBias(pbr_bindings::base_color_texture, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb;
-        var factor = pbr_bindings::material.base_color.rgb;
+        let standard = standard_material(in.instance_index);
+        let uv = (standard.uv_transform * vec3(in.uv, 1.0)).xy;
+        let texel = base_color_texel(in.instance_index, uv, view.mip_bias).rgb;
+        var factor = standard.base_color.rgb;
 #ifdef VERTEX_COLORS
         factor *= in.color.rgb;
 #endif
-        let tinted = facegen_tint(texel, facegen_offset_at(uv));
+        let tinted = facegen_tint(texel, facegen_offset_at(in.instance_index, uv));
         pbr_input.material.base_color = vec4(pbr_input.material.base_color.rgb + factor * (tinted - texel), pbr_input.material.base_color.a);
     }
-#endif
 #endif
 #endif
 #ifdef REFRACT
     var tilt = (view.view_from_world * vec4(pbr_input.N, 0.0)).xy;
 #ifdef STANDARD_MATERIAL_NORMAL_MAP
 #ifdef VERTEX_UVS_A
-#ifndef BINDLESS
     if surface.fire_period != 0.0 {
         // Fire refraction (nif_material.rs "Fire refraction"): the normal map read again,
         // scrolled up its texture once every `fire_period` seconds (down when negative:
         // fract keeps the offset in 0..1 either way); its tangent-space tilt
         // is added to the shift as it is.
         let scrolled = in.uv + vec2(0.0, fract(globals.time / surface.fire_period));
-        tilt += textureSample(pbr_bindings::normal_map_texture, pbr_bindings::normal_map_sampler, scrolled).rg * 2.0 - 1.0;
+        tilt += normal_map_texel(in.instance_index, scrolled).rg * 2.0 - 1.0;
     }
-#endif
 #endif
 #endif
     // A cut-out (hair, a refracting actor's alpha-tested parts) keeps its outline.
@@ -369,14 +340,12 @@ fn fragment(
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 #endif
     // base_color already holds texture × vertex colour × material colour.
-#ifndef BINDLESS
     // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
     // materials, so an unlit shape's stays black: it is read from the material here
     // (without the glow map, which unlit effect shapes do not use).
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
-        pbr_input.material.emissive = pbr_bindings::material.emissive;
+        pbr_input.material.emissive = standard_material(in.instance_index).emissive;
     }
-#endif
     // The image space's Emissive Mult; an additive shape forms its light in display
     // values (`add_display`), so there it is raised to the display gamma.
     let emissive_scale = select(view_emissive_scale(), pow(view_emissive_scale(), 2.2), (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);

@@ -167,6 +167,8 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 23 | Karma | ACBS "Karma" of the actor's own record | [documented: xEdit; GetBaseKarma] |
 | 46 | Inventory Weight | the weight the actor carries | an actor value [documented: GetCalculatedMaxCarryWeight]; that it is the carried weight [hypothesis] |
 | 18, 76 | Damage Resistance, Damage Threshold | 0 | worn armour is added by the engine's combat, outside the actor value |
+| — | Companion Nerve | a teammate's damage and armour × (1 + 0.05 × the player's Charisma) | [documented: Fallout Wiki, derived statistics "(CHA × 5)%" and Charisma (Fallout: New Vegas) "+5% to their damage and armor, up to … +50% at 10 Charisma"]; no setting in the masters [observed]; not an actor value. `Game::companion_nerve`; combat-rules.md §2 says where it applies [hypothesis] |
+| — | Reload speed | the reload clips play at (0.5 + 0.1 × Agility) × the Reload Speed perks (Rapid Reload × 1.25) | [documented: Fallout Wiki, Agility (Fallout: New Vegas); observed: Rapid Reload's PRKE, entry point 37, Multiply Value 1.25]; no setting in the masters [observed]. `fnv_combat::attack::reload_rate`; combat-rules.md §2 |
 
 Settings not in the load order take the number in brackets: the wiki's default where it
 gives one [documented], else the masters' value [observed].

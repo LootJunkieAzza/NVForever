@@ -248,6 +248,7 @@ mod tests {
                 materials: Vec::new(),
                 free: Vec::new(),
                 free_visibility: Vec::new(),
+                lights: Vec::new(),
             }),
             tracks: Vec::new(),
             root: None,

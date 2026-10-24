@@ -496,6 +496,28 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     0.28·exp(−(e/60°)²), turning to sky-lower by 10° below the horizon [hypothesis,
     fitted]. At night the same reading keeps 30-45° nearly black, as in the game at
     20:36 (0-6 per channel).
+  - **Night sky** (2026-10-23). That night check was made while the grade read the night
+    adapter's track 0x12 as contrast (1.32 around 0.2, which crushed dark values); read
+    as the average luminance (below, "IMAD cinematic track order") the night grade is
+    1.1 around 0.24 and the floor term lit the whole night sky: (10, 10, 17) near the
+    zenith against the original's (0, 0, 3) at 23:00 [observed: own captures
+    `C:\fnv-private\references\stars\game`, renders of the same cameras]. Neither
+    grade reading fits dusk and night together (the old one makes the 19:06 sky too
+    light). Solving the original's frames for the horizon weight under the current grade,
+    per elevation (sky-upper weight free): at 19:06 (sun +11°, sunset colours) 0.25-0.28
+    from 15° to 50° and 0.2 at 60-67°, the floor as fitted; at 23:00 (sun −54°) under
+    0.08 from 25° up, and 0.7, 0.5, 0.3 and 0.1 at 12°, 15°, 18° and 21°, the near term
+    alone. The vertex weights do not change with the hour, and the sunset fog or ambient
+    colour in place of the horizon does not fit the dusk floor. Fitting the floor's share
+    alone: 1.1 at 19:06, 0.6 at 20:30 (sun −9°, looking west), 0 at 23:00 (three
+    cameras). The renderer scales the floor by a twilight factor, smoothstep from the sun
+    at −18° (0, the end of astronomical twilight) to 0° (1) [hypothesis, fitted]. Mean
+    sky-row error against the original (0-255 per channel): Mojave 23:00 views 15-16 → 3-5
+    (the view 60° up: see "Eye adaptation"); 19:06, 20:30 and noon unchanged within 1;
+    the 22:00 ambient frames' sky 10 % / 50 % / 90 % levels (3, 21, 43) original,
+    (20, 32, 52) before, (8, 17, 33) after. Left open: at 20:00 the original's sky looking
+    west is still a dusk sky (37-57 per channel at 20-40°) where ours is already night;
+    the colour keys put full night at sunset end (20:00 here).
   - The sky went through the renderer's tonemapper and then the grade. The game's sky
     colours behave like display values that the grade changes directly (the dusk fit
     above needs no other factor). The tonemapper (Bevy's Tony McMapface) maps linear
@@ -663,9 +685,10 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   (40, 76, 130). It leaves the Big MT's stars about 1.7 × the original's (p90 126 vs 75),
   the same factor as our Big MT night background (24, 24, 50 vs 15, 13, 27), so the rest
   is the grade (owb-comparison F6), not the stars. Which part of the original's pipeline
-  the 0.25 stands for is not known. Our night sky background is also lighter than the
-  original's in the Mojave (10, 10, 17 vs 0, 0, 3) and does not change with the star
-  strength [observed].
+  the 0.25 stands for is not known. Our night sky background was also lighter than the
+  original's in the Mojave (10, 10, 17 vs 0, 0, 3) and did not change with the star
+  strength [observed]: the horizon colour's floor, now faded out with twilight ("Sky
+  colours", "Night sky").
 - **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
   `INAM` names the worldspace's image space (IMGS); WTHR `\x00IAD`..`\x05IAD` name one
   image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
@@ -735,6 +758,16 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   default) and off without it (`nvforever/src/eye_adapt.rs`). With the fog changes
   below, the Dead Money frames come out within 1 EV of the original's; the lab's frames
   move by under 0.1 EV.
+  The sky counts 1/16 of a world pixel in the meter, from a mask drawn each frame from
+  the depth prepass (`eye_mask.wgsl`) [hypothesis, 2026-10-23]: once our night sky was
+  as dark as the original's ("Night sky" above), metering it with the world brightened
+  the Mojave 23:00 views by several EV (windmill and buildings far lighter than the
+  original's, whose frames match ours without adaptation). With the mask those views
+  match; the Dead Money exteriors, the Strip and Primm (fx audit spots) move by 0.1 EV
+  or less. Still lifted: a view that is mostly sky with a dark object (the windmill seen
+  60° up, 10 % / 50 % / 90 % levels (0, 0, 1) original, (10, 27, 131) ours): the dark
+  object alone averages under the reference. The original's meter may be a plain
+  average, which bright lights and the moon would hold up [hypothesis, unchecked].
 - **Emissive mult** (2026-10-23). "Emissive Mult: (non-imagespace) Multiplier applied to
   the emittance of an object" [documented: GECK wiki ImageSpace, HDR tab]. Values
   [observed]: NVDefaultExterior 1.5 (the Mojave's adapters leave it), interiors 1.0-1.3;
@@ -1226,7 +1259,8 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   The renderer takes, for a black DATA colour, the diffuse colour times the dimmer of the
   first `NiPointLight` or `NiSpotLight` of the LIGH's model, as display values like the
   DATA colour [hypothesis], and draws no light when there is none
-  (`nvf_assets::model_light`, nvforever `lights.rs`). Not done: the flicker.
+  (`nvf_assets::model_light`, nvforever `lights.rs`). The flicker is played from the
+  model's keys since 2026-10-23 ([model-lights](model-lights.md)).
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads

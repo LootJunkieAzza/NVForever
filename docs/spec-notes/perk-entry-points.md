@@ -57,6 +57,8 @@ tabs, below]. Tab 0 is always the perk owner. "Perks" are FalloutNV.esm's entrie
 | 56 | Modify Damage Threshold (defender) | Attacker, Attacker's weapon | Toughness + 3/+ 6, Sub-Dermal Armor + 4, Kamikaze − 2, Hit the Deck + 25 (Explosives on tab 2), Stonewall + 5 (melee/unarmed on tab 2), Bonds of Steel + 4 | the player's own DT when hit |
 | 58 | Modify Damage Threshold (attacker) | Weapon, Target | Shotgun Surgeon Set 10, Piercing Strike Set 15, Companion Suite Set 10 | the DT the player's hit ignores: from 0, taken off the target's DT, never below 0 [documented: GECK wiki Entry Point, "read as 'How much DT to subtract from the targeted actor'"] |
 | 57 | Modify Chance for Ammo Item | Weapon | Hand Loader × 2 (IsWeaponSkillType Guns on tab 1), Vigilant Recycler × 2 (Energy Weapons) | the chance of a shot's spent item, the ammo's DAT2 percentage (claude/e13-spent-casings, [spent-ammo-items](spent-ammo-items.md)) |
+| 8 | Calculate To Hit Chance | Weapon, Target | Commando × 1.25, Gunslinger × 1.25, Sniper × 1.25 (GetVATSValue Targeted Part head on tab 0), Hobbler × 1.25 (legs), Wired Reflexes × 1.1, Fast Shot × 0.8, Trigger Discipline × 1.2 (IsWeaponSkillType on tab 1), Sneering Imperialist × 1.25 (GetInFaction on tab 2), Camarader-E, Lonesome Road | VATS mode's chance of each mark, read when the mark is made with GetVATSValue answering for it (since 2026-10-23, vats-mode.md §17.2) |
+| 33 | Has Concentrated Fire | — | Concentrated Fire Set 1 | + `iVATSConcentratedFireBonus` for each earlier mark on the same part (vats-mode.md §17.2) |
 | 68 | Modify Item Damage | — | Regular Maintenance × 0.5, Full Maintenance × 0.25, Built to Destroy × 1.15 | the wear of the player's weapon by its own shots and blows and by hits on it [hypothesis: armour wear too? not applied] |
 
 Order on a hit [hypothesis where the formula pages are silent]: weapon damage after the
@@ -68,8 +70,8 @@ Not wired yet, with why:
 
 | Code | Entry point | Perks | Why not |
 |---|---|---|---|
-| 8 | Calculate To Hit Chance | Commando, Fast Shot, Gunslinger, Wired Reflexes, Sniper, Trigger Discipline | VATS mode never misses (owner, vats-mode.md); no hit chance to change |
-| 37, 38, 43 | Reload Speed, Equip Speed, Modify Attack Speed | Rapid Reload, Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire or end a reload before the clip does. Needs the clips' playback rate (one follow-up) |
+| 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
+| 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
 | 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |

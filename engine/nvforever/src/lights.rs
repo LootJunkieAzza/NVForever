@@ -30,7 +30,7 @@ pub struct LightsPlugin;
 impl Plugin for LightsPlugin {
     fn build(&self, app: &mut App) {
         let handle: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_LIGHTING);
-        app.insert_resource(LightingShader { handle, patched: false }).add_systems(Update, (patch_attenuation, animate_lights));
+        app.insert_resource(LightingShader { handle, patched: false }).add_systems(Update, (patch_attenuation, animate_lights, bind_model_lights, animate_model_lights).chain());
     }
 }
 
@@ -109,6 +109,79 @@ fn animate_lights(time: Res<Time>, mut lights: Query<(&MovingLight, Option<&mut 
     }
 }
 
+/// On a LIGH reference's light whose model has a sequence driving that light's colour or
+/// dimmer (docs/spec-notes/model-lights.md): the reference, the light in the model, and,
+/// once the model's rig is drawn ([`LightRig`]), the rig root whose [`Playing`] clip it
+/// follows.
+///
+/// [`Playing`]: nvf_assets::anim_play::Playing
+#[derive(Component, Debug, Clone)]
+pub struct ModelDrivenLight {
+    pub reference: u32,
+    pub light: nvf_assets::model::ModelLight,
+    pub root: Option<Entity>,
+}
+
+/// On the root of a LIGH reference's drawn rig whose clips drive its light (world.rs):
+/// the reference and the rig node the light hangs from.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct LightRig {
+    pub reference: u32,
+    pub anchor: Entity,
+}
+
+/// Hang each model-driven point light from its rig's node, where the model holds the
+/// light: it then moves as the model's sequences move that node (the Vault klaxon's
+/// light turns 224 units out on its spinning `Dummy`, model-lights.md §2). Spot lights
+/// keep their place and aim [design: no base-game model drives a spot light].
+fn bind_model_lights(mut commands: Commands, rigs: Query<(Entity, &LightRig), Added<LightRig>>, mut lights: Query<(Entity, &mut ModelDrivenLight), With<PointLight>>) {
+    if rigs.is_empty() {
+        return;
+    }
+    for (root, rig) in &rigs {
+        let Some((e, mut l)) = lights.iter_mut().find(|(_, l)| l.reference == rig.reference && l.root.is_none()) else { continue };
+        l.root = Some(root);
+        commands.entity(e).insert((ChildOf(rig.anchor), l.light.local));
+        debug!("model lights: 0x{:08X} light {} hangs from {}", rig.reference, l.light.name, l.light.parent.as_deref().unwrap_or("the root"));
+    }
+}
+
+/// Colour the model-driven lights by their rig's playing clip: the diffuse key times
+/// the dimmer (its key, else the stored dimmer), as display values like the LIGH colour
+/// [hypothesis: as the model colour of a black LIGH colour, world.md §8]. A light no
+/// playing clip drives keeps the colour it was spawned with (the klaxon until its alarm
+/// script plays `Left`) [hypothesis, model-lights.md §3].
+fn animate_model_lights(
+    roots: Query<&nvf_assets::anim_play::Playing>,
+    mut lights: Query<(&ModelDrivenLight, &mut PointLight), Without<crate::emittance::LightEmittance>>,
+    mut seen: Local<(usize, usize)>,
+) {
+    use nvf_assets::anim_play::LightTarget;
+    let mut driven = 0;
+    for (l, mut p) in &mut lights {
+        let Some(playing) = l.root.and_then(|r| roots.get(r).ok()) else { continue };
+        let Some(c) = playing.light_value(&l.light.name, LightTarget::Diffuse) else { continue };
+        driven += 1;
+        let dimmer = playing.light_value(&l.light.name, LightTarget::Dimmer).map_or(l.light.dimmer, |v| v[0]);
+        let color = Color::LinearRgba(display_to_linear(c.map(|v| v * dimmer.max(0.0))));
+        if p.color != color {
+            p.color = color;
+        }
+    }
+    let n = (lights.iter().len(), driven);
+    if n != *seen {
+        *seen = n;
+        info!("model lights: {} following their models, {} coloured by a playing clip", n.0, n.1);
+    }
+}
+
+/// A colour stored as display values (0–1), clamped, as linear light (the NIF holds
+/// colours as stored, display values [hypothesis, as LIGH DATA]).
+fn display_to_linear(c: [f32; 3]) -> LinearRgba {
+    let l = c.map(|v| fnv_world::sky::srgb_to_linear((v.clamp(0.0, 1.0) * 255.0).round() as u8));
+    LinearRgba::rgb(l[0], l[1], l[2])
+}
+
 #[derive(Resource)]
 struct LightingShader {
     handle: Handle<Shader>,
@@ -150,7 +223,9 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 /// Negative and off-by-default lights are not drawn. A reference with an emittance
 /// source (XEMI) has its colour scaled by it (emittance.rs). A black record colour takes
 /// the colour of the light inside the LIGH's model (`model`, as stored under `meshes\`)
-/// when it has one (world.md §8 "Black LIGH colours").
+/// when it has one (world.md §8 "Black LIGH colours"). A light whose model drives its
+/// colour by a sequence gets [`ModelDrivenLight`] (docs/spec-notes/model-lights.md) and is
+/// drawn even when both colours are black: its keys light it.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_light(
     commands: &mut Commands,
@@ -170,13 +245,17 @@ pub fn spawn_light(
         return false;
     }
     let from_model = (l.color == [0; 3]).then(|| model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")))).flatten();
-    let lin = match from_model {
-        // The NIF holds the colour as stored (display values) [hypothesis, as LIGH DATA].
-        Some(c) => c.map(|v| fnv_world::sky::srgb_to_linear((v.clamp(0.0, 1.0) * 255.0).round() as u8)),
-        None if l.color == [0; 3] => return false,
-        None => l.color.map(fnv_world::sky::srgb_to_linear),
+    let model_driven = model.and_then(|m| models.model(&format!(r"meshes\{m}"))).and_then(|pm| pm.light.clone());
+    let linear = match from_model {
+        Some(c) => display_to_linear(c),
+        None if l.color == [0; 3] && model_driven.is_none() => return false,
+        None if l.color == [0; 3] => LinearRgba::BLACK,
+        None => {
+            let lin = l.color.map(fnv_world::sky::srgb_to_linear);
+            LinearRgba::rgb(lin[0], lin[1], lin[2])
+        }
     };
-    let linear = LinearRgba::rgb(lin[0], lin[1], lin[2]);
+    let model_driven = model_driven.map(|light| ModelDrivenLight { reference: placed.form_id, light, root: None });
     let color = Color::LinearRgba(linear);
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, linear));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
@@ -199,12 +278,18 @@ pub fn spawn_light(
         if let Some(m) = moving {
             e.insert(m);
         }
+        if let Some(m) = model_driven {
+            e.insert(m);
+        }
     } else {
         let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e)));
         if let Some(d) = driven {
             e.insert(d);
         }
         if let Some(m) = moving {
+            e.insert(m);
+        }
+        if let Some(m) = model_driven {
             e.insert(m);
         }
     }

@@ -273,6 +273,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "nif-bindless-batches"
+source = "docs/design/graphics-enhanced.md §5.6 (2026-10-23): NIF materials are bindless, so shapes of different materials share batch sets: at the Goodsprings start with sun shadows about 49 shadow sets (830 before) and 9 opaque sets (169 before) in the profile aid's batch line"
+note = "fails on a device Bevy runs without bindless (the counts go back to hundreds); this machine's RTX 4070 has it"
+areas = ["renderer", "graphics"]
+paths = ["engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_material.wgsl", "engine/nvf-assets/src/nif_prepass.wgsl", "engine/nvf-assets/src/nif_surface_bindings.wgsl", "engine/nvforever/src/profile.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PROFILE = "5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--sun-shadows"]
+run_seconds = 22
+expect = [
+  { re = 'profile batches: shadow 4 views, (?P<n>\d+) multi-drawn sets', range = [1, 200], label = "shadow batch sets stay few (about 49; about 830 without bindless)" },
+  { re = 'profile batches: .*; opaque 1 views, (?P<n>\d+) multi-drawn sets', range = [1, 60], label = "main-view opaque batch sets stay few (about 9; 169 without bindless)" },
+]
+
+[[scenario]]
 name = "shadows-thin"
 source = "docs/design/graphics-enhanced.md §5.5 (2026-10-23): the test aid --shadow-thin (graphics-cycle key shadow-thin=) takes the sun shadows of small far objects away and gives them back, off by default, and the frame-time log breaks the sun's last cascade down by angular size"
 areas = ["renderer", "graphics"]
@@ -2272,6 +2286,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "reload-agility"
+source = "owner 2026-10-23: build Reload Speed from Agility (docs/handoff/special-skills-audit-2026-10-23.md §4; combat-rules.md §2, Reload speed)"
+note = "the player's Agility is set to 10 by the console at 8 s; the 9mm pistol (000E3778) is drawn at 10 s, fired at 12 s (fire is a toggle: pressed, then let go at 12.2 s) and reloaded at 13 s; Agility goes to 1 at 16 s, the pistol fires at 18 s and reloads at 19 s. The cycle and the first-person reload clip run at 0.5 + 0.1 x Agility: x1.50, then x0.60"
+areas = ["combat", "animation"]
+paths = ["crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONSOLE = "8:player.setav agility 10;8.3:close;16:player.setav agility 1;16.3:close", NVF_PLAY_TEST_CONTROL = "10:weapon,12:fire,12.2:fire,13:reload,18:fire,18.2:fire,19:reload" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = 'combat: reloads at x1\.50 \(Agility 10\)', label = "Agility 10 reloads at 1.5 times the clip's speed" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s .*\(reload at x1\.50\)', label = "the reload clip plays at x1.50" },
+  { re = 'combat: reloads at x0\.60 \(Agility 1\)', label = "Agility 1: x0.60" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s .*\(reload at x0\.60\)', label = "the reload clip plays at x0.60" },
+]]
+expect = [
+  { re = 'combat: reloaded \d+, magazine', min = 2, label = "both reloads finish" },
+]
+
+[[scenario]]
 name = "bear-trap"
 source = "CLAUDE.md: after changes to groups' sound keys (activators.md §6–§8): the bear trap"
 areas = ["actor-groups", "object-anims"]
@@ -3041,6 +3074,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "model-lights-lantern"
+source = "docs/spec-notes/model-lights.md §1-§2: the North sewers (OVNorthSewers01, 36 LamplightWarmBrighter lights) take their lantern model's Idle colour keys (lamplightwarm.nif, NiLightColorController); frames 0.3 s apart in target/smoke (model_lights_lantern_N.png)"
+areas = ["effects", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:model_lights_lantern_0.png,10.3:model_lights_lantern_1.png,10.6:model_lights_lantern_2.png" }
+args = ["--cell", "OVNorthSewers01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'model lights: \d+ following their models, (?P<n>\d+) coloured by a playing clip', range = [20, 200], label = "the sewer lanterns' lights follow their model's keys" },
+]
+
+[[scenario]]
+name = "model-lights-klaxon"
+source = "docs/spec-notes/model-lights.md §1-§3: REPCONN HQ (RepconHQ01) with the first floor's alarm raised: the klaxons' script (KlaxonLightScriptRepcon) plays Left, whose keys colour the light and whose spinning Dummy turns it 224 units out; frames in target/smoke (model_lights_klaxon_N.png)"
+areas = ["effects", "lights", "scripting"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set RepconHQFreeform.1stFloorAlarm to 1;4.3:close", NVF_PLAY_TEST_SHOTS = "10:model_lights_klaxon_0.png,10.5:model_lights_klaxon_1.png,11:model_lights_klaxon_2.png" }
+args = ["--cell", "RepconHQ01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'model lights: (?P<n>\d+) following their models', range = [5, 100], label = "the klaxon lights hang from their models" },
+  { re = 'playgroup: \S+ plays Left', min = 5, label = "the alarm script spins the klaxons" },
+  { re = 'model lights: \d+ following their models, (?P<n>\d+) coloured by a playing clip', range = [5, 100], label = "the spinning klaxons take Left's colour keys" },
+]
+
+[[scenario]]
 name = "strip-lamp-glow"
 source = "docs/spec-notes/nif.md §6 \"Soft intersections\", \"Emissive multiplier of unlit shapes\"; docs/design/graphics-enhanced.md §3.11: the Strip at night with scripts: the light glow is on (HDR view), the street lamp beams the scripts enable are drawn and take their stripStreetLight colour (0x0012762B) instead of white; a frame in target/smoke (strip_lamp_glow.png)"
 areas = ["renderer", "effects", "lights"]
@@ -3135,7 +3194,8 @@ commands = [
 # challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
 # to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
 # 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
-# to 0 and add 3 x 4.8 Hunger.
+# to 55 (60 an hour, the owner's table 2026-10-23; it was 0 with the old guess of 100)
+# and add 3 x 4.8 Hunger.
 expect = [
   { json = "perks.count", equals = 109 },
   { json = "perks.entries_by_entry_point.23", equals = 1 },
@@ -3146,7 +3206,7 @@ expect = [
   { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
   { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
   { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
-  { json = "use.wait.values_after.Sleep Deprivation", equals = 0.0 },
+  { json = "use.wait.values_after.Sleep Deprivation", range = [54.9, 55.1] },
   { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
 ]
 
@@ -3186,7 +3246,8 @@ expect = [
   "wait menu: open as sleep",
   { re = 'wait: hour 1 passed for the player \(120 s of effects\): \d+ effect\(s\) ended; Dehydration [\d.]+ → [\d.]+, Hunger [\d.]+ → [\d.]+, Sleep Deprivation 2\d\d[\d.]* → 1\d\d' },
   { re = 'needs: Sleep Deprivation 1\d\d[\d.]*: no stage' },
-  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 0' },
+  # 250 less 3 hours of sleep at 60 an hour (the owner's table, 2026-10-23).
+  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 7\d' },
 ]
 
 [[scenario]]
@@ -4236,6 +4297,21 @@ expect = [
   { re = 'console: \d+ record\(s\) match "varmint rifle":', label = "a quoted phrase is searched" },
   { re = 'console: 0x[0-9A-F]{8} WEAP \S+ "Varmint Rifle"', label = "the Varmint Rifle by its name" },
   "console: close",
+]
+
+[[scenario]]
+name = "console-wheel"
+source = "owner 2026-10-23: after a click, the mouse wheel selects the next reference behind (up) or in front (down) along the click, round at the ends (docs/design/console.md, Selecting by clicking)"
+areas = ["console"]
+paths = ["engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:click 0.5 0.5;11:wheel 1;12:wheel 1;13:wheel -2;14:wheel -1;15:close" }
+args = ["--cell", "Gomorrah00", "--play", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'console: picked 0x[0-9A-F]{8} at \d+ by \w+; ([3-9]|\d{2,}) along the ray', label = "the click finds three or more references along its ray" },
+  { re = 'console: wheel \+1 selects 0x[0-9A-F]{8} \(2 of \d+ along the click\)', label = "wheel up selects the next one further" },
+  { re = 'console: wheel -2 selects 0x[0-9A-F]{8} \(1 of \d+ along the click\)', label = "wheel down comes back to the clicked one" },
+  { re = 'console: wheel -1 selects 0x[0-9A-F]{8} \((\d+) of \1 along the click\)', label = "down past the nearest goes round to the furthest" },
 ]
 
 [[scenario]]
@@ -6059,6 +6135,22 @@ expect = [
 order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
 
 [[scenario]]
+name = "grab-corpse"
+source = "docs/spec-notes/grab.md §1 (quests have the player carry corpses with Grab, Z: VMS18CarlyleStClairREF into the dumpster, ProperBurialCorpseref into the grave): Ringo killed in the gas station is picked up with Z by his ragdoll and carried 6 s while the view turns 180°, longer than the 3 s after which a moving ragdoll is held at rest; it is not held at rest while carried, so it is dropped when Z comes up, away from where it lay, and comes to rest"
+areas = ["grab", "physics", "ragdoll"]
+paths = ["engine/nvf-play/src/grab.rs", "crates/fnv-phys/src/grab.rs", "crates/fnv-phys/src/ragdoll.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C7D", NVF_PLAY_TEST_CONSOLE = "6:00104C7D.killactor;10:player.moveto 00104C7D 80 0 0;10.5:close", NVF_PLAY_TEST_GRAB = "13:z:6:180:at=00104C7D" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'grab: picked up corpse .*00104C7D\) by Aid', label = "Z picks up Ringo's corpse" },
+  { re = 'grab: carrying .*00104C7D\) at .*, (?P<n>[\d.]+) units from where it is held', range = [0, 40], label = "held where it is wanted" },
+  { re = 'grab: dropped .*00104C7D\) after 6\.\d s \(let go\) at .*, (?P<n>[\d.]+) units from where it was picked up', range = [120, 260], label = "carried the whole 6 s, half way round the player with the view (held ~90 units from the eye: 180 apart), dropped when Z comes up" },
+  { re = 'grab: .*00104C7D\) came to rest at .*, (?P<n>[\d.]+) units from where it was picked up', range = [100, 300], label = "it rests where it was carried to" },
+]
+forbid = [{ re = 'grab: .*\(it caught on something\)', label = "never held at rest while carried (it would stay put and catch)" }]
+
+[[scenario]]
 name = "ragdoll-armour-template"
 source = "docs/spec-notes/ragdoll.md §6: an armour's BMCT names a Ragdoll Template laid over the wearer's ragdoll; the 17 armours that name one (the power armours among them) all name RagdollConstraint\\default.rdt, which no archive of the game holds, so Ringo killed in T-45d power armour falls on his skeleton's own bodies and joints, and the log says why"
 areas = ["combat", "ragdoll"]
@@ -6425,6 +6517,47 @@ expect = [
 ]
 
 [[scenario]]
+name = "vats-mode-hit-chance"
+source = "owner 2026-10-23: a hit chance in VATS mode, shown as a percentage beside each mark's x and rolled per shot (docs/design/vats-mode.md §17)"
+note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357): two marks, each logged with its chance and the dog torso's or part's BPTD base; E fires both, each shot rolled (hit or missed, either is right: the check is that the chance is worked out and rolled, not the outcome). Frame vats_hit_chance.png at 10.4 s (game time at the 0.05 clock) shows the two labels beside the x's"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/tuning.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_SHOTS = "10.4:vats_hit_chance.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: marked .* mark 1; .* AP left; (?P<n>\d+)% to hit \(base \d+', range = [1, 95], label = "the first mark has a chance, within the cap" },
+  { re = 'vats mode: marked .* mark 2; .* AP left; (?P<n>\d+)% to hit \(base \d+', range = [1, 95], label = "the second mark too" },
+  "vats mode: firing 2 marked shots",
+  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent; \d+% to hit: (hit|missed) \(rolled \d+\)', label = "the first shot is rolled" },
+  { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent; \d+% to hit: (hit|missed) \(rolled \d+\)', label = "the second shot is rolled" },
+  { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "both fired, the AP spent either way" },
+  { re = 'vats mode: rolls: \d+ hit, \d+ missed', label = "the rolls are counted" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent, 0 refused, \d+ hit, \d+ missed', label = "the summary counts hits and misses" },
+]
+manual = "vats_hit_chance.png: a creamy 'NN%' to the right of each dark-red x"
+
+[[scenario]]
+name = "vats-mode-miss"
+source = "owner 2026-10-23: a hit chance in VATS mode; a missed roll goes wide of the mark (docs/design/vats-mode.md §17.4)"
+note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and hits no actor (the player is the only one shooting, so a projectile hit on another actor would be this shot)"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'vats mode: marked .* mark 1; .*% to hit', label = "one mark with its chance" },
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: missed', label = "the roll misses (forced)" },
+  { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the shot is fired and its AP spent" },
+  { re = 'vats mode: rolls: 0 hit, 1 missed', label = "one miss counted" },
+]]
+forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
+
+[[scenario]]
 name = "vats-mode-unmark"
 source = "owner's todo 6: right click removes the last mark; right click with no marks ends VATS mode (docs/design/vats-mode.md §2)"
 note = "a .357 in hand among the Goodsprings dogs (left to their packages, god mode). V at 10 s (after the start-up boxes); one mark, a right click takes it back, a second right click ends the mode: nothing fired, nothing spent. Aid times 10.3+ are game time at the 0.05 clock"
@@ -6559,10 +6692,10 @@ expect = [
 [[scenario]]
 name = "vats-mode-melee"
 source = "owner's todo 6 follow-up and owner 2026-10-20: melee marks within 5 m, the player teleports beside each mark and swings (docs/design/vats-mode.md §16.2)"
-note = "a machete (WeapNVMachete 000CE569: 20 AP a swing) among the Goodsprings dogs, which attack the player (god mode), so by 10 s they are within 5 m. One mark, E: a teleport beside the dog and one swing that lands on it. Written 2026-10-20 by a worker session that does not run the game. 2026-10-23 (list 7 W9): VATS at 16 s, not 10: the add-ons' start-up message boxes opened at 10.4 s and ended the mode before it could end itself ('a menu opened')"
+note = "a machete (WeapNVMachete 000CE569: 20 AP a swing) among the Goodsprings dogs, which attack the player (god mode), so by 10 s they are within 5 m. One mark, E: a teleport beside the dog and one swing that lands on it. Written 2026-10-20 by a worker session that does not run the game. 2026-10-23 (list 7 W9): VATS at 16 s, not 10: the add-ons' start-up message boxes opened at 10.4 s and ended the mode before it could end itself ('a menu opened'). 2026-10-23: VATS mode rolls each swing on the mark's hit chance (vats-mode.md §17); this check is about the teleport and the blow landing, so its roll is forced to hit (NVF_PLAY_TEST_VATS_ROLL=hit); vats-mode-hit-chance and vats-mode-miss check the rolls"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONTROL = "3:weapon,16.3:aimvats", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,16.3:aimvats", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.36:e" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 24
 order = [[
@@ -7826,6 +7959,60 @@ expect = [
 ]
 forbid = [
   { re = 'npc combat: \S+ 0x0014B0E3 fights the player with its own attack', label = "the super mutant fights with its own attack" },
+]
+
+[[scenario]]
+name = "ghost-people-armed"
+source = "owner's report 2026-10-23: a Dead Money ghost person showed no weapon; ghost people should hold spears. Harvesters carry a spear and throwing spears; the weapon choice took the throwing spear (more damage) though thrown weapons are not thrown by NPCs, so the hand weapon now comes first (fnv_sim::World::equipment, fnv_actor::weapon::choose_weapon; docs/spec-notes/actors.md §9.3, §10.6)"
+note = "Dead Money's NVDLC01stealthTest cell: harvesters 0x0100F422 and 0x0100F425 (NVDLC01CrGhostHarvesterWT: a spear and throwing spears from leveled lists) and seeker 0x0100F423 (a spear and gas bombs) take up their spears; at 6 s two are set on the player (god mode)"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/forms.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:combat:0x0100F422:player,6:combat:0x0100F423:player" }
+args = ["--cell", "NVDLC01stealthTest", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'creature weapons: 0100F422 \(.*ghosts.*\) holds NVDLC01WeapKnifeSpearGhost\d+ 0x\w+ \(Melee \(2 Hand\)\)', label = "a harvester takes up its spear" },
+  { re = 'creature weapons: 0100F425 \(.*ghosts.*\) holds NVDLC01WeapKnifeSpearGhost\d+ 0x\w+ \(Melee \(2 Hand\)\)', label = "the other harvester takes up its spear" },
+  { re = 'creature weapons: 0100F423 \(.*ghosts.*\) holds NVDLC01WeapKnifeSpearGhost\d+ 0x\w+ \(Melee \(2 Hand\)\)', label = "the seeker takes up its spear, not a gas bomb" },
+  { re = 'npc combat: \S+ 0x0100F422 fights the player with NVDLC01WeapKnifeSpearGhost\d+ \(melee\)', label = "the harvester fights with its spear" },
+]
+forbid = [
+  { re = 'creature weapons: 0100F42[235] .*(ThrowingSpear|GasBomb)', label = "a ghost holds a thrown weapon it cannot throw" },
+  { re = 'creature weapons: 0100F42[235] .*no stance', label = "a ghost's skeleton lacks the stance of its weapon" },
+  { re = 'npc combat: \S+ 0x0100F42[23] fights the player with its own attack', label = "a ghost fights with its own attack" },
+]
+
+[[scenario]]
+name = "ghost-trapper-armed"
+source = "owner's report 2026-10-23 (ghost people's weapons): trappers carry a bear-trap fist (Hand to Hand), drawn on the ghost skeleton's h2h stance (docs/spec-notes/actors.md §10.6)"
+note = "the Sierra Madre lobby's trapper 0x0100A5AC (NVDLC01CrGhostTrapperLob, initially disabled) is enabled at 2 s and set on the player (god mode) at 6 s"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/outfits.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:enable:0x0100A5AC,6:combat:0x0100A5AC:player" }
+args = ["--cell", "NVDLC01Lobby", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'creature weapons: 0100A5AC \(.*ghosts.*\) holds NVDLC01WeapBearTrapFistGhost\d+ 0x\w+ \(Hand to Hand\)', label = "the trapper wears its bear-trap fist" },
+]
+forbid = [
+  { re = 'npc combat: \S+ 0x0100A5AC fights the player with its own attack', label = "the trapper fights with its own attack" },
+]
+
+[[scenario]]
+name = "creature-weapons-audit"
+kind = "tool"
+source = "owner's request 2026-10-23: audit every creature type for the weapons it carries and whether it can hold them (fnvtool actor creature-weapons, docs/spec-notes/actors.md §10.6); NPCs hold a hand weapon before a thrown one (fnvtool actor weapons, §9.3)"
+areas = ["creatures", "combat"]
+paths = ["crates/fnvtool/src/actor_creature_weapons.rs", "crates/fnvtool/src/actor_weapons.rs", "crates/fnv-actor/src/weapon.rs", "crates/fnv-actor/src/records.rs", "crates/fnv-sim/src/forms.rs"]
+commands = [
+  ["actor", "creature-weapons", "{data}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "--schema", "schemas/fnv"],
+  ["actor", "weapons", "{data}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "--schema", "schemas/fnv"],
+]
+expect = [
+  { json = "summary.placed", schema = "fnv.actor.creature_weapons/1", equals = 3739, label = "every placed creature is looked at" },
+  { json = "summary.weapon_rows_by_status.drawable", schema = "fnv.actor.creature_weapons/1", equals = 313, label = "creature weapons drawable in the hands (super mutants, ghost people, aliens)" },
+  { json = "summary.weapon_rows_by_status.embedded (part of the body)", schema = "fnv.actor.creature_weapons/1", equals = 560, label = "creature weapons that are part of the body" },
+  { json = "summary.by_anim_type.Thrown (1 Hand)", schema = "fnv.actor.weapons/1", equals = 8, label = "only NPCs carrying nothing but thrown weapons hold one" },
 ]
 
 [[scenario]]
