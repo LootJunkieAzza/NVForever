@@ -69,9 +69,8 @@
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use fnv_nif::anim::BoolTrack;
 use fnv_phys::{layers, Filter};
-use nvf_assets::anim_play::{MaterialTarget, Playing};
+use nvf_assets::anim_play::MaterialTarget;
 use nvf_assets::material_anim::RigMaterials;
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisual, ShotVisuals};
@@ -144,11 +143,6 @@ struct Flash {
     left: f32,
 }
 
-/// The nodes an effect model's clip shows and hides (`NiVisController` tracks), on the
-/// model's root with its [`Playing`].
-#[derive(Component)]
-struct EffectVisibility(Vec<(Entity, BoolTrack)>);
-
 /// How long an explosion's model stays and emits when it has no sequence, and how long
 /// its light takes to fade, seconds [design: about the grenade explosion's sequence,
 /// 5.03 s, and its flash's emitter, on for 0.33 s]. A model with a sequence stays for its
@@ -205,7 +199,7 @@ pub struct ShotFxPlugin;
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotFx>()
-            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera, effect_visibility).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -287,10 +281,6 @@ fn spawn_rig(commands: &mut Commands, parent: Entity, pm: &PreparedModel, rig: &
             commands.entity(e).insert(crate::particles::AddonEmitter::new(index));
         }
     }
-    let shown: Vec<(Entity, BoolTrack)> = clip.visibility.iter().filter_map(|(n, _, t)| Some((*by_name.get(n)?, t.clone()))).collect();
-    if !shown.is_empty() {
-        commands.entity(root).insert(EffectVisibility(shown));
-    }
     (holder, root, drawn)
 }
 
@@ -328,25 +318,6 @@ fn fade_beam(fx: &mut ShotFx, m: &mut RigMaterials, v: &ShotVisual) {
     }
     if m.fade != v.strength {
         m.fade = v.strength;
-    }
-}
-
-/// Show and hide the nodes of effect models as their clips' visibility tracks say.
-fn effect_visibility(effects: Query<(&Playing, &EffectVisibility)>, mut visibility: Query<&mut Visibility>) {
-    for (p, ev) in &effects {
-        let t = p.sequence_time();
-        for (e, track) in &ev.0 {
-            let want = match track.at(t) {
-                Some(true) => Visibility::Inherited,
-                Some(false) => Visibility::Hidden,
-                None => continue,
-            };
-            if let Ok(mut v) = visibility.get_mut(*e) {
-                if *v != want {
-                    *v = want;
-                }
-            }
-        }
     }
 }
 

@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn crouching_takes_the_crouched_clips_where_the_stance_has_them() {
         let clip = |stop: f32| {
-            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new());
+            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
             c.stop = stop;
             Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None })
         };
@@ -629,7 +629,7 @@ mod tests {
         // As `2hhholster.kf` / `2hhequip.kf` / `2hhunequip.kf` (animation.md §9.7): off,
         // on from half way through the draw, off from half way through putting it away.
         let clip = |stop: f32, keys: Vec<(f32, bool)>| {
-            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new());
+            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
             c.stop = stop;
             if !keys.is_empty() {
                 c.visibility.push(("##FlamerGun".into(), 0, BoolTrack { value: None, keys }));

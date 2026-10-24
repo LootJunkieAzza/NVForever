@@ -3024,6 +3024,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "visibility-arcs-vault22"
+source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": placed models play the NiVisController tracks of their Idle sequence on every playing clip (anim_play::Playing::show), not only where a script runtime drives object groups; Vault 22's common area (Vault22d) has 14 electric arcs (fxelectricarc01/02.nif, refs 000F27A2-000F27AF) whose Idle shows their BrightSpots node about one frame in ten; the exit line counts the switches (no frames: the arcs sit behind a wall from the cell's start point)"
+areas = ["effects", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "Vault22d", "--pos=4190,420,8090", "--heading", "0", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'fxelectricarc01\.nif: its Idle sequence shows and hides 1 node', label = "the arc's Idle visibility track is read" },
+  { re = 'animation: .*, (?P<n>\d+) switches of nodes shown and hidden', range = [50, 1000000], label = "the arcs' bright spots switch many times" },
+]
+
+[[scenario]]
+name = "visibility-dust-tube"
+source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": an Active NiVisController no sequence drives plays looping on its own cycle; the dust tube south of Goodsprings (FXDustMeshTube01 ref 0017175D, fxdustmeshtube01.nif) hides its DustTube node from 4.03 s to 7.43 s of a 56.7 s loop; the exit line counts the switch (no frames: the tube is faint at this distance)"
+areas = ["effects", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--world", "WastelandNV", "--pos=-64374,-18700,6900", "--heading", "180", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'fxdustmeshtube01\.nif: 1 visibility track\(s\) of controllers of their own', label = "the dust tube's own visibility controller is read" },
+  { re = 'animation: .*, (?P<n>\d+) switches of nodes shown and hidden', range = [1, 1000000], label = "nodes switch on their own cycles" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]

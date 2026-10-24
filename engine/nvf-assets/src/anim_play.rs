@@ -39,6 +39,10 @@ pub struct Clip {
     /// sequence (circling vultures, turning light-ray fans; `model::free_transform_tracks`,
     /// docs/spec-notes/effects-animation-audit.md §3): node name, track, own timing.
     pub free: Vec<(String, Arc<TransformTrack>, OwnCycle)>,
+    /// Visibility tracks of `NiVisController`s that run by themselves (the dust tube near
+    /// Goodsprings, `model::free_visibility_tracks`, docs/spec-notes/nif.md §6): node
+    /// name, track, own timing.
+    pub free_visibility: Vec<(String, BoolTrack, OwnCycle)>,
     /// Tracks on a light of the model: its colour and dimmer (`NiLightColorController`,
     /// `NiLightDimmerController`; docs/spec-notes/model-lights.md).
     pub lights: Vec<LightTrack>,
@@ -216,16 +220,22 @@ impl Clip {
             visibility,
             materials,
             free: Vec::new(),
+            free_visibility: Vec::new(),
             lights,
         }
     }
 
     /// The clip a model plays for its controllers that run by themselves (material
-    /// `tracks` and transform tracks `free`, each with its own [`OwnCycle`]) when it has no
-    /// Idle sequence: it lasts as long as the longest of their cycles and loops; each
-    /// track keeps its own time.
-    pub fn from_controllers(tracks: Vec<MaterialTrack>, free: Vec<(String, Arc<TransformTrack>, OwnCycle)>) -> Clip {
-        let stop = tracks.iter().filter_map(|t| t.cycle.map(|c| c.period())).chain(free.iter().map(|f| f.2.period())).fold(1.0f32, f32::max);
+    /// `tracks`, transform tracks `free` and visibility tracks `shows`, each with its own
+    /// [`OwnCycle`]) when it has no Idle sequence: it lasts as long as the longest of their
+    /// cycles and loops; each track keeps its own time.
+    pub fn from_controllers(tracks: Vec<MaterialTrack>, free: Vec<(String, Arc<TransformTrack>, OwnCycle)>, shows: Vec<(String, BoolTrack, OwnCycle)>) -> Clip {
+        let stop = tracks
+            .iter()
+            .filter_map(|t| t.cycle.map(|c| c.period()))
+            .chain(free.iter().map(|f| f.2.period()))
+            .chain(shows.iter().map(|f| f.2.period()))
+            .fold(1.0f32, f32::max);
         Clip {
             name: "Idle".into(),
             start: 0.0,
@@ -240,14 +250,17 @@ impl Clip {
             visibility: Vec::new(),
             materials: tracks,
             free,
+            free_visibility: shows,
             lights: Vec::new(),
         }
     }
 
-    /// Whether the clip holds nothing but transform tracks of controllers that run by
-    /// themselves (`free`).
+    /// Whether the clip holds nothing but transform and visibility tracks of controllers
+    /// that run by themselves (`free`, `free_visibility`): what a weapon's file holds for
+    /// the clips of the actor holding it (a slide, the `##` parts shown and hidden,
+    /// effects-animation-audit.md §1), which an item lying in the world does not play.
     pub fn only_free_motion(&self) -> bool {
-        self.tracks.is_empty() && self.visibility.is_empty() && self.materials.is_empty() && !self.free.is_empty()
+        self.tracks.is_empty() && self.visibility.is_empty() && self.materials.is_empty() && (!self.free.is_empty() || !self.free_visibility.is_empty())
     }
 
     pub fn length(&self) -> f32 {
@@ -306,9 +319,22 @@ pub struct Playing {
     /// Tracks of the clip's controllers that run by themselves ([`Clip::free`]), each on
     /// its own cycle after `time - start` seconds of play.
     pub free: Vec<(Entity, Arc<TransformTrack>, OwnCycle)>,
+    /// The nodes the clip shows and hides ([`Clip::visibility`], and
+    /// [`Clip::free_visibility`] on their own cycles), written by [`Self::show`].
+    pub shows: Vec<Shown>,
     /// The clip's light tracks ([`Clip::lights`]), read by whoever draws the light
     /// (nvforever `lights.rs`) at [`Self::sequence_time`].
     pub lights: Vec<LightTrack>,
+}
+
+/// A node a playing clip shows and hides: its visibility track, its own timing (`None`:
+/// the sequence's time), and what was last written.
+#[derive(Debug, Clone)]
+pub struct Shown {
+    pub node: Entity,
+    pub track: BoolTrack,
+    pub cycle: Option<OwnCycle>,
+    pub last: Option<bool>,
 }
 
 impl Playing {
@@ -323,6 +349,13 @@ impl Playing {
             }
         }
         let free = clip.free.iter().filter_map(|(n, tt, c)| Some((node(n)?, tt.clone(), *c))).collect();
+        let shown = |n: &str, track: &BoolTrack, cycle: Option<OwnCycle>| Some(Shown { node: node(n)?, track: track.clone(), cycle, last: None });
+        let shows = clip
+            .visibility
+            .iter()
+            .filter_map(|(n, _, t)| shown(n, t, None))
+            .chain(clip.free_visibility.iter().filter_map(|(n, t, c)| shown(n, t, Some(*c))))
+            .collect();
         Playing {
             name: clip.name.clone(),
             source: source.to_string(),
@@ -336,6 +369,7 @@ impl Playing {
             root_motion: None,
             held: false,
             free,
+            shows,
             lights: clip.lights.clone(),
         }
     }
@@ -407,6 +441,36 @@ impl Playing {
                 tr.scale = Vec3::splat(s);
             }
         }
+    }
+}
+
+impl Playing {
+    /// The visibility each node of [`Self::shows`] takes now, by its track at the
+    /// sequence time (a free controller's at its own time after `time - start` seconds of
+    /// play): (index in `shows`, shown), for those whose track gives a value.
+    pub fn visible_now(&self) -> impl Iterator<Item = (usize, bool)> + '_ {
+        let t = self.sequence_time();
+        let clock = self.time - self.start;
+        self.shows.iter().enumerate().filter_map(move |(i, s)| Some((i, s.track.at(s.cycle.map_or(t, |c| c.time(clock)))?)))
+    }
+
+    /// Show and hide the nodes of [`Self::shows`] as their tracks say now
+    /// (docs/spec-notes/animation.md §9.7); a node is written only when its value changes
+    /// from what was last written, so something else hiding it in between is not undone
+    /// until the track switches. Returns how many nodes switched (a node's first write
+    /// not counted).
+    pub fn show(&mut self, visibility: &mut Query<&mut Visibility>) -> usize {
+        let now: Vec<(usize, bool)> = self.visible_now().filter(|&(i, on)| self.shows[i].last != Some(on)).collect();
+        let mut switched = 0;
+        for &(i, on) in &now {
+            let s = &mut self.shows[i];
+            switched += usize::from(s.last.is_some());
+            s.last = Some(on);
+            if let Ok(mut v) = visibility.get_mut(s.node) {
+                *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+            }
+        }
+        switched
     }
 }
 
@@ -760,13 +824,20 @@ pub fn advance(time: Res<Time>, mut state: ResMut<AnimState>, mut transforms: Qu
     }
 }
 
-/// Advance every [`Playing`] component (world objects with their own animation).
-pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut transforms: Query<&mut Transform>) {
+/// Advance every [`Playing`] component (world objects with their own animation), posing
+/// their nodes and showing and hiding them ([`Playing::show`]). Returns how many nodes
+/// switched between shown and hidden.
+pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut transforms: Query<&mut Transform>, mut visibility: Query<&mut Visibility>) -> usize {
     let dt = time.delta_secs();
+    let mut switched = 0;
     for mut p in &mut playing {
         let held = p.held;
         p.step(dt, held, &mut transforms);
+        if !p.shows.is_empty() {
+            switched += p.show(&mut visibility);
+        }
     }
+    switched
 }
 
 #[cfg(test)]
@@ -786,6 +857,35 @@ mod tests {
         // A looping one from 0 (the scrolling smoke) is as before.
         let l = OwnCycle { start: 0.0, stop: 13.3, frequency: 1.0, phase: 0.0, cycle_type: 0 };
         assert!((l.time(14.3) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_free_visibility_track_runs_on_its_own_cycle_from_the_phase() {
+        // As `fxdustmeshtube01.nif`'s DustTube: shown, hidden from 4.03 s to 7.43 s, a
+        // 56.7 s loop of its own (nif.md §6).
+        let track = BoolTrack { value: None, keys: vec![(0.0, true), (4.0, true), (4.033, false), (7.433, false), (7.467, true), (56.667, true)] };
+        let cycle = OwnCycle { start: 0.0, stop: 56.667, frequency: 1.0, phase: 0.0, cycle_type: 0 };
+        let clip = Clip::from_controllers(Vec::new(), Vec::new(), vec![("DustTube".into(), track, cycle)]);
+        assert!((clip.stop - 56.667).abs() < 1e-4);
+        // Nothing but a controller of its own: an item holding only this stays still.
+        assert!(clip.only_free_motion());
+        let mut p = Playing::new("t", &clip, |_| Some(Entity::PLACEHOLDER));
+        let at = |p: &Playing| p.visible_now().map(|(_, on)| on).next();
+        assert_eq!(at(&p), Some(true));
+        p.time = 5.0;
+        assert_eq!(at(&p), Some(false));
+        p.time = 56.667 + 5.0;
+        assert_eq!(at(&p), Some(false));
+        p.time = 56.667 + 8.0;
+        assert_eq!(at(&p), Some(true));
+        // A sequence's visibility track follows the sequence time.
+        let mut idle = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
+        idle.stop = 1.0;
+        idle.visibility.push(("BrightSpots01".into(), 0, BoolTrack { value: None, keys: vec![(0.0, true), (0.033, false)] }));
+        let mut p = Playing::new("t", &idle, |_| Some(Entity::PLACEHOLDER)).at_phase(0.5);
+        assert_eq!(at(&p), Some(false));
+        p.time = 1.0;
+        assert_eq!(at(&p), Some(true));
     }
 
     fn seq(tracks: &[&str]) -> Sequence {
@@ -903,6 +1003,7 @@ mod tests {
             visibility: Vec::new(),
             materials: Vec::new(),
             free: Vec::new(),
+            free_visibility: Vec::new(),
             lights: Vec::new(),
         })
     }

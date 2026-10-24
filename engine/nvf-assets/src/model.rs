@@ -576,6 +576,24 @@ pub fn free_transform_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Arc<
         .collect()
 }
 
+/// The visibility tracks of the `NiVisController`s in a file that are not driven by a
+/// sequence: by node name, each with its own timing ([`OwnCycle`]), played looping on
+/// placed objects (`Clip::free_visibility`). Taken as [`free_transform_tracks`] takes its
+/// controllers (Active, not manager controlled). The dust tube placed near Goodsprings
+/// (`effects\ambient\fxdustmeshtube01.nif`) is built so: one such controller, looping,
+/// that shows its mesh for part of a 56.7 s cycle [observed: `fnvtool nif decode`,
+/// docs/spec-notes/effects-animation-audit.md §6]. A track whose value never changes
+/// over its keys is kept: it holds a node the file hides shown, or the reverse.
+pub fn free_visibility_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, BoolTrack, OwnCycle)> {
+    node_tracks_of_own(file, dec, false)
+        .into_iter()
+        .filter_map(|(node, t, cycle)| match t {
+            NodeTrack::Visibility(t) if !t.keys.is_empty() || t.value.is_some() => Some((node, t, cycle)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether a transform track's pose changes between `start` and `stop` (sampled).
 fn moves(t: &TransformTrack, start: f32, stop: f32) -> bool {
     let at = |x: f32| (t.translation.sample(x), t.rotation_at(x), t.scale.sample(x));
@@ -641,7 +659,7 @@ pub fn effect_clip(file: &NifFile, dec: &Decoded, base: Option<Clip>) -> Option<
     if tracks.is_empty() && visibility.is_empty() && materials.is_empty() {
         return base;
     }
-    let mut clip = base.unwrap_or_else(|| Clip { name: "Effect".into(), cycle_type: 2, stop: 0.0, ..Clip::from_controllers(Vec::new(), Vec::new()) });
+    let mut clip = base.unwrap_or_else(|| Clip { name: "Effect".into(), cycle_type: 2, stop: 0.0, ..Clip::from_controllers(Vec::new(), Vec::new(), Vec::new()) });
     clip.stop = clip.stop.max(stop);
     clip.priorities.extend(std::iter::repeat_n(0, tracks.len()));
     clip.tracks.extend(tracks);
@@ -1159,15 +1177,25 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
     // its own for them.
     let free: Vec<MaterialTrack> = free_material_tracks(&file, &dec).into_iter().filter(|t| has(&t.shape)).collect();
     let moving: Vec<(String, Arc<TransformTrack>, OwnCycle)> = free_transform_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
+    let shows: Vec<(String, BoolTrack, OwnCycle)> = free_visibility_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
     if !free.is_empty() || !moving.is_empty() {
         info!("{path}: {} material and {} transform track(s) of controllers of their own, played on their own cycles", free.len(), moving.len());
+    }
+    if !shows.is_empty() {
+        info!("{path}: {} visibility track(s) of controllers of their own, played on their own cycles", shows.len());
+    }
+    if !free.is_empty() || !moving.is_empty() || !shows.is_empty() {
         match idle.as_mut() {
             Some(c) => {
                 c.materials.extend(free);
                 c.free.extend(moving);
+                c.free_visibility.extend(shows);
             }
-            None => idle = Some(Clip::from_controllers(free, moving)),
+            None => idle = Some(Clip::from_controllers(free, moving, shows)),
         }
+    }
+    if let Some(c) = idle.as_ref().filter(|c| !c.visibility.is_empty()) {
+        info!("{path}: its {} sequence shows and hides {} node(s)", c.name, c.visibility.len());
     }
     // Vertex morphs that run by themselves, or with the Idle (else SpecialIdle)
     // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
@@ -1205,7 +1233,7 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
         .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
         .chain(groups.iter())
         .chain(effect.iter())
-        .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()))
+        .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()).chain(c.free_visibility.iter().map(|(n, ..)| n.clone())))
         .collect();
     // The light a clip of the rig drives.
     out.light = first_light.filter(|l| idle.iter().chain(groups.iter()).any(|c| c.lights.iter().any(|t| t.light == l.name)));

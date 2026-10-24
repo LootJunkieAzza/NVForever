@@ -924,10 +924,51 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the sequences' offset tracks (activators.md §2); with the ground smoke's UVs (V about
   0.84–1.0 at the foot) the pattern rises. Effect models (explosions, impacts,
   muzzle flashes) play all of these, active or not: explosion-effects.md §2. Placed
-  objects do not play transform, visibility and
-  colour controllers outside sequences (e.g. `fxdustmeshtube01.nif`'s
-  `NiVisController`), and particle systems inside ordinary models (`fxlightsmoke.nif`,
-  `dlc03fxdarksmoke.nif`, `fxtiresmoke.nif`, `ashtray03smoke.nif`; particles.md).
+  objects play moving transform controllers (effects-animation-audit.md §3) and
+  visibility controllers ("Visibility controllers" below) outside sequences too;
+  particle systems inside ordinary models: particles.md.
+- **Visibility controllers.** A `NiVisController` on a node, with a `NiBoolInterpolator`
+  whose `NiBoolData` keys say shown (1) or hidden (0) over time [documented: nif.xml],
+  shows and hides that node and everything under it. Two kinds on placed models
+  [observed, `fnvtool nif decode` over `Fallout - Meshes.bsa`, refs from `fnvtool world
+  refs` over FalloutNV.esm]:
+  - **In the Idle sequence**: `effects\ambient\fxelectricarc01.nif` (25 placed, in vault
+    interiors: 11 in Vault22d, 5 in 2EOVault21, …) and `02.nif` (4 placed) hold an Idle
+    (loop, 8.77 s and 8.03 s) whose controlled blocks include a `NiVisController` on the
+    node `BrightSpots01`/`02` (the controller's flags 108: manager controlled), with 265
+    and 243 keys one frame (1/30 s) apart, 25 and 29 of them shown: the bright spots at
+    the arc's ends blink on about one frame in ten. The same Idle moves `Electricity01`
+    and scrolls its texture. `gomorrahlightslowerlevel.nif` (1 placed) has an Idle visibility track
+    of the same kind [observed by the effect-animation audit of 2026-10-23; not decoded
+    again here].
+  - **Running by themselves**: `effects\ambient\fxdustmeshtube01.nif` (1 placed,
+    FXDustMeshTube01 ref 0017175D in WastelandNV south of Goodsprings) holds one
+    `NiVisController` on its node `DustTube`, flags 72 (Active, loop), start 0, stop
+    56.67 s, frequency 1, phase 0, no sequence; its 14 keys show the tube, hide it from
+    4.03 s to 7.43 s, show it to 17.47 s, hide it from 17.53 s to 29.8 s, show it to
+    43.93 s, hide it from 43.97 s to 50.47 s and show it to the loop's end: about 60 %
+    of the time shown.
+
+  How `nvf_assets` plays them: every clip a model plays (`anim_play::Playing`) carries
+  the visibility tracks of its sequence, sampled at the sequence time, and those of the
+  Active, not manager-controlled `NiVisController`s outside sequences
+  (`model::free_visibility_tracks`, `Clip::free_visibility`), each on its own cycle from
+  the clip's start (`OwnCycle`, as the free material and transform tracks); a model
+  with only these gets a clip of its own. `anim_play::advance_instances` writes the
+  node's `Visibility` when a track's value changes (`Playing::show`); between keys the
+  last key holds and before the first key the first holds [hypothesis: keys step, they
+  do not blend; `BoolTrack::at`]. A node the file hides that a track shows is built
+  and starts hidden (`vis_nodes` in `model.rs`). Random Anim Start bases start the
+  free tracks at the same phase as the clip [hypothesis]. An item lying in the world
+  whose only animation is such controllers (a gun's `##` parts, its slide) stays as
+  stored (`Clip::only_free_motion`, effects-animation-audit.md §3 "Items"); a reference
+  a script enables (`nvf_play::script_draw`) does not apply that item rule yet, for free
+  transform or visibility tracks. Before this, only
+  `object_anims` (script groups, needing the script runtime) and `shot_fx` (effects)
+  applied the sequence tracks, and nothing applied the free ones: the arcs' spots
+  were always on in world-only runs and the dust tube never hid. Those two appliers are
+  now this one. The original's timing of the blink was not compared with game frames
+  [hypothesis: the keys play at the sequence's rate, as the transform keys do].
 - **Unlit vertex colours as display values.** An unlit shape (BSShaderNoLightingProperty)
   draws texture × vertex colour; its vertex colours are taken as display values and
   converted to linear before the renderer's linear product (`nif_spawn::unlit_vertex_colors`)
