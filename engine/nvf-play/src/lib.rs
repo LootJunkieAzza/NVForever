@@ -73,6 +73,7 @@ pub mod music;
 pub mod pad;
 pub mod pause;
 pub mod phys;
+pub mod pickpocket;
 pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
@@ -317,6 +318,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(mines::MinesPlugin)
             .add_plugins(falls::FallsPlugin)
+            .add_plugins(pickpocket::PickpocketPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)

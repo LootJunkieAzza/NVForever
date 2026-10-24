@@ -66,14 +66,25 @@ pub fn level_on_entry(zone: &ZoneDef, player_level: u16) -> u16 {
 /// rounded down and never below 1; Medium, Hard and Boss keep the list's own flag, as
 /// None does, rather than forcing "closest only".]
 pub fn modified(level: u16, modifier: Option<i32>) -> LevelAt {
-    let pct: u32 = match modifier {
-        Some(0) => 50,
-        Some(1) => 75,
-        Some(2) => 125,
-        Some(3) => 200,
-        _ => 100,
+    modified_by(level, modifier, |_| None)
+}
+
+/// The game settings holding each level modifier's share, Easy to Boss, and the shares
+/// they hold in FalloutNV.esm [observed: `fLeveledActorMultEasy` 0.5, `…Medium` 0.75,
+/// `…Hard` 1.25, `…Boss` 2.0, the percentages the wiki gives; hypothesis: these are what
+/// the engine reads, by their names].
+pub const LEVEL_MULT_SETTINGS: [(&str, f32); 4] = [("fLeveledActorMultEasy", 0.5), ("fLeveledActorMultMedium", 0.75), ("fLeveledActorMultHard", 1.25), ("fLeveledActorMultBoss", 2.0)];
+
+/// [`modified`] with each modifier's share read through `setting` (a game setting by
+/// Editor ID, [`LEVEL_MULT_SETTINGS`]), so a plugin that changes them changes the levels.
+pub fn modified_by(level: u16, modifier: Option<i32>, setting: impl Fn(&str) -> Option<f32>) -> LevelAt {
+    let share = match modifier.and_then(|m| usize::try_from(m).ok()).and_then(|m| LEVEL_MULT_SETTINGS.get(m)) {
+        Some(&(name, default)) => setting(name).filter(|v| v.is_finite() && *v >= 0.0).unwrap_or(default),
+        None => 1.0,
     };
-    let l = (u32::from(level) * pct / 100).clamp(1, u32::from(u16::MAX)) as u16;
+    // Whole percent, as the shares are, so 0.75 × 10 is 7 and not 7.4999 rounded up.
+    let pct = (f64::from(share) * 100.0).round() as u64;
+    let l = (u64::from(level) * pct / 100).clamp(1, u64::from(u16::MAX)) as u16;
     LevelAt { level: l, all_levels: modifier == Some(0) }
 }
 
@@ -112,7 +123,7 @@ impl World<'_> {
             Some(z) => self.zone_level(z).unwrap_or_else(|| level_on_entry(&self.forms.zones.get(&z).copied().unwrap_or_default(), player_level)),
             None => player_level.max(1),
         };
-        modified(base, placed.get(r).and_then(|p| p.level_modifier))
+        modified_by(base, placed.get(r).and_then(|p| p.level_modifier), |name| self.setting_f32(name))
     }
 
     /// The level fixed for `r`, if any.
@@ -150,5 +161,24 @@ impl World<'_> {
     /// configured player level.
     pub(crate) fn item_level(&self, r: FormId) -> u16 {
         self.ref_levels.get(&r).map_or(self.config().player_level, |l| l.level)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_modifiers_follow_the_settings() {
+        // The masters' shares give the wiki's percentages.
+        let at = |m| modified(10, m).level;
+        assert_eq!([at(Some(0)), at(Some(1)), at(Some(2)), at(Some(3)), at(None)], [5, 7, 12, 20, 10]);
+        assert!(modified(10, Some(0)).all_levels);
+        // A plugin's own share is read.
+        let hard = |name: &str| (name == "fLeveledActorMultHard").then_some(1.5);
+        assert_eq!(modified_by(10, Some(2), hard).level, 15);
+        assert_eq!(modified_by(10, Some(1), hard).level, 7);
+        // Never below level 1.
+        assert_eq!(modified_by(1, Some(0), |_| Some(0.0)).level, 1);
     }
 }

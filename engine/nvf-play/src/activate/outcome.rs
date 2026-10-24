@@ -27,6 +27,8 @@ pub enum Action {
     /// Locked, no key.
     Locked { level: u8 },
     Talk,
+    /// A living actor the sneaking player may pickpocket (`crate::pickpocket`).
+    Steal,
     /// A dead actor: its inventory opens (combat C5).
     Search,
     /// Activators and furniture: the base form's script runs.
@@ -84,6 +86,8 @@ impl Action {
             Action::Unlock => "Unlock (key)".into(),
             Action::Locked { level } => format!("Locked ({})", lock_text(*level)),
             Action::Talk => "Talk".into(),
+            // [hypothesis: the original's word for picking a pocket]
+            Action::Steal => "Steal".into(),
             Action::Search => "Search".into(),
             Action::Activate => "Activate".into(),
             // [hypothesis, hacking.md §8: the original's word for a terminal]

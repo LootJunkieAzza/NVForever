@@ -182,6 +182,8 @@ pub enum Kind {
     Trespass,
     Assault,
     Murder,
+    /// Caught picking an actor's pocket (`crate::pickpocket`).
+    Pickpocket,
 }
 
 impl Kind {
@@ -192,6 +194,7 @@ impl Kind {
             Kind::Trespass => "trespassing",
             Kind::Assault => "assault",
             Kind::Murder => "murder",
+            Kind::Pickpocket => "pickpocketing",
         }
     }
 
@@ -208,6 +211,7 @@ impl Kind {
             Kind::Theft => Some("Steal"),
             Kind::Murder => Some("Murder"),
             Kind::Trespass => Some("GuardTrespass"),
+            Kind::Pickpocket => Some("Pickpocket"),
             Kind::Lock | Kind::Assault => None,
         }
     }
@@ -413,6 +417,17 @@ impl Game<'_> {
     }
 
     /// Whether stealing from this owner costs karma (module notes).
+    pub(crate) fn karma_for_theft_from(&mut self, o: &Ownership) -> bool {
+        self.karma_for_theft(o)
+    }
+
+    /// `actor` turns on the player for its own crime: counted against it, and it says
+    /// the crime's line (`crate::pickpocket`). Whether it turned now.
+    pub(crate) fn crime_turn(&mut self, actor: FormId, kind: Kind) -> bool {
+        self.count_crime(actor, kind);
+        self.turn_on_player(actor, kind)
+    }
+
     fn karma_for_theft(&mut self, o: &Ownership) -> bool {
         if self.is_faction(o.owner) {
             let f = self.data.faction_flags.get(&o.owner).copied().unwrap_or(0);

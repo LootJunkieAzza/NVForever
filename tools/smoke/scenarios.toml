@@ -6818,17 +6818,17 @@ expect = [
 ]
 
 [[scenario]]
-name = "blood-none-tumbleweed"
-source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §2): hits on an actor flagged No Blood Spray and No Blood Decal (a tumbleweed) show no impact model and leave no decal"
-note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots it with a 10mm pistol"
+name = "blood-none-ant"
+source = "ESM gap audit medium group 3 (docs/spec-notes/actor-flags.md §2): hits on an actor flagged No Blood Spray and No Blood Decal (an explosive Nellis ant) show no impact model and leave no decal"
+note = "an explosive Nellis worker ant (NellisAntWorkerExplosive) placed at the player (GOD) at 3 s; the player shoots it with a 10mm pistol. Was blood-none-tumbleweed until 2026-10-24: the tumbleweed is flagged Is Ghost (CREA ACBS bit 29, actor-flags.md §3), so shots pass through it"
 areas = ["combat", "rendering"]
 paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/decals.rs", "crates/fnv-game/src/actor_values.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCRTumbleweed:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NellisAntWorkerExplosive:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 18
 expect = [
-  { re = 'shot fx: (?P<n>\d+) impacts on actors flagged No Blood Spray not shown', range = [1, 1000], label = "no spray on the tumbleweed" },
-  { re = 'decals: (?P<n>\d+) hits on actors flagged No Blood Decal left none', range = [1, 1000], label = "no decal on the tumbleweed" },
+  { re = 'shot fx: (?P<n>\d+) impacts on actors flagged No Blood Spray not shown', range = [1, 1000], label = "no spray on the ant" },
+  { re = 'decals: (?P<n>\d+) hits on actors flagged No Blood Decal left none', range = [1, 1000], label = "no decal on the ant" },
 ]
 
 [[scenario]]
@@ -8303,4 +8303,76 @@ expect = [
 order = [[
   { re = 'compass: \d+ actors .*, [1-9]\d* sneaking left off', label = "sneaking Ringo left off the compass" },
   { re = 'compass: \d+ actors .*, 0 sneaking left off', label = "standing up, nobody is left off" },
+]]
+
+[[scenario]]
+name = "ghost-tumbleweed"
+source = "ESM full audit gap 1 (docs/spec-notes/actor-flags.md §3): a creature flagged Is Ghost (CREA ACBS bit 29, a tumbleweed) lets shots pass through it, as SetGhost 1 does (GECK wiki SetGhost: Projectiles pass through them)"
+note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots at it with a 10mm pistol"
+areas = ["combat", "actors"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/data.rs", "schemas/fnv/gameplay.json"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCRTumbleweed:1:300:0", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,9:aimactor,9.1:fire,9.6:fire,10.1:fire,10.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat summary: (?P<n>\d+) rays passed through ghosts', range = [1, 1000], label = "shots pass through the tumbleweed" },
+  { re = 'combat: \S+ \S+ killed', count = 0, label = "the tumbleweed is not killed" },
+]
+
+[[scenario]]
+name = "npc-speed-mult"
+source = "ESM full audit gap 4 (engine/nvforever/src/creature_pace.rs npc_speeds): an NPC's Speed Mult scales its walking and running speeds (GECK wiki Stats Tab - NPC: a Speed actor value is a multiplier times a standard movement speed)"
+note = "a Legion recruit (VLegionaryWastelandRecruit, ACBS Speed Mult 130) placed beside the player (GOD) at 3 s"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VLegionaryWastelandRecruit:1:400:0" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'npc pace: .* walks \d+ and runs \d+ units/s \(Speed Mult 130\)', label = "the recruit moves at 130 % speed" },
+  { re = 'creature pace summary: .*\((?P<n>\d+) people by Speed Mult\)', range = [1, 100], label = "counted among the paced" },
+]
+
+[[scenario]]
+name = "pickpocket-steal"
+source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
+note = "Chet in the general store is given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
+areas = ["activate", "menus", "crime"]
+paths = ["engine/nvf-play/src/pickpocket.rs", "engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*", "crates/fnv-game/src/pickpocket.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:Stimpak:2", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,10:enter,10.5:enter,12:e" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'target 0x00104C79 .*\(Steal, owned\)', label = "the prompt reads Steal, as a crime, while sneaking" },
+  { re = 'activate 0x00104C79 .*\(Steal\): its pocket opens', label = "E opens his pocket" },
+  { re = 'pickpocket: open on 0x00104C79: Sneak \d+ against \d+', label = "the steal menu opens with both Sneak skills" },
+  { re = 'pickpocket: (took .* from .* unseen|caught by .* with )', label = "the take is unseen or caught" },
+]]
+
+[[scenario]]
+name = "death-weapon-drop"
+source = "ESM full audit gap 21 (engine/nvf-play/src/combat.rs death_drops): an NPC that dies holding its weapon drops it, with the chance iDeathDropWeaponChance (100 in FalloutNV.esm)"
+note = "Chet is given a .357 and set on the player (GOD) at 3-4 s, then killed by KillActor at 9 s"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player,9:call:GSChetRef:KillActor" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'combat: 0x00104C79 died: it drops its .* \(iDeathDropWeaponChance 100\)', label = "Chet drops his revolver as he dies" },
+  { re = 'combat summary: (?P<n>\d+) weapons dropped by actors that died holding them', range = [1, 1], label = "one weapon dropped" },
+]
+
+[[scenario]]
+name = "next-quest-active"
+source = "ESM full audit gap 20 (crates/fnv-game/src/game.rs set_stage): a stage entry that completes its quest makes its Next Quest (QUST NAM0) the active quest (GECK wiki Quest Stages)"
+note = "SetStage VCG01 200 (Ain't That a Kick in the Head; its Next Quest is VMQ01, They Went That-a-Way) at 4 s; the Pip-Boy's data page opens at 10 s"
+areas = ["quests", "pipboy"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/quest.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetStage:VCG01:200", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,13:close" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  "quest: 0x00104C1C stage 200 completes it; its Next Quest 0x000842DD becomes the active quest",
+  { re = 'pipboy data: active quest 0x000842DD \(ForceActiveQuest\)', label = "the Pip-Boy takes VMQ01 as the active quest" },
 ]]
