@@ -52,7 +52,10 @@
 //!   5 s timer) [hypothesis: the split of the 15 s; GetTrespassWarningLevel was not
 //!   read]; inside half the aggro radius ([`AGGRO_ATTACK_SHARE`]) the attack comes at once
 //!   [hypothesis: two samples, 196 and 246 of 500]. The same timing for Guard packages
-//!   [hypothesis: not observed].
+//!   [hypothesis: not observed]. A person: Gomorrah's cash-room guard (aggro radius 128)
+//!   warning from 66-85 units attacked 21 s after his warning began [observed: capture
+//!   `warnings` cashroom_near]; the 15 s is kept for everyone [hypothesis: 15-21 s
+//!   seen].
 //! - **Guard packages** [documented: GuardTrespass is "said when issuing a warning …
 //!   from a Guard package"; fAITrespassWarningTimer and iGuardWarnings are the "Guard
 //!   Package Settings" (GECK wiki Settings); the Guard package page, as packages.md §3
@@ -67,7 +70,11 @@
 //!   guarding the player, or with neither radius, warns nobody. The area comes before
 //!   the actor's aggro radius; one count serves both (GetTrespassWarningLevel). A grudge
 //!   [`Why::Guard`]. In FalloutNV.esm 61 of the 175 Guard packages allow it
-//!   [observed: `fnvtool ai show`].
+//!   [observed: `fnvtool ai show`]. Not seen in the original yet: Gomorrah's cash-room
+//!   guard (on vGomorrahGuardPackage) did not warn a player 24-33 units from the door he
+//!   guards (outside the 25 just), and the warning he gave a player 66-85 units from him
+//!   was his own aggro radius's (128, his AI data) [observed: capture `warnings`
+//!   cashroom_at_door / cashroom_near, 2026-10-24]; the bouncer runs saw nothing.
 //! - **Who**: the player only [design: other actors' aggro radii are not measured];
 //!   never an actor that is the player's ally or friend or teammate, one already hostile
 //!   by its records, a dead, unconscious or restrained one.

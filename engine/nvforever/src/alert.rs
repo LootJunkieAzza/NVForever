@@ -13,6 +13,13 @@
 //!   to the geckos without her weapon drawn; VCG02SunnyTravelToWell1 has Weapon Drawn).
 //!   An actor fleeing a fight holsters it until it fights again [owner 2026-10-17;
 //!   docs/design/combat-ai.md §12.2.1].
+//! - **Warning** (`Game::warning_to`, not alerted): the actor draws its weapon and
+//!   holsters it again in turn, a cycle every [`WARN_CYCLE_SECONDS`], drawn the first
+//!   half [observed: Gomorrah's cash-room guard 0x00127950 warning the player inside his
+//!   128-unit aggro radius had IsWeaponOut 1 every 0.021 game hours, 75 game seconds,
+//!   2.5 s at TimeScale 30, GetAnimAction 0 / 1 in step, GetIsAlerted 0, until he fought
+//!   21 s later; capture `warnings` cashroom_near, 2026-10-24; the half: hypothesis].
+//!   A package's Weapon Drawn, a weapon use or a fight holds it drawn instead.
 //! - **Head**: an Alert or Lost actor looks at where its latest alarm is (what it
 //!   noticed, heard or last saw), at chest height; one in Combat looks at its target.
 //!   The look is a [`LookOverride`] this module puts on and takes off again, never over
@@ -47,13 +54,17 @@ struct AlertLook(LookAt);
 #[derive(Component)]
 struct WeaponHidden;
 
+/// Seconds from one draw of a warning person's weapon to the next (module notes).
+pub const WARN_CYCLE_SECONDS: f32 = 2.5;
+
 /// The chest, as a fraction of the eye height (as `detection.rs` measures).
 const CHEST: f32 = 0.75;
 
 type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>, Has<WeaponHidden>);
 
-fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, mut actors: Query<Actors>) {
+fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, time: Res<Time>, mut cycles: Local<std::collections::HashMap<u32, f32>>, mut actors: Query<Actors>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let dt = time.delta_secs();
     let drawn_by_default = world.is_some_and(|w| w.weapon_mode == WeaponMode::Drawn);
     for (e, rig, hold, forced, ours, hidden) in &mut actors {
         let id = FormId(rig.reference);
@@ -61,7 +72,26 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             let fighting = game.awareness.state(id).in_combat();
             let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
             let fleeing = fighting && game.awareness.tactics.flights.contains_key(&id);
-            let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
+            let mut want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
+            // Warning the player: drawn and holstered in turn (module notes), unless
+            // something else holds it drawn.
+            let held = game.is_alerted(id) || game.package_has(id, flags::WEAPON_DRAWN) || game.package_has(id, flags::PRETEND_IN_COMBAT) || game.active_weapon_use(id).is_some();
+            let cycling = want && !fighting && !held && game.warning_to(id).is_some();
+            if cycling {
+                let first = !cycles.contains_key(&rig.reference);
+                let t = cycles.entry(rig.reference).or_insert(0.0);
+                if first {
+                    info!("alert: {} {id} draws and holsters its weapon in turn (it warns the player)", game.data.name(id));
+                } else {
+                    *t = (*t + dt) % WARN_CYCLE_SECONDS;
+                }
+                want = *t < WARN_CYCLE_SECONDS / 2.0;
+                if hold.test.is_none() {
+                    hold.drawn = want;
+                }
+            } else {
+                cycles.remove(&rig.reference);
+            }
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
                 let why = if fleeing {

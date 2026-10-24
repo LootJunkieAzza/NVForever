@@ -8362,4 +8362,7 @@ NVForever now does the same (it waited 10 s and held its stance drawn before).
 - *Guess:* the 15 s as two warnings 5 s apart and the attack 10 s after the second.
 - *Guess:* half the radius for the attack without warning (seen at 196 and 246 of 500).
 - *Guess:* the stance stays drawn for the first second of each 2 s cycle.
-- *Open:* Guard packages' timing and radius wait for the Gomorrah sessions.
+- *Seen in Gomorrah:* the cash-room guard warned from his own 128-unit aggro radius, gun
+  drawn and holstered in turn every 2.5 s (people do this now too), and fought after 21 s.
+- *Open:* Guard packages' own warnings were not seen in the original (the door test came
+  out empty); they stay a guess from the wiki's Guard package summary.

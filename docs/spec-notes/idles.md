@@ -763,3 +763,12 @@ plugin; the player put at a distance and left there):
   same sample, with no warning.
 - Built: the cycle (`creature_stance.rs`, 2 s, drawn the first second [hypothesis]), the
   15 s and the half-radius attack (`fnv_game::aggro`, "The timing").
+
+Gomorrah sessions (same day): the cash-room guard 0x00127950, aggro radius 128 of his own,
+warned a player 66-85 units from him the same way: a run-time Guard package (type 35,
+procedure 44), faced the player, drew and holstered his gun every 2.5 s (IsWeaponOut,
+GetAnimAction 0 / 1), GetIsAlerted 0, and fought 21 s later. A player 129-135 from him
+(24-33 from the door his Guard package guards) got a brief run-time Follow package and a
+turn of his head, no warning. Built for people: `alert.rs`, the weapon drawn and holstered
+in turn every 2.5 s while warning. The bouncer sessions saw nothing (no detection; the
+player was moved away by something in Gomorrah).
