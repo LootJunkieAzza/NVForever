@@ -766,6 +766,13 @@ impl Runtime {
                     g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
                     // Its activate children go off (`fnv_game::traps`).
                     g.set_off_children(target);
+                    // An activator that gives water: the player drinks it, as
+                    // `Game::default_activation` has it drunk (its actor effect, the
+                    // Adjust Drinking Radiation perks); this path (the player's hand) never
+                    // did (perk-entry-points.md §9).
+                    if matches!(a.outcome, Outcome::Activated) && g.drink_water(target).is_some() {
+                        g.drink_from(player, target);
+                    }
                     if let Outcome::PickedUp { item, count, .. } = a.outcome {
                         self.skip.insert(g.events.len());
                         g.emit(EventKind::ItemAdded { to: player, item, count, silent: false });

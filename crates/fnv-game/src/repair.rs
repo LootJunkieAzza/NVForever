@@ -129,6 +129,86 @@ pub fn repairs_with(target: FormId, source: FormId, repair_list: &[FormId]) -> b
     source == target || repair_list.contains(&source)
 }
 
+/// What Jury Rigging lets one item be repaired with [design: "Has Jury Rigging: access
+/// alternate and predefined - but far more inclusive - repair lists" (GECK wiki Entry
+/// Point); the original's lists are not in the records, so the perk's own examples set the
+/// rule: "fix a Trail Carbine with a Hunting Rifle, a Plasma Defender with a Laser Pistol,
+/// or even Power Armor with Metal Armor" (its DESC)]: a weapon of the same WEAP skill and
+/// animation type; armour of the same class (light, medium, heavy) on the same part of the
+/// body (the upper body, the head, else the very same slots). `kind` gives an item's
+/// [`JuryKind`].
+pub fn jury_rigs(target: FormId, source: FormId, kind: impl Fn(FormId) -> Option<JuryKind>) -> bool {
+    target != source && kind(target).is_some_and(|k| kind(source) == Some(k))
+}
+
+/// The family Jury Rigging sorts an item into ([`jury_rigs`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JuryKind {
+    /// A weapon: its WEAP skill (actor value code) and animation type.
+    Weapon { skill: i64, anim: i64 },
+    /// Armour: its class (0 light, 1 medium, 2 heavy) and where it is worn.
+    Armor { class: u8, place: ArmorPlace },
+}
+
+/// Where a piece of armour is worn, for Jury Rigging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArmorPlace {
+    Body,
+    Head,
+    Slots(u32),
+}
+
+/// The Upper Body biped slot, and the head's [documented: xEdit's biped flag names; the
+/// same bits as `fnv_combat::data::ArmorStats`].
+const UPPER_BODY: u32 = 1 << 2;
+const HEAD_SLOTS: u32 = 1 | 1 << 1 | 1 << 9 | 1 << 10 | 1 << 11 | 1 << 14;
+
+impl ArmorPlace {
+    pub fn of(slots: u32) -> ArmorPlace {
+        if slots & UPPER_BODY != 0 {
+            ArmorPlace::Body
+        } else if slots & HEAD_SLOTS != 0 {
+            ArmorPlace::Head
+        } else {
+            ArmorPlace::Slots(slots)
+        }
+    }
+}
+
+impl crate::game::Game<'_> {
+    /// An item's [`JuryKind`]: a weapon by the game's records, armour by the world's.
+    pub fn jury_kind(&self, item: FormId) -> Option<JuryKind> {
+        use fnv_sim::forms::{ArmorClass, ItemKind};
+        if let (Some(&skill), Some(&anim)) = (self.data.weapon_skills.get(&item), self.data.weapon_anim_types.get(&item)) {
+            return Some(JuryKind::Weapon { skill, anim });
+        }
+        let it = self.world.forms.item(item)?;
+        if it.kind != ItemKind::Armor {
+            return None;
+        }
+        let class = match it.armor_class {
+            ArmorClass::Light => 0,
+            ArmorClass::Medium => 1,
+            ArmorClass::Heavy => 2,
+        };
+        Some(JuryKind::Armor { class, place: ArmorPlace::of(it.slots.unwrap_or(0)) })
+    }
+
+    /// The items the player may repair `item` with: its repair list, and with Jury
+    /// Rigging (Has Jury Rigging) every `carried` item [`jury_rigs`] allows.
+    pub fn player_repair_list(&self, item: FormId, carried: impl IntoIterator<Item = FormId>) -> Vec<FormId> {
+        let mut list = crate::functions::repair_list(self, item);
+        if self.holds_entry_point(FormId::PLAYER_REF, crate::perks::HAS_JURY_RIGGING) {
+            for c in carried {
+                if !list.contains(&c) && jury_rigs(item, c, |i| self.jury_kind(i)) {
+                    list.push(c);
+                }
+            }
+        }
+        list
+    }
+}
+
 /// The ITEMS page's hint for an item: "Maintain" once it works as well as it can (a
 /// weapon above 75 %, apparel above 50 %), "Repair" below [observed: the owner's
 /// screenshots, "Maintain R)" on armour at about 65 %, "Repair R)" at about 35 % and on a
@@ -272,6 +352,33 @@ mod tests {
         assert!(repairs_with(a, a, &[]));
         assert!(repairs_with(a, b, &[a, b]));
         assert!(!repairs_with(a, c, &[a, b]));
+    }
+
+    #[test]
+    fn jury_rigging_pairs_like_weapons_and_armour() {
+        let (carbine, rifle, pistol, defender, laser, power, metal, helmet) = (FormId(1), FormId(2), FormId(3), FormId(4), FormId(5), FormId(6), FormId(7), FormId(8));
+        let rifle_kind = JuryKind::Weapon { skill: 41, anim: 5 };
+        let kind = |i: FormId| match i.0 {
+            1 | 2 => Some(rifle_kind),
+            3 => Some(JuryKind::Weapon { skill: 41, anim: 3 }),
+            4 | 5 => Some(JuryKind::Weapon { skill: 34, anim: 4 }),
+            6 | 7 => Some(JuryKind::Armor { class: 2, place: ArmorPlace::Body }),
+            8 => Some(JuryKind::Armor { class: 2, place: ArmorPlace::Head }),
+            _ => None,
+        };
+        // The perk's examples: a Trail Carbine with a Hunting Rifle, a Plasma Defender with a
+        // Laser Pistol, Power Armor with Metal Armor.
+        assert!(jury_rigs(carbine, rifle, kind));
+        assert!(jury_rigs(defender, laser, kind));
+        assert!(jury_rigs(power, metal, kind));
+        // Not a pistol for a rifle, nor a helmet for a body armour, nor an unknown item.
+        assert!(!jury_rigs(carbine, pistol, kind));
+        assert!(!jury_rigs(power, helmet, kind));
+        assert!(!jury_rigs(carbine, FormId(99), kind));
+        assert!(!jury_rigs(carbine, carbine, kind), "the same item is the plain rule's");
+        assert_eq!(ArmorPlace::of(1 << 2), ArmorPlace::Body);
+        assert_eq!(ArmorPlace::of(1 << 1), ArmorPlace::Head);
+        assert_eq!(ArmorPlace::of(1 << 20), ArmorPlace::Slots(1 << 20));
         assert_eq!(hint(Gear::Weapon, 0.74), "Repair");
         assert_eq!(hint(Gear::Weapon, 0.75), "Maintain");
         assert_eq!(hint(Gear::Armor, 0.35), "Repair");

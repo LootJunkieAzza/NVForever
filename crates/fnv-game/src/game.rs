@@ -2806,10 +2806,24 @@ impl<'a> Game<'a> {
     /// the healing and the rads) applies to the drinker, as from the water itself
     /// [hypothesis: drinking applies the effect the water names; activators.md §9].
     /// Whether the activator's script ran too is the activation's business.
-    fn drink_from(&mut self, actor: FormId, target: FormId) {
+    ///
+    /// The drinker's Adjust Drinking Radiation perks multiply the rads (Implant Y-3 ×
+    /// 0.01; perk-entry-points.md §9) [documented: GECK wiki Entry Point, "run when the
+    /// player drinks from a placed water source; modifies the radiation from placed water
+    /// sources"].
+    pub fn drink_from(&mut self, actor: FormId, target: FormId) {
         let Some(water) = self.drink_water(target) else { return };
-        let Some(&spell) = self.data.water_effects.get(&water) else { return };
-        self.apply_magic_item(actor, spell, Some(actor), false);
+        let (rads, by) = self.entry_point(actor, crate::perks::ADJUST_DRINKING_RADIATION, 1.0);
+        if !by.is_empty() {
+            let names: Vec<String> = by.iter().map(|a| self.data.name(a.perk)).collect();
+            tracing::info!("perks: drinking from {target}: rads x {rads:.4} ({})", names.join(", "));
+        }
+        let Some(&spell) = self.data.water_effects.get(&water) else {
+            tracing::info!("drink: {target}'s water {water} has no actor effect");
+            return;
+        };
+        let mods = crate::aid::Mods { rads: rads.max(0.0), ..crate::aid::Mods::default() };
+        self.apply_magic_item_with(actor, spell, Some(actor), false, &mods);
     }
 
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the

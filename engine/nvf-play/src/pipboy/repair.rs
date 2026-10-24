@@ -226,8 +226,10 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
     let r = m.list(Side::Player).rows.get(m.selected[Side::Player as usize])?;
     let forms = sim.forms;
-    let list = script.and_then(|s| s.rt.as_ref()).map(|rt| fnv_game::functions::repair_list(&rt.game, r.item)).unwrap_or_default();
     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
+    // The item's repair list, and with Jury Rigging the like items carried
+    // (`fnv_game::Game::player_repair_list`, perk-entry-points.md §9).
+    let list = script.and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(r.item, groups.iter().map(|g| g.0))).unwrap_or_default();
     offer(&groups, forms, &list, r.item, r.pick(), r.equipped)
 }
 
@@ -314,8 +316,8 @@ pub fn keys(
                     }
                     info!("pipboy repair: {} {}% with {} {}% -> {}% (Repair {:.0})", o.name, fnv_combat::condition::percent(o.condition), part.name, fnv_combat::condition::percent(part.condition), fnv_combat::condition::percent(to), s.skill);
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
-                    let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| fnv_game::functions::repair_list(&rt.game, o.item)).unwrap_or_default();
                     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
+                    let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(o.item, groups.iter().map(|g| g.0))).unwrap_or_default();
                     let after = after_repair(&groups, sim.forms, &list, o, to);
                     match &after {
                         Some(n) => info!("pipboy repair: stays open: {} at {}%, {} part(s) left", n.name, fnv_combat::condition::percent(n.condition), n.parts.len()),
