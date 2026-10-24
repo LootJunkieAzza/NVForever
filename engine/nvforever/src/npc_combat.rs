@@ -629,6 +629,22 @@ pub const FALLBACK_POWER_CHANCE: f32 = 25.0;
 /// Whether a creature's blow is a power attack, and which with its hit time (module
 /// notes): `have`, the power attacks it has clips for; `u` and `v`, rolls in [0, 1).
 /// Also says whether the chance was the fallback.
+/// The Modify Attack Speed perks a teammate of the player holds for `weapon` (Old
+/// Vaquero, Causeless Rebel: `Game::held_perks`; perk-entry-points.md §12): a multiple of
+/// its attack speed, 1 for anyone else. Its gun's shot cycle and its blows' timing take it.
+fn teammate_attack_rate(g: &mut fnv_game::game::Game, me: FormId, weapon: Option<FormId>) -> f32 {
+    if !g.is_teammate(me) {
+        return 1.0;
+    }
+    let (v, applied) = g.entry_point_with(me, fnv_game::perks::MODIFY_ATTACK_SPEED, &[weapon], 1.0);
+    let v = (v as f32).clamp(0.1, 10.0);
+    if !applied.is_empty() {
+        let by: Vec<String> = applied.iter().map(|a| g.data.name(a.perk)).collect();
+        debug!("npc combat: {} {me} attacks at x{v:.2} ({})", g.data.name(me), by.join(", "));
+    }
+    v
+}
+
 fn pick_power(style: Option<&fnv_game::data::CombatStyleDef>, have: &[(Power, f32)], fatigue: f32, u: f32, v: f32) -> (Option<(Power, f32)>, bool) {
     let own = style.filter(|s| s.power_attack_chance > 0.0).map(|s| creature_power_chance(s, fatigue));
     if have.is_empty() || u * 100.0 >= own.unwrap_or(FALLBACK_POWER_CHANCE) {
@@ -1214,7 +1230,11 @@ pub(crate) fn fight(
                     (_, Some((cy, timed))) => (Some(cy), timed),
                     (Arm::Gun(w), None) => (
                         c.forms.weapons.get(w).map(|ws| {
-                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
+                            let rate = teammate_attack_rate(g, me, Some(*w));
+                            if rate != 1.0 {
+                                info!("npc combat: {} {me} fires its {} at x{rate:.2} (the teammate perks)", g.data.name(me), g.data.name(*w));
+                            }
+                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning).with_attack_rate(rate);
                             Cycle::new(ws, timing, false, ws.clip_size.max(1))
                         }),
                         false,
@@ -2082,7 +2102,8 @@ pub(crate) fn fight(
                     // (between reloads, so one under way runs to its end).
                     if !fighter.reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
                         if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
-                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning);
+                            let rate = teammate_attack_rate(g, me, Some(*w));
+                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning).with_attack_rate(rate);
                             fighter.reload_timed = true;
                         }
                     }
@@ -2197,7 +2218,7 @@ pub(crate) fn fight(
                                 // crippled-limbs.md §3].
                                 use fnv_game::combat::{HEAD, LEFT_ARM, RIGHT_ARM};
                                 let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled, head_crippled };
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, strength_req_cut: 0.0, left_arm_crippled, right_arm_crippled, head_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
@@ -2407,7 +2428,14 @@ pub(crate) fn fight(
                     }
                     if attack {
                         let speed = match &arm {
-                            Arm::Melee(w) => w.or(c.fists_id()).and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)),
+                            Arm::Melee(w) => {
+                                let id = w.or(c.fists_id());
+                                let rate = teammate_attack_rate(g, me, id);
+                                if rate != 1.0 {
+                                    info!("npc combat: {} {me} strikes at x{rate:.2} (the teammate perks)", g.data.name(me));
+                                }
+                                id.and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)) * rate
+                            }
                             _ => 1.0,
                         };
                         fighter.strike_in = STRIKE_SECONDS / speed;
