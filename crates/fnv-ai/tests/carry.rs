@@ -1530,6 +1530,33 @@ fn an_actor_walking_into_the_loaded_area_is_moved_every_frame() {
     assert_eq!((s.ai.level(actor), s.ai.process_counts()), (fnv_ai::ProcessLevel::High, (1, 0)));
 }
 
+#[test]
+fn a_far_walk_stops_where_it_comes_into_the_loaded_area() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Its destination's cell is the loaded area; it walks from the other one.
+    s.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default() }));
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    let mut waited = 0;
+    while s.ai.process_stats.far_updates == 0 {
+        s.run(1.0);
+        waited += 1;
+        assert!(waited <= 121);
+    }
+    // The original's Malcolm Holmes: the jump that reached the loaded area stopped at its
+    // edge [observed 2026-10-24]. The engine takes it on from there in the high process.
+    assert_eq!(s.ai.process_stats.reached_loaded, 1);
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling, "not there yet");
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) > 50.0);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
+    s.run(30.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+}
+
 /// A Use Weapon package (`fnv_game::use_weapon`): the actor walks to the package's
 /// location and turns to its target; there its shooting begins, and the package's goal
 /// is met only once its shots are spent.
