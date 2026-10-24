@@ -1,0 +1,25 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "holmes_far_travel",
+ "title": "How the original moves an actor that heads for the player from outside the loaded area (owner 2026-10-24: it looks like a jump closer every minute, not a walk). The first star cap's OnAdd script (NVStarBottleCapScript) moves Malcolm Holmes to SSHQMalcolmHolmesMarker (35732, -12347, east of Novac), enables him and evaluates his packages; SSHQMalcolmHolmesTalkToPlayerPackage (Dialogue, Always Run, target the player, while the player is in WastelandNV and VFreeformSSHQ.talkedtomalcolm is 0) takes him to the player. He is tracked wherever he is, every 60 game loops; the player stands still (god mode) at a map marker. Each session needs its own run (--only), as the script only moves him once (VFreeformSSHQ.firstcap). Sessions: near (Novac, 24k units), mid (188 Trading Post, 45k), far (Goodsprings Cemetery, 101k), and far_moving (Goodsprings, then Primm 66k south after 5 real minutes: does he turn to where the player is now).",
+ "save": "nvfstrip",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "settle_frames": 120,
+  "track": ["SSHQMalcolmHolmesREF"],
+  "console_first": ["CloseAllMenus", "tgm"],
+  "do": [["player.AddItem {0} 1", "NVStarBottleCap"]],
+  "extra_header": [
+   ["first_cap", "num", "VFreeformSSHQ.firstcap"],
+   ["talked", "num", "VFreeformSSHQ.talkedtomalcolm"]
+  ]
+ },
+ "sessions": [
+  {"name": "near", "go": {"moveto": "NovacMapMarker"}, "hours": 2},
+  {"name": "mid", "go": {"moveto": "188MapMarker"}, "hours": 3},
+  {"name": "far", "go": {"moveto": "GoodspringsCemeteryMapMarker"}, "hours": 6},
+  {"name": "far_moving", "go": {"moveto": "GoodspringsCemeteryMapMarker"}, "hours": 6,
+   "timed": [{"after": 300, "do": ["player.MoveTo {0}", "PrimmMapMarker"]}]}
+ ]
+}

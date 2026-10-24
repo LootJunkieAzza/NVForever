@@ -14,7 +14,9 @@ playthrough, is gathered in [outstanding.md](outstanding.md).
 - **Partly**: the core is built; the gaps are named.
 - **Not started**: nothing of it is built (script functions that need it are stubs).
 - **Awaiting owner**: built with guessed values or a design choice the owner has to confirm;
-  every one is listed, per workstream, in [owner-review.md](owner-review.md).
+  the open gameplay decisions are in [owner-review.md](owner-review.md), the guesses the
+  original game can settle in [observer-checks](handoff/observer-checks.md), and every
+  guess is still in its spec note.
 
 Checks referred to below: the parity lab (`parity-lab/`, scenarios per layer `L1`–`L5`,
 compared with independent readers and in-game captures) and the smoke runner
@@ -116,7 +118,9 @@ compared with independent readers and in-game captures) and the smoke runner
 
 ## 9. Open items needing the owner
 
-- Every guessed constant and design choice, per workstream: [owner-review.md](owner-review.md).
+- Open gameplay decisions for the owner: [owner-review.md](owner-review.md); guesses the
+  observer can settle: [observer-checks](handoff/observer-checks.md); the full per-workstream
+  log up to 2026-10-23: `git show 85dcaace:docs/owner-review.md`.
 - Known-failing smoke marks that need the owner's word: `combat-violet` (Violet aims down the
   sights at 1,600 units by design) and `combat-dogs` (fewer bites than expected, by the
   combat style's attack chance).
