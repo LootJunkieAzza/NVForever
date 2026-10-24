@@ -156,6 +156,13 @@ pub struct WeaponAnim {
     /// (Agility and the Reload Speed perks, `fnv_combat::attack::reload_rate`); the cycle
     /// takes the same share of time. 0 before combat has set it: read as 1.
     pub reload_rate: f32,
+    /// Set by combat: how fast the attack clip plays, a multiple of its own speed: the
+    /// weapon's Animation and Animation Attack multipliers and the Modify Attack Speed
+    /// perks; the shot cycle takes the same share of time. 0 before combat has set it.
+    pub attack_rate: f32,
+    /// Set by combat: how fast the draw and holster clips play (the Equip Speed perks:
+    /// Quick Draw); the draw and holster take the same share of time. 0: read as 1.
+    pub equip_rate: f32,
     /// Counted up by combat when a round-by-round reload starts on a round: the body
     /// plays the reload clip from its start (a reload count plays the opening clip).
     pub reload_rounds: u32,
@@ -1240,7 +1247,17 @@ fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script
 /// The player's Modify Run Speed perks (Travel Light, Tunnel Runner, Implant M-5 …,
 /// perk-entry-points.md §8): their factor on the player's movement, walking and running
 /// alike, their conditions (armour, sneaking) asked every frame (`crate::player::PerkSpeed`).
-fn perk_speed(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, speed: Option<ResMut<crate::player::PerkSpeed>>) {
+fn perk_speed(c: Res<Combat>, mut anim: ResMut<WeaponAnim>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, speed: Option<ResMut<crate::player::PerkSpeed>>) {
+    // The Equip Speed perks (Quick Draw) on the weapon in hand: the draw and holster
+    // clips play that much faster (`WeaponAnim::equip_rate`, perk-entry-points.md §10).
+    if let Some(weapon) = c.weapon {
+        let (eq, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::EQUIP_SPEED, weapon, 1.0);
+        let eq = if eq.is_finite() && eq > 0.0 { eq } else { 1.0 };
+        if (eq - anim.equip_rate).abs() > 1e-4 && (anim.equip_rate > 0.0 || !by.is_empty()) {
+            info!("combat: draws and holsters at x{eq:.2}{}", if by.is_empty() { String::new() } else { format!(" ({})", by.join(", ")) });
+        }
+        anim.equip_rate = eq;
+    }
     let (Some(mut speed), Some(rt)) = (speed, script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
     let (want, by) = with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
@@ -1978,7 +1995,21 @@ pub(crate) fn fire(
         info!("combat: reloads at x{rate:.2} (Agility {agility:.0})");
     }
     anim.reload_rate = rate;
-    cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate);
+    // The attack at the player's rate: the Modify Attack Speed perks (Fast Shot, Loose
+    // Cannon, Trigger Discipline …, perk-entry-points.md §10); the body plays the attack
+    // clip at the weapon's speed times that (`WeaponAnim::attack_rate`).
+    let (atk, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_ATTACK_SPEED, id, 1.0);
+    let atk = if atk.is_finite() && atk > 0.0 { atk } else { 1.0 };
+    let clip_rate = w.attack_mult.max(0.01) * w.anim_mult.max(0.01) * atk;
+    if (clip_rate - anim.attack_rate).abs() > 1e-4 {
+        if by.is_empty() {
+            info!("combat: attacks at x{clip_rate:.2} ({})", w.edid.as_deref().unwrap_or("?"));
+        } else {
+            info!("combat: attacks at x{clip_rate:.2} ({}; perks x{atk:.2}: {})", w.edid.as_deref().unwrap_or("?"), by.join(", "));
+        }
+    }
+    anim.attack_rate = clip_rate;
+    cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate).with_attack_rate(atk);
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
     if vats_shot.is_some() {
@@ -2683,7 +2714,19 @@ fn melee(
     let w = c.player_stats(id).expect("weapon present");
     // The clip the body timed for the swing playing; a new swing runs on the weapon's
     // own timing until the body has read its clip (the next frame).
-    let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01);
+    // The Modify Attack Speed perks (Slayer, Melee Hacker …) speed the swing as the
+    // weapon's own multipliers do; the body plays the swing clip at the same rate.
+    let (atk, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::MODIFY_ATTACK_SPEED, id, 1.0);
+    let atk = if atk.is_finite() && atk > 0.0 { atk } else { 1.0 };
+    let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01) * atk;
+    if (speed - anim.attack_rate).abs() > 1e-4 {
+        if by.is_empty() {
+            info!("combat: swings at x{speed:.2} ({})", w.edid.as_deref().unwrap_or("?"));
+        } else {
+            info!("combat: swings at x{speed:.2} ({}; perks x{atk:.2}: {})", w.edid.as_deref().unwrap_or("?"), by.join(", "));
+        }
+    }
+    anim.attack_rate = speed;
     if let Some(stem) = anim.timed.as_deref() {
         let t = &anim.timing;
         c.swings.set_timing(stem, SwingTiming::of(t.attack_len, t.hit_time, t.next_attack, speed, 1.0));

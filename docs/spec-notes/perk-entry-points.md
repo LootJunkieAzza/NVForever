@@ -225,3 +225,26 @@ Pip-Boy holds only a shared borrow of the game [design: the masters' entry has n
 Checks: `fnv-game` `repair` `jury_rigging_pairs_like_weapons_and_armour`, `data`
 `default_objects_by_their_place`; smoke `perk-jury-rigging`, `perk-meltdown-anatomy`,
 `perk-implant-y3`.
+
+## 10. Attack, reload and equip speed (2026-10-24)
+
+Owner 2026-10-24: "Build the clip-speed perks next: Rapid Reload, Quick Draw, and the
+attack-speed perks (Fast Shot, Slayer, Loose Cannon …)" (perk-audit-2026-10-23 §3.2). §2
+left these until the player body's clips could play faster; they now can: an animation
+layer has a rate, and the reload already used it.
+
+| Code | Entry point | Perks [observed: the entries] | NVForever |
+|---|---|---|---|
+| 37 | Reload Speed | Rapid Reload × 1.25 | already built with Companion Nerve (feb023fa): the reload rate is 0.5 + 0.1 × Agility × the Reload Speed entries, for the cycle and the reload clips (`fnv_combat::attack::reload_rate`, `WeaponAnim::reload_rate`) |
+| 43 | Modify Attack Speed | Fast Shot × 1.2 and Trigger Discipline × 0.8 (IsWeaponSkillType Guns or Energy Weapons on tab 1), Loose Cannon × 1.3 (its list on tab 1), Slayer × 1.3 (Melee or Unarmed), Melee Hacker × 1.05 / 1.1 (Melee), Elijah's Last Words, Atomic!, Ain't Like That Now; Old Vaquero and Causeless Rebel (teammate perks) | the player's attack: a gun's shot cycle (`Timing::with_attack_rate`: the time between shots, the wind-up to the shot and the `Attach` key ÷ the rate; an automatic weapon's fire rate × it [design]) and a melee swing's timing (`SwingTiming`), and the body's attack clip plays at the weapon's Animation × Animation Attack multipliers × the perks (`WeaponAnim::attack_rate`), logged `combat: attacks at x<r> (<weapon>; perks x<p>: <perks>)` and `combat: swings at x<r> …` |
+| 38 | Equip Speed | Quick Draw × 1.5 | the draw and holster of the weapon in hand: their timings (the hands' `Transition`s, the `Attach`/`Detach` switch with them) ÷ the rate and their clips at the rate (`WeaponAnim::equip_rate`), logged `combat: draws and holsters at x<r> (<perks>)` |
+
+- The attack clip now plays at the weapon's own multipliers too [documented: GECK wiki
+  Weapons, "Animation Multiplier", "Animation Attack Multiplier" scale the animation];
+  before, the cycle was timed by them while the clip played at its own speed. For a
+  weapon with both at 1 nothing changes.
+- Not built: the teammates' attack speed (Old Vaquero, Causeless Rebel), which needs the
+  NPCs' fire and swing rates to ask the entry point (§6).
+
+Checks: `fnv-combat` `rules` `attack_rate_shortens_the_cycle_not_the_reload`; smoke
+`perk-fast-shot-quick-draw`, `perk-slayer`.
