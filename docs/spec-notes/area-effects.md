@@ -61,8 +61,13 @@ runs on Lanius, NVMissFortuneGunSpellScript and DisguiseFactionPulseScript on th
 NPC_/CREA/RACE SPLO entries of type Ability are the actor's abilities (aid-items.md §13).
 Entries of type 0 "Actor Effect" (Ruthless on 21 Hoover Dam legionaries, the Tunnelers'
 DT spells on 23 creatures, SporeCarrierRegen on 7, NVDLC02QuietWatersPerkEffect on 57,
-LegionExplorerAura on 2, PerkParalyzingPalm on 1) [observed] — see §4 for what the
-original does with them.
+LegionExplorerAura on 2, PerkParalyzingPalm on 1) [observed]. They are not cast or held:
+as before, only the abilities are (`crate::abilities`). Whether the original holds them
+like abilities is open: several look meant as constant (the Tunnelers' Increase Damage
+Threshold 2 and 5, Ruthless's +25 melee damage, the spore carriers' regeneration, all with
+duration 0 on Self), but a duration-0 spell cast once would end at once. Captures esmfx2
+and esmfx3 (§4) placed a spore carrier and a Ruthless legionary but could not ask about
+them.
 
 ## 4. Captures
 
@@ -74,3 +79,13 @@ LegionExplorerAura`, 20 frames, IsSpellTarget on each: player 1, Pete 1, Doc 1, 
 Cobb 0. Then `player.CastImmediateOnSelf DisguiseFactionPulseActorEffect`: player 1, Pete
 1, Doc 0, Chet 0 [observed]. Not measured: whether sight matters (everyone stood in the
 open).
+
+`esmfx2_splo` and `esmfx3_splo` (2026-10-24, nvftest): `player.PlaceAtMe` a
+CrSporeCarrierFU and a VHDCLLegionary1, 120 frames, then a GetFirstRef 200 scan of the
+player's cell: the scan runs (3 actors, one of each base found), but any script calling
+`IsSpellTarget` on the scanned reference failed to compile in game, in a `let` and in an
+`if` [observed]. Next try: give the placed actors a known reference (a quest's ref
+variable set by a script, or `SetRefEssential`-free persistent tags) or ask GetAV
+DamageThreshold on a placed Tunneler (Lonesome Road) through the same scan with GetAV,
+which compiles.
+

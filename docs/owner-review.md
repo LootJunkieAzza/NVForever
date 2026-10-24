@@ -8341,3 +8341,6 @@ ground under them. Water fades in at the shore over its depth falloff. Specs:
 - *Check:* at Boulder Beach, is the shoreline's reflection edge soft over a few units in
   the game, or hard? A frame at noon from a few metres up would show it.
 - *Check:* a Bark Scorpion sting at noon: does the picture brighten for a moment?
+- *Open:* the "Actor Effect" spells in actors' lists (Tunnelers' DT, Ruthless, spore
+  carriers' regeneration) are still not applied; two captures could not ask the game
+  about placed actors (area-effects.md §3-4).
