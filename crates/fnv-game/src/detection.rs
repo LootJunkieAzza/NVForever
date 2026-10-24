@@ -508,6 +508,9 @@ impl Game<'_> {
     /// What the records and actor values say for `detector` perceiving `target`.
     pub fn detection_pair(&mut self, detector: FormId, target: FormId) -> Pair {
         let (d, t) = (self.detection_side(detector), self.detection_side(target));
+        // Silent Running: the player's running does not count against it
+        // (perk-entry-points.md §7).
+        let ignore_running = target == FormId::PLAYER_REF && self.player_has_entry(crate::perks::IGNORE_RUNNING_DURING_DETECTION);
         Pair {
             detector_perception: d.perception,
             detector_level: d.level,
@@ -517,7 +520,7 @@ impl Game<'_> {
             target_invisible: t.invisible,
             target_armor_weight: t.armor_weight,
             target_armor_class: t.armor_class,
-            ignore_running: false,
+            ignore_running,
             target_sound_level: t.sound_level,
         }
     }

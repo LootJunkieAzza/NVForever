@@ -150,3 +150,36 @@ shot is leaving, so Center of Mass applies to VATS mode's shots that land while 
   no shipped script does that].
 - Checks: `fnv-game` `tests/perk_combat.rs` `teammate_perks_apply_to_teammates`; smoke
   `teammate-perk`.
+
+## 7. Locks, terminals, sneaking, weight and travel (2026-10-24)
+
+Owner 2026-10-24: "Build the next batch: Infiltrator, Computer Whiz, Silent Running, Pack
+Rat, Heavyweight, Hoarder's carry weight and Long Haul" (perk-audit-2026-10-23 §3.3,
+§3.4). What each entry point does [documented: GECK wiki Entry Point]; the perks'
+entries [observed: FalloutNV.esm, DeadMoney.esm, OldWorldBlues.esm PERK]. None of them has
+conditions, and all are the player's (`perks::player_has_entry`, `Game::sync_perk_weights`).
+
+| Code | Entry point | Perk | NVForever |
+|---|---|---|---|
+| 32 | Ignore Broken Lock: "run when the player attempts to open a broken lock; if non-zero, another chance will be granted" | Infiltrator, Set 1 ("can make one more attempt to pick a broken lock") | a broken lock opens the lockpicking menu once more (`lockpick::opening`); breaking it again spends the try (`Locks::retried`, saved), and it stays broken for good |
+| 20 | Ignore Locked Terminal: "run when the player attempts to activate a locked terminal; if non-zero, another chance will be granted" | Computer Whiz, Set 1 ("one extra attempt to hack a locked-down terminal") | a locked-out terminal can be hacked once more (`terminal::opening`); locked out again, the try is spent (`Terminals::retried`, saved as `terminal_retries`) |
+| 31 | Ignore Running During Detection: "if non-zero, running will be ignored" | Silent Running, Set 1 | the player's running does not raise the noise it makes to a detector (`fSneakRunningMult` not applied, `detection::Pair::ignore_running`) |
+| 55 | Modify Light Items: "if set to a non-zero value, modifies the weight of 'Light' items in the reference's inventory according to fPackRatModifier" | Pack Rat, Set 1 ("items with a weight of 2 or less weigh half as much") | each unit of at most `fPackRatThreshold` weighs × `fPackRatModifier` in the player's load; FalloutNV.esm sets neither setting [observed], so the defaults 2 and 0.5 come from the perk's text [observed] |
+| 73 | Adjust Heavy Weapon Weight: "modifies the weight of a Weapon which weighs 10.0 lbs or more (after the DecreaseWeight Weapon Mod effect is applied)" | Heavyweight, Multiply 0.5 | each weapon unit of 10 or more (its mods applied) weighs × the value |
+| 22 | Get Max Carry Weight: "run when the actor's max carry weight is calculated" | Hoarder, Add 25 | the player's capacity (`functions::actor::sync_carry`; its −1 SPECIAL ability below 160 lbs was already an ability) |
+| 51 | Has Fast Travel Always: "access Fast Travel even when overencumbered" | Long Haul, Set 1 | the Pip-Boy's fast travel takes an over-encumbered player (`pipboy::data::travel`) |
+
+- The weights [design where the wiki is silent]: the rules (`fnv_sim::inventory::
+  WeightRules`) are applied to each unit's weight with its mods, in the load the world
+  counts (encumbrance, the menus' weight total); the inventory rows still show each item's
+  own weight [hypothesis: the original's rows are not checked]. Both rules at once: a
+  weapon of 10 or more takes Heavyweight's, a lighter unit Pack Rat's. Kept in step every
+  frame with the abilities (`Game::sync_perk_weights`), logged `perks: the player's item
+  weights: …` when they change.
+- The extra tries [design]: "another chance" is taken as one more menu after the lock
+  broke or the terminal locked out, until it breaks or locks out again; leaving the
+  menu without failing keeps the try.
+- Checks: `fnv-sim` `perk_weight_rules_halve_light_items_and_heavy_weapons`; `fnv-game`
+  `perk_combat` `weight_perks_change_the_players_load`,
+  `silent_running_ignores_the_players_running`, `a_second_failure_spends_the_extra_try`;
+  smoke `perk-infiltrator`, `perk-computer-whiz`, `perk-long-haul`, `perk-weights`.

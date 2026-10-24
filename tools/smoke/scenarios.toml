@@ -2546,6 +2546,74 @@ expect = [
 ]
 
 [[scenario]]
+name = "perk-infiltrator"
+source = "perk audit 2026-10-23 §3.4, owner 2026-10-24: Infiltrator gives one more try at a broken lock (docs/spec-notes/perk-entry-points.md §7)"
+note = "lockpick-floor-safe's setup (Ringo's floor safe in GSGasStation, Lockpick 30, two pins) with the perk Infiltrator from 3 s: a failed Force Lock breaks the safe; the next activation opens the menu again (one more try), a second failed Force Lock spends it, and the activation after is refused as broken"
+areas = ["lockpick", "perks"]
+paths = ["crates/fnv-game/src/lockpick.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_SCRIPT = "3:perk:Infiltrator", NVF_PLAY_TEST_ACTIVATE = "12,18.5,24,29", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:force:99,20:force:99,25.5:force:99" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+order = [[
+  "lockpick: Force Lock (15%, roll 99.0): 0x0010B2D4 broken for good",
+  "lockpick: 0x0010B2D4 is broken; Ignore Broken Lock (Infiltrator) gives one more try",
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock",
+  "lockpick: Force Lock (15%, roll 99.0): 0x0010B2D4 broken for good",
+  'lockpick: 0x0010B2D4 Floor Safe refused (Lockpick 30): on screen: "This lock is broken. It can only be opened with a key."',
+]]
+expect = [
+  { text = "Ignore Broken Lock (Infiltrator) gives one more try", count = 1, label = "one more try, once" },
+]
+
+[[scenario]]
+name = "perk-computer-whiz"
+source = "perk audit 2026-10-23 §3.4, owner 2026-10-24: Computer Whiz gives one more try at a locked-out terminal (docs/spec-notes/perk-entry-points.md §7)"
+note = "the hacking scenario's Easy terminal (BisonSteve01, 000D74D5) at Science 25 with the perk ComputerWhiz: four wrong words lock it out; opened again it can be hacked once more; four more wrong words lock it out for good"
+areas = ["hacking", "terminal", "perks"]
+paths = ["crates/fnv-game/src/terminal.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:perk:ComputerWhiz", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:wrong,35:wrong,36:wrong,38:power,40:open:000D74D5,42:wrong,43:wrong,44:wrong,45:wrong,47:power,49:open:000D74D5" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 54
+order = [[
+  "terminal: open 0x000D74D5",
+  "Entry denied, no attempts left: the terminal is locked for good",
+  "terminal: 0x000D74D5 is locked out; Ignore Locked Terminal (Computer Whiz) gives one more try",
+  { re = 'terminal: open 0x000D74D5 .*: hacking, Easy', label = "the terminal can be hacked again" },
+  "Entry denied, no attempts left: the terminal is locked for good",
+  { re = 'terminal: open 0x000D74D5 .*: locked out for good', label = "the second lock-out is for good" },
+]]
+
+[[scenario]]
+name = "perk-long-haul"
+source = "perk audit 2026-10-23 §3.3, owner 2026-10-24: Long Haul lets an over-encumbered player fast travel (docs/spec-notes/perk-entry-points.md §7)"
+note = "fast-travel-primm's travel to Primm (0x000CDF46 made a travel target by ShowMap) with 15 miniguns (WeapMinigun 0000433F) carried, well over the capacity, and the perk LongHaul from 3 s: the travel is asked and taken"
+areas = ["pipboy", "fast-travel", "perks"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0000433F:15", NVF_PLAY_TEST_SCRIPT = "3:perk:LongHaul,6:call:-:ShowMap:0x000CDF46:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,18:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 40
+order = [[
+  "fast travel: over-encumbered, but Has Fast Travel Always (Long Haul) lets the player travel",
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference', label = "and goes" },
+]]
+forbid = [{ re = 'fast travel: to Primm .* refused \(Encumbered\)', label = "refused for the load" }]
+
+[[scenario]]
+name = "perk-weights"
+source = "perk audit 2026-10-23 §3.3, owner 2026-10-24: Pack Rat halves items of 2 or less, Heavyweight weapons of 10 or more (docs/spec-notes/perk-entry-points.md §7)"
+note = "the perks PackRat and NVDLC01HeavyWeight given by the console at 12 s and taken back at 15 s, as perk-skill-points does (a first try with script aids at 3 and 6 s ran before the game had started) (Hoarder's + 25 capacity is checked by fnv-game perk_combat weight_perks_change_the_players_load)"
+areas = ["perks", "inventory"]
+paths = ["crates/fnv-game/src/perks.rs", "crates/fnv-sim/src/inventory.rs", "crates/fnv-sim/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "12:player.addperk PackRat;12.3:player.addperk NVDLC01HeavyWeight;15:player.removeperk PackRat;15.3:player.removeperk NVDLC01HeavyWeight" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "perks: the player's item weights: items of 2 or less x 0.5, weapons of 10 or more x 0.5",
+  "perks: the player's item weights: light items as they are, heavy weapons as they are",
+]]
+
+[[scenario]]
 name = "lockpick-opens-container"
 source = "playtest list 5 items 64 and 65 (docs/spec-notes/lockpicking.md §4): Ringo's floor safe in GSGasStation picked open; when the menu closes the safe is activated as if E were pressed, its Open sequence plays and the container menu follows; no E pressed after the pick"
 areas = ["lockpick", "containers"]

@@ -296,6 +296,8 @@ pub struct World<'a> {
     /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
     /// ([`World::set_carry_bonus`]).
     carry_bonus: BTreeMap<FormId, f64>,
+    /// The game layer's weight rules of a carrier (its perks, [`World::set_weight_rules`]).
+    weight_rules: BTreeMap<FormId, crate::inventory::WeightRules>,
     /// Placed actors whose carried items are another base's than their own (an actor
     /// template's, [`World::set_inventory_sources`]).
     inventory_sources: BTreeMap<FormId, FormId>,
@@ -333,6 +335,7 @@ impl<'a> World<'a> {
             quest_objects: BTreeMap::new(),
             leveled_added: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
+            weight_rules: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
@@ -1145,7 +1148,8 @@ impl<'a> World<'a> {
     pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
         let capacity = self.formula_capacity(actor)? + self.carry_bonus.get(&actor).copied().unwrap_or(0.0) as f32;
         let (forms, hardcore) = (self.forms, self.cfg.hardcore);
-        let t = self.inventory(actor)?.totals(forms, hardcore);
+        let rules = self.weight_rules(actor);
+        let t = self.inventory(actor)?.totals_with(forms, hardcore, &rules);
         Ok(Encumbrance {
             weight: t.weight,
             capacity: capacity as f64,
@@ -1174,7 +1178,22 @@ impl<'a> World<'a> {
     /// The weight a reference carries, as [`World::encumbrance`] counts it.
     pub fn carried_weight(&mut self, actor: FormId) -> Result<f64, SimError> {
         let (forms, hardcore) = (self.forms, self.cfg.hardcore);
-        Ok(self.inventory(actor)?.totals(forms, hardcore).weight)
+        let rules = self.weight_rules(actor);
+        Ok(self.inventory(actor)?.totals_with(forms, hardcore, &rules).weight)
+    }
+
+    /// What a carrier's perks do to the weight it carries (none: every item its own weight).
+    pub fn set_weight_rules(&mut self, actor: FormId, rules: crate::inventory::WeightRules) {
+        if rules.is_none() {
+            self.weight_rules.remove(&actor);
+        } else {
+            self.weight_rules.insert(actor, rules);
+        }
+    }
+
+    /// A carrier's weight rules ([`World::set_weight_rules`]).
+    pub fn weight_rules(&self, actor: FormId) -> crate::inventory::WeightRules {
+        self.weight_rules.get(&actor).copied().unwrap_or_default()
     }
 
     /// The worldspace a reference is in now: that of its cell (`None` in an interior).

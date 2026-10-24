@@ -240,7 +240,15 @@ pub fn answer(
             near.iter().copied().find(|&a| fnv_game::rest::hostile_to_player(&mut rt.game, FormId(a))).map(|a| rt.game.data.name(FormId(a)))
         });
     }
-    let encumbered = sim.world.encumbrance(FormId::PLAYER_REF).is_ok_and(|e| e.over) && !crate::combat::god_mode();
+    // Long Haul's Has Fast Travel Always: over-encumbered does not stop it
+    // (docs/spec-notes/perk-entry-points.md §7).
+    let over = sim.world.encumbrance(FormId::PLAYER_REF).is_ok_and(|e| e.over) && !crate::combat::god_mode();
+    let long_haul = over
+        && script.as_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| crate::script::with_world(rt, &mut sim, |rt| rt.game.player_has_entry(fnv_game::perks::HAS_FAST_TRAVEL_ALWAYS)));
+    if long_haul {
+        info!("fast travel: over-encumbered, but Has Fast Travel Always (Long Haul) lets the player travel");
+    }
+    let encumbered = over && !long_haul;
     let checks = Checks {
         target: travel_target(&st, script.as_deref(), &m),
         script_block,
