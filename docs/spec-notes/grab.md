@@ -70,7 +70,9 @@ this item). Everything below that is not tagged otherwise is [hypothesis].
 - **How** (`fnv_phys::grab`): before each fixed step the held body's velocity is set to
   close 12 × the gap a second, at most 700 units/s, plus the step's fall; its change of
   velocity is bounded by 100 000 kg·units/s² over its mass. It stays a dynamic body, so
-  walls, floors and other objects stop it. A ragdoll held at rest moves again.
+  walls, floors and other objects stop it. A ragdoll held at rest moves again. While held it is never put at rest again
+  (the engine's calm and 3 s guards, ragdoll.md §4): its held body would stop following
+  and the grab would drop it [design]. Smoke `grab-corpse`.
 - **Let go**: when the key comes up (dropped, it falls); Use throws it along the view at
   2500 kg·units/s over its mass, at most 600 units/s; it is dropped when it is more than
   90 units from where it is wanted (caught on something), when play stops (a menu, VATS,
