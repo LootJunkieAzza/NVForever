@@ -7889,6 +7889,60 @@ forbid = [
 ]
 
 [[scenario]]
+name = "ghost-people-armed"
+source = "owner's report 2026-10-23: a Dead Money ghost person showed no weapon; ghost people should hold spears. Harvesters carry a spear and throwing spears; the weapon choice took the throwing spear (more damage) though thrown weapons are not thrown by NPCs, so the hand weapon now comes first (fnv_sim::World::equipment, fnv_actor::weapon::choose_weapon; docs/spec-notes/actors.md §9.3, §10.6)"
+note = "Dead Money's NVDLC01stealthTest cell: harvesters 0x0100F422 and 0x0100F425 (NVDLC01CrGhostHarvesterWT: a spear and throwing spears from leveled lists) and seeker 0x0100F423 (a spear and gas bombs) take up their spears; at 6 s two are set on the player (god mode)"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/forms.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "6:combat:0x0100F422:player,6:combat:0x0100F423:player" }
+args = ["--cell", "NVDLC01stealthTest", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'creature weapons: 0100F422 \(.*ghosts.*\) holds NVDLC01WeapKnifeSpearGhost\d+ 0x\w+ \(Melee \(2 Hand\)\)', label = "a harvester takes up its spear" },
+  { re = 'creature weapons: 0100F425 \(.*ghosts.*\) holds NVDLC01WeapKnifeSpearGhost\d+ 0x\w+ \(Melee \(2 Hand\)\)', label = "the other harvester takes up its spear" },
+  { re = 'creature weapons: 0100F423 \(.*ghosts.*\) holds NVDLC01WeapKnifeSpearGhost\d+ 0x\w+ \(Melee \(2 Hand\)\)', label = "the seeker takes up its spear, not a gas bomb" },
+  { re = 'npc combat: \S+ 0x0100F422 fights the player with NVDLC01WeapKnifeSpearGhost\d+ \(melee\)', label = "the harvester fights with its spear" },
+]
+forbid = [
+  { re = 'creature weapons: 0100F42[235] .*(ThrowingSpear|GasBomb)', label = "a ghost holds a thrown weapon it cannot throw" },
+  { re = 'creature weapons: 0100F42[235] .*no stance', label = "a ghost's skeleton lacks the stance of its weapon" },
+  { re = 'npc combat: \S+ 0x0100F42[23] fights the player with its own attack', label = "a ghost fights with its own attack" },
+]
+
+[[scenario]]
+name = "ghost-trapper-armed"
+source = "owner's report 2026-10-23 (ghost people's weapons): trappers carry a bear-trap fist (Hand to Hand), drawn on the ghost skeleton's h2h stance (docs/spec-notes/actors.md §10.6)"
+note = "the Sierra Madre lobby's trapper 0x0100A5AC (NVDLC01CrGhostTrapperLob, initially disabled) is enabled at 2 s and set on the player (god mode) at 6 s"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/outfits.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:enable:0x0100A5AC,6:combat:0x0100A5AC:player" }
+args = ["--cell", "NVDLC01Lobby", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'creature weapons: 0100A5AC \(.*ghosts.*\) holds NVDLC01WeapBearTrapFistGhost\d+ 0x\w+ \(Hand to Hand\)', label = "the trapper wears its bear-trap fist" },
+]
+forbid = [
+  { re = 'npc combat: \S+ 0x0100A5AC fights the player with its own attack', label = "the trapper fights with its own attack" },
+]
+
+[[scenario]]
+name = "creature-weapons-audit"
+kind = "tool"
+source = "owner's request 2026-10-23: audit every creature type for the weapons it carries and whether it can hold them (fnvtool actor creature-weapons, docs/spec-notes/actors.md §10.6); NPCs hold a hand weapon before a thrown one (fnvtool actor weapons, §9.3)"
+areas = ["creatures", "combat"]
+paths = ["crates/fnvtool/src/actor_creature_weapons.rs", "crates/fnvtool/src/actor_weapons.rs", "crates/fnv-actor/src/weapon.rs", "crates/fnv-actor/src/records.rs", "crates/fnv-sim/src/forms.rs"]
+commands = [
+  ["actor", "creature-weapons", "{data}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "--schema", "schemas/fnv"],
+  ["actor", "weapons", "{data}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "--schema", "schemas/fnv"],
+]
+expect = [
+  { json = "summary.placed", schema = "fnv.actor.creature_weapons/1", equals = 3739, label = "every placed creature is looked at" },
+  { json = "summary.weapon_rows_by_status.drawable", schema = "fnv.actor.creature_weapons/1", equals = 313, label = "creature weapons drawable in the hands (super mutants, ghost people, aliens)" },
+  { json = "summary.weapon_rows_by_status.embedded (part of the body)", schema = "fnv.actor.creature_weapons/1", equals = 560, label = "creature weapons that are part of the body" },
+  { json = "summary.by_anim_type.Thrown (1 Hand)", schema = "fnv.actor.weapons/1", equals = 8, label = "only NPCs carrying nothing but thrown weapons hold one" },
+]
+
+[[scenario]]
 name = "trudy-gunfight-armed"
 source = "owner's playtest list 7 item 12: Trudy had no weapon in the Ghost Town Gunfight. VMS16 stage 70 gives her the leveled list WithAmmoNVSingleShotgunLoot by AddItem (her record carries no weapon); AddItem makes an NPC equip the best weapon it carries (GECK wiki AddItem notes: fnv_sim::World::review_equipment), which was not built"
 note = "in the saloon (her cell loaded, so she is outfitted, as in a game; she starts disabled in a new game and is enabled by the aid at 2 s, as in the joe-cobb scenario) the stage's AddItem is called at 4 s; at 10 s she is set on the player (god mode) so she draws and fires the shotgun. Stage 70 itself also moves her outside by MoveTo; run that way (stage:VMS16:70 from the exterior) she was never drawn there in NVForever (2026-10-23, not chased)"

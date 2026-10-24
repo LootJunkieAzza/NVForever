@@ -4,6 +4,7 @@
 
 mod activator_models;
 mod actor_anims;
+mod actor_creature_weapons;
 mod ai_choice;
 mod ai_cmd;
 mod ai_packages;
@@ -430,6 +431,20 @@ pub enum ActorCmd {
         /// Skeleton folder (VFS path).
         #[arg(long, default_value = r"meshes\characters\_male")]
         folder: String,
+    },
+    /// Creature weapons (docs/spec-notes/actors.md §10.4): for every creature base placed
+    /// creatures stand for, every weapon it can carry (template inventory sources and
+    /// leveled lists followed through all entries) and whether it can be drawn in its
+    /// hands: model, not embedded, stance clips in its skeleton folder, a `Weapon` node
+    /// (fnv.actor.creature_weapons/1).
+    CreatureWeapons {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
     },
     /// Furniture (FURN): the entry points of each model (`BSFurnitureMarker`), marker
     /// flags, how many references place it, and the clips the IDLE tree names for
