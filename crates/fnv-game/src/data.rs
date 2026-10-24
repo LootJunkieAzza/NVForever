@@ -663,6 +663,16 @@ pub enum DefaultObject {
     /// The explosion of Meltdown's kills [observed: FalloutNV.esm's DOBJ names
     /// MinePlasmaExplosion 0007078C there] (perk-entry-points.md §9).
     MeltdownExplosion = 24,
+    /// The unarmed special moves' effects [documented: xEdit DOBJ, "Unarmed Forward PA" …
+    /// "Unarmed Counter PA"; observed: FalloutNV.esm names none for forward and counter,
+    /// VictoryRifleKnockdownSpell 0001DEA8 for back, HeadCrippleEffect 00067572 for left,
+    /// right and crouched] (perk-entry-points.md §11).
+    UnarmedForwardPa = 25,
+    UnarmedBackwardPa = 26,
+    UnarmedLeftPa = 27,
+    UnarmedRightPa = 28,
+    UnarmedCrouchPa = 29,
+    UnarmedCounterPa = 30,
 }
 
 impl GameData {

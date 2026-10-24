@@ -884,6 +884,9 @@ pub struct Combat {
     /// The player's spread (PSp, spread units, after "Calculate Gun Spread" perks) at the
     /// same time: a scope's sway (docs/spec-notes/weapon-scopes.md §5).
     pub player_spread: Option<f32>,
+    /// When (`time`) the player's block last stopped a blow: Scribe Counter's window
+    /// (perk-entry-points.md §11).
+    player_blocked_at: Option<f32>,
     /// The cone (half-angle, degrees) VATS mode's hit chance reads for the gun in hand
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
@@ -1212,6 +1215,73 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
     }
 }
 
+/// Scribe Counter's window: a blow begun this long (combat seconds) after the player's
+/// block stopped one is the counter [design: "quick counter-attack after Block", the
+/// fandom wiki; the original's window is not documented].
+pub const COUNTER_WINDOW: f32 = 1.0;
+
+/// An unarmed special move the player's perks give a power attack (perk-entry-points.md
+/// §11).
+#[derive(Debug, Clone, Copy)]
+struct SpecialMove {
+    name: &'static str,
+    /// The DOBJ's effect for the direction, put on with the blow.
+    spell: Option<FormId>,
+    /// Legion Assault knocks the target back [the fandom wiki, "Knock back opponents";
+    /// the DOBJ names no effect for it].
+    knock_back: bool,
+}
+
+/// The special move a power attack in `dir` is, when the player has its perk.
+fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_combat::melee::PowerDir) -> Option<SpecialMove> {
+    use fnv_combat::melee::PowerDir;
+    use fnv_game::data::DefaultObject as D;
+    use fnv_game::perks as p;
+    let (point, slot, name) = match dir {
+        PowerDir::Forward => (p::HAS_UNARMED_FORWARD_POWER_ATTACK, D::UnarmedForwardPa, "Legion Assault"),
+        PowerDir::Back => (p::HAS_UNARMED_BACK_POWER_ATTACK, D::UnarmedBackwardPa, "Ranger Takedown"),
+        PowerDir::Left => (p::HAS_UNARMED_LEFT_POWER_ATTACK, D::UnarmedLeftPa, "Khan Trick"),
+        PowerDir::Right => (p::HAS_UNARMED_RIGHT_POWER_ATTACK, D::UnarmedRightPa, "Khan Trick"),
+        PowerDir::Stand => return None,
+    };
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(point), rt.game.data.default_object(slot)));
+    has.then_some(SpecialMove { name, spell, knock_back: dir == PowerDir::Forward })
+}
+
+/// Whether the player has a flag entry point's perk now.
+fn player_entry(script: Option<&mut ScriptState>, sim: &mut SimState, point: u8) -> bool {
+    script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.game.player_has_entry(point)))
+}
+
+/// Knock `target` down away along `dir`, as a blast's knockdown does; logged with `why`.
+fn knock_down(script: Option<&mut ScriptState>, by: FormId, target: FormId, dir: V3, why: &str) -> bool {
+    let shove = [dir[0] * BLAST_KNOCKDOWN_SPEED, dir[1] * BLAST_KNOCKDOWN_SPEED, BLAST_KNOCKDOWN_SPEED * fnv_game::unconscious::PUSH_LIFT];
+    let down = script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, Some(by), shove));
+    if down {
+        info!("combat: {why} knocks {target} down");
+    } else {
+        info!("combat: {why}: {target} cannot be knocked down (No Knockdowns, or seated or talking)");
+    }
+    down
+}
+
+/// The Knockdown Chance perks of `attacker`'s hit with `weapon` on `target` (Super Slam
+/// 0.15 / 0.30, And Stay Back 0.1, Elijah's Last Words 0.25; perk-entry-points.md §11):
+/// from 0, rolled once a hit.
+fn perk_knockdown(c: &mut Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, attacker: FormId, weapon: FormId, target: FormId, dir: V3) {
+    let (chance, by) = owner_weapon_perk(script.as_deref_mut(), sim, attacker, fnv_game::perks::KNOCKDOWN_CHANCE, weapon, 0.0);
+    if chance <= 0.0 || by.is_empty() {
+        return;
+    }
+    let roll = c.rng.next_f32();
+    if roll >= chance {
+        info!("combat: Knockdown Chance {chance:.2} ({}): rolled {roll:.2}, {target} stays up", by.join(", "));
+        return;
+    }
+    knock_down(script, attacker, target, dir, &format!("Knockdown Chance {chance:.2} ({}, rolled {roll:.2})", by.join(", ")));
+}
+
 /// Meltdown (Has Meltdown, perk-entry-points.md §9): a foe the player (or a teammate with
 /// the perk) kills with an Energy Weapons weapon gives off the DOBJ's Meltdown Explosion
 /// (`MinePlasmaExplosion` in FalloutNV.esm) at its body, the killer's blast with the same
@@ -1458,6 +1528,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         crosshair_cone: None,
         player_spread: None,
         vats_cone: None,
+        player_blocked_at: None,
         throw_logged: None,
         flinch_until: 0.0,
         flinch_end: None,
@@ -2762,7 +2833,19 @@ fn melee(
             MeleeEvent::Ended => {}
         }
     }
-    if let Some(power) = strike {
+    if let Some(mut power) = strike {
+        // The unarmed special moves (perk-entry-points.md §11): Scribe Counter makes a
+        // plain blow within COUNTER_WINDOW of a block a standing power attack.
+        let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
+        if power.is_none() && unarmed && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW) && player_entry(script.as_deref_mut(), &mut sim, fnv_game::perks::HAS_UNARMED_COUNTER_ATTACK) {
+            power = Some(fnv_combat::melee::PowerDir::Stand);
+            c.player_blocked_at = None;
+            info!("combat: Scribe Counter: the blow after the block is a power attack");
+        }
+        let special = if unarmed { power.and_then(|d| special_move(script.as_deref_mut(), &mut sim, d)) } else { None };
+        if let Some(m) = special {
+            info!("combat: {} ({:?} power attack, unarmed)", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand));
+        }
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();
@@ -2882,8 +2965,23 @@ fn melee(
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
-            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            let mut items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            // A special move's effect goes on with the blow (Ranger Takedown's knockdown
+            // spell, Khan Trick's head crippling: the DOBJ's).
+            if let Some(spell) = special.and_then(|m| m.spell) {
+                items.push(spell);
+            }
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
+            if r.as_ref().is_some_and(|r| !r.died && !r.immune) {
+                // Legion Assault knocks back (no DOBJ spell); the Knockdown Chance perks
+                // (Super Slam, Elijah's Last Words) may knock the target down.
+                let away = player.look_dir();
+                if special.is_some_and(|m| m.knock_back) {
+                    knock_down(script.as_deref_mut(), FormId::PLAYER_REF, target, away, "Legion Assault");
+                } else {
+                    perk_knockdown(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, target, away);
+                }
+            }
             if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
                 dm.checks.push(check);
             }
@@ -3128,6 +3226,9 @@ fn actor_attacks(
             } else {
                 stats.blows_blocked += 1;
                 info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
+                if b.target == FormId::PLAYER_REF {
+                    c.player_blocked_at = Some(c.time);
+                }
                 c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
                 if let Some(sound) = block_sound(c, &sim, sfx.as_deref(), b.target) {
                     sounds.write(sound);
@@ -3579,6 +3680,10 @@ fn fly(
                 with_world(rt, &mut sim, |rt| rt.game.damage_fatigue(target, f64::from(fatigue)));
                 info!("combat: {target} loses {fatigue:.0} fatigue to the ammo");
             }
+        }
+        // The Knockdown Chance perks on the shooter's hit (And Stay Back, per pellet).
+        if r.as_ref().is_some_and(|r| !r.died && !r.immune) && target != FormId::PLAYER_REF {
+            perk_knockdown(c, script.as_deref_mut(), &mut sim, shooter, id, target, p.dir);
         }
         if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
             dm.checks.push(check);
