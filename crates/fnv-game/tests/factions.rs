@@ -740,12 +740,16 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
         assert_eq!(call(&mut g, GET_CURRENT_AI_PACKAGE, LURKER_REF, &[]), 35.0);
         assert_eq!(call(&mut g, GET_IS_ALERTED, LURKER_REF, &[]), 0.0);
     }
-    // Not again before the timer; it still warns meanwhile.
+    // Not again before the timer; it still warns meanwhile. The attack comes two timers
+    // after the last warning (15 s after the first, as the original's geckos).
     g.time += 1.0;
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 0);
     assert_eq!(g.warning_to(lurker), Some(player));
     g.time += 4.0;
+    seen(&mut g);
+    assert_eq!(g.aggro_tick(), 0);
+    g.time += 5.0;
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 1);
     assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
@@ -795,7 +799,7 @@ fn a_guard_package_warns_then_attacks_a_player_inside_the_guarded_area() {
         seen(&mut g);
         assert_eq!(g.aggro_tick(), 0);
         assert_eq!(g.provocations.aggro_warnings[&lurker].0, 2);
-        g.time += 5.0;
+        g.time += 10.0;
         seen(&mut g);
         assert_eq!(g.aggro_tick(), 1);
         assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::GuardAttacks { actor, .. } if *actor == lurker)));
@@ -815,6 +819,23 @@ fn a_guard_package_warns_then_attacks_a_player_inside_the_guarded_area() {
     g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
     assert_eq!(g.aggro_tick(), 0);
     assert!(g.provocations.take_notes().is_empty());
+}
+
+#[test]
+fn inside_half_its_aggro_radius_an_actor_attacks_without_warning() {
+    // `fnv_game::aggro` "The timing": the original's Young Gecko attacked on first
+    // detection at 196 of its 500 units.
+    let f = fixture();
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(lurker).unwrap().pos = [300.0, 0.0, 0.0];
+    let now = g.time;
+    g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    assert_eq!(g.aggro_tick(), 1);
+    let notes = g.provocations.take_notes();
+    assert!(!notes.iter().any(|n| matches!(n, Note::AggroWarned { .. })), "{notes:?}");
+    assert!(notes.iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
 }
 
 #[test]

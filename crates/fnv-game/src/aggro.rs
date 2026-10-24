@@ -42,6 +42,17 @@
 //!   IsWeaponOut 0 and GetIsAlerted 0 until it fought, then IsWeaponOut 1 and procedure
 //!   13]. Without the look a creature warned in silence while it walked on, and the
 //!   player saw nothing before the attack.
+//! - **The timing** [observed, original game, capture `warnings` 2026-10-24 (TimeScale
+//!   30): the Goodsprings Young Gecko Hunters 0x00165186 and 0x00165185 (radius 650)
+//!   stopped to warn at 607 and 618 units and attacked 451 and 500 game seconds (15.0 and
+//!   16.7 real seconds) later with the player standing still; a Young Gecko (radius 500)
+//!   attacked on first detection at 196 units with no warning, and one warning from 467
+//!   attacked as the player came within 246]: the first warning at once, the second one
+//!   timer later, the attack [`LAST_WARNING_TIMERS`] timers after that (15 s with the
+//!   5 s timer) [hypothesis: the split of the 15 s; GetTrespassWarningLevel was not
+//!   read]; inside half the aggro radius ([`AGGRO_ATTACK_SHARE`]) the attack comes at once
+//!   [hypothesis: two samples, 196 and 246 of 500]. The same timing for Guard packages
+//!   [hypothesis: not observed].
 //! - **Guard packages** [documented: GuardTrespass is "said when issuing a warning …
 //!   from a Guard package"; fAITrespassWarningTimer and iGuardWarnings are the "Guard
 //!   Package Settings" (GECK wiki Settings); the Guard package page, as packages.md §3
@@ -75,6 +86,14 @@ use fnv_sim::FormId;
 /// After an aggro attack begins, how long the actor still counts as warning while it is
 /// not yet in Combat ([`Game::warning_to`]), seconds [design].
 pub const AGGRO_TURN_SECONDS: f64 = 2.0;
+
+/// After its last warning the actor attacks this many warning timers later (module notes,
+/// "The timing").
+pub const LAST_WARNING_TIMERS: f64 = 2.0;
+
+/// Inside this share of its aggro radius an actor attacks without warning (module notes,
+/// "The timing").
+pub const AGGRO_ATTACK_SHARE: f64 = 0.5;
 
 impl Game<'_> {
     /// `actor`'s aggro radius in game units when its AI data turns the behaviour on.
@@ -155,10 +174,15 @@ impl Game<'_> {
             }
             inside.push(w);
             let (level, last) = self.provocations.aggro_warnings.get(&w).copied().unwrap_or((0, f64::NEG_INFINITY));
-            if now - last < s.warning_timer {
+            // Inside a share of its aggro radius it attacks at once (module notes, "The
+            // timing").
+            let close = guarded.is_none() && distance <= radius * AGGRO_ATTACK_SHARE;
+            let warned_out = (level as f64) >= s.guard_warnings;
+            let due = if warned_out { LAST_WARNING_TIMERS * s.warning_timer } else { s.warning_timer };
+            if !close && now - last < due {
                 continue;
             }
-            if (level as f64) < s.guard_warnings {
+            if !close && !warned_out {
                 self.provocations.aggro_warnings.insert(w, (level + 1, now));
                 self.detection_bark(w, Some(FormId::PLAYER_REF), "GuardTrespass");
                 self.provocations.notes.push(match guarded {

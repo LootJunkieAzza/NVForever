@@ -748,3 +748,18 @@ sandboxing) from 900 units, sampled every 5 game loops:
 - So a warning creature draws but is not alerted, and the combat idles that want the
   alerted state or the combat procedure come with the fight. IsIdlePlaying and the
   warning count need plugin version 9 (not installed); not read.
+
+Sessions gecko_stay_400 and gecko_stay_150 (run by the observer session, same save and
+plugin; the player put at a distance and left there):
+- Goodsprings Young Gecko Hunter 0x00165186 (radius 650) stopped at 607 units, faced
+  the player within 1 degree, package a run-time form (type 35, procedure 44), and drew
+  and put away its weapon in turn: IsWeaponOut 1 every 0.0167 game hours (60 game
+  seconds, 2 s at TimeScale 30), GetAnimAction cycling 0 / 1 / -1, GetIsAlerted 0, never
+  moving. The owner, watching, saw it hiss: the gecko's draw clip is the hiss. It
+  attacked 451 game seconds (15 s) after it stopped, the player still at 606. Its
+  companion 0x00165185 warned from 618 without the cycle and attacked after 500 game
+  seconds (16.7 s).
+- A Young Gecko (radius 500) detecting the player first at 196 units attacked in the
+  same sample, with no warning.
+- Built: the cycle (`creature_stance.rs`, 2 s, drawn the first second [hypothesis]), the
+  15 s and the half-radius attack (`fnv_game::aggro`, "The timing").

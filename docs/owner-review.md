@@ -8350,3 +8350,16 @@ guards on DefaultGuardNPC and the Nellis Boomer tower guards. Spec: [packages §
 - *Decision:* one warning count serves the Guard package and the aggro radius;
   GetTrespassWarningLevel answers the larger of that and the trespass count.
 - *Check:* walk up to a door a Gomorrah guard stands by: two warnings, then a fight?
+
+
+## Warnings timed from the original (2026-10-24, capture `warnings`, branch claude/aggro-warning-look)
+
+The original game, observed (idles.md §14.3): a warning gecko stops, faces you and draws
+and puts away its stance every 2 s (the hiss you saw), never "alerted"; it attacks about
+15 s after it starts warning if you stay; inside about half its radius it attacks at once.
+NVForever now does the same (it waited 10 s and held its stance drawn before).
+
+- *Guess:* the 15 s as two warnings 5 s apart and the attack 10 s after the second.
+- *Guess:* half the radius for the attack without warning (seen at 196 and 246 of 500).
+- *Guess:* the stance stays drawn for the first second of each 2 s cycle.
+- *Open:* Guard packages' timing and radius wait for the Gomorrah sessions.

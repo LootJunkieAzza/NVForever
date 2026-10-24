@@ -918,6 +918,11 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` �
   plays its tree's combat idles (the gecko's hiss and side hops, docs/spec-notes/idles.md
   §14). A trespass warning (`crate::crime`) gives the same look, so a warning owner or
   guard draws its weapon (owner 2026-10-24).
+- **The timing and the cycle** (capture `warnings`, 2026-10-24, idles.md §14.3)
+  [observed; the split hypotheses]: the attack comes 15 s after the first warning (the
+  second warning at 5 s, the attack two timers after it); inside half the aggro radius
+  the actor attacks without warning; a warning creature draws and puts away its stance
+  every 2 s (the gecko's hiss).
 - **Guard packages** (2026-10-24): an actor on a Guard package without "No Warn/Attack
   Behavior" warns and attacks a player inside the area it guards, by the same timer,
   count and look: the guarded reference is the package target (a reference or the
