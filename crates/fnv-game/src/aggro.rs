@@ -55,6 +55,10 @@ use crate::package::{fallout, flags};
 use crate::provocation::{Grudge, Note, Why, ALLY, FRIEND};
 use fnv_sim::FormId;
 
+/// After an aggro attack begins, how long the actor still counts as warning while it is
+/// not yet in Combat ([`Game::warning_to`]), seconds [design].
+pub const AGGRO_TURN_SECONDS: f64 = 2.0;
+
 impl Game<'_> {
     /// `actor`'s aggro radius in game units when its AI data turns the behaviour on.
     pub fn aggro_radius(&self, actor: FormId) -> Option<f64> {
@@ -138,6 +142,10 @@ impl Game<'_> {
     /// look; the owner, 2026-10-24: "guards that are alerted/warning are supposed to draw
     /// their weapon"].
     pub fn warning_to(&self, actor: FormId) -> Option<FormId> {
-        (self.provocations.aggro_inside.contains(&actor) || self.crimes.warning_now.contains(&actor)).then_some(FormId::PLAYER_REF)
+        // Just turned on the player and not yet in Combat (detection settles a moment
+        // later): still the warning, so the stance is not put away and drawn again
+        // [design; observed in NVForever: 0.23 s, smoke `aggro-warning-look`].
+        let turning = self.provocations.grudges.get(&(actor, FormId::PLAYER_REF)).is_some_and(|g| g.why == Why::Aggro && self.time - g.since < AGGRO_TURN_SECONDS) && !self.awareness.state(actor).in_combat();
+        (self.provocations.aggro_inside.contains(&actor) || turning || self.crimes.warning_now.contains(&actor)).then_some(FormId::PLAYER_REF)
     }
 }

@@ -743,7 +743,10 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
     assert!(g.would_attack(lurker, player));
     assert_eq!(g.provocations.grudges[&(lurker, player)].why, Why::Aggro);
-    // It fights now: no longer a warning.
+    // Until it is in Combat (a moment later) it still counts as warning, so its stance is
+    // not put away and drawn again; after AGGRO_TURN_SECONDS no longer.
+    assert_eq!(g.warning_to(lurker), Some(player));
+    g.time += fnv_game::aggro::AGGRO_TURN_SECONDS;
     assert_eq!(g.warning_to(lurker), None);
 }
 

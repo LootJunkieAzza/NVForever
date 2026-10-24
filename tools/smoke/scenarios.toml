@@ -4344,7 +4344,7 @@ args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--n
 run_seconds = 50
 order = [[
   { re = 'provocation: VERGSGecko6REF 0x00157B3C warns the player inside its aggro radius \(warning 1;', label = "the gecko's first warning" },
-  { re = '0x00157B3C: stops and faces the player to warn it', label = "it stops and turns to the player" },
+  { re = 'VERGSGecko6REF: stops and faces the player to warn it', label = "it stops and turns to the player" },
   { re = 'provocation: VERGSGecko6REF 0x00157B3C warns the player inside its aggro radius \(warning 2;', label = "its second warning" },
   { re = 'provocation: VERGSGecko6REF 0x00157B3C attacks the player, who stayed inside its aggro radius', label = "then it attacks" },
 ]]
