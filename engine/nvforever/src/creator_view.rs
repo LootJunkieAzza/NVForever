@@ -97,7 +97,7 @@ fn lights(
     let places = [eye + toward * 55.0 - right * 45.0 + Vec3::Y * 40.0, eye + toward * 60.0 + right * 55.0 - Vec3::Y * 10.0];
     if rig.is_empty() {
         let unit = crate::sky::light_unit();
-        for (i, (f, c)) in [(KEY, Color::srgb(1.0, 0.94, 0.85)), (FILL, Color::srgb(0.82, 0.88, 1.0))].into_iter().enumerate() {
+        for (i, (f, c)) in [(KEY, crate::lights::display_color([1.0, 0.94, 0.85])), (FILL, crate::lights::display_color([0.82, 0.88, 1.0]))].into_iter().enumerate() {
             let intensity = crate::lights::lumens(f * scale.0, unit);
             commands.spawn((Name::new("Creator light"), CreatorLight, PointLight { color: c, intensity, range: RANGE, shadow_maps_enabled: false, ..default() }, Transform::from_translation(places[i])));
         }

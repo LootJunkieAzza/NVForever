@@ -82,6 +82,11 @@ for natural lighting rather than a 1:1 copy. Branch `claude/beam-blend`.
    desaturation of bright warm light are the suspects) and make placed lights match,
    starting from this lantern (owner: "get our lamps and light sources to match what the
    base game is doing with this dead money lamp for now and expand from there").
+   **Done on branch `claude/display-lighting` (2026-10-24):** the lighting sum is
+   formed in display values and the main view clips instead of Tony McMapface (world.md §8
+   "Light on surfaces in display values"); the lantern's wall reads lit, lab frames hold
+   (mean SSIM unchanged, all pass), interiors at night improve. Left: pools still a little
+   weaker than the original's next to the lamp; the saloon's north frame darker.
 3. **Interiors are darker than the original's** (Vault 19, Hoover Dam): the original's HDR
    eye adaptation (Eye Adapt Speed, Target LUM, LUM ramps) brightens dark rooms and its
    ceiling tubes glow harder. Not built; Bevy's auto exposure on the HDR view is the

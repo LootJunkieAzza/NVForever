@@ -163,8 +163,15 @@ region of the 1280 × 720 frames): its brightest tenth, which is grass in the li
   record's "vertex lighting" flag is documented to do; no type sets that flag, and what
   the game's tall-grass shader does without it is not known. Lighting with the models'
   own normals was tried and is wrong: the plants came out nearly black under the sun,
-  while the game's are evenly lit [observed]. The ambient light counts 1.67 times and
-  the sun 0.55 times (`--grass-light`) [hypothesis, fitted to the noon screenshot]. Lit
+  while the game's are evenly lit [observed]. The ambient light counts 1.3 times and
+  the sun 0.25 times (`--grass-light`) [hypothesis, fitted]: since the lighting sum is
+  formed in display values (world.md §8 "Light on surfaces in display values",
+  2026-10-24) each weight scales its part of that sum by its display value
+  (weight^(1/2.2)), so either part alone is scaled by the weight as light; refitted then
+  on the lab's grassy frames (goodsprings noon, dusk, hill, east and black mountain north,
+  SSIM 0.502, 0.532, 0.582, 0.469, 0.606 against 0.498, 0.514, 0.579, 0.467, 0.605 with
+  the linear sum and the earlier weights 1.67 and 0.55, fitted to the noon screenshot as
+  below). Lit
   exactly like the ground, the grass at noon was 10 % brighter than the game's and more
   orange (brightest tenth (165, 133, 72), red/blue 2.29, against the game's
   (143, 122, 74), 1.93); with the weights it is (148, 124, 72), 2.06. The weather's

@@ -77,7 +77,9 @@ whenever `IsAnimPlaying` is 0, and on load. Nothing plays `Forward` or `Backward
   light is moved under the node the model hangs it from, so it moves with that node (the
   klaxon's turning light). Each frame its colour is the playing clip's diffuse key times
   the dimmer (its key, else the stored dimmer), clamped and read as display values like
-  the DATA colour [hypothesis, as the model colour of a black DATA colour, world.md §8];
+  the DATA colour and added to the display-value lighting sum as it is (world.md §8
+  "Light on surfaces in display values") [hypothesis, as the model colour of a black DATA
+  colour, world.md §8];
   its brightness stays the record's fade.
 - A light whose two colours are black but whose model drives it is now drawn (black until
   its keys light it): the Nuka-Cola blink light was not drawn before.

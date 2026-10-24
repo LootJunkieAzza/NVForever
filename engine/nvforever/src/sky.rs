@@ -121,6 +121,19 @@ pub const DEFAULT_SHADOW_DISTANCE: f32 = 8_000.0;
 /// The sun's shadow cascades by default (see [`DEFAULT_SHADOW_DISTANCE`]).
 pub const DEFAULT_SHADOW_CASCADES: usize = 3;
 
+/// Shares of the weather's and the interior's light colours (display values) in the
+/// display-value lighting sum (lights.rs `DISPLAY_HELPERS`; world.md §8 "Light on
+/// surfaces in display values") [fitted to the original's frames: the lab's 15 L3 frames,
+/// the effects audit's night frames and Dead Money's lantern]. Outdoors: the weather's
+/// ambient colour, its sunlight by day (before the Sunlight Dimmer's scale) and its
+/// night "sunlight" as moonlight. Interiors: XCLL's ambient and directional colours as
+/// stored.
+pub const AMBIENT_SHARE: f32 = 0.9;
+pub const SUN_SHARE: f32 = 0.75;
+pub const MOON_SHARE: f32 = 0.5;
+pub const INTERIOR_AMBIENT_SHARE: f32 = 1.0;
+pub const INTERIOR_DIRECTIONAL_SHARE: f32 = 1.0;
+
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
 /// treated as texture × (ambient + sunlight · N·L) in display units [hypothesis], so the
@@ -167,7 +180,8 @@ pub struct SkyLight {
     /// clouds and moon), 0 for additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
     /// only (clouds), 0 neither.
     pub params: Vec4,
-    /// Linear RGB added.
+    /// Linear RGB added; w 1 when the view's tonemapper is the clip (lights.rs
+    /// `display_clip`), 0 for Tony McMapface.
     pub glow: Vec4,
     /// xyz: direction to the sun (Bevy world space).
     pub sun_dir: Vec4,
@@ -841,7 +855,9 @@ impl SkyState {
         let glare = self.prev.as_ref().map_or(glare, |p| p.glare_scale() + (glare - p.glare_scale()) * self.fade);
         SkyLight {
             params: Vec4::new(1.0 - SKY_DIM * day, 0.0, 1.0, 0.0),
-            glow: (s * SKY_GLOW * day).extend(0.0),
+            // w: 1 when the main view shows display values clipped (lights.rs
+            // `display_clip`), so the sky leaves out its inverse of Tony McMapface.
+            glow: (s * SKY_GLOW * day).extend(if crate::lights::display_clip() { 1.0 } else { 0.0 }),
             sun_dir: dir.extend(0.0),
             sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
             glare: (sun_col * GLARE_STRENGTH * glare).extend(half_tan(GLARE_SIZE_DEG)),
@@ -1554,8 +1570,9 @@ pub fn update_sky(
             t.scale = Vec3::ZERO;
         }
         clear.0 = c(l.fog_color);
-        ambient.color = c(l.ambient);
-        ambient.brightness = unit;
+        let shown = |v: [u8; 3]| v.map(|b| b as f32 / 255.0);
+        ambient.color = crate::lights::display_ambient(shown(l.ambient));
+        ambient.brightness = unit * INTERIOR_AMBIENT_SHARE;
         if let Ok((mut light, mut t)) = sun.single_mut() {
             // XCLL directional rotation: xy = azimuth about z, z = elevation, in degrees
             // [hypothesis].
@@ -1563,8 +1580,8 @@ pub fn update_sky(
             let from_game = Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin());
             let from = game_to_bevy().rotation * from_game;
             *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-            light.color = c(l.directional);
-            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0);
+            light.color = crate::lights::display_color(shown(l.directional));
+            light.illuminance = PI * unit * l.directional_fade.clamp(0.0, 1.0) * INTERIOR_DIRECTIONAL_SHARE;
         }
         fog.color = c(l.fog_color);
         fog.falloff = crate::fog::falloff(l.fog_near.max(0.0), l.fog_far, l.fog_power, false, 1.0);
@@ -1626,16 +1643,16 @@ pub fn update_sky(
         // the weather's night "sunlight") [hypothesis].
         let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
         *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
-        light.color = to_color(sunlight);
+        light.color = crate::lights::display_color(sunlight.map(crate::lights::linear_to_display));
         // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
         // switch between the two does not flip shadows at full strength [interim].
         // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
         // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale();
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
     }
     let amb = sky.color(ColorType::Ambient);
-    ambient.color = to_color([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z]);
-    ambient.brightness = unit;
+    ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
+    ambient.brightness = unit * AMBIENT_SHARE;
 
     // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
     let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());

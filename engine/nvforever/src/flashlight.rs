@@ -84,7 +84,7 @@ fn sync(
         Name::new("Flashlight"),
         PlayerFlashlight,
         SpotLight {
-            color: Color::srgb(COLOUR[0], COLOUR[1], COLOUR[2]),
+            color: crate::lights::display_color(COLOUR),
             intensity: crate::lights::lumens(BRIGHTNESS, crate::sky::light_unit()),
             range: RANGE,
             outer_angle: OUTER_DEG.to_radians(),
