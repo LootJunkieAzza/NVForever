@@ -203,38 +203,17 @@ fn track_finite(t: &TransformTrack) -> bool {
     channel_finite(&t.translation) && channel_finite(&t.rotation) && channel_finite(&t.scale) && t.euler.as_ref().is_none_or(|e| e.iter().all(keys_finite))
 }
 
-/// Limits of a playable clip ([`Clip::check`]), far past what the game's files hold
-/// [observed: in `Fallout - Meshes.bsa` (6229 sequences) every sequence and controller
-/// frequency is 1, the largest translation value 2.9e6 (`dlc03crawlerextower01.nif`'s
-/// flying debris), scale values -0.21 to 208, 155 of them 0]. Past them a broken file's
-/// numbers would throw bones out of the float range.
+/// The largest frequency a playable clip may have ([`Clip::check`]), far past what the
+/// game's files hold [observed: in `Fallout - Meshes.bsa` (6229 sequences) every
+/// sequence and controller frequency is 1]: past it the clip's time runs out of the float
+/// range. Values are only required to be finite: the game's own clips hold very large
+/// ones [observed: `xanderrootplant.nif`'s Backward has a scale past 1e3, translations
+/// reach 2.9e6], so a bound on them refuses good files.
 const MAX_FREQUENCY: f32 = 1e3;
-const MAX_TRANSLATION: f32 = 1e8;
-const MAX_SCALE: f32 = 1e3;
 
-/// Every stored value of a channel (keys' values, the static pose, spline points).
-fn channel_values<const N: usize>(c: &fnv_nif::anim::Channel<N>) -> Box<dyn Iterator<Item = f32> + '_> {
-    use fnv_nif::anim::Channel;
-    match c {
-        Channel::Static(v) => Box::new(v.iter().flatten().copied()),
-        Channel::Keys(k) => Box::new(k.keys.iter().flat_map(|k| k.value)),
-        Channel::BSpline { spline, .. } => Box::new(spline.points.iter().copied()),
-    }
-}
-
-/// Why a transform track cannot be played, if it cannot: numbers that are not finite or
-/// past the limits above.
+/// Why a transform track cannot be played, if it cannot: a number that is not finite.
 fn track_fault(t: &TransformTrack) -> Option<&'static str> {
-    if !track_finite(t) {
-        return Some("a key is not a finite number");
-    }
-    if channel_values(&t.translation).any(|v| v.abs() > MAX_TRANSLATION) {
-        return Some("a translation is out of range");
-    }
-    if channel_values(&t.scale).any(|v| v.abs() > MAX_SCALE) {
-        return Some("a scale is out of range");
-    }
-    None
+    (!track_finite(t)).then_some("a key is not a finite number")
 }
 
 /// Whether a frequency is one a clip can play at: above 0, at most [`MAX_FREQUENCY`].
@@ -965,11 +944,11 @@ mod tests {
             c.tracks.push(("Bip01".into(), Arc::new(t)));
             c
         };
-        // The game's own extremes play (scale 0 hides a node).
+        // The game's own extremes play (scale 0 hides a node; large values are in its files).
         assert_eq!(clip(track(2.9e6, 0.0)).check(), Ok(()));
         assert_eq!(clip(track(1.0, -0.2)).check(), Ok(()));
-        assert!(clip(track(1e9, 1.0)).check().is_err());
-        assert!(clip(track(1.0, 1e4)).check().is_err());
+        assert_eq!(clip(track(1e9, 1e4)).check(), Ok(()));
+        assert!(clip(track(f32::INFINITY, 1.0)).check().is_err());
         let mut c = clip(track(1.0, 1.0));
         c.frequency = 0.0;
         assert!(c.check().is_err());

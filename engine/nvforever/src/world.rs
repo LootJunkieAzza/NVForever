@@ -1017,6 +1017,11 @@ pub fn spawn_model(
         stats.refs_no_model += 1;
         if spawn_error_marker(commands, parent, r, rt, models) {
             stats.refs_error_marker += 1;
+            // Once per model: a broken mod can place hundreds of one missing model.
+            static TOLD: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
+            if TOLD.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(HashSet::new).insert(path.clone()) {
+                info!("world: 0x{r:08X} {path}: its model did not load; drawn as the error marker (each reference of it)");
+            }
         }
         return;
     };

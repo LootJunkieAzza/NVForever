@@ -3105,7 +3105,7 @@ expect = [
   { re = 'a broken file panicked while loading at .*test panic reading meshes\\clutter\\', label = "a clutter model's panic is caught, not a crash" },
   { re = 'model not loaded: meshes\\clutter\\.*panicked: test panic', label = "the panicking model counts as failed" },
   { re = 'texture not loaded: textures\\architecture\\', label = "a missing texture is logged" },
-  { re = 'no model \d+ \(error markers [1-9]\d*\)', label = "error markers drawn in place of the missing models" },
+  { re = 'world: 0x[0-9A-F]{8} meshes\\furniture\\.*drawn as the error marker', label = "error markers drawn in place of the missing models" },
   { re = 'test aid: screenshot .*broken_files\.png', label = "the frame is saved" },
   "run log: the game exited normally",
 ]
