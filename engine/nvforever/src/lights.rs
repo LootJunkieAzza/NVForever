@@ -25,13 +25,252 @@ const BEVY_ATTENUATION: &str = "return getRangeFalloff(distanceSquare, inverseRa
 /// against in-game captures; the LIGH falloff exponent, 1 for most lights, is not used].
 const GAME_ATTENUATION: &str = "return saturate(1.0 - distanceSquare * inverseRangeSquared);";
 
+/// The embedded asset path under which bevy_pbr registers `bevy_pbr::pbr_functions`.
+const PBR_FUNCTIONS: &str = "embedded://bevy_pbr/render/pbr_functions.wgsl";
+
+/// The display-value lighting sum (docs/spec-notes/world.md §8 "Light on surfaces in
+/// display values") [hypothesis, fitted to the original's frames]: the game adds its
+/// lights as display values (colour bytes / 255) — ambient + Σ sun and lights × fade ×
+/// attenuation × N·L — and multiplies the texture by the sum, where Bevy adds linear
+/// light. In a world view (marked by a negative ambient alpha, [`display_ambient`]) the
+/// patched `apply_pbr_lighting` leaves Bevy's diffuse terms out (diffuse colour 0 for the
+/// lights and the ambient light, so only their specular parts stay), forms the sum from
+/// the same lights' colours, which hold display values there ([`display_color`]), and
+/// adds diffuse colour × sum^2.2 (the display gamma) as light. Views without the mark
+/// (the minigame views) keep Bevy's sum. `nvf_apply_pbr_lighting` takes weights for the
+/// ambient and the direct part of the sum (grass.wgsl); `apply_pbr_lighting` is it with
+/// weights 1.
+const DISPLAY_HELPERS: &str = "// NVForever (nvforever lights.rs DISPLAY_HELPERS): the game's lighting sum in display values.
+fn nvf_display_lighting() -> bool {
+    return view_bindings::lights.ambient_color.a < 0.0;
+}
+
+// A clustered point or spot light's diffuse light on a surface at P facing N, as display
+// values: colour × fade × attenuation × N.L (the uniform holds colour × fade × pi × light
+// unit, nvforever lights.rs `lumens`).
+fn nvf_point_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
+    let light = &view_bindings::clustered_lights.data[light_id];
+    let to_light = (*light).position_radius.xyz - P;
+    let d2 = dot(to_light, to_light);
+    let attenuation = lighting::getDistanceAttenuation(d2, (*light).color_inverse_square_range.w);
+    let n_dot_l = saturate(dot(N, to_light * inverseSqrt(max(d2, 0.0001))));
+    return (*light).color_inverse_square_range.rgb * (attenuation * n_dot_l * view_bindings::view.exposure / 3.14159265);
+}
+
+// The same for a spot light, with Bevy's cone falloff (bevy_pbr::lighting::spot_light).
+fn nvf_spot_display(light_id: u32, P: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
+    let light = &view_bindings::clustered_lights.data[light_id];
+    var spot_dir = vec3<f32>((*light).light_custom_data.x, 0.0, (*light).light_custom_data.y);
+    spot_dir.y = sqrt(max(0.0, 1.0 - spot_dir.x * spot_dir.x - spot_dir.z * spot_dir.z));
+    if ((*light).flags & mesh_view_types::POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE) != 0u {
+        spot_dir.y = -spot_dir.y;
+    }
+    let cd = dot(-spot_dir, normalize((*light).position_radius.xyz - P));
+    let cone = saturate(cd * (*light).light_custom_data.z + (*light).light_custom_data.w);
+    return nvf_point_display(light_id, P, N) * (cone * cone);
+}
+
+// What is left of Bevy's ambient light in a world view, its highlight, takes the ambient
+// colour as linear light: the factor from the display value to it (a^2.2 / a).
+fn nvf_ambient_ratio() -> vec3<f32> {
+    return pow(max(view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure, vec3(1e-6)), vec3(1.2));
+}
+
+// A directional light's diffuse light on a surface facing N, as display values.
+fn nvf_directional_display(i: u32, N: vec3<f32>) -> vec3<f32> {
+    let light = &view_bindings::lights.directional_lights[i];
+    return (*light).color.rgb * (saturate(dot(N, (*light).direction_to_light.xyz)) * view_bindings::view.exposure / 3.14159265);
+}
+
+fn apply_pbr_lighting(
+    in: pbr_types::PbrInput,
+) -> vec4<f32> {
+    return nvf_apply_pbr_lighting(in, vec2(1.0));
+}
+
+fn nvf_apply_pbr_lighting(
+    in: pbr_types::PbrInput,
+    nvf_weights: vec2<f32>,
+) -> vec4<f32> {";
+
+/// Replacements in `apply_pbr_lighting` [observed: bevy_pbr 0.19.1 `pbr_functions.wgsl`],
+/// in order; the light loops' line occurs three times (point, spot, directional).
+const DISPLAY_EDITS: [(&str, &str); 7] = [
+    ("fn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {", DISPLAY_HELPERS),
+    (
+        "    lighting_input.diffuse_color = diffuse_color;",
+        "    let nvf_display = nvf_display_lighting();
+    var nvf_direct = vec3(0.0);
+    lighting_input.diffuse_color = select(diffuse_color, vec3(0.0), nvf_display);",
+    ),
+    (
+        "        direct_light += light_contrib * shadow;",
+        "        direct_light += light_contrib * shadow;
+        if nvf_display { nvf_direct += nvf_point_display(light_id, in.world_position.xyz, in.N) * shadow; }",
+    ),
+    (
+        "        direct_light += light_contrib * shadow;",
+        "        direct_light += light_contrib * shadow;
+        if nvf_display { nvf_direct += nvf_spot_display(light_id, in.world_position.xyz, in.N) * shadow; }",
+    ),
+    (
+        "        direct_light += light_contrib * shadow;",
+        "        direct_light += light_contrib * shadow;
+        if nvf_display { nvf_direct += nvf_directional_display(i, in.N) * shadow; }",
+    ),
+    (
+        "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);",
+        "        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, select(diffuse_color, vec3(0.0), nvf_display), F0, perceptual_roughness, diffuse_occlusion) * select(vec3(1.0), nvf_ambient_ratio(), nvf_display);",
+    ),
+    (
+        "    // Total light\n",
+        "    if nvf_display {
+        let nvf_ambient = view_bindings::lights.ambient_color.rgb * view_bindings::view.exposure * diffuse_occlusion;
+        let nvf_sum = max(nvf_weights.x * nvf_ambient + nvf_weights.y * nvf_direct, vec3(0.0));
+        // Held to 1 per channel, as the original's lit colour is (lights.rs GAME_CLIP).
+        direct_light += min(diffuse_color * pow(nvf_sum, vec3(2.2)), vec3(1.0)) / view_bindings::view.exposure;
+    }
+
+    // Total light\n",
+    ),
+];
+
+/// `source` with [`DISPLAY_EDITS`] made, each to the first occurrence after the last
+/// edit; `None` when one is missing (Bevy changed).
+fn display_patched(source: &str) -> Option<String> {
+    let mut out = String::with_capacity(source.len() + 4096);
+    let mut rest = source;
+    for (from, to) in DISPLAY_EDITS {
+        let at = rest.find(from)?;
+        out.push_str(&rest[..at]);
+        out.push_str(to);
+        rest = &rest[at + from.len()..];
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+/// A light colour of a world view as display values (bytes / 255, or a model's stored
+/// colour): handed to Bevy unconverted, for the display-value sum ([`DISPLAY_HELPERS`]).
+pub fn display_color(c: [f32; 3]) -> Color {
+    Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2]))
+}
+
+/// The display value (0..1, sRGB) of a linear colour channel: the inverse of
+/// `fnv_world::sky::srgb_to_linear`, so a record's byte b comes back as b / 255.
+pub fn linear_to_display(v: f32) -> f32 {
+    let v = v.max(0.0);
+    if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+}
+
+/// A world view's ambient light colour (display values) for `GlobalAmbientLight`, with
+/// the negative alpha that marks the view for the display-value sum.
+pub fn display_ambient(c: [f32; 3]) -> Color {
+    Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], -1.0))
+}
+
+/// The embedded asset path under which bevy_core_pipeline registers its tonemapping
+/// functions (`bevy_core_pipeline::tonemapping`).
+const TONEMAPPING_SHARED: &str = "embedded://bevy_core_pipeline/tonemapping/tonemapping_shared.wgsl";
+
+/// Bevy's Tony McMapface curve [observed: bevy_core_pipeline 0.19.1
+/// `tonemapping_shared.wgsl`], the main view's tonemapper (every other view here has
+/// none).
+const BEVY_TONY: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color = sample_tony_mc_mapface_lut(color);";
+
+/// The original's display: its lit colour, a display value, is shown as it is and held to
+/// 1 per channel (world.md §8 "Light on surfaces in display values") [hypothesis, from the
+/// original's frames: the Dead Money lantern's wall clips to (255, 255, 255) and, under
+/// Dead Money's weather, to (255, 255, 101), saturated, where Tony McMapface turns bright
+/// light pale and never reaches white]. The tonemapping pass keeps running, and with it
+/// the eye adaptation's exposure (eye_adapt.rs), which Bevy applies in that pass.
+const GAME_CLIP: &str = "#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE\n    color = min(color, vec3(1.0));";
+
+/// Set once the clip is in place (`NVF_TONEMAP=tony` keeps Bevy's curve, a test aid);
+/// sky.rs then leaves out its inverse of Tony McMapface.
+static CLIP_INSTALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the main view shows display values clipped (see [`GAME_CLIP`]).
+pub fn display_clip() -> bool {
+    CLIP_INSTALLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct LightsPlugin;
 
 impl Plugin for LightsPlugin {
     fn build(&self, app: &mut App) {
         let handle: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_LIGHTING);
-        app.insert_resource(LightingShader { handle, patched: false }).add_systems(Update, (patch_attenuation, animate_lights));
+        let functions: Handle<Shader> = app.world().resource::<AssetServer>().load(PBR_FUNCTIONS);
+        let tonemapping: Handle<Shader> = app.world().resource::<AssetServer>().load(TONEMAPPING_SHARED);
+        app.insert_resource(LightingShader { handle, patched: false })
+            .insert_resource(FunctionsShader { handle: functions, patched: false })
+            .insert_resource(TonemapShader { handle: tonemapping, patched: false })
+            .add_systems(PreUpdate, patch_clip)
+            .add_systems(Update, (patch_attenuation, patch_display_sum, animate_lights, bind_model_lights, animate_model_lights).chain());
     }
+}
+
+#[derive(Resource)]
+struct TonemapShader {
+    handle: Handle<Shader>,
+    patched: bool,
+}
+
+/// Once Bevy's tonemapping functions have loaded, swap Tony McMapface's curve for the
+/// clip; the sky system is told to set its colours again.
+fn patch_clip(mut state: ResMut<TonemapShader>, mut shaders: ResMut<Assets<Shader>>, sky: Option<ResMut<crate::sky::SkyState>>) {
+    if state.patched {
+        return;
+    }
+    let Some(shader) = shaders.get(&state.handle) else { return };
+    state.patched = true;
+    if std::env::var("NVF_TONEMAP").is_ok_and(|v| v.eq_ignore_ascii_case("tony")) {
+        info!("lights: NVF_TONEMAP=tony, the main view keeps Tony McMapface");
+        return;
+    }
+    let bevy::shader::Source::Wgsl(source) = &shader.source else {
+        error!("{TONEMAPPING_SHARED}: not WGSL; the main view keeps Tony McMapface");
+        return;
+    };
+    if !source.contains(BEVY_TONY) {
+        error!("{TONEMAPPING_SHARED}: Tony McMapface not found (Bevy changed?); the main view keeps it");
+        return;
+    }
+    let patched = source.replace(BEVY_TONY, GAME_CLIP);
+    let path = shader.path.clone();
+    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    CLIP_INSTALLED.store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Some(mut sky) = sky {
+        sky.refresh();
+    }
+    info!("lights: display values shown clipped (in Tony McMapface's place)");
+}
+
+#[derive(Resource)]
+struct FunctionsShader {
+    handle: Handle<Shader>,
+    patched: bool,
+}
+
+/// Once bevy_pbr's `pbr_functions` has loaded, put the display-value sum into
+/// `apply_pbr_lighting`. Pipelines that already use it are rebuilt.
+fn patch_display_sum(mut state: ResMut<FunctionsShader>, mut shaders: ResMut<Assets<Shader>>) {
+    if state.patched {
+        return;
+    }
+    let Some(shader) = shaders.get(&state.handle) else { return };
+    state.patched = true;
+    let bevy::shader::Source::Wgsl(source) = &shader.source else {
+        error!("{PBR_FUNCTIONS}: not WGSL; surfaces keep Bevy's linear lighting sum");
+        return;
+    };
+    let Some(patched) = display_patched(source) else {
+        error!("{PBR_FUNCTIONS}: apply_pbr_lighting not as expected (Bevy changed?); surfaces keep Bevy's linear lighting sum");
+        return;
+    };
+    let path = shader.path.clone();
+    let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
+    info!("lights: display-value lighting sum installed");
 }
 
 /// How a light's brightness moves by itself: LIGH DATA flags 3 "Flicker", 6 "Flicker
@@ -109,6 +348,73 @@ fn animate_lights(time: Res<Time>, mut lights: Query<(&MovingLight, Option<&mut 
     }
 }
 
+/// On a LIGH reference's light whose model has a sequence driving that light's colour or
+/// dimmer (docs/spec-notes/model-lights.md): the reference, the light in the model, and,
+/// once the model's rig is drawn ([`LightRig`]), the rig root whose [`Playing`] clip it
+/// follows.
+///
+/// [`Playing`]: nvf_assets::anim_play::Playing
+#[derive(Component, Debug, Clone)]
+pub struct ModelDrivenLight {
+    pub reference: u32,
+    pub light: nvf_assets::model::ModelLight,
+    pub root: Option<Entity>,
+}
+
+/// On the root of a LIGH reference's drawn rig whose clips drive its light (world.rs):
+/// the reference and the rig node the light hangs from.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct LightRig {
+    pub reference: u32,
+    pub anchor: Entity,
+}
+
+/// Hang each model-driven point light from its rig's node, where the model holds the
+/// light: it then moves as the model's sequences move that node (the Vault klaxon's
+/// light turns 224 units out on its spinning `Dummy`, model-lights.md §2). Spot lights
+/// keep their place and aim [design: no base-game model drives a spot light].
+fn bind_model_lights(mut commands: Commands, rigs: Query<(Entity, &LightRig), Added<LightRig>>, mut lights: Query<(Entity, &mut ModelDrivenLight), With<PointLight>>) {
+    if rigs.is_empty() {
+        return;
+    }
+    for (root, rig) in &rigs {
+        let Some((e, mut l)) = lights.iter_mut().find(|(_, l)| l.reference == rig.reference && l.root.is_none()) else { continue };
+        l.root = Some(root);
+        commands.entity(e).insert((ChildOf(rig.anchor), l.light.local));
+        debug!("model lights: 0x{:08X} light {} hangs from {}", rig.reference, l.light.name, l.light.parent.as_deref().unwrap_or("the root"));
+    }
+}
+
+/// Colour the model-driven lights by their rig's playing clip: the diffuse key times
+/// the dimmer (its key, else the stored dimmer), held to 0..1, as display values like the
+/// LIGH colour, for the display-value lighting sum ([`display_color`]) [hypothesis: as the
+/// model colour of a black LIGH colour, world.md §8]. A light no
+/// playing clip drives keeps the colour it was spawned with (the klaxon until its alarm
+/// script plays `Left`) [hypothesis, model-lights.md §3].
+fn animate_model_lights(
+    roots: Query<&nvf_assets::anim_play::Playing>,
+    mut lights: Query<(&ModelDrivenLight, &mut PointLight), Without<crate::emittance::LightEmittance>>,
+    mut seen: Local<(usize, usize)>,
+) {
+    use nvf_assets::anim_play::LightTarget;
+    let mut driven = 0;
+    for (l, mut p) in &mut lights {
+        let Some(playing) = l.root.and_then(|r| roots.get(r).ok()) else { continue };
+        let Some(c) = playing.light_value(&l.light.name, LightTarget::Diffuse) else { continue };
+        driven += 1;
+        let dimmer = playing.light_value(&l.light.name, LightTarget::Dimmer).map_or(l.light.dimmer, |v| v[0]);
+        let color = display_color(c.map(|v| (v * dimmer.max(0.0)).clamp(0.0, 1.0)));
+        if p.color != color {
+            p.color = color;
+        }
+    }
+    let n = (lights.iter().len(), driven);
+    if n != *seen {
+        *seen = n;
+        info!("model lights: {} following their models, {} coloured by a playing clip", n.0, n.1);
+    }
+}
+
 #[derive(Resource)]
 struct LightingShader {
     handle: Handle<Shader>,
@@ -131,11 +437,49 @@ fn patch_attenuation(mut state: ResMut<LightingShader>, mut shaders: ResMut<Asse
         warn!("{PBR_LIGHTING}: distance attenuation not found (Bevy changed?); lights keep Bevy's inverse-square falloff");
         return;
     }
-    let patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
+    let mut patched = source.replace(BEVY_ATTENUATION, GAME_ATTENUATION);
+    if SPECULAR_EDITS.iter().all(|(from, _)| patched.matches(from).count() == 1) {
+        for (from, to) in SPECULAR_EDITS {
+            patched = patched.replace(from, to);
+        }
+    } else {
+        error!("{PBR_LIGHTING}: light colour lines not found (Bevy changed?); highlights take display colours as light");
+    }
     let path = shader.path.clone();
     let _ = shaders.insert(&state.handle, Shader::from_wgsl(patched, path));
     info!("lights: game attenuation installed");
 }
+
+/// Bevy's point and directional lights apply their colour to what is left of their light
+/// in a world view, the specular highlight ([`DISPLAY_HELPERS`]: the diffuse part is
+/// summed apart). There the colour holds display values: the highlight takes its linear
+/// light, the display value raised to the display gamma, as before the display-value sum
+/// [observed: bevy_pbr 0.19.1 `pbr_lighting.wgsl`; the helper goes in front of
+/// `getDistanceAttenuation`]. Without it, lamps put white sparkles on the floors of
+/// Jacobstown's lodge that the original does not show.
+const SPECULAR_EDITS: [(&str, &str); 3] = [
+    (
+        "fn getDistanceAttenuation(",
+        "// NVForever (nvforever lights.rs SPECULAR_EDITS): a light's colour uniform as linear light;
+// in a world view it holds display values (scaled by pi and the light unit).
+fn nvf_light_colour(c: vec3<f32>) -> vec3<f32> {
+    if view_bindings::lights.ambient_color.a >= 0.0 {
+        return c;
+    }
+    let k = view_bindings::view.exposure / PI;
+    return pow(max(c * k, vec3(0.0)), vec3(2.2)) / k;
+}
+
+fn getDistanceAttenuation(",
+    ),
+    (
+        "    return color_times_NdotL * (*light).color_inverse_square_range.rgb *
+        rangeAttenuation * texture_sample;",
+        "    return color_times_NdotL * nvf_light_colour((*light).color_inverse_square_range.rgb) *
+        rangeAttenuation * texture_sample;",
+    ),
+    ("color *= (*light).color.rgb * texture_sample;", "color *= nvf_light_colour((*light).color.rgb) * texture_sample;"),
+];
 
 /// Bevy lumens for a light that adds `brightness` × colour × attenuation × N·L on screen:
 /// Bevy divides lumens by 4π (candela) and Lambert diffuse by π; the camera exposure is
@@ -145,12 +489,14 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 }
 
 /// A LIGH reference's light: a point light (spot light for spot types) with the light's
-/// colour [documented: LIGH DATA], brightness fade × `scale`, and as range the base
+/// colour as display values [documented: LIGH DATA], brightness fade × `scale`, and as range the base
 /// radius plus the reference's XRDS (world.md §8 "Placed light radius").
 /// Negative and off-by-default lights are not drawn. A reference with an emittance
 /// source (XEMI) has its colour scaled by it (emittance.rs). A black record colour takes
 /// the colour of the light inside the LIGH's model (`model`, as stored under `meshes\`)
-/// when it has one (world.md §8 "Black LIGH colours").
+/// when it has one (world.md §8 "Black LIGH colours"). A light whose model drives its
+/// colour by a sequence gets [`ModelDrivenLight`] (docs/spec-notes/model-lights.md) and is
+/// drawn even when both colours are black: its keys light it.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_light(
     commands: &mut Commands,
@@ -170,15 +516,16 @@ pub fn spawn_light(
         return false;
     }
     let from_model = (l.color == [0; 3]).then(|| model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")))).flatten();
-    let lin = match from_model {
+    let model_driven = model.and_then(|m| models.model(&format!(r"meshes\{m}"))).and_then(|pm| pm.light.clone());
+    let shown = match from_model {
         // The NIF holds the colour as stored (display values) [hypothesis, as LIGH DATA].
-        Some(c) => c.map(|v| fnv_world::sky::srgb_to_linear((v.clamp(0.0, 1.0) * 255.0).round() as u8)),
-        None if l.color == [0; 3] => return false,
-        None => l.color.map(fnv_world::sky::srgb_to_linear),
+        Some(c) => c.map(|v| v.clamp(0.0, 1.0)),
+        None if l.color == [0; 3] && model_driven.is_none() => return false,
+        None => l.color.map(|b| b as f32 / 255.0),
     };
-    let linear = LinearRgba::rgb(lin[0], lin[1], lin[2]);
-    let color = Color::LinearRgba(linear);
-    let driven = placed.emittance.and_then(|x| emittance.light(world, x, linear));
+    let model_driven = model_driven.map(|light| ModelDrivenLight { reference: placed.form_id, light, root: None });
+    let color = display_color(shown);
+    let driven = placed.emittance.and_then(|x| emittance.light(world, x, LinearRgba::rgb(shown[0], shown[1], shown[2])));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
     let t = Transform::from_translation(at);
     // Lights out of step with each other: a phase from the reference.
@@ -199,12 +546,18 @@ pub fn spawn_light(
         if let Some(m) = moving {
             e.insert(m);
         }
+        if let Some(m) = model_driven {
+            e.insert(m);
+        }
     } else {
         let mut e = commands.spawn((PointLight { color, intensity, range: radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e)));
         if let Some(d) = driven {
             e.insert(d);
         }
         if let Some(m) = moving {
+            e.insert(m);
+        }
+        if let Some(m) = model_driven {
             e.insert(m);
         }
     }
@@ -228,6 +581,29 @@ mod tests {
         }
         // Two lights out of step.
         assert_ne!(LightMotion::Pulse.factor(1.0, 0.1), LightMotion::Pulse.factor(1.0, 0.6));
+    }
+
+    #[test]
+    fn display_sum_patch_goes_in_order() {
+        // The anchors as bevy_pbr 0.19.1 has them, in its order, with stand-in text between.
+        let source = "head\nfn apply_pbr_lighting(\n    in: pbr_types::PbrInput,\n) -> vec4<f32> {\n    lighting_input.diffuse_color = diffuse_color;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        direct_light += light_contrib * shadow;\n        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);\n    // Total light\n    tail\n";
+        let out = display_patched(source).expect("all anchors found");
+        let at = |s: &str| out.find(s).unwrap_or_else(|| panic!("{s} missing"));
+        assert!(at("nvf_point_display(light_id") < at("nvf_spot_display(light_id"));
+        assert!(at("nvf_spot_display(light_id") < at("nvf_directional_display(i,"));
+        assert!(at("nvf_directional_display(i,") < at("let nvf_sum"));
+        assert!(at("let nvf_sum") < at("// Total light"));
+        assert_eq!(out.matches("fn apply_pbr_lighting(").count(), 1);
+        assert!(out.starts_with("head\n") && out.ends_with("tail\n"));
+        // A missing anchor (Bevy changed) leaves the source alone.
+        assert!(display_patched(&source.replace("    // Total light\n", "")).is_none());
+    }
+
+    #[test]
+    fn display_values_round_trip() {
+        for b in [0u8, 1, 10, 50, 128, 200, 255] {
+            assert!((linear_to_display(fnv_world::sky::srgb_to_linear(b)) - b as f32 / 255.0).abs() < 1e-4, "{b}");
+        }
     }
 
     #[test]

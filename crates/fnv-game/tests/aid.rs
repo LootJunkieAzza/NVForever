@@ -440,7 +440,7 @@ fn waiting_advances_effect_timers() {
 }
 
 /// In Hardcore the needs rise one point every `rate` seconds of play (hunger 25, sleep
-/// 50, dehydration the 12.5 guess), in play and while waiting; sleep lowers sleep
+/// 50, dehydration 10 from the owner's table), in play and while waiting; sleep lowers sleep
 /// deprivation (aid-items.md §11).
 #[test]
 fn hardcore_needs_rise_with_time() {
@@ -451,7 +451,7 @@ fn hardcore_needs_rise_with_time() {
     g.player.hardcore = Some(true);
     g.frames(25 * 60);
     assert!((av(&mut g, HUNGER) - 1.0).abs() < 1e-6, "{}", av(&mut g, HUNGER));
-    assert!((av(&mut g, DEHYDRATION) - 2.0).abs() < 1e-6);
+    assert!((av(&mut g, DEHYDRATION) - 2.5).abs() < 1e-6);
     assert!((av(&mut g, SLEEP_DEPRIVATION) - 0.5).abs() < 1e-6);
     let passed = g.pass_hours(10.0, false);
     assert_eq!(passed.needs.len(), 3);

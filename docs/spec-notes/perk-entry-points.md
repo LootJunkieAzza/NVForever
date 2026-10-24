@@ -74,7 +74,8 @@ Not wired yet, with why:
 
 | Code | Entry point | Perks | Why not |
 |---|---|---|---|
-| 37, 38, 43 | Reload Speed, Equip Speed, Modify Attack Speed | Rapid Reload, Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire or end a reload before the clip does. Needs the clips' playback rate (one follow-up) |
+| 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
+| 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
 | 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |

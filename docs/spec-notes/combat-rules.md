@@ -55,7 +55,11 @@ For one projectile (or one swing) that hits [documented unless marked]:
      settings are unused in New Vegas [documented: Weapon Damage Formula].
 2. **Miss.** A base of 0 is a miss: no critical, no damage.
 3. **Modifiers.** Ammo Damage Mod effects (add, multiply, subtract, in list order), then
-   the "Calculate Weapon Damage" perk hook.
+   the "Calculate Weapon Damage" perk hook, then × (1 + Companion Nerve) when the
+   attacker is one of the player's teammates: 0.05 per point of the player's Charisma
+   [documented: Fallout Wiki, Charisma (Fallout: New Vegas), "+5% to their damage and
+   armor"; hypothesis: the place in the order] (`Attacker::nerve`,
+   `Game::companion_nerve`).
 4. **Sneak attacks.** × `fCombatDamageBonusSneakingMult` for guns,
    × `fCombatDamageBonusMeleeSneakingMult` for melee and unarmed.
 5. **Body part.** × the part's damage multiplier [design: placed after the documented
@@ -78,6 +82,9 @@ For one projectile (or one swing) that hits [documented unless marked]:
    - After DT, at least `dt_floor` of the hit remains [design].
    - DR (after ammo DR Mod effects, capped at `fMaxArmorRating`) then takes its
      percentage.
+   - A teammate's DT and DR are × (1 + Companion Nerve) before the ammo effects and
+     perks [documented: as step 3, "armor"; hypothesis: that armour means both, and
+     the order] (`Target::nerve`). Its energy and fire resistances are not changed.
 8. **Child flag.** A target whose race has the Child flag takes nothing.
 
 Also in `damage.rs`:
@@ -140,6 +147,19 @@ each the identity by default. Reading PERK records is a later step.
   body's clip (docs/spec-notes/animation.md §9.8).
 - **Reload.** Takes the reload clip's length; the animation multiplier does not speed
   it up [documented]. Without a clip length, `fallback_reload`.
+  - **Reload speed** (`attack::reload_rate`, `Timing::with_reload_rate`). The player's
+    reload clips play at 0.5 + 0.1 × Agility (1 at Agility 5, 0.6 at 1, 1.5 at 10)
+    times the "Reload Speed" entry point of the player's perks with the weapon's tab
+    (Rapid Reload multiplies by 1.25), and the reload, or each part of a round-by-round
+    one, takes 1 ÷ that as long [documented: Fallout Wiki, Agility (Fallout: New Vegas):
+    the weapon's reload time ÷ ((0.5 + Agility × 0.1) × Rapid Reload); observed: Rapid
+    Reload's entry, Multiply Value 1.25, as its description's "25% faster"]. Agility is
+    the current value within 1 to 10 [hypothesis: current, as the other derived
+    statistics]. The body sets the reload layer's rate (`WeaponAnim::reload_rate`), so
+    the clip and the cycle end together. Logged `combat: reloads at x<rate> (Agility
+    <n>)` when the rate changes. The page also has Agility change draw and holster
+    times; not built (Equip Speed, perk-entry-points.md). NPCs reload at their clips'
+    own speed.
 - **Round by round** (`Timing::rounds`, `RoundReload`). Some reloads load one round at
   a time and can be stopped:
   - The clips [observed: the base meshes archive, 2026-10-11]. Three reload

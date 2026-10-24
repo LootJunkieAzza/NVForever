@@ -44,8 +44,8 @@ Base values for a new character with every attribute at 5, from `fnvtool actor v
 | Skill Rate | INT × 0.5 + 10 | `iLevelUp…` present but unused [documented] | GECK wiki form | see section 6 |
 | Perk Rate | every even level | `iLevelsPerPerk` absent, default 2 [documented] | 2, 4, 6 … | matches |
 | Implant Limit | END − Endurance implant | — | Dr. Usanagi's dialogue and scripts (data) | not checked: runs through the dialogue conditions; no engine rule |
-| Companion Nerve | CHA × 5 % to companions' damage and defence | none | — | **gap** (4.1) |
-| Reload Speed | 10 / (AGL + 5) | none | reload takes the clip's length | **gap** (4.2) |
+| Companion Nerve | CHA × 5 % to companions' damage and defence | none | a teammate's damage, DT and DR × (1 + 0.05 × CHA) | built 2026-10-24 (4.1) |
+| Reload Speed | 10 / (AGL + 5) | none | reload at (0.5 + 0.1 × AGL) × Reload Speed perks | built 2026-10-24 (4.2) |
 | Heal Rate | END, perks, Monocyte Breeder (no formula) | `fAVDHealRateEndurance6…10Bonus` 5, 5, 5, 10, 10 | 0; Monocyte Breeder's script heals | **gap**, small (4.6) |
 | Fatigue | END and level (no formula) | none | the record's ACBS Fatigue (200 on the player) | **gap**, small (4.6) |
 | Addiction Resistance | perks | — | perk entry points and the Addiction Formula (aid-items.md §5) | matches |
@@ -80,10 +80,10 @@ Base values for a new character with every attribute at 5, from `fnvtool actor v
 
 ## 4. Gaps
 
-1. **Companion Nerve.** A companion's damage and defence go up by 5 % per point of the
+1. **Companion Nerve.** Built 2026-10-24 (combat-rules.md §2 steps 3 and 7). A companion's damage and defence go up by 5 % per point of the
    player's Charisma [fandom]. Nothing in the masters names it [observed: no GMST]. Not
    built; the teammates' combat would read it.
-2. **Reload Speed from Agility.** 10 / (AGL + 5) [fandom], so 1.0 at Agility 5. No
+2. **Reload Speed from Agility.** Built 2026-10-24 for reloads (combat-rules.md §2, Reload speed; smoke `reload-agility`); draw and holster speed not yet. 10 / (AGL + 5) [fandom], so 1.0 at Agility 5. No
    setting in the masters. Reload takes the clip's length (combat-rules.md §2); the perk
    entry points Reload Speed and Equip Speed are waiting on the clips' playback rate
    (perk-entry-points.md). One change would do both.

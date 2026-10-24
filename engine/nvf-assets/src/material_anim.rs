@@ -422,7 +422,7 @@ mod tests {
             cycle: Some(crate::anim_play::OwnCycle { start: 0.0, stop, frequency: 1.0, phase: 0.0, cycle_type: 0 }),
         };
         let tracks = [track(1, 36.666668), track(0, 44.1)];
-        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec(), Vec::new());
+        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec(), Vec::new(), Vec::new());
         assert!((clip.stop - 44.1).abs() < 1e-4);
         let slots = [slot("WispsGeo:0")];
         // 50 s of play: V is 13.33 s into its second cycle, U 5.9 s into its second,
