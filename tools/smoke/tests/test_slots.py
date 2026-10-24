@@ -35,6 +35,7 @@ class Machine:
     def runner(self, pid: int, count: int = 3, **kw) -> Slots:
         self.live.add(pid)
         q = Queue(self.gate.parent / "smoke-queue", pid=pid, alive=lambda p: p in self.live)
+        kw.setdefault("stagger", 0.0)
         return Slots(self.shared, [self.gate], count=count, poll=0.01, wait_max=0.1, say=quiet,
                      queue=q, running=lambda: True, **kw)
 
@@ -188,6 +189,24 @@ class SlotTests(unittest.TestCase):
             self.assertEqual(r.share(), 3)
             later.leave()
             r.finish()
+
+    def test_game_starts_are_spread_out_machine_wide(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            now = [1000.0]
+            a = m.runner(1, count=3, stagger=12.0, clock=lambda: now[0])
+            s1 = a.acquire()
+            self.assertIn("spreading", a.try_take())  # a second start 0 s later waits
+            b = m.runner(2, count=3, stagger=12.0, clock=lambda: now[0])
+            now[0] += 11.0
+            self.assertIn("spreading", b.try_take())  # another runner too
+            now[0] += 1.5
+            s2 = a.acquire()
+            self.assertNotEqual(s1.index, s2.index)
+            for s in (s1, s2):
+                a.release(s)
+            a.finish()
+            b.finish()
 
     def test_one_slot_is_the_old_one_game_at_a_time(self):
         with tempfile.TemporaryDirectory() as d:
