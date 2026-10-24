@@ -4889,6 +4889,49 @@ expect = [
 order = [["pipboy repair: open", "pipboy repair: stays open", "pipboy repair: closed"]]
 
 [[scenario]]
+name = "perk-jury-rigging"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24: Jury Rigging repairs an item with a roughly similar one (docs/spec-notes/perk-entry-points.md §9)"
+note = "pipboy-repair's setup with a Cowboy Repeater at 40 % and a Trail Carbine at 30 % (both Guns, Rifle - Ballistic (2 Hand); neither is on the other's repair list) and the perk JuryRigging at 10 s: the player's starting items removed at 11 s (RemoveAllItems; at 8 s the starting kit was not given yet: the Weapons tab lists ammo and other gear before the repeater by name, a first run selected 10mm Rounds); R on the Cowboy Repeater, the first row, lists the Trail Carbine as its part; using it repairs the repeater"
+areas = ["repair", "pipboy", "perks"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs", "crates/fnv-game/src/repair.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVFOREVER_HOME = "perk-jury-rigging-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "11:call:player:RemoveAllItems,11.3:call:player:AddItemHealthPercent:WeapNVCowboyRepeater:1:0.4,11.6:call:player:AddItemHealthPercent:WeapNVTrailCarbine:1:0.3,11.8:perk:JuryRigging", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=items,15.5:tab=0,17:repair=open,18:repair=down,20:repair=use,22:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 27
+order = [[
+  { re = 'pipboy repair: open Cowboy Repeater at 40% \(Repair \d+\): Trail Carbine 30%', label = "Jury Rigging lists the Trail Carbine for the Cowboy Repeater" },
+  { re = 'pipboy repair: Cowboy Repeater 40% with Trail Carbine 30% -> \d+% \(Repair \d+\)', label = "and it repairs it" },
+]]
+
+[[scenario]]
+name = "perk-meltdown-anatomy"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24: Living Anatomy shows the target's health and DT on its bar; Meltdown makes a foe killed by an energy weapon give off an explosion (docs/spec-notes/perk-entry-points.md §9)"
+note = "the Goodsprings dogs set on the player (god mode, no spread) with the perks LivingAnatomy and Meltdown from 3 s and a Laser Pistol (WeapLaserPistol 00004335, small energy cells 00020772); the dogs' health set to 2 at 4 s so a shot kills (a first run set 10: the laser's 6.9 left the Fiend Guard Dog at 3); aimactor and fire at 10 and 11 s. The bar names the dog with its health and DT; a kill gives off the DOBJ's Meltdown Explosion (MinePlasmaExplosion)"
+areas = ["combat", "hud", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/hud_target.rs", "engine/nvf-play/src/hud.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:LivingAnatomy,3:perk:Meltdown,4:set_av:0x000F573F:Health:2,4:set_av:0x0013E5BB:Health:2", NVF_PLAY_TEST_EQUIP = "00004335", NVF_PLAY_TEST_GIVE = "00020772:60", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimactor,10:fire,10.8:aimactor,11:fire", NVF_PLAY_TEST_SHOTS = "9.9:living_anatomy_bar.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+expect = [
+  { re = 'hud: enemy health .* \(See Enemy Health: "HP:\d+ DT:\d+\.\d\d"\)', label = "Living Anatomy: the line under the name, as the original's HP:250 DT:15.00" },
+  { re = 'combat: Meltdown: 0x[0-9A-F]{8} gives off MinePlasmaExplosion \(0x00000014.s kill with WeapLaserPistol\)', label = "a laser kill gives off the Meltdown Explosion" },
+  { re = 'combat: explosion MinePlasmaExplosion at', label = "and it goes off" },
+]
+manual = "living_anatomy_bar.png: the dog's name under the enemy bar and HP:<n> DT:<n.nn> centred under it, both red"
+
+[[scenario]]
+name = "perk-implant-y3"
+source = "perk audit 2026-10-23 §3.7, owner 2026-10-24: Implant Y-3 strips the rads from drinking water (docs/spec-notes/perk-entry-points.md §9)"
+note = "drink-sink's sink in Doc Mitchell's house (0x00103E58) drunk from at 6 s with the perk NVDLC03ImplantY3Perk given at 3 s: the rads x 0.01. Run 24 s: on a busy machine a 14 s run ended before the scripts first ran. A first run found that drinking by hand never reached Game::drink_from (the player's hand path activated the sink in the world only), so no water effect applied; fixed in nvf-play script.rs"
+areas = ["aid", "perks"]
+paths = ["crates/fnv-game/src/game.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "3:perk:NVDLC03ImplantY3Perk,6:activate:0x00103E58", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'perks: drinking from 0x00103E58: rads x 0\.0100 \(NVDLC03ImplantY3Perk\)', label = "Implant Y-3 cuts the water's rads to 1 %" },
+]
+
+[[scenario]]
 name = "pipboy-item-mod"
 source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
 areas = ["pipboy", "combat"]
@@ -6626,19 +6669,19 @@ manual = "vats_hit_chance.png: a creamy 'NN%' to the right of each dark-red x"
 [[scenario]]
 name = "vats-mode-miss"
 source = "owner 2026-10-23: a hit chance in VATS mode; a missed roll goes wide of the mark (docs/design/vats-mode.md §17.4)"
-note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and hits no actor (the player is the only one shooting, so a projectile hit on another actor would be this shot)"
+note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and does not hit it. 2026-10-24: the forbid was any actor; a run's wide shot hit Violetta standing beside the mark, which a miss may do (vats-mode.md §17.4), so the check is now on the marked dog"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
-  { re = 'vats mode: marked .* mark 1; .*% to hit', label = "one mark with its chance" },
+  { re = 'vats mode: marked Fiend Guard Dog 000F573F .* mark 1; .*% to hit', label = "one mark with its chance, on the Fiend Guard Dog (the nearest)" },
   { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: missed', label = "the roll misses (forced)" },
   { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the shot is fired and its AP spent" },
   { re = 'vats mode: rolls: 0 hit, 1 missed', label = "one miss counted" },
 ]]
-forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
+forbid = [{ re = 'combat: hit 0x000F573F on ', label = "the missed shot hits its mark" }]
 
 [[scenario]]
 name = "vats-mysterious-stranger"

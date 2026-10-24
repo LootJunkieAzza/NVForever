@@ -117,7 +117,7 @@ use fnv_combat::vec::{self, V3};
 use fnv_combat::{shot, CombatForms, CombatTuning, Rules};
 use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::activate::HudMessage;
 use crate::sfx::{LoopSound, PlaySound, Sfx};
@@ -388,6 +388,8 @@ pub struct ActorHit {
     pub share: f32,
     /// A power attack broke through its block (`damage::against_block`): it staggers.
     pub guard_broken: bool,
+    /// The weapon of the hit, when known (Meltdown, perk-entry-points.md §9).
+    pub weapon: Option<FormId>,
 }
 
 /// An actor's weapon left its hand: it reached zero condition and fell (§17), or a hit
@@ -1183,7 +1185,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1200,6 +1202,38 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
     if pace.0 != want {
         pace.0 = want;
         info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
+    }
+}
+
+/// Meltdown (Has Meltdown, perk-entry-points.md §9): a foe the player (or a teammate with
+/// the perk) kills with an Energy Weapons weapon gives off the DOBJ's Meltdown Explosion
+/// (`MinePlasmaExplosion` in FalloutNV.esm) at its body, the killer's blast with the same
+/// weapon, so a kill by it does the same again: "this can cause a chain reaction" [observed:
+/// the perk's DESC]. A body gives one off once.
+#[allow(clippy::too_many_arguments)]
+fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, phys: Res<PhysState>, mut done: Local<HashSet<u32>>) {
+    let kills: Vec<(u32, FormId, FormId)> = hits.read().filter(|h| h.died).filter_map(|h| Some((h.form_id, h.by?, h.weapon?))).collect();
+    for (victim, by, weapon) in kills {
+        let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+        if done.contains(&victim) || (by != FormId::PLAYER_REF && !rt.game.is_teammate(by)) {
+            continue;
+        }
+        let energy = rt.game.data.weapon_skills.get(&weapon).copied() == Some(fnv_game::actor_values::ENERGY_WEAPONS as i64);
+        let (has, explosion) = with_world(rt, &mut sim, |rt| {
+            let g = &mut rt.game;
+            (energy && g.entry_point(by, fnv_game::perks::HAS_MELTDOWN, 0.0).0 != 0.0, g.data.default_object(fnv_game::data::DefaultObject::MeltdownExplosion))
+        });
+        if !has {
+            continue;
+        }
+        let Some(explosion) = explosion else {
+            warn!("combat: Meltdown: the load order's DOBJ names no Meltdown Explosion");
+            continue;
+        };
+        let Some(at) = phys.world.actor_aim_point(victim).or_else(|| sim.world.peek(FormId(victim)).map(|r| [r.pos[0], r.pos[1], r.pos[2] + 60.0])) else { continue };
+        done.insert(victim);
+        info!("combat: Meltdown: {} gives off {} ({by}'s kill with {})", FormId(victim), c.forms.explosions.get(&explosion).and_then(|x| x.edid.as_deref()).unwrap_or("?"), c.forms.weapons.get(&weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"));
+        c.mine_explodes(explosion, at, Some((by, weapon)));
     }
 }
 
@@ -2562,7 +2596,7 @@ pub(crate) fn apply_hit(
             feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken, weapon: info.weapon });
     }
     Some(r)
 }

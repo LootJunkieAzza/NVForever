@@ -199,3 +199,29 @@ run-speed perks (Travel Light, Tunnel Runner, Implant M-5)" (perk-audit-2026-10-
 
 Checks: `fnv-game` `perk_combat` `mine_blast_throw_and_speed_perks`; smoke
 `perk-light-step`, `perk-heave-ho-splash`, `perk-run-speed`.
+
+## 9. Kills, the HUD, repair and drinking (2026-10-24)
+
+Owner 2026-10-24: "Build Meltdown, Living Anatomy's enemy health display, Jury Rigging
+and Implant Y-3 next" (perk-audit-2026-10-23 §3.7). What each entry point does
+[documented: GECK wiki Entry Point]; the entries, one each with no conditions [observed:
+the PERK records].
+
+| Code | Entry point | Perk | NVForever |
+|---|---|---|---|
+| 46 | Has Meltdown: "Enemies killed with Energy Weapons explode" | Meltdown, Set 1 ("foes killed by your Energy Weapons … give off a corona of harmful energy. Note: this can cause a chain reaction") | a foe the player (or a teammate with the perk) kills with a weapon of the Energy Weapons skill sets off the DOBJ's Meltdown Explosion (place 24 [documented: xEdit wbDefinitionsFNV.pas DOBJ, "Meltdown Explosion"]; FalloutNV.esm names `MinePlasmaExplosion` 0007078C [observed]) at its body, as the killer's blast with that weapon, so its own kills chain (`nvf-play` `combat::meltdown`, from the hit's `ActorHit`, which now carries the weapon); a body gives one off once |
+| 47 | See Enemy Health: "Enemy Health and DT values are displayed with their health bar" | Living Anatomy, Set 1 (its damage entry was already built) | a line under the enemy bar's name, centred in its red and font, "HP:<health> DT:<dt>", the health whole and the DT to two places (`hud_target::TargetHealth::anatomy_line`; DT as combat counts it, armour and the actor's own) [observed: the owner's screenshot of the original 2026-10-24, a Deathclaw: "HP:250 DT:15.00" under "Deathclaw", about 36 interface units lower] |
+| 48 | Has Jury Rigging: "access alternate and predefined - but far more inclusive - repair lists" | Jury Rigging, Set 1 | the Pip-Boy's repair takes, besides the item's repair list, any carried item of the same family (`fnv_game::repair::jury_rigs`): a weapon of the same WEAP skill and animation type, armour of the same class worn on the same part of the body [design: the original's lists are not in the records; the perk's DESC gives the examples it must allow: "a Trail Carbine with a Hunting Rifle, a Plasma Defender with a Laser Pistol, or even Power Armor with Metal Armor", which this rule does] |
+| 26 | Adjust Drinking Radiation: "run when the player drinks from a placed water source; modifies the radiation from placed water sources" | Implant Y-3 × 0.01 | the rads of the water's actor effect when drinking from a sink, a toilet or the like (`Game::drink_from`), logged `perks: drinking from <ref>: rads x <m> (<perks>)` |
+
+Drinking by hand (E on a sink): the player's hand path (`nvf-play` `script.rs`, `by_hand`)
+activated the water source in the world and never reached `Game::drink_from`, so no
+water's actor effect applied by hand; it now drinks as `Game::default_activation` does
+(found by smoke `perk-implant-y3`, 2026-10-24).
+
+Jury Rigging's flag is read without its conditions (`Game::holds_entry_point`), where the
+Pip-Boy holds only a shared borrow of the game [design: the masters' entry has none].
+
+Checks: `fnv-game` `repair` `jury_rigging_pairs_like_weapons_and_armour`, `data`
+`default_objects_by_their_place`; smoke `perk-jury-rigging`, `perk-meltdown-anatomy`,
+`perk-implant-y3`.

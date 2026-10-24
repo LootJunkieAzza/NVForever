@@ -660,6 +660,9 @@ pub enum DefaultObject {
     DeathMusic = 11,
     LevelUpMusic = 13,
     DrugWearsOffImageSpace = 20,
+    /// The explosion of Meltdown's kills [observed: FalloutNV.esm's DOBJ names
+    /// MinePlasmaExplosion 0007078C there] (perk-entry-points.md §9).
+    MeltdownExplosion = 24,
 }
 
 impl GameData {
@@ -684,6 +687,7 @@ mod default_object_tests {
         assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
         assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
         assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
+        assert_eq!(default_in(&list, DefaultObject::MeltdownExplosion), Some(FormId(0x118)));
         assert_eq!(default_in(&[], DefaultObject::DeathMusic), None);
     }
 }

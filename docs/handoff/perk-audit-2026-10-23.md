@@ -130,7 +130,7 @@ run speed has no such block.
 | 54 Modify Aiming Move Speed | Run 'n Gun × 2 |
 | 3 Calculate Weapon Attack AP Cost | Ain't Like That Now × 0.8 (attacks outside VATS cost AP in the original only through this) |
 
-### 3.7 Kills, health, repair, the HUD
+### 3.7 Kills, health, repair, the HUD (built 2026-10-24 but Better Healing and Cardiac Arrest, perk-entry-points.md §9)
 
 | Entry point | Perks |
 |---|---|
