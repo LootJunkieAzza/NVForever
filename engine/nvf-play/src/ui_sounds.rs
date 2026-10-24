@@ -337,12 +337,11 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         // click `UIMenuPrevNext`, Continue, Back and Done `UIMenuOK` [documented:
         // levelup_menu.xml LUM_Template_LeftArrow, RightArrow, LUM_Perk,
         // LUM_ContinueButton, LUM_BackButton]; the pointer and Reset as the tag-skill
-        // menu's [design]. Opening plays the music-like piece, `UILevelUpText`
-        // (`ui_leveluptext.wav`, 4.9 s) [owner, 2026-10-16: "the level up screen has
-        // another sound effect that plays like music"; observed: the record and its
-        // length]; the short `UILevelUp` (0.9 s) is the HUD's XP meter's "LEVEL UP"
-        // (`crate::xp_meter`).
-        (LevelUp, Opened) => Named("UILevelUpText"),
+        // menu's [design]. Opening plays `MUSSuccess` (`fx\mus\mus_success.wav`, the
+        // archives' `.ogg`) [owner, 2026-10-24: "the sound effect we actually want to play
+        // when the level up screen is shown is mus_success.ogg"; observed: SOUN 0x00078594
+        // names it]; `UILevelUpText` is the XP meter's filled bar (`crate::xp_meter`).
+        (LevelUp, Opened) => Named("MUSSuccess"),
         (LevelUp, Focus) => Named("UIMenuFocus"),
         (LevelUp, Value { .. } | Picked) => Named("UIMenuPrevNext"),
         (LevelUp, Switch | Accepted) => Named("UIMenuOK"),
@@ -728,7 +727,7 @@ mod tests {
             assert_eq!(sound_for(m, UiEvent::Refused), Choice::Named("UIMenuCancel"));
         }
         // The level-up menu.
-        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Opened), Choice::Named("UILevelUpText"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Opened), Choice::Named("MUSSuccess"));
         assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Value { up: true }), Choice::Named("UIMenuPrevNext"));
         assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Value { up: false }), Choice::Named("UIMenuPrevNext"));
         assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Picked), Choice::Named("UIMenuPrevNext"));

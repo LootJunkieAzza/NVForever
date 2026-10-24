@@ -1930,7 +1930,7 @@ order = [[
   { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
 ]]
 expect = [
-  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
+  { text = "ui sounds: level up opened: MUSSuccess", label = "the level-up screen's music" },
   { text = "ui sounds: level up value raised: UIMenuPrevNext", label = "a + clicked" },
   { text = "ui sounds: level up value lowered: UIMenuPrevNext", label = "a - clicked" },
   { text = "ui sounds: level up refused: UIMenuCancel", label = "Continue with points left" },
@@ -1996,8 +1996,9 @@ order = [[
 ]]
 expect = [
   { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
-  { text = "xp meter: sound UILevelUp", label = "the level-up sting" },
-  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
+  { text = "xp meter: sound UILevelUpText", label = "the bar filled: the level-up sound" },
+  { text = "ui sounds: level up opened: MUSSuccess", label = "the level-up screen's music" },
+  { gap = ["xp meter: sound UILevelUpText", "levelup: menu open"], range = [4.9, 6.0], label = "the menu opens 5 s after the level-up sound" },
 ]
 manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png the pointer at the end and LEVEL UP; xp_levelup_menu.png the level-up menu"
 

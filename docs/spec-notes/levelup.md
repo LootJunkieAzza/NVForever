@@ -115,9 +115,9 @@ pieces with the character-creation menus (chargen.md).
 - Sounds (`ui_sounds`, menu `level up`): the arrows and perk rows `UIMenuPrevNext`,
   Continue, Back and Done `UIMenuOK` [documented]; the row moving and the pointer onto a
   button `UIMenuFocus`, Reset and anything refused `UIMenuCancel` [design, as the
-  tag-skill menu]; opening `UILevelUpText`, the music-like piece (4.9 s) [owner,
-  2026-10-16; observed: the record]; the short `UILevelUp` plays with the XP meter's
-  LEVEL UP (experience.md §6).
+  tag-skill menu]; opening `MUSSuccess` (`mus_success`) [owner, 2026-10-24; observed:
+  the record]; `UILevelUpText` plays with the XP meter's LEVEL UP, 5 s before the menu
+  opens (experience.md §6).
 
 ## 6. Not built, or guessed
 
