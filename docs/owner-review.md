@@ -8311,3 +8311,40 @@ there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/phy
 - *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
   the feet (was 0.5 above the feet themselves).
 - *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+
+## Sound, projectiles and weapons from the ESM audit (2026-10-24, branch claude/esm-sound-weapons-6c6657)
+
+Placed sounds now follow their SOUN attenuation curve and reverb send; bullets whiz from
+the nearest point of their path; thrown knives, hatchets, spears and tomahawks land and
+can be picked up; power armour helmets and intercoms filter the voice; weapons play their
+hand grip (third person), power attack override and Hide Backpack; creatures' built-in
+guns shoot from their gun node. Specs: [audio §15.5](spec-notes/audio.md),
+[combat-rules §11b](spec-notes/combat-rules.md), [weapon-data-fields §7](spec-notes/weapon-data-fields.md).
+
+- *Guess:* the curve's three middle points stand evenly between the inner and outer
+  radius, with straight lines between them; the percentages are of the amplitude.
+  *Check:* walk away from a loud placed sound (a campfire, a generator): does it fade like
+  the original?
+- *Guess:* the reverb send is linear (control 80 sends a fifth). Most sounds now reverb
+  much less than before. *Check:* gunshots in the Goodsprings cave: too dry, too wet?
+- *Guess:* projectiles that are not supersonic (plasma, pulse, sonic) loop their sound
+  while they fly. *Check:* does a plasma bolt hum on its way in the original?
+- *Guess:* a thrown weapon that strikes an actor goes into its inventory; one that
+  strikes the ground lies there. The GECK wiki says "Can be Picked Up" "doesn't appear to
+  work with Missile type projectiles", and the masters' thrown weapons are Missiles.
+  *Check:* in the original, after throwing a knife at a wall or a gecko, is it there to
+  pick up (on the ground, on the body)?
+- *Guess:* the voice filter's sound (a radio band, a mild saturation, a short ring), and
+  that every talking activator without "No Voice Filter" is filtered (85 of 87, intercoms
+  and speakers). *Check:* a Brotherhood paladin in a helmet, and an intercom (Lucky 38,
+  the Sierra Madre): too thin, or filtered twice where the file is already filtered?
+- *Guess:* the power attack override replaces only the standing power attack.
+  *Check:* a standing power attack with the Machete Gladius or Chance's knife: a
+  different swing from a plain machete's?
+- *Guess:* the hand grip plays in third person only (the wiki says so; the first-person
+  files exist). *Check:* the plasma rifle and the throwing spear in third person: does the
+  left hand sit right?
+- *Question:* VATS special attacks (the Machete's "Back Slash", AP and damage multiplier
+  per weapon) need a choice per mark, which NVForever's VATS mode does not have. Wanted,
+  and how would you pick one (a key cycling the mark's attack)?

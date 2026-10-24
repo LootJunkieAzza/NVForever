@@ -997,14 +997,13 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
 
 - **BRUS** Passthrough Sound: an index (0–11, `BushA`…) with no record linking it to a
   SOUN, and the 20 statics that set it are too few to infer the table from names.
-- **The attenuation curve** (five points) and **loop points**: what distances the
-  points stand at, and in what unit the loop points count, is not documented. The
-  §14 loudness rule stays.
+- **Loop points**: in what unit they count is not documented (32 sounds set them).
+  The attenuation curve and the reverb control are built (§15.5).
 - **ASPC walla** (a crowd loop with a trigger count) and **ALOC location / retrigger
   delays**: how the count and the delays act is not documented; music.md keeps the
   delays "not built".
-- **ARMO Modulates Voice** and **TACT No Voice Filter**: no voice filter exists, and
-  what it sounds like is a capture question.
+- **ARMO Modulates Voice** and **TACT No Voice Filter**: built (§15.5); what the
+  original's filter sounds like is still a capture question.
 - **The Bolt and Area Sounds** of MGEF: one bolt sound, no area sound in the master,
   and no spell projectile is drawn.
 
@@ -1020,6 +1019,62 @@ Submerged 2,846, Start at Random Position 110. 2,423 keep the attenuation curve
 - Block sounds per blow with `RUST_LOG=nvf_play::combat=debug` ("blocks: WPNBlock…").
 
 Smoke scenario `own-sounds-goodsprings`.
+
+### 15.5 The attenuation curve, the reverb send, whizzes and the voice filter (2026-10-24)
+
+From the ESM audit (docs/handoff/esm-full-audit-2026-10-24.md, gaps 7, 15, 17). Code:
+`nvf_play::sfx::distance_gain`, `nvf_play::reverb::send_of`, nvforever `own_sounds.rs`,
+`nvf_play::voice_filter`.
+
+- **The records** [documented: xEdit wbDefinitionsFNV.pas SOUN `SNDD`;
+  `schemas/fnv/objects.json`]: after the start and stop times, `attenuation_curve` (five
+  `i16`), `reverb_attenuation_control` (`i16`), `priority` (`i32`), the loop points.
+  Over FalloutNV.esm's 3,190 sounds [observed]: the curve (100, 50, 20, 5, 0) on 2,423,
+  then (100, 32, 20, 5, 0) 112, (100, 60, 30, 10, 0) 84, (100, 50, 25, 10, 0) 67 …, flat
+  (100 at every point) 9; the reverb control 80 on 1,687, 0 on 1,032, 100 on 107.
+- **What they mean** [documented: GECK wiki Sound, the owner's export
+  (`C:nv-private\geckwiki`, MiscWithmessage.xml)]: the Attenuation tab "has five
+  sliders to modify the attenuation curve. The topmost slider is the sound's volume
+  percentage at its inner radius. The bottommost slider is the sound's volume percentage
+  at its outer radius. The values in between ... describe the volume falloff curve
+  between the inner and outer radius of the sound. The curve defaults to a logarithmic
+  falloff." Reverb Attenuation Control: "When set to 100, the sound's reverb send is
+  100% attenuated -- no sound is sent into the current reverb preset. When set to 0 ...
+  all of the sound is allowed into the current reverb preset." The minimum and maximum
+  attenuation distances are the inner and outer radius (same page).
+- **As built**: within the minimum distance a placed sound plays at the curve's first
+  point; between the two distances it follows the curve, the middle three points
+  evenly spaced and straight lines between the points [hypothesis: the wiki gives no
+  distances for the middle points]; at and beyond the maximum distance it is silent. A
+  percentage is a share of the amplitude [hypothesis]. With the default curve a sound
+  is at half its level a quarter of the way out (was: minimum ÷ distance times a linear
+  fade). A sound whose record has no curve, and the radio's fallback template, play the
+  default curve. Dialogue keeps its own rule (`voice::voice_gain`).
+- **Reverb send**: a sound sends 1 − control ÷ 100 of its amplitude into the reverb of
+  the listener's space [hypothesis: linear]; 100 sends nothing (the sound plays dry and
+  does not count in `reverb summary`). The dry sound is unchanged. Most sounds now reverb
+  at a fifth of the level they did (control 80).
+- **Whizzes** (PROJ `DATA` flag Supersonic, 48 PROJ of the masters): "If checked, the
+  sound emanates from the point of the projectile's path closest to the listener ...
+  If unchecked, the sound emitter follows the projectile around until it is destroyed"
+  [documented: GECK wiki Projectile]. A supersonic projectile's sound plays once, at the
+  point of its path nearest the listener, the frame it starts to draw away [design:
+  when]; any other's follows it, going round while it flies [hypothesis: the plasma,
+  pulse and sonic projectiles' sounds are named `…ProjectileLP` but lack the Loop flag].
+  This replaces §15.2's rule by the sound's Loop flag.
+- **The voice filter**: a speaker wearing an armour with ARMO `DNAM` "Modulates Voice"
+  (38 armours, all helmets and masks: the power armour helmets, the Ranger combat
+  helmet, the Legion helmets, gas and surgical masks [observed]; "Checked if the item modulates the actor's voice", ArmorAddon
+  "distorts the character's voice (like Power Armor helmets do)" [documented: GECK wiki
+  Armor, ArmorAddon]) and a talking activator whose record header lacks bit 13 "No
+  Voice Filter" [documented: GECK wiki GetFormFlag] is heard through a filter. 85 of
+  FalloutNV.esm's 87 TACT lack the bit (intercoms, speakers, the Lucky 38 mainframe), the
+  two with it are radios (`TopsBruceIsaacRadio`, `TopsLonesomeDrifterRadio`); Dead
+  Money, Honest Hearts and Old World Blues set it on none of their 45 [observed]. That
+  the TACT without the bit are filtered is a [hypothesis] from the bit's name. The
+  filter's sound is NVForever's [hypothesis]: a 350–3,200 Hz band, a mild saturation
+  and a 3.5 ms ring, at about the same level (`voice_filter.rs`). The voice files of the
+  intercoms may already be processed; heard twice it would be too much (owner review).
 
 ## 16. Creature sound audit (owner's playtest list 7 item 46, 2026-10-23)
 

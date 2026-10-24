@@ -185,7 +185,8 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
             // A placed loop sounds in the room it is heard in (crate::reverb).
             let reverb = crate::reverb::for_sound(sfx.room_reverb, settings, &s);
             sfx.reverbed += reverb.is_some() as u32;
-            commands.spawn((AudioPlayer::<Panned<LayeredMusic>>(assets.1.add(Panned { inner: music, pan: pan.clone(), reverb })), playback, AmbientSound)).id()
+            sfx.reverb_send_sum += reverb.map_or(0.0, |r| r.send);
+            commands.spawn((AudioPlayer::<Panned<LayeredMusic>>(assets.1.add(Panned { inner: music, pan: pan.clone(), reverb, voice_filter: false })), playback, AmbientSound)).id()
         }
         None => commands.spawn((AudioPlayer::<LayeredMusic>(assets.0.add(music)), playback, AmbientSound)).id(),
     };

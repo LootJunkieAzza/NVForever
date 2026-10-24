@@ -44,7 +44,12 @@
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
-//!   were coming from Violet's face, not the gun"); without a muzzle node, from the eyes.
+//!   were coming from Violet's face, not the gun"). A creature's embedded weapon (a
+//!   sentry bot's minigun, an eyebot's laser) shoots from the node of the creature's
+//!   skeleton its WEAP `NNAM` names ("Node that the weapon is attached to" [documented:
+//!   GECK wiki Weapons, Embedded Weapon]; `ProjectileNode_RGatling`,
+//!   `ProjectileNode_HeadLaser`); a node only in a body part's model is not found
+//!   [design: the skeleton's nodes are the ones spawned]. Without either, from the eyes.
 //!   Inside its spread: the documented actor
 //!   spread for its weapon skill, standing, plus an aim that settles over
 //!   [`SETTLE_SECONDS`] of firing at the same target [design].
@@ -999,6 +1004,12 @@ fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
     }
 }
 
+/// The index of the skeleton node named `node` (an embedded weapon's NNAM), matched
+/// without regard to case.
+pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize> {
+    names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(node)))
+}
+
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fight(
@@ -1012,7 +1023,7 @@ pub(crate) fn fight(
     (nav, location, mut battle, residents): Where,
     actors: Query<Fought>,
     held: Query<&HeldWeapon>,
-    muzzles: Query<(&Muzzle, &GlobalTransform)>,
+    (muzzles, nodes): (Query<(&Muzzle, &GlobalTransform)>, Query<&GlobalTransform>),
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
     mut times: ResMut<AttackTimes>,
     (cstats, control): (Option<Res<CombatStats>>, Option<Res<PlayerControl>>),
@@ -1030,6 +1041,15 @@ pub(crate) fn fight(
     let c = &*combat;
     let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).collect();
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
+    // A creature's embedded weapon shoots from the node its WEAP names (NNAM), where its
+    // skeleton has it (module notes).
+    let rigs: HashMap<u32, &ActorRig> = actors.iter().map(|(rig, ..)| (rig.reference, rig)).collect();
+    let embedded_at = |id: u32, ws: &WeaponStats| -> Option<V3> {
+        let node = ws.embedded_node.as_deref().filter(|_| ws.embedded)?;
+        let rig = rigs.get(&id)?;
+        let i = embedded_node_index(&rig.skel.names, node)?;
+        nodes.get(*rig.nodes.get(i)?).ok().map(|g| bevy_to_game(g.translation()).to_array())
+    };
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
     for (rig, g, vis, _, dying, corpse, _) in &actors {
@@ -2161,14 +2181,16 @@ pub(crate) fn fight(
                                 }
                                 // Aimed from the eyes, drawn from the muzzle when the weapon
                                 // has one (module notes).
-                                let muzzle = muzzle_at.get(&id).copied();
+                                let embedded = if muzzle_at.contains_key(&id) { None } else { embedded_at(id, ws) };
+                                let muzzle = muzzle_at.get(&id).copied().or(embedded);
                                 let to = vec::sub(aim_at, eyes);
                                 let len = vec::len(to).max(1.0);
                                 let aim = vec::scale(to, 1.0 / len);
                                 let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
                                 if !fighter.opened_fire {
                                     fighter.opened_fire = true;
-                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0})", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
+                                    let node = embedded.and(ws.embedded_node.as_deref()).map_or(String::new(), |n| format!(", shooting from its embedded weapon's node {n}"));
+                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0}){node}", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
                                 }
                                 let first = f.stats.from_muzzle + f.stats.from_eyes == 0 || fighter.firing_for <= dt;
                                 match muzzle {
@@ -2657,6 +2679,15 @@ fn log_room(phys: Option<&mut PhysState>, name: &str, what: &str, feet: [f32; 3]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_weapon_node_by_name() {
+        // The sentry bot's skeleton names its gun node so (meshes\creatures\sentrybot).
+        let names = vec![Some("Bip01".to_string()), None, Some("ProjectileNode_RGatling".to_string())];
+        assert_eq!(embedded_node_index(&names, "ProjectileNode_RGatling"), Some(2));
+        assert_eq!(embedded_node_index(&names, "projectilenode_rgatling"), Some(2));
+        assert_eq!(embedded_node_index(&names, "ProjectileNode_HeadLaser"), None);
+    }
 
     #[test]
     fn melee_keeps_its_reach_from_the_target() {
