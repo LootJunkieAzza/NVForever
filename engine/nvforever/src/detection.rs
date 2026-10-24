@@ -657,6 +657,7 @@ fn measure(
     (sfx, visuals): (Option<Res<Sfx>>, Option<Res<ShotVisuals>>),
     actors: Query<Watched>,
     (point_lights, spot_lights, camera, world): Scene,
+    mut gauges: Option<ResMut<nvf_play::sneak_gauges::SneakGauges>>,
 ) {
     let state = &mut *state;
     // Shots, heard at the next measurement.
@@ -847,6 +848,9 @@ fn measure(
         state.stats.shaded += sunlit.iter().filter(|lit| !**lit).count();
     }
     let light: Vec<f64> = people.iter().zip(&sunlit).map(|(p, &lit)| light_at(sky.as_deref(), &lights, p.chest(), lit)).collect();
+    if let Some(g) = gauges.as_deref_mut() {
+        g.light = light.first().copied().unwrap_or(0.0) as f32;
+    }
     if pip_on {
         state.stats.pip_light_on += 1;
         state.stats.pip_light_most = state.stats.pip_light_most.max(light.first().copied().unwrap_or(0.0));
@@ -877,8 +881,13 @@ fn measure(
     let shot_levels = state.shot_levels.clone();
     let (mut events, mut hurt) = (0, 0);
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
+    let player_shot = shots.get(&FormId::PLAYER_REF.0).copied().unwrap_or(0.0);
+    let mut player_noise = 0.0;
     let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
+        // The player's own noise, for the sneak gauges (nvf_play::sneak_gauges).
+        let me = &people[0];
+        player_noise = settings.noise(&g.detection_pair(FormId::PLAYER_REF, FormId::PLAYER_REF), me.moving, me.running, player_shot);
         // What the scripts read of movement, sneaking and swimming (IsMoving, IsRunning,
         // IsSneaking, IsSwimming): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
@@ -1075,6 +1084,9 @@ fn measure(
         }
         (g.awareness.take_changes(), std::mem::take(&mut g.awareness.barks), held.len())
     });
+    if let Some(g) = gauges.as_deref_mut() {
+        g.noise = player_noise as f32;
+    }
 
     // The log and the counts.
     state.kept = KeptSights { at: now, sights: kept_now };

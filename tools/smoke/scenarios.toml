@@ -7581,6 +7581,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "sneak-gauges"
+source = "Owner request 2026-10-24 (docs/design/detection.md §10): the settings switch sneak-gauges shows light and noise bars under the sneak word while sneaking; the player sneaks at noon in Goodsprings and fires a Normal-level gun, which fills the noise bar"
+areas = ["detection", "hud"]
+paths = ["engine/nvf-play/src/sneak_gauges.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "4:5", NVF_PLAY_TEST_SETTINGS = "4.5:sneak-gauges", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:sneak,12:weapon,15:reload,20:fire" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'sneak gauges shown: light \d+, noise \d+', label = "the gauges show while sneaking" },
+  { re = 'sneak gauges summary: on true, shown (?P<n>[\d.]+) s', range = [10, 30], label = "shown for the time sneaking" },
+  { re = 'sneak gauges summary: .*most light (?P<n>\d+)', range = [30, 100], label = "noon light measured at the player" },
+  { re = 'sneak gauges summary: .*most noise (?P<n>\d+)', range = [100, 1000], label = "the shot is loud" },
+]
+
+[[scenario]]
 name = "detection-pipboy-light"
 source = "Sneak audit (docs/design/detection.md §9): at night in Goodsprings the Pip-Boy light, switched on at 4 s, counts as the game's PipboyLight640 at the player's chest and lights the player near the top of the light term"
 areas = ["detection"]

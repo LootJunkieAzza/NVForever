@@ -224,23 +224,31 @@ impl Settings {
         }
     }
 
+    /// The sound the target makes, as the sound term counts it before the distance
+    /// falloff: fSneakSoundsMult · (movement + action), movement 0 standing still, else
+    /// (fSneakBootWeightBase + fSneakBootWeightMult · body armour weight) × fSneakRunningMult
+    /// when running (not with Ignore Running During Detection), a creature's by its sound
+    /// level; action = the loudest action sound × fSneakActionMult.
+    pub fn noise(&self, p: &Pair, moving: bool, running: bool, action_sound: f64) -> f64 {
+        let movement = if moving || running {
+            let run = if running && !p.ignore_running { self.running_mult } else { 1.0 };
+            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
+            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
+            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * run * level
+        } else {
+            0.0
+        };
+        self.sounds_mult * (movement + action_sound * self.action_mult)
+    }
+
     /// The detection value of a pair in a situation, with its parts.
     pub fn evaluate(&self, p: &Pair, s: &Situation) -> Detection {
         let a = self.attenuation(s.distance, s.exterior);
         let moving = s.moving || s.running;
 
         // Sound.
-        let movement = if moving {
-            let running = if s.running && !p.ignore_running { self.running_mult } else { 1.0 };
-            // A creature moves as loud as its NAM5 level against Normal (§8 of the design).
-            let level = p.target_sound_level.filter(|_| self.sound_normal > 0.0).map_or(1.0, |l| self.level_sound(l) / self.sound_normal);
-            (self.boot_weight_base + self.boot_weight_mult * p.target_armor_weight) * running * level
-        } else {
-            0.0
-        };
-        let action = s.action_sound * self.action_mult;
         let sound_falloff = if s.line_of_sight { a } else { a * self.sound_los_mult };
-        let sound = sound_falloff * self.sounds_mult * (movement + action);
+        let sound = sound_falloff * self.noise(p, moving, s.running, s.action_sound);
 
         // Visual.
         let seen = s.line_of_sight && s.in_view;
