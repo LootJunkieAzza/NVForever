@@ -5078,6 +5078,7 @@ expect = [
   { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif: .*plays Effect' },
   { re = 'image space modifiers on the screen: .+' },
   { re = 'shot fx: (?P<n>\d+) effect models played their own animation, 1 explosion screen effects', range = [2, 1000] },
+  { re = 'shot fx: 0 explosions turned to the ground under them, 1 upright', label = "MissileExplosion always uses the world's orientation (EXPL flag 1)" },
 ]
 
 [[scenario]]
@@ -8552,3 +8553,48 @@ order = [[
   { re = 'nav: obstacles switched \[000F3EF2 on\]; [1-9]\d* triangles cut now', label = "the box car enabled cuts the navmesh" },
   { re = 'nav: obstacles switched \[000F3EF2 off\]; \d+ triangles cut now', label = "disabled, it frees it" },
 ]]
+
+[[scenario]]
+name = "explosion-ground-orientation"
+source = "ESM audit gap 28 (docs/spec-notes/explosion-effects.md, engine/nvforever/src/shot_fx.rs): an EXPL without Always Uses World Orientation is turned to the ground under it"
+note = "as missile-explosion with the grenade launcher: its 40mmGrenadeExplosion lacks the flag, so its model's +z goes along the ground's normal by the Prospector Saloon"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:4", NVF_PLAY_TEST_LOOK = "2:46:-8", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 16
+expect = [
+  { re = 'combat: explosion 40mmGrenadeExplosion at' },
+  { re = 'shot fx: 1 explosions turned to the ground under them, 0 upright', label = "the grenade's explosion follows the ground" },
+]
+
+[[scenario]]
+name = "area-effects-cast"
+source = "ESM audit gap 3 (docs/spec-notes/area-effects.md, crates/fnv-game/src/area_effects.rs): a spell with an area cast on oneself reaches the actors within it, in feet"
+note = "Goodsprings at noon: Ringo brought 300 units north of the player at 3 s; the player casts LegionExplorerAura (area 50, about 1,067 units, ignores sight) at 5 s; Ringo sent 3,000 units away at 7 s and the aura cast again at 16 s (after its 10 s); then the EvaluatePackage pulse (area 1024) at 18 s reaches the people around"
+areas = ["scripts", "combat"]
+paths = ["crates/fnv-game/src/area_effects.rs", "crates/fnv-game/src/functions/magic.rs", "engine/nvf-play/src/combat/hit_effects.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:300:0,5:call:player:CastImmediateOnSelf:LegionExplorerAura,7:moveto:RingoRef:player:0:3000:0,16:call:player:CastImmediateOnSelf:LegionExplorerAura,18:call:player:CastImmediateOnSelf:VEvaluatePackagePulseSpell" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'area effect: LegionExplorerAura around the player: \d+ actor\(s\) reached \(.*Ringo', count = 1, label = "Ringo 300 units away is reached, and not again from 3,000" },
+  { re = 'area effect: VEvaluatePackagePulseSpell around the player: (?P<n>\d+) actor\(s\) reached', range = [1, 1000], label = "the pulse reaches the people around (1,024 feet)" },
+]
+
+[[scenario]]
+name = "imagespace-hdr-sounds"
+source = "ESM audit gaps 8 and 9 (docs/spec-notes/image-modifiers.md §10-11): a scripted modifier's HDR tracks change the exposure, its intro sound plays"
+note = "Goodsprings' street at noon; BarkScorpionPoisonISFX (animated 6 s: Target LUM x2 and Bright Scale x3 at 1.5 s; intro FXPoisonStinger) applied at 4 s; CGCameraFlashISFX (8 s: Bright Scale x5, Bright Clamp x0.1; intro FXExplosionThermite) at 12 s. Frames: hdr_before.png at 3 s, hdr_poison.png at 5.5 s, hdr_flash.png at 13 s"
+areas = ["imagespace"]
+paths = ["crates/fnv-world/src/image_modifier.rs", "engine/nvforever/src/imagespace*", "engine/nvforever/src/eye_adapt.rs", "engine/nvforever/src/post.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:-:ApplyImageSpaceModifier:BarkScorpionPoisonISFX,12:call:-:ApplyImageSpaceModifier:CGCameraFlashISFX", NVF_PLAY_TEST_SHOTS = "3:hdr_before.png,5.5:hdr_poison.png,13:hdr_flash.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+order = [[
+  "image space modifier sound: BarkScorpionPoisonISFX intro 0x001598F0",
+  { re = 'eye adaptation: .*modifiers \+1\.00 EV$', label = "the poison doubles Target LUM: one EV brighter" },
+  { re = 'eye adaptation: .*modifiers \+0\.00 EV$', label = "back when it has run" },
+  "image space modifier sound: CGCameraFlashISFX intro 0x00179418",
+]]
+

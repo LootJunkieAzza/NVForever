@@ -829,6 +829,9 @@ pub struct GameData {
     /// SPEL SPIT type (0 Actor Effect, 1 Disease, 2 Power, 3 Lesser Power, 4 Ability,
     /// 5 Poison, 10 Addiction) [documented: xEdit wbDefinitionsFNV.pas SPEL].
     pub spell_types: HashMap<FormId, i64>,
+    /// SPEL SPIT flags (bit 4 "Area Effect Ignores LOS", `crate::area_effects`)
+    /// [documented: xEdit wbDefinitionsFNV.pas SPEL].
+    pub spell_flags: HashMap<FormId, u8>,
     /// RACE SPLO: the race's actor effects [hypothesis: as NPC_'s; none in FalloutNV.esm,
     /// observed].
     pub race_spells: HashMap<FormId, Vec<FormId>>,
@@ -1275,6 +1278,7 @@ struct Read {
     effects: Option<Vec<EffectItem>>,
     ingestible: Option<IngestibleDef>,
     spell_type: Option<i64>,
+    spell_flags: Option<u8>,
     /// RACE SPLO list; ARMO EITM; ENCH ENIT type (`GameData::race_spells` …).
     race_spells: Option<Vec<FormId>>,
     /// VTYP DNAM bit 0, "Allow Default Dialog"; `None` without a DNAM.
@@ -1381,6 +1385,7 @@ impl GameData {
             effect_items: HashMap::new(),
             ingestibles: HashMap::new(),
             spell_types: HashMap::new(),
+            spell_flags: HashMap::new(),
             race_spells: HashMap::new(),
             voices_without_default: Default::default(),
             armor_enchantments: HashMap::new(),
@@ -1568,6 +1573,9 @@ impl GameData {
             }
             if let Some(v) = r.spell_type {
                 d.spell_types.insert(id, v);
+            }
+            if let Some(v) = r.spell_flags.filter(|&v| v != 0) {
+                d.spell_flags.insert(id, v);
             }
             if let Some(v) = r.race_spells.filter(|v| !v.is_empty()) {
                 d.race_spells.insert(id, v);
@@ -2770,6 +2778,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     }
                     b"SPIT" if &sig == b"SPEL" => {
                         out.spell_type = v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"SPIT", Some("type"), t));
+                        out.spell_flags = v.as_ref().map(|v| flag_bits(v.get("flags")) as u8);
                     }
                     b"CTDA" => {
                         if let Some(c) = cond(v, &mut out.issues) {

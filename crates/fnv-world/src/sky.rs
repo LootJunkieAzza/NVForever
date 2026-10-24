@@ -669,6 +669,12 @@ pub struct Water {
     pub under_fog: [f32; 3],
     pub noise_normals_scale: f32,
     pub noise_normals_uv_scale: f32,
+    /// DNAM "Depth Falloff Start" and "End": "where the alpha fadeoff begins (used for
+    /// edges of the water, to blend it smoothly with the land)" and ends [documented:
+    /// GECK wiki WaterType; xEdit files them under the noise normals]. The masters store
+    /// fractions (0 to 0.8; NVCleanWater 0 to 0.0109) [observed]; what they are fractions
+    /// of is not documented ([`Water::edge_falloff`]).
+    pub depth_falloff: [f32; 2],
     pub noise_layers: [NoiseLayer; 3],
     pub rain: RippleParams,
     pub displacement: RippleParams,
@@ -698,6 +704,7 @@ pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
         w.under_fog = [n("under_fog_near"), n("under_fog_far"), n("under_fog_amount")];
         w.noise_normals_scale = n("noise_normals_scale");
         w.noise_normals_uv_scale = n("noise_normals_uv_scale");
+        w.depth_falloff = [n("noise_depth_falloff_start"), n("noise_depth_falloff_end")];
         let ripple = |p: &str, size: &str| RippleParams {
             starting_size: n(size),
             force: n(&format!("{p}_force")),
@@ -718,6 +725,23 @@ pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
         }
     }
     Some(w)
+}
+
+impl Water {
+    /// The depth falloff in game units of water the view ray crosses: start and end of
+    /// the ramp over which the surface fades in from the shore. The stored fractions are
+    /// taken as fractions of the above-water fog's far distance [hypothesis: the masters'
+    /// fractions give ramps of a few units to a few tens (NVCleanWater 9, the Potomac's
+    /// 37, the Goodsprings blood pools' 5), an edge; game units outright would be
+    /// hundredths of a unit]. `None` when there is no ramp.
+    pub fn edge_falloff(&self) -> Option<(f32, f32)> {
+        let far = self.above_fog[1];
+        let [a, b] = self.depth_falloff;
+        if far.is_nan() || far <= 0.0 || !a.is_finite() || !b.is_finite() || b <= a {
+            return None;
+        }
+        Some((a.max(0.0) * far, b * far))
+    }
 }
 
 /// The water type (WATR) of a placeable water (PWAT): its `DNAM` "Water" [documented:
@@ -754,6 +778,16 @@ mod tests {
         // Hours into a session the offset still moves smoothly.
         let (a, b) = (w.cloud_offset(3, 36_000.0), w.cloud_offset(3, 36_001.0));
         assert!(((b - a).rem_euclid(1.0) - 65.0 / 25_600.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn water_edge_falloff() {
+        let w = Water { above_fog: [-80.0, 850.0, 1.0], depth_falloff: [0.0, 0.0109], ..Default::default() };
+        let (a, b) = w.edge_falloff().unwrap();
+        assert_eq!(a, 0.0);
+        assert!((b - 9.265).abs() < 1e-3);
+        assert_eq!(Water { depth_falloff: [0.0, 0.0], ..w.clone() }.edge_falloff(), None);
+        assert_eq!(Water { above_fog: [0.0, 0.0, 1.0], ..w }.edge_falloff(), None);
     }
 
     #[test]

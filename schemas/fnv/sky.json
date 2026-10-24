@@ -1495,6 +1495,18 @@
      },
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(NAM4): time, value"
+    },
+    "RDSD": {
+     "name": "Sound - Intro",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD: wbFormIDCk(RDSD, 'Sound - Intro', [SOUN]); 20 records in the masters set it"
+    },
+    "RDSI": {
+     "name": "Sound - Outro",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD: wbFormIDCk(RDSI, 'Sound - Outro', [SOUN]); one record in the masters (NVDLC03BattleBrewDrinkISFX) sets it"
     }
    }
   },
