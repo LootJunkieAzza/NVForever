@@ -32,6 +32,10 @@ pub struct Stance {
     /// "Modify Aiming Move Speed" perk divisor for the moving penalty (1 = none; the page
     /// says it cannot divide below 1).
     pub aiming_move_divisor: f32,
+    /// "Modify Weapon Strength Req": points taken off the weapon's Strength requirement
+    /// [documented: GECK wiki Perk entry points, "Add Value of 1 means a reduction of 1
+    /// point from the requirement"; Weapon Handling 2].
+    pub strength_req_cut: f32,
 }
 
 /// Whether a weapon counts as one-handed for the crippled-arm penalties: pistols
@@ -54,7 +58,7 @@ pub fn actor_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance) ->
     } / s.aiming_move_divisor.max(1.0);
     let standing = if s.sneaking { 0.0 } else { r.spread_standing };
     let arms = crippled_spread(r, t, w, s);
-    let str_req = (w.strength_req as f32 - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
+    let str_req = (w.strength_req as f32 - s.strength_req_cut - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
     // The page reports the original applies the Strength setting to the skill shortfall
     // (a bug); we use the skill setting it names.
     let skill_req = (w.skill_req as f32 - s.skill.min(100.0)).max(0.0) * r.skill_req_penalty;

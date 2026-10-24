@@ -248,6 +248,32 @@ fn crippled_head_and_arms_widen_the_spread() {
 }
 
 #[test]
+fn spread_perks_cut_the_strength_and_moving_penalties() {
+    let (r, t) = (Rules::defaults(), CombatTuning::default());
+    assert!(r.strength_req_penalty > 0.0);
+    // A weapon wanting Strength 8 in the hands of Strength 5: three points short.
+    let heavy = WeaponStats { strength_req: 8, ..gun(20) };
+    let weak = Stance { skill: 0.0, strength: 5.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    let plain = spread::actor_spread(&r, &t, &heavy, &weak);
+    // Weapon Handling takes 2 off the requirement: one point short.
+    let handled = Stance { strength_req_cut: 2.0, ..weak.clone() };
+    assert!(close(plain - spread::actor_spread(&r, &t, &heavy, &handled), 2.0 * r.strength_req_penalty));
+    // Never below no shortfall.
+    let more = Stance { strength_req_cut: 9.0, ..weak.clone() };
+    assert!(close(plain - spread::actor_spread(&r, &t, &heavy, &more), 3.0 * r.strength_req_penalty));
+    // Run 'n Gun halves the running penalty; a divisor under 1 counts as 1.
+    let w = gun(20);
+    let hip = Stance { skill: 0.0, strength: 10.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    let running = Stance { moving: true, running: true, ..hip.clone() };
+    let base = spread::actor_spread(&r, &t, &w, &hip);
+    let run = spread::actor_spread(&r, &t, &w, &running);
+    let gunning = Stance { aiming_move_divisor: 2.0, ..running.clone() };
+    assert!(close(spread::actor_spread(&r, &t, &w, &gunning) - base, (run - base) / 2.0));
+    let slow = Stance { aiming_move_divisor: 0.5, ..running.clone() };
+    assert!(close(spread::actor_spread(&r, &t, &w, &slow), run));
+}
+
+#[test]
 fn spread_formula_cone_bloom_recoil() {
     let r = Rules::defaults();
     let t = CombatTuning::default();

@@ -908,6 +908,8 @@ pub struct Combat {
     pub vats_cone: Option<f32>,
     /// The weapon and factor of the last Modify Throwing Velocity line (one a change).
     throw_logged: Option<(FormId, u32)>,
+    /// The spread perks last logged, with their weapon ([`spread_perks`]).
+    spread_perks_logged: Option<(FormId, SpreadPerks)>,
     /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
     /// last one ended, and its own rolls (the view's kick).
     flinch_until: f32,
@@ -1569,6 +1571,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         player_blocked_at: None,
         special_swing: None,
         throw_logged: None,
+        spread_perks_logged: None,
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
@@ -1576,9 +1579,45 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     });
 }
 
+/// The player's spread perks for the weapon `id`: Modify Weapon Strength Req (points off
+/// the requirement, from 0: Weapon Handling 2) and Modify Aiming Move Speed (the moving
+/// penalty's divisor, from 1: Run 'n Gun × 2) [documented: GECK wiki Gun Spread Formula
+/// (New Vegas), Perk entry points; perk-entry-points.md §12]. Logged when they change.
+fn spread_perks(logged: &mut Option<(FormId, SpreadPerks)>, script: Option<&mut ScriptState>, sim: &mut SimState, id: FormId) -> SpreadPerks {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return SpreadPerks::default() };
+    let (cut, moving, by) = with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        let (cut, a) = g.entry_point_with(FormId::PLAYER_REF, fnv_game::perks::MODIFY_WEAPON_STRENGTH_REQ, &[Some(id)], 0.0);
+        let (moving, b) = g.entry_point_with(FormId::PLAYER_REF, fnv_game::perks::MODIFY_AIMING_MOVE_SPEED, &[Some(id)], 1.0);
+        let by: Vec<String> = a.iter().chain(&b).map(|x| g.data.name(x.perk)).collect();
+        (cut as f32, moving as f32, by)
+    });
+    let p = SpreadPerks { strength_req_cut: cut, aiming_move_divisor: moving.max(1.0) };
+    if *logged != Some((id, p)) {
+        *logged = Some((id, p));
+        if !by.is_empty() {
+            info!("combat: spread perks for {id}: Strength requirement -{cut:.0}, moving penalty / {:.2} ({})", p.aiming_move_divisor, by.join(", "));
+        }
+    }
+    p
+}
+
+/// What [`spread_perks`] gives the player's stance.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SpreadPerks {
+    strength_req_cut: f32,
+    aiming_move_divisor: f32,
+}
+
+impl Default for SpreadPerks {
+    fn default() -> Self {
+        SpreadPerks { strength_req_cut: 0.0, aiming_move_divisor: 1.0 }
+    }
+}
+
 /// The player's stance for the spread: aiming, moving, running, sneaking, in the air,
-/// the weapon's skill and Strength, crippled arms.
-fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs, skill: f32, strength: f32) -> Stance {
+/// the weapon's skill and Strength, crippled arms, the spread perks.
+fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs, skill: f32, strength: f32, perks: SpreadPerks) -> Stance {
     Stance {
         aiming: control.aiming,
         moving: phys.player.as_ref().is_some_and(|ch| ch.velocity[0].hypot(ch.velocity[1]) > 1.0),
@@ -1587,7 +1626,8 @@ fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs,
         airborne: phys.player.as_ref().is_some_and(|ch| !ch.grounded && !ch.swimming),
         skill,
         strength,
-        aiming_move_divisor: 1.0,
+        aiming_move_divisor: perks.aiming_move_divisor,
+        strength_req_cut: perks.strength_req_cut,
         left_arm_crippled: limbs.arms().0,
         right_arm_crippled: limbs.arms().1,
         head_crippled: limbs.crippled(fnv_game::combat::HEAD),
@@ -2168,7 +2208,8 @@ pub(crate) fn fire(
     {
         let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
-        let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
+        let sp = spread_perks(&mut c.spread_perks_logged, script.as_deref_mut(), &mut sim, id);
+        let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength, sp);
         let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
         let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
@@ -2252,7 +2293,8 @@ pub(crate) fn fire(
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
-                let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
+                let sp = spread_perks(&mut c.spread_perks_logged, script.as_deref_mut(), &mut sim, id);
+                let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength, sp);
                 // The Calculate Gun Spread perks change the actor spread, not the weapon's
                 // minimum (docs/spec-notes/perk-entry-points.md §2).
                 let formula = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
