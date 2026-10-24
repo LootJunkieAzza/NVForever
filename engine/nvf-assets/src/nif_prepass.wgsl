@@ -15,26 +15,10 @@
 #endif
 #ifdef MAY_DISCARD
 #import bevy_pbr::{
-    pbr_bindings,
     pbr_types,
     mesh_view_bindings::view,
 }
-
-// As in nif_material.wgsl.
-struct NifSurface {
-    falloff: vec4<f32>,
-    alpha_cut: f32,
-    add_whole: f32,
-    refraction: f32,
-    fire_period: f32,
-    holes: vec4<f32>,
-    holes_edge: vec4<f32>,
-    soft: vec4<f32>,
-}
-
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var holes_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var holes_sampler: sampler;
+#import nvf_assets::nif_surface_bindings::{nif_surface, standard_material, holes_alpha, base_color_texel}
 
 // Bevy's cutoff for blended shapes in a depth-only pass (its PREMULTIPLIED_ALPHA_CUTOFF).
 const BLENDED_CUTOFF: f32 = 0.05;
@@ -46,15 +30,17 @@ fn fragment(in: VertexOutput) {
     visibility_range_dither(in.position, in.visibility_range_dither);
 #endif
 #ifdef MAY_DISCARD
-    let flags = pbr_bindings::material.flags;
-    var alpha = pbr_bindings::material.base_color.a;
+    let standard = standard_material(in.instance_index);
+    let surface = nif_surface(in.instance_index);
+    let flags = standard.flags;
+    var alpha = standard.base_color.a;
 #ifdef VERTEX_COLORS
     alpha *= in.color.a;
 #endif
 #ifdef VERTEX_UVS_A
     if (flags & pbr_types::STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
-        let uv = (pbr_bindings::material.uv_transform * vec3(in.uv, 1.0)).xy;
-        alpha *= textureSampleBias(pbr_bindings::base_color_texture, pbr_bindings::base_color_sampler, uv, view.mip_bias).a;
+        let uv = (standard.uv_transform * vec3(in.uv, 1.0)).xy;
+        alpha *= base_color_texel(in.instance_index, uv, view.mip_bias).a;
     }
 #endif
     // The cut of a blended shape that is also alpha-tested (0 on every other shape); the
@@ -65,14 +51,14 @@ fn fragment(in: VertexOutput) {
 #ifdef VERTEX_UVS_A
     // The holes of the main pass (nif_material.rs "Holes").
     if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
-        if textureSampleLevel(holes_texture, holes_sampler, in.uv, 0.0).a * 255.0 >= surface.holes.x {
+        if holes_alpha(in.instance_index, in.uv) * 255.0 >= surface.holes.x {
             discard;
         }
     }
 #endif
     let alpha_mode = flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK {
-        if alpha < pbr_bindings::material.alpha_cutoff {
+        if alpha < standard.alpha_cutoff {
             discard;
         }
     } else if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND
