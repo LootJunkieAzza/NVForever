@@ -76,11 +76,8 @@ Not wired yet, with why:
 |---|---|---|---|
 | 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
 | 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
-| 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
-| 59, 72 | Modify Throwing Velocity, Adjust Explosion Radius | Heave Ho!, Loose Cannon, Splash Damage | not asked for yet; easy follow-ups at the throw and the explosion |
-| 61–66 | the unarmed power attacks' Has … | the unarmed moves | the special moves are not built |
 
 ## 3. Conditions by tab
 
@@ -150,3 +147,174 @@ shot is leaving, so Center of Mass applies to VATS mode's shots that land while 
   no shipped script does that].
 - Checks: `fnv-game` `tests/perk_combat.rs` `teammate_perks_apply_to_teammates`; smoke
   `teammate-perk`.
+
+## 7. Locks, terminals, sneaking, weight and travel (2026-10-24)
+
+Owner 2026-10-24: "Build the next batch: Infiltrator, Computer Whiz, Silent Running, Pack
+Rat, Heavyweight, Hoarder's carry weight and Long Haul" (perk-audit-2026-10-23 §3.3,
+§3.4). What each entry point does [documented: GECK wiki Entry Point]; the perks'
+entries [observed: FalloutNV.esm, DeadMoney.esm, OldWorldBlues.esm PERK]. None of them has
+conditions, and all are the player's (`perks::player_has_entry`, `Game::sync_perk_weights`).
+
+| Code | Entry point | Perk | NVForever |
+|---|---|---|---|
+| 32 | Ignore Broken Lock: "run when the player attempts to open a broken lock; if non-zero, another chance will be granted" | Infiltrator, Set 1 ("can make one more attempt to pick a broken lock") | a broken lock opens the lockpicking menu once more (`lockpick::opening`); breaking it again spends the try (`Locks::retried`, saved), and it stays broken for good |
+| 20 | Ignore Locked Terminal: "run when the player attempts to activate a locked terminal; if non-zero, another chance will be granted" | Computer Whiz, Set 1 ("one extra attempt to hack a locked-down terminal") | a locked-out terminal can be hacked once more (`terminal::opening`); locked out again, the try is spent (`Terminals::retried`, saved as `terminal_retries`) |
+| 31 | Ignore Running During Detection: "if non-zero, running will be ignored" | Silent Running, Set 1 | the player's running does not raise the noise it makes to a detector (`fSneakRunningMult` not applied, `detection::Pair::ignore_running`) |
+| 55 | Modify Light Items: "if set to a non-zero value, modifies the weight of 'Light' items in the reference's inventory according to fPackRatModifier" | Pack Rat, Set 1 ("items with a weight of 2 or less weigh half as much") | each unit of at most `fPackRatThreshold` weighs × `fPackRatModifier` in the player's load; FalloutNV.esm sets neither setting [observed], so the defaults 2 and 0.5 come from the perk's text [observed] |
+| 73 | Adjust Heavy Weapon Weight: "modifies the weight of a Weapon which weighs 10.0 lbs or more (after the DecreaseWeight Weapon Mod effect is applied)" | Heavyweight, Multiply 0.5 | each weapon unit of 10 or more (its mods applied) weighs × the value |
+| 22 | Get Max Carry Weight: "run when the actor's max carry weight is calculated" | Hoarder, Add 25 | the player's capacity (`functions::actor::sync_carry`; its −1 SPECIAL ability below 160 lbs was already an ability) |
+| 51 | Has Fast Travel Always: "access Fast Travel even when overencumbered" | Long Haul, Set 1 | the Pip-Boy's fast travel takes an over-encumbered player (`pipboy::data::travel`) |
+
+- The weights [design where the wiki is silent]: the rules (`fnv_sim::inventory::
+  WeightRules`) are applied to each unit's weight with its mods, in the load the world
+  counts (encumbrance, the menus' weight total); the inventory rows still show each item's
+  own weight [hypothesis: the original's rows are not checked]. Both rules at once: a
+  weapon of 10 or more takes Heavyweight's, a lighter unit Pack Rat's. Kept in step every
+  frame with the abilities (`Game::sync_perk_weights`), logged `perks: the player's item
+  weights: …` when they change.
+- The extra tries [design]: "another chance" is taken as one more menu after the lock
+  broke or the terminal locked out, until it breaks or locks out again; leaving the
+  menu without failing keeps the try.
+- Checks: `fnv-sim` `perk_weight_rules_halve_light_items_and_heavy_weapons`; `fnv-game`
+  `perk_combat` `weight_perks_change_the_players_load`,
+  `silent_running_ignores_the_players_running`, `a_second_failure_spends_the_extra_try`;
+  smoke `perk-infiltrator`, `perk-computer-whiz`, `perk-long-haul`, `perk-weights`.
+
+## 8. Mines, explosions, throws and movement (2026-10-24)
+
+Owner 2026-10-24: "Build the next batch: Splash Damage, Heave Ho!, Light Step, and the
+run-speed perks (Travel Light, Tunnel Runner, Implant M-5)" (perk-audit-2026-10-23 §3.2,
+§3.5). What each entry point does [documented: GECK wiki Entry Point]; the entries
+[observed: the PERK records].
+
+| Code | Entry point | Perks | NVForever |
+|---|---|---|---|
+| 4 | Calculate Mine Explode Chance: "run when the actor comes within proximity of an armed mine; modifies the chance of an armed mine detonating" | Light Step Set 0; In My Footsteps (Dead Money) Set 0; ED-E's Light Step (Lonesome Road, NVDLC04EDENoMines) Set 0 under GetIsID ED-E | an actor whose chance is 0 does not start a mine's fuse (`nvf-play` `mines::tick`), logged once a mine `mines: <actor> does not set off mine <ref> … (… Light Step)`; the player's own, and a teammate's with the teammate perks. Chances between 0 and 1 are not rolled [design: the masters set only 0] |
+| 72 | Adjust Explosion Radius | Splash Damage × 1.25 | the radius of every explosion the player (or a teammate with the perk) causes, before its hits, the pushed bodies and the destructibles are found (`combat::owner_weapon_perk` with the cause's weapon on tab 1); the explosion's look is not scaled [design] |
+| 59 | Modify Throwing Velocity: "run when ANY projectile is created; modifies the velocity of ANY projectile spawned by the perk owner (filtered by conditions); use GetWeaponAnimType == 9 to restrain the effect to throwing-type weapons" | Heave, Ho! × 1.5 (no conditions); Loose Cannon × 0.75 (its condition) | every projectile the player fires leaves that much faster, as the page says (Heave Ho!'s entry has no condition, so the player's bullets too); VATS mode's throws aim their arc at that speed |
+| 42 | Modify Run Speed: "changes the actor's movement speed" | Travel Light × 1.1 (GetEquipped NVTravelLightBadArmorList, the armours it does not allow), Tunnel Runner × 1.25 (sneaking, the same list), Implant M-5 × 1.2 (sneaking), Atomic! × 1.25, Stealth Suit Mk II × 1.2 | the player's movement, walking, running and sneaking alike (`player::PerkSpeed`, worked out every frame by `combat::perk_speed`), logged `movement: the Modify Run Speed perks make the player move at <p>% (<perks>)`. NPCs' speeds (the Lobotomites' × 0.75) are not changed [not built] |
+
+Checks: `fnv-game` `perk_combat` `mine_blast_throw_and_speed_perks`; smoke
+`perk-light-step`, `perk-heave-ho-splash`, `perk-run-speed`.
+
+## 9. Kills, the HUD, repair and drinking (2026-10-24)
+
+Owner 2026-10-24: "Build Meltdown, Living Anatomy's enemy health display, Jury Rigging
+and Implant Y-3 next" (perk-audit-2026-10-23 §3.7). What each entry point does
+[documented: GECK wiki Entry Point]; the entries, one each with no conditions [observed:
+the PERK records].
+
+| Code | Entry point | Perk | NVForever |
+|---|---|---|---|
+| 46 | Has Meltdown: "Enemies killed with Energy Weapons explode" | Meltdown, Set 1 ("foes killed by your Energy Weapons … give off a corona of harmful energy. Note: this can cause a chain reaction") | a foe the player (or a teammate with the perk) kills with a weapon of the Energy Weapons skill sets off the DOBJ's Meltdown Explosion (place 24 [documented: xEdit wbDefinitionsFNV.pas DOBJ, "Meltdown Explosion"]; FalloutNV.esm names `MinePlasmaExplosion` 0007078C [observed]) at its body, as the killer's blast with that weapon, so its own kills chain (`nvf-play` `combat::meltdown`, from the hit's `ActorHit`, which now carries the weapon); a body gives one off once |
+| 47 | See Enemy Health: "Enemy Health and DT values are displayed with their health bar" | Living Anatomy, Set 1 (its damage entry was already built) | a line under the enemy bar's name, centred in its red and font, "HP:<health> DT:<dt>", the health whole and the DT to two places (`hud_target::TargetHealth::anatomy_line`; DT as combat counts it, armour and the actor's own) [observed: the owner's screenshot of the original 2026-10-24, a Deathclaw: "HP:250 DT:15.00" under "Deathclaw", about 36 interface units lower] |
+| 48 | Has Jury Rigging: "access alternate and predefined - but far more inclusive - repair lists" | Jury Rigging, Set 1 | the Pip-Boy's repair takes, besides the item's repair list, any carried item of the same family (`fnv_game::repair::jury_rigs`): a weapon of the same WEAP skill and animation type, armour of the same class worn on the same part of the body [design: the original's lists are not in the records; the perk's DESC gives the examples it must allow: "a Trail Carbine with a Hunting Rifle, a Plasma Defender with a Laser Pistol, or even Power Armor with Metal Armor", which this rule does] |
+| 26 | Adjust Drinking Radiation: "run when the player drinks from a placed water source; modifies the radiation from placed water sources" | Implant Y-3 × 0.01 | the rads of the water's actor effect when drinking from a sink, a toilet or the like (`Game::drink_from`), logged `perks: drinking from <ref>: rads x <m> (<perks>)` |
+
+Drinking by hand (E on a sink): the player's hand path (`nvf-play` `script.rs`, `by_hand`)
+activated the water source in the world and never reached `Game::drink_from`, so no
+water's actor effect applied by hand; it now drinks as `Game::default_activation` does
+(found by smoke `perk-implant-y3`, 2026-10-24).
+
+Jury Rigging's flag is read without its conditions (`Game::holds_entry_point`), where the
+Pip-Boy holds only a shared borrow of the game [design: the masters' entry has none].
+
+Checks: `fnv-game` `repair` `jury_rigging_pairs_like_weapons_and_armour`, `data`
+`default_objects_by_their_place`; smoke `perk-jury-rigging`, `perk-meltdown-anatomy`,
+`perk-implant-y3`.
+
+## 10. Attack, reload and equip speed (2026-10-24)
+
+Owner 2026-10-24: "Build the clip-speed perks next: Rapid Reload, Quick Draw, and the
+attack-speed perks (Fast Shot, Slayer, Loose Cannon …)" (perk-audit-2026-10-23 §3.2). §2
+left these until the player body's clips could play faster; they now can: an animation
+layer has a rate, and the reload already used it.
+
+| Code | Entry point | Perks [observed: the entries] | NVForever |
+|---|---|---|---|
+| 37 | Reload Speed | Rapid Reload × 1.25 | already built with Companion Nerve (feb023fa): the reload rate is 0.5 + 0.1 × Agility × the Reload Speed entries, for the cycle and the reload clips (`fnv_combat::attack::reload_rate`, `WeaponAnim::reload_rate`) |
+| 43 | Modify Attack Speed | Fast Shot × 1.2 and Trigger Discipline × 0.8 (IsWeaponSkillType Guns or Energy Weapons on tab 1), Loose Cannon × 1.3 (its list on tab 1), Slayer × 1.3 (Melee or Unarmed), Melee Hacker × 1.05 / 1.1 (Melee), Elijah's Last Words, Atomic!, Ain't Like That Now; Old Vaquero and Causeless Rebel (teammate perks) | the player's attack: a gun's shot cycle (`Timing::with_attack_rate`: the time between shots, the wind-up to the shot and the `Attach` key ÷ the rate; an automatic weapon's fire rate × it [design]) and a melee swing's timing (`SwingTiming`), and the body's attack clip plays at the weapon's Animation × Animation Attack multipliers × the perks (`WeaponAnim::attack_rate`), logged `combat: attacks at x<r> (<weapon>; perks x<p>: <perks>)` and `combat: swings at x<r> …` |
+| 38 | Equip Speed | Quick Draw × 1.5 | the draw and holster of the weapon in hand: their timings (the hands' `Transition`s, the `Attach`/`Detach` switch with them) ÷ the rate and their clips at the rate (`WeaponAnim::equip_rate`), logged `combat: draws and holsters at x<r> (<perks>)` |
+
+- The attack clip now plays at the weapon's own multipliers too [documented: GECK wiki
+  Weapons, "Animation Multiplier", "Animation Attack Multiplier" scale the animation];
+  before, the cycle was timed by them while the clip played at its own speed. For a
+  weapon with both at 1 nothing changes.
+- Not built: the teammates' attack speed (Old Vaquero, Causeless Rebel), which needs the
+  NPCs' fire and swing rates to ask the entry point (§6).
+
+Checks: `fnv-combat` `rules` `attack_rate_shortens_the_cycle_not_the_reload`; smoke
+`perk-fast-shot-quick-draw`, `perk-slayer`.
+
+## 11. Knockdowns and the unarmed special moves (2026-10-24)
+
+Owner 2026-10-24: "Build melee knockdowns (Super Slam, And Stay Back) and the unarmed
+special moves next" (perk-audit-2026-10-23 §3.6).
+
+### 11.1 Knockdown Chance (52)
+
+[observed: the entries] Super Slam Set 0.15 and 0.30 (conditions on tab 0: IsWeaponInList
+and GetWeaponAnimType; the fandom wiki: "15% for Unarmed or one-handed melee, 30% for
+two-handed melee"; the conditions want the weapon in WeaponListMeleeALL or
+WeaponsAutomaticMeleeLIST, which the Fists are not in [observed: the FLSTs], so bare fists
+get no roll whatever the fandom page says), And Stay Back Set 0.1 (IsWeaponInList on tab 0, the shotguns; the
+fandom wiki: "per pellet"), Elijah's Last Words Set 0.25 (Melee on tab 1).
+
+NVForever [design where the wiki is silent]: from 0, the attacker's entries with its
+weapon on tab 1 (`combat::perk_knockdown`), rolled once a hit that does not kill: each
+melee blow, each projectile (so each pellet); the player's and a teammate's with the
+perk. A success knocks the target down away from the attacker as a blast's knockdown
+does (`Game::knock_down`: No Knockdowns and the rest refuse it). Every roll is logged
+`combat: Knockdown Chance <c> (<perks>): rolled <r>, <ref> stays up`, a success
+`combat: Knockdown Chance … knocks <ref> down`.
+
+### 11.2 The unarmed special moves (61–66)
+
+[observed: the entries, each Set 1 with no conditions] Legion Assault 61 (forward), Ranger
+Takedown 62 (back), Scribe Counter 64 (counter), Khan Trick 65 and 66 (left, right); no
+perk uses 63 (crouched). The DOBJ names each direction's effect [documented: xEdit DOBJ,
+places 25–30; observed: FalloutNV.esm]: none for forward and counter,
+`VictoryRifleKnockdownSpell` for back (its script pushes the target away: a knockdown,
+unless it has Stonewall), `HeadCrippleEffect` (Perception −4) for left, right and
+crouched. The perks' DESC [observed]: "perform a Power Attack while running forward /
+moving backwards / moving left or right".
+
+NVForever:
+- An unarmed power attack (the Fists or an Unarmed-skill weapon) in a direction whose move
+  the player has is that move (`combat::special_move`, logged `combat: <move> (<dir> power
+  attack, unarmed)`): Ranger Takedown and Khan Trick put the DOBJ's effect on the target
+  with the blow (as a weapon's object effect, `apply_hit`'s items); Legion Assault knocks
+  the target back [the fandom wiki, "Knock back opponents"; design: as a knockdown away
+  from the player].
+- Scribe Counter [the fandom wiki: "Quick counter-attack after Block"; design]: an unarmed
+  blow begun within `COUNTER_WINDOW` (1 s) of the player's block stopping one is a
+  standing power attack (its damage bonus, breaking a block), without the power attack's
+  hold; logged `combat: Scribe Counter: the blow after the block is a power attack`.
+- Not built: Khan Trick's need for dirt or sand underfoot (the fandom wiki), its forced
+  hit reaction on the target (below), the crouched move (no perk), the moves in VATS mode,
+  Legion Assault's travel (its clip's root goes 332 units forward; the body holds its root
+  still, so the player does not lunge).
+
+### 11.3 The moves' clips (2026-10-24)
+
+Owner 2026-10-24: "the animations should exist so lets add them". They do, in both rigs'
+folders (`meshes\characters\_male`, `_1stperson`) of Fallout - Meshes.bsa [observed]:
+
+| Move | Clip (prefix `h2h`) | Why this one |
+|---|---|---|
+| Legion Assault (forward) | `attackcustom1power` (AttackCustom1Power, 1.6 s) | [observed: its Bip01 goes 332 units straight ahead over the clip, a running lunge] |
+| Ranger Takedown (back) | `attackcustom2power` (AttackCustom2Power, 1.43 s) | [hypothesis: by elimination; its motion is in compressed splines not read here] |
+| Khan Trick (left, right) | `attackcustom4power`, `attackcustom5power` (1.83 s) | [documented: GECK wiki GetForceHitReaction, "Khan Trick (AttackCustom4Power and AttackCustom5Power)"; hypothesis: 4 left and 5 right, the entry points' order] |
+| crouched (no perk) | `sneakh2hattackcustom3power` | not used |
+| Scribe Counter | `counter` (`h2hcounter.kf`, its `a:L` key chains a swing) | [hypothesis: by the name] |
+
+The move is chosen as its swing starts (`combat::melee`, `MeleeEvent::Started`): the
+swing's stem becomes the move's, so the body plays the move's clip and the strike comes at
+that clip's `Hit` key; Scribe Counter's swing becomes a standing power attack then. Logged
+`combat: <move> (<dir> power attack, unarmed): clip <stem>`.
+
+Khan Trick in the original also sets the target's forced hit reaction (GetForceHitReaction
+1, which plays its crippled-limb hit idles) [documented: the same page]; not built.
+
+Checks: smoke `perk-unarmed-moves` (with frames of each move), `perk-scribe-counter`, `perk-super-slam`, `perk-and-stay-back`.

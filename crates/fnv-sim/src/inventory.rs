@@ -193,6 +193,35 @@ impl From<BTreeMap<FormId, StackRepr>> for Inventory {
     }
 }
 
+/// What a carrier's perks do to the weight of what it carries (the game layer's Modify
+/// Light Items and Adjust Heavy Weapon Weight entry points; docs/spec-notes/perk-entry-points.md
+/// §7): a unit at most `light.0` weighs × `light.1` (Pack Rat), a weapon unit of at least
+/// `heavy_weapons.0` × `heavy_weapons.1` (Heavyweight), each unit's weight with its mods.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WeightRules {
+    pub light: Option<(f32, f32)>,
+    pub heavy_weapons: Option<(f32, f32)>,
+}
+
+impl WeightRules {
+    pub fn is_none(&self) -> bool {
+        self.light.is_none() && self.heavy_weapons.is_none()
+    }
+
+    /// One unit's weight `w` (its mods applied) of an item of `kind`.
+    pub fn unit(&self, w: f32, kind: ItemKind) -> f32 {
+        if let Some((least, mult)) = self.heavy_weapons {
+            if kind == ItemKind::Weapon && w >= least {
+                return w * mult;
+            }
+        }
+        match self.light {
+            Some((most, mult)) if w > 0.0 && w <= most => w * mult,
+            _ => w,
+        }
+    }
+}
+
 /// Total weight and value, with the items whose weight or value is not known yet.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Totals {
@@ -400,6 +429,11 @@ impl Inventory {
     /// A modded weapon weighs what its Decrease Weight mods leave (`Item::weight_with_mods`,
     /// weapon-mods.md §3).
     pub fn totals(&self, forms: &FormStore, hardcore: bool) -> Totals {
+        self.totals_with(forms, hardcore, &WeightRules::default())
+    }
+
+    /// [`Inventory::totals`] with a carrier's [`WeightRules`].
+    pub fn totals_with(&self, forms: &FormStore, hardcore: bool, rules: &WeightRules) -> Totals {
         let mut t = Totals::default();
         for (id, s) in &self.items {
             let (id, n) = (*id, s.total());
@@ -415,7 +449,7 @@ impl Inventory {
                         ) => {}
                         Some(_) => {
                             for &(e, c) in &s.groups {
-                                t.weight += i.weight_with_mods(e.mods).unwrap_or(0.0) as f64 * c as f64;
+                                t.weight += rules.unit(i.weight_with_mods(e.mods).unwrap_or(0.0), i.kind) as f64 * c as f64;
                             }
                         }
                         None => t.unknown_weight.push(id),
@@ -444,6 +478,24 @@ pub fn unequipped(groups: Vec<(Extra, i32)>) -> Vec<(Extra, i32)> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn perk_weight_rules_halve_light_items_and_heavy_weapons() {
+        let rules = WeightRules { light: Some((2.0, 0.5)), heavy_weapons: Some((10.0, 0.5)) };
+        // Pack Rat: 2 or less halves, more stays; nothing weighs nothing.
+        assert_eq!(rules.unit(2.0, ItemKind::Misc), 1.0);
+        assert_eq!(rules.unit(0.5, ItemKind::Aid), 0.25);
+        assert_eq!(rules.unit(2.5, ItemKind::Misc), 2.5);
+        assert_eq!(rules.unit(0.0, ItemKind::Misc), 0.0);
+        // Heavyweight: weapons of 10 or more halve; armour of 15 does not.
+        assert_eq!(rules.unit(10.0, ItemKind::Weapon), 5.0);
+        assert_eq!(rules.unit(9.9, ItemKind::Weapon), 9.9);
+        assert_eq!(rules.unit(15.0, ItemKind::Armor), 15.0);
+        // A light weapon under Pack Rat alone.
+        assert_eq!(rules.unit(1.0, ItemKind::Weapon), 0.5);
+        assert!(WeightRules::default().is_none());
+        assert_eq!(WeightRules::default().unit(3.0, ItemKind::Weapon), 3.0);
+    }
 
     #[test]
     fn broken_units_are_equipped_last() {

@@ -1269,6 +1269,10 @@ struct Frame {
     reload_round_now: bool,
     /// How fast the reload clips play (`nvf_play::combat::WeaponAnim::reload_rate`).
     reload_rate: f32,
+    /// How fast the attack and the draw and holster clips play
+    /// (`nvf_play::combat::WeaponAnim::attack_rate`, `equip_rate`).
+    attack_rate: f32,
+    equip_rate: f32,
     /// The weapon starts to spin up this frame: its attack clip plays from the start.
     spin_now: bool,
     /// A pull starts a shot that leaves at the clip's `Hit` key (a throw's release): the
@@ -1319,14 +1323,17 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let bone = |name: &str| skel.by_name.get(name).copied();
     for ev in events {
         match ev {
+            // At the Equip Speed perks' rate (Quick Draw), as the hands time it.
             HandEvent::StartDraw => {
                 if let Some(c) = &draw {
-                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    rig.animator.layers[l].rate = f.equip_rate;
                 }
             }
             HandEvent::StartHolster => {
                 if let Some(c) = &put_away {
-                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    rig.animator.layers[l].rate = f.equip_rate;
                 }
             }
             HandEvent::ToHand => rig.animator.cut(TAG_HOLSTER),
@@ -1462,7 +1469,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 info!("player {:?} rig: {} starts at the pull; the shot leaves at its Hit key", rig.view, c.path);
             }
             if !going {
-                rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                // At the attack's rate: the weapon's multipliers and the Modify Attack Speed
+                // perks, as combat times the shot.
+                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                rig.animator.layers[l].rate = f.attack_rate;
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
                 // The attack's own up and down forms keep the body bent with the pitch while
                 // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
@@ -1470,7 +1480,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     let tag = TAG_ATTACK + i as u32;
                     rig.animator.cut(tag);
                     if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
-                        rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        rig.animator.layers[l].rate = f.attack_rate;
                     }
                 }
             }
@@ -1517,7 +1528,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let covered = special.covers();
     for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
-        a.want(&c.clip, *tag, *w, *mode, fade);
+        let l = a.want(&c.clip, *tag, *w, *mode, fade);
+        if *tag == TAG_EQUIP {
+            a.layers[l].rate = f.equip_rate;
+        }
     }
     // Clips that play once to their end once started: landing, attack, reload.
     for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
@@ -2088,6 +2102,10 @@ fn drive_body(
         _ => &mut body.third,
     };
     let (draw_t, away_t) = timing_rig.transitions(&mut ctx, stance, prefix);
+    // The Equip Speed perks (Quick Draw): the draw and holster take 1 ÷ the rate as long.
+    let eq = if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 };
+    let quick = |t: fnv_actor::player_clips::Transition| fnv_actor::player_clips::Transition { length: t.length / eq, switch_at: t.switch_at / eq };
+    let (draw_t, away_t) = (quick(draw_t), quick(away_t));
     let want_out = control.weapon_out && stance != Stance::Swim;
     let mut events = std::mem::take(&mut m.events);
     m.hands.update(want_out, dt, draw_t, away_t, &mut events);
@@ -2204,6 +2222,8 @@ fn drive_body(
         reload_now,
         reload_round_now,
         reload_rate: if anim.reload_rate > 0.0 { anim.reload_rate } else { 1.0 },
+        attack_rate: if anim.attack_rate > 0.0 { anim.attack_rate } else { 1.0 },
+        equip_rate: if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 },
         spin_now,
         wind_now,
     };

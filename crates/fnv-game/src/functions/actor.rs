@@ -170,14 +170,17 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
 /// temporary modifiers included (Buffout's +2), and Carry Weight's own modifiers add to
 /// it [documented: GECK wiki GetCalculatedMaxCarryWeight, "CarryWeight … Actor Values";
 /// hypothesis: the current, not the permanent, Strength; aid-items.md §12]. Called when
-/// Strength or Carry Weight changes.
-fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
+/// Strength or Carry Weight changes, and every frame for the player (its Get Max Carry
+/// Weight perks: Hoarder + 25 [documented: GECK wiki Entry Point, "run when the actor's max
+/// carry weight is calculated"], `Game::sync_perk_weights`).
+pub(crate) fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
     use crate::actor_values::{CARRY_WEIGHT, STRENGTH};
     if code != STRENGTH && code != CARRY_WEIGHT {
         return;
     }
     let Ok(formula) = g.world.formula_capacity(actor) else { return };
     let Ok(capacity) = actor_value(g, actor, CARRY_WEIGHT) else { return };
+    let capacity = if actor == FormId::PLAYER_REF { g.entry_point(actor, crate::perks::GET_MAX_CARRY_WEIGHT, capacity).0 } else { capacity };
     g.world.set_carry_bonus(actor, capacity - formula as f64);
 }
 

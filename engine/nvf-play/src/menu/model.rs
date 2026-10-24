@@ -249,12 +249,14 @@ fn sort_rows(rows: &mut [Row]) {
 pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimError> {
     let forms = world.forms;
     let hardcore = world.config().hardcore;
+    // The holder's perks (Pack Rat, Heavyweight) in the total (perk-entry-points.md §7).
+    let rules = world.weight_rules(holder);
     let s = world.get(holder)?;
     if s.deleted {
         return Err(SimError::Deleted(holder));
     }
     let inv = s.inventory.as_ref().ok_or(SimError::NoInventory(holder))?;
-    let totals = inv.totals(forms, hardcore);
+    let totals = inv.totals_with(forms, hardcore, &rules);
     let mut rows: Vec<Row> = Vec::new();
     let mut hidden = 0;
     for (item, extra, count) in inv.groups() {

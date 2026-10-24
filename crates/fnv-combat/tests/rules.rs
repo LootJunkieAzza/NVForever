@@ -259,6 +259,8 @@ fn spread_formula_cone_bloom_recoil() {
     let running = Stance { moving: true, running: true, ..hip.clone() };
     assert!(close(spread::actor_spread(&r, &t, &w, &running), 0.5));
     assert!(close(spread::deviation_deg(1.0, 0.0), 5.955));
+    // The deviation is a diameter: the cone's half-angle is half of it.
+    assert!(close(spread::cone_deg(1.0, 0.0, &fnv_combat::data::WeaponStats::default(), &[]), 5.955 / 2.0));
     assert_eq!(spread::spread_dir([1.0, 0.0, 0.0], 0.0, 0.5, 0.5), [1.0, 0.0, 0.0]);
     for k in 0..20 {
         let d = spread::spread_dir([1.0, 0.0, 0.0], 10.0, k as f32 / 20.0, 0.37);
@@ -930,6 +932,19 @@ fn reload_time_follows_agility() {
     // Nothing else changes; a rate of 0 or below is read as 1.
     assert!(close(fast.interval, base.interval) && close(fast.fire_delay, base.fire_delay));
     assert!(close(base.with_reload_rate(0.0).reload, 2.0));
+}
+
+/// The Modify Attack Speed perks: the shot cycle runs `rate` times as fast; the reload
+/// does not change (perk-entry-points.md §10).
+#[test]
+fn attack_rate_shortens_the_cycle_not_the_reload() {
+    let base = Timing { interval: 0.6, fire_delay: 0.2, reload: 2.0, spin_up: 0.0, rounds: None, attach: Some(0.4) };
+    let fast = base.with_attack_rate(1.2);
+    assert!(close(fast.interval, 0.5) && close(fast.fire_delay, 0.2 / 1.2) && close(fast.attach.unwrap(), 0.4 / 1.2), "{fast:?}");
+    assert!(close(fast.reload, 2.0));
+    let slow = base.with_attack_rate(0.8);
+    assert!(close(slow.interval, 0.75));
+    assert!(close(base.with_attack_rate(0.0).interval, 0.6), "0 is read as 1");
 }
 
 /// Companion Nerve: a teammate's hits do 5 % more per point of the player's Charisma

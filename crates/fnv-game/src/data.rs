@@ -667,6 +667,19 @@ pub enum DefaultObject {
     DeathMusic = 11,
     LevelUpMusic = 13,
     DrugWearsOffImageSpace = 20,
+    /// The explosion of Meltdown's kills [observed: FalloutNV.esm's DOBJ names
+    /// MinePlasmaExplosion 0007078C there] (perk-entry-points.md §9).
+    MeltdownExplosion = 24,
+    /// The unarmed special moves' effects [documented: xEdit DOBJ, "Unarmed Forward PA" …
+    /// "Unarmed Counter PA"; observed: FalloutNV.esm names none for forward and counter,
+    /// VictoryRifleKnockdownSpell 0001DEA8 for back, HeadCrippleEffect 00067572 for left,
+    /// right and crouched] (perk-entry-points.md §11).
+    UnarmedForwardPa = 25,
+    UnarmedBackwardPa = 26,
+    UnarmedLeftPa = 27,
+    UnarmedRightPa = 28,
+    UnarmedCrouchPa = 29,
+    UnarmedCounterPa = 30,
 }
 
 impl GameData {
@@ -693,6 +706,7 @@ mod default_object_tests {
         assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
         assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
         assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
+        assert_eq!(default_in(&list, DefaultObject::MeltdownExplosion), Some(FormId(0x118)));
         assert_eq!(default_in(&[], DefaultObject::DeathMusic), None);
     }
 }

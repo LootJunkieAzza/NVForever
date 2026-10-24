@@ -11,8 +11,15 @@
 //!   the owner's screenshot shows it over a radscorpion in a fight].
 //! - The health is the actor's Health over its full value; the name is the one the
 //!   crosshair's prompt gives it (`SimState::ref_name`).
+//! - Living Anatomy (See Enemy Health, docs/spec-notes/perk-entry-points.md §9): "Enemy
+//!   Health and DT values are displayed with their health bar" [documented: GECK wiki
+//!   Entry Point]: the actor's health, full health and DT (its armour's and its own,
+//!   `crate::combat::target_armor`) on a line of their own under its name,
+//!   "HP:250 DT:15.00" ([`TargetHealth::anatomy_line`]) [observed: the owner's screenshot
+//!   2026-10-24 of the original, a Deathclaw: "Deathclaw" under the bar, "HP:250
+//!   DT:15.00" under it, centred, in the same red and font].
 
-use crate::combat::ActorHit;
+use crate::combat::{ActorHit, Combat};
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
@@ -44,6 +51,17 @@ pub struct TargetHealth {
     pub form_id: u32,
     pub name: String,
     pub health: f32,
+    /// With Living Anatomy: its health and DT.
+    pub anatomy: Option<(f32, f32)>,
+}
+
+impl TargetHealth {
+    /// With Living Anatomy, the line under the name: "HP:<health> DT:<dt>", the health
+    /// whole and the DT to two places [observed: the original's "HP:250 DT:15.00", the
+    /// owner's screenshot 2026-10-24].
+    pub fn anatomy_line(&self) -> Option<String> {
+        self.anatomy.map(|(h, dt)| format!("HP:{:.0} DT:{:.2}", h.max(0.0), dt))
+    }
 }
 
 /// Whether an actor gets the bar: aimed at and hostile, aimed at and hit lately, or hit
@@ -74,6 +92,7 @@ fn aim(
     mut hit_ago: Local<HashMap<u32, f32>>,
     mut target: ResMut<HudTarget>,
     mut aim_hostile: ResMut<AimHostile>,
+    combat: Option<Res<Combat>>,
 ) {
     let dt = time.delta_secs();
     for t in hit_ago.values_mut() {
@@ -108,7 +127,7 @@ fn aim(
         candidates.push((h, false));
     }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let (found, foe) = with_world(rt, &mut sim, |rt| {
+    let (found, foe, anatomy) = with_world(rt, &mut sim, |rt| {
         let foe = aimed.is_some_and(|a| {
             let (r, g) = (FormId(a), &mut rt.game);
             let fighting = g.awareness.get(r).and_then(|x| x.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
@@ -127,19 +146,27 @@ fn aim(
             }
             let max = g.max_health(r);
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
-            Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }))
+            Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }, health as f32))
         });
-        (found, foe)
+        let anatomy = found.is_some() && rt.game.player_has_entry(fnv_game::perks::SEE_ENEMY_HEALTH);
+        (found, foe, anatomy)
     });
     aim_hostile.set_if_neq(AimHostile(foe));
-    let now = found.map(|(form_id, health)| {
+    let dt = match (found, combat.as_deref()) {
+        (Some((id, ..)), Some(c)) if anatomy => Some(crate::combat::target_armor(c, script.as_deref_mut(), &mut sim, FormId(id)).0),
+        _ => None,
+    };
+    let now = found.map(|(form_id, health, hp)| {
         let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
-        TargetHealth { form_id, name, health }
+        TargetHealth { form_id, name, health, anatomy: dt.map(|dt| (hp, dt)) }
     });
-    let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32));
+    let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32, t.anatomy_line()));
     if key(&target.0) != key(&now) {
         match &now {
-            Some(t) => info!("hud: enemy health {} 0x{:08X} {:.0} %", t.name, t.form_id, t.health * 100.0),
+            Some(t) => match t.anatomy {
+                Some(_) => info!("hud: enemy health {} 0x{:08X} {:.0} % (See Enemy Health: \"{}\")", t.name, t.form_id, t.health * 100.0, t.anatomy_line().unwrap_or_default()),
+                None => info!("hud: enemy health {} 0x{:08X} {:.0} %", t.name, t.form_id, t.health * 100.0),
+            },
             None => info!("hud: enemy health off"),
         }
     }
@@ -149,6 +176,14 @@ fn aim(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn living_anatomy_reads_as_the_original() {
+        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, anatomy };
+        assert_eq!(t(Some((250.0, 15.0))).anatomy_line().as_deref(), Some("HP:250 DT:15.00"));
+        assert_eq!(t(Some((-3.0, 0.5))).anatomy_line().as_deref(), Some("HP:0 DT:0.50"));
+        assert_eq!(t(None).anatomy_line(), None);
+    }
 
     #[test]
     fn the_bar_is_for_foes_aimed_at_and_actors_just_hit() {

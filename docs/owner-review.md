@@ -8489,3 +8489,123 @@ ground under them. Water fades in at the shore over its depth falloff. Specs:
 - *Open:* the "Actor Effect" spells in actors' lists (Tunnelers' DT, Ruthless, spore
   carriers' regeneration) are still not applied; two captures could not ask the game
   about placed actors (area-effects.md §3-4).
+# Owner review: open gameplay decisions
+
+Only decisions that change how the game plays and that need **you**: design choices,
+feel, and places where NVForever chose to differ from the original. Most important first.
+Anything that asks "what does the original do here?" is not here: the observer can
+answer it, and it is in [observer-checks.md](handoff/observer-checks.md).
+
+Condensed 2026-10-24 from the full running log (8,300 lines, 2026-10-09 to 2026-10-23).
+Merge records, tooling, look-only guesses and items already ruled were dropped. The full
+log is in git history: `git show 85dcaace:docs/owner-review.md`. Each spec note still
+lists its own guesses.
+
+**Adding an item:** one bullet in the right tier, what was chosen and what changes if you
+rule otherwise, with its spec link. If the original game can answer it, add it to
+observer-checks.md instead. **Ruling on one:** delete the bullet and note the ruling in
+the spec it links to.
+
+## Tier 1: felt in every fight or every session
+
+1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
+   any hit (3 s cooldown), which goes further than your "crippling hit and later hits
+   to that part" rule. The player flinches the same way: the view jumps up to 4°, the
+   swing breaks, and there is no attack for 0.6 s. This happens even in god mode.
+   If you rule otherwise, torso crippling stops causing repeated staggers.
+   ([crippled-limbs](spec-notes/crippled-limbs.md), [combat-ai §18](design/combat-ai.md))
+2. **NPC gunfire is maybe too deadly.** NPCs react in 0.6 s, their first shots are 4°
+   wider, and the spread settles over 3 s. They aim from the eyes. Violet hit 12 of 15
+   shots at 1,600 units. If you rule otherwise, openers get slower or less accurate.
+   ([combat-ai](design/combat-ai.md))
+3. **Combat AI tuning, all our own numbers.** Combat is not a parity target, so play and
+   say which of these feels wrong ([combat-ai §12–§17](design/combat-ai.md)):
+   - Crouch beyond 600 units, rolled every 1.5–4 s at 25–90 % by temperament. Up to
+     40 % extra cover chance.
+   - Melee block 80 %/40 % with a 0.12–0.35 s reaction. A blocked blow does 60 % less
+     damage and the attacker recoils for 1 s.
+   - Dodges about half the time while holding, about 87 units. Combos run 2–3 blows
+     (55 % chance to chain).
+   - Gunmen stop at 80 % of their reach (400–2,500 units). Flamers stop at 320, shotguns
+     at about 480, and launchers just clear of their own blast; launchers never fire into
+     it. Cover is at most 1,024 units away.
+   - Alarm calls allies within 4,096 units. A fled NPC re-checks after 30 s. Group
+     searches give up after two sweeps.
+   - Fire only with the target within 30° ahead, turning at 240°/s.
+   - Creatures start blows on the run from up to 200 units beyond reach (minimum
+     closing speed 100 units/s).
+   - Comrades and the player block an NPC's shot; animals in the way do not.
+   - A fighter in cover hides from whoever shoots at it but fires at its own target.
+   - Combat barks: only the 5–30 s timer, no group cooldown (a pack of dogs all yelp).
+4. **Melee with a crippled arm.** Uses the game formula's numbers: 40 % less damage
+   with a fully crippled arm, 20 % at half. Your notes said −10 % / −5 %. Which one?
+   ([crippled-limbs](spec-notes/crippled-limbs.md))
+5. **Crippled arms and head, the player's side.** Aim sways in a figure-eight: 1.5° with
+   one crippled arm, 3° with both, every 2.5 s. A crippled head adds 0.2 spread on top of
+   Perception −4. All numbers are mine. ([crippled-limbs](spec-notes/crippled-limbs.md))
+6. **Weapon jamming.** Below 75 % condition a gun may jam: up to 4 % per shot at 0 %
+   (0.77 % at 50 %), on a 1.5-power curve. NPCs never jam. More, less, or NPCs too?
+   (`crates/fnv-combat/src/tuning.rs`)
+7. **Lockpicking and Force Lock tuning.** The sweet spot is 30/20/12/8/5° from Very Easy
+   to Very Hard, +1 % per skill point over the lock's need. A pin lasts 1 s of strain
+   (+0.02 s per point over). The sweet spot is rolled again each time the menu opens.
+   Force Lock succeeds 3 % per point over the need, at most 95 %; failing breaks the lock
+   for good, and forcing gives no XP. ([lockpicking](spec-notes/lockpicking.md))
+8. **Melee controls.** Holding Use for 0.4 s makes a power attack (you described "about
+   a second"). During a round-by-round reload, a press only closes the weapon; a press
+   during closing is kept for 0.25 s and fires if closing ends in time.
+   ([combat-rules §4, §10](spec-notes/combat-rules.md))
+9. **Every bullet is drawn.** The original draws only the record's tracer share (minigun
+   30 %, 10mm 0 %). Ours draws every projectile at the record's speed, plus a 0.08 s line.
+   Should the original's shares come back? ([combat §5.6](design/combat.md))
+10. **True iron sights on by default.** Guns with a sight node aim down the real sights,
+    and the crosshair is hidden while aiming. A Gameplay switch gives the original aim.
+    ([camera §4.1](spec-notes/camera.md))
+11. **Scope sway.** Sways by `scopewobble.nif`, at most half of spread × 5.955°, halved
+    unless you fired in the last 0.5 s (about 1° for a new character's sniper rifle).
+    The scope comes up 0.25 s after Block. ([weapon-scopes](spec-notes/weapon-scopes.md))
+12. **Blood on the screen when hurt.** ceil(lost/max × 25) splats for 20 s, at most 25,
+    and it can cover the view in fights. Less? ([screen-splatter §4](spec-notes/screen-splatter.md))
+
+## Tier 2: movement and controls feel
+
+13. **Grab.** Z held, or E held for 0.4 s, picks up an object or a corpse. It drops when
+    lagging 90 units and is thrown at up to 600 units/s. Nothing over 100 kg can be
+    picked up, and you can only walk while holding over 25 kg. All guessed.
+    ([grab](spec-notes/grab.md))
+14. **Steps.** Body and view lag over a step (95 % in 0.19 s, up to 24 units; over 48
+    counts as a teleport). A step-up counts from 0.25 units of rise. Smooth enough?
+    ([physics §6.8.1, §6.9.1](spec-notes/physics.md))
+15. **Third-person aim.** Shots and the activate prompt go to what is under the
+    third-person crosshair, but the shot still leaves from the eye, so cover near you
+    blocks it. Shoot from the camera's line instead?
+16. **Releasing camera pan.** Letting go of the free-look key returns you straight to
+    first person if you were in it. Did your item mean "stay in third person"?
+17. **Controller.** Grab is on the right-stick press, Toggle POV on LB, and the D-pad is
+    Hotkey 1 / Ammo Swap / Hotkey 3 / Hotkey 4. Look speed is 1.5/1.2 rad/s, squared, and
+    you walk under 0.6 stick push. Keyboard and mouse are off when Controller is chosen:
+    should both work? Rumble strengths are guesses. ([controller](design/controller.md))
+18. **Seated view limits.** With "Body in first person" on, a seated view turns at most
+    80° to each side and 75° down; with it off, all the way round. Limit both?
+    ([player-body §1.5](design/player-body.md))
+
+## Tier 3: rules where we chose to differ, or that the original has no answer for
+
+19. **Walking away from a conversation.** The world freezes while you talk, as in the
+    original, and walking off does not end it. Should walking off end it where the line
+    allows leaving? ([dialogue](design/dialogue.md))
+20. **NPCs opening scripted doors don't run the door's OnActivate.** The original does.
+    Ours skips it so door scripts don't hold NPCs up. Keep the difference?
+21. **Hidden Valley intercom.** Ours says Ramos's "[You hear nothing.]" and waits; the
+    original says nothing and ends the conversation. Keep ours?
+    ([talking-activators §3](spec-notes/talking-activators.md))
+22. **Character revision traits.** Traits the script does not name (Skilled, add-on
+    traits) stay, so the trait menu can grant up to two more. Clear them instead?
+    ([chargen §9](spec-notes/chargen.md))
+23. **Difficulty is an NVForever setting, not saved per game.** Companions are not
+    scaled by it. ([difficulty](spec-notes/difficulty.md))
+24. **Loading a save with missing plugins.** It loads with a notice and drops the
+    missing content. It is refused only when you stand in a missing plugin's cell. Prompt
+    first? ([save-load §4.1](design/save-load.md))
+25. **Delete-save key.** Delete on the load page asks Yes/No. Which key do you want?
+    ([save-load §6.1](design/save-load.md))

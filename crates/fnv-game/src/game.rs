@@ -1286,6 +1286,9 @@ pub struct GameSnapshot {
     /// Terminals scripts locked or unlocked (`crate::terminal::Terminals::script_locks`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub terminal_locks: BTreeMap<FormId, crate::terminal::ScriptLock>,
+    /// Terminals whose Computer Whiz try was spent (`crate::terminal::Terminals::retried`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub terminal_retries: std::collections::BTreeSet<FormId>,
     /// The Pip-Boy radio as scripts and the player left it: on, and the station tuned.
     #[serde(default)]
     pub pipboy_radio_on: bool,
@@ -2824,10 +2827,24 @@ impl<'a> Game<'a> {
     /// the healing and the rads) applies to the drinker, as from the water itself
     /// [hypothesis: drinking applies the effect the water names; activators.md §9].
     /// Whether the activator's script ran too is the activation's business.
-    fn drink_from(&mut self, actor: FormId, target: FormId) {
+    ///
+    /// The drinker's Adjust Drinking Radiation perks multiply the rads (Implant Y-3 ×
+    /// 0.01; perk-entry-points.md §9) [documented: GECK wiki Entry Point, "run when the
+    /// player drinks from a placed water source; modifies the radiation from placed water
+    /// sources"].
+    pub fn drink_from(&mut self, actor: FormId, target: FormId) {
         let Some(water) = self.drink_water(target) else { return };
-        let Some(&spell) = self.data.water_effects.get(&water) else { return };
-        self.apply_magic_item(actor, spell, Some(actor), false);
+        let (rads, by) = self.entry_point(actor, crate::perks::ADJUST_DRINKING_RADIATION, 1.0);
+        if !by.is_empty() {
+            let names: Vec<String> = by.iter().map(|a| self.data.name(a.perk)).collect();
+            tracing::info!("perks: drinking from {target}: rads x {rads:.4} ({})", names.join(", "));
+        }
+        let Some(&spell) = self.data.water_effects.get(&water) else {
+            tracing::info!("drink: {target}'s water {water} has no actor effect");
+            return;
+        };
+        let mods = crate::aid::Mods { rads: rads.max(0.0), ..crate::aid::Mods::default() };
+        self.apply_magic_item_with(actor, spell, Some(actor), false, &mods);
     }
 
     /// An inventory event on a scripted item (OnAdd, OnDrop, OnEquip, OnUnequip): the
@@ -3392,6 +3409,7 @@ impl<'a> Game<'a> {
             image_modifiers: self.image_modifiers.clone(),
             locks: self.locks.clone(),
             terminals: self.terminals.access.clone(),
+            terminal_retries: self.terminals.retried.clone(),
             terminal_locks: self.terminals.script_locks.clone(),
             pipboy_radio_on: self.radio.pipboy.on,
             pipboy_station: self.radio.pipboy.station,
@@ -3435,6 +3453,7 @@ impl<'a> Game<'a> {
         g.image_modifiers = s.image_modifiers.clone();
         g.locks = s.locks.clone();
         g.terminals.access = s.terminals.clone();
+        g.terminals.retried = s.terminal_retries.clone();
         g.terminals.script_locks = s.terminal_locks.clone();
         g.radio.pipboy.on = s.pipboy_radio_on;
         g.radio.pipboy.station = s.pipboy_station;
