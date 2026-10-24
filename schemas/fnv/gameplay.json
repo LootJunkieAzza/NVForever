@@ -2640,6 +2640,13 @@
   "LSCR": {
    "name": "Load Screen",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Displays In Main Menu"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(LSCR) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Observed: 33 of the 208 LSCR of FalloutNV.esm carry it (docs/spec-notes/loading-screens.md)."
+   },
    "subrecords": {
     "LNAM": {
      "name": "Location",

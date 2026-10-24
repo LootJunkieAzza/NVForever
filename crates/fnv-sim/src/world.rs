@@ -380,6 +380,15 @@ impl<'a> World<'a> {
         self.refs.iter().map(|(&k, v)| (k, v))
     }
 
+    /// The lock `id` has: its state's once it has one, else the lock it would start with
+    /// (its placed XLOC, a leveled lock at the reference's level as `initial` sets it).
+    pub fn lock_of(&self, id: FormId) -> Option<LockState> {
+        match self.peek(id) {
+            Some(s) => s.lock,
+            None => self.placed.get(id).and_then(|p| p.lock).map(|l| LockState { level: l.level_at(self.item_level(id)), key: l.key, locked: true }),
+        }
+    }
+
     /// The current state of `id`, creating it from the placement data on first use.
     pub fn get(&mut self, id: FormId) -> Result<&mut RefState, SimError> {
         if !self.refs.contains_key(&id) {
@@ -398,6 +407,7 @@ impl<'a> World<'a> {
             None => return Err(SimError::UnknownRef(id)),
         };
         let mut inventory = self.roll_inventory(self.inventory_base(id, base), self.item_level(id))?;
+        let lock_level = self.item_level(id);
         if let Some(list) = self.death_items.remove(&id) {
             let level = self.item_level(id);
             let inv = inventory.get_or_insert_with(Inventory::new);
@@ -429,8 +439,9 @@ impl<'a> World<'a> {
             deleted: false,
             count: self.forms.placed_count(base, placed.and_then(|p| p.count)),
             inventory,
-            // A reference with lock data starts locked. [hypothesis]
-            lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),
+            // A reference with lock data starts locked. [hypothesis] A leveled lock's
+            // level is set now, from the reference's level (`Lock::level_at`).
+            lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level_at(lock_level), key: l.key, locked: true }),
             // A door flagged Open by Default starts open. [hypothesis from the flag's
             // name; a gate so flagged let the player drop through it, physics.md §4]
             open: placed.is_some_and(|p| p.open_by_default),

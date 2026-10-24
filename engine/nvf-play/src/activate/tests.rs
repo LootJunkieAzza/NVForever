@@ -91,7 +91,7 @@ fn sim() -> SimState {
     let mut refs = RefTable::default();
     let stim = PlacedRef { count: Some(3), ..placed(STIM_REF, STIMPAK, CELL_EXT) };
     let safe = PlacedRef { lock: Some(Lock { level: 50, key: Some(FormId(KEY)), leveled: false }), ..placed(SAFE_REF, CHEST, CELL_EXT) };
-    let tp = Teleport { door: FormId(DOOR_DEST), pos: [10.0, 20.0, 30.0], rot: [0.0, 0.0, std::f32::consts::FRAC_PI_2] };
+    let tp = Teleport { door: FormId(DOOR_DEST), pos: [10.0, 20.0, 30.0], rot: [0.0, 0.0, std::f32::consts::FRAC_PI_2], no_alarm: false };
     let door = PlacedRef { teleport: Some(tp), ..placed(DOOR_REF, DOOR, CELL_EXT) };
     // An inaccessible door (header bit 8) and a chest with an Activation Prompt (XATO).
     let sealed = PlacedRef { flags: fnv_sim::refs::INACCESSIBLE, ..placed(0x7777, DOOR, CELL_EXT) };

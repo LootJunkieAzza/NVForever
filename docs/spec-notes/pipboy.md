@@ -221,6 +221,10 @@ is the top left 85 × 92 of `head.dds`) [observed].
     the controller's healing mode's slot empty, "(3) Doctor's Bag E)"; on RAD "RadAway
     A)", "Rad-X X)" [documented: places, `_PCButton_*`; observed: the words; hypothesis:
     the count is left out at 0 (the RAD screenshot has none), dim unless pointed at].
+    The four items are the DOBJ list's Stimpak (place 0), Doctor's Bag (21), RadAway (3)
+    and RadX (2) (default-objects.md §1), else the Editor IDs `Stimpak`, `NVDoctorBag`,
+    `RadAway`, `RadX` [observed: FalloutNV.esm's list names those four, so nothing changes
+    with the shipped data; ESM full audit 2026-10-24].
     **Using them on CND** (built 2026-10-23, owner's request) [design]: S or a click
     on the Stimpak hint uses one on the body, or on the limb chosen (keys 1-6: head,
     torso, left arm, right arm, left leg, right leg; the same key again the body; the
@@ -436,7 +440,12 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     dot of 8 (`waypoint_node.dds`) at its middle, the name in font 1 centred 180 down. It
     follows the pointer over the map and takes a marker's place and name within 40
     [hypothesis: the screenshots show it away from the middle, once round a door with
-    the door's place name]; at first it is at the window's middle.
+    the door's place name]; at first it is at the window's middle. A World Map marker
+    with a reputation (REFR `WMI1`, 36 in FalloutNV.esm [observed]) shows, on the line
+    under its name, the reputation's name and the player's standing title with it,
+    "Goodsprings: Neutral" ("The reputation that is shown when the player hovers over the
+    icon on the world map" [documented: GECK wiki Reference, Map Marker]; the wording and
+    the second line are a hypothesis, owner-review.md).
   - A click on a marker (the button pressed and let go without the pointer moving
     more than 6 units [design]) asks whether to travel there: fast travel,
     `fast-travel.md`.
@@ -446,7 +455,13 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   zoom then is not known]. Doors leading elsewhere (`XTEL`) in the 7 × 5 cells round the
   view (or the interior) show `interface\icons\local map\icon_local_door.dds`, named by the
   place their destination door stands in [observed: the screenshot's door is named
-  "Goodsprings Gas Station", the cell `GSGasStation`]. Under them an outline of the place
+  "Goodsprings Gas Station", the cell `GSGasStation`]. Left out: a door reference flagged
+  Hidden From Local Map (header bit 6, "The reference will not be displayed on the local
+  map" [documented: GECK wiki Reference]; 4 teleport doors, all in Dead Money
+  [observed]), a door whose base DOOR is flagged Hidden (`FNAM` bit 2 [documented: xEdit];
+  3 in FalloutNV.esm, all secret doors, none a teleport door [observed]; what the flag does
+  is a hypothesis, owner-review.md), and a door disabled now [hypothesis, as a disabled
+  marker]. Under them an outline of the place
   (`data/outline.rs`) [design: the original renders the area from above, its screenshot
   dark save a few shapes; the owner asked for an outline]: a grid of rays straight down
   through the physics world's collision (not actors, triggers or loose clutter), 96

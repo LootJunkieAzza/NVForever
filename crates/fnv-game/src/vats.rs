@@ -40,18 +40,74 @@ pub struct VatsShot {
     pub success: bool,
 }
 
+/// How a shot came out, once it has landed (a kill camera's choice,
+/// `crate::camera_paths`): GetVATSValue's Is Critical, Is Fatal, Explode Part,
+/// Dismember Part and Cripple Part.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VatsOutcome {
+    pub critical: bool,
+    pub fatal: bool,
+    pub explode: bool,
+    pub dismember: bool,
+    pub cripple: bool,
+}
+
+/// The room about the attacker and the target, game units, for the VATS area functions
+/// (camera paths): `[right, left, back, front]` of the line from the attacker to the
+/// target, measured by the engine (vats-mode.md §18.3) [hypothesis: what the functions
+/// measure; xEdit names them only].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CameraRoom {
+    /// How far the space is free beside the attacker (GetVATS…AreaFree).
+    pub area_free: [f32; 4],
+    /// How far from the target a camera on each side still sees it (GetVATS…TargetVisible).
+    pub target_visible: [f32; 4],
+}
+
 /// What the engine says of VATS mode.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct VatsState {
     pub mode: u8,
     pub shot: Option<VatsShot>,
+    /// Known only while a kill camera is chosen (`crate::camera_paths`).
+    pub outcome: Option<VatsOutcome>,
+    pub room: Option<CameraRoom>,
 }
 
 impl Game<'_> {
     /// The engine's VATS mode state and the shot leaving now (only while firing).
     pub fn set_vats(&mut self, mode: u8, shot: Option<VatsShot>) {
-        self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK) };
+        self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK), outcome: None, room: None };
     }
+}
+
+/// The VATS area condition functions, by condition index [documented: xEdit
+/// wbDefinitionsFNV.pas wbCTDAFunctions 518–521 GetVATSRightAreaFree, …LeftAreaFree,
+/// …BackAreaFree, …FrontAreaFree and 525–528 GetVATSRightTargetVisible, …Left…, …Back…,
+/// …Front…, each with a reference parameter]. The catalogue has no page for them; only
+/// the camera paths use them [observed: FalloutNV.esm's CPTH conditions, compared with
+/// 40 to 320, so they give distances (hypothesis)].
+pub const RIGHT_AREA_FREE: u16 = 518;
+pub const FRONT_AREA_FREE: u16 = 521;
+pub const RIGHT_TARGET_VISIBLE: u16 = 525;
+pub const FRONT_TARGET_VISIBLE: u16 = 528;
+
+/// Whether condition index `f` is one of the VATS area functions.
+pub fn is_area_function(f: u16) -> bool {
+    (RIGHT_AREA_FREE..=FRONT_AREA_FREE).contains(&f) || (RIGHT_TARGET_VISIBLE..=FRONT_TARGET_VISIBLE).contains(&f)
+}
+
+/// A VATS area function's value: the room measured for the camera choice, 0 otherwise.
+pub fn area_value(g: &Game, f: u16) -> f64 {
+    let Some(r) = g.vats.room else { return 0.0 };
+    let v = if (RIGHT_AREA_FREE..=FRONT_AREA_FREE).contains(&f) {
+        r.area_free[(f - RIGHT_AREA_FREE) as usize]
+    } else if (RIGHT_TARGET_VISIBLE..=FRONT_TARGET_VISIBLE).contains(&f) {
+        r.target_visible[(f - RIGHT_TARGET_VISIBLE) as usize]
+    } else {
+        0.0
+    };
+    v as f64
 }
 
 /// "Has Concentrated Fire" [documented: GECK wiki GetNthPerkEntryFunction, code 33; Entry
@@ -84,7 +140,7 @@ impl Game<'_> {
     /// as it is; and Has Concentrated Fire.
     pub fn vats_hit_perks(&mut self, shot: VatsShot) -> HitPerks {
         let was = self.vats;
-        self.vats = VatsState { mode: was.mode, shot: Some(shot) };
+        self.vats = VatsState { mode: was.mode, shot: Some(shot), outcome: None, room: None };
         let ops = self.entry_ops(FormId::PLAYER_REF, crate::perks::CALCULATE_TO_HIT_CHANCE, &[Some(shot.weapon), Some(shot.target)], Some(shot.target));
         let concentrated_fire = self.entry_point(FormId::PLAYER_REF, HAS_CONCENTRATED_FIRE, 0.0).0 != 0.0;
         self.vats = was;
@@ -129,7 +185,8 @@ fn param_num(a: &Args) -> Option<i64> {
 /// | 5 | Targeted Part | 1 if the marked part's condition actor value is the parameter |
 /// | 6 | VATS Action | 1 for action 0 [hypothesis: Attack is the first action] |
 /// | 7 | Is Success | 1 if the shot's hit roll succeeded (vats-mode.md §17.4) |
-/// | 8–14 | critical, crit effect, fatal, explode, dismember, cripple | 0: not known before the shot lands [design] |
+/// | 8, 11–14 | Is Critical, Is Fatal, Explode, Dismember, Cripple Part | 1 if the landed shot did so, when a kill camera is chosen; 0 before the shot lands [design] |
+/// | 9, 10 | Crit Effect Is, Crit Effect In List | 0: critical effects are not told [design] |
 /// | 15 | Weapon Type Is | 1 if the weapon's DNAM animation type is the parameter |
 ///
 /// The codes [hypothesis] from the parameters FalloutNV.esm's 248 GetVATSValue conditions
@@ -152,6 +209,12 @@ pub fn get_vats_value(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
         5 => param_num(a).is_some_and(|c| s.condition.map(i64::from) == Some(c)),
         6 => param_num(a).unwrap_or(0) == 0,
         7 => s.success,
+        // Known once the shot has landed, for a kill camera's choice (vats-mode.md §18).
+        8 => g.vats.outcome.is_some_and(|o| o.critical),
+        11 => g.vats.outcome.is_some_and(|o| o.fatal),
+        12 => g.vats.outcome.is_some_and(|o| o.explode),
+        13 => g.vats.outcome.is_some_and(|o| o.dismember),
+        14 => g.vats.outcome.is_some_and(|o| o.cripple),
         15 => param_num(a).is_some_and(|t| g.data.weapon_anim_types.get(&s.weapon) == Some(&t)),
         _ => false,
     };

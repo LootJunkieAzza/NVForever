@@ -22,10 +22,14 @@ use crate::extract::{self, all, first, global, has_flag, int, local_fid, num, te
 use crate::form::FormId;
 use crate::forms::ser_sig;
 
-/// Record flag 0x400 on references. [hypothesis: "Persistent", UESP record-flag tables;
-/// `fnvtool sim forms` reports how it correlates with persistent-children groups]
+/// Record flag 0x400 on references: "Persistent" [documented: GECK wiki GetReferenceFlag,
+/// flag 1024 "Persistent"; GECK wiki Reference, "Reference Data Flags": the reference is
+/// always loaded; xEdit wbDefinitionsFNV.pas record flag 10]. `fnvtool sim forms` reports
+/// how it correlates with persistent-children groups.
 pub const FLAG_PERSISTENT: u32 = 0x0000_0400;
-/// Record flag 0x800 on references. [hypothesis: "Initially Disabled", UESP]
+/// Record flag 0x800 on references: "Initially Disabled" [documented: GECK wiki
+/// GetReferenceFlag, flag 2048; GECK wiki Reference: the reference starts inactive and
+/// unseen until a script or enable parent enables it; xEdit record flag 11].
 pub const FLAG_INITIALLY_DISABLED: u32 = 0x0000_0800;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -35,12 +39,44 @@ pub struct Lock {
     pub leveled: bool,
 }
 
+/// How many levels raise a leveled lock by one difficulty step, and the step (one lock
+/// level class: Very Easy 0, Easy 25, Average 50, Hard 75, Very Hard 100) [hypothesis:
+/// a leveled lock "will start at the base level specified and become harder as the
+/// player levels" (documented: GECK wiki Reference, Lock tab); by how much is not
+/// documented; docs/spec-notes/simulation.md §5, docs/owner-review.md].
+pub const LEVELED_LOCK_LEVELS_PER_STEP: u16 = 10;
+pub const LEVELED_LOCK_STEP: u8 = 25;
+/// The hardest a leveled lock gets: Very Hard; it never becomes Requires Key (255)
+/// [hypothesis].
+pub const LEVELED_LOCK_MAX: u8 = 100;
+
+impl Lock {
+    /// The lock's level for a reference of level `level` (its encounter zone's level, else
+    /// the player's: `World::item_level`): the authored level, raised for a leveled lock by
+    /// [`LEVELED_LOCK_STEP`] for every [`LEVELED_LOCK_LEVELS_PER_STEP`] levels past the
+    /// first, up to [`LEVELED_LOCK_MAX`]; a lock that needs a key (above Very Hard) and a
+    /// lock not leveled keep theirs [hypothesis, see the constants].
+    pub fn level_at(&self, level: u16) -> u8 {
+        if !self.leveled || self.level > LEVELED_LOCK_MAX {
+            return self.level;
+        }
+        let steps = level.saturating_sub(1) / LEVELED_LOCK_LEVELS_PER_STEP;
+        let raised = self.level as u32 + steps as u32 * LEVELED_LOCK_STEP as u32;
+        raised.min(LEVELED_LOCK_MAX.max(self.level) as u32) as u8
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Teleport {
     /// The door reference at the destination.
     pub door: FormId,
     pub pos: [f32; 3],
     pub rot: [f32; 3],
+    /// XTEL "No Alarm": "No trespass alarm will be sent when the player uses the door"
+    /// [documented: GECK wiki Reference, Teleport; xEdit wbDefinitionsFNV.pas REFR XTEL]
+    /// (`fnv_game::crime`) (not written to JSON: the tools' output stays as it was).
+    #[serde(skip)]
+    pub no_alarm: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -432,7 +468,7 @@ fn load_ref(
             let door = fid(v.get("door"), "XTEL door", issues);
             let pr = v.get("pos_rot");
             match (door, vec3(pr.and_then(|p| p.get("position"))), vec3(pr.and_then(|p| p.get("rotation_radians")))) {
-                (Some(door), Some(pos), Some(rot)) => Some(Teleport { door, pos, rot }),
+                (Some(door), Some(pos), Some(rot)) => Some(Teleport { door, pos, rot, no_alarm: v.get("no_alarm").is_some_and(|a| a.as_str() == Some("True") || a.as_u64().is_some_and(|n| n != 0)) }),
                 _ => {
                     issues.note("XTEL incomplete", || format!("{id}"));
                     None
@@ -492,4 +528,27 @@ fn load_ref(
         encounter_zone: fid(first(&d, b"XEZN"), "XEZN", issues),
         level_modifier: first(&d, b"XLCM").and_then(serde_json::Value::as_i64).map(|x| x as i32),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leveled_locks_harden_with_the_level() {
+        let lock = |level: u8, leveled: bool| Lock { level, key: None, leveled };
+        // Not leveled: the authored level whatever the level.
+        assert_eq!(lock(25, false).level_at(40), 25);
+        // Leveled: one step of 25 for every 10 levels past the first.
+        assert_eq!(lock(0, true).level_at(1), 0);
+        assert_eq!(lock(0, true).level_at(10), 0);
+        assert_eq!(lock(0, true).level_at(11), 25);
+        assert_eq!(lock(25, true).level_at(21), 75);
+        // Up to Very Hard, never Requires Key.
+        assert_eq!(lock(50, true).level_at(50), 100);
+        assert_eq!(lock(100, true).level_at(30), 100);
+        assert_eq!(lock(255, true).level_at(30), 255);
+        // Level 0 (no level known) counts as the first.
+        assert_eq!(lock(50, true).level_at(0), 50);
+    }
 }

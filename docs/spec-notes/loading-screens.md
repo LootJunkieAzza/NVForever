@@ -20,6 +20,12 @@ tes5edit.github.io/fopdoc, generated from xEdit's definitions]:
 | LNAM | a location the screen belongs to; none, one or several |
 | WMI1 | the screen's type, an LSCT record |
 
+The record header's bit 10 is "Displays In Main Menu" [documented: xEdit
+wbDefinitionsFNV.pas LSCR flag list; schemas/fnv/gameplay.json `header_flags`]: 33 of
+the 208 LSCR of FalloutNV.esm carry it; no add-on's does (Dead Money's 75 have it
+clear, the other add-ons have none) [observed 2026-10-24, private survey script, not
+committed].
+
 LNAM is 12 bytes [documented: same page; observed: every LNAM is 12 bytes]:
 
 | Field | Type | Meaning |
@@ -107,3 +113,13 @@ the original and count the screens (docs/spec-notes/layer4-captures.md style).
 - LSCT types other than "tip" (no LSCR of the base game uses another).
 - When the original shows a loading screen at all (it does for doors, fast travel and
   loading a save [observed by playing]; the shortest wait is not known).
+
+## 5. Behind the main menu
+
+The main menu fades through the pictures of the screens flagged Displays In Main Menu
+(§1) [documented: the flag's name] (`fnv_world::loadscreen::main_menu_pictures`,
+`nvf_play::main_menu`). Before 2026-10-24 it took the 196 screens with no location
+instead (ESM full audit gap 25). A load order where no screen carries the flag keeps
+that rule [design]. Whether the flagged screens are also shown while loading is not
+documented; NVForever keeps them in the loading pool by their locations as before
+[hypothesis]. The `main menu:` log line counts the flagged screens.
