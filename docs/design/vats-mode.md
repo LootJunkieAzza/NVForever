@@ -245,10 +245,15 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 ## 8. Mark visuals and the HUD
 
 - **"x" marks**: each mark draws an "x" of two crossed bars in the interface's amber
-  (`interface::AMBER`, the HUD's colour), 1.9 % of the screen width across, at its point
-  projected on the screen (§6) [design, after the references; amber instead of their
-  dark red at the owner's wish of 2026-10-24, to match the HUD]. Marks behind the camera
-  are not drawn. A mark that has fired goes [design].
+  (`interface::AMBER`, the HUD's colour) lifted 25 % of the way to white so it stands out
+  on the amber grade, 1.9 % of the screen width across, at its point projected on the
+  screen (§6) [design, after the references; amber instead of their dark red at the
+  owner's wishes of 2026-10-24, to match the HUD and then to be brighter]. Marks behind
+  the camera are not drawn. A mark that has fired goes [design]. The "x" and its
+  chance are kept at the same size on the screen at any range, so a far mark stays
+  readable [design]. Marks on the same actor and part share a point, so they draw one
+  "x" and one chance, the newest mark's: with Concentrated Fire it climbs as marks are
+  added (§17.2) [design: the owner, 2026-10-24, no stacked marks].
 - **AP bar**: while marking, the HUD's AP bar shows the AP that is left after the
   reservations (`(AP − reserved) / max`), so it drains mark by mark [design]; firing
   spends it for real, so the bar stays where it was.
@@ -718,8 +723,8 @@ open   = distance × tan(cone × fVATSSpreadMult)
 
 - Beside each mark's "x" (to its right, centred on it) its chance in whole percent,
   "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), in the
-  interface's amber like the HUD's text [design: the owner's wish of 2026-10-24; it was
-  a creamy white]. It follows the mark and changes as the
+  marks' brightened amber (§8) [design: the owner's wishes of 2026-10-24; it was a
+  creamy white]. It follows the mark and changes as the
   chance does; it goes with the "x" once the mark is fired.
 - Nothing shows the chance of what is under the crosshair before it is marked [design:
   the owner asked for the marks; a later step if wanted].
