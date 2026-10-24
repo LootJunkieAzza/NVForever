@@ -69,10 +69,14 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 
 - It picks the scenarios whose paths your branch changed (`--only NAME…`, `--area A…`,
   `--all` otherwise), shares a game launch between scenarios where that was checked to be
-  safe, takes both game locks for each launch and waits while another session holds them
-  (smoke runners wait in a first-come, first-served queue, `smoke-queue` beside the first
-  lock, and keep their place for the whole run),
-  and prints one line per scenario. **The summary is enough**: open a log in
+  safe, and runs up to 3 nvforever games on the machine at once (smoke slots,
+  `tools/smoke/smoke/slots.py`; `--slots N` / `NVF_SMOKE_SLOTS`, `--jobs N` for this run).
+  While any slot runs, `.claude\smoke.lock` exists as a shared lock, so captures (which
+  `mkdir` both game locks) wait; smoke never takes the capture lock `run.lock`, it only
+  waits while it is held. Runners queue first-come, first-served (`smoke-queue` beside
+  the first lock) and the first 3 share the slots. `--exclusive` is the old way (both
+  locks, one game on the machine) for a check that needs the screen to itself.
+  It prints one line per scenario. **The summary is enough**: open a log in
   `target/smoke/` only for a FAIL, and then only the lines it quotes. `plan` shows what
   would run; `check` judges the saved logs again after you edit a scenario; `--no-merge`
   runs scenarios one by one. Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
