@@ -37,6 +37,7 @@ pub mod actor_values;
 pub mod aggro;
 pub mod ash_piles;
 pub mod aid;
+pub mod area_effects;
 pub mod appearance;
 pub mod ai;
 pub mod anim_state;

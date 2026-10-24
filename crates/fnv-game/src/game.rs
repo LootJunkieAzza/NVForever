@@ -2936,6 +2936,9 @@ impl<'a> Game<'a> {
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         for (index, e) in items.iter().enumerate() {
+            if mods.only.is_some_and(|o| o != index) {
+                continue;
+            }
             let label = format!("{} effect {index}", data.name(source));
             // A lasting effect (an ability, a worn enchantment) whose conditions fail is
             // listed inactive, to take hold when they pass (`crate::abilities`).

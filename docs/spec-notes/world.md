@@ -938,6 +938,20 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   shows only within Snell's window (refractive index 1.33) and the surface reflects the
   water body outside it. The under fog "amount" is unused like the above one. Unknown: the roles of ANAM
   opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
+- **Depth falloff** (2026-10-24, ESM audit gap 27): DNAM "Depth Falloff Start" and
+  "End", "where the alpha fadeoff begins (used for edges of the water, to blend it
+  smoothly with the land)" and "where the alpha fadeoff ends" [documented: GECK wiki
+  WaterType; xEdit files them under the noise normals]. The masters store fractions: start
+  0 in all but WaterTypeOasisClean (0.029), end 0.0109 for NVCleanWater and its copies,
+  0.0797 for the Potomac types, 0.1268 for NVCleanWater02, 0.3152 for WaterTypeBlood, up
+  to 0.8 [observed: the ten masters' 74 WATR]. Taken as fractions of the above fog's far
+  distance [hypothesis: that gives an edge of a few units to a few tens, NVCleanWater
+  0 to 9 units, the Potomac's 0 to 37, the Goodsprings blood pools' 0 to 5; as game units
+  they would be hundredths of a unit]: seen from above, the whole surface, reflection
+  included, fades in from the start to the end of that ramp of water crossed by the view
+  ray, so the reflecting surface meets the shore without a seam
+  (`fnv_world::sky::Water::edge_falloff`, water.wgsl). The refraction's 200-unit ramp is
+  another thing and stays; distortion, light radius and brightness are still unused.
 - **Ripples** [hypothesis, the renderer's model]: DNAM's "rain" and "displacement"
   groups (starting size, force, velocity, falloff, dampner; NVCleanWater: rain 0.05 /
   0.1 / 0.6 / 0.985 / 2.0, displacement 0.01 / 0.4 / 0.6 / 0.985 / 10.0) are read as two

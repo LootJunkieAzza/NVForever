@@ -1544,8 +1544,13 @@ pub fn update_sky(
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<CloudLayer>)>,
     mut materials: ResMut<Assets<SkyMaterial>>,
     mut flashed: Local<bool>,
+    screen: Option<Res<crate::imagespace::ScreenModifiers>>,
 ) {
     let mut cam = cam;
+    // What the image space modifiers on the screen do to the Sunlight Dimmer and the
+    // Emissive Mult (image-modifiers.md §11), on top of the image space's.
+    let ratio = |i: usize| screen.as_deref().map_or(1.0, |s| s.hdr_ratio(i));
+    let (sun_mod, emissive_mod) = (ratio(fnv_world::imagespace::HDR_SUNLIGHT_DIMMER), ratio(fnv_world::imagespace::HDR_EMISSIVE_MULT));
     let Ok((cam_t, mut fog)) = cam.single_mut() else { return };
     let cam_pos = cam_t.translation;
     let to_bevy = game_to_bevy();
@@ -1648,7 +1653,7 @@ pub fn update_sky(
         // switch between the two does not flip shadows at full strength [interim].
         // Scaled by the image space's Sunlight Dimmer against the Mojave's (the Big MT's
         // sun is about twice it, Dead Money's West Town's under half) [hypothesis].
-        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0) * sky.sun_scale() * sun_mod * if sun_dir.y >= 0.0 { SUN_SHARE } else { MOON_SHARE };
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = crate::lights::display_ambient([amb[0] + flash.x, amb[1] + flash.y, amb[2] + flash.z].map(crate::lights::linear_to_display));
@@ -1659,7 +1664,7 @@ pub fn update_sky(
     let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
     fog.color = to_color(sky.fog_color()).with_alpha(strength);
     let power = sky.fog_power();
-    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale());
+    fog.falloff = crate::fog::falloff(near.max(0.0), far, power, true, sky.emissive_scale() * emissive_mod);
     // A lightning flash changes the light each frame it lasts: not worth a line each.
     let flashing = std::mem::replace(&mut *flashed, flash != Vec3::ZERO);
     if sky.time_scale <= 0.0 && flash == Vec3::ZERO && !flashing {

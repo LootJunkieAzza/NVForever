@@ -40,11 +40,15 @@
 //!   still world alone ([`casing_filter`]), so it never lands on the player or anyone
 //!   else and nothing (the camera, movement, shots) ever meets it (the owner,
 //!   2026-10-22).
-//! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, upright, emitting
+//! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, emitting
 //!   its own particle systems (flash, sparks, smoke, shrapnel: `crate::particles::
 //!   ModelEmitter`) for as long as its sequence runs (else [`EXPLOSION_SECS`]), and the
 //!   EXPL's light (LIGH) fading out over [`EXPLOSION_LIGHT_SECS`] [design: the LIGH's
-//!   time is -1, no duration of its own]. The dirt thrown up is the impact of the EXPL's
+//!   time is -1, no duration of its own]. The model stands upright when the EXPL has
+//!   "Always Uses World Orientation", else its +z along the normal of the ground under
+//!   the blast ([`explosion_rotation`]) [documented: the xEdit flag name; hypothesis:
+//!   that the other orientation is the surface's, the audit's reading, and that the
+//!   ground below stands for the surface hit]. The dirt thrown up is the impact of the EXPL's
 //!   data set on the ground below (`nvf_play::combat`), shown as any impact. Seen from
 //!   within the EXPL's image-space radius, its image space modifier plays on the screen
 //!   (`crate::imagespace::ScreenModifiers::play`).
@@ -185,6 +189,8 @@ struct ShotFx {
     /// Impacts not shown on an actor flagged No Blood Spray.
     no_spray: u32,
     explosions: u32,
+    /// Explosions turned to the ground under them (no "Always Uses World Orientation").
+    explosions_aligned: u32,
     /// Effect models spawned playing their own clip, and of those, explosions whose
     /// image space modifier went on the screen.
     animated: u32,
@@ -676,7 +682,11 @@ fn explosions(
     let eye = camera.single().ok().map(|c| root_place.compute_affine().inverse().transform_point3(c.translation()));
     for b in boom.read() {
         let Some(x) = sfx.forms.explosions.get(&b.explosion) else { continue };
-        let place = Transform::from_translation(Vec3::from_array(b.point));
+        let world_up = combat.forms.explosions.get(&b.explosion).is_some_and(|s| s.flags.iter().any(|f| f == WORLD_ORIENTATION));
+        let place = Transform::from_translation(Vec3::from_array(b.point)).with_rotation(explosion_rotation(world_up, b.normal));
+        if !world_up && b.normal.is_some() {
+            fx.explosions_aligned += 1;
+        }
         let (holder, length) = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
             Some((m, pm)) => {
                 let (h, length) = spawn_effect(&mut commands, &mut fx, world_root, &pm, place, m, false);
@@ -710,6 +720,19 @@ fn explosions(
                 ChildOf(world_root),
             ));
         }
+    }
+}
+
+/// EXPL DATA flag 1 [documented: schema combat.json, xEdit EXPL].
+pub const WORLD_ORIENTATION: &str = "Always Uses World Orientation";
+
+/// How an explosion's model is turned (game space): upright when it always uses the
+/// world's orientation or no ground was found, else its +z along the ground's normal
+/// (the shortest turn from up).
+pub fn explosion_rotation(world_up: bool, normal: Option<[f32; 3]>) -> Quat {
+    match normal.map(Vec3::from_array).filter(|n| !world_up && n.length_squared() > 1e-6) {
+        Some(n) => Quat::from_rotation_arc(Vec3::Z, n.normalize()),
+        None => Quat::IDENTITY,
     }
 }
 
@@ -759,6 +782,9 @@ fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
             fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
         info!("shot fx: {} effect models played their own animation, {} explosion screen effects", fx.animated, fx.screen_effects);
+        if fx.explosions > 0 {
+            info!("shot fx: {} explosions turned to the ground under them, {} upright", fx.explosions_aligned, fx.explosions - fx.explosions_aligned);
+        }
         if fx.no_spray > 0 {
             info!("shot fx: {} impacts on actors flagged No Blood Spray not shown", fx.no_spray);
         }
