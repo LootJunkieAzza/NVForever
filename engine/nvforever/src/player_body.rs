@@ -642,6 +642,8 @@ struct Motion {
     sway: ViewSway,
     /// The true iron sights were last reported on the eye (a smoke check).
     sights_told: bool,
+    /// How far the gun is on its way up to the eye (0–1, not eased; `iron_sights::step`).
+    sights_share: f32,
 }
 
 impl Motion {
@@ -687,6 +689,7 @@ impl Default for Motion {
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
             sights_told: false,
+            sights_share: 0.0,
         }
     }
 }
@@ -2198,14 +2201,14 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
-    // True iron sights: eased in with the zoom, for the guns whose model has a sighting
-    // node, while the
-    // player looks through the arms rig by themself.
-    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()))
-        .then(|| zoom.as_deref().map_or(0.0, |z| z.blend))
-        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()));
+    // True iron sights: brought up at their own pace while the view zooms in, for the
+    // guns whose model has a sighting node, while the player looks through the arms rig
+    // by themself.
+    let sights_can = state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()) && combat.as_deref().is_some_and(|c| c.sight_fov().is_some());
+    m.sights_share = if sights_can { crate::iron_sights::step(m.sights_share, zoom.as_deref().is_some_and(|z| z.aimed), dt) } else { 0.0 };
+    let sights_in = Some(m.sights_share).filter(|s| *s > 0.0);
     // The view's direction in the arms rig's own frame (turned by the heading only).
-    let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
+    let sights = sights_in.map(|s| (crate::iron_sights::ease(s), Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {
