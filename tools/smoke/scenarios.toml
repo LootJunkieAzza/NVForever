@@ -6247,6 +6247,47 @@ expect = [
 ]
 
 [[scenario]]
+name = "vats-mode-hit-chance"
+source = "owner 2026-10-23: a hit chance in VATS mode, shown as a percentage beside each mark's x and rolled per shot (docs/design/vats-mode.md §17)"
+note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357): two marks, each logged with its chance and the dog torso's or part's BPTD base; E fires both, each shot rolled (hit or missed, either is right: the check is that the chance is worked out and rolled, not the outcome). Frame vats_hit_chance.png at 10.4 s (game time at the 0.05 clock) shows the two labels beside the x's"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/tuning.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_SHOTS = "10.4:vats_hit_chance.png" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: marked .* mark 1; .* AP left; (?P<n>\d+)% to hit \(base \d+', range = [1, 95], label = "the first mark has a chance, within the cap" },
+  { re = 'vats mode: marked .* mark 2; .* AP left; (?P<n>\d+)% to hit \(base \d+', range = [1, 95], label = "the second mark too" },
+  "vats mode: firing 2 marked shots",
+  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent; \d+% to hit: (hit|missed) \(rolled \d+\)', label = "the first shot is rolled" },
+  { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent; \d+% to hit: (hit|missed) \(rolled \d+\)', label = "the second shot is rolled" },
+  { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "both fired, the AP spent either way" },
+  { re = 'vats mode: rolls: \d+ hit, \d+ missed', label = "the rolls are counted" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent, 0 refused, \d+ hit, \d+ missed', label = "the summary counts hits and misses" },
+]
+manual = "vats_hit_chance.png: a creamy 'NN%' to the right of each dark-red x"
+
+[[scenario]]
+name = "vats-mode-miss"
+source = "owner 2026-10-23: a hit chance in VATS mode; a missed roll goes wide of the mark (docs/design/vats-mode.md §17.4)"
+note = "vats-mode-unmark's setup (a .357 among the Goodsprings dogs on their packages, god mode) with every roll forced to miss (NVF_PLAY_TEST_VATS_ROLL=miss): one mark, E; the shot leaves beside the dog and hits no actor (the player is the only one shooting, so a projectile hit on another actor would be this shot)"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'vats mode: marked .* mark 1; .*% to hit', label = "one mark with its chance" },
+  { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: missed', label = "the roll misses (forced)" },
+  { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the shot is fired and its AP spent" },
+  { re = 'vats mode: rolls: 0 hit, 1 missed', label = "one miss counted" },
+]]
+forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
+
+[[scenario]]
 name = "vats-mode-unmark"
 source = "owner's todo 6: right click removes the last mark; right click with no marks ends VATS mode (docs/design/vats-mode.md §2)"
 note = "a .357 in hand among the Goodsprings dogs (left to their packages, god mode). V at 10 s (after the start-up boxes); one mark, a right click takes it back, a second right click ends the mode: nothing fired, nothing spent. Aid times 10.3+ are game time at the 0.05 clock"
@@ -6381,10 +6422,10 @@ expect = [
 [[scenario]]
 name = "vats-mode-melee"
 source = "owner's todo 6 follow-up and owner 2026-10-20: melee marks within 5 m, the player teleports beside each mark and swings (docs/design/vats-mode.md §16.2)"
-note = "a machete (WeapNVMachete 000CE569: 20 AP a swing) among the Goodsprings dogs, which attack the player (god mode), so by 10 s they are within 5 m. One mark, E: a teleport beside the dog and one swing that lands on it. Written 2026-10-20 by a worker session that does not run the game. 2026-10-23 (list 7 W9): VATS at 16 s, not 10: the add-ons' start-up message boxes opened at 10.4 s and ended the mode before it could end itself ('a menu opened')"
+note = "a machete (WeapNVMachete 000CE569: 20 AP a swing) among the Goodsprings dogs, which attack the player (god mode), so by 10 s they are within 5 m. One mark, E: a teleport beside the dog and one swing that lands on it. Written 2026-10-20 by a worker session that does not run the game. 2026-10-23 (list 7 W9): VATS at 16 s, not 10: the add-ons' start-up message boxes opened at 10.4 s and ended the mode before it could end itself ('a menu opened'). 2026-10-23: VATS mode rolls each swing on the mark's hit chance (vats-mode.md §17); this check is about the teleport and the blow landing, so its roll is forced to hit (NVF_PLAY_TEST_VATS_ROLL=hit); vats-mode-hit-chance and vats-mode-miss check the rolls"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONTROL = "3:weapon,16.3:aimvats", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.36:e" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,16.3:aimvats", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left,16.36:e" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 24
 order = [[

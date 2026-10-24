@@ -148,13 +148,14 @@ run speed has no such block.
 | 70 Has Improved Spotting | Spotter (Boone): enemies highlighted while aiming |
 | 71 Has Improved Item Detection | Search and Mark (Rex): items highlighted while aiming |
 
-### 3.9 VATS's hit chance (needs a decision, not a build)
+### 3.9 VATS's hit chance (built 2026-10-23)
 
 Entry point 8 Calculate To Hit Chance (Commando, Gunslinger, Sniper, Wired Reflexes, Hobbler,
 the to-hit half of Fast Shot, Trigger Discipline, Sneering Imperialist, Camarader-E,
-Lonesome Road) and 33 Has Concentrated Fire change VATS's hit chance. VATS mode never
-misses (owner, vats-mode.md), so these perks have nothing to change; Commando, Gunslinger,
-Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
+Lonesome Road) and 33 Has Concentrated Fire change VATS's hit chance. When this audit was
+written VATS mode never missed, so these perks had nothing to change. The owner chose a
+hit chance (2026-10-23): VATS mode now has one, and both entry points apply to it
+(vats-mode.md Â§17). The appendix's statuses are as audited, before that.
 
 ## 4. Proposed build order
 
@@ -170,8 +171,7 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 6. **Knockdowns and the unarmed moves** (Â§3.6): needs melee knockdown and the special
    moves (and their VATS forms).
 7. **Companion perks** (Â§3.8) and natural healing (Better Healing).
-8. A decision on Â§3.9: a hit chance in VATS mode, or the to-hit perks given another
-   meaning, or left as they are.
+8. Â§3.9: decided and built 2026-10-23, a hit chance in VATS mode (vats-mode.md Â§17).
 
 ## Appendix: every PERK record
 
@@ -189,7 +189,7 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | Loose Cannon | FalloutNV | trait | entry points 40 AP Cost, 43 Attack Speed, 59 Throwing Velocity | **partly** (43, 59) |
 | Small Frame | FalloutNV | trait | entry points 6 Limb Damage; ability IncreaseAgility | works |
 | Trigger Discipline | FalloutNV | trait | entry points 8 To Hit Chance, 34 Gun Spread, 40 AP Cost, 43 Attack Speed | **partly** (8, 43) |
-| Wild Wasteland | FalloutNV | trait | conditions in INFO, RCPE; scripts GenericWildWastelandTriggerSCRIPT, NVDLC02WWTwoBearsTriggerScript, NVDLC03SinkAutoDocSCRIPT … | works through scripts / conditions |
+| Wild Wasteland | FalloutNV | trait | conditions in INFO, RCPE; scripts GenericWildWastelandTriggerSCRIPT, NVDLC02WWTwoBearsTriggerScript, NVDLC03SinkAutoDocSCRIPT â€¦ | works through scripts / conditions |
 | Action Boy | FalloutNV | perk | ability IncreaseActionPoints | works |
 | Action Girl | FalloutNV | perk | ability IncreaseActionPoints | works |
 | Adamantium Skeleton | FalloutNV | perk | entry points 6 Limb Damage | works |
@@ -297,7 +297,7 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | Child at Heart | FalloutNV | other | conditions in INFO; scripts PressDemoQuestScript, VCG04ActivatorScript | works through scripts / conditions |
 | Companion Suite | FalloutNV | other | entry points 58 DT attacker; ability IncreaseDamageResistance, IncreaseSkillSneak, ReduceCarryWeight | works |
 | Day Tripper | FalloutNV | other | entry points 25 Positive Chem Duration | works |
-| Deathclaw Omelet | FalloutNV | other | — | no effect in the records |
+| Deathclaw Omelet | FalloutNV | other | â€” | no effect in the records |
 | Dine and Dash | FalloutNV | other | entry points 27 Activate | works |
 | Dream Crusher | FalloutNV | other | entry points 36 Enemy Crit Chance | works |
 | Endurance Implant | FalloutNV | other | ability IncreaseEndurance | works |
@@ -331,10 +331,10 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | Rad Regeneration | FalloutNV | other | ability RestoreLimbChest, RestoreLimbHead, RestoreLimbLeftArm, RestoreLimbLeftLeg, RestoreLimbRightArm, RestoreLimbRightLeg | works |
 | Ranger Takedown | FalloutNV | other | entry points 62 Unarmed Back PA | **missing** (62) |
 | Regular Maintenance | FalloutNV | other | entry points 68 Item Damage | works |
-| Scribe Assistant | FalloutNV | other | scripts NVDLC01NewVegasFollowerFireQuestSCRIPT, NVDLC02ZionDoorSCRIPT, NVDLC03TeleportEffectTimerSCRIPT … | works through scripts / conditions |
+| Scribe Assistant | FalloutNV | other | scripts NVDLC01NewVegasFollowerFireQuestSCRIPT, NVDLC02ZionDoorSCRIPT, NVDLC03TeleportEffectTimerSCRIPT â€¦ | works through scripts / conditions |
 | Scribe Counter | FalloutNV | other | entry points 64 Unarmed Counter; conditions in INFO | **missing** (64) |
 | Search and Mark | FalloutNV | other | entry points 71 Improved Item Detection | **missing** (71) |
-| Spicy Casserole | FalloutNV | other | — | no effect in the records |
+| Spicy Casserole | FalloutNV | other | â€” | no effect in the records |
 | Spotter | FalloutNV | other | entry points 70 Improved Spotting | **missing** (70) |
 | Steady Chem | FalloutNV | other | entry points 34 Gun Spread | works |
 | Stealth Girl | FalloutNV | other | entry points 2 My Crit Damage; conditions in ALCH | works |
@@ -352,7 +352,7 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | Survival Guru | FalloutNV | other | ability IncreaseHealth, IncreasePoisonResistance, IncreaseRadiationResistance | works |
 | Tough Guy | FalloutNV | other | entry points 6 Limb Damage | works |
 | Well Rested | FalloutNV | other | entry points 9 XP | works |
-| Whiskey Rose | FalloutNV | other | conditions in ALCH, SPEL; scripts NVDLC01NewVegasFollowerFireQuestSCRIPT, NVDLC02ZionDoorSCRIPT, NVDLC03TeleportEffectTimerSCRIPT … | works through scripts / conditions |
+| Whiskey Rose | FalloutNV | other | conditions in ALCH, SPEL; scripts NVDLC01NewVegasFollowerFireQuestSCRIPT, NVDLC02ZionDoorSCRIPT, NVDLC03TeleportEffectTimerSCRIPT â€¦ | works through scripts / conditions |
 | Wired Reflexes | FalloutNV | other | entry points 8 To Hit Chance | nothing to change (VATS mode never misses) (8) |
 | YaoGuaiMeatPerk | FalloutNV | other | entry points 0 Weapon Damage | works |
 | Claustrophobia | OldWorldBlues | trait | ability IncreaseAgility, IncreaseCharisma, IncreaseEndurance, IncreaseIntelligence, IncreaseLuck, IncreasePerception, IncreaseStrength, ReduceAgility, ReduceCharisma, ReduceEndurance, ReduceIntelligence, ReduceLuck, ReducePerception, ReduceStrength | works |
@@ -395,7 +395,7 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | Walker Instinct | LonesomeRoad | perk | ability IncreaseAgility, IncreasePerception | works |
 | Big Brained | OldWorldBlues | other | entry points 23 Addiction Chance, 56 DT defender | works |
 | Big-Brained | OldWorldBlues | other | entry points 23 Addiction Chance; ability IncreaseDamageResistance | works |
-| Brain-full | OldWorldBlues | other | — | no effect in the records |
+| Brain-full | OldWorldBlues | other | â€” | no effect in the records |
 | Brainless | OldWorldBlues | other | entry points 23 Addiction Chance, 56 DT defender | works |
 | Camarader-E | LonesomeRoad | other | entry points 0 Weapon Damage, 8 To Hit Chance, 56 DT defender | works, but its to-hit part has nothing to change (8) |
 | Camarader-E | LonesomeRoad | other | entry points 0 Weapon Damage, 8 To Hit Chance, 56 DT defender; quest stage NVDLC04GenericPerkQUEST@10, NVDLC04GenericPerkQUEST@12 | works, but its to-hit part has nothing to change (8) |
@@ -410,7 +410,7 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | Elijah's Ramblings | DeadMoney | other | entry points 2 My Crit Damage; conditions in INFO | works |
 | Enhanced Sensors | LonesomeRoad | other | entry points 69 Improved Detection | **missing** (69) |
 | Ghost Hunter | DeadMoney | other | scripts NVDLC01GhostSCRIPT | works through scripts / conditions |
-| Heart-full | OldWorldBlues | other | — | no effect in the records |
+| Heart-full | OldWorldBlues | other | â€” | no effect in the records |
 | Heartless | OldWorldBlues | other | entry points 36 Enemy Crit Chance; ability IncreasePoisonResistance | works |
 | Implant C-13 | OldWorldBlues | other | entry points 0 Weapon Damage | works |
 | Implant M-5 | OldWorldBlues | other | entry points 42 Run Speed | **missing** (42) |
@@ -423,17 +423,17 @@ Sniper, Wired Reflexes, Hobbler and Concentrated Fire do nothing at all.
 | NVDLC01InShiningArmorEyewear | DeadMoney | other | entry points 56 DT defender | works |
 | NVDLC03LobotimiteReduceSpeedPERK | OldWorldBlues | other | entry points 42 Run Speed | **missing** (42) |
 | NVDLC04RushingWaterEffectsPerk | LonesomeRoad | other | entry points 43 Attack Speed | **missing** (43) |
-| Quiet as the Waters | HonestHearts | other | conditions in SPEL; scripts NVDLC02FireTriggerSCRIPT, NVDLC02HireTriggerSCRIPT, NVDLC02WakingCloudSCRIPT … | works through scripts / conditions |
+| Quiet as the Waters | HonestHearts | other | conditions in SPEL; scripts NVDLC02FireTriggerSCRIPT, NVDLC02HireTriggerSCRIPT, NVDLC02WakingCloudSCRIPT â€¦ | works through scripts / conditions |
 | Reinforced Spine | OldWorldBlues | other | entry points 56 DT defender; ability IncreaseStrength, RestoreLimbChest | works |
 | Reinforced Spine | OldWorldBlues | other | entry points 56 DT defender; ability IncreaseStrength; conditions in SPEL | works |
 | Robot Compliance | OldWorldBlues | other | entry points 27 Activate | works |
 | Scourge of the East | LonesomeRoad | other | quest stage NVDLC04GenericPerkQUEST@40, NVDLC04GenericPerkQUEST@80 | works |
 | Sierra Madre Martini | DeadMoney | other | conditions in RCPE | works through scripts / conditions |
 | Signal Interference | DeadMoney | other | scripts NVDLC01ChristineSCRIPT, NVDLC01FireScript, NVDLC01HireScript | works through scripts / conditions |
-| Spine-full | OldWorldBlues | other | — | no effect in the records |
+| Spine-full | OldWorldBlues | other | â€” | no effect in the records |
 | Spineless | OldWorldBlues | other | entry points 56 DT defender; ability IncreaseStrength; conditions in SPEL | works |
 | Stealth Suit Mk II | OldWorldBlues | other | entry points 42 Run Speed | **missing** (42) |
 | The Bear-Slayer | LonesomeRoad | other | quest stage NVDLC04GenericPerkQUEST@40, NVDLC04GenericPerkQUEST@70 | works |
 | Unclean Living | DeadMoney | other | scripts NVDLC01DeanScript, NVDLC01FireScript, NVDLC01HireScript | works through scripts / conditions |
 | Way of the Canaanite | HonestHearts | other | entry points 1 My Crit Chance, 34 Gun Spread | works |
-| Well-Stacked Cairns | HonestHearts | other | scripts NVDLC02FireTriggerSCRIPT, NVDLC02FollowsChalkSCRIPT, NVDLC02HireTriggerSCRIPT … | works through scripts / conditions |
+| Well-Stacked Cairns | HonestHearts | other | scripts NVDLC02FireTriggerSCRIPT, NVDLC02FollowsChalkSCRIPT, NVDLC02HireTriggerSCRIPT â€¦ | works through scripts / conditions |
