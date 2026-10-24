@@ -10,9 +10,10 @@
 //!   what lies behind it: its lit colour and emissive light are summed in display values
 //!   and held to 0..1, without fog or tonemapping ([`multiply_factor`],
 //!   docs/spec-notes/nif.md §6, "Multiply blend");
-//! - an additive shape (light beams, glows, flames) adds about what it would add to
-//!   display values: its alpha is raised to a power ([`add_alpha`], nif.md §6
-//!   "Additive blend");
+//! - an additive shape (light beams, glows, flames) adds what it would add to the
+//!   display values of the opaque frame behind it, read from Bevy's copy of that frame
+//!   (the view transmission texture; [`add_display`], [`TransmissionAnchor`], nif.md §6
+//!   "Additive blend"); its emissive multiplier counts in display values;
 //! - an unlit alpha-blended shape (smoke, mist, dust, particles) puts about what it would
 //!   put on display values: its colour is scaled by √alpha ([`blend_colour_scale`],
 //!   nif.md §6 "Alpha blend of unlit shapes").
@@ -22,6 +23,16 @@
 //!
 //! Opaque, alpha-tested and alpha-blended shapes with a black emissive colour, no falloff
 //! and no decal flag render exactly as with StandardMaterial.
+//!
+//! Soft intersections: an unlit effect shape that adds or blends (light beams, glows,
+//! smoke and dust sheets, particles; [`soft_intersections`]) fades out over
+//! [`SOFT_DISTANCE`] towards the opaque surface behind it (the view's depth prepass), so
+//! a beam's panels end softly where they pass into a road or a wall instead of along a
+//! hard line, the way they blend in the game's frames [engineering choice: the game's
+//! own rule is not known; docs/spec-notes/nif.md §6 "Soft intersections"]. Where the
+//! shape lies along that surface (its facing within about 25° of the surface's, both
+//! taken from screen derivatives) it is not faded, so light pools and grime cards laid on
+//! a floor or wall stay. One rule for every such shape, not a setting per model.
 //!
 //! Soft edges: where the view is multisampled, the cut-out edges of alpha-tested shapes
 //! (plants, fences, hair) are anti-aliased ([`soft_edges`]), as the game's transparency
@@ -91,12 +102,20 @@
 //! [engineering choice: a small per-NPC offset image in place of a full-size texture per
 //! NPC, docs/design/streaming-hitches.md §3]. Every other shape has no offset and the
 //! shader is unchanged (the `FACEGEN_TINT` shader def).
+//!
+//! Bindless [engineering choice, docs/design/graphics-enhanced.md §5.6]: where the device
+//! supports it (Bevy decides; `BINDLESS` in the shaders), every NIF material's values and
+//! textures are reached through index tables, so the draws of shapes with different
+//! materials share a batch set instead of each binding a bind group of its own: the
+//! alpha-tested shapes in every shadow cascade above all. The shaders reach the values,
+//! the holes and the FaceGen offset through `nif_surface`, `holes_alpha` and
+//! `facegen_texel` (nif_material.wgsl, nif_prepass.wgsl), which read either binding.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, CompareFunction, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, ShaderType, CompareFunction, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
 /// fade_prepass.wgsl.
@@ -104,6 +123,9 @@ const FADE_PREPASS_SHADER: Handle<Shader> = uuid_handle!("6f0c9b51-2a7e-4f43-9d0
 
 /// nif_prepass.wgsl.
 const NIF_PREPASS_SHADER: Handle<Shader> = uuid_handle!("b1d6a2f4-7c35-4e0a-8f29-3a5d9c0e6b17");
+
+/// nif_surface_bindings.wgsl (imported by the two above).
+const NIF_SURFACE_BINDINGS_SHADER: Handle<Shader> = uuid_handle!("3c8e1f60-9a4d-4b27-b5e2-7d0f6a91c348");
 
 /// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
 /// (module docs). Call from `MaterialExtension::specialize` of materials whose meshes
@@ -170,31 +192,35 @@ pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipel
 
 /// The extension part: the falloff parameters, the alpha cut, the decal switch and the
 /// fragment shader.
+///
+/// Bindless where the device allows it, as `StandardMaterial` is (module docs,
+/// "Bindless"): the values go to one array for all NIF materials ([`NifSurfaceUniform`],
+/// binding 101, index 50 of the extension's index table at binding 100) and the textures
+/// to Bevy's shared texture arrays, so shapes of different materials are drawn in one
+/// batch. Without bindless the values are a uniform at binding 50 and the textures at 51
+/// to 53, Bevy's numbering for extensions.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[data(50, NifSurfaceUniform, binding_array(101))]
+#[bindless(index_table(range(50..54), binding(100)))]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
     /// when the shape has no falloff ([`Falloff::NONE`]).
-    #[uniform(100)]
     pub falloff: Vec4,
     /// Fragments whose alpha is below this are not drawn: the alpha test of a shape that
     /// is drawn blended (`nif_spawn::blend_cut`); 0 on every other shape, which drops
     /// nothing.
-    #[uniform(100)]
     pub alpha_cut: f32,
     /// 1 for an additive shape whose source factor is ONE (NiAlphaProperty ONE / ONE): its
     /// colour is added whole, whatever its alpha [documented: nif.xml AlphaFlags, source
     /// blend mode 0 ONE]; the view-angle falloff still fades it [hypothesis]. 0 for every
-    /// other shape (an additive SRC_ALPHA / ONE shape adds colour × [`add_alpha`]).
-    #[uniform(100)]
+    /// other shape (an additive SRC_ALPHA / ONE shape adds colour × alpha, [`add_display`]).
     pub add_whole: f32,
     /// The screen shift of a refracting shape per unit of its view-space normal (module
     /// notes, "Refraction"), in screen UV; 0 for every other shape.
-    #[uniform(100)]
     pub refraction: f32,
     /// Seconds for the normal map of a refracting shape to scroll once up its texture,
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
-    #[uniform(100)]
     pub fire_period: f32,
     /// The shape refracts (module notes, "Refraction").
     pub refract: bool,
@@ -209,21 +235,78 @@ pub struct NifSurface {
     /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
     /// which the holes texture's alpha leaves a hole, negative for none; y the width of
     /// the edge band below it; z, w unused.
-    #[uniform(100)]
     pub holes: Vec4,
     /// The colour of the holes' edge band (linear, alpha unused).
-    #[uniform(100)]
     pub holes_edge: Vec4,
+    /// Soft intersections (module notes, "Soft intersections"): x the distance in game
+    /// units over which the shape fades out towards the opaque surface behind it, 0 for
+    /// none; y, z, w unused.
+    pub soft: Vec4,
     /// The holes texture; `None` with no holes.
-    #[texture(101)]
-    #[sampler(102)]
+    #[texture(51)]
+    #[sampler(52)]
     pub holes_texture: Option<Handle<Image>>,
     /// FaceGen tint (module notes, "FaceGen tint"): the colour offset in colour units
     /// (0–255 scale), one texel per `.egt` image texel, in the file's row order (first row
     /// at the texture's bottom); read with `textureLoad`, so it is not filtered. `None` on
     /// every shape but an NPC's face and skin.
-    #[texture(103, sample_type = "float", filterable = false)]
+    /// Read with `textureLoad` only, but declared filterable: Bevy's bindless texture
+    /// arrays hold filterable textures, and the offsets are Rgba16Float, which is.
+    #[texture(53)]
     pub facegen_offset: Option<Handle<Image>>,
+}
+
+/// The values of a [`NifSurface`] the shaders read (nif_material.wgsl and
+/// nif_prepass.wgsl `NifSurface`, the same fields in the same order).
+#[derive(Clone, Default, ShaderType)]
+pub struct NifSurfaceUniform {
+    pub falloff: Vec4,
+    pub alpha_cut: f32,
+    pub add_whole: f32,
+    pub refraction: f32,
+    pub fire_period: f32,
+    pub holes: Vec4,
+    pub holes_edge: Vec4,
+    pub soft: Vec4,
+}
+
+impl From<&NifSurface> for NifSurfaceUniform {
+    fn from(s: &NifSurface) -> Self {
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction, fire_period: s.fire_period, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft }
+    }
+}
+
+/// Game units over which a soft-intersecting shape fades out towards the surface behind
+/// it (module notes, "Soft intersections") [engineering choice, judged on the Strip's
+/// lamp beams against the owner's game frame].
+pub const SOFT_DISTANCE: f32 = 160.0;
+
+/// Share of a shape's size (the largest side of its box) that its soft intersection may
+/// span: a glow card a few dozen units across around a lantern's glass (Dead Money's
+/// `nvdlc01_sconceon.nif`, 58 units) faded over 160 units was a dim card with a visible
+/// seam where it meets the glass, while the original's glow is seamless [engineering
+/// choice, owner's frame of the lantern; nif.md §6 "Soft intersections"].
+pub const SOFT_SIZE_SHARE: f32 = 0.25;
+
+/// The fade distance of a soft-intersecting shape whose largest side is `extent` units:
+/// [`SOFT_DISTANCE`], or [`SOFT_SIZE_SHARE`] of the shape when that is less. A shape of
+/// unknown size (extent 0) keeps [`SOFT_DISTANCE`].
+pub fn soft_distance(extent: f32) -> f32 {
+    if extent <= 0.0 {
+        return SOFT_DISTANCE;
+    }
+    (extent * SOFT_SIZE_SHARE).clamp(1.0, SOFT_DISTANCE)
+}
+
+/// Whether a shape of this alpha mode fades out where it meets the surface behind it
+/// (module notes, "Soft intersections"): unlit, added or blended (not multiplied: those
+/// darken what they lie on), and not refracting. Shapes with the decal flags are
+/// included: a decal laid on a surface lies along it and is not faded, while Dead Money's
+/// lantern glow (three crossed discs through the glass, decal flags set) must fade where
+/// it comes out of a pane, or the pane shows a hard seam (nif.md §6 "Soft intersections
+/// of small shapes").
+pub fn soft_intersections(alpha_mode: AlphaMode, unlit: bool, refracts: bool) -> bool {
+    unlit && !refracts && matches!(alpha_mode, AlphaMode::Add | AlphaMode::Blend | AlphaMode::Premultiplied)
 }
 
 /// [`NifSurface::holes`] of a shape with no holes.
@@ -243,6 +326,7 @@ impl Default for NifSurface {
             shade_light: false,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
+            soft: Vec4::ZERO,
             holes_texture: None,
             facegen_offset: None,
         }
@@ -418,7 +502,7 @@ impl Falloff {
     }
 }
 
-/// Display gamma of [`multiply_factor`] and [`multiply_emissive`]: a plain power law, so a
+/// Display gamma of [`multiply_factor`], [`display_emissive`] and [`add_display`]: a plain power law, so a
 /// product of display values is the product of the linear values.
 pub const MULTIPLY_GAMMA: f32 = 2.2;
 
@@ -436,31 +520,54 @@ pub fn multiply_factor(lit: Vec3, emissive: Vec3) -> Vec3 {
     display.clamp(Vec3::ZERO, Vec3::ONE).powf(MULTIPLY_GAMMA)
 }
 
-/// The linear emissive light of a multiply-blended shape for a NiMaterialProperty emissive
-/// colour × multiplier `value`: `value` raised to the display gamma. The shader multiplies
-/// it by the linear texture colour, and [`multiply_factor`] takes the product back to
-/// display values, which gives texture (display) × `value`, the game's term [hypothesis].
-pub fn multiply_emissive(value: f32) -> f32 {
+/// Whether a shape of this alpha mode forms its emissive light in display values, so
+/// its stored emissive colour × multiplier is raised to the display gamma
+/// ([`display_emissive`]): multiply-blended shapes (nif.md §6 "Multiply blend") and
+/// additive ones (nif.md §6 "Additive blend").
+pub fn emissive_in_display(alpha_mode: AlphaMode) -> bool {
+    matches!(alpha_mode, AlphaMode::Multiply | AlphaMode::Add)
+}
+
+/// The linear emissive light of a shape whose light is formed in display values
+/// ([`emissive_in_display`]), for a NiMaterialProperty emissive colour × multiplier
+/// `value`: `value` raised to the display gamma. The shader multiplies it by the linear
+/// texture colour, and [`multiply_factor`] or [`add_display`] take the product back to
+/// display values, which gives texture (display) × `value`, the game's term
+/// [hypothesis].
+pub fn display_emissive(value: f32) -> f32 {
     value.max(0.0).powf(MULTIPLY_GAMMA)
 }
 
-/// Power on the alpha of additive shapes ([`add_alpha`]; nif_material.wgsl has the same
-/// number) [hypothesis, fitted: docs/spec-notes/nif.md §6 "Additive blend"].
-pub const ADD_ALPHA_POWER: f32 = 1.5;
+/// The largest display value the sum of a frame and an additive shape reaches in
+/// [`add_display`] [engineering choice: it keeps a shape of a very large emissive
+/// multiplier (the Securitron's screen flash, 0.99 × 30) from adding thousands of times
+/// white in the HDR view, while the Big MT's sky beams (display 1.5 at the core) pass
+/// whole].
+pub const ADD_DISPLAY_MAX: f32 = 2.0;
 
-/// The alpha an additive shape (NiAlphaProperty destination factor ONE, drawn as
-/// `AlphaMode::Add`) is drawn with, for its alpha `a` (CPU mirror of nif_material.wgsl).
+/// The linear light an additive shape (NiAlphaProperty destination factor ONE, drawn as
+/// `AlphaMode::Add`) adds to a pixel whose opaque frame is `behind` (linear), for its
+/// linear colour `colour` and its alpha `alpha` (1 for a ONE / ONE shape; CPU mirror of
+/// nif_material.wgsl).
 ///
 /// The game adds colour × alpha to the frame's display values [hypothesis,
-/// docs/spec-notes/nif.md §6 "Additive blend"]; Bevy adds linear colour × alpha to linear
-/// light, which on a dark wall shows far brighter (0.1 added to black shows as 0.35). How
-/// much linear light a display-value sum needs depends on the frame behind, which a fixed
-/// blend cannot read: alpha^2.2 is exact on black and leaves faint shapes nearly invisible
-/// on a lit wall, alpha^1 is the old look. [`ADD_ALPHA_POWER`] is the power that brought
-/// the Prospector Saloon's window rays nearest to a display-value sum of the same rays.
-pub fn add_alpha(a: f32) -> f32 {
-    a.clamp(0.0, 1.0).powf(ADD_ALPHA_POWER)
+/// docs/spec-notes/nif.md §6 "Additive blend"]. Bevy adds linear light, so the shader
+/// reads the frame behind the shape (Bevy's copy of the opaque frame, which
+/// [`TransmissionAnchor`] keeps in every view), adds in display values and returns the
+/// difference in linear light. The sum is held to [`ADD_DISPLAY_MAX`] (or the frame's
+/// own value, if brighter).
+pub fn add_display(colour: Vec3, alpha: f32, behind: Vec3) -> Vec3 {
+    let behind = behind.max(Vec3::ZERO);
+    let shown = behind.powf(1.0 / MULTIPLY_GAMMA);
+    let added = colour.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA) * alpha.clamp(0.0, 1.0);
+    let sum = (shown + added).min(shown.max(Vec3::splat(ADD_DISPLAY_MAX)));
+    (sum.powf(MULTIPLY_GAMMA) - behind).max(Vec3::ZERO)
 }
+
+/// Power on the alpha in the colour term of unlit alpha-blended shapes
+/// ([`blend_colour_scale`]; nif_material.wgsl has the same number) [hypothesis, fitted:
+/// docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"].
+pub const BLEND_ALPHA_POWER: f32 = 1.5;
 
 /// The factor on the colour of an unlit alpha-blended shape (smoke, mist, dust, every
 /// particle system; NiAlphaProperty SRC_ALPHA / INV_SRC_ALPHA) of alpha `a` (CPU mirror
@@ -470,7 +577,7 @@ pub fn add_alpha(a: f32) -> f32 {
 /// [hypothesis, docs/spec-notes/nif.md §6 "Alpha blend of unlit shapes"]; Bevy does it
 /// in linear light, where light smoke over a dark room shows about twice as bright
 /// (owner's Bison Steve lobby screenshots, 2026-10-23). Scaled by √alpha, the colour
-/// term becomes colour × alpha^[`ADD_ALPHA_POWER`], fitted against the display-value
+/// term becomes colour × alpha^[`BLEND_ALPHA_POWER`], fitted against the display-value
 /// blend; the share of what lies behind is kept.
 pub fn blend_colour_scale(a: f32) -> f32 {
     a.clamp(0.0, 1.0).sqrt()
@@ -482,9 +589,53 @@ impl Plugin for NifMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "nif_material.wgsl");
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, NIF_SURFACE_BINDINGS_SHADER, "nif_surface_bindings.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
-        app.add_plugins(MaterialPlugin::<NifMaterial>::default()).add_systems(PostUpdate, see_through_casts_no_shadow);
+        app.add_plugins(MaterialPlugin::<NifMaterial>::default())
+            .add_systems(Startup, spawn_transmission_anchor)
+            .add_systems(PostUpdate, see_through_casts_no_shadow);
     }
+}
+
+/// Keeps Bevy's copy of the opaque frame (the view transmission texture) in every 3D
+/// view, for additive shapes to read what lies behind them ([`add_display`]). Bevy makes
+/// the copy only for a view with something in its transmissive phase (an opaque material
+/// that reads the texture: water, refracting shapes); without it the shader reads a white
+/// stand-in. This is such a material on a triangle of no area, in every render layer and
+/// never culled, so it draws nothing [engineering choice; cost: one copy of the frame per
+/// view and frame, which a view with water in sight made already].
+#[derive(Component)]
+pub struct TransmissionAnchor;
+
+/// Render layers the anchor is in: every layer a view of the game uses.
+const ANCHOR_LAYERS: usize = 32;
+
+fn spawn_transmission_anchor(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<NifMaterial>>) {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::mesh::PrimitiveTopology;
+    let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 0.0, 1.0]; 3])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32; 2]; 3]);
+    // Opaque and reading the texture (specular transmission), so in the transmissive
+    // phase; the refraction pipeline writes no depth, and every fragment would fall below
+    // the cut.
+    let material = NifMaterial {
+        base: StandardMaterial { base_color: Color::NONE, unlit: true, specular_transmission: 1.0, ..default() },
+        extension: NifSurface { refract: true, alpha_cut: 1.0, ..default() },
+    };
+    commands.spawn((
+        Name::new("Transmission anchor"),
+        TransmissionAnchor,
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(materials.add(material)),
+        Transform::IDENTITY,
+        Visibility::Visible,
+        bevy::camera::visibility::NoFrustumCulling,
+        bevy::camera::visibility::RenderLayers::from_layers(&(0..ANCHOR_LAYERS).collect::<Vec<_>>()),
+        bevy::light::NotShadowCaster,
+        bevy::light::NotShadowReceiver,
+    ));
 }
 
 /// Whether a material is see-through: blended, added or multiplied onto what lies behind
@@ -631,6 +782,30 @@ mod tests {
     }
 
     #[test]
+    fn soft_distance_follows_small_shapes() {
+        assert_eq!(soft_distance(0.0), SOFT_DISTANCE);
+        assert_eq!(soft_distance(2_000.0), SOFT_DISTANCE);
+        assert!((soft_distance(58.5) - 14.625).abs() < 1e-4);
+        assert_eq!(soft_distance(1.0), 1.0);
+    }
+
+    #[test]
+    fn soft_intersections_for_unlit_added_and_blended_shapes_only() {
+        // Beams and glows (added), smoke and particles (blended), premultiplied.
+        for mode in [AlphaMode::Add, AlphaMode::Blend, AlphaMode::Premultiplied] {
+            assert!(soft_intersections(mode, true, false));
+        }
+        // Not lit shapes (glass), multiply cards, solid or cut-out shapes, decals or
+        // refracting shells.
+        assert!(!soft_intersections(AlphaMode::Blend, false, false));
+        assert!(!soft_intersections(AlphaMode::Multiply, true, false));
+        assert!(!soft_intersections(AlphaMode::Opaque, true, false));
+        assert!(!soft_intersections(AlphaMode::Mask(0.5), true, false));
+        // Decal-flagged shapes are included (the along-the-surface rule keeps decals).
+        assert!(!soft_intersections(AlphaMode::Add, true, true));
+    }
+
+    #[test]
     fn soft_edge_covers_what_the_alpha_test_keeps() {
         // `width` is how much the alpha changes across one pixel.
         for (cutoff, width) in [(0.5, 0.25), (0.36, 0.05), (128.5 / 255.0, 1.0)] {
@@ -655,7 +830,7 @@ mod tests {
         // lies behind at texture × 2.28 in display values, blue held at 1: a light blue
         // glass, not black.
         let texture = Vec3::new(49.0, 87.0, 117.0) / 255.0;
-        let emissive = texture.powf(MULTIPLY_GAMMA) * multiply_emissive(0.190_283_18 * 12.0);
+        let emissive = texture.powf(MULTIPLY_GAMMA) * display_emissive(0.190_283_18 * 12.0);
         assert!(close(display(multiply_factor(Vec3::ZERO, emissive)), [0.439, 0.779, 1.0]));
         // Light on the cap adds in display values and cannot pass 1.
         let lit = Vec3::splat(0.25f32.powf(MULTIPLY_GAMMA));
@@ -667,28 +842,53 @@ mod tests {
         assert!(close(multiply_factor(Vec3::splat(4.0), Vec3::ZERO), [1.0; 3]));
         assert!(close(multiply_factor(Vec3::ZERO, Vec3::ZERO), [0.0; 3]));
         // An emissive value of 1 is 1 in both spaces; larger ones grow by the gamma.
-        assert_eq!(multiply_emissive(1.0), 1.0);
-        assert!((multiply_emissive(2.0) - 2f32.powf(2.2)).abs() < 1e-6);
-        assert_eq!(multiply_emissive(-1.0), 0.0);
+        assert_eq!(display_emissive(1.0), 1.0);
+        assert!((display_emissive(2.0) - 2f32.powf(2.2)).abs() < 1e-6);
+        assert_eq!(display_emissive(-1.0), 0.0);
     }
 
     #[test]
-    fn additive_blend_alpha() {
-        let display = |v: f32| v.powf(1.0 / MULTIPLY_GAMMA);
-        let linear = |v: f32| v.powf(MULTIPLY_GAMMA);
-        // What a white shape of alpha `a` adds to a display value `behind`.
-        let adds = |behind: f32, a: f32| display(linear(behind) + add_alpha(a)) - behind;
-        // The Saloon's window rays (indfxlightrays01.nif): a white texture, vertex alpha
-        // 0.1 at most, so the game adds 0.1 at most. With the alpha as stored a ray added
-        // 0.35 on black and 0.15 on a wall of 0.3; now 0.21 and 0.05, between that and
-        // alpha^2.2 (0.1 on black, but 0.01 on the wall).
-        assert!((adds(0.0, 0.1) - 0.208).abs() < 0.001);
-        assert!((adds(0.3, 0.1) - 0.055).abs() < 0.001);
-        assert!((display(0.1) - 0.351).abs() < 0.001);
-        // Full and no alpha are unchanged.
-        assert_eq!(add_alpha(1.0), 1.0);
-        assert_eq!(add_alpha(0.0), 0.0);
-        assert_eq!(add_alpha(2.0), 1.0);
+    fn additive_blend_in_display_values() {
+        let display = |v: Vec3| v.powf(1.0 / MULTIPLY_GAMMA);
+        let linear = |v: Vec3| v.powf(MULTIPLY_GAMMA);
+        // The display value of a frame `behind` (display) once a shape of display colour
+        // `colour` and alpha `a` is added.
+        let shown = |colour: Vec3, a: f32, behind: Vec3| display(linear(behind) + add_display(linear(colour), a, linear(behind)));
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 0.002;
+        let grey = Vec3::splat;
+        // The Saloon's window rays (indfxlightrays01.nif): white, vertex alpha 0.1 at
+        // most. The game adds 0.1 to the display value whatever lies behind; alpha^1.5
+        // (the rule before) added 0.21 on black and 0.05 on a wall of 0.3.
+        assert!(close(shown(Vec3::ONE, 0.1, Vec3::ZERO), grey(0.1)));
+        assert!(close(shown(Vec3::ONE, 0.1, grey(0.3)), grey(0.4)));
+        // The Strip's lamp beams (fxlightbeamnvstrip.nif): white, vertex alpha 0.25 at
+        // most, on the night sky: 0.25, not the 0.39 of alpha^1.5.
+        assert!(close(shown(Vec3::ONE, 0.25, Vec3::ZERO), grey(0.25)));
+        // The Big MT's sky beams (nvdlc03imposterbeamblue.nif): texture (0, 207, 255),
+        // emissive white × 10, vertex alpha 0.15 at the core, over a night sky of
+        // (17, 17, 33): 1.5 × the texture is added, past white in green and blue.
+        let texture = Vec3::new(0.0, 207.0, 255.0) / 255.0;
+        let sky = Vec3::new(17.0, 17.0, 33.0) / 255.0;
+        let beam = linear(texture) * display_emissive(10.0);
+        assert!(close(shown(display(beam), 0.15, sky), sky + texture * 1.5));
+        // A ONE / ONE shape (alpha 1) on black adds its colour as it is.
+        let c = Vec3::new(0.2, 0.5, 0.9);
+        assert!(close(add_display(c, 1.0, Vec3::ZERO), c));
+        // The sum is held to ADD_DISPLAY_MAX; a frame brighter than that gets nothing and
+        // loses nothing.
+        let flash = Vec3::splat(display_emissive(0.99 * 30.0));
+        assert!(close(shown(display(flash), 1.0, Vec3::ZERO), grey(ADD_DISPLAY_MAX)));
+        assert_eq!(add_display(flash, 1.0, grey(9.0)), Vec3::ZERO);
+        // No alpha adds nothing.
+        assert!(close(add_display(Vec3::ONE, 0.0, grey(0.2)), Vec3::ZERO));
+    }
+
+    #[test]
+    fn emissive_in_display_values_for_multiply_and_additive_shapes() {
+        assert!(emissive_in_display(AlphaMode::Multiply));
+        assert!(emissive_in_display(AlphaMode::Add));
+        assert!(!emissive_in_display(AlphaMode::Blend));
+        assert!(!emissive_in_display(AlphaMode::Opaque));
     }
 
     #[test]
@@ -701,8 +901,8 @@ mod tests {
         // blended before; now 0.22.
         assert!((blend(0.5, 0.3, 0.0) - 0.220).abs() < 0.002, "{}", blend(0.5, 0.3, 0.0));
         assert!((display(linear(0.5) * 0.3) - 0.290).abs() < 0.002);
-        // The colour term is colour × alpha^1.5, the add_alpha power.
-        assert!((blend_colour_scale(0.3) * 0.3 - add_alpha(0.3)).abs() < 1e-6);
+        // The colour term is colour × alpha^BLEND_ALPHA_POWER.
+        assert!((blend_colour_scale(0.3) * 0.3 - 0.3f32.powf(BLEND_ALPHA_POWER)).abs() < 1e-6);
         // Over a backdrop of its own colour it stays near it (display 0.5).
         assert!((blend(0.5, 0.3, 0.5) - 0.5).abs() < 0.04);
         // Full and no alpha are unchanged.

@@ -18,7 +18,8 @@
 
 // sky.rs SkyLight: daylight on the sky's colours, and the sun.
 struct SkyLight {
-    // x scale, z 1 if the light applies to this part, w 2 sun disc and glare, 1 glare.
+    // x scale, y 1 additive weighted by texture alpha, z 1 if the light applies to this
+    // part, w 2 sun disc and glare, 1 glare.
     params: vec4<f32>,
     glow: vec4<f32>,
     sun_dir: vec4<f32>,
@@ -92,8 +93,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var out: FragmentOutput;
     let alpha_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     if alpha_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
-        // Additive parts: map what is added (colour × alpha), not the colour.
-        let a = c.rgb * c.a;
+        // Additive parts: map what is added (colour, × alpha when params.y is 1), not the colour.
+        let a = c.rgb * select(1.0, c.a, sky.params.y > 0.5);
         out.color = vec4(tony_inverse(a.r), tony_inverse(a.g), tony_inverse(a.b), 1.0);
     } else {
         out.color = vec4(tony_inverse(c.r), tony_inverse(c.g), tony_inverse(c.b), c.a);

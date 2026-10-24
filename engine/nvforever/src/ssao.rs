@@ -110,6 +110,8 @@ pub(crate) struct AoView {
     occlusion: CachedRenderPipelineId,
     apply: CachedRenderPipelineId,
     multi: bool,
+    /// The picture's format the apply pipeline was built for.
+    format: TextureFormat,
     texture: CachedTexture,
 }
 
@@ -212,8 +214,16 @@ fn prepare(
                 view_formats: &[],
             },
         );
-        commands.entity(entity).insert(AoView { occlusion, apply, multi, texture });
+        commands.entity(entity).insert(AoView { occlusion, apply, multi, format, texture });
     }
+}
+
+/// Whether a pipeline built for `format` may draw into the view's picture now. In the
+/// frame the view turns HDR or back (the light glow switched, `graphics.rs`) the view's
+/// format and its main texture can disagree for a frame; a pipeline set on a pass of
+/// the other format is a validation error that ends the run, so the pass is skipped.
+pub(crate) fn format_matches(target: &ViewTarget, format: TextureFormat) -> bool {
+    target.main_texture_format() == format
 }
 
 /// Whether the view's depth prepass texture is multisampled this frame. Read from the
@@ -234,7 +244,7 @@ pub(crate) fn ao_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, ao, prepass) = view.into_inner();
-    if depth_multisampled(prepass) != Some(ao.multi) {
+    if depth_multisampled(prepass) != Some(ao.multi) || !format_matches(target, ao.format) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };

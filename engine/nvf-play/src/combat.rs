@@ -3362,6 +3362,10 @@ fn fly(
                 // [documented: GECK wiki Event Handling] (combat-rules.md §14).
                 let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: -1, critical: false, limb: None };
                 let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
+                // The weapon's object effect reaches the object: its OnMagicEffectHit
+                // blocks (the Vault 22 traps catch the flamer's burn this way).
+                let items: Vec<FormId> = c.forms.weapons.get(&id).and_then(|w| w.enchantment).into_iter().collect();
+                let ran = ran | script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.magic_effect_hits(r, &items, Some(shooter))));
                 // A destructible object takes the hit's damage (no armour) (step C7).
                 let (ap, _) = hit_perks(script.as_deref_mut(), &mut sim, shooter, id, None);
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &ap, &NoPerks, roll);

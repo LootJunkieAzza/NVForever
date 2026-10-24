@@ -58,8 +58,12 @@ Depends on `fnv-esm` and `fnv-world` only.
    the whole Mojave (575k triangles) before giving up, because no distance estimate
    exists between spaces; the door route avoids that.
 4. **Locked doors** are closed unless the actor holds the key (`keys`) or may open locks
-   (`open_locked`). The authored XLOC is the starting state; the game updates it with
-   `set_door_lock`.
+   (`open_locked`). The authored XLOC is the starting state. The game's own lock state
+   reaches the graph through `fnv_ai::Ai::apply_door_locks` (`NavGraph::sync_door_locks`),
+   whenever `fnv_sim::World::lock_serial` moved: a script's Lock or Unlock, a package's
+   lock/unlock flags, a key used, a lock picked. A door unlocked lets the packages set
+   aside as out of reach be chosen again at once; a door locked sends the actors whose
+   way goes through it to plan again (2026-10-23; before, nothing updated the graph).
 5. **Funnel** (string pulling) per leg over the corridor's portals, oriented by the
    counter-clockwise winding (spec-notes §2), with each outline end moved in by the
    clearance (24 units; the physics capsule is 22): corners round walls become short
@@ -67,6 +71,9 @@ Depends on `fnv-esm` and `fnv-world` only.
 6. **Shortcut pass**: drop corners where a straight line to a later corner (up to 32 ahead)
    stays on passable triangles and keeps 3/4 of the clearance from impassable edges
    (`walkable_line`, a navmesh raycast). It straightens what a midpoint corridor bends.
+   The raycast follows one surface: it reaches the later corner only on a triangle whose
+   height there is within `LEVEL_GAP` (40 units) of the corner's, so a line never joins
+   a floor to a catwalk stacked over it (spec-notes/navmesh.md §4b).
 
 7. **Door stops** (§6.1): each door that opens in place whose bounds the leg's polyline
    enters gets a stop. The polyline is made to cross the door square through the middle

@@ -121,6 +121,15 @@ pub fn face(health: f32) -> &'static str {
     }
 }
 
+/// The flashing red at `elapsed` seconds: the HUD's red pulsing between full and
+/// `FLASH_LOW` of it (also the need words', `crate::hud_needs`).
+pub fn flash(elapsed: f32) -> Color {
+    let phase = (elapsed / FLASH_SECONDS * std::f32::consts::TAU).cos() * 0.5 + 0.5;
+    let red = crime_colour().to_srgba();
+    let b = FLASH_LOW + (1.0 - FLASH_LOW) * phase;
+    Color::srgb(red.red * b, red.green * b, red.blue * b)
+}
+
 /// Where a piece's picture stands from the head's top left, and how much of it shows
 /// (its top left part), at zoom 1.
 fn place(piece: usize) -> (Vec2, Vec2) {
@@ -239,10 +248,7 @@ fn draw(
     if !wanted {
         return;
     }
-    let phase = (time.elapsed_secs() / FLASH_SECONDS * std::f32::consts::TAU).cos() * 0.5 + 0.5;
-    let red = crime_colour().to_srgba();
-    let b = FLASH_LOW + (1.0 - FLASH_LOW) * phase;
-    let flash = Color::srgb(red.red * b, red.green * b, red.blue * b);
+    let flash = flash(time.elapsed_secs());
     for (piece, mut vis, mut image) in &mut pieces {
         let look = ind.look(piece.index);
         vis.set_if_neq(show((look != Look::Whole) == piece.broken));

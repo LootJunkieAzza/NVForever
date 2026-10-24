@@ -1085,6 +1085,9 @@ pub(crate) fn fight(
     f.player_swings = swings;
     let player_close = matches!(player_arm(c), Arm::Melee(_));
     let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
+    // Each actor's factions, read by every comrade and hostility check below, are kept
+    // for the frame (`Game::begin_faction_frame`).
+    rt.game.begin_faction_frame();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
         // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
@@ -1416,21 +1419,23 @@ pub(crate) fn fight(
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
-            // Its Combat Radius (§17.4): a hit moves where it measures from; beyond it, no
-            // pursuit.
+            // Its Combat Radius (§17.4): a hit moves where it measures from; it pursues a
+            // target beyond the radius only until it has come that far itself, then holds.
             if health < fighter.anchor_health - 0.5 {
                 fighter.anchor = feet;
             }
             fighter.anchor_health = health;
             let from_anchor = flat(fighter.anchor, tfeet);
-            let leashed = !fleeing && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor));
+            let own_from_anchor = flat(fighter.anchor, feet);
+            let leashed = !fleeing
+                && style.is_some_and(|s| fnv_game::combat_style::beyond_combat_radius(s, from_anchor) && own_from_anchor >= s.combat_radius);
             if leashed != fighter.leashed {
                 fighter.leashed = leashed;
                 if leashed {
                     f.stats.leashes += 1;
-                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
+                    info!("npc combat: {me_name} stops pursuing {target_name}: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come (combat radius {:.0})", style.map_or(0.0, |s| s.combat_radius));
                 } else {
-                    info!("npc combat: {me_name} pursues {target_name} again: within its combat radius ({from_anchor:.0} units)");
+                    info!("npc combat: {me_name} pursues {target_name} again: {from_anchor:.0} units from where its fight began or it was last hit, {own_from_anchor:.0} come");
                 }
             }
             if leashed {
@@ -1568,12 +1573,14 @@ pub(crate) fn fight(
                                     battle.cover_from_shooter += 1;
                                 }
                                 info!(
-                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}",
+                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it){}; room round its cover spot {:.0}, its peek {:.0}",
                                     if cv.low { "low " } else { "" },
                                     (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
                                     (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
                                     (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1]),
-                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) }
+                                    if cv.from == target.0 { String::new() } else { format!(", hidden from {}, who fires at it", tactics::who(g, FormId(cv.from))) },
+                                    cv.room[0],
+                                    cv.room[1]
                                 );
                                 t.cover = Some(cv);
                             }
@@ -1588,6 +1595,7 @@ pub(crate) fn fight(
                         Phase::Going => {
                             if near(cv.behind) {
                                 cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                                log_room(phys.as_deref_mut(), name, "reaches", feet, cv.behind);
                             }
                         }
                         Phase::Hiding { until } => {
@@ -1595,6 +1603,7 @@ pub(crate) fn fight(
                             if clock >= until {
                                 cv.phase = Phase::WaitToFire { until: timer(&mut f.rng, wait_fire) };
                                 battle.peeks += 1;
+                                log_room(phys.as_deref_mut(), name, "hid", feet, cv.behind);
                             }
                         }
                         Phase::WaitToFire { until } => {
@@ -2498,6 +2507,7 @@ pub(crate) fn fight(
             g.awareness.crouching.remove(&FormId(id));
         }
     });
+    rt.game.end_faction_frame();
     // Who blocks now, for the blows dealt this frame (`nvf_play::combat`).
     combat.guarding = guarding;
 }
@@ -2625,6 +2635,23 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
             s.powers_unplayable
         );
     }
+}
+
+/// Where a fighter in cover stands, `what` it did there (reaches its cover, hid behind
+/// it): the room its body has (`combat_tactics::room`), for the log; under the capsule's
+/// radius it is inside something (docs/design/combat-ai.md §12.6.2).
+fn log_room(phys: Option<&mut PhysState>, name: &str, what: &str, feet: [f32; 3], spot: [f32; 3]) {
+    let Some(p) = phys else { return };
+    let r = tactics::room(p, feet);
+    info!(
+        "npc combat: {name} in cover at ({:.0}, {:.0}, {:.0}) ({what}), {:.0} units from its cover spot: room {:.0} ({})",
+        feet[0],
+        feet[1],
+        feet[2],
+        (spot[0] - feet[0]).hypot(spot[1] - feet[1]),
+        r.nearest,
+        if r.nearest < tactics::BODY_RADIUS { "inside geometry" } else { "clear" }
+    );
 }
 
 #[cfg(test)]

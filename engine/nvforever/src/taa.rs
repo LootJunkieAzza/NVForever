@@ -171,6 +171,8 @@ struct Histories(HashMap<Entity, (bool, bool, UVec2)>);
 #[derive(Component)]
 pub(crate) struct TaaView {
     pipeline: CachedRenderPipelineId,
+    /// The picture's format the pipeline was built for.
+    format: TextureFormat,
     read: CachedTexture,
     write: CachedTexture,
     uniform: UniformBuffer<TaaUniform>,
@@ -270,7 +272,7 @@ fn prepare(
             blend: Vec4::new(BLEND, BLEND_MOVING, FAST, 0.0),
         });
         uniform.write_buffer(&device, &queue);
-        commands.entity(entity).insert(TaaView { pipeline, read, write, uniform });
+        commands.entity(entity).insert(TaaView { pipeline, format, read, write, uniform });
     }
     histories.0.retain(|e, _| seen.contains(e));
 }
@@ -284,7 +286,7 @@ pub(crate) fn taa_pass(
     mut ctx: RenderContext,
 ) {
     let (target, taa, prepass, msaa) = view.into_inner();
-    if *msaa != Msaa::Off || crate::ssao::depth_multisampled(prepass) != Some(false) {
+    if *msaa != Msaa::Off || crate::ssao::depth_multisampled(prepass) != Some(false) || !crate::ssao::format_matches(target, taa.format) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };

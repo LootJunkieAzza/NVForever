@@ -2107,6 +2107,38 @@ deep, then a 20-unit step onto the camper's floor (6182-6190), headroom about 15
   `character_climbs_shallow_steps_without_jumping`; the lab's `L4.phys.walk.*` 9/10 as on
   main (`portal_wall` 5/6, the accepted residual); smoke scenario `camper-steps`.
 
+### 6.9.1 Catwalk stairs at REPCONN (owner's playtest, 2026-10-23)
+
+The owner reported that the steep steps up to Chris Haversam's and Jason Bright's
+intercom in the REPCONN Facility (`RocketLabMid`, intercom 0x000CD684 on the catwalk at
+z 506) are hard to walk up and usually need a jump.
+
+- **The stairs** [observed: `fnvtool phys cell --ray`, vertical rays every 1-2 units]:
+  catwalk flights of `UtlCatStairsEndGround01` (0x00082FDB), `UtlCatStairsTurnHalfL01`
+  (0x00082FEE) and `UtlCatStairsTurnFullL01` (0x00082FE5), every riser 24.0 and every tread
+  24 deep (a 45-degree climb), from the floor (−128) by way of catwalks at −6, 66, 194, 250,
+  320 and 450 to the intercom catwalk.
+- **Cause** [observed: a debug trace of `move_character`]: on each step's edge the cone
+  bottom comes to rest with its flat tip just short of the top; rapier's controller refuses
+  the cone's steep face as a wall, and `step_up_move` (§6.9), which measured its rise from
+  the feet, found rises of 0.48, 0.33 and 0.04 units there, and on deeper perches slightly
+  below zero, under its 0.5 minimum, so the player stood on the edge until a jump. Which
+  edge it stuck on depended on the speed and on where the walk started. Raising
+  `step_height` to 26 or 30 changed nothing.
+- **Fix** (`MIN_STEP_RISE`) [engineering choice]: the step-up's shape is put down onto the
+  bare surface while the feet rest the support's gap above theirs, so the rise is now
+  measured from where flat ground would put the shape (the feet less the gap): flat ground
+  and descents measure 0 or lower and stay refused, a perched cone measures about the gap
+  (0.7) or more, and a step up counts from 0.25. The settle then lifts the feet to the gap
+  on the step's top. The step height stays 24.
+- **Checked** [observed]: `fnvtool phys walk` straight up each of the seven flights at 115,
+  150 and 340 units/s from 8 start points 3 units apart: 168/168 reach the top (115/168
+  before), none leaves the ground; the test `character_climbs_steep_stairs_without_jumping`
+  (24-unit stairs from 8 starts at walk and run; fails before the fix); smoke scenario
+  `repconn-catwalk-stairs`. `fnvtool nav walk` from the floor to the intercom still sticks
+  at (847, 4060, −127) with and without the fix: its path cuts under the stairs and never
+  reaches them (NPC path following, not this controller).
+
 ### 6.8.1 Dead actors' characters, small actors' characters (playtest list 7 items 14 and 35, 2026-10-23)
 
 - **Item 14** [observed: owner, "bodies glide along the floor ... like they are still

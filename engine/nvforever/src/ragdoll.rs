@@ -442,6 +442,14 @@ pub(crate) fn pose(
         }
         seen.insert(id);
         let now = rest();
+        if phys.world.ragdoll_held(id) {
+            // Carried by the player's grab: never held at rest (its held body would stop
+            // following the crosshair); calm and the awake guard count again from the drop.
+            (c.calm, c.awake, c.window, c.settled) = (0.0, 0.0, 0.0, false);
+            c.since.clear();
+            write_bones(rig, &c, &nodes, &globals, &mut transforms);
+            continue;
+        }
         if c.settled && !phys.world.ragdoll_asleep(id) {
             // Roused by a hit or a blast: calm from scratch.
             c.calm = 0.0;

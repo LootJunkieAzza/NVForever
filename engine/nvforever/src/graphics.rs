@@ -8,6 +8,13 @@
 //!   reaching half as far again (`SkyState::shadow_reach`), the first cascade as near.
 //! - **Bloom**: bright light (the sun and its glare, lamps, lit windows) glows into what
 //!   lies around it, thresholded on the tonemapped picture (`post.rs`).
+//!
+//! One switch is on in `vanilla` too: **Light glow** (`glow`), the soft glow around neon,
+//! lamps, glowing beams and fire that the original draws with its HDR pass (the owner
+//! plays with `bDoHighDynamicRange=1`), driven by the image space's HDR values
+//! (`post.rs` `glow_params`; docs/spec-notes/world.md §6 "HDR and bloom"). `--graphics-only
+//! no-glow` (or the settings switch) turns it off. With Bloom on, Bloom's own stronger
+//! values are used instead.
 //! - **Sharpening**: contrast-adaptive sharpening of the picture (`post.rs`).
 //! - **Anisotropic filtering 16x** (8x in vanilla) for the game's textures loaded from then on.
 //! - **Anti-aliasing**, one choice and not part of `enhanced`: multisampling (`--msaa`,
@@ -71,6 +78,8 @@ pub struct Graphics {
     pub ambient_occlusion: bool,
     pub fine_shadows: bool,
     pub bloom: bool,
+    /// Light glow from the image space's HDR values (on in vanilla; see the module notes).
+    pub glow: bool,
     pub sharpen: bool,
     pub anisotropic: bool,
     pub screen_aa: ScreenAa,
@@ -104,6 +113,7 @@ impl Graphics {
             ambient_occlusion: on,
             fine_shadows: on,
             bloom: on,
+            glow: true,
             sharpen: on,
             anisotropic: on,
             // Anti-aliasing after the picture is the other choice to multisampling, not
@@ -123,6 +133,7 @@ impl Graphics {
             "ambient-occlusion" => &mut self.ambient_occlusion,
             "fine-shadows" => &mut self.fine_shadows,
             "bloom" => &mut self.bloom,
+            "glow" => &mut self.glow,
             "sharpen" => &mut self.sharpen,
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
@@ -142,9 +153,10 @@ impl Graphics {
                 "taa" => g.screen_aa = ScreenAa::Taa,
                 "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
                 "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
+                "no-glow" => g.glow = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow", KEYS.join(", "))),
                 },
             }
         }
@@ -157,6 +169,7 @@ impl Graphics {
             (self.ambient_occlusion, "ambient occlusion"),
             (self.fine_shadows, "finer, longer shadows"),
             (self.bloom, "bloom"),
+            (self.glow && !self.bloom, "light glow"),
             (self.sharpen, "sharpening"),
             (self.anisotropic, "16x anisotropic filtering"),
             (self.screen_aa == ScreenAa::Fxaa, "FXAA"),
@@ -236,7 +249,8 @@ fn msaa_name(m: Msaa) -> &'static str {
 /// every `every` seconds of real time and then, with a cycle, switch to its next set of
 /// improvements (the first half second after a switch, when pipelines compile, is left
 /// out of the figures). A set may also change the sun's shadows: `no-sun-shadows`,
-/// `shadow-distance=<units>`, `cascades=<n>` (otherwise as at the start).
+/// `shadow-distance=<units>`, `cascades=<n>`, `shadow-thin=<ratio>` (otherwise as at the
+/// start).
 #[derive(Clone, Default)]
 pub struct FrameTimes {
     pub every: f32,
@@ -253,6 +267,8 @@ pub struct CycleStep {
     pub shadow_distance: Option<f32>,
     /// `cascades=<n>`.
     pub cascades: Option<usize>,
+    /// `shadow-thin=<ratio>` (shadow_thin.rs).
+    pub shadow_thin: Option<f32>,
 }
 
 impl FrameTimes {
@@ -270,6 +286,7 @@ impl FrameTimes {
             };
             let shadow_distance = value("shadow-distance=")?;
             let cascades = value("cascades=")?.map(|n| n as usize);
+            let shadow_thin = value("shadow-thin=")?;
             let keys: Vec<String> = keys.iter().filter(|k| *k != "no-sun-shadows" && !k.contains('=')).cloned().collect();
             let graphics = match keys.as_slice() {
                 [] => Graphics::preset(Preset::Vanilla),
@@ -277,7 +294,7 @@ impl FrameTimes {
                 [k] if k == "enhanced" => Graphics::preset(Preset::Enhanced),
                 _ => Graphics::only(&keys)?,
             };
-            Ok(CycleStep { graphics, no_sun_shadows, shadow_distance, cascades })
+            Ok(CycleStep { graphics, no_sun_shadows, shadow_distance, cascades, shadow_thin })
         }).collect()
     }
 }
@@ -300,9 +317,9 @@ impl Plugin for GraphicsPlugin {
             app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
             // (time in this period, time counted, slowest, frames counted, cycle index)
             #[allow(clippy::type_complexity)]
-            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize)>>| {
+            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize, f32)>>, thin: Res<crate::shadow_thin::ShadowThin>, refs: Query<&nvf_play::RefVisual>| {
                 let first = start_shadows.is_none();
-                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades));
+                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades, thin.ratio));
                 if first {
                     if let Some(step) = ft.cycle.first() {
                         apply_shadow_step(&mut commands, &sky, start, step);
@@ -343,6 +360,36 @@ impl Plugin for GraphicsPlugin {
                         }
                     }
                     info!("shadow casters per cascade: {}", if casters.is_empty() { "none (sun shadows off)".to_string() } else { casters.join("; ") });
+                    if !casters.is_empty() {
+                        info!("shadow thinning: ratio {}; {} of {} references ({} meshes) far and small cast none", thin.ratio, thin.refs.1, thin.refs.0, thin.thinned);
+                        // What the sun's last cascade draws: meshes of placed references by
+                        // their angular size (radius / distance), and the other meshes.
+                        let buckets = crate::shadow_thin::SIZE_BUCKETS;
+                        for (name, light, cascades) in &lights {
+                            if !light.shadow_maps_enabled || name.is_none_or(|n| n.as_str() != "Sun") {
+                                continue;
+                            }
+                            for per_cascade in cascades.entities.values() {
+                                let Some(last) = per_cascade.last() else { continue };
+                                let (mut near, mut other, mut unjudged) = (0, 0, 0);
+                                let mut by_size = [0usize; 7];
+                                for e in last.entities.iter() {
+                                    match refs.get(*e).ok().map(|r| thin.sizes.get(&r.0)) {
+                                        None => other += 1,
+                                        Some(None) => unjudged += 1,
+                                        Some(Some(None)) => near += 1,
+                                        Some(Some(Some(v))) => by_size[buckets.iter().position(|b| *v < *b).unwrap_or(buckets.len())] += 1,
+                                    }
+                                }
+                                let sizes: Vec<String> = by_size.iter().enumerate().map(|(i, n)| match i {
+                                    0 => format!("<{} {n}", buckets[0]),
+                                    i if i == buckets.len() => format!(">={} {n}", buckets[i - 1]),
+                                    i => format!("{}-{} {n}", buckets[i - 1], buckets[i]),
+                                }).collect();
+                                info!("sun's last cascade: {} meshes; placed references within {} units {near}, by angular size {}; not judged {unjudged}; other meshes (terrain, trees, LOD, effects) {other}", last.entities.len(), crate::shadow_thin::NEAR, sizes.join(", "));
+                            }
+                        }
+                    }
                     let next = acc.4 + 1;
                     *acc = (0.0, 0.0, 0.0, 0, next);
                     if !ft.cycle.is_empty() {
@@ -358,10 +405,17 @@ impl Plugin for GraphicsPlugin {
 
 /// The sun's shadows of a `--graphics-cycle` set: `start` (on, distance, cascades) as at
 /// the start, changed by the set's keys.
-fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, usize), step: &CycleStep) {
+fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, usize, f32), step: &CycleStep) {
     let on = start.0 && !step.no_sun_shadows;
     let distance = step.shadow_distance.unwrap_or(start.1);
     let cascades = step.cascades.unwrap_or(start.2);
+    let ratio = step.shadow_thin.unwrap_or(start.3);
+    commands.queue(move |w: &mut World| {
+        let mut thin = w.resource_mut::<crate::shadow_thin::ShadowThin>();
+        if thin.ratio != ratio {
+            thin.ratio = ratio;
+        }
+    });
     if on != sky.shadows || distance != sky.shadow_distance || cascades != sky.shadow_cascades {
         commands.queue(move |w: &mut World| {
             let mut sky = w.resource_mut::<SkyState>();
@@ -383,6 +437,7 @@ fn apply(
     mut shadow_map: ResMut<DirectionalLightShadowMap>,
     cams: Query<(Entity, &Msaa), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
+    eye: Res<crate::eye_adapt::EyeCurve>,
     mut done: Local<Option<(Graphics, Msaa, usize)>>,
 ) {
     let cam_count = cams.iter().count();
@@ -407,6 +462,15 @@ fn apply(
             e.insert(PostEffects::new(g.bloom, g.sharpen));
         } else {
             e.remove::<PostEffects>();
+        }
+        // The light glow: an HDR main view (values over 1 kept until the tonemapper) and
+        // Bevy's energy-conserving bloom on it, its strength set every frame from the
+        // image space (post.rs `image_space_glow`).
+        if g.glow && !g.bloom {
+            // With eye adaptation (eye_adapt.rs), which needs the HDR view.
+            e.insert((bevy::camera::Hdr, crate::post::glow_bloom(), crate::post::ImageSpaceGlow, crate::eye_adapt::auto_exposure(&eye)));
+        } else {
+            e.remove::<(bevy::post_process::bloom::Bloom, bevy::camera::Hdr, crate::post::ImageSpaceGlow, bevy::post_process::auto_exposure::AutoExposure)>();
         }
         // Anti-aliasing after the picture replaces the multisampling.
         let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };
@@ -483,5 +547,17 @@ mod tests {
         assert_eq!(graphics, vec![vanilla, Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced, vanilla, vanilla]);
         assert_eq!(cycle.iter().map(|c| c.no_sun_shadows).collect::<Vec<_>>(), vec![false, false, false, true, false]);
         assert_eq!((cycle[4].shadow_distance, cycle[4].cascades), (Some(8000.0), Some(3)));
+    }
+
+    #[test]
+    fn light_glow_is_vanilla_and_can_be_switched_off() {
+        let vanilla = Graphics::preset(Preset::Vanilla);
+        assert!(vanilla.glow && !vanilla.bloom);
+        assert_eq!(vanilla.describe(), "light glow");
+        let off = Graphics::only(&["no-glow".into()]).expect("no-glow");
+        assert!(!off.glow);
+        assert_eq!(off.describe(), "vanilla (no engine-level improvements)");
+        // Bloom, when on, stands in for the glow.
+        assert!(!Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
     }
 }

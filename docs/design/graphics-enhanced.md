@@ -45,7 +45,7 @@ Constraints that decide what fits:
 | Finer, longer sun shadows (4096² maps, reach ×1.5) | Medium: sharper edges near, shadows further out | Shadow pass fill rate, 4 × 64 MB per shadowed directional light | **Built** (§3.2) |
 | Contact shadows (Bevy, screen-space ray march) | Low-medium | Tried: speckled self-shadowing on near surfaces and per-frame noise without TAA | Rejected (§4) |
 | Bloom (own LDR pass, thresholded) | Medium: lamps, windows, the sun glow as in the game's own frames (world.md §6 notes the halos the renderer lacks) | ~0.5 ms at quarter size | **Built** (§3.3) |
-| Bevy bloom | Medium | Needs an HDR main view: Rgba16Float targets (twice the traffic with MSAA 4x on the 1050) and every pass reading the picture runs on another format | Rejected for now |
+| Bevy bloom | Medium | Needs an HDR main view: Rgba16Float targets (twice the traffic with MSAA 4x on the 1050) and every pass reading the picture runs on another format | **Built** 2026-10-23 as the light glow, on in vanilla (§3.11; the owner's PC now has an RTX 4070) |
 | Sharpening (own contrast-adaptive pass) | Medium: the 2010 textures look crisper | ~0.2 ms; can add rims if overdone | **Built** (§3.4) |
 | Bevy CAS | Medium | Tried: garbled the non-HDR view (yellow/white noise) | Rejected |
 | Anisotropic filtering 16x | Low-medium: ground and roads at a slant | Nearly free on the GPU | **Built** (§3.5) |
@@ -256,6 +256,32 @@ Settings rows that are not improvements and do not change the vanilla picture un
   limiter of its own (`bevy_framepace` is a separate crate); this plain one is enough to keep
   a fast GPU from drawing hundreds of frames a second in menus [engineering choice].
 
+### 3.11 Light glow (`glow`; on in vanilla too)
+
+The original as the owner plays it (`bDoHighDynamicRange=1`) glows: neon, bulbs, lit
+signs, fire and beams bleed soft halos into the night (the fx audit frames of 2026-10-23,
+`C:\fnv-private\references\fx_audit\game`). The owner asked for that look, and for a
+natural one rather than a copy, so this is on by default in `vanilla` and in `enhanced`;
+`--graphics-only no-glow` or the settings switch "Light glow" turns it off, and the
+enhanced "Bloom" (§3.3), when on, stands in for it.
+
+- The main camera gets an HDR view (`bevy::camera::Hdr`: values over 1 survive until the
+  tonemapper, which then runs as its own pass) and Bevy's bloom with its NATURAL preset
+  (energy-conserving, no threshold: every pixel scatters a share of its light, so only
+  what is far brighter than its surroundings shows a halo) (`post.rs` `glow_bloom`).
+- Its strength is 0.15 at the image space's Bright Scale 2 (NVDefaultExterior) and
+  follows Bright Scale / 2 (held to half and twice) as the place's image space and the
+  weather's adapters change (`post.rs` `glow_intensity`, world.md §6 "HDR and bloom").
+- What emits light is brighter than white only in this view: unlit shapes are drawn at
+  their emissive colour × multiplier (nif.md §6 "Emissive multiplier of unlit shapes"),
+  so Gomorrah's neon at multiplier 25 burns; lit shapes' emissive light already is.
+- Every pass after the tonemapper (ambient occlusion, anti-aliasing, sun shafts, Bloom and
+  sharpening, the image-space grade) sees the same tonemapped values as before; the
+  passes key their pipelines on the view's format.
+
+Engineering choices made by eye against the original's frames; not used to explain
+differences in the parity frames.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on
@@ -371,7 +397,7 @@ casters, as it did. Changed [engineering choices]:
 Not changed: the water's reflection camera, while active, gets its own cascades of the sun (Bevy
 builds them for every active camera, with no way to leave one out), doubling the shadow passes
 while water is in view; casters are not thinned by size with distance (no per-cascade filter in
-Bevy).
+Bevy; built and measured in §5.5).
 
 ### 5.4 Anti-aliasing and shadow-filter choices (2026-10-16, this machine)
 
@@ -400,6 +426,114 @@ runs making the same switches (about 45 in all) did not repeat it. PipelineStati
 come only from the measuring aid's `RenderDiagnosticsPlugin`; the smoke scenario
 `graphics-settings`, which makes every switch without it, saw no error.
 
+### 5.5 Where the sun shadows' cost goes (2026-10-23)
+
+The owner: sun shadows drain performance, presumably the main thread. Measured with the span
+profile (`NVF_PLAY_TEST_PROFILE`, a `--features nvforever/profile` build; frame-rate-audit.md
+§1) and `--log-frame-times 8 --graphics-cycle`, so each comparison is one run. Desktop
+(32 threads, RTX 4070), 1280 × 800, `--play` at the Goodsprings start, 14:00, standing still,
+vanilla; other sessions built and ran the game at the same time, so only the cleanest rounds
+(those that agree within about 0.5 ms) are quoted [observed].
+
+**It is the render thread.** With shadows on the main thread's own work hardly changes
+(about 7 against 6 ms a frame, Bevy's caster culling `check_dir_light_mesh_visibility` about
+1 ms of it); the render thread goes from about 9.7 to 16.3 ms, and the main thread waits for
+it (the `RenderExtractApp` span holds the wait). The render spans that grow: writing the
+binned instance buffers (1.6 → 4.0 ms), preparing the preprocessing bind groups (1.2 → 2.4),
+recording the passes (`RenderContextState::apply` 2.2 → 3.7) and submitting (`queue_submit`
+1.3 → 2.4). The GPU's time stays small (§5.3).
+
+| Sun shadows (8,000 units) | Casters per cascade | Frame (ms) | Render thread (ms) |
+|---|---|---|---|
+| off | | 10.2 | 9.7 |
+| 1 cascade | 2,200 | 14.3 | 13.8 |
+| 2 cascades | 85, 2,200 | 14.9 | 14.3 |
+| 3 cascades (default) | 85, 460, 2,130 | 16.8 | 16.3 |
+
+All with the arms' shade light (about 30 casters). So about 4 ms comes with having sun
+shadows at all and the third cascade adds about 2 ms.
+
+**Thinning the casters does not pay** (`shadow_thin.rs`, `--shadow-thin <ratio>`, off by
+default): beyond 1,000 units a placed reference whose bounding radius is under `ratio` × its
+distance casts nothing. The sun's last cascade, broken down by that angular size (the
+frame-time log's `sun's last cascade:` line): about 75 meshes under 0.01, 450 at 0.01-0.02,
+490 at 0.02-0.04, 340 at 0.04-0.08, 280 over 0.08, the rest near or not placed references.
+Clutter whose shadow covers a few pixels is a small part.
+
+| `--shadow-thin` | Meshes thinned | Last cascade | Render thread (ms) |
+|---|---|---|---|
+| 0 | 0 | 2,080-2,330 | 16.2-17.3 |
+| 0.01 | 235 | 2,000-2,260 | 16.0-16.6 |
+| 0.02 | 1,240 | 1,535-1,670 | 15.4-16.4 |
+| 0.04 | 2,140 | 1,030-1,150 | 14.4-16.2 |
+
+Halving the far cascade saves 1-2 ms of about 6.5, and at 0.04 an object under 2 m in radius
+loses its shadow beyond 50 m: a visible change for little. The rule stays off.
+
+**Why** [hypothesis, from Bevy 0.19.1's sources]: the per-view work scales with batch sets
+more than with casters. `write_binned_instance_buffers` writes two GPU buffers and a GPU
+unpacking job per batch set of every view, and the preprocessing bind groups are made per
+view each frame. A shadow draw that only writes depth shares one batch set across materials,
+but an alpha-tested NIF shape (plants, fences, signs) needs its material's textures, and
+`NifMaterial` is not bindless, so each such material is a batch set of its own in every cascade.
+Fewer casters rarely removes a whole material.
+
+What would cut it, in order of what it saves:
+- **A bindless `NifSurface`** (frame-rate-audit.md §4): alpha-tested materials would share
+  batch sets in every view, the main view included. Built in §5.6: it takes the shadows'
+  cost almost to nothing.
+- **2 cascades instead of 3**: about 2 ms, with coarser shadows from 667 to about 2,300 units
+  (the middle cascade's range; the first cascade stays 667). The owner's open choice from §5.3.
+- **The arms' shade light** is one more shadow view while the first-person arms are drawn.
+- **Water in view** gives the reflection camera a set of cascades of its own (§5.3).
+
+### 5.6 Bindless NIF materials (2026-10-23)
+
+`NifSurface`, the NIF material's extension of `StandardMaterial`, is bindless where the device
+allows it, as `StandardMaterial` already was (Bevy turns bindless on for an extended material
+only when both parts are): its values go to one storage array for all NIF materials and its
+textures (holes, FaceGen offsets) to Bevy's shared texture arrays, and the shaders read them
+through the index tables (`nif_surface_bindings.wgsl`; without bindless the plain bindings
+50-53). [engineering choice; nif_material.rs "Bindless"]
+
+**Batch sets** (the profile aid's `profile batches:` line, Goodsprings start, 14:00, sun shadows
+on) [observed]:
+
+| | Before | Bindless |
+|---|---|---|
+| Shadow phases (4 views: 3 cascades and the arms' shade light) | ~830 | 49 |
+| Main view, opaque / alpha-mask (and their prepasses) | 169 / 147 | 9 / 14 |
+
+**Frame time** (same place, `--log-frame-times 8 --graphics-cycle "vanilla;vanilla,no-sun-shadows"`,
+the span-profile build; the runs of each build alternated, and only uncapped windows are quoted:
+in some runs the frames were held to the display's 60 Hz whatever the build, the window or the
+compositor's doing) [observed]:
+
+| | Before | Bindless |
+|---|---|---|
+| Sun shadows on (8,000 units, 3 cascades) | 16.5-17.3 ms | 6.4-6.6 ms |
+| Sun shadows off | 9.9-10.0 ms | 6.7-6.8 ms |
+| Render thread, shadows on / off | 16.3-17.0 / 10.0-10.4 ms | 6.3-8.3 / 5.2-6.1 ms |
+
+The render spans that had grown with the shadows shrank most: writing the binned instance
+buffers 4.0 → 0.4 ms, preparing the preprocessing bind groups 2.4 → 0.5, recording the passes
+3.7 → 1.7, submitting 2.4 → 0.8. On the GPU the bin-unpacking pass went from about 1.7 to 0.15 ms.
+The main thread is now about as busy as the render thread (6-8 ms), so the frame is no longer
+held by either at this place; sun shadows cost next to nothing here.
+
+**Same picture** [observed, screenshots of both builds at 1280 × 720 compared pixel by pixel]:
+an NPC's face (Doc Mitchell, FaceGen tint: identical), the Pip-Boy (largest difference 12 of
+255), the Prospector Saloon, Goodsprings at noon and dusk with sun shadows, a weapon in first
+person, Gomorrah's roof fires: the only differences are what changes from run to run anyway
+(wind-blown plants, a debug text line, HUD messages shown a moment apart). The refraction smoke
+(`stealth-boy-refraction`, a moving bend) passes with both builds and its frames agree within
+10 of 255. A build with the bindless attribute taken out (the fallback for devices without
+bindless) drew the same face, Pip-Boy and first-person frames and passed the refraction smoke.
+No pipeline or shader error was logged by any of the three builds.
+
+Not measured: the owner's GTX 1050 (Bevy decides bindless per device; without it the plain
+bindings are used, as before this change), and other places than Goodsprings.
+
 ## 6. Test aids for measuring
 
 `--log-frame-times <seconds>` logs the mean and slowest frame time and the GPU time of the
@@ -408,11 +542,13 @@ driver may still impose); `--graphics-cycle "<set>;<set>;..."` switches between 
 improvements after each logged period (`vanilla`, `enhanced` or keys as for `--graphics-only`;
 the first half second after a switch is left out), so one run compares them under the same load.
 A set may also change the sun's shadows: `no-sun-shadows`, `shadow-distance=<units>`,
-`cascades=<n>` among its keys (`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`). The
+`cascades=<n>`, `shadow-thin=<ratio>` (§5.5) among its keys
+(`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`). The
 anti-aliasing and shadow filters have keys too: `fxaa`, `smaa`, `taa`, `shadow-filter-hardware`,
 `shadow-filter-temporal` (a set without one of them has `--msaa` and the Gaussian filter); the
 log then gives the sun's shadow reach and cascades with each frame time, the sun's heading and
-elevation, and the casters each cascade of each light drew.
+elevation, and the casters each cascade of each light drew; with sun shadows on also what
+`--shadow-thin` thinned and the sun's last cascade broken down by angular size (§5.5).
 
 ## 7. Next candidates
 
