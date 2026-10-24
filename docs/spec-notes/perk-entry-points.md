@@ -76,10 +76,8 @@ Not wired yet, with why:
 |---|---|---|---|
 | 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
 | 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
-| 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
-| 61–66 | the unarmed power attacks' Has … | the unarmed moves | the special moves are not built |
 
 ## 3. Conditions by tab
 
@@ -248,3 +246,53 @@ layer has a rate, and the reload already used it.
 
 Checks: `fnv-combat` `rules` `attack_rate_shortens_the_cycle_not_the_reload`; smoke
 `perk-fast-shot-quick-draw`, `perk-slayer`.
+
+## 11. Knockdowns and the unarmed special moves (2026-10-24)
+
+Owner 2026-10-24: "Build melee knockdowns (Super Slam, And Stay Back) and the unarmed
+special moves next" (perk-audit-2026-10-23 §3.6).
+
+### 11.1 Knockdown Chance (52)
+
+[observed: the entries] Super Slam Set 0.15 and 0.30 (conditions on tab 0: IsWeaponInList
+and GetWeaponAnimType; the fandom wiki: "15% for Unarmed or one-handed melee, 30% for
+two-handed melee"; the conditions want the weapon in WeaponListMeleeALL or
+WeaponsAutomaticMeleeLIST, which the Fists are not in [observed: the FLSTs], so bare fists
+get no roll whatever the fandom page says), And Stay Back Set 0.1 (IsWeaponInList on tab 0, the shotguns; the
+fandom wiki: "per pellet"), Elijah's Last Words Set 0.25 (Melee on tab 1).
+
+NVForever [design where the wiki is silent]: from 0, the attacker's entries with its
+weapon on tab 1 (`combat::perk_knockdown`), rolled once a hit that does not kill: each
+melee blow, each projectile (so each pellet); the player's and a teammate's with the
+perk. A success knocks the target down away from the attacker as a blast's knockdown
+does (`Game::knock_down`: No Knockdowns and the rest refuse it). Every roll is logged
+`combat: Knockdown Chance <c> (<perks>): rolled <r>, <ref> stays up`, a success
+`combat: Knockdown Chance … knocks <ref> down`.
+
+### 11.2 The unarmed special moves (61–66)
+
+[observed: the entries, each Set 1 with no conditions] Legion Assault 61 (forward), Ranger
+Takedown 62 (back), Scribe Counter 64 (counter), Khan Trick 65 and 66 (left, right); no
+perk uses 63 (crouched). The DOBJ names each direction's effect [documented: xEdit DOBJ,
+places 25–30; observed: FalloutNV.esm]: none for forward and counter,
+`VictoryRifleKnockdownSpell` for back (its script pushes the target away: a knockdown,
+unless it has Stonewall), `HeadCrippleEffect` (Perception −4) for left, right and
+crouched. The perks' DESC [observed]: "perform a Power Attack while running forward /
+moving backwards / moving left or right".
+
+NVForever:
+- An unarmed power attack (the Fists or an Unarmed-skill weapon) in a direction whose move
+  the player has is that move (`combat::special_move`, logged `combat: <move> (<dir> power
+  attack, unarmed)`): Ranger Takedown and Khan Trick put the DOBJ's effect on the target
+  with the blow (as a weapon's object effect, `apply_hit`'s items); Legion Assault knocks
+  the target back [the fandom wiki, "Knock back opponents"; design: as a knockdown away
+  from the player].
+- Scribe Counter [the fandom wiki: "Quick counter-attack after Block"; design]: an unarmed
+  blow begun within `COUNTER_WINDOW` (1 s) of the player's block stopping one is a
+  standing power attack (its damage bonus, breaking a block), without the power attack's
+  hold; logged `combat: Scribe Counter: the blow after the block is a power attack`.
+- Not built: the moves' own clips (they play the direction's power clip), Khan Trick's
+  need for dirt or sand underfoot (the fandom wiki), the crouched move (no perk), the
+  moves in VATS mode.
+
+Checks: smoke `perk-unarmed-moves`, `perk-super-slam`, `perk-and-stay-back`.

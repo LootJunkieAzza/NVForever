@@ -120,7 +120,7 @@ run speed has no such block.
 | 59 Modify Throwing Velocity | Heave, Ho! × 1.5, Loose Cannon × 0.75 (with a condition) |
 | 4 Calculate Mine Explode Chance | Light Step (Set 0), In My Footsteps (Set 0, Dead Money), ED-E's Light Step (Lonesome Road, for ED-E) |
 
-### 3.6 Melee, unarmed and knockdowns
+### 3.6 Melee, unarmed and knockdowns (knockdowns and the special moves built 2026-10-24, perk-entry-points.md §11)
 
 | Entry point | Perks |
 |---|---|
