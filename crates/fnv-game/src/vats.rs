@@ -158,6 +158,155 @@ pub fn get_vats_value(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     Ok(Value::bool(b))
 }
 
+/// "Mysterious Stranger", "Miss Fortune", "VATS HelperChance", "Player Kill AP Reward" and
+/// "Action Point Regen" [documented: GECK wiki GetNthPerkEntryFunction, codes 28, 41, 67,
+/// 35 and 39; Entry Point, what each changes; observed: Mysterious Stranger's and Miss
+/// Fortune's one entry Set 1, Friendly Help's Multiply 2, Grim Reaper's Sprint's Add 20,
+/// Nerves of Steel's Multiply 1.2] (docs/design/vats-mode.md §18).
+pub const MYSTERIOUS_STRANGER: u8 = 28;
+pub const MISS_FORTUNE: u8 = 41;
+pub const VATS_HELPER_CHANCE: u8 = 67;
+pub const PLAYER_KILL_AP_REWARD: u8 = 35;
+pub const ACTION_POINT_REGEN: u8 = 39;
+
+/// The misc statistic "Mysterious Stranger Visits" [observed: its place in the Pip-Boy's
+/// list (`crate::misc_stats::NAMES`) and the challenge "He Moves in Mysterious Ways", a
+/// Miscellaneous Stat challenge on stat 25 to 15, whose script adds Friendly Help].
+pub const STRANGER_VISITS: u16 = 25;
+
+/// A VATS helper (vats-mode.md §18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Helper {
+    /// The Mysterious Stranger: `Stranger` (NPC_), his .44 does 9,000 damage [observed].
+    Stranger,
+    /// Miss Fortune: `MissFortune` (NPC_), her gun's object effect knocks down, paralyses,
+    /// cripples or blows up [observed: NVMissFortuneGunSpellScript].
+    Fortune,
+}
+
+impl Helper {
+    /// The NPC_'s Editor ID [observed: FalloutNV.esm].
+    pub fn edid(self) -> &'static str {
+        match self {
+            Helper::Stranger => "Stranger",
+            Helper::Fortune => "MissFortune",
+        }
+    }
+
+    /// The weapon they shoot with [observed: their NPC_ CNTO; MysteriousStranger44Magnum,
+    /// 9,000 damage; WeapNVMissFortuneGun, 10 damage and the object effect
+    /// VMissFortuneGunObjectEffect].
+    pub fn weapon_edid(self) -> &'static str {
+        match self {
+            Helper::Stranger => "MysteriousStranger44Magnum",
+            Helper::Fortune => "WeapNVMissFortuneGun",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Helper::Stranger => "the Mysterious Stranger",
+            Helper::Fortune => "Miss Fortune",
+        }
+    }
+}
+
+/// Each helper's odds for one mark (0 when the player lacks the perk or the mark does not
+/// qualify).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HelperOdds {
+    pub stranger: f64,
+    pub fortune: f64,
+    /// How far from the player a helper appears, units (`fVATSStrangerDistance`, 164)
+    /// [hypothesis: the setting's role, from its name].
+    pub distance: f64,
+}
+
+/// Which helper a roll `u` in [0, 1) brings: the Stranger on the first share of the line,
+/// Miss Fortune on the next, none after [design: one helper a mark].
+pub fn pick_helper(odds: HelperOdds, u: f64) -> Option<Helper> {
+    if u < odds.stranger {
+        Some(Helper::Stranger)
+    } else if u < odds.stranger + odds.fortune {
+        Some(Helper::Fortune)
+    } else {
+        None
+    }
+}
+
+impl Game<'_> {
+    /// The helpers' odds for a mark on `target` (vats-mode.md §18.1): with Mysterious
+    /// Stranger `fVATSStrangerOdds` (0.1) when the target lives and has at most
+    /// `iVATSStrangerMaxHP` (150) health [documented: GECK wiki VATS Settings, "enemy not
+    /// dead, but less than 150 hitpoints"]; with Miss Fortune `fVATSFortuneOdds` (0.1) when
+    /// it lives [hypothesis: no health limit is documented for her]; both times the VATS
+    /// HelperChance entries (Friendly Help × 2).
+    pub fn vats_helper_odds(&mut self, target: FormId) -> HelperOdds {
+        if self.is_dead(target) {
+            return HelperOdds::default();
+        }
+        let has = |g: &mut Game, point: u8| g.entry_point(FormId::PLAYER_REF, point, 0.0).0 != 0.0;
+        let (stranger, fortune) = (has(self, MYSTERIOUS_STRANGER), has(self, MISS_FORTUNE));
+        if !stranger && !fortune {
+            return HelperOdds::default();
+        }
+        let mult = self.entry_point(FormId::PLAYER_REF, VATS_HELPER_CHANCE, 1.0).0.max(0.0);
+        let health = crate::functions::actor_value_capped(self, target, crate::actor_values::HEALTH);
+        let max_hp = crate::combat::setting(self, "iVATSStrangerMaxHP", 150.0);
+        let odds = |g: &Game, name: &str| crate::combat::setting(g, name, 0.1) * mult;
+        HelperOdds {
+            distance: crate::combat::setting(self, "fVATSStrangerDistance", 164.0),
+            stranger: if stranger && health <= max_hp { odds(self, "fVATSStrangerOdds") } else { 0.0 },
+            fortune: if fortune { odds(self, "fVATSFortuneOdds") } else { 0.0 },
+        }
+    }
+
+    /// Bring `helper` into the player's cell at `pos`, turned to `heading` (radians, the
+    /// game's Z angle): a new reference of its NPC_, made as PlaceAtMe makes them. A
+    /// Stranger's visit counts in Mysterious Stranger Visits (and so towards Friendly
+    /// Help). `None` when the load order has no such NPC.
+    pub fn summon_vats_helper(&mut self, helper: Helper, pos: [f32; 3], heading: f32) -> Option<FormId> {
+        let base = self.data.by_edid(helper.edid())?;
+        let cell = self.world.get(FormId::PLAYER_REF).ok()?.cell;
+        let r = self.world.place(base, cell, pos, [0.0, 0.0, heading], 1).ok()?;
+        crate::functions::objects::note_created(self, r);
+        if helper == Helper::Stranger {
+            self.count_stat(STRANGER_VISITS, 1.0);
+        }
+        tracing::info!("vats mode: {} appears ({r})", helper.label());
+        Some(r)
+    }
+
+    /// The helper leaves: faded out (Disable 1) and deleted (MarkForDelete).
+    pub fn dismiss_vats_helper(&mut self, r: FormId) {
+        use crate::functions::{Args, Ctx};
+        let ctx = Ctx { unit: "vats mode".into(), opcode: 0, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
+        let fade = [ArgValue::Value(Value::Num(1.0))];
+        if let Err(e) = crate::functions::refs::disable(self, &ctx, &Args(&fade)) {
+            tracing::warn!("vats mode: the helper {r} could not leave: {e}");
+        }
+        let _ = crate::functions::refs::mark_for_delete(self, &ctx, &Args(&[]));
+    }
+
+    /// AP the player gets back when VATS mode's marks are done and it killed someone
+    /// (Player Kill AP Reward: from 0; Grim Reaper's Sprint + 20).
+    pub fn vats_kill_ap_reward(&mut self) -> f64 {
+        self.entry_point(FormId::PLAYER_REF, PLAYER_KILL_AP_REWARD, 0.0).0.max(0.0)
+    }
+
+    /// The factor on the player's AP regeneration (Action Point Regen: Nerves of Steel
+    /// × 1.2, Atomic! by its rads, Ain't Like That Now × 1.25).
+    pub fn ap_regen_mult(&mut self) -> f64 {
+        self.entry_point(FormId::PLAYER_REF, ACTION_POINT_REGEN, 1.0).0.max(0.0)
+    }
+
+    /// The player's kills so far (people and creatures, the misc statistics).
+    pub fn player_kill_count(&self) -> f64 {
+        use crate::misc_stats::{CREATURES_KILLED, PEOPLE_KILLED};
+        [PEOPLE_KILLED, CREATURES_KILLED].iter().map(|c| self.player.misc_stats.get(c).copied().unwrap_or(0.0)).sum()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +321,16 @@ mod tests {
         let none = [ArgValue::Enum(0), ArgValue::Value(Value::Num(0.0))];
         assert_eq!(param_form(&Args(&none)), None);
         assert_eq!(param_form(&Args(&[ArgValue::Enum(5)])), None);
+    }
+
+    #[test]
+    fn one_helper_a_roll_the_stranger_first() {
+        let odds = HelperOdds { stranger: 0.1, fortune: 0.2, distance: 164.0 };
+        assert_eq!(pick_helper(odds, 0.05), Some(Helper::Stranger));
+        assert_eq!(pick_helper(odds, 0.15), Some(Helper::Fortune));
+        assert_eq!(pick_helper(odds, 0.35), None);
+        assert_eq!(pick_helper(HelperOdds::default(), 0.0), None);
+        assert_eq!(pick_helper(HelperOdds { stranger: 0.0, fortune: 0.1, distance: 164.0 }, 0.05), Some(Helper::Fortune));
     }
 
     #[test]

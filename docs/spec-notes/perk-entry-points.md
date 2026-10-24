@@ -59,6 +59,10 @@ tabs, below]. Tab 0 is always the perk owner. "Perks" are FalloutNV.esm's entrie
 | 57 | Modify Chance for Ammo Item | Weapon | Hand Loader × 2 (IsWeaponSkillType Guns on tab 1), Vigilant Recycler × 2 (Energy Weapons) | the chance of a shot's spent item, the ammo's DAT2 percentage (claude/e13-spent-casings, [spent-ammo-items](spent-ammo-items.md)) |
 | 8 | Calculate To Hit Chance | Weapon, Target | Commando × 1.25, Gunslinger × 1.25, Sniper × 1.25 (GetVATSValue Targeted Part head on tab 0), Hobbler × 1.25 (legs), Wired Reflexes × 1.1, Fast Shot × 0.8, Trigger Discipline × 1.2 (IsWeaponSkillType on tab 1), Sneering Imperialist × 1.25 (GetInFaction on tab 2), Camarader-E, Lonesome Road | VATS mode's chance of each mark, read when the mark is made with GetVATSValue answering for it (since 2026-10-23, vats-mode.md §17.2) |
 | 33 | Has Concentrated Fire | — | Concentrated Fire Set 1 | + `iVATSConcentratedFireBonus` for each earlier mark on the same part (vats-mode.md §17.2) |
+| 28, 41 | Mysterious Stranger, Miss Fortune | — | Mysterious Stranger Set 1, Miss Fortune Set 1 | a helper may come for a VATS mode mark (vats-mode.md §18.2, since 2026-10-24) |
+| 67 | VATS HelperChance | — | Friendly Help × 2 | the helpers' odds |
+| 35 | Player Kill AP Reward | — | Grim Reaper's Sprint + 20 | AP back after a VATS mode sequence that killed (§18.3) |
+| 39 | Action Point Regen | — | Nerves of Steel × 1.2, Atomic! (by rads), Ain't Like That Now × 1.25 | the AP's regeneration outside VATS mode (§18.4) |
 | 68 | Modify Item Damage | — | Regular Maintenance × 0.5, Full Maintenance × 0.25, Built to Destroy × 1.15 | the wear of the player's weapon by its own shots and blows and by hits on it [hypothesis: armour wear too? not applied] |
 
 Order on a hit [hypothesis where the formula pages are silent]: weapon damage after the
@@ -70,12 +74,13 @@ Not wired yet, with why:
 
 | Code | Entry point | Perks | Why not |
 |---|---|---|---|
-| 37, 38, 43 | Reload Speed, Equip Speed, Modify Attack Speed | Rapid Reload, Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire or end a reload before the clip does. Needs the clips' playback rate (one follow-up) |
+| 37 | Reload Speed | Rapid Reload and the others with this entry point | built: the player's reload rate, Agility's 0.5 + 0.1 × Agility through this entry with the weapon's tab; the cycle and the body's reload clips both run at it (combat-rules.md §2, Reload speed) |
+| 38, 43 | Equip Speed, Modify Attack Speed | Quick Draw, Fast Shot, Loose Cannon, Slayer, Melee Hacker, Old Vaquero, Causeless Rebel, Trigger Discipline | the player body plays its clips at their own speed; changing only the cycle's timing would fire before the clip does. The reload's layer rate (`WeaponAnim::reload_rate`) is the way to do it for the draw and attack clips too |
 | 52 | Knockdown Chance | Super Slam (Set 0.15 / 0.30, IsWeaponInList + GetWeaponAnimType on tab 0) | melee knockdown not built (knockdowns are explosions' only) |
 | 53 | Modify Weapon Strength Req | Weapon Handling Set 2 | the Strength requirement's spread penalty is not read from it yet |
 | 54 | Modify Aiming Move Speed | Run 'n Gun × 2 | what the factor scales is unclear (the moving spread penalty, by the wiki) [hypothesis needed] |
 | 59, 72 | Modify Throwing Velocity, Adjust Explosion Radius | Heave Ho!, Loose Cannon, Splash Damage | not asked for yet; easy follow-ups at the throw and the explosion |
-| 35, 39, 61–66 | Player Kill AP Reward, Action Point Regen, the unarmed power attacks' Has … | Grim Reaper's Sprint, Nerves of Steel, the unarmed moves | the systems they change are not built or are NVForever's own |
+| 61–66 | the unarmed power attacks' Has … | the unarmed moves | the special moves are not built |
 
 ## 3. Conditions by tab
 

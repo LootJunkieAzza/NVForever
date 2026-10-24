@@ -1230,9 +1230,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   Saloon porch lamp, has radius 200, colour (254, 209, 73) and fade 2.2 [observed].
   The renderer draws each enabled, non-negative, not-off-by-default light as a point
   light (spot light for spot types) with range = radius. Each adds colour x fade x
-  (1 - (d / radius)^2) x N.L in the display units of the sky lighting, with no inverse
-  square [hypothesis: to calibrate against captures; the falloff exponent, 1 for most
-  lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
+  (1 - (d / radius)^2) x N.L to the display-value lighting sum ("Light on surfaces in
+  display values" below), with no inverse square [hypothesis: the falloff exponent, 1
+  for most lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
 - **Placed light radius**: a placed light's `XRDS` "Radius" [documented: xEdit] is an
@@ -1259,7 +1259,8 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   The renderer takes, for a black DATA colour, the diffuse colour times the dimmer of the
   first `NiPointLight` or `NiSpotLight` of the LIGH's model, as display values like the
   DATA colour [hypothesis], and draws no light when there is none
-  (`nvf_assets::model_light`, nvforever `lights.rs`). Not done: the flicker.
+  (`nvf_assets::model_light`, nvforever `lights.rs`). The flicker is played from the
+  model's keys since 2026-10-23 ([model-lights](model-lights.md)).
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
@@ -1310,6 +1311,62 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   Prospector Saloon's ShackInteriorWaste01 (saturation 0.82, tint (1.0, 0.71, 0.27) at
   0.4) gives the warm brown look of the owner's in-game screenshot [observed]. Cells
   without XCIM are not graded [hypothesis].
+- **Light on surfaces in display values** (2026-10-24, the Dead Money lantern) [hypothesis,
+  fitted to the original's frames]: the game adds its lights as display values — colour
+  bytes / 255 × fade × attenuation × N.L for each light, the sun's (or moon's, or the
+  interior's directional) colour × N.L, plus the ambient colour — multiplies the texture
+  by the sum and shows the result held to 1 per channel. Evidence: the original's wall
+  beside the Puesta del Sol lantern (light `NVDLC01ExtSconceKeyWT`, radius 200, colour
+  (224, 255, 117), fade 2.5, 91 units in front of the wall; frames `dm_lamp_*.png`,
+  private) is clipped to (255, 255, 255) under NVWastelandClear and to (255, 201, 71)
+  under Dead Money's own weather, saturated, a few metres from the lamp. Summed in linear
+  light and shown through Bevy's Tony McMapface (as before), the same light gave
+  (141, 162, 136) and (100, 92, 52): the linear sum spends the light, and Tony McMapface
+  turns bright light pale and never reaches white (light × 20 still gave
+  (229, 243, 255), bluish). Lamp-only rescalings (light fade^2.2) had failed the lab: Doc Mitchell's lights already matched.
+  The renderer now [observed: bevy_pbr 0.19.1, nvforever `lights.rs`]:
+  - patches `apply_pbr_lighting`: in a world view (marked by a negative ambient-light
+    alpha; the minigame views keep Bevy's sum) Bevy's diffuse terms are left out and the
+    sum is formed from the same lights, whose colours there hold display values; the
+    surface gets diffuse colour × sum^2.2, held to 1 per channel. The lights' and the
+    ambient light's highlights (specular) take their colours back as linear light;
+    taken as display values they put white sparkles on the floors of Jacobstown's lodge;
+  - shows the main view's colour clipped to 1 in the place of Tony McMapface (its curve
+    in Bevy's tonemapping functions is swapped; the pass keeps running, and with it the
+    eye adaptation's exposure, which Bevy applies there); the sky leaves out its inverse
+    of Tony McMapface;
+  - shares in the sum [fitted]: interiors XCLL's ambient and directional colours × 1.0;
+    outdoors the weather's ambient × 0.9, its sunlight × 0.75 by day (× the Sunlight
+    Dimmer's scale) and its night "sunlight" (moonlight) × 0.5; lights × 1 (colour ×
+    fade); grass's own weights 1.3 and 0.25 (grass.md §5). Fitting showed: interiors
+    want the ambient as stored (× 1.0: every Doc Mitchell frame then beats the linear
+    sum); stronger lights help the saloon and hurt Doc Mitchell's house, so the lights
+    stay at their records' strength; outdoors by day more ambient and less sun than the
+    first guess (0.697 = Bevy's old 0.452 as a display value, and 1.0); at night the
+    moonlight at the sun's share made Primm and the Strip bright and blue (Primm street
+    median (39, 46, 65), original (41, 41, 49)), halving it fixes that.
+  - Results against the linear sum (SSIM / mean colour error, lab comparator): lab L3
+    frames goodsprings noon 0.498/0.011 → 0.502/0.026, dusk 0.514/0.063 → 0.532/0.058,
+    hill 0.579/0.022 → 0.582/0.041, lake shore 0.524/0.087 → 0.523/0.106, black mountain
+    0.605/0.009 → 0.605/0.026, east 0.467/0.021 → 0.469/0.037, spring mountains
+    0.723/0.036 → 0.717/0.042, hoover ridge 0.572/0.016 → 0.580/0.035, Doc's entry
+    0.706/0.033 → 0.714/0.008, living 0.725/0.023 → 0.737/0.013, kitchen 0.777/0.018 →
+    0.778/0.007, bedroom 0.762/0.023 → 0.777/0.019, saloon south 0.807/0.014 →
+    0.799/0.004, north 0.750/0.019 → 0.709/0.023, bar 0.730/0.026 → 0.716/0.032 (mean
+    SSIM 0.649 both; every frame passes its threshold). Night frames of the effects audit
+    (22:00): lantern front 0.536/0.136 → 0.606/0.061, side 0.544/0.111 → 0.636/0.053,
+    front under NVWastelandClear 0.502/0.089 → 0.554/0.033; Jacobstown lodge 0.606 →
+    0.777, Hoover Dam lower level 0.729 → 0.796, Primm entrance 0.617 → 0.683, Strip
+    0.450/0.500 → 0.499/0.548, Dead Money Villa three frames +0.01 to +0.04; lower:
+    HELIOS One 0.500 → 0.452, Lake Mead cave 0.780 → 0.746, Vault 19 0.627 → 0.606 (its
+    colour error 0.051 → 0.095). The lantern's wall now reads lit: (218, 231, 244) and
+    (166, 147, 70) where the original clips to (255, 255, 255) and (255, 201, 71).
+  - Open: the original's lamp pools are still brighter and more saturated close to the
+    lamp (the lantern's) and the saloon's north and bar frames darker than the
+    original's (means (22, 15, 11) against (28, 21, 14)), while Doc Mitchell's lights,
+    under the same rule, are right; the attenuation's shape (1 − (d / r)², the falloff
+    exponent unused) is the next candidate. Outdoors by day the frames came out a little
+    bluer than the original (the weather's bluish ambient takes a larger share).
 
 ## 9. Open questions
 

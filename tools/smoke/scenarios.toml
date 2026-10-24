@@ -2286,6 +2286,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "reload-agility"
+source = "owner 2026-10-23: build Reload Speed from Agility (docs/handoff/special-skills-audit-2026-10-23.md §4; combat-rules.md §2, Reload speed)"
+note = "the player's Agility is set to 10 by the console at 8 s; the 9mm pistol (000E3778) is drawn at 10 s, fired at 12 s (fire is a toggle: pressed, then let go at 12.2 s) and reloaded at 13 s; Agility goes to 1 at 16 s, the pistol fires at 18 s and reloads at 19 s. The cycle and the first-person reload clip run at 0.5 + 0.1 x Agility: x1.50, then x0.60"
+areas = ["combat", "animation"]
+paths = ["crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONSOLE = "8:player.setav agility 10;8.3:close;16:player.setav agility 1;16.3:close", NVF_PLAY_TEST_CONTROL = "10:weapon,12:fire,12.2:fire,13:reload,18:fire,18.2:fire,19:reload" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = 'combat: reloads at x1\.50 \(Agility 10\)', label = "Agility 10 reloads at 1.5 times the clip's speed" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s .*\(reload at x1\.50\)', label = "the reload clip plays at x1.50" },
+  { re = 'combat: reloads at x0\.60 \(Agility 1\)', label = "Agility 1: x0.60" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s .*\(reload at x0\.60\)', label = "the reload clip plays at x0.60" },
+]]
+expect = [
+  { re = 'combat: reloaded \d+, magazine', min = 2, label = "both reloads finish" },
+]
+
+[[scenario]]
 name = "bear-trap"
 source = "CLAUDE.md: after changes to groups' sound keys (activators.md §6–§8): the bear trap"
 areas = ["actor-groups", "object-anims"]
@@ -3005,6 +3024,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "visibility-arcs-vault22"
+source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": placed models play the NiVisController tracks of their Idle sequence on every playing clip (anim_play::Playing::show), not only where a script runtime drives object groups; Vault 22's common area (Vault22d) has 14 electric arcs (fxelectricarc01/02.nif, refs 000F27A2-000F27AF) whose Idle shows their BrightSpots node about one frame in ten; the exit line counts the switches (no frames: the arcs sit behind a wall from the cell's start point)"
+areas = ["effects", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--cell", "Vault22d", "--pos=4190,420,8090", "--heading", "0", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'fxelectricarc01\.nif: its Idle sequence shows and hides 1 node', label = "the arc's Idle visibility track is read" },
+  { re = 'animation: .*, (?P<n>\d+) switches of nodes shown and hidden', range = [50, 1000000], label = "the arcs' bright spots switch many times" },
+]
+
+[[scenario]]
+name = "visibility-dust-tube"
+source = "docs/spec-notes/nif.md §6 \"Visibility controllers\": an Active NiVisController no sequence drives plays looping on its own cycle; the dust tube south of Goodsprings (FXDustMeshTube01 ref 0017175D, fxdustmeshtube01.nif) hides its DustTube node from 4.03 s to 7.43 s of a 56.7 s loop; the exit line counts the switch (no frames: the tube is faint at this distance)"
+areas = ["effects", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--play", "--world", "WastelandNV", "--pos=-64374,-18700,6900", "--heading", "180", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 12
+expect = [
+  { re = 'fxdustmeshtube01\.nif: 1 visibility track\(s\) of controllers of their own', label = "the dust tube's own visibility controller is read" },
+  { re = 'animation: .*, (?P<n>\d+) switches of nodes shown and hidden', range = [1, 1000000], label = "nodes switch on their own cycles" },
+]
+
+[[scenario]]
 name = "gomorrah-dancers"
 source = "docs/spec-notes/furniture.md §3: the courtesan outside Gomorrah (0012299D, VStreetGomorrahBait01) on her dance marker (DanceMarker03 ref 0012299C, marker ID 20) dances: IsCurrentFurnitureObj of the form list DanceMarkerObjects picks NVDance before ChildBar's counter lean; the refs start disabled (the console enables her); frames in target/smoke (gomorrah_dancer*.png)"
 areas = ["furniture", "idles"]
@@ -3026,6 +3071,47 @@ args = ["--cell", "Vault19a", "--play", "--no-voice", "--no-messages"]
 run_seconds = 12
 expect = [
   { re = 'lights: (?P<n>\d+) flickering or pulsing', range = [5, 400], label = "the vault's flickering and pulsing lights are animated" },
+]
+
+[[scenario]]
+name = "lantern-display-light"
+source = "docs/spec-notes/world.md §8 \"Light on surfaces in display values\": Dead Money's Puesta del Sol wall lantern (light NVDLC01ExtSconceKeyWT) at 22:00; the display-value lighting sum and the clipped display are patched into Bevy's shaders (a Bevy upgrade that moves the patched lines fails here); a frame in target/smoke (lantern_display_light.png) to compare with the original's dm_lamp_front.png"
+areas = ["renderer", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvf-assets/src/nif_material.wgsl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:lantern_display_light.png" }
+args = ["--world", "NVDLC01WestTownN", "--play", "--pos=3177,592,1028", "--heading", "270", "--pitch", "15", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'lights: display-value lighting sum installed', label = "apply_pbr_lighting sums the light in display values" },
+  { re = 'lights: display values shown clipped', label = "the main view clips in Tony McMapface's place" },
+  { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
+  { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found', count = 0, label = "no patch missed its Bevy lines" },
+]
+
+[[scenario]]
+name = "model-lights-lantern"
+source = "docs/spec-notes/model-lights.md §1-§2: the North sewers (OVNorthSewers01, 36 LamplightWarmBrighter lights) take their lantern model's Idle colour keys (lamplightwarm.nif, NiLightColorController); frames 0.3 s apart in target/smoke (model_lights_lantern_N.png)"
+areas = ["effects", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:model_lights_lantern_0.png,10.3:model_lights_lantern_1.png,10.6:model_lights_lantern_2.png" }
+args = ["--cell", "OVNorthSewers01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'model lights: \d+ following their models, (?P<n>\d+) coloured by a playing clip', range = [20, 200], label = "the sewer lanterns' lights follow their model's keys" },
+]
+
+[[scenario]]
+name = "model-lights-klaxon"
+source = "docs/spec-notes/model-lights.md §1-§3: REPCONN HQ (RepconHQ01) with the first floor's alarm raised: the klaxons' script (KlaxonLightScriptRepcon) plays Left, whose keys colour the light and whose spinning Dummy turns it 224 units out; frames in target/smoke (model_lights_klaxon_N.png)"
+areas = ["effects", "lights", "scripting"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "4:set RepconHQFreeform.1stFloorAlarm to 1;4.3:close", NVF_PLAY_TEST_SHOTS = "10:model_lights_klaxon_0.png,10.5:model_lights_klaxon_1.png,11:model_lights_klaxon_2.png" }
+args = ["--cell", "RepconHQ01", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'model lights: (?P<n>\d+) following their models', range = [5, 100], label = "the klaxon lights hang from their models" },
+  { re = 'playgroup: \S+ plays Left', min = 5, label = "the alarm script spins the klaxons" },
+  { re = 'model lights: \d+ following their models, (?P<n>\d+) coloured by a playing clip', range = [5, 100], label = "the spinning klaxons take Left's colour keys" },
 ]
 
 [[scenario]]
@@ -3123,7 +3209,8 @@ commands = [
 # challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
 # to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
 # 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
-# to 0 and add 3 x 4.8 Hunger.
+# to 55 (60 an hour, the owner's table 2026-10-23; it was 0 with the old guess of 100)
+# and add 3 x 4.8 Hunger.
 expect = [
   { json = "perks.count", equals = 109 },
   { json = "perks.entries_by_entry_point.23", equals = 1 },
@@ -3134,7 +3221,7 @@ expect = [
   { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
   { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
   { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
-  { json = "use.wait.values_after.Sleep Deprivation", equals = 0.0 },
+  { json = "use.wait.values_after.Sleep Deprivation", range = [54.9, 55.1] },
   { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
 ]
 
@@ -3174,7 +3261,8 @@ expect = [
   "wait menu: open as sleep",
   { re = 'wait: hour 1 passed for the player \(120 s of effects\): \d+ effect\(s\) ended; Dehydration [\d.]+ → [\d.]+, Hunger [\d.]+ → [\d.]+, Sleep Deprivation 2\d\d[\d.]* → 1\d\d' },
   { re = 'needs: Sleep Deprivation 1\d\d[\d.]*: no stage' },
-  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 0' },
+  # 250 less 3 hours of sleep at 60 an hour (the owner's table, 2026-10-23).
+  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 7\d' },
 ]
 
 [[scenario]]
@@ -6483,6 +6571,60 @@ order = [[
   { re = 'vats mode: rolls: 0 hit, 1 missed', label = "one miss counted" },
 ]]
 forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
+
+[[scenario]]
+name = "vats-mysterious-stranger"
+source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Mysterious Stranger appears in VATS mode and finishes off the mark (docs/design/vats-mode.md §18)"
+note = "vats-mode-hit-chance's setup (the Goodsprings dogs set on the player, god mode, a .357) with the perk MysteriousStranger given at 3 s; the helper forced to the Stranger for every mark his odds allow (NVF_PLAY_TEST_VATS_HELPER=stranger: a dog has at most iVATSStrangerMaxHP 150 health) and the player's own roll forced to miss, so the kill is his: his .44 (MysteriousStranger44Magnum) does 9,000. Both dogs' health is set to 100 at 3.2 s, under iVATSStrangerMaxHP (150): the first run marked Violetta, whose health is above it, and the Stranger rightly did not come. One mark, E"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "stranger", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MysteriousStranger,3.2:set_av:0x000F573F:Health:100,3.2:set_av:0x0013E5BB:Health:100", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: the Mysterious Stranger appears \(0x[0-9A-F]{8}\)', label = "his reference is placed as the mark's attack starts" },
+  { re = 'vats mode: the Mysterious Stranger comes for mark 1 \(0x[0-9A-F]{8}\), 164 units from the player', label = "the Stranger comes, 164 units away" },
+  { re = 'vats mode: shot 1 of 1 at .*missed', label = "the player's own shot misses (forced)" },
+  { re = 'vats mode: the Mysterious Stranger fires at ', label = "he fires at the mark" },
+  { re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on .*health 0/', label = "his shot kills the dog" },
+  { re = 'vats mode: the Mysterious Stranger leaves', label = "and he leaves" },
+]]
+expect = [
+  { re = 'vats mode summary: .* 1 helpers', label = "one helper came" },
+]
+
+[[scenario]]
+name = "vats-miss-fortune"
+source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Miss Fortune appears in VATS mode and her gun's object effect strikes the mark (docs/design/vats-mode.md §18)"
+note = "as vats-mysterious-stranger with the perk MissFortunePerk and the helper forced to her: her gun (WeapNVMissFortuneGun) carries VMissFortuneGunObjectEffect, whose spell's script knocks the target down, paralyses or cripples it, or blows up what it carries"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "fortune", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MissFortunePerk", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: Miss Fortune comes for mark 1 ', label = "Miss Fortune comes" },
+  { re = 'vats mode: Miss Fortune fires at ', label = "she fires at the mark" },
+  { re = 'hit effect: VMissFortuneGunObjectEffect on ', label = "her gun's object effect lands on it" },
+  { re = 'vats mode: Miss Fortune leaves', label = "and she leaves" },
+]]
+forbid = [{ re = 'vats mode: the Mysterious Stranger comes', label = "the Stranger comes without his perk" }]
+
+[[scenario]]
+name = "vats-grim-reaper-nerves"
+source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Grim Reaper's Sprint gives 20 AP back after a VATS kill, Nerves of Steel speeds AP regeneration (docs/design/vats-mode.md §18.3, §18.4)"
+note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate)"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "00050F92", NVF_PLAY_TEST_GIVE = "0002937E:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(MysteriousStranger44Magnum', label = "VATS mode with the Stranger's .44" },
+  { re = 'vats mode: shot 1 of 2 at .*: hit', label = "the first mark is hit (forced)" },
+  { re = 'vats mode: [12] killed: the Player Kill AP Reward perks give 20 AP back \(20 restored\)', label = "Grim Reaper's Sprint gives 20 AP back" },
+  { re = 'vats mode: AP regenerates at 1\.20 x', label = "Nerves of Steel: the AP comes back 1.2 x as fast" },
+]]
 
 [[scenario]]
 name = "vats-mode-unmark"

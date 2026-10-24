@@ -281,7 +281,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if lights.n_directional_lights > 0u {
             let sun = lights.directional_lights[0];
             let spec = pow(max(dot(R, sun.direction_to_light), 0.0), max(water.surface.z, 1.0));
-            reflected += spec * sun.color.rgb * view.exposure;
+            // In a world view the sun's colour holds display values (nvforever lights.rs
+            // DISPLAY_HELPERS): its light is that value raised to the display gamma.
+            let sun_light = select(sun.color.rgb * view.exposure, 3.14159265 * pow(max(sun.color.rgb * view.exposure / 3.14159265, vec3(0.0)), vec3(2.2)), lights.ambient_color.a < 0.0);
+            reflected += spec * sun_light;
         }
     } else {
         // From below, the sky shows only within Snell's window (refractive index 1.33:

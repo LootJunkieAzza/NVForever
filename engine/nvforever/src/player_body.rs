@@ -1240,6 +1240,8 @@ struct Frame {
     reload_now: bool,
     /// A round-by-round reload starts on a round: the reload clip plays from its start.
     reload_round_now: bool,
+    /// How fast the reload clips play (`nvf_play::combat::WeaponAnim::reload_rate`).
+    reload_rate: f32,
     /// The weapon starts to spin up this frame: its attack clip plays from the start.
     spin_now: bool,
     /// A pull starts a shot that leaves at the clip's `Hit` key (a throw's release): the
@@ -1456,8 +1458,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             // fade back through the held pose [hypothesis: the clips are made to chain,
             // the opening's end and the round's `Hit` close to its start pose].
             let fade = if f.reload_round_now { 0.0 } else { c.fade() };
-            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
-            info!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
+            let layer = rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
+            // At the player's reload rate, as the cycle times it (Agility, Rapid Reload).
+            rig.animator.layers[layer].rate = f.reload_rate;
+            info!("player {:?} rig: {} moves the weapon's {:?} (reload at x{:.2})", rig.view, c.path, rig.animator.extra_driven(&c.clip), f.reload_rate);
         }
     }
     // A jam: the weapon's jam clip (`1hpjama.kf`), played once on the reload layer as a
@@ -2164,6 +2168,7 @@ fn drive_body(
         attack_now,
         reload_now,
         reload_round_now,
+        reload_rate: if anim.reload_rate > 0.0 { anim.reload_rate } else { 1.0 },
         spin_now,
         wind_now,
     };

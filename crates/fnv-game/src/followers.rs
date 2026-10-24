@@ -32,6 +32,9 @@ use crate::trace::EventKind;
 use crate::package::{PackageType, TargetKind};
 use crate::provocation::Note;
 
+/// Companion Nerve per point of the player's Charisma ([`Game::companion_nerve`]).
+pub const COMPANION_NERVE_PER_CHARISMA: f64 = 0.05;
+
 /// How far beside the player a teammate is put when the player changes cells, and the
 /// step between several teammates. Through a load door the original put a following
 /// Boone about 170 units to the player's left and 12 to 30 ahead, settling about 145 to
@@ -50,6 +53,20 @@ impl Game<'_> {
     /// Whether `r` is the player's teammate now (SetPlayerTeammate 1, alive).
     pub fn is_teammate(&self, r: FormId) -> bool {
         r != FormId::PLAYER_REF && self.extra.get(&r).is_some_and(|e| e.teammate && !e.dead)
+    }
+
+    /// Companion Nerve of `actor`: for a teammate, the share its damage and armour go up
+    /// by, 0.05 per point of the player's Charisma (0.25 at 5, 0.5 at 10) [documented:
+    /// Fallout Wiki, Fallout: New Vegas derived statistics, "(CHA × 5)%"; Charisma (Fallout:
+    /// New Vegas), "+5% to their damage and armor, up to a maximum of +50% at 10
+    /// Charisma"; no setting in the masters names it, observed]; 0 for anyone else. The
+    /// player's current Charisma within 1 to 10 [hypothesis: current, not permanent, as
+    /// the other derived statistics here, docs/spec-notes/actor-values.md §1].
+    pub fn companion_nerve(&mut self, actor: FormId) -> f64 {
+        if !self.is_teammate(actor) {
+            return 0.0;
+        }
+        COMPANION_NERVE_PER_CHARISMA * crate::functions::actor_value_capped(self, FormId::PLAYER_REF, crate::actor_values::CHARISMA)
     }
 
     /// The player's teammates, by FormID.

@@ -908,3 +908,41 @@ fn perk_entry_points_change_the_hit() {
     assert!(close(two.weapon_damage(20.0), 44.0));
     assert!(close(PerkOp::Abs.apply(-3.0), 3.0) && close(PerkOp::NegAbs.apply(3.0), -3.0));
 }
+
+/// Reload speed from Agility: 0.5 + 0.1 × Agility times the clip's speed, so a reload
+/// takes 5/3 as long at Agility 1 and 2/3 as long at 10 [documented: Fallout Wiki,
+/// Agility (Fallout: New Vegas)]; a round-by-round reload's parts all scale.
+#[test]
+fn reload_time_follows_agility() {
+    use fnv_combat::attack::reload_rate;
+    assert!(close(reload_rate(5.0), 1.0) && close(reload_rate(1.0), 0.6) && close(reload_rate(10.0), 1.5));
+    assert!(close(reload_rate(0.0), 0.6) && close(reload_rate(14.0), 1.5), "Agility read within 1 to 10");
+    let w = gun(10);
+    let t = CombatTuning::default();
+    let clips = ClipTiming { reload_len: Some(2.0), reload_hit: Some(0.5), reload_open_len: Some(0.6), ..ClipTiming::default() };
+    let base = Timing::of(&w, &clips, &t);
+    let slow = base.with_reload_rate(reload_rate(1.0));
+    assert!(close(slow.reload, 2.0 / 0.6), "{slow:?}");
+    let fast = base.with_reload_rate(reload_rate(10.0) * 1.25);
+    assert!(close(fast.reload, 2.0 / 1.875), "Rapid Reload's 1.25 on top: {fast:?}");
+    let r = fast.rounds.expect("round by round");
+    assert!(close(r.open, 0.6 / 1.875) && close(r.round, 0.5 / 1.875) && close(r.close, 1.5 / 1.875));
+    // Nothing else changes; a rate of 0 or below is read as 1.
+    assert!(close(fast.interval, base.interval) && close(fast.fire_delay, base.fire_delay));
+    assert!(close(base.with_reload_rate(0.0).reload, 2.0));
+}
+
+/// Companion Nerve: a teammate's hits do 5 % more per point of the player's Charisma
+/// and its DT and DR go up by the same share [documented: Fallout Wiki, Charisma (Fallout:
+/// New Vegas), "+5% to their damage and armor"].
+#[test]
+fn companion_nerve_raises_damage_and_armour() {
+    let w = gun(20);
+    let plain = hit(&w, 1, &skilled(), &Target::default(), &[], HitPart::default(), 0.99);
+    let nerve = hit(&w, 1, &Attacker { nerve: 0.25, ..skilled() }, &Target::default(), &[], HitPart::default(), 0.99);
+    assert!(close(plain.dealt, 20.0) && close(nerve.dealt, 25.0), "{nerve:?}");
+    // DT 8 at Charisma 5 (+25 %) is 10; DR 10 % is 12.5 %.
+    let t = Target { dt: 8.0, dr: 10.0, nerve: 0.25, ..Target::default() };
+    let d = hit(&w, 1, &skilled(), &t, &[], HitPart::default(), 0.99);
+    assert!(close(d.dt, 10.0) && close(d.dr, 12.5) && close(d.dealt, 10.0 * 0.875), "{d:?}");
+}

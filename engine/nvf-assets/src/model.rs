@@ -88,6 +88,25 @@ pub struct PreparedModel {
     /// The file holds particle systems (`NiParticleSystem`, `BSStripParticleSystem`),
     /// read by `ModelCtx::particles` (a placed fire's flames).
     pub particles: bool,
+    /// The first named point or spot light of the file, when a sequence of the rig
+    /// drives it (docs/spec-notes/model-lights.md): where it hangs in the rig, so that the
+    /// light of a LIGH reference can follow its model (nvforever `lights.rs`).
+    pub light: Option<ModelLight>,
+}
+
+/// A light inside a model whose colour or dimmer a sequence drives. Lights are not
+/// scene objects (not rig nodes); the light hangs from its parent node.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelLight {
+    /// The light's own name: the node name its sequences' tracks give (`object0`).
+    pub name: String,
+    /// The rig node listing it as a child (`None`: no node does).
+    pub parent: Option<String>,
+    /// Its transform under that node.
+    pub local: Transform,
+    /// Its stored diffuse colour and dimmer (nif.xml NiLight) [documented].
+    pub diffuse: [f32; 3],
+    pub dimmer: f32,
 }
 
 /// A node of a model below its root.
@@ -469,6 +488,27 @@ fn shape_morphs(file: &NifFile, dec: &Decoded, seqs: &[fnv_nif::anim::Sequence],
     out
 }
 
+/// The first point or spot light of a file that has a name, with the node that lists it
+/// as a child (the lowest-index one, as `scene_objects` takes parents).
+fn model_light(file: &NifFile, dec: &Decoded) -> Option<ModelLight> {
+    let (i, s) = file.blocks.iter().enumerate().filter(|(_, b)| matches!(b.type_name.as_str(), "NiPointLight" | "NiSpotLight")).find_map(|(i, _)| {
+        let s = dec.blocks[i].as_ref().ok()?;
+        s.text("name").filter(|n| !n.is_empty()).map(|_| (i, s))
+    })?;
+    let parent = dec.blocks.iter().find_map(|b| {
+        let b = b.as_ref().ok()?;
+        b.refs("children")?.contains(&(i as i32)).then(|| b.text("name").map(str::to_string)).flatten()
+    });
+    let diffuse = s.floats("diffuse_color").filter(|c| c.len() >= 3).map_or([0.0; 3], |c| [c[0], c[1], c[2]]);
+    Some(ModelLight {
+        name: s.text("name")?.to_string(),
+        parent,
+        local: to_bevy(&fnv_nif::scene::Transform::from_struct(s).unwrap_or(fnv_nif::scene::Transform::IDENTITY)),
+        diffuse,
+        dimmer: s.float("dimmer").unwrap_or(1.0),
+    })
+}
+
 /// A controller's own timing (fields of NiTimeController [documented: nif.xml]).
 fn own_cycle(c: &Struct, flags: i64) -> OwnCycle {
     OwnCycle {
@@ -531,6 +571,24 @@ pub fn free_transform_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Arc<
         .into_iter()
         .filter_map(|(node, t, cycle)| match t {
             NodeTrack::Transform(t) if cycle.stop > cycle.start && moves(&t, cycle.start, cycle.stop) => Some((node, t, cycle)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The visibility tracks of the `NiVisController`s in a file that are not driven by a
+/// sequence: by node name, each with its own timing ([`OwnCycle`]), played looping on
+/// placed objects (`Clip::free_visibility`). Taken as [`free_transform_tracks`] takes its
+/// controllers (Active, not manager controlled). The dust tube placed near Goodsprings
+/// (`effects\ambient\fxdustmeshtube01.nif`) is built so: one such controller, looping,
+/// that shows its mesh for part of a 56.7 s cycle [observed: `fnvtool nif decode`,
+/// docs/spec-notes/effects-animation-audit.md §6]. A track whose value never changes
+/// over its keys is kept: it holds a node the file hides shown, or the reverse.
+pub fn free_visibility_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, BoolTrack, OwnCycle)> {
+    node_tracks_of_own(file, dec, false)
+        .into_iter()
+        .filter_map(|(node, t, cycle)| match t {
+            NodeTrack::Visibility(t) if !t.keys.is_empty() || t.value.is_some() => Some((node, t, cycle)),
             _ => None,
         })
         .collect()
@@ -601,7 +659,7 @@ pub fn effect_clip(file: &NifFile, dec: &Decoded, base: Option<Clip>) -> Option<
     if tracks.is_empty() && visibility.is_empty() && materials.is_empty() {
         return base;
     }
-    let mut clip = base.unwrap_or_else(|| Clip { name: "Effect".into(), cycle_type: 2, stop: 0.0, ..Clip::from_controllers(Vec::new(), Vec::new()) });
+    let mut clip = base.unwrap_or_else(|| Clip { name: "Effect".into(), cycle_type: 2, stop: 0.0, ..Clip::from_controllers(Vec::new(), Vec::new(), Vec::new()) });
     clip.stop = clip.stop.max(stop);
     clip.priorities.extend(std::iter::repeat_n(0, tracks.len()));
     clip.tracks.extend(tracks);
@@ -1097,9 +1155,14 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
     // least one node of this file.
     let seqs = sequences(&file, &dec);
     let has = |n: &str| objects.iter().any(|o| o.name.as_deref() == Some(n));
-    // A clip moves a node of this file, drives the material of one of its shapes, or
-    // shows and hides one of its nodes.
-    let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape)) || c.visibility.iter().any(|(n, ..)| has(n));
+    // The file's first named point or spot light (lights are not scene objects).
+    let first_light = model_light(&file, &dec);
+    let has_light = |n: &str| first_light.as_ref().is_some_and(|l| l.name == n);
+    // A clip moves a node of this file, drives the material of one of its shapes, shows
+    // and hides one of its nodes, or drives its light.
+    let moves = |c: &Clip| {
+        c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape)) || c.visibility.iter().any(|(n, ..)| has(n)) || c.lights.iter().any(|l| has_light(&l.light))
+    };
     let named = |want: &str| {
         seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
     };
@@ -1114,15 +1177,25 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
     // its own for them.
     let free: Vec<MaterialTrack> = free_material_tracks(&file, &dec).into_iter().filter(|t| has(&t.shape)).collect();
     let moving: Vec<(String, Arc<TransformTrack>, OwnCycle)> = free_transform_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
+    let shows: Vec<(String, BoolTrack, OwnCycle)> = free_visibility_tracks(&file, &dec).into_iter().filter(|t| has(&t.0)).collect();
     if !free.is_empty() || !moving.is_empty() {
         info!("{path}: {} material and {} transform track(s) of controllers of their own, played on their own cycles", free.len(), moving.len());
+    }
+    if !shows.is_empty() {
+        info!("{path}: {} visibility track(s) of controllers of their own, played on their own cycles", shows.len());
+    }
+    if !free.is_empty() || !moving.is_empty() || !shows.is_empty() {
         match idle.as_mut() {
             Some(c) => {
                 c.materials.extend(free);
                 c.free.extend(moving);
+                c.free_visibility.extend(shows);
             }
-            None => idle = Some(Clip::from_controllers(free, moving)),
+            None => idle = Some(Clip::from_controllers(free, moving, shows)),
         }
+    }
+    if let Some(c) = idle.as_ref().filter(|c| !c.visibility.is_empty()) {
+        info!("{path}: its {} sequence shows and hides {} node(s)", c.name, c.visibility.len());
     }
     // Vertex morphs that run by themselves, or with the Idle (else SpecialIdle)
     // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
@@ -1160,8 +1233,10 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
         .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
         .chain(groups.iter())
         .chain(effect.iter())
-        .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()))
+        .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()).chain(c.free_visibility.iter().map(|(n, ..)| n.clone())))
         .collect();
+    // The light a clip of the rig drives.
+    out.light = first_light.filter(|l| idle.iter().chain(groups.iter()).any(|c| c.lights.iter().any(|t| t.light == l.name)));
     // Rig nodes: the root first, then every object reachable from it.
     let animated = idle.is_some() || door.is_some() || !groups.is_empty() || effect.is_some();
     let mut rig = animated
