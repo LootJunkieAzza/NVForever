@@ -87,7 +87,7 @@ previous sibling), `DATA` camera zoom (Default, Disable, Shot List) and `SNAM` s
 FalloutNV.esm: 276 CAMS, 418 CPTH [observed]. They are the kill cameras of VATS and the
 death cameras. As built (2026-10-24, ESM audit gap 10): both are loaded
 (`fnv_game::camera_paths`, `GameData::camera_paths` / `camera_shots`), and VATS mode's
-kill camera chooses a path from the tree and plays its shots' models (vats-mode.md §18).
+kill camera chooses a path from the tree and plays its shots' models (vats-mode.md §19).
 The death camera stays the owner's own (death_cam.rs); the `PlayerDeath` paths are
 loaded, not played. `fnvtool esm decode` shows them.
 

@@ -1,6 +1,6 @@
 //! Kill cameras' choice of camera path on a synthetic plugin (no game data): the tree's
 //! order, GetVATSValue answering about the landed shot, the VATS area functions and the
-//! fallbacks. docs/design/vats-mode.md §18, `fnv_game::camera_paths`.
+//! fallbacks. docs/design/vats-mode.md §19, `fnv_game::camera_paths`.
 
 mod common;
 

@@ -1,4 +1,4 @@
-//! Kill cameras (docs/design/vats-mode.md §18): when the last marked shot of a VATS-mode
+//! Kill cameras (docs/design/vats-mode.md §19): when the last marked shot of a VATS-mode
 //! run kills its actor, the original's camera shots (CAMS) chosen by its camera paths
 //! (CPTH) play, as VATS playback's kill cameras do [documented: GECK wiki CameraShot,
 //! "cameras for VATS playback"; the paths and shots are the masters' own].

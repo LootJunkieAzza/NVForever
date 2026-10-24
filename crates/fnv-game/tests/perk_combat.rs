@@ -32,6 +32,11 @@ const BLOODY: u32 = 0x704;
 const VENGEANCE: u32 = 0x705;
 const SNIPER: u32 = 0x706;
 const CONCENTRATED: u32 = 0x707;
+const STRANGER: u32 = 0x708;
+const FORTUNE: u32 = 0x709;
+const FRIENDLY: u32 = 0x70A;
+const REAPER: u32 = 0x70B;
+const NERVES: u32 = 0x70C;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_IS_ID: u16 = 72;
@@ -118,6 +123,12 @@ fn plugin_bytes() -> Vec<u8> {
         perk(SNIPER, "Sniper", 1, vec![entry(perks::CALCULATE_TO_HIT_CHANCE, perks::MULTIPLY_VALUE, 1.25, vec![(0, ctda2(1.0, GET_VATS_VALUE, 5, 25))])]),
         // Concentrated Fire: Has Concentrated Fire, Set 1.
         perk(CONCENTRATED, "ConcentratedFire", 1, vec![entry(fnv_game::vats::HAS_CONCENTRATED_FIRE, perks::SET_VALUE, 1.0, vec![])]),
+        // The VATS helpers and VATS mode's AP, with FalloutNV.esm's numbers.
+        perk(STRANGER, "MysteriousStranger", 1, vec![entry(fnv_game::vats::MYSTERIOUS_STRANGER, perks::SET_VALUE, 1.0, vec![])]),
+        perk(FORTUNE, "MissFortunePerk", 1, vec![entry(fnv_game::vats::MISS_FORTUNE, perks::SET_VALUE, 1.0, vec![])]),
+        perk(FRIENDLY, "VATSHelperChallengePerk", 1, vec![entry(fnv_game::vats::VATS_HELPER_CHANCE, perks::MULTIPLY_VALUE, 2.0, vec![])]),
+        perk(REAPER, "GrimReaperSprint", 1, vec![entry(fnv_game::vats::PLAYER_KILL_AP_REWARD, perks::ADD_VALUE, 20.0, vec![])]),
+        perk(NERVES, "NervesOfSteel", 1, vec![entry(fnv_game::vats::ACTION_POINT_REGEN, perks::MULTIPLY_VALUE, 1.2, vec![])]),
     ]
     .concat();
     let npcs = [
@@ -282,4 +293,33 @@ fn vats_to_hit_perks_see_the_mark() {
     g.player.perks.insert(FormId(CONCENTRATED), 1);
     assert!(g.vats_hit_perks(shot(None)).concentrated_fire);
     assert_eq!(g.vats.shot, None, "the shot is not left behind");
+}
+
+/// The VATS helpers' odds (docs/design/vats-mode.md §18.1), Friendly Help doubling them,
+/// the Stranger only for a target at most iVATSStrangerMaxHP; Grim Reaper's Sprint's AP
+/// and Nerves of Steel's regeneration.
+#[test]
+fn vats_helpers_and_ap_perks() {
+    use fnv_game::vats::HelperOdds;
+    let f = fixture();
+    let mut g = game(&f);
+    let t = FormId(NPC_REF);
+    assert_eq!(g.vats_helper_odds(t), HelperOdds::default(), "no perks, no helpers");
+    assert_eq!((g.vats_kill_ap_reward(), g.ap_regen_mult()), (0.0, 1.0));
+    g.player.perks.insert(FormId(STRANGER), 1);
+    g.player.perks.insert(FormId(FORTUNE), 1);
+    fnv_game::functions::set_actor_value_current(&mut g, t, fnv_game::actor_values::HEALTH, 100.0).unwrap();
+    let o = g.vats_helper_odds(t);
+    assert!((o.stranger - 0.1).abs() < 1e-9 && (o.fortune - 0.1).abs() < 1e-9, "{o:?}");
+    // Above 150 health the Stranger does not come; Miss Fortune still may.
+    fnv_game::functions::set_actor_value_current(&mut g, t, fnv_game::actor_values::HEALTH, 400.0).unwrap();
+    let o = g.vats_helper_odds(t);
+    assert_eq!(o.stranger, 0.0);
+    assert!((o.fortune - 0.1).abs() < 1e-9);
+    g.player.perks.insert(FormId(FRIENDLY), 1);
+    assert!((g.vats_helper_odds(t).fortune - 0.2).abs() < 1e-9, "Friendly Help doubles the odds");
+    g.player.perks.insert(FormId(REAPER), 1);
+    g.player.perks.insert(FormId(NERVES), 1);
+    assert_eq!(g.vats_kill_ap_reward(), 20.0);
+    assert!((g.ap_regen_mult() - 1.2).abs() < 1e-6);
 }

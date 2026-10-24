@@ -4,7 +4,7 @@
 //! `NiNode` named as the file, a controller of about 17 s whose Euler keys move it by a
 //! few degrees (a hand-held sway) and a few translation keys, and an `NiCamera` with a
 //! frustum of ±0.767 at a near plane of 1, 75° across]. Read for the kill cameras
-//! (`nvf_play::kill_cam`, docs/design/vats-mode.md §18).
+//! (`nvf_play::kill_cam`, docs/design/vats-mode.md §19).
 
 use crate::model::ModelCtx;
 use bevy::math::{Affine3A, Mat3, Quat, Vec3};

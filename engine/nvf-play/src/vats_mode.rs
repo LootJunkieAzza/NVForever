@@ -27,6 +27,11 @@
 //!   `final_chance`: the part's BPTD To Hit Chance, the weapon's skill, the spread at the
 //!   mark's distance, the player's to-hit perks, Concentrated Fire, the 95 % cap) is worked
 //!   out again every frame and drawn as "NN%" beside its "x" ([`draw_labels`]).
+//! - **Helpers and AP perks** (§18): with Mysterious Stranger or Miss Fortune, a mark's
+//!   attack may bring the helper beside the player, who fires one shot of their own
+//!   weapon at the mark (an `ActorFire`) and fades away; Friendly Help doubles the odds.
+//!   Grim Reaper's Sprint gives AP back after a sequence that killed; Nerves of Steel
+//!   speeds the AP's regeneration.
 //! - **Sounds** (§10): the base game's `UIVATS*` SOUN records, found by Editor ID.
 //! - **AP** (§7.2): reserved while marking (the HUD's bar shows what is left after the
 //!   reservations, [`VatsMode::reserved`]), spent per shot; outside the mode spent AP comes
@@ -54,7 +59,7 @@ use fnv_combat::vats::{
     final_chance, miss_point, raw_chance, restored_damage, rolled_hit, throw_miss_point, AttackStyle, HitInputs, HitTuning, MarkQueue, MeleeAction, MeleeLimits, MeleeRun, Volley, VolleyEvent, HELD_WEAPON_TO_HIT,
     WHOLE_TO_HIT,
 };
-use fnv_game::vats::HitPerks;
+use fnv_game::vats::{pick_helper, Helper, HitPerks};
 use fnv_game::actor_values::ACTION_POINTS;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::FormId;
@@ -62,7 +67,7 @@ use std::collections::HashMap;
 
 use crate::activate::HudMessage;
 use crate::bindings::{Control, ControlInput};
-use crate::combat::{Combat, WeaponAnim};
+use crate::combat::{ActorFire, Combat, WeaponAnim};
 use crate::control::{ControlLocks, Crosshair, PlayerControl};
 use crate::hitvol::{ActorParts, WEAPON_PART};
 use crate::interface::{bc_supported, face as font_face, plain_font, set_line, Face};
@@ -138,6 +143,13 @@ pub fn stand_beside(feet: [f32; 3], mark: [f32; 3], off: f32) -> [f32; 3] {
 
 /// Between two throws, game seconds (§16.3) [design].
 pub const THROW_INTERVAL: f32 = 0.35;
+
+/// A helper fires this long (game seconds) after appearing, and leaves this long after
+/// appearing (§18.2) [design].
+pub const HELPER_DRAW: f32 = 0.3;
+pub const HELPER_STAY: f32 = 1.2;
+/// A helper's eye above its feet, units: where its shot leaves from [design: a person's].
+pub const HELPER_EYE: f32 = 110.0;
 /// A mark's "x": its size as a share of the screen width, and its colour [design, after
 /// the references: a small dark-red x].
 pub const MARK_SIZE: f32 = 0.019;
@@ -203,6 +215,22 @@ struct InHand {
     hit: HitTuning,
 }
 
+/// A helper in the world (§18.2).
+#[derive(Debug, Clone)]
+struct ActiveHelper {
+    who: Helper,
+    reference: FormId,
+    weapon: FormId,
+    /// Where they stand (feet), and the mark they came for.
+    feet: [f32; 3],
+    target: FormId,
+    part: Option<u8>,
+    point: [f32; 3],
+    /// Game seconds since they appeared, and whether they have fired.
+    age: f32,
+    fired: bool,
+}
+
 /// How the marks are being spent (§9, §16).
 #[derive(Debug, Clone)]
 enum Run {
@@ -231,6 +259,9 @@ pub struct VatsStats {
     /// Rolls that hit and missed (§17.4).
     pub hits: u32,
     pub misses: u32,
+    /// Helpers that came, and the AP Grim Reaper's Sprint gave back (§18).
+    pub helpers: u32,
+    pub ap_rewarded: f32,
 }
 
 #[derive(Resource, Default)]
@@ -271,6 +302,14 @@ pub struct VatsMode {
     misses: u32,
     /// The roll of the melee swing being made (§17.4).
     blow_lands: bool,
+    /// The helper in the world, if one came (§18.2).
+    helper: Option<ActiveHelper>,
+    /// The player's kills when the marks began to be fired, and the same once the mode
+    /// ended after firing, for Grim Reaper's Sprint (§18.3).
+    kills_at_fire: Option<f64>,
+    reward_due: Option<f64>,
+    /// The AP regeneration factor last applied (Nerves of Steel, §18.4), for the log.
+    regen_mult: Option<f64>,
     /// SOUN FormIDs by Editor ID, found on first use.
     sounds: Option<HashMap<String, FormId>>,
     pub stats: VatsStats,
@@ -467,6 +506,8 @@ struct Sounds<'w> {
     sfx: Option<Res<'w, Sfx>>,
     play: MessageWriter<'w, PlaySound>,
     loops: MessageWriter<'w, LoopSound>,
+    /// A helper's shot (§18.2).
+    fire: MessageWriter<'w, ActorFire>,
 }
 
 impl Sounds<'_> {
@@ -601,7 +642,12 @@ fn update(
     };
     match (v.phase, stop) {
         (Phase::Off, _) => {
-            regenerate(script.as_deref_mut(), &mut sim, combat.rules.ap_restore_rate, time.delta_secs());
+            if let Some(m) = regenerate(script.as_deref_mut(), &mut sim, combat.rules.ap_restore_rate, time.delta_secs()) {
+                if v.regen_mult != Some(m) && (v.regen_mult.is_some() || m != 1.0) {
+                    info!("vats mode: AP regenerates at {m:.2} x (the Action Point Regen perks)");
+                }
+                v.regen_mult = Some(m);
+            }
             if keys.toggle {
                 try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, playing && !dead && !locks.fighting, &mut hud, &mut sounds);
             }
@@ -645,6 +691,7 @@ fn update(
                         AttackStyle::Melee => (Run::Melee(MeleeRun::new(n, MeleeLimits { approach: APPROACH_LIMIT, swing: SWING_LIMIT, after: AFTER_LAST })), "swings"),
                     };
                     v.run = Some(run);
+                    v.kills_at_fire = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_kill_count());
                     sounds.looping(v, false);
                     sounds.play(v, "UIVATSReady");
                     info!("vats mode: firing {n} marked {what}");
@@ -659,7 +706,7 @@ fn update(
             let dt = time.delta_secs();
             match v.run.as_mut() {
                 Some(Run::Volley(vo)) => match vo.step(dt) {
-                    Some(VolleyEvent::Shot { mark, round }) => shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut player, &control),
+                    Some(VolleyEvent::Shot { mark, round }) => shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds),
                     Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
                     None => {}
                 },
@@ -668,25 +715,32 @@ fn update(
             }
         }
     }
+    tick_helper(v, time.delta_secs(), script.as_deref_mut(), &mut sim, &phys, &mut sounds);
+    if let Some(before) = v.reward_due.take() {
+        kill_reward(v, before, script.as_deref_mut(), &mut sim);
+    }
     tell_scripts(v, script.as_deref_mut(), &player);
 }
 
-/// Spent AP comes back outside the mode (§7.2).
-fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, dt: f32) {
-    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+/// Spent AP comes back outside the mode (§7.2), faster with the Action Point Regen perks
+/// (Nerves of Steel, §18.4). The factor used, when any AP was spent.
+fn regenerate(script: Option<&mut ScriptState>, sim: &mut SimState, rate: f32, dt: f32) -> Option<f64> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
     if dt <= 0.0 {
-        return;
+        return None;
     }
     with_world(rt, sim, |rt| {
         let g = &mut rt.game;
-        let Ok([base, modifier, damage]) = fnv_game::functions::actor_value_parts(g, FormId::PLAYER_REF, ACTION_POINTS) else { return };
+        let [base, modifier, damage] = fnv_game::functions::actor_value_parts(g, FormId::PLAYER_REF, ACTION_POINTS).ok()?;
         if damage <= 0.0 {
-            return;
+            return None;
         }
+        let mult = g.ap_regen_mult();
         let max = base + modifier + fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, ACTION_POINTS);
-        let left = restored_damage(damage as f32, max as f32, rate, dt) as f64;
+        let left = restored_damage(damage as f32, max as f32, rate * mult as f32, dt) as f64;
         fnv_game::functions::restore_actor_value_damage(g, FormId::PLAYER_REF, ACTION_POINTS, damage - left);
-    });
+        Some(mult)
+    })
 }
 
 /// V: start marking if the weapon and the AP allow (§3).
@@ -748,6 +802,9 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
 fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     let was = v.phase;
     v.phase = Phase::Off;
+    if was == Phase::Firing {
+        v.reward_due = v.kills_at_fire.take();
+    }
     v.run = None;
     v.shot = None;
     v.shooting = None;
@@ -902,7 +959,8 @@ fn mark(
 /// Fire round `round` of mark `i` (§9.1, §16.1, §16.3): the view snaps to it,
 /// `crate::combat` fires at it this frame (a throw on its arc); the mark's first round
 /// spends its AP.
-fn shoot(v: &mut VatsMode, i: usize, round: u32, script: Option<&mut ScriptState>, sim: &mut SimState, player: &mut Player, control: &PlayerControl) {
+#[allow(clippy::too_many_arguments)]
+fn shoot(v: &mut VatsMode, i: usize, round: u32, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &mut Player, control: &PlayerControl, sounds: &mut Sounds) {
     let Some((point, chance)) = v.spots.get(i).map(|s| (s.point, s.chance)) else { return };
     face(player, control, point);
     // Every round is rolled on the mark's chance now (§17.4); a miss goes wide of it.
@@ -936,7 +994,8 @@ fn shoot(v: &mut VatsMode, i: usize, round: u32, script: Option<&mut ScriptState
         debug!("vats mode: round {} of mark {}: {outcome}", round + 1, i + 1);
         return;
     }
-    let cost = start_mark(v, i, script, sim);
+    let cost = start_mark(v, i, script.as_deref_mut(), sim);
+    call_helper(v, i, script, sim, phys, player, sounds);
     let (Some(m), Some(s)) = (v.queue.marks().get(i), v.spots.get(i)) else { return };
     let n = v.queue.len();
     match v.weapon.as_ref().map(|w| w.style) {
@@ -966,7 +1025,7 @@ fn start_mark(v: &mut VatsMode, i: usize, script: Option<&mut ScriptState>, sim:
 /// A melee sequence's frame (§16.2): the player is put beside the mark, swings at it, and
 /// the swing is waited for.
 #[allow(clippy::too_many_arguments)]
-fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &mut Player, control: &PlayerControl, sounds: &mut Sounds) {
+fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &mut Player, control: &PlayerControl, sounds: &mut Sounds) {
     let Some(Run::Melee(run)) = v.run.as_mut() else { return };
     let i = run.current.min(run.marks.saturating_sub(1));
     let eye = player.eye();
@@ -1003,7 +1062,8 @@ fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, script: Option<&mut Sc
             v.shooting = Some(i);
             v.fired += 1;
             v.stats.shots += 1;
-            let cost = start_mark(v, i, script, sim);
+            let cost = start_mark(v, i, script.as_deref_mut(), sim);
+            call_helper(v, i, script, sim, phys, player, sounds);
             let (m, s) = (v.queue.marks()[i], &v.spots[i]);
             info!(
                 "vats mode: swing {} of {} at {} {} ({}), {across:.0} units across, {cost:.0} AP spent; {chance:.0}% to hit: {} (rolled {rolled:.0})",
@@ -1028,7 +1088,7 @@ fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, script: Option<&mut Sc
 
 impl VatsMode {
     /// The last mark's shot, once every mark's attack has started (a kill camera watches
-    /// its actor, `crate::kill_cam`, §18): as the scripts see a shot, with the weapon VATS
+    /// its actor, `crate::kill_cam`, §19): as the scripts see a shot, with the weapon VATS
     /// mode was entered with, and its point now.
     pub fn final_shot(&self, eye: [f32; 3]) -> Option<(fnv_game::vats::VatsShot, [f32; 3])> {
         let n = self.queue.len();
@@ -1039,6 +1099,153 @@ impl VatsMode {
         let d = ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2) + (s.point[2] - eye[2]).powi(2)).sqrt();
         let shot = fnv_game::vats::VatsShot { weapon: self.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false) };
         Some((shot, s.point))
+    }
+}
+
+/// The test aid `NVF_PLAY_TEST_VATS_HELPER`: `stranger` or `fortune` brings that helper
+/// for every mark whose odds for them are above 0 (the player has the perk), `none` none
+/// (vats-mode.md §13).
+fn forced_helper() -> Option<Option<Helper>> {
+    static FORCED: std::sync::OnceLock<Option<Option<Helper>>> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| match std::env::var("NVF_PLAY_TEST_VATS_HELPER").ok()?.trim() {
+        "stranger" => Some(Some(Helper::Stranger)),
+        "fortune" => Some(Some(Helper::Fortune)),
+        "none" => Some(None),
+        other => {
+            warn!("vats mode: NVF_PLAY_TEST_VATS_HELPER={other}: not stranger, fortune or none; helpers are rolled");
+            None
+        }
+    })
+}
+
+/// Where a helper stands for a mark at `point` (§18.2): `away` from the player's feet across
+/// the line to the mark, on its right, else its left, else behind the player; the first
+/// spot from whose eye nothing but the mark's actor stands in the way. `None` when all are
+/// blocked.
+fn helper_spot(phys: &mut PhysState, feet: [f32; 3], point: [f32; 3], target: u32, away: f32) -> Option<[f32; 3]> {
+    let (dx, dy) = (point[0] - feet[0], point[1] - feet[1]);
+    let flat = (dx * dx + dy * dy).sqrt().max(1e-3);
+    let (fx, fy) = (dx / flat, dy / flat);
+    let spots = [[feet[0] + fy * away, feet[1] - fx * away, feet[2]], [feet[0] - fy * away, feet[1] + fx * away, feet[2]], [feet[0] - fx * away, feet[1] - fy * away, feet[2]]];
+    spots.into_iter().find(|&at| {
+        let eye = [at[0], at[1], at[2] + HELPER_EYE];
+        let to = [point[0] - eye[0], point[1] - eye[1], point[2] - eye[2]];
+        let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
+        if len < 1.0 {
+            return false;
+        }
+        let dir = [to[0] / len, to[1] / len, to[2] / len];
+        let mut filter = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+        filter.exclude.extend(phys.npcs.values().map(|b| b.ch.key()));
+        match phys.ray(eye, dir, len + 30.0, filter) {
+            None => true,
+            Some(h) => matches!(h.owner, Owner::Actor { form_id, .. } if form_id == target) || h.distance >= len - 30.0,
+        }
+    })
+}
+
+/// Mark `i`'s attack started: with Mysterious Stranger or Miss Fortune, one of them may come
+/// for it (§18.1, §18.2). One helper at a time.
+#[allow(clippy::too_many_arguments)]
+fn call_helper(v: &mut VatsMode, i: usize, script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &Player, sounds: &mut Sounds) {
+    if v.helper.is_some() {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let (Some(m), Some(point)) = (v.queue.marks().get(i).copied(), v.spots.get(i).map(|s| s.point)) else { return };
+    let odds = with_world(rt, sim, |rt| rt.game.vats_helper_odds(m.target));
+    if odds.stranger + odds.fortune <= 0.0 {
+        return;
+    }
+    let u = v.two().0 as f64;
+    let who = match forced_helper() {
+        Some(Some(Helper::Stranger)) => (odds.stranger > 0.0).then_some(Helper::Stranger),
+        Some(Some(Helper::Fortune)) => (odds.fortune > 0.0).then_some(Helper::Fortune),
+        Some(None) => None,
+        None => pick_helper(odds, u),
+    };
+    let Some(who) = who else {
+        debug!("vats mode: no helper for mark {} ({:.0}% the Stranger, {:.0}% Miss Fortune, rolled {:.0})", i + 1, odds.stranger * 100.0, odds.fortune * 100.0, u * 100.0);
+        return;
+    };
+    let Some(feet) = helper_spot(phys, player.feet, point, m.target.0, odds.distance as f32) else {
+        info!("vats mode: {} would come for mark {}, but nowhere beside the player sees it", who.label(), i + 1);
+        return;
+    };
+    let heading = (point[0] - feet[0]).atan2(point[1] - feet[1]);
+    let (reference, weapon) = with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        (g.summon_vats_helper(who, feet, heading), g.data.by_edid(who.weapon_edid()))
+    });
+    let (Some(reference), Some(weapon)) = (reference, weapon) else {
+        info!("vats mode: {} cannot come: the load order has no {} or {}", who.label(), who.edid(), who.weapon_edid());
+        return;
+    };
+    info!(
+        "vats mode: {} comes for mark {} ({}), {:.0} units from the player ({:.0}% odds, rolled {:.0})",
+        who.label(),
+        i + 1,
+        m.target,
+        odds.distance,
+        if who == Helper::Stranger { odds.stranger } else { odds.fortune } * 100.0,
+        u * 100.0
+    );
+    v.stats.helpers += 1;
+    // The Stranger's theme [observed: FalloutNV.esm SOUN MUSMysteriousStrangerA01, A02;
+    // hypothesis: played as he comes, one of the two].
+    if who == Helper::Stranger {
+        sounds.play(v, if u < odds.stranger / 2.0 { "MUSMysteriousStrangerA01" } else { "MUSMysteriousStrangerA02" });
+    }
+    v.helper = Some(ActiveHelper { who, reference, weapon, feet, target: m.target, part: m.part, point, age: 0.0, fired: false });
+}
+
+/// The helper's frame (§18.2): their shot at the mark after [`HELPER_DRAW`], their leaving
+/// after [`HELPER_STAY`]. Runs whether the mode is on or not.
+fn tick_helper(v: &mut VatsMode, dt: f32, script: Option<&mut ScriptState>, sim: &mut SimState, phys: &PhysState, sounds: &mut Sounds) {
+    let Some(h) = v.helper.as_mut() else { return };
+    h.age += dt.max(0.0);
+    if !h.fired && h.age >= HELPER_DRAW {
+        h.fired = true;
+        let point = point_of(phys, h.target.0, h.part).unwrap_or(h.point);
+        let origin = [h.feet[0], h.feet[1], h.feet[2] + HELPER_EYE];
+        let to = [point[0] - origin[0], point[1] - origin[1], point[2] - origin[2]];
+        let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt().max(1e-3);
+        let aim = [to[0] / len, to[1] / len, to[2] / len];
+        sounds.fire.write(ActorFire { shooter: h.reference, weapon: h.weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false });
+        info!("vats mode: {} fires at {} from {len:.0} units", h.who.label(), h.target);
+    }
+    if h.age >= HELPER_STAY {
+        let (r, who) = (h.reference, h.who);
+        v.helper = None;
+        if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+            with_world(rt, sim, |rt| rt.game.dismiss_vats_helper(r));
+        }
+        info!("vats mode: {} leaves", who.label());
+    }
+}
+
+/// After a sequence that killed (the player's kills rose since it began to be fired), the
+/// Player Kill AP Reward perks give AP back (Grim Reaper's Sprint, §18.3).
+fn kill_reward(v: &mut VatsMode, before: f64, script: Option<&mut ScriptState>, sim: &mut SimState) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let given = with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        let kills = g.player_kill_count() - before;
+        if kills < 1.0 {
+            return None;
+        }
+        let reward = g.vats_kill_ap_reward();
+        if reward <= 0.0 {
+            return None;
+        }
+        let [_, _, damage] = fnv_game::functions::actor_value_parts(g, FormId::PLAYER_REF, ACTION_POINTS).ok()?;
+        let back = reward.min(damage.max(0.0));
+        fnv_game::functions::restore_actor_value_damage(g, FormId::PLAYER_REF, ACTION_POINTS, back);
+        Some((kills, reward, back))
+    });
+    if let Some((kills, reward, back)) = given {
+        v.stats.ap_rewarded += back as f32;
+        info!("vats mode: {kills:.0} killed: the Player Kill AP Reward perks give {reward:.0} AP back ({back:.0} restored)");
     }
 }
 
@@ -1182,7 +1389,10 @@ fn report(mut exit: MessageReader<AppExit>, vats: Res<VatsMode>) {
     if s.entered == 0 && s.refused == 0 {
         return;
     }
-    info!("vats mode summary: entered {} times, {} marks, {} shots, {:.0} AP spent, {} refused, {} hit, {} missed", s.entered, s.marks, s.shots, s.ap_spent, s.refused, s.hits, s.misses);
+    info!(
+        "vats mode summary: entered {} times, {} marks, {} shots, {:.0} AP spent, {} refused, {} hit, {} missed, {} helpers, {:.0} AP rewarded",
+        s.entered, s.marks, s.shots, s.ap_spent, s.refused, s.hits, s.misses, s.helpers, s.ap_rewarded
+    );
 }
 
 /// VATS mode's frame (`update`), for systems that read what it decided (`crate::kill_cam`).

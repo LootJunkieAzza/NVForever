@@ -8334,7 +8334,7 @@ list (DOBJ places 0 and 5; the same forms as before with the shipped data). Spec
 When the last mark of a VATS-mode run kills its actor, the game's own camera paths (CPTH)
 pick camera shots (CAMS), and each shot's camera model plays around the kill in slow
 motion with its screen effect. Earlier kills in the run get no camera. Spec:
-[vats-mode §18](design/vats-mode.md).
+[vats-mode §19](design/vats-mode.md).
 
 - *Guess:* how the path tree is walked: the first passing path in order, then its first
   passing child, else its own shots.

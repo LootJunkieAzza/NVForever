@@ -1395,7 +1395,7 @@ fn time_multiplier(
         }
         player_scale.0 = exempt;
     }
-    // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §18).
+    // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
     let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
     let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * turbo;
     let want = asked * engine;

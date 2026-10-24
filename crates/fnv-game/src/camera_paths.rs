@@ -1,5 +1,5 @@
 //! Camera paths (CPTH) and camera shots (CAMS): the original's VATS camera choices,
-//! played by NVForever's VATS mode as kill cameras (docs/design/vats-mode.md §18,
+//! played by NVForever's VATS mode as kill cameras (docs/design/vats-mode.md §19,
 //! docs/spec-notes/default-objects.md §3).
 //!
 //! - **CAMS** [documented: xEdit wbDefinitionsFNV.pas CAMS; GECK wiki CameraShot]: a model
@@ -292,7 +292,7 @@ impl Game<'_> {
 /// The shots a kill camera plays from the hit, of a path's list: those started by the
 /// hit, in order; with none, the last shot [design: VATS mode decides on a kill camera
 /// once the shot has landed, so the shots before the hit (Shoot, Fly) have passed;
-/// docs/design/vats-mode.md §18].
+/// docs/design/vats-mode.md §19].
 pub fn hit_shots(path: &CameraPathDef, shots: &HashMap<FormId, CameraShotDef>) -> Vec<FormId> {
     let known: Vec<FormId> = path.shots.iter().copied().filter(|s| shots.contains_key(s)).collect();
     let hit: Vec<FormId> = known.iter().copied().filter(|s| shots[s].action == ShotAction::Hit).collect();
