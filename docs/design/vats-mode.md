@@ -244,10 +244,11 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 
 ## 8. Mark visuals and the HUD
 
-- **"x" marks**: each mark draws a dark-red (0.45, 0.05, 0.03) "x" of two crossed bars,
-  1.9 % of the screen width across, at its point projected on the screen (§6) [design,
-  after the references]. Marks behind the camera are not drawn. A mark that has fired
-  goes [design].
+- **"x" marks**: each mark draws an "x" of two crossed bars in the interface's amber
+  (`interface::AMBER`, the HUD's colour), 1.9 % of the screen width across, at its point
+  projected on the screen (§6) [design, after the references; amber instead of their
+  dark red at the owner's wish of 2026-10-24, to match the HUD]. Marks behind the camera
+  are not drawn. A mark that has fired goes [design].
 - **AP bar**: while marking, the HUD's AP bar shows the AP that is left after the
   reservations (`(AP − reserved) / max`), so it drains mark by mark [design]; firing
   spends it for real, so the bar stays where it was.
@@ -716,8 +717,9 @@ open   = distance × tan(cone × fVATSSpreadMult)
 ### 17.5 On the screen
 
 - Beside each mark's "x" (to its right, centred on it) its chance in whole percent,
-  "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), a creamy
-  white that reads on the amber grade [design]. It follows the mark and changes as the
+  "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), in the
+  interface's amber like the HUD's text [design: the owner's wish of 2026-10-24; it was
+  a creamy white]. It follows the mark and changes as the
   chance does; it goes with the "x" once the mark is fired.
 - Nothing shows the chance of what is under the crosshair before it is marked [design:
   the owner asked for the marks; a later step if wanted].
