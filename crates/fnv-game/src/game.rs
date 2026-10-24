@@ -209,6 +209,15 @@ pub struct RefExtra {
     pub destroyed: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub ghost: bool,
+    /// SetGhost 0 on an actor whose base is flagged Is Ghost: it stops being one
+    /// (actor-flags.md §3) [hypothesis: SetGhost overrides the base flag].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub ghost_off: bool,
+    /// It caught the player picking its pocket: it cannot be pickpocketed again
+    /// (`crate::pickpocket`; the flag SetCaughtPCPickpocketting sets [documented: GECK
+    /// wiki]).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub caught_pickpocket: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub restrained: bool,
     /// The player woke it by talking to it while it slept: until this game time it stays
@@ -1079,6 +1088,8 @@ pub struct Game<'a> {
     /// Crimes being reported, trespass warnings and karma changes for the engine
     /// (`crate::crime`); what lasts is in [`PlayerState`]. Not part of the saved state.
     pub crimes: crate::crime::Crimes,
+    /// Pickpocketing: who caught the player, planted explosives (`crate::pickpocket`).
+    pub pickpocket: crate::pickpocket::State,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -1438,6 +1449,7 @@ impl<'a> Game<'a> {
             ui: Default::default(),
             console_requests: Vec::new(),
             crimes: Default::default(),
+            pickpocket: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -1624,6 +1636,14 @@ impl<'a> Game<'a> {
                 if !s.completed {
                     s.completed = true;
                     self.quest_completed(q);
+                }
+                // The entry's Next Quest (NAM0) "will automatically become the player's
+                // active quest" [documented: GECK wiki Quest Stages], as ForceActiveQuest
+                // makes it (the Pip-Boy takes `UiRequests::active_quest`).
+                if let Some(next) = e.next_quest.filter(|n| data.quests.contains_key(n)) {
+                    tracing::info!("quest: {q} stage {stage} completes it; its Next Quest {next} becomes the active quest");
+                    self.ui.active_quest = Some(next);
+                    self.ui.active_quest_count += 1;
                 }
             }
             if e.flags & STAGE_FAIL != 0 {

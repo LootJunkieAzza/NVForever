@@ -37,7 +37,7 @@
 
 mod model;
 mod outline;
-mod read;
+pub(crate) mod read;
 pub mod travel;
 
 use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
