@@ -3029,6 +3029,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "lantern-display-light"
+source = "docs/spec-notes/world.md §8 \"Light on surfaces in display values\": Dead Money's Puesta del Sol wall lantern (light NVDLC01ExtSconceKeyWT) at 22:00; the display-value lighting sum and the clipped display are patched into Bevy's shaders (a Bevy upgrade that moves the patched lines fails here); a frame in target/smoke (lantern_display_light.png) to compare with the original's dm_lamp_front.png"
+areas = ["renderer", "lights"]
+paths = ["engine/nvforever/src/lights.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvf-assets/src/nif_material.wgsl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "8:lantern_display_light.png" }
+args = ["--world", "NVDLC01WestTownN", "--play", "--pos=3177,592,1028", "--heading", "270", "--pitch", "15", "--hour", "22", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'lights: display-value lighting sum installed', label = "apply_pbr_lighting sums the light in display values" },
+  { re = 'lights: display values shown clipped', label = "the main view clips in Tony McMapface's place" },
+  { re = 'lights: game attenuation installed', label = "lights fall off as the game's" },
+  { re = 'light colour lines not found|apply_pbr_lighting not as expected|Tony McMapface not found', count = 0, label = "no patch missed its Bevy lines" },
+]
+
+[[scenario]]
 name = "strip-lamp-glow"
 source = "docs/spec-notes/nif.md §6 \"Soft intersections\", \"Emissive multiplier of unlit shapes\"; docs/design/graphics-enhanced.md §3.11: the Strip at night with scripts: the light glow is on (HDR view), the street lamp beams the scripts enable are drawn and take their stripStreetLight colour (0x0012762B) instead of white; a frame in target/smoke (strip_lamp_glow.png)"
 areas = ["renderer", "effects", "lights"]
