@@ -8311,3 +8311,33 @@ there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/phy
 - *Guess:* a step-up counts from a rise of 0.25 units above where flat ground would put
   the feet (was 0.5 above the feet themselves).
 - *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
+
+## Area effects, screen-effect HDR and sounds, explosions' orientation, water edges (2026-10-24, ESM audit gaps 3, 8, 9, 27, 28, branch claude/esm-effects-5fb7c5)
+
+Spells and weapon effects with an area now reach the actors around where they land (the
+Legion explorers' aura, the EvaluatePackage pulses at Hoover Dam, the disguise pulse,
+Lanius's and Meanie's knockdowns, the Glowing One's attack burst). Scripted screen effects
+play their HDR keys (the poison stings' brightening, the camera flash's glow) and their
+intro and outro sounds (the poison sting, the stealth suit's on and off, Battle Brew's
+heartbeat, the cave wind). Explosions without "Always Uses World Orientation" turn to the
+ground under them. Water fades in at the shore over its depth falloff. Specs:
+[area effects](spec-notes/area-effects.md), [image modifiers §10-11](spec-notes/image-modifiers.md),
+[explosion effects §10](spec-notes/explosion-effects.md), [world §6 water](spec-notes/world.md).
+
+- *Settled by a capture:* an area is in feet (21.3 units each; the explorer's aura reached
+  Doc Mitchell at 899 units and not Chet at 1,170), and the caster gets the spell too.
+- *Guess:* a pair the detection never measured counts as in sight (the disguise pulse
+  needs sight).
+- *Guess:* a modifier that doubles Target LUM makes the picture one EV brighter; a lower
+  Bright Clamp makes the light glow stronger (the camera flash reaches full glow).
+- *Guess:* Eye Adapt Speed is a speed (higher is faster), 3 EV a second at the usual 0.9;
+  interiors with 0.3 adapt three times slower than before, those with 5 or 8 at once.
+- *Guess:* the intro sound plays when a screen effect starts, the outro when it ends;
+  weather adapters' sounds (thunder, birds) are not played.
+- *Guess:* an explosion without the world-orientation flag lines up with the ground under
+  it (a grenade against a wall still uses the floor).
+- *Guess:* a water type's depth falloff is a fraction of its above-water fog far distance
+  (Lake Mead: the surface fades in over the first 9 units of water).
+- *Check:* at Boulder Beach, is the shoreline's reflection edge soft over a few units in
+  the game, or hard? A frame at noon from a few metres up would show it.
+- *Check:* a Bark Scorpion sting at noon: does the picture brighten for a moment?

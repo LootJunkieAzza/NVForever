@@ -8,16 +8,13 @@
 //!   blast's object effect does not spread: the explosion's own radius picks those it
 //!   catches (`nvf_play::combat`) [hypothesis: EuclidExplosionEnchantment's area, 1024,
 //!   would reach far past any blast].
-//! - **Radius.** The area is in feet, [`AREA_UNIT`] game units each [hypothesis: the
-//!   Oblivion construction set gave spell areas in feet; DisguiseFactionPulseScript's
-//!   comment calls its 25 "spell units" against "units"; the masters' areas, 3 for a
-//!   sledgehammer's knockdown and 1024 for the EvaluatePackage pulse around the player,
-//!   fit feet and not game units].
+//! - **Radius.** The area is in feet, [`AREA_UNIT`] game units each [observed: capture
+//!   esmfx1, area-effects.md §4: LegionExplorerAura's 50 reached an actor 899 units away
+//!   and not one at 1,170].
 //! - **Who.** Loaded, present actors in the same cell (interior) or worldspace, the dead
 //!   left out, each within the radius of the centre (straight-line distance). The caster
-//!   is reached too when it is not the centre [hypothesis: the masters' area scripts
-//!   return at once on their caster, LegateKnockdownScript2 on Lanius, the Miss Fortune
-//!   and disguise pulses on the player, so the effect does land on it].
+//!   is reached too when it is not the centre; a spell cast on oneself lands on the caster
+//!   [observed: esmfx1, IsSpellTarget 1 on the player after its own CIOS].
 //! - **Line of sight.** Unless the spell has "Area Effect Ignores LOS" (SPIT flag 4)
 //!   [documented: xEdit SPEL], an actor the centre is known not to see clearly is left
 //!   out (the engine's detection measures, `crate::detection`); an actor never measured
@@ -30,8 +27,8 @@
 use crate::game::Game;
 use fnv_sim::FormId;
 
-/// Game units per unit of an EFIT area: a foot of 64 / 3 units, a yard being 64 units
-/// [hypothesis, see the module notes].
+/// Game units per unit of an EFIT area: a foot of 64 / 3 units [observed: capture
+/// esmfx1, see the module notes].
 pub const AREA_UNIT: f32 = 64.0 / 3.0;
 /// SPEL SPIT flag bit 4, "Area Effect Ignores LOS" [documented: xEdit wbDefinitionsFNV.pas
 /// SPEL].

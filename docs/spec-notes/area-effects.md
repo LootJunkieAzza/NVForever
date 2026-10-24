@@ -35,10 +35,11 @@ runs on Lanius, NVMissFortuneGunSpellScript and DisguiseFactionPulseScript on th
 
 ## 2. Rules [hypothesis unless tagged]
 
-- **Unit**: feet, 64 / 3 game units each (`AREA_UNIT`). The Oblivion construction set gave
-  spell areas in feet; DisguiseFactionPulseScript's comment calls its radius "25 (spell
-  units)" against "units"; 3 for a sledgehammer's knockdown and 1024 for an EvaluatePackage
-  pulse around the player fit feet and not game units. To check: §4.
+- **Unit**: feet, 64 / 3 game units each (`AREA_UNIT`) [observed: capture esmfx1, §4:
+  LegionExplorerAura's 50 (1,067 units) reached an actor at 899 units and not one at
+  1,170; DisguiseFactionPulseActorEffect's 25 (533) one at 147 and not one at 899].
+- **The caster** gets an area spell it casts on itself [observed: esmfx1, IsSpellTarget 1
+  on the player after `player.CIOS` of both spells].
 - **Spread from**: a spell cast on oneself (CastImmediateOnSelf) from the caster; a
   weapon's object effect (its own or an unarmed attack's) from the actor hit. A blast's
   object effect does not spread: the explosion's radius picks who it catches (1024 feet
@@ -63,6 +64,13 @@ DT spells on 23 creatures, SporeCarrierRegen on 7, NVDLC02QuietWatersPerkEffect 
 LegionExplorerAura on 2, PerkParalyzingPalm on 1) [observed] — see §4 for what the
 original does with them.
 
-## 4. Checks
+## 4. Captures
 
-See §5 for the capture's results.
+`esmfx1_area` (2026-10-24, nvftest, unattended; job written with
+`tools/capture/function_probe.py` from a probe file kept in the session scratchpad): Pete,
+Doc Mitchell, Chet and Joe Cobb moved to 147, 899, 1,170 and 1,599 units east of the player
+outside Goodsprings and held (SetRestrained 1); `player.CastImmediateOnSelf
+LegionExplorerAura`, 20 frames, IsSpellTarget on each: player 1, Pete 1, Doc 1, Chet 0,
+Cobb 0. Then `player.CastImmediateOnSelf DisguiseFactionPulseActorEffect`: player 1, Pete
+1, Doc 0, Chet 0 [observed]. Not measured: whether sight matters (everyone stood in the
+open).
