@@ -1391,6 +1391,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "opening-no-hud"
+source = "owner report 2026-10-24: \"E) Talk Doc Mitchell\" showed in the starting bed sequence; while an idle holds the camera only subtitles show (no HUD, crosshair, prompt, corner or quest lines)"
+note = "Doc Mitchell is under the crosshair during the wake-up; the reticle logs the prompt it keeps back"
+areas = ["hud", "reticle", "idles"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 60
+order = [[
+  { text = "player view: driven by an idle's camera node", label = "the wake-up holds the camera" },
+  { text = "reticle: no prompt on \"Doc Mitchell\": an idle holds the camera", label = "no E) Talk prompt on Doc Mitchell while it does" },
+]]
+
+[[scenario]]
 name = "opening-hidden-item-lines"
 source = "owner report 2026-10-18: \"Pip-Boy 3000 removed\" showed at the start of a new game; the opening's player.RemoveItem passes HideMessageFlag 1 (docs/design/script-function-params.md)"
 areas = ["corner-messages", "script-params"]

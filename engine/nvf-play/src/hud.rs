@@ -373,6 +373,7 @@ fn gather(
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
     vats: Option<Res<crate::vats_mode::VatsMode>>,
+    driven: Option<Res<crate::player::ViewDriven>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -381,7 +382,10 @@ fn gather(
     // leaves the game in [owner 2026-10-17: "hide the UI so no health bar or AP or
     // dialogue"].
     let creating = control.as_ref().is_some_and(|c| c.portrait.is_some());
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating, ..view.clone() };
+    // Nor while an idle holds the camera (the opening's wake-up, `ViewDriven`), whatever
+    // the scripts' locks: only subtitles then [owner 2026-10-24].
+    let posed = driven.is_some_and(|d| d.0);
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed, ..view.clone() };
     if let Some(p) = &player {
         now.heading = p.heading.to_degrees();
     }
