@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 fnv-bsa = { path = "../fnv-bsa" }
 thiserror.workspace = true
+tracing = "0.1"
 
 [dev-dependencies]
 # The required-files list of the install check must cover what the VFS loads.

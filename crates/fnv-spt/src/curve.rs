@@ -22,7 +22,7 @@ impl Curve {
         let mut words = body.split_whitespace();
         let n: usize = words.next().ok_or("no point count")?.parse().map_err(|_| "bad point count")?;
         let nums: Vec<f32> = words.map(num).collect::<Result<_, _>>()?;
-        if nums.len() != 5 * n || n == 0 {
+        if n.checked_mul(5) != Some(nums.len()) || n == 0 {
             return Err(format!("{n} points but {} numbers", nums.len()));
         }
         let points = nums.as_chunks::<5>().0.to_vec();

@@ -133,3 +133,99 @@ impl<'a> LoadOrder<'a> {
         &self.master_map[pi]
     }
 }
+
+/// A plugin left out of a lenient load order ([`drop_unloadable`]), with why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DroppedPlugin {
+    pub plugin: String,
+    pub reason: LoadOrderError,
+}
+
+/// The plugins [`LoadOrder::new`] accepts, in their order, and the ones left out: a
+/// plugin whose master is missing or loads after it, a second copy of a name, and any
+/// past the 255th. Nothing is reordered. A plugin dropped here takes its dependents with
+/// it (masters load first, so one pass in load order is enough). For the game, which
+/// must start with a broken mod in the list; tools keep `LoadOrder::new`'s errors.
+pub fn drop_unloadable(plugins: Vec<Plugin>) -> (Vec<Plugin>, Vec<DroppedPlugin>) {
+    let masters: Vec<Vec<&str>> = plugins.iter().map(|p| p.header.masters.iter().map(|m| m.name.as_str()).collect()).collect();
+    let names: Vec<&str> = plugins.iter().map(|p| p.name.as_str()).collect();
+    let (keep, dropped) = loadable(&names, &masters);
+    let kept = plugins.into_iter().zip(keep).filter_map(|(p, k)| k.then_some(p)).collect();
+    (kept, dropped)
+}
+
+/// [`drop_unloadable`] on names: which to keep, and why the others go.
+fn loadable(names: &[&str], masters: &[Vec<&str>]) -> (Vec<bool>, Vec<DroppedPlugin>) {
+    let lower: Vec<String> = names.iter().map(|n| n.to_ascii_lowercase()).collect();
+    let mut keep = vec![false; names.len()];
+    let mut dropped = Vec::new();
+    let mut kept = 0usize;
+    for i in 0..names.len() {
+        let is_kept = |n: &str| (0..i).any(|j| keep[j] && lower[j] == n);
+        let reason = if is_kept(&lower[i]) {
+            Some(LoadOrderError::Duplicate(names[i].to_string()))
+        } else if kept >= 255 {
+            Some(LoadOrderError::TooManyPlugins(names.len()))
+        } else {
+            masters[i].iter().find(|m| !is_kept(&m.to_ascii_lowercase())).map(|m| {
+                let (plugin, master) = (names[i].to_string(), m.to_string());
+                if lower[i..].contains(&m.to_ascii_lowercase()) {
+                    LoadOrderError::MasterAfterDependent { plugin, master }
+                } else {
+                    LoadOrderError::MissingMaster { plugin, master }
+                }
+            })
+        };
+        match reason {
+            Some(reason) => dropped.push(DroppedPlugin { plugin: names[i].to_string(), reason }),
+            None => {
+                keep[i] = true;
+                kept += 1;
+            }
+        }
+    }
+    (keep, dropped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(list: &[(&str, &[&str])]) -> (Vec<bool>, Vec<String>) {
+        let names: Vec<&str> = list.iter().map(|(n, _)| *n).collect();
+        let masters: Vec<Vec<&str>> = list.iter().map(|(_, m)| m.to_vec()).collect();
+        let (keep, dropped) = loadable(&names, &masters);
+        (keep, dropped.iter().map(|d| d.reason.to_string()).collect())
+    }
+
+    #[test]
+    fn a_plugin_without_its_master_goes_and_takes_its_dependents() {
+        let (keep, why) = run(&[
+            ("FalloutNV.esm", &[]),
+            ("Mod.esm", &["FalloutNV.esm", "Gone.esm"]),
+            ("Patch.esp", &["FalloutNV.esm", "Mod.esm"]),
+            ("Fine.esp", &["FalloutNV.esm"]),
+        ]);
+        assert_eq!(keep, [true, false, false, true]);
+        assert_eq!(why[0], "Mod.esm requires master Gone.esm, which is not in the load order");
+        assert_eq!(why[1], "Patch.esp requires master Mod.esm, which is not in the load order");
+    }
+
+    #[test]
+    fn a_master_loading_after_its_dependent_drops_the_dependent() {
+        let (keep, why) = run(&[("FalloutNV.esm", &[]), ("A.esp", &["B.esm"]), ("B.esm", &["falloutnv.ESM"]), ("b.esm", &[])]);
+        assert_eq!(keep, [true, false, true, false]);
+        assert_eq!(why[0], "A.esp requires master B.esm, which loads after it");
+        assert_eq!(why[1], "b.esm appears twice in the load order");
+    }
+
+    #[test]
+    fn no_more_than_255_plugins() {
+        let names: Vec<String> = (0..300).map(|i| format!("P{i}.esp")).collect();
+        let list: Vec<(&str, &[&str])> = names.iter().map(|n| (n.as_str(), &[][..])).collect();
+        let (keep, why) = run(&list);
+        assert_eq!(keep.iter().filter(|k| **k).count(), 255);
+        assert_eq!(why.len(), 45);
+        assert!(keep[254] && !keep[255]);
+    }
+}

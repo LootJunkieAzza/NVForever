@@ -130,8 +130,10 @@ const STATIC_SOUND: &str = "UIRadioStaticLP";
 
 type Stem = rodio::Decoder<Cursor<Arc<[u8]>>>;
 
+/// A panic opening a broken file (a WAV of rate 0) is that file's failure, not the game's
+/// (nvf_assets::guard).
 fn open(bytes: &Arc<[u8]>) -> Option<Stem> {
-    rodio::Decoder::builder().with_byte_len(bytes.len() as u64).with_seekable(true).with_data(Cursor::new(bytes.clone())).build().ok()
+    nvf_assets::guard::guarded(|| Ok(rodio::Decoder::builder().with_byte_len(bytes.len() as u64).with_seekable(true).with_data(Cursor::new(bytes.clone())).build().ok())).ok().flatten()
 }
 
 /// One file played from a point in it (or round and round), at a level changed while it

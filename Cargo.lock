@@ -592,6 +592,7 @@ dependencies = [
  "fnv-bsa",
  "fnv-install",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]

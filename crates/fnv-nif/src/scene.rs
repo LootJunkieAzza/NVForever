@@ -96,7 +96,9 @@ pub fn geometry_order(objects: &[SceneObject]) -> std::collections::HashMap<usiz
 }
 
 /// Nodes (NiNode and derived types) and triangle shapes, in block order, with each
-/// object's parent = the lowest-index node listing it as a child.
+/// object's parent = the lowest-index node listing it as a child. A link that would
+/// close a loop (a broken file's node listing itself or one of its ancestors) is left
+/// out, so the parents always form a tree.
 pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
     let n = file.blocks.len();
     let mut parent: Vec<Option<usize>> = vec![None; n];
@@ -107,7 +109,7 @@ pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
         if let Some(children) = dec.blocks[i].as_ref().ok().and_then(|s| s.refs("children")) {
             for &c in children {
                 if let Ok(c) = usize::try_from(c) {
-                    if c < n && parent[c].is_none() {
+                    if c < n && parent[c].is_none() && !is_ancestor(&parent, c, i) {
                         parent[c] = Some(i);
                     }
                 }
@@ -137,6 +139,20 @@ pub fn scene_objects(file: &NifFile, dec: &Decoded) -> Vec<SceneObject> {
         });
     }
     out
+}
+
+/// Whether `a` is `b` or one of its ancestors by the links in `parent` (a tree so far).
+fn is_ancestor(parent: &[Option<usize>], a: usize, b: usize) -> bool {
+    let mut cur = Some(b);
+    // The links form a tree, so the walk ends within `parent.len()` steps.
+    for _ in 0..=parent.len() {
+        match cur {
+            Some(x) if x == a => return true,
+            Some(x) => cur = parent[x],
+            None => return false,
+        }
+    }
+    true
 }
 
 /// Summary of one geometry-data block (NiTriShapeData / NiTriStripsData).

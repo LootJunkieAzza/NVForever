@@ -386,11 +386,33 @@ impl SkyState {
     /// for good, else `start` (a loaded game's) or the climate's most likely, followed by
     /// the rolls from the first frame on ([`weather_region`]).
     pub fn new(world: &WorldData, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
-        let ws = &world.index.worldspaces[&world.world];
+        let ws = world.index.worldspaces.get(&world.world).ok_or("worldspace not in the world index")?;
         let clim_id = ws
             .climate
             .or_else(|| ws.parent.and_then(|p| world.index.worldspaces.get(&p)).and_then(|p| p.climate))
             .ok_or("worldspace has no climate")?;
+        SkyState::with_climate(world, clim_id, pinned, start, hour, seed)
+    }
+
+    /// The sky of the start, when the start worldspace's own cannot be made (no climate,
+    /// or one that is unreadable or lists no weather: a broken mod). Travel keeps the
+    /// previous worldspace's sky then (worldspace.rs); at the start there is none, so the
+    /// climate of another worldspace stands in: WastelandNV's, else the first (by FormID)
+    /// that works [hypothesis: our fallback, not the original's behaviour].
+    pub fn fallback(world: &WorldData, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
+        let mut spaces: Vec<_> = world.index.worldspaces.values().filter_map(|w| Some((w.form_id, w.climate?, w.edid.as_deref()))).collect();
+        spaces.sort_by_key(|&(id, _, edid)| (!edid.is_some_and(|e| e.eq_ignore_ascii_case("WastelandNV")), id));
+        for (id, clim, _) in spaces {
+            if let Ok(s) = SkyState::with_climate(world, clim, pinned, start, hour, seed) {
+                info!("sky: the start uses worldspace {id:08X}'s climate");
+                return Ok(s);
+            }
+        }
+        Err("no worldspace in the load order has a usable climate".into())
+    }
+
+    /// [`SkyState::new`] with climate `clim_id`.
+    fn with_climate(world: &WorldData, clim_id: u32, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
         let clim = climate(world.lo, world.schema, clim_id).ok_or("climate unreadable")?;
         let most_likely = || default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather");
         let wid = match (pinned, start) {
@@ -1117,8 +1139,17 @@ fn sky_shapes(data: &GameData, path: &str) -> Vec<SkyShape> {
         warn!("{path}: not found; using the fallback sky");
         return Vec::new();
     };
-    let Ok(file) = NifFile::parse(&bytes, Some(&data.schema)) else { return Vec::new() };
-    let dec = Decoded::new(&file, &bytes, &data.schema);
+    // A panic reading a broken file counts as a file with no shapes (the fallback sky).
+    let read = nvf_assets::guard::guarded(|| Ok(read_sky_shapes(data, &bytes)));
+    read.unwrap_or_else(|e| {
+        warn!("{path}: not read ({e}); using the fallback sky");
+        Vec::new()
+    })
+}
+
+fn read_sky_shapes(data: &GameData, bytes: &[u8]) -> Vec<SkyShape> {
+    let Ok(file) = NifFile::parse(bytes, Some(&data.schema)) else { return Vec::new() };
+    let dec = Decoded::new(&file, bytes, &data.schema);
     scene_objects(&file, &dec)
         .iter()
         .filter(|o| !o.is_node)

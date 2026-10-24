@@ -495,7 +495,7 @@ fn play(
                 let seconds = bank.seconds(path).unwrap_or(fitted);
                 // Played also out of hearing, silent: it is heard if the speaker comes
                 // near (or the player does) while it lasts.
-                let entity = match (settings.play, sounds.as_mut(), bank.read(path)) {
+                let entity = match (settings.play, sounds.as_mut(), bank.read(path).and_then(|b| crate::sfx::checked(path, b))) {
                     (true, Some(assets), Some(bytes)) => {
                         let source = AudioSource { bytes: bytes.into() };
                         let volume = Volume::Linear(settings.volume.max(0.0));

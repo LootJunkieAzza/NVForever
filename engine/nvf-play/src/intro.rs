@@ -334,6 +334,12 @@ fn open_film(data: Option<&GameData>, file: &str) -> Result<(std::path::PathBuf,
     let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     let name = path.file_name().map_or_else(|| file.to_string(), |n| n.to_string_lossy().into_owned());
     let d = BikStreamingDecoder::new(std::io::BufReader::with_capacity(1 << 20, f), &name).map_err(|e| e.to_string())?.with_output_format(BikOutputFormat::Rgba);
+    // A broken header's size would ask the GPU for a texture it refuses (Bevy then closes
+    // the game) or for gigabytes of frame: such a film is not played.
+    let (w, h) = (d.width(), d.height());
+    if !(1..=8192).contains(&w) || !(1..=8192).contains(&h) {
+        return Err(format!("film size {w}x{h} out of range"));
+    }
     Ok((path, d))
 }
 
@@ -408,7 +414,9 @@ fn start(
         .spawn(move || {
             let mut i = 0u32;
             while !s.stop.load(Ordering::Relaxed) {
-                match dec.next_frame() {
+                // A panic in the decoder (a broken film) ends the film, logged, rather
+                // than the game (guard.rs).
+                match nvf_assets::guard::guarded(|| dec.next_frame().map_err(|e| e.to_string())) {
                     Ok(Some(fr)) => {
                         for a in fr.audio {
                             if let Ok(mut f) = s.format.lock() {
@@ -508,7 +516,11 @@ fn play(
     }
     if let Some((_, px)) = show {
         if let Some(mut img) = images.get_mut(&p.image) {
-            img.data = Some(px);
+            // A frame of the wrong length would panic the render thread: dropped.
+            let size = img.texture_descriptor.size;
+            if px.len() == size.width as usize * size.height as usize * 4 {
+                img.data = Some(px);
+            }
         }
     }
     if let (Ok(w), Ok(mut node)) = (windows.single(), pictures.single_mut()) {

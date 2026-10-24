@@ -34,6 +34,7 @@ use fnv_nif::NifFile;
 use fnv_phys::{BodyState, RagdollStart};
 use fnv_sim::FormId;
 use nvf_assets::data::GameData;
+use nvf_assets::guard::guarded;
 use nvf_play::combat::ActorPush;
 use nvf_play::phys::PhysState;
 use nvf_play::space;
@@ -106,16 +107,25 @@ struct Calm {
 
 impl Ragdolls {
     /// The ragdoll of the skeleton at `skeleton` (read once): at least two bodies and a
-    /// joint.
+    /// joint. A file that breaks the reader (a panic, caught) has no ragdoll.
     fn data(&mut self, data: &GameData, skeleton: &str) -> Option<Arc<Ragdoll>> {
         let key = fnv_vfs::normalize(skeleton);
         self.cache
             .entry(key.clone())
             .or_insert_with(|| {
                 let bytes = data.read(&key)?;
-                let file = NifFile::parse(&bytes, Some(&data.schema)).ok()?;
-                let dec = Decoded::new(&file, &bytes, &data.schema);
-                let r = fnv_collide::ragdoll::ragdoll(&file, &dec);
+                let read = guarded(|| {
+                    let file = NifFile::parse(&bytes, Some(&data.schema)).map_err(|e| e.to_string())?;
+                    let dec = Decoded::new(&file, &bytes, &data.schema);
+                    Ok(fnv_collide::ragdoll::ragdoll(&file, &dec))
+                });
+                let r = match read {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("ragdoll: {key}: not read ({e}); no ragdoll for this skeleton");
+                        return None;
+                    }
+                };
                 let mass: f32 = r.bodies.iter().map(|b| b.object.mass).sum();
                 info!("ragdoll: {key}: {} bodies ({mass:.0} mass), {} joints{}", r.bodies.len(), r.joints.len(), if r.problems.is_empty() { String::new() } else { format!(", problems: {}", r.problems.join("; ")) });
                 (r.bodies.len() >= 2 && !r.joints.is_empty()).then(|| Arc::new(r))
@@ -135,8 +145,14 @@ impl Ragdolls {
                     info!("ragdoll template: {key}: not in the data; the skeleton's own bodies and joints");
                     return None;
                 };
-                let file = NifFile::parse(&bytes, Some(&data.schema)).ok();
-                let t = file.as_ref().and_then(|f| fnv_collide::ragdoll::template(f, &Decoded::new(f, &bytes, &data.schema)));
+                let t = guarded(|| {
+                    let file = NifFile::parse(&bytes, Some(&data.schema)).ok();
+                    Ok(file.as_ref().and_then(|f| fnv_collide::ragdoll::template(f, &Decoded::new(f, &bytes, &data.schema))))
+                })
+                .unwrap_or_else(|e| {
+                    warn!("ragdoll template: {key}: not read ({e})");
+                    None
+                });
                 match &t {
                     Some(t) => info!("ragdoll template: {key}: {} bones{}", t.bones.len(), if t.problems.is_empty() { String::new() } else { format!(", problems: {}", t.problems.join("; ")) }),
                     None => warn!("ragdoll template: {key}: not a template file (no bhkRagdollTemplate); not used"),
@@ -160,7 +176,17 @@ impl Ragdolls {
             .or_insert_with(|| {
                 let mut r = (*base).clone();
                 for (path, t) in &found {
-                    let a = r.apply_template(t);
+                    // A template that breaks the merge (a panic, caught) is left out; the
+                    // ragdoll is taken back to what it was before it.
+                    let before = r.clone();
+                    let a = match guarded(|| Ok(r.apply_template(t))) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            warn!("ragdoll template: {path} on {}: not applied ({e})", fnv_vfs::normalize(skeleton));
+                            r = before;
+                            continue;
+                        }
+                    };
                     info!(
                         "ragdoll template: {path} on {}: {} bones, {} joints replaced, {} added{}",
                         fnv_vfs::normalize(skeleton),
@@ -333,7 +359,18 @@ fn start(
         let parts = body_parts(rig, &c, limbs);
         let asleep = stored.is_some();
         let velocity = std::mem::take(&mut c.velocity);
-        let r = phys.world.add_ragdoll(&RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity, parts: &parts, asleep });
+        let start = RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity, parts: &parts, asleep };
+        // Bad ragdoll data that breaks the physics build (a panic, caught): this corpse
+        // keeps its death pose, logged once (`lifts` past the limit stops the retries).
+        let r = match guarded(|| Ok(phys.world.add_ragdoll(&start))) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("ragdoll: actor {:08X}: not built ({e}); it keeps its death pose", rig.reference);
+                phys.world.remove_ragdoll(rig.reference);
+                c.lifts = MAX_LIFTS + 1;
+                continue;
+            }
+        };
         debug!("ragdoll: actor {:08X}: {} bodies, {} joints, {} self-collision pairs{}{}", rig.reference, r.bodies, r.joints, r.self_pairs, if asleep { ", put back at rest" } else { "" }, if r.errors.is_empty() { String::new() } else { format!(", {} shape errors", r.errors.len()) });
         if r.bodies == 0 {
             phys.world.remove_ragdoll(rig.reference);

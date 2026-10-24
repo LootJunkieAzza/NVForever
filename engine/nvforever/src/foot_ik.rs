@@ -165,10 +165,14 @@ impl Plugin for FootIkPlugin {
 pub fn two_bone(h: Vec3, k: Vec3, a: Vec3, t: Vec3, forward: Vec3) -> (Quat, Quat) {
     let (u, v) = (k - h, a - k);
     let (l1, l2) = (u.length(), v.length());
-    if l1 < 1e-3 || l2 < 1e-3 {
+    // A broken skeleton (NaN or huge bone lengths) or target leaves the leg as it is:
+    // `clamp` panics on NaN or crossed bounds.
+    let (lo, hi) = ((l1 - l2).abs() + 1e-3, l1 + l2 - 1e-3);
+    let reach = (t - h).length();
+    if !(l1 >= 1e-3 && l2 >= 1e-3 && lo <= hi && hi.is_finite() && reach.is_finite() && forward.is_finite()) {
         return (Quat::IDENTITY, Quat::IDENTITY);
     }
-    let d = (t - h).length().clamp((l1 - l2).abs() + 1e-3, l1 + l2 - 1e-3);
+    let d = reach.clamp(lo, hi);
     // The knee's inner angle now and wanted (law of cosines).
     let now = (-u).angle_between(v);
     let want = ((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2)).clamp(-1.0, 1.0).acos();
@@ -188,7 +192,7 @@ pub fn two_bone(h: Vec3, k: Vec3, a: Vec3, t: Vec3, forward: Vec3) -> (Quat, Qua
 /// [`MAX_TILT`] and given `weight` (0–1) of it.
 pub fn tilt_onto(n: Vec3, weight: f32) -> Quat {
     let n = n.normalize_or_zero();
-    if n.z <= 0.0 || weight <= 0.0 {
+    if n.z <= 0.0 || weight.is_nan() || weight <= 0.0 {
         return Quat::IDENTITY;
     }
     let full = Quat::from_rotation_arc(Vec3::Z, n);
@@ -570,6 +574,17 @@ mod tests {
         let k2 = h + legq * (k - h);
         let a2 = k2 + legq * calfq * (a - k);
         (k2, a2)
+    }
+
+    #[test]
+    fn broken_legs_and_targets_are_left_alone() {
+        let (h, k, a) = leg();
+        let id = (Quat::IDENTITY, Quat::IDENTITY);
+        assert_eq!(two_bone(h, Vec3::NAN, a, a, Vec3::Y), id);
+        assert_eq!(two_bone(h, k, a, Vec3::new(0.0, f32::INFINITY, 0.0), Vec3::Y), id);
+        // Bones so unequal that rounding crosses the clamp bounds.
+        assert_eq!(two_bone(Vec3::ZERO, Vec3::new(0.0, 0.0, 1e9), Vec3::new(0.0, 0.0, 1e9 + 1e-3), Vec3::ONE, Vec3::Y), id);
+        assert_eq!(tilt_onto(Vec3::new(0.1, 0.0, 1.0), f32::NAN), Quat::IDENTITY);
     }
 
     #[test]

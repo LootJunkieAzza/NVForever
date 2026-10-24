@@ -724,3 +724,20 @@ fn a_path_up_to_a_level_stacked_over_the_floor_takes_the_ramp() {
         }
     }
 }
+
+/// A broken mod's navmesh with triangles but no vertices (last in the graph, so its
+/// triangles' fallback index is past the end) is assembled with them left out.
+#[test]
+fn a_navmesh_with_triangles_but_no_vertices_is_skipped() {
+    let good = grid(0x10, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let bad = NavMeshRecord {
+        form_id: 0x11,
+        triangles: vec![Triangle { v: [0, 1, 2], edges: [0, -1, 5], flags: 0, cover: 0 }; 2],
+        ..Default::default()
+    };
+    let g = graph(&[(good, W), (bad, W)]);
+    let first_bad = g.meshes[1].first_tri;
+    assert!(g.tris[first_bad as usize].has(tri_flags::DELETED));
+    assert!(!g.usable(first_bad));
+    assert_eq!(g.corners(first_bad), [[0.0; 3]; 3]);
+}

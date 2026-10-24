@@ -230,7 +230,10 @@ pub struct Reverb {
 
 impl Reverb {
     pub fn new(preset: &Preset, rate: u32) -> Reverb {
-        let r = rate.max(1) as f32;
+        // Buffers are sized by the rate: a broken file's rate of billions would ask for
+        // gigabytes (an allocation failure ends the process), so it is held to the rates
+        // sound files have.
+        let r = rate.clamp(8_000, 192_000) as f32;
         let scale = r / 44100.0;
         let early_delay = (preset.reflections_delay * r).round() as usize;
         let late_delay = ((preset.reflections_delay + preset.reverb_delay) * r).round() as usize;

@@ -542,15 +542,17 @@ fn bspline_channel(
         return None;
     }
     let data = dec.get(it.block_ref("spline_data")?)?;
-    let n = dec.get(it.block_ref("basis_data")?)?.int("num_control_points")? as usize;
+    // A broken file's negative or huge count gives no channel.
+    let n = usize::try_from(dec.get(it.block_ref("basis_data")?)?.int("num_control_points")?).ok()?;
     let h = h as usize;
+    let end = n.checked_mul(dim)?.checked_add(h)?;
     let points: Vec<f32> = match compact {
         Some((off, half)) => {
             let (o, r) = (it.float(off)?, it.float(half)?);
             let cps = data.ints("compact_control_points")?;
-            cps.get(h..h + n * dim)?.iter().map(|&c| o + (c as f32 / 32767.0) * r).collect()
+            cps.get(h..end)?.iter().map(|&c| o + (c as f32 / 32767.0) * r).collect()
         }
-        None => data.floats("float_control_points")?.get(h..h + n * dim)?.to_vec(),
+        None => data.floats("float_control_points")?.get(h..end)?.to_vec(),
     };
     Some(BSplineChannel { dim, points })
 }

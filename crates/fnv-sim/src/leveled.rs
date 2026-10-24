@@ -106,6 +106,9 @@ pub fn resolve_with(
     resolve_at(&Ctx { forms, globals, added }, item, count, None, level, rng, out, 0)
 }
 
+/// The most times one "each item in count" list is rolled at once ([`resolve_at`]).
+const MAX_LIST_ROLLS: i32 = 10_000;
+
 struct Ctx<'a> {
     forms: &'a FormStore,
     globals: &'a BTreeMap<FormId, f32>,
@@ -147,7 +150,9 @@ fn resolve_at(
     };
     let extra = cx.added.get(&item).map(Vec::as_slice).unwrap_or_default();
     let eligible: Vec<_> = list.entries.iter().chain(extra).filter(|e| e.level <= level).collect();
-    let rolls = if list.each { count } else { 1 };
+    // A list rolled for each of a huge count (a broken mod's entry or script) would
+    // roll that many times: capped [hypothesis: our limit, far above any shipped count].
+    let rolls = if list.each { count.min(MAX_LIST_ROLLS) } else { 1 };
     let mult = if list.each { 1 } else { count };
     for _ in 0..rolls {
         if below(rng, 100) < chance_none || eligible.is_empty() {
@@ -155,7 +160,7 @@ fn resolve_at(
         }
         if list.use_all {
             for e in &eligible {
-                resolve_at(cx, e.item, e.count as i32 * mult, e.condition.or(condition), level, rng, out, depth + 1)?;
+                resolve_at(cx, e.item, (e.count as i32).saturating_mul(mult), e.condition.or(condition), level, rng, out, depth + 1)?;
             }
             continue;
         }
@@ -166,7 +171,7 @@ fn resolve_at(
             eligible.iter().copied().filter(|e| e.level == top).collect()
         };
         let e = pool[below(rng, pool.len() as u32) as usize];
-        resolve_at(cx, e.item, e.count as i32 * mult, e.condition.or(condition), level, rng, out, depth + 1)?;
+        resolve_at(cx, e.item, (e.count as i32).saturating_mul(mult), e.condition.or(condition), level, rng, out, depth + 1)?;
     }
     Ok(())
 }
@@ -202,5 +207,26 @@ mod tests {
         assert!((0..50).all(|_| rolls_none(&mut a, 100)));
         let n = (0..2000).filter(|_| rolls_none(&mut a, 50)).count();
         assert!((900..1100).contains(&n), "{n}");
+    }
+
+    /// A huge count (a broken mod) neither overflows nor rolls billions of times.
+    #[test]
+    fn huge_counts_are_capped() {
+        use crate::forms::{BaseData, BaseForm, LeveledList};
+        let mut forms = FormStore::default();
+        for (id, each) in [(1u32, true), (2, false)] {
+            let entries = vec![LeveledEntry { level: 1, item: FormId(9), count: u16::MAX, condition: None }];
+            let list = LeveledList { chance_none: 0, all_levels: false, each, use_all: false, global: None, entries };
+            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, data: BaseData::LeveledItem(list) };
+            forms.bases.insert(FormId(id), base);
+        }
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let mut out = Vec::new();
+        resolve(&forms, FormId(1), i32::MAX, 1, &mut rng, &mut out).unwrap();
+        assert_eq!(out.len(), MAX_LIST_ROLLS as usize);
+        out.clear();
+        resolve(&forms, FormId(2), i32::MAX, 1, &mut rng, &mut out).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].count, i32::MAX);
     }
 }

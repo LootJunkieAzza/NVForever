@@ -134,6 +134,11 @@ pub fn sampler() -> ImageSampler {
 /// Build a GPU image from DDS bytes; `None` for cube maps, unsupported formats, or BC
 /// textures the device cannot sample.
 pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    // A panic while decoding is this texture's failure, not the game's (guard.rs).
+    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported))
+}
+
+fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
     let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
@@ -166,15 +171,37 @@ pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, 
             (if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm }, out)
         }
     };
-    let mut img = Image::new(
-        Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-        TextureDimension::D2,
-        data,
-        format,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    img.texture_descriptor.mip_level_count = levels.len() as u32;
+    let mut img = checked_image(w, h, levels.len() as u32, format, data)?;
     img.sampler = sampler();
+    Ok(img)
+}
+
+/// The largest side of a texture taken from a file. Above every texture the game ships
+/// (4096 at most [observed]) and within what desktop GPUs take; a larger size in a file
+/// is a broken header.
+pub const MAX_TEXTURE_SIDE: u32 = 16384;
+
+/// A 2D image of `w`×`h` with `mips` levels whose bytes are `data`, or why the GPU would
+/// refuse it. Bevy closes the game on a texture the GPU refuses (a zero or oversized
+/// side, more levels than the size allows), and the render thread panics when the data
+/// is shorter than the size says; so every image made from a file's numbers is built
+/// here (docs/design/broken-files.md).
+pub fn checked_image(w: u32, h: u32, mips: u32, format: TextureFormat, data: Vec<u8>) -> Result<Image, String> {
+    if w == 0 || h == 0 || w > MAX_TEXTURE_SIDE || h > MAX_TEXTURE_SIDE {
+        return Err(format!("size {w}x{h} out of range (1 to {MAX_TEXTURE_SIDE})"));
+    }
+    let most = 32 - w.max(h).leading_zeros();
+    if mips == 0 || mips > most {
+        return Err(format!("{mips} mip levels for a {w}x{h} texture (at most {most})"));
+    }
+    let (bw, bh) = format.block_dimensions();
+    let block = format.block_copy_size(None).ok_or("format has no single block size")? as usize;
+    let expected: usize = (0..mips).map(|m| ((w >> m).max(1).div_ceil(bw) * (h >> m).max(1).div_ceil(bh)) as usize * block).sum();
+    if data.len() != expected {
+        return Err(format!("{} bytes of data for a {w}x{h} texture of {mips} levels ({expected} expected)", data.len()));
+    }
+    let mut img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, data, format, RenderAssetUsages::RENDER_WORLD);
+    img.texture_descriptor.mip_level_count = mips;
     Ok(img)
 }
 
@@ -252,7 +279,7 @@ impl TextureCache {
         }
         drop(entries);
         for (key, e) in self.workers.failed.lock().expect("worker textures").drain() {
-            self.failures.push(format!("{}: {e}", key.0));
+            crate::guard::failed(&mut self.failures, "texture", format!("{}: {e}", key.0));
             self.map.entry(key).or_insert(None);
         }
         self.generation += u64::from(n > 0);
@@ -365,7 +392,7 @@ impl TextureCache {
                 Some(images.add(img))
             }
             Err(e) => {
-                self.failures.push(format!("{path}: {e}"));
+                crate::guard::failed(&mut self.failures, "texture", format!("{path}: {e}"));
                 None
             }
         };

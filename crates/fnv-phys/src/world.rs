@@ -219,7 +219,12 @@ impl PreparedRef {
                 return out;
             }
         };
-        let ref_pose = Pose::from_parts(vec3(pose.position) * k, ref_rot);
+        let ref_t = vec3(pose.position) * k;
+        if !ref_t.is_finite() {
+            out.errors.push(ConvertError::BadDimension);
+            return out;
+        }
+        let ref_pose = Pose::from_parts(ref_t, ref_rot);
         for (i, o) in objects.iter().enumerate() {
             let local = o.node_transform.compose(&o.body_transform);
             let body_pose = match convert::pose(&local, pose.scale * k) {
@@ -411,6 +416,9 @@ impl PhysWorld {
             let hold = p.asleep && o.motion != Motion::Static;
             let builder = if hold { builder.sleeping(true) } else { builder };
             let body = self.insert_body(builder.pose(o.pose).user_data(owner.encode()));
+            // Kept with the reference at once, so a caller that catches a panic part way
+            // (`nvf_assets::guard`) can take every body out with `remove_ref`.
+            self.refs.entry(p.form_id).or_default().push(body);
             report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.material.mass);
@@ -423,7 +431,6 @@ impl PhysWorld {
         }
         report.bodies = handles.len();
         if !handles.is_empty() {
-            self.refs.insert(p.form_id, handles);
             self.dirty = true;
         }
         report
@@ -535,6 +542,9 @@ impl PhysWorld {
             return false;
         };
         let p = Pose::from_parts(vec3(pose.position) * self.k, rot) * local;
+        if !p.translation.is_finite() {
+            return false;
+        }
         let body = &mut self.w.bodies[b];
         if *body.position() == p {
             return true;

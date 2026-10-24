@@ -14,10 +14,9 @@
 //! docs/design/streaming-hitches.md]; an offset image takes well under a millisecond.
 //! Offset images are reused by what they are made of while anything draws them.
 
-use bevy::asset::RenderAssetUsages;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::TextureFormat;
 use fnv_actor::facegen::{Egm, Egt};
 use fnv_actor::records::FaceGen;
 use nvf_assets::actor::{ActorCtx, PreparedPart};
@@ -79,12 +78,26 @@ pub enum FaceGenFile {
 
 /// Read and parse the `.egm` at `path`; `None` when it is absent or unreadable.
 fn read_egm(data: &GameData, path: &str) -> Option<Arc<Egm>> {
-    data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new)
+    read_parsed(data, path, |b| Egm::parse(b).map_err(|e| e.to_string()))
 }
 
 /// Read and parse the `.egt` at `path`; `None` when it is absent or unreadable.
 fn read_egt(data: &GameData, path: &str) -> Option<Arc<Egt>> {
-    data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egt::parse(&b).ok()).map(Arc::new)
+    read_parsed(data, path, |b| Egt::parse(b).map_err(|e| e.to_string()))
+}
+
+/// The file at `path` parsed by `parse`, under a guard: a broken file (an error or a
+/// panic) is logged and counts as absent. The caches keep the result per path, so each
+/// is logged once.
+fn read_parsed<T>(data: &GameData, path: &str, parse: impl FnOnce(&[u8]) -> Result<T, String>) -> Option<Arc<T>> {
+    let b = data.vfs.exists(path).then(|| data.read(path)).flatten()?;
+    match nvf_assets::guard::guarded(|| parse(&b)) {
+        Ok(v) => Some(Arc::new(v)),
+        Err(e) => {
+            warn!("facegen file {path} not used: {e}");
+            None
+        }
+    }
 }
 
 /// Read and parse the FaceGen file at `path` (an `.egm` or `.egt`), on a worker thread
@@ -189,6 +202,13 @@ impl FaceGenCache {
         let start = std::time::Instant::now();
         let image = offset_image(file.columns, file.rows, &offset_planes(&file, fgts));
         self.offset_time += start.elapsed();
+        let image = match image {
+            Ok(i) => i,
+            Err(e) => {
+                warn!("facegen offset of {} not used: {e}", key.egt);
+                return None;
+            }
+        };
         let images = &mut ctx.models.images;
         let image = images.add(image);
         self.made.retain(|_, id| images.contains(*id));
@@ -228,7 +248,8 @@ fn offset_planes(egt: &Egt, fgts: &[f64]) -> [Vec<f32>; 3] {
 /// The texture holding a FaceGen offset (`rows` × `columns` colour offsets per plane, the
 /// file's first row first) for the shader, which reads it unfiltered: 16-bit floats,
 /// which keep an offset of the observed −60…+20 units (actors.md §4) to 1/32 of a unit.
-fn offset_image(columns: usize, rows: usize, planes: &[Vec<f32>; 3]) -> Image {
+/// `Err`: sizes the GPU would refuse (a broken file).
+fn offset_image(columns: usize, rows: usize, planes: &[Vec<f32>; 3]) -> Result<Image, String> {
     let n = rows * columns;
     let mut data = Vec::with_capacity(n * 8);
     for ((&r, &g), &b) in planes[0].iter().zip(&planes[1]).zip(&planes[2]).take(n) {
@@ -236,13 +257,8 @@ fn offset_image(columns: usize, rows: usize, planes: &[Vec<f32>; 3]) -> Image {
             data.extend_from_slice(&half::f16::from_f32(v).to_le_bytes());
         }
     }
-    Image::new(
-        Extent3d { width: columns as u32, height: rows as u32, depth_or_array_layers: 1 },
-        TextureDimension::D2,
-        data,
-        TextureFormat::Rgba16Float,
-        RenderAssetUsages::RENDER_WORLD,
-    )
+    let side = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
+    nvf_assets::texture::checked_image(side(columns), side(rows), 1, TextureFormat::Rgba16Float, data)
 }
 
 #[cfg(test)]
@@ -343,10 +359,18 @@ mod tests {
 
     #[test]
     fn offset_texture_layout() {
-        let img = offset_image(2, 3, &[vec![1.0; 6], vec![-2.0; 6], vec![0.5; 6]]);
+        use bevy::render::render_resource::Extent3d;
+        let img = offset_image(2, 3, &[vec![1.0; 6], vec![-2.0; 6], vec![0.5; 6]]).unwrap();
         assert_eq!(img.texture_descriptor.size, Extent3d { width: 2, height: 3, depth_or_array_layers: 1 });
         let data = img.data.as_ref().unwrap();
         assert_eq!(data.len(), 2 * 3 * 8);
         assert_eq!(half::f16::from_le_bytes([data[2], data[3]]).to_f32(), -2.0);
+    }
+
+    /// A broken file's sizes give no texture rather than one the GPU refuses.
+    #[test]
+    fn offset_texture_of_no_size_is_refused() {
+        assert!(offset_image(0, 3, &[vec![], vec![], vec![]]).is_err());
+        assert!(offset_image(2, 3, &[vec![1.0; 2], vec![1.0; 2], vec![1.0; 2]]).is_err());
     }
 }

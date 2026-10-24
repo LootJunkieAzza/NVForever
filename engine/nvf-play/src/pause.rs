@@ -417,10 +417,13 @@ impl LoadList {
         }
         let Some((path, _)) = self.saves.get(i) else { return };
         let decoded = fnv_save::read_header(path).ok().and_then(|f| crate::save::decode_thumbnail(&f.shot));
-        let handle = decoded.map(|(w, h, rgba)| {
+        let handle = decoded.and_then(|(w, h, rgba)| {
             info!("pause menu: load page row {i} {:?}: thumbnail {w}x{h}", stem(path));
-            let size = bevy::render::render_resource::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
-            images.add(Image::new(size, bevy::render::render_resource::TextureDimension::D2, rgba, bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, bevy::asset::RenderAssetUsages::default()))
+            // A broken save's picture is left out rather than handed to the GPU.
+            let format = bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb;
+            let mut img = nvf_assets::texture::checked_image(w, h, 1, format, rgba).map_err(|e| warn!("pause menu: load page row {i}: thumbnail: {e}")).ok()?;
+            img.asset_usage = bevy::asset::RenderAssetUsages::default();
+            Some(images.add(img))
         });
         if handle.is_none() {
             info!("pause menu: load page row {i} {:?}: no thumbnail", stem(path));
