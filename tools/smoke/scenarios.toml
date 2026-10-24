@@ -6573,6 +6573,60 @@ order = [[
 forbid = [{ re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on ', label = "the missed shot hits an actor" }]
 
 [[scenario]]
+name = "vats-mysterious-stranger"
+source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Mysterious Stranger appears in VATS mode and finishes off the mark (docs/design/vats-mode.md §18)"
+note = "vats-mode-hit-chance's setup (the Goodsprings dogs set on the player, god mode, a .357) with the perk MysteriousStranger given at 3 s; the helper forced to the Stranger for every mark his odds allow (NVF_PLAY_TEST_VATS_HELPER=stranger: a dog has at most iVATSStrangerMaxHP 150 health) and the player's own roll forced to miss, so the kill is his: his .44 (MysteriousStranger44Magnum) does 9,000. Both dogs' health is set to 100 at 3.2 s, under iVATSStrangerMaxHP (150): the first run marked Violetta, whose health is above it, and the Stranger rightly did not come. One mark, E"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "stranger", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MysteriousStranger,3.2:set_av:0x000F573F:Health:100,3.2:set_av:0x0013E5BB:Health:100", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: the Mysterious Stranger appears \(0x[0-9A-F]{8}\)', label = "his reference is placed as the mark's attack starts" },
+  { re = 'vats mode: the Mysterious Stranger comes for mark 1 \(0x[0-9A-F]{8}\), 164 units from the player', label = "the Stranger comes, 164 units away" },
+  { re = 'vats mode: shot 1 of 1 at .*missed', label = "the player's own shot misses (forced)" },
+  { re = 'vats mode: the Mysterious Stranger fires at ', label = "he fires at the mark" },
+  { re = 'combat: hit 0x(?!00000014)[0-9A-F]{8} on .*health 0/', label = "his shot kills the dog" },
+  { re = 'vats mode: the Mysterious Stranger leaves', label = "and he leaves" },
+]]
+expect = [
+  { re = 'vats mode summary: .* 1 helpers', label = "one helper came" },
+]
+
+[[scenario]]
+name = "vats-miss-fortune"
+source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Miss Fortune appears in VATS mode and her gun's object effect strikes the mark (docs/design/vats-mode.md §18)"
+note = "as vats-mysterious-stranger with the perk MissFortunePerk and the helper forced to her: her gun (WeapNVMissFortuneGun) carries VMissFortuneGunObjectEffect, whose spell's script knocks the target down, paralyses or cripples it, or blows up what it carries"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_HELPER = "fortune", NVF_PLAY_TEST_VATS_ROLL = "miss", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:MissFortunePerk", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: Miss Fortune comes for mark 1 ', label = "Miss Fortune comes" },
+  { re = 'vats mode: Miss Fortune fires at ', label = "she fires at the mark" },
+  { re = 'hit effect: VMissFortuneGunObjectEffect on ', label = "her gun's object effect lands on it" },
+  { re = 'vats mode: Miss Fortune leaves', label = "and she leaves" },
+]]
+forbid = [{ re = 'vats mode: the Mysterious Stranger comes', label = "the Stranger comes without his perk" }]
+
+[[scenario]]
+name = "vats-grim-reaper-nerves"
+source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Grim Reaper's Sprint gives 20 AP back after a VATS kill, Nerves of Steel speeds AP regeneration (docs/design/vats-mode.md §18.3, §18.4)"
+note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate)"
+areas = ["combat", "vats", "perks"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "00050F92", NVF_PLAY_TEST_GIVE = "0002937E:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(MysteriousStranger44Magnum', label = "VATS mode with the Stranger's .44" },
+  { re = 'vats mode: shot 1 of 2 at .*: hit', label = "the first mark is hit (forced)" },
+  { re = 'vats mode: [12] killed: the Player Kill AP Reward perks give 20 AP back \(20 restored\)', label = "Grim Reaper's Sprint gives 20 AP back" },
+  { re = 'vats mode: AP regenerates at 1\.20 x', label = "Nerves of Steel: the AP comes back 1.2 x as fast" },
+]]
+
+[[scenario]]
 name = "vats-mode-unmark"
 source = "owner's todo 6: right click removes the last mark; right click with no marks ends VATS mode (docs/design/vats-mode.md §2)"
 note = "a .357 in hand among the Goodsprings dogs (left to their packages, god mode). V at 10 s (after the start-up boxes); one mark, a right click takes it back, a second right click ends the mode: nothing fired, nothing spent. Aid times 10.3+ are game time at the 0.05 clock"

@@ -10,6 +10,10 @@ paused target menu, no hit chances, no kill camera). The original's VATS stays "
 started" in docs/status.md; the script functions that ask about VATS answer for this
 mode (§12).
 
+2026-10-24: **the VATS helpers and the AP perks** (§18): Mysterious Stranger and Miss
+Fortune come beside the player and shoot the mark, Friendly Help doubles their odds,
+Grim Reaper's Sprint gives AP back after a kill, Nerves of Steel speeds the AP back.
+
 2026-10-23: **hit chances** (§17, owner: "lets build hit chance into our vats … show a
 percentage hit chance against the X"): each mark shows its chance to hit beside its "x"
 and every shot is rolled on it; a miss goes wide. Built, unit-tested, not yet seen in a
@@ -442,6 +446,7 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 
 ## 13. Test aids and smoke tests
 
+- `NVF_PLAY_TEST_VATS_HELPER=stranger|fortune|none` (§18.5).
 - `NVF_PLAY_TEST_VATS_ROLL=hit` (or `miss`) makes every hit roll come out so (§17.4), for
   checks about something other than the chance; unset, the rolls are rolled.
 - `NVF_PLAY_TEST_KEYS` presses V, the left mouse button and E through the bindings
@@ -737,3 +742,98 @@ open   = distance × tan(cone × fVATSSpreadMult)
 - Smoke: `vats-mode-hit-chance` (two marks on the Goodsprings dogs show their chances and
   are rolled), `vats-mode-miss` (every roll forced to miss: the shot goes wide and the
   dog is not hit by it).
+
+## 18. VATS helpers and the AP perks (2026-10-24)
+
+Owner 2026-10-24: "Build the VATS perk batch next: Mysterious Stranger, Miss Fortune,
+Friendly Help, Grim Reaper's Sprint and Nerves of Steel" (docs/handoff/
+perk-audit-2026-10-23.md §3.1). The original runs these in its own VATS; VATS mode is
+ours (§1), so where they fit in it is [design]. What they do comes from the records.
+
+### 18.1 What the records and the wiki say
+
+- The perks' entries [observed: FalloutNV.esm PERK]: Mysterious Stranger (level 10, Luck
+  6) entry point 28 Mysterious Stranger Set 1; Miss Fortune (level 10, Luck 6) 41 Miss
+  Fortune Set 1; Friendly Help (the challenge reward) 67 VATS HelperChance Multiply 2;
+  Grim Reaper's Sprint (level 20) 35 Player Kill AP Reward Add 20; Nerves of Steel (level
+  26, Agility 7) 39 Action Point Regen Multiply 1.2. What each entry point does
+  [documented: GECK wiki Entry Point]: 28 and 41 "if non-zero, the VATS helper … may
+  appear"; 67 "modifies the chance of a VATS helper"; 35 "run when VATS finishes if the
+  player killed at least one enemy; modifies the AP reward from 0".
+- The settings [observed: FalloutNV.esm GMST; documented: GECK wiki VATS Settings]:
+  `fVATSStrangerOdds` 0.1, `fVATSFortuneOdds` 0.1, `iVATSStrangerMaxHP` 150 ("the maximum
+  health of an NPC that the stranger … will act upon"; the wiki's condition: "attacking
+  in VATS, enemy not dead, but less than 150 hitpoints"), `fVATSStrangerDistance` 164.
+- The helpers [observed: FalloutNV.esm]: the NPC_ `Stranger` ("Mysterious Stranger",
+  essential, MysteriousStrangerFaction) carries `MysteriousStranger44Magnum`, a .44 of
+  9,000 damage; `MissFortune` (the same faction) carries `WeapNVMissFortuneGun`, 10
+  damage, whose object effect `VMissFortuneGunObjectEffect` casts `MissFortuneGunSpell`,
+  whose script (NVMissFortuneGunSpellScript) rolls GetRandomPercent and knocks the target
+  down (MissFortuneKnockdownSpell: PushActorAway), sets off an explosion where it carries
+  grenades or a flamer, ruins its weapon arm and weapon, or paralyses it. The music
+  `MUSMysteriousStrangerA01`, `A02`. The challenge "He Moves in Mysterious Ways"
+  (NVChallengeMysterious) counts misc statistic 25, Mysterious Stranger Visits, to 15; its
+  script adds Friendly Help.
+- Not used here: the camera path `MysteriousStrangerCameras` and its 13 shots (the
+  original's kill camera; VATS mode has none, §14).
+
+### 18.2 The helpers in VATS mode [design]
+
+- **When**: as each mark's attack starts (its AP spent: a shot's first round, a burst's,
+  a throw, a swing), if no helper is in the world already. One roll a mark
+  (`fnv_game::vats::pick_helper`): the Stranger on the first `odds.stranger` of the line,
+  Miss Fortune on the next `odds.fortune`, none after.
+- **Odds** (`Game::vats_helper_odds`): with Mysterious Stranger `fVATSStrangerOdds` when
+  the mark's actor lives with at most `iVATSStrangerMaxHP` health; with Miss Fortune
+  `fVATSFortuneOdds` when it lives [hypothesis: no limit is given for her]; each times the
+  VATS HelperChance entries (Friendly Help: × 2). The player's own roll (§17.4) is not
+  looked at: the helper may come for a mark the player hits, as the wiki's condition is
+  about the target, not the shot.
+- **Where**: `fVATSStrangerDistance` (164) units from the player's feet across the line to
+  the mark, on its right, else its left, else behind the player: the first spot from whose
+  eye (110 units up) nothing but the mark's actor stands in the way (`helper_spot`). All
+  blocked: no helper. The helper is a new reference of their NPC_ in the player's cell,
+  turned to the mark (`Game::summon_vats_helper`, made as PlaceAtMe makes them). The
+  Stranger's music plays as he comes (A01 or A02).
+- **The shot**: `HELPER_DRAW` (0.3 game s) after appearing, one shot of their weapon from
+  their eye straight at the mark's point (an `ActorFire`, no spread), through combat's own
+  path: its sounds, projectile, hit, damage and the weapon's object effect, all the
+  records'. The Stranger's 9,000 kills; Miss Fortune's 10 and her object effect do what
+  its script rolls. They are the shooter, so the kill is not the player's (no XP, no
+  Grim Reaper's Sprint) [design].
+- **Leaving**: `HELPER_STAY` (1.2 game s) after appearing they fade out (Disable 1) and
+  are deleted (MarkForDelete) (`Game::dismiss_vats_helper`), whether the mode is still on
+  or not.
+- **Counting**: each Stranger visit adds 1 to Mysterious Stranger Visits, so 15 visits
+  complete "He Moves in Mysterious Ways" and give Friendly Help through its script. Miss
+  Fortune's visits are not counted [observed: the statistic and the challenge name only
+  the Stranger; the fandom wiki's Friendly Help says "15 Mysterious Stranger or Miss
+  Fortune visits", which the records do not bear out].
+- Not built: the helpers' own attack clips (the body stands while the shot leaves), the
+  original's kill camera, a helper's line.
+
+### 18.3 Grim Reaper's Sprint [design where the wiki is silent]
+
+When the mode ends after firing, if the player's kills (People Killed + Creatures
+Killed) rose since E, the Player Kill AP Reward entries give that much AP back (from 0;
+Grim Reaper's Sprint + 20), no more than was spent. Kills by a helper are theirs, not the
+player's. Log `vats mode: <n> killed: the Player Kill AP Reward perks give <r> AP back
+(<b> restored)`.
+
+### 18.4 Nerves of Steel
+
+The AP's regeneration outside the mode (§7.2) is `fActionPointsRestoreRate` × the maximum
+× the Action Point Regen entries (Nerves of Steel × 1.2; Atomic! × 1.1 … 1.5 by its rads;
+Ain't Like That Now × 1.25, their own conditions deciding). Log `vats mode: AP
+regenerates at <m> x (the Action Point Regen perks)` when the factor changes.
+
+### 18.5 Test aids, logs and checks
+
+- `NVF_PLAY_TEST_VATS_HELPER=stranger|fortune|none`: that helper comes for every mark
+  whose odds for them are above 0 (the player still needs the perk), or none.
+- Logs: `vats mode: <helper> comes for mark <k> (<ref>), <d> units from the player (<o>%
+  odds, rolled <r>)`, `vats mode: <helper> appears (<ref>)`, `… fires at <ref> from <d>
+  units`, `… leaves`; the summary's `<h> helpers, <a> AP rewarded`.
+- Unit: `fnv-game` `vats` `one_helper_a_roll_the_stranger_first`, `perk_combat`
+  `vats_helpers_and_ap_perks`. Smoke: `vats-mysterious-stranger`, `vats-miss-fortune`,
+  `vats-grim-reaper-nerves`.
