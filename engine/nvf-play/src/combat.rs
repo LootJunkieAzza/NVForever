@@ -892,6 +892,8 @@ pub struct Combat {
     flinch_rng: SplitMix,
     /// The recoil's rolls, its own so other rolls keep their order.
     kick_rng: SplitMix,
+    /// The bloom has just shrunk away; logged with the crosshair cone.
+    kick_just_settled: bool,
     /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
     /// leave the shots' rolls as they were.
     spent_rng: SplitMix,
@@ -1450,6 +1452,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flinch_end: None,
         flinch_rng: SplitMix(3),
         kick_rng: SplitMix(5),
+        kick_just_settled: false,
         spent_rng: SplitMix(4),
     });
 }
@@ -1957,12 +1960,8 @@ pub(crate) fn fire(
     // 2026-10-24).
     let was_settled = c.kick.settled();
     c.kick.recover(&c.tuning, dt);
-    if !was_settled && c.kick.settled() {
-        info!(
-            "combat: kick settled {:.2} s after the last shot; the burst climbed the view {:.2} deg up, {:.2} deg sideways",
-            c.kick.since_shot, c.kick.climb_deg, c.kick.climb_yaw_deg
-        );
-    }
+    // Logged with this frame's crosshair cone, below.
+    c.kick_just_settled |= !was_settled && c.kick.settled();
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
     c.crosshair_cone = None;
@@ -2045,6 +2044,12 @@ pub(crate) fn fire(
         let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
+        if std::mem::take(&mut c.kick_just_settled) {
+            info!(
+                "combat: kick settled {:.2} s after the last shot, crosshair cone {cone:.2} deg; the burst climbed the view {:.2} deg up, {:.2} deg sideways",
+                c.kick.since_shot, c.kick.climb_deg, c.kick.climb_yaw_deg
+            );
+        }
         c.player_spread = Some(if c.no_spread { 0.0 } else { actor_spread.max(0.0) });
         // VATS mode's hit chance: as aimed, no bloom (vats-mode.md §17.2).
         let aimed = Stance { aiming: true, ..stance.clone() };
@@ -2233,17 +2238,18 @@ pub(crate) fn fire(
                     if leaving.covered { "; cover in front of the barrel: it leaves the muzzle" } else { "" }
                 );
                 // VATS mode's shots kick nothing and grow no bloom [design, vats-mode.md §11.1],
-                // nor do the NO_SPREAD test aid's, so each lands where it was aimed.
-                if vats_shot.is_none() && !c.no_spread {
+                // nor do the NO_SPREAD test aid's, so each lands where it was aimed, nor a
+                // throw (a grenade has no recoil).
+                if vats_shot.is_none() && !c.no_spread && !c.self_ammo {
                     let rng = &mut c.kick_rng;
                     let kick = c.kick.shot(&c.tuning, &w, cycle.timing.interval, &mut || rng.next_f32());
                     player.pitch = (player.pitch + kick.pitch_deg.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
                     player.heading += kick.yaw_deg.to_radians();
                     info!(
-                        "combat: kick: shot {} in a row, bloom {:.2} ({:.2} deg wider), view up {:.2} deg, sideways {:.2} deg",
+                        "combat: kick: shot {} in a row, bloom {:.2}, crosshair cone now {:.2} deg, view up {:.2} deg, sideways {:.2} deg",
                         c.kick.burst,
                         c.kick.bloom,
-                        spread::deviation_deg(c.kick.bloom, 0.0),
+                        spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects),
                         kick.pitch_deg,
                         kick.yaw_deg
                     );

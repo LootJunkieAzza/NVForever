@@ -132,8 +132,8 @@ each the identity by default. Reading PERK records is a later step.
     side for a few shots and swaps with `recoil_lean_flip` per shot, so each burst
     climbs in a different pattern. Nothing brings the view back: pulling it down is the
     player's (owner, 2026-10-24; a 70 % automatic return was tried first).
-  - VATS mode's shots and the `NVF_PLAY_TEST_NO_SPREAD` test aid's kick nothing and
-    grow no bloom. The recoil's rolls have their own random stream.
+  - VATS mode's shots, throws and the `NVF_PLAY_TEST_NO_SPREAD` test aid's shots kick
+    nothing and grow no bloom. The recoil's rolls have their own random stream.
 
 ## 4. Attack cycle (`attack.rs`)
 

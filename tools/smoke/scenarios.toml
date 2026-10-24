@@ -5317,7 +5317,8 @@ expect = [
   { re = 'combat: kick: shot 1 in a row, bloom (?P<n>[0-9.]+)', range = [0.05, 0.3], label = "one shot blooms a little" },
   { re = 'combat: kick: shot [6-8] in a row, bloom (?P<n>[0-9.]+)', range = [0.6, 1.0], label = "a run of shots builds the bloom" },
   { re = 'combat: kick: .*view up (?P<n>[0-9.]+) deg', range = [0.5, 3.0], all = true, label = "every shot kicks the view up" },
-  { re = 'reticle: plain spread [0-9.]+ \(cone (?P<n>[0-9.]+) deg\)', range = [5.0, 30.0], label = "the arrows open wide during the run" },
+  { re = 'combat: kick: shot [6-8] in a row, .*crosshair cone now (?P<n>[0-9.]+) deg', range = [6.0, 30.0], label = "the crosshair cone opens wide during the run" },
+  { re = 'combat: kick settled .*crosshair cone (?P<n>[0-9.]+) deg', range = [0.5, 3.5], label = "the cone is back to its resting size" },
   { re = 'combat: kick settled (?P<n>[0-9.]+) s after the last shot', range = [0.35, 2.0], label = "the weapon settles within two seconds of the last shot" },
   { re = 'combat: kick settled .*climbed the view (?P<n>[0-9.]+) deg up', range = [6.0, 20.0], label = "the climb is left for the player (not eased back)" },
 ]
@@ -5325,7 +5326,6 @@ order = [[
   { re = 'combat: kick: shot 1 in a row' },
   { re = 'combat: kick: shot [6-8] in a row' },
   { re = 'combat: kick settled' },
-  { re = 'reticle: plain spread [0-9.]+ \(cone [0-3]\.\d+ deg\)' },
 ]]
 
 [[scenario]]
