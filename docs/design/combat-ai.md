@@ -51,6 +51,9 @@ nvforever `npc_combat`, for every drawn living actor in Combat with a target:
   skeleton) draw and fight with the weapon they carry where their skeleton folder has its
   stance (`2hm`, `2hr`, `2ha`, `2hh`, `2hl`; no `1hm` or `1hp` there) (playtest list 7
   item 39, `outfits::arm_creatures`, §18);
+- a creature's body weapons ("Embedded Weapon": Mister Handy's buzzsaw and flamer,
+  Mister Gutsy's plasma gun and flamer, robots' lasers, a fire gecko's flame), the one
+  its target's distance calls for (`body_weapons.rs`, §19);
 - no weapon: a creature attacks with its own damage (CREA DATA Damage) and reach (RNAM
   Attack Reach) [documented: xEdit field names], from the template that supplies its
   stats [hypothesis for the reach]; an NPC fights with its fists (WEAP `Fists`).
@@ -1611,3 +1614,65 @@ run; resolved in 43 s, 4 NCR and 2 Fiends dead]:
 | First shots | troopers opened fire at 1,730–2,030 units, Fiends at 1,410–1,880 (item 40: before, the shotgun Fiend would have run to 600) | — |
 | Cover | 1 cover taken in the battle (the styles' Take Cover Chance, rolled every 10 s) | — |
 | Staggers | 11 staggers held a fighter's attacks | — |
+
+## 19. Creatures' body weapons (owner request 2026-10-24)
+
+Owner: Mister Handy and Mister Gutsy "werent attacking with the saw, they also need to be
+able to switch to flamer/plasma weapon too for their ai". Creatures carry their built-in
+weapons as WEAP records flagged "Embedded Weapon" ("Checked if the weapon is a built in
+part of the creature" [documented: GECK wiki Weapons]); nothing used them: §3's creature
+without a drawable weapon fought with its CREA damage and its folder's `h2hattack…` clips,
+and the Mister Handy/Gutsy folder (`creatures\mistergutsy`) has none, so they dealt
+damage with no clip at all. The same held for every robot, turret and securitron and for
+fire geckos', fire ants', centaurs' and lakelurks' ranged attacks (`fnvtool actor
+creature-weapons`: 560 embedded rows, actors.md §10.6).
+
+**The records** [observed: FalloutNV.esm, 2026-10-24]:
+
+| Creature | Weapon | Stance | Range (Min–Max) | Node (NNAM) | Limb (Actor Value) |
+|---|---|---|---|---|---|
+| CrMisterHandy, CrMisterHandyNV | MisterHandyBuzzsaw (20 damage, reach 0.65) | `1hm` | melee | `Weapon` | Right Attack |
+| | MisterHandyFlamer2HL (2 × 8/s) | `2hl`, AttackSpin | 128–600 | `ProjectileNode_HeadLaser` | Left Attack |
+| CrMisterGutsy | MisterGutsyPlasma1HP (60 × 2.5/s) | `1hp`, AttackRight | 512–1024 | `ProjectileNode_HeadLaser01` | Right Attack |
+| | MisterGutsyFlamer2HL (6 × 8/s) | `2hl`, AttackSpin | 128–600 | `ProjectileNode_HeadLaser` | Left Attack |
+
+Their clips are in `creatures\mistergutsy\specialanims\` (`1hmaim.kf`,
+`1hmattackleft_chop.kf`, `1hmattackright_chop.kf`, `…_stab`, `…_uppercut`; `1hpaim.kf`,
+`1hpattackright.kf`; `2hlaim.kf`, `2hlattackspin.kf` with up and down forms; equip,
+holster and unequip of each), as their CREA KFFZ lists name them; the skeleton has the
+`Weapon`, `ProjectileNode_HeadLaser` and `ProjectileNode_HeadLaser01` nodes. Only the
+bloatfly and protectron folders also keep stance clips there.
+
+**What is built** (`engine/nvforever/src/body_weapons.rs`; the choice
+`fnv_combat::body_weapon`):
+
+- A creature without a drawable weapon gets as its arms each embedded weapon it carries
+  whose stance its skeleton has (root or `specialanims`), and its own attack where its
+  folder has `h2hattack…` clips (a fire gecko bites and breathes fire).
+- The arm in use is drawn as a weapon without a model (its stance's draw cycle and aim);
+  `npc_combat` fights with it as with any weapon: a gun shoots its projectile from the
+  WEAP NNAM node, a melee weapon strikes with its damage and reach, its clips are the
+  stance's attack clips (people's names first, else the stance's `<prefix>attack…` clips
+  in its folder in turn: the buzzsaw's chop, stab and uppercut).
+- **Switching by distance** [design: the original's rule is not documented; built on the
+  wiki's Min Range "they don't need to be closer than this value" and Max Range "they
+  don't want to be any further away than this value"]: melee within 192 units; a gun
+  within its Min–Max Range; the arm in use kept within its band widened by 15 %; if no
+  gun suits, the one that reaches furthest (beyond all) or the melee arm, else the gun
+  with the smallest Min Range (nearer than all); among guns that suit, the most damage
+  per second; at most one switch every 1.5 s, the new arm's equip clip played before it
+  attacks. Mister Handy: saw within 192, flamer beyond. Mister Gutsy: flamer within 512,
+  plasma gun beyond 600, and between the two the one in use.
+- An arm whose limb condition (the WEAP Embedded Weapon Actor Value) is 0 is left out
+  [hypothesis: "the condition value affected when the weapon is targeted", GECK wiki
+  Weapons]: crippling Mister Handy's left arm leaves it its saw.
+- Body weapons do not wear or break, do not reload (no magazine) and do not slow their
+  creature as two-handed weapons in hand do [design].
+
+**Not built**: VATS targeting of a body weapon; the original's own switching rule (a
+capture of a Mister Gutsy at several distances would settle it); the protectron's and
+other robots' clips and nodes were not looked at one by one (they take the same path:
+whatever stances their folders have).
+
+**Checks**: unit tests (`fnv_combat::body_weapon`, `fnv_actor::anims`,
+`attack_anims::body_attack_names`); smoke `body-weapons-handy-gutsy`.

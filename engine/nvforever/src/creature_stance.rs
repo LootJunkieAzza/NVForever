@@ -68,6 +68,12 @@ pub struct CreatureStance {
 }
 
 impl CreatureStance {
+    /// The stance `clips`, at rest, to be drawn when `drawn` (a creature taking up its
+    /// own attack again after a body weapon, `body_weapons.rs`).
+    pub fn new(clips: Arc<CreatureClips>, drawn: bool) -> CreatureStance {
+        CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered }
+    }
+
     /// Advance the draw cycle by `dt`.
     pub fn step(&mut self, dt: f32) {
         self.anim.step(self.drawn, dt, &self.clips.facts);
@@ -90,7 +96,7 @@ struct Stances(HashMap<String, Option<Arc<CreatureClips>>>);
 
 /// On a creature looked at that has no stance.
 #[derive(Component)]
-struct NoStance;
+pub struct NoStance;
 
 /// The folder of a skeleton path (`creatures\deathclaw\skeleton.nif` → `meshes\creatures\deathclaw`).
 fn folder_of(skeleton: &str) -> String {
