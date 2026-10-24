@@ -743,6 +743,50 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
     assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
 }
 
+/// A follower keeps step with a target that walks on, rather than catching up, stopping
+/// and setting off again every few steps, or swapping between its walk and its run (owner's
+/// playtest of 2026-10-24: the Novac pack brahmin after its merchant).
+#[test]
+fn a_follower_keeps_step_with_a_walking_target() {
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.5, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: nav() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    // Both in the large cell C, the companion 200 units behind the player.
+    for (r, x) in [(player, 10100.0), (mate, 10100.0)] {
+        let y = if r == player { 10250.0 } else { 10050.0 };
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [x, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    // The companion's own walk is slower than the player's 100 units/s.
+    let own = fnv_ai::Speeds { walk: 70.0, run: 300.0 };
+    s.ai.set_speeds(mate, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    s.run(1.0);
+    let (mut speeds, mut gaps) = (Vec::new(), Vec::new());
+    // The player walks on in a straight line at 100 units/s for 7 seconds.
+    for _ in 0..14 {
+        s.game.world.get(player).unwrap().pos[1] += 50.0;
+        s.run(0.5);
+        if s.ai.agents[&mate].activity == Activity::Travelling {
+            speeds.push(s.ai.agents[&mate].walker.speed);
+        }
+        gaps.push(dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos));
+    }
+    let ev = s.events(R_COMPANION);
+    let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
+    // It sets off once and keeps going: no stop and start, never its run.
+    assert_eq!(follows, 1, "{ev:?}");
+    assert!(speeds.len() >= 8, "{speeds:?}");
+    assert!(speeds.iter().all(|v| *v < 200.0), "{speeds:?}");
+    // In step: at the player's pace, not its own slower walk, and the gap stays near its
+    // distance (256) rather than growing.
+    let last = *speeds.last().unwrap();
+    assert!((95.0..=140.0).contains(&last), "it goes at {last}: {speeds:?}");
+    assert!(gaps.iter().all(|g| *g < 256.0 + 64.0 + 80.0), "{gaps:?}");
+}
+
 /// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,
 /// "Changing cells will teleport the teammate to the player"; docs/design/followers.md), and
 /// so is an actor following the player on a Follow package (owner decision 2026-10-23).

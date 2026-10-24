@@ -283,6 +283,18 @@ pub enum Talking {
     Done,
 }
 
+/// The speed of a follower on its way after a target going at `target_pace`, `away`
+/// from it, that is to keep within `keep`: the target's pace plus the gap beyond `keep`
+/// closed in [`FOLLOW_CLOSE_SECONDS`], between [`FOLLOW_SLOWEST`] of `walk` and `run`.
+/// It changes smoothly with the gap, so the walk clip is played faster or slower and the
+/// run clip comes only when catching up calls for it (the gait's own switch point,
+/// `locomotion.rs`), rather than the actor swapping between its walk and its run at
+/// every plan or stopping and setting off again every few steps.
+pub fn follow_speed(target_pace: f32, away: f32, keep: f32, walk: f32, run: f32) -> f32 {
+    let slowest = walk * FOLLOW_SLOWEST;
+    (target_pace + (away - keep).max(0.0) / FOLLOW_CLOSE_SECONDS).clamp(slowest, run.max(slowest))
+}
+
 /// Whether `actor` is saying its greeting at the player outside a conversation
 /// (`Speech::greeting`).
 fn greets(game: &Game, actor: FormId) -> bool {
@@ -294,6 +306,14 @@ fn greets(game: &Game, actor: FormId) -> bool {
 pub const FOLLOW_SLACK: f32 = 64.0;
 /// A follower whose target is farther than this runs, game units [our choice].
 pub const FOLLOW_RUN_FROM: f32 = 512.0;
+/// A follower on its way after a moving target goes at the target's own pace plus the
+/// gap beyond its distance over this many seconds, between [`FOLLOW_SLOWEST`] of its
+/// walk and its run [our choice; owner's playtest 2026-10-24: the Novac pack brahmin
+/// swapped between running and walking all the way after its merchant, where it should
+/// run only to catch up and then keep step].
+pub const FOLLOW_CLOSE_SECONDS: f32 = 3.0;
+/// The slowest a follower keeps step with its target, a share of its walk [our choice].
+pub const FOLLOW_SLOWEST: f32 = 0.5;
 
 /// A target that has moved this far from where the way to it was planned to is planned
 /// for again, and not more often than every [`REPLAN_SECONDS`] [our choice].
@@ -1133,7 +1153,8 @@ impl Ai {
     /// (in another space: through the doors between), and the way is planned again when
     /// the target has moved [`REPLAN_DISTANCE`] since, at most every
     /// [`REPLAN_SECONDS`]; it stops once within the distance. It runs when the package
-    /// says Always Run or the target is more than [`FOLLOW_RUN_FROM`] away, else walks
+    /// says Always Run or the target is more than [`FOLLOW_RUN_FROM`] away, else walks;
+    /// on its way after a target that moves it keeps step with it ([`follow_speed`])
     /// [our choice]. A target that is gone or dead is not followed: the actor stands.
     /// Without a way to the target the package is set aside like any other that cannot
     /// be reached.
@@ -1162,21 +1183,28 @@ impl Ai {
             let Some((to, replan)) = self.agents[&actor].following else { return };
             let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
             if moved && game.time >= replan {
-                self.follow_plan(game, nav, actor, package, f, target, away, false);
+                // The target's pace since the way was last planned.
+                let since = (game.time - (replan - REPLAN_SECONDS)) as f32;
+                let target_pace = (to.space == target.space && since > 0.0).then(|| hdist(to.pos, target.pos) / since);
+                self.follow_plan(game, nav, actor, package, f, target, away, target_pace, false);
             }
             return;
         }
         if self.agents[&actor].activity == Activity::There && away > keep + FOLLOW_SLACK {
-            self.follow_plan(game, nav, actor, package, f, target, away, true);
+            self.follow_plan(game, nav, actor, package, f, target, away, None, true);
         }
     }
 
-    /// Plan the way after the one `actor` follows.
+    /// Plan the way after the one `actor` follows; `target_pace` is how fast the target
+    /// has gone since the last plan, when known.
     #[allow(clippy::too_many_arguments)]
-    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, first: bool) {
+    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, target_pace: Option<f32>, first: bool) {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || away > FOLLOW_RUN_FROM;
         let params = self.path_params(game, actor);
-        let speed = self.pace(game, actor, running);
+        let speed = match target_pace {
+            Some(v) if !running => follow_speed(v, away, f.distance.max(self.cfg.arrive), self.pace(game, actor, false), self.pace(game, actor, true)),
+            _ => self.pace(game, actor, running),
+        };
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.speed = speed;
         match a.walker.go_to(nav, target, &params) {
@@ -1945,4 +1973,30 @@ fn nearest_point(route: &Route, feet: Place) -> usize {
             ka.0.cmp(&kb.0).then(ka.1.total_cmp(&kb.1))
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In step: at its distance a follower goes at its target's pace, a little faster
+    /// the farther behind, and its run only when well behind.
+    #[test]
+    fn a_follower_keeps_step_and_runs_only_to_catch_up() {
+        let (walk, run, keep) = (60.0, 200.0, 192.0);
+        assert_eq!(follow_speed(80.0, keep, keep, walk, run), 80.0);
+        assert_eq!(follow_speed(80.0, keep + 30.0, keep, walk, run), 90.0);
+        assert_eq!(follow_speed(80.0, 700.0, keep, walk, run), run);
+        // Nearer than its distance it does not slow below the target's pace.
+        assert_eq!(follow_speed(80.0, 50.0, keep, walk, run), 80.0);
+        // A target slower than half its walk: it keeps to half its walk.
+        assert_eq!(follow_speed(10.0, keep, keep, walk, run), 30.0);
+        // The speed changes smoothly with the gap: no jump between walk and run.
+        let mut last = follow_speed(80.0, keep, keep, walk, run);
+        for gap in (0..400).map(|g| keep + g as f32) {
+            let v = follow_speed(80.0, gap, keep, walk, run);
+            assert!(v >= last && v - last <= 0.34, "{gap}: {last} to {v}");
+            last = v;
+        }
+    }
 }

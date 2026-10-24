@@ -158,7 +158,13 @@ while its target is within the distance plus 64 units [our choice]; farther, it 
 after the target (through the doors between, if the target is in another cell), walking,
 or running when the package says Always Run or the target is more than 512 units away
 [our choice]; the way is planned again when the target has moved 64 units, at most twice
-a second, and the actor stops once within the distance. A target that is gone or dead
+a second, and the actor stops once within the distance. On its way after a target that
+moves it keeps step (`carry::follow_speed`): the target's own pace since the last plan
+plus the gap beyond the distance closed in 3 seconds, between half its walk and its run,
+so the walk clip plays faster or slower and the run clip comes only when it is well
+behind [our choice; owner's playtest 2026-10-24: the Novac pack brahmin swapped between
+running and walking all the way after its merchant, and an actor slower than its target
+fell behind until it ran, caught up and walked again]. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The
