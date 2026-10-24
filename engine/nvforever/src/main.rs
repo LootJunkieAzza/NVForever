@@ -308,7 +308,7 @@ struct Args {
     grass_density: f32,
     /// Factors on the ambient light and on the sun's light for grass, "ambient,sun"
     /// (docs/spec-notes/grass.md §5).
-    #[arg(long, default_value = "1.67,0.55")]
+    #[arg(long, default_value = "1.3,0.25")]
     grass_light: String,
     /// Edge of the squares that each get one candidate plant per grass type, in game units
     /// (the game's iMinGrassSize; larger: sparser grass).
