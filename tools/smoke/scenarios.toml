@@ -2337,6 +2337,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "trigger-seconds-passed"
+source = "B-29 spot check 2026-10-24: GetSecondsPassed in an OnTrigger block counts from the previous frame's OnTrigger run when the script has no GameMode (Game::trigger_frame); VMS15's detonator spot (SCPT 0x0014F50D) beeps when its timer is 0 and resets it after 0.5 s, and beeped every frame before"
+note = "Lake Mead: VMS15 started and objective 45 shown at 1-2 s; at 5 s the player is moved onto the Ballast Detonator (one SCRIPT list, so after the objective) (0x0010063C), inside the spot's trigger box: OnTriggerEnter shows 'Loyal's detonator begins to beep.', then OnTrigger plays WPNMineTick (0x00040D4F) about twice a second for the rest of the run (about 15 s: some 30 beeps; every frame was some 1,000)"
+areas = ["scripts"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "1:start:VMS15,2:objective:VMS15:45,5:moveto:player:0x0010063C" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { text = "on screen: Loyal's detonator begins to beep.", label = "the player is in the detonator spot with objective 45 shown" },
+  { text = "world sounds: a script plays 0x00040D4F", min = 10, max = 60, label = "the beep comes about twice a second, not every frame" },
+]
+
+[[scenario]]
 name = "traps-tripwire"
 source = "queue item 25 (traps): a tripwire's default activation sets off its activate child (XAPR), the rigged shotgun, which fires; a disarmed tripwire sets nothing off (docs/spec-notes/traps.md)"
 note = "Nipton, the paranoid man's house: two tripwires (0x00139522, 0x00139521) each guard a rigged shotgun (0x0013951E, 0x00139520). trapplateskillreq set to 0; at 17 s (after the start-up message boxes of the add-ons: at 13 s the button answered an add-on's box, so the wire stayed armed, 2026-10-23) the player activates 0x00139521 and disarms it; at 21 s the player is put on 0x00139522: its OnTriggerEnter plays Forward and activates itself, which sets off 0x0013951E with the tripwire as action reference, and the shotgun's OnActivate fires its weapon; at 25 s the player is put on the disarmed 0x00139521, whose shotgun stays quiet. God mode keeps the player standing"

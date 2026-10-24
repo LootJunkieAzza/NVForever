@@ -2160,6 +2160,23 @@ impl<'a> Game<'a> {
         inst.run_last = Some(now);
     }
 
+    /// A trigger is about to run its OnTrigger block for the actors inside it this frame:
+    /// call once per frame, before those runs. OnTrigger runs every frame an actor is
+    /// inside, so for a script without a GameMode block it is the per-frame run that
+    /// GetSecondsPassed counts from [documented: GECK wiki GetSecondsPassed, the time
+    /// since the script last ran; hypothesis: an OnTrigger run counts as one]. Without
+    /// this, GetSecondsPassed read 0 there: VMS15's detonator spot (FalloutNV SCPT
+    /// 0x0014F50D) adds it to a timer and beeps when the timer is 0, resetting it after
+    /// 0.5 s, and beeped every frame. A script with a GameMode block is marked by its
+    /// GameMode run already.
+    pub fn trigger_frame(&mut self, trigger: FormId) {
+        let Some(script) = self.ref_script(trigger) else { return };
+        let per_frame = self.data.script(script).is_some_and(|u| u.has_block(event::ON_TRIGGER) && !u.has_block(event::GAME_MODE));
+        if per_frame && !self.paused() {
+            self.mark_run(InstKey::Ref { reference: trigger }, Some(script));
+        }
+    }
+
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
     /// order. Only the player's inventory runs per-frame item scripts here [observed: a
     /// jar of pistol powder's GameMode ran in the player's inventory by the frame after
