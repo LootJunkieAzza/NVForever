@@ -1992,12 +1992,12 @@ expect = [
 [[scenario]]
 name = "thrown-knife-lands"
 source = "ESM audit 2026-10-24 gaps 5 and 13 (docs/spec-notes/combat-rules.md §11b, weapon-data-fields.md §7): a throwing knife (WeapNVThrowingKnife 00161246; PROJ Can Be Picked Up) thrown at the ground lands as a loose knife; the body holds it with its Hand Grip clip (HandGrip1, 1gthandgrip1.kf)"
-note = "the grenade-explosion spot by the Prospector Saloon, looking down"
+note = "the thrown-dynamite setup (controls from 14 s, once the player can act), looking down"
 areas = ["combat"]
 paths = ["engine/nvf-play/src/thrown.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/data.rs", "engine/nvforever/src/player_body.rs"]
-env = { NVF_PLAY_TEST_EQUIP = "00161246", NVF_PLAY_TEST_GIVE = "00161246:4", NVF_PLAY_TEST_LOOK = "2:46:-45", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,6.2:fire" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
-run_seconds = 14
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "00161246", NVF_PLAY_TEST_GIVE = "00161246:4", NVF_PLAY_TEST_LOOK = "15:0:-45", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,17.2:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 26
 expect = [
   { re = 'thrown: WeapNVThrowingKnife \(\S+\) thrown by \S+ landed at \(', label = "the knife lands to be picked up" },
   { re = 'thrown summary: (?P<n>\d+) thrown weapons landed', range = [1, 4], label = "landed knives in the summary" },
@@ -2009,9 +2009,9 @@ name = "power-attack-override"
 source = "ESM audit 2026-10-24 gap 12 (docs/spec-notes/weapon-data-fields.md §7): the Machete Gladius (0015430B, DNAM Power Attack Animation Override AttackCustom3Power): a standing power attack plays 1hmattackcustom3power.kf"
 areas = ["combat", "melee"]
 paths = ["crates/fnv-combat/src/melee.rs", "crates/fnv-actor/src/player_clips.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/attack_anims.rs"]
-env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_EQUIP = "0015430B", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,7.6:fire" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
-run_seconds = 12
+env = { RUST_LOG = "info,nvforever::player_body=debug", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0015430B", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire,18.5:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 24
 expect = [
   { re = 'combat: WeapNVMacheteGladius swing attackcustom3power', label = "the standing power attack is the override" },
   { re = 'player Third rig: Attack\(Stand, "1hm", "attackcustom3power", false\) plays \S+1hmattackcustom3power\.kf', label = "the body plays the override's clip" },
@@ -2023,21 +2023,21 @@ source = "ESM audit 2026-10-24 gap 29 (docs/spec-notes/weapon-data-fields.md §7
 note = "the power-armor-training console lines: training first, then the armour (00014E13), then the minigun"
 areas = ["actors", "combat"]
 paths = ["crates/fnv-actor/src/resolve.rs", "crates/fnv-actor/src/records.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/outfits.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "4:setpccanusepowerarmor 1;4.3:player.additem 00014E13 1;4.6:player.equipitem 00014E13;6:player.additem 0000433F 1;6.3:player.equipitem 0000433F;6.6:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:setpccanusepowerarmor 1;14.3:player.additem 00014E13 1;14.6:player.equipitem 00014E13;16:player.additem 0000433F 1;16.3:player.equipitem 0000433F;16.6:close" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
-run_seconds = 14
+run_seconds = 24
 expect = [
-  { re = 'player body: .*wearing \[[^\]]*00014E13[^\]]*\] with the addons \[[^\]]*PowerArmorBackPack', label = "the power armour wears its backpack" },
-  { re = 'player body: .*wearing \[[^\]]*00014E13[^\]]*0000433F[^\]]*\] with the addons \[(?:(?!PowerArmorBackPack)[^\]])*\]', label = "with the minigun the backpack is not drawn" },
+  { re = 'player body: .*wearing \[[^\]]*0x00014E13[^\]]*\] with the addons \[[^\]]*PowerArmorBackPack', label = "the power armour wears its backpack" },
+  { re = 'player body: .*wearing \[[^\]]*0x00014E13[^\]]*0x0000433F[^\]]*\] with the addons \[(?:(?!PowerArmorBackPack)[^\]])*\]', label = "with the minigun the backpack is not drawn" },
 ]
 
 [[scenario]]
 name = "creature-embedded-muzzle"
 source = "ESM audit 2026-10-24 gap 14 (nvforever npc_combat.rs, weapon-data-fields.md §7): a creature's embedded weapon shoots from the node its WEAP NNAM names (a sentry bot's ProjectileNode_RGatling)"
-note = "a sentry bot (CrSentryBotMGHard 0x000E585E) placed at the player in Goodsprings at 3 s; god mode; it fights the player (the placeatme-fights setup)"
+note = "a sentry bot (CrSentryBotMGHard 0x000E585E) placed at the player in Goodsprings at 3 s (the first created reference, 0xFF000000), put 600 units away and set on the player; god mode"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "crates/fnv-combat/src/data.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrSentryBotMGHard:1" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CrSentryBotMGHard:1,5:moveto:0xFF000000:player:0:600:0,6:combat:0xFF000000:player" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 30
 expect = [

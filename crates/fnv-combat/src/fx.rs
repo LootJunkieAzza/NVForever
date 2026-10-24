@@ -41,10 +41,12 @@ pub struct Sound {
     /// percentage at its inner radius. The bottommost ... at its outer radius"
     /// [documented: GECK wiki Sound, Attenuation tab]); `None` when the record has none
     /// (an `SNDX`, or a sound built by hand), which plays the default curve
-    /// ([`DEFAULT_ATTENUATION_CURVE`]).
+    /// ([`DEFAULT_ATTENUATION_CURVE`]). Not part of any report.
+    #[serde(skip)]
     pub attenuation_curve: Option<[f32; 5]>,
     /// `SNDD` "Reverb Attenuation Control", percent: 100 sends nothing into the reverb, 0
-    /// all of it [documented: GECK wiki Sound].
+    /// all of it [documented: GECK wiki Sound]. Not part of any report.
+    #[serde(skip)]
     pub reverb_attenuation_percent: f32,
 }
 
