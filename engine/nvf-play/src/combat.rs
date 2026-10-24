@@ -1714,16 +1714,16 @@ impl CombatWorld for PhysView<'_> {
 /// struck, as "the player can" be damaged [documented: same notes; hypothesis: that its
 /// body still stops projectiles]. Creatures whose base is flagged Is Ghost count as
 /// ghosts too (docs/spec-notes/actor-flags.md §3).
-fn ghosts(script: Option<&ScriptState>, phys: &PhysState) -> Vec<ActorId> {
-    let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
+fn ghosts(script: Option<&ScriptState>, phys: &PhysState, sim: Option<&SimState>) -> Vec<ActorId> {
+    let (Some(rt), Some(sim)) = (script.and_then(|s| s.rt.as_ref()), sim) else { return Vec::new() };
     let set: Vec<ActorId> = rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect();
-    let flagged = phys.world.actor_volumes().filter(|&id| id != FormId::PLAYER_REF.0 && !set.contains(&(id as ActorId)) && rt.game.is_ghost(FormId(id)));
+    let flagged = phys.world.actor_volumes().filter(|&id| id != FormId::PLAYER_REF.0 && !set.contains(&(id as ActorId)) && sim.world.peek(FormId(id)).is_some_and(|s| rt.game.base_is_ghost(s.base, FormId(id))));
     let flagged: Vec<ActorId> = flagged.map(|id| id as ActorId).collect();
     set.into_iter().chain(flagged).collect()
 }
 
-fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>) -> PhysView<'p> {
-    let ghosts = ghosts(script, phys);
+fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&SimState>) -> PhysView<'p> {
+    let ghosts = ghosts(script, phys, sim);
     let mut actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
     // The player has no hit volume (its capsule is its body), so it was never among the
@@ -2171,7 +2171,7 @@ pub(crate) fn fire(
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
-                    let world = view(&mut phys, script.as_deref());
+                    let world = view(&mut phys, script.as_deref(), Some(&sim));
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
                         _ if vats_shot.is_some() => {
@@ -2741,7 +2741,7 @@ fn melee(
         // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
         let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
         let hits = {
-            let world = view(&mut phys, script.as_deref());
+            let world = view(&mut phys, script.as_deref(), Some(&sim));
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
                 // The hit roll missed (vats-mode.md §17.4): the blow lands on no one.
                 if !lands {
@@ -2999,7 +2999,7 @@ fn actor_attacks(
         let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
-            let world = view(&mut phys, script.as_deref());
+            let world = view(&mut phys, script.as_deref(), Some(&sim));
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -3233,7 +3233,7 @@ fn fly(
         return;
     }
     {
-        let world = view(&mut phys, script.as_deref());
+        let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
         for f in &mut c.flying {
             let before = f.p.pos;
@@ -3354,7 +3354,7 @@ fn fly(
             }
         }
         let hits = {
-            let world = view(&mut phys, script.as_deref());
+            let world = view(&mut phys, script.as_deref(), Some(&sim));
             blast(&world, &c.tuning, &x, at)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
@@ -3863,7 +3863,7 @@ mod tests {
     fn shots_pass_an_npcs_character_and_strike_its_body() {
         // The playtest list 5 item 16: the character was struck as a wall (dust, no damage).
         let mut phys = npc_world();
-        let world = view(&mut phys, None);
+        let world = view(&mut phys, None, None);
         let h = world.ray([-300.0, 0.0, 45.0], [300.0, 0.0, 45.0], &[PLAYER]).expect("the body is struck");
         assert_eq!(h.actor, Some(0x1234));
         assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);

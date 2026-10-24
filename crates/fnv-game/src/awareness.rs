@@ -578,13 +578,19 @@ impl Game<'_> {
         if e.is_some_and(|e| e.ghost_off) {
             return false;
         }
+        crate::functions::base_of(self, r).is_some_and(|b| self.base_is_ghost(b, r))
+    }
+
+    /// Whether `base` (of the reference `r`) is flagged Is Ghost, through the definition
+    /// supplying its base data. For callers that know the base while the game's world
+    /// does not hold the reference (the engine, outside `with_world`).
+    pub fn base_is_ghost(&self, base: FormId, r: FormId) -> bool {
         // Only creatures carry the flag: an NPC base skips the template walk (detection
         // asks this for every pair of actors).
-        let base = crate::functions::base_of(self, r);
-        if base.and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"NPC_") {
+        if self.data.actors.get(&base).is_some_and(|d| &d.sig == b"NPC_") {
             return false;
         }
-        self.base_data_def(r).is_some_and(|d| d.is_ghost)
+        self.template_source(base, r, |d| d.template_base).is_some_and(|(_, d)| d.is_ghost)
     }
 
     /// `target` is a ghost that `detector` would otherwise attack: such an enemy does not

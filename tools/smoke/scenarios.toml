@@ -8282,17 +8282,17 @@ expect = [
 [[scenario]]
 name = "pickpocket-steal"
 source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
-note = "Chet in the general store is given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, presses E at 8 s, takes one at 10 s and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
+note = "Chet in the general store is given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"
 areas = ["activate", "menus", "crime"]
 paths = ["engine/nvf-play/src/pickpocket.rs", "engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*", "crates/fnv-game/src/pickpocket.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:Stimpak:2", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,10:enter,12:e" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C79", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:Stimpak:2", NVF_PLAY_TEST_CONTROL = "4:sneak", NVF_PLAY_TEST_KEYS = "8:e,10:enter,10.5:enter,12:e" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
   { re = 'target 0x00104C79 .*\(Steal, owned\)', label = "the prompt reads Steal, as a crime, while sneaking" },
   { re = 'activate 0x00104C79 .*\(Steal\): its pocket opens', label = "E opens his pocket" },
   { re = 'pickpocket: open on 0x00104C79: Sneak \d+ against \d+', label = "the steal menu opens with both Sneak skills" },
-  { re = 'pickpocket: (took Stimpak x1 from .* unseen|caught by .* with Stimpak)', label = "the take is unseen or caught" },
+  { re = 'pickpocket: (took .* from .* unseen|caught by .* with )', label = "the take is unseen or caught" },
 ]]
 
 [[scenario]]

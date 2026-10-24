@@ -142,7 +142,7 @@ fn give_speeds(
             commands.entity(e).insert(Paced);
             let Some(def) = game.data.actors.get(&FormId(rig.base)) else { continue };
             if &def.sig != b"CREA" {
-                if let Some(s) = npc_speeds(game, FormId(rig.reference), default, &mut lo) {
+                if let Some(s) = npc_speeds(game, FormId(rig.base), FormId(rig.reference), default, &mut lo) {
                     given.push((FormId(rig.reference), s));
                     stats.npcs += 1;
                 }
@@ -152,7 +152,7 @@ fn give_speeds(
             let id = FormId(rig.reference);
             // Speed Mult as GetBaseAV gives it: through the template chain (Stats), as the
             // leveled cazadors at the Tribal Village take theirs.
-            let mult = game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok().filter(|v| *v > 0.0).map_or(100.0, |v| v as f32);
+            let mult = speed_mult(game, FormId(rig.base), id);
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
             // Its type's own share (feral ghouls), as if its Speed Mult were that much higher.
             let mult = mult * type_pace(game.creature_type(id));
@@ -177,6 +177,18 @@ fn give_speeds(
     }
 }
 
+/// An actor's Speed Mult (percent) as GetBaseAV gives it, through the template chain
+/// (Stats). A reference a script made (PlaceAtMe) is not in the game's world outside
+/// `with_world`: its base's stats source is read instead.
+fn speed_mult(game: &mut fnv_game::Game<'_>, base: FormId, id: FormId) -> f32 {
+    let v = if fnv_game::functions::base_of(game, id).is_some() {
+        game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok()
+    } else {
+        game.template_source(base, id, |d| d.template_stats).map(|(_, d)| d.speed_mult as f64)
+    };
+    v.filter(|v| *v > 0.0).map_or(100.0, |v| v as f32)
+}
+
 /// A person's speeds: the configured walking and running speeds × its Speed Mult
 /// (percent, NPC_ ACBS through the template chain as GetBaseAV gives it): "A Speed actor
 /// value is used as a multiplier times a standard movement speed. The Player Character
@@ -185,11 +197,11 @@ fn give_speeds(
 /// original's do not ("the animations only sync up with a speed of 100%"); the owner's
 /// pick between the two is asked in docs/owner-review.md]. `None` at 100 (most people):
 /// they keep the defaults.
-fn npc_speeds(game: &mut fnv_game::Game<'_>, id: FormId, default: Speeds, lo: &mut Locomotion) -> Option<ActorSpeeds> {
+fn npc_speeds(game: &mut fnv_game::Game<'_>, base: FormId, id: FormId, default: Speeds, lo: &mut Locomotion) -> Option<ActorSpeeds> {
     if id == FormId::PLAYER_REF {
         return None;
     }
-    let mult = game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok().filter(|v| *v > 0.0).map_or(100.0, |v| v as f32);
+    let mult = speed_mult(game, base, id);
     if (mult - 100.0).abs() < 0.5 {
         return None;
     }
