@@ -408,3 +408,20 @@ fn script_names_without_a_shipped_spelling_resolve() {
     assert_eq!(av("Energy"), Ok(2));
     assert!(av("PoisonResistance2").is_err());
 }
+
+/// Companion Nerve: a teammate's damage and armour share, 5 % per point of the player's
+/// Charisma (Charisma 4 here: 20 %), read within 1 to 10; nothing for anyone else.
+#[test]
+fn companion_nerve_follows_the_players_charisma() {
+    let f = fixture();
+    let mut g = game(&f);
+    let guard = FormId(GUARD_REF);
+    assert_eq!(g.companion_nerve(guard), 0.0, "not a teammate");
+    assert_eq!(g.companion_nerve(FormId::PLAYER_REF), 0.0, "the player has none");
+    g.extra.entry(guard).or_default().teammate = true;
+    assert!((g.companion_nerve(guard) - 0.20).abs() < 1e-9);
+    call(&mut g, MOD, PLAYER, &[code(av::CHARISMA), n(20.0)]);
+    assert!((g.companion_nerve(guard) - 0.50).abs() < 1e-9, "Charisma 24 counts as 10");
+    call(&mut g, MOD, PLAYER, &[code(av::CHARISMA), n(-30.0)]);
+    assert!((g.companion_nerve(guard) - 0.05).abs() < 1e-9, "Charisma under 1 counts as 1");
+}

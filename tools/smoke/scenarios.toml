@@ -2286,6 +2286,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "reload-agility"
+source = "owner 2026-10-23: build Reload Speed from Agility (docs/handoff/special-skills-audit-2026-10-23.md §4; combat-rules.md §2, Reload speed)"
+note = "the player's Agility is set to 10 by the console at 8 s; the 9mm pistol (000E3778) is drawn at 10 s, fired at 12 s (fire is a toggle: pressed, then let go at 12.2 s) and reloaded at 13 s; Agility goes to 1 at 16 s, the pistol fires at 18 s and reloads at 19 s. The cycle and the first-person reload clip run at 0.5 + 0.1 x Agility: x1.50, then x0.60"
+areas = ["combat", "animation"]
+paths = ["crates/fnv-combat/src/attack.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONSOLE = "8:player.setav agility 10;8.3:close;16:player.setav agility 1;16.3:close", NVF_PLAY_TEST_CONTROL = "10:weapon,12:fire,12.2:fire,13:reload,18:fire,18.2:fire,19:reload" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  { re = 'combat: reloads at x1\.50 \(Agility 10\)', label = "Agility 10 reloads at 1.5 times the clip's speed" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s .*\(reload at x1\.50\)', label = "the reload clip plays at x1.50" },
+  { re = 'combat: reloads at x0\.60 \(Agility 1\)', label = "Agility 1: x0.60" },
+  { re = 'player First rig: .*1hpreloadl\.kf moves the weapon.s .*\(reload at x0\.60\)', label = "the reload clip plays at x0.60" },
+]]
+expect = [
+  { re = 'combat: reloaded \d+, magazine', min = 2, label = "both reloads finish" },
+]
+
+[[scenario]]
 name = "bear-trap"
 source = "CLAUDE.md: after changes to groups' sound keys (activators.md §6–§8): the bear trap"
 areas = ["actor-groups", "object-anims"]
