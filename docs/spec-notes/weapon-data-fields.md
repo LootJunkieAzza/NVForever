@@ -121,6 +121,11 @@ over the ten masters [observed: WEAP `DNAM`, `NNAM`].
   `ProjectileNode_RGatling` and `Weapon`, the eyebot's `ProjectileNode_HeadLaser` are
   there [observed: `fnvtool nif decode` of their `skeleton.nif`]; the protectron's and the
   fire geckos' are not, and they still shoot from the eyes) (nvforever `npc_combat.rs`).
+  Embedded guns were never fired before this: a creature fought with a gun only when a
+  weapon model was drawn in its hands, so the sentry bot only struck [observed: smoke
+  `creature-embedded-muzzle`, 2026-10-24]. Now a creature with nothing in its hands fights
+  with the first embedded gun among its items whose node its skeleton has [design];
+  creatures whose node is not in the skeleton keep their own attack.
 - **Hide Backpack** (`DNAM` flags1 bit 4, 16 weapons: the miniguns, flamers, Gatling
   lasers, grenade machine guns, Shishkebabs, the Cyberdog guns, the arc welder): "Hides
   any equipped armor or armor addon that occupies the Backpack biped slot" [documented:

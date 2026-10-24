@@ -8345,6 +8345,10 @@ guns shoot from their gun node. Specs: [audio §15.5](spec-notes/audio.md),
 - *Guess:* the hand grip plays in third person only (the wiki says so; the first-person
   files exist). *Check:* the plasma rifle and the throwing spear in third person: does the
   left hand sit right?
+- *Guess:* a creature fires its built-in gun (sentry bot, eyebot) only when its skeleton
+  has the gun's node; before, embedded guns were never fired at all. *Check:* a sentry bot
+  at REPCONN or Nellis: does it shoot from its gun arms now, and do creatures whose gun
+  node is in a body part (protectrons, fire geckos) still only strike?
 - *Question:* VATS special attacks (the Machete's "Back Slash", AP and damage multiplier
   per weapon) need a choice per mark, which NVForever's VATS mode does not have. Wanted,
   and how would you pick one (a key cycling the mark's attack)?

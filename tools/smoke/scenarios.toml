@@ -2027,8 +2027,8 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:setpccanus
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 24
 expect = [
-  { re = 'player body: .*wearing \[[^\]]*0x00014E13[^\]]*\] with the addons \[[^\]]*PowerArmorBackPack', label = "the power armour wears its backpack" },
-  { re = 'player body: .*wearing \[[^\]]*0x00014E13[^\]]*0x0000433F[^\]]*\] with the addons \[(?:(?!PowerArmorBackPack)[^\]])*\]', label = "with the minigun the backpack is not drawn" },
+  { re = 'player body: armour drawn \[[^\]]*"PowerArmorBackPack"', label = "the power armour wears its backpack" },
+  { re = 'player body: armour drawn \[(?:(?!PowerArmorBackPack)[^\]])*"PowerArmorLeftHand"(?:(?!PowerArmorBackPack)[^\]])*\]', label = "with the minigun the backpack is not drawn" },
 ]
 
 [[scenario]]

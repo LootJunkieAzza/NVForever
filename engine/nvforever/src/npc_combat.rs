@@ -49,7 +49,10 @@
 //!   skeleton its WEAP `NNAM` names ("Node that the weapon is attached to" [documented:
 //!   GECK wiki Weapons, Embedded Weapon]; `ProjectileNode_RGatling`,
 //!   `ProjectileNode_HeadLaser`); a node only in a body part's model is not found
-//!   [design: the skeleton's nodes are the ones spawned]. Without either, from the eyes.
+//!   [design: the skeleton's nodes are the ones spawned]. Without either, from the eyes. A
+//!   creature with no weapon drawn in its hands fights with such an embedded gun when its
+//!   skeleton has the gun's node (before 2026-10-24 embedded guns were never fired: the
+//!   sentry bot only struck) [design: which of several; the first equipped or carried].
 //!   Inside its spread: the documented actor
 //!   spread for its weapon skill, standing, plus an aim that settles over
 //!   [`SETTLE_SECONDS`] of firing at the same target [design].
@@ -1004,6 +1007,15 @@ fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
     }
 }
 
+/// The embedded gun (WEAP Embedded Weapon, a projectile) among `me`'s items whose NNAM
+/// node is in its skeleton (`names`): the one it shoots with.
+fn embedded_gun(c: &Combat, world: &fnv_sim::World, me: FormId, names: &[Option<String>]) -> Option<FormId> {
+    let usable = |id: &FormId| c.forms.weapons.get(id).is_some_and(|ws| ws.embedded && is_gun(c, ws, *id) && ws.embedded_node.as_deref().is_some_and(|n| embedded_node_index(names, n).is_some()));
+    let equipped = world.equipment(me).unwrap_or_default();
+    let carried: Vec<FormId> = world.peek(me).and_then(|s| s.inventory.as_ref()).map(|inv| inv.iter().map(|(id, _)| id).collect()).unwrap_or_default();
+    equipped.into_iter().chain(carried).find(usable)
+}
+
 /// The index of the skeleton node named `node` (an embedded weapon's NNAM), matched
 /// without regard to case.
 pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize> {
@@ -1175,7 +1187,10 @@ pub(crate) fn fight(
                 continue;
             }
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
-            let arm = arm_of(c, g, weapons.get(&id).copied(), me, scale, melee_only);
+            // A creature with nothing in its hands fights with an embedded gun whose node its
+            // skeleton has (WEAP NNAM; module notes).
+            let held = weapons.get(&id).copied().or_else(|| rigs.get(&id).and_then(|rig| embedded_gun(c, &g.world, me, &rig.skel.names)));
+            let arm = arm_of(c, g, held, me, scale, melee_only);
             // Its strength, and its target's, for the threat ratios.
             let (health, full) = g.health_now_and_full(me);
             // How spent it is, for its dodges and power attacks (§17.1, §17.3).

@@ -1084,6 +1084,16 @@ const LOOK_REBUILD: f32 = 0.1;
 
 fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>) -> Result<Body, String> {
     let a = world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn), look)?;
+    // The armour pieces drawn (an addon in the Backpack slot is left out while a weapon
+    // with Hide Backpack is held).
+    let mut drawn: Vec<String> = Vec::new();
+    for p in a.parts.iter().filter(|p| p.role == "armor") {
+        let name = world.actors.armors.get(&p.form).and_then(|x| x.edid.clone()).unwrap_or_else(|| p.form.to_string());
+        if !drawn.contains(&name) {
+            drawn.push(name);
+        }
+    }
+    info!("player body: armour drawn {drawn:?}");
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
