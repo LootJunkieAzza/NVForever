@@ -8365,6 +8365,33 @@ order = [[
 ]]
 
 [[scenario]]
+name = "perk-fast-shot-quick-draw"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24: Fast Shot fires 20 % faster with guns, Quick Draw draws and holsters 50 % faster; the body's clips play at the same rates (docs/spec-notes/perk-entry-points.md §10)"
+note = "a .357 (WeapNV357Revolver 0008F216) in Goodsprings; FastShot and QuickDraw given by the console at 12 s, the weapon drawn at 14 s and fired at 16 and 17 s"
+areas = ["combat", "perks", "animation"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONSOLE = "12:player.addperk FastShot;12.3:player.addperk QuickDraw;12.6:close", NVF_PLAY_TEST_CONTROL = "14:weapon,16:fire,17:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'combat: draws and holsters at x1\.50 \(QuickDraw\)', label = "Quick Draw: draws and holsters 1.5 x as fast" },
+  { re = 'combat: attacks at x0\.84 \(WeapNV357Revolver; perks x1\.20: FastShot\)', label = "Fast Shot: the .357's attack 1.2 x as fast (its own multipliers 0.7: 0.84)" },
+]
+
+[[scenario]]
+name = "perk-slayer"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24: Slayer swings melee and unarmed weapons 30 % faster (docs/spec-notes/perk-entry-points.md §10)"
+note = "a machete (WeapNVMachete 000CE569) in Goodsprings; Slayer given by the console at 12 s, the machete drawn at 14 s and swung at 16 s"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_CONSOLE = "12:player.addperk Slayer;12.3:close", NVF_PLAY_TEST_CONTROL = "14:weapon,16:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'combat: swings at x1\.69 \(WeapNVMachete; perks x1\.30: Slayer\)', label = "Slayer: the machete swings 1.3 x as fast (its own multipliers 1.3: 1.69)" },
+]
+
+[[scenario]]
 name = "falls-player"
 source = "owner's playtest list 7 item 21: no fall damage; a fall onto land from above fJumpFallHeightMin (600) loses health by fJumpFallHeightMult x (h - 600)^1.65 (docs/spec-notes/physics.md §6.10)"
 note = "God mode in Goodsprings: at 8 s the console puts the player about 1,500 units up; the landing logs the height and the fall damage the formula gives (god mode deals none). The formula is checked against the capture's falls in falls.rs's tests"
