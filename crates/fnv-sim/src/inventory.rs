@@ -541,7 +541,7 @@ mod tests {
             armor_dt: None,
             weapon_damage: None,
             weight_mods: [0.0, 2.5, 9.0],
-            drawable: false, not_for_npcs: false,
+            drawable: false, not_for_npcs: false, thrown: false,
             quest_item: false,
             icon: None,
             placed_count: None,

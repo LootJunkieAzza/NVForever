@@ -91,6 +91,8 @@ pub struct Rules {
     /// `fActionPointsRestoreRate`: spent AP comes back at this share of the maximum a
     /// second [hypothesis, vats-mode.md §7.2].
     pub ap_restore_rate: f32,
+    /// The VATS settings of VATS mode's hit chance (docs/design/vats-mode.md §17.1).
+    pub vats_hit: crate::vats::HitTuning,
     /// Settings not found in the load order (their defaults were used).
     pub defaulted: Vec<&'static str>,
 }
@@ -165,6 +167,15 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fActionPointsAttackGrenade", 35.0),
     ("fActionPointsAttackMine", 10.0),
     ("fActionPointsRestoreRate", 0.06),
+    // VATS mode's hit chance (docs/design/vats-mode.md §17.1): the GECK wiki's defaults
+    // (VATS Settings); FalloutNV.esm sets fVATSDistanceFactor 2 and fVATSSpreadMult 1.1
+    // [observed] and none of the others.
+    ("fVATSMaxChance", 95.0),
+    ("fVATSHitChanceMult", 1.0),
+    ("fVATSSkillFactor", 1.0),
+    ("fVATSDistanceFactor", 2.0),
+    ("fVATSSpreadMult", 0.5),
+    ("iVATSConcentratedFireBonus", 5.0),
 ];
 
 impl Rules {
@@ -255,6 +266,14 @@ impl Rules {
                 mine: n(),
             },
             ap_restore_rate: n(),
+            vats_hit: crate::vats::HitTuning {
+                max_chance: n(),
+                hit_chance_mult: n(),
+                skill_factor: n(),
+                distance_factor: n(),
+                spread_mult: n(),
+                concentrated_fire_bonus: n(),
+            },
             defaulted,
         }
     }

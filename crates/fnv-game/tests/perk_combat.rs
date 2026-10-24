@@ -30,10 +30,13 @@ const TOUGHNESS: u32 = 0x702;
 const DECK: u32 = 0x703;
 const BLOODY: u32 = 0x704;
 const VENGEANCE: u32 = 0x705;
+const SNIPER: u32 = 0x706;
+const CONCENTRATED: u32 = 0x707;
 
 const P: FormId = FormId::PLAYER_REF;
 const GET_IS_ID: u16 = 72;
 const IS_IN_LIST: u16 = 372;
+const GET_VATS_VALUE: u16 = 0x198;
 const EQ: u8 = 0x00;
 
 fn ctda(value: f32, function: u16, p1: u32) -> Subrecord {
@@ -43,6 +46,18 @@ fn ctda(value: f32, function: u16, p1: u32) -> Subrecord {
     d.extend([0, 0]);
     d.extend(p1.to_le_bytes());
     d.extend([0; 12]);
+    sub(b"CTDA", d)
+}
+
+/// A condition with two parameters (GetVATSValue's query and its parameter).
+fn ctda2(value: f32, function: u16, p1: u32, p2: u32) -> Subrecord {
+    let mut d = vec![EQ, 0, 0, 0];
+    d.extend(value.to_le_bytes());
+    d.extend(function.to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(p1.to_le_bytes());
+    d.extend(p2.to_le_bytes());
+    d.extend([0; 8]);
     sub(b"CTDA", d)
 }
 
@@ -98,6 +113,11 @@ fn plugin_bytes() -> Vec<u8> {
         perk(BLOODY, "BloodyMess", 1, vec![entry(perks::CALCULATE_WEAPON_DAMAGE, perks::MULTIPLY_VALUE, 1.05, vec![(0, ctda(1.0, GET_IS_ID, 0x7))])]),
         // A teammate perk (as Hand of Vengeance): × 1.15 for one companion (owner tab).
         perk(VENGEANCE, "HandOfVengeance", 1, vec![entry(perks::CALCULATE_WEAPON_DAMAGE, perks::MULTIPLY_VALUE, 1.15, vec![(0, ctda(1.0, GET_IS_ID, NPC))])]),
+        // Sniper: to hit × 1.25 when the mark is the head (GetVATSValue 5, Perception
+        // Condition 25, on the owner's tab), as FalloutNV.esm's.
+        perk(SNIPER, "Sniper", 1, vec![entry(perks::CALCULATE_TO_HIT_CHANCE, perks::MULTIPLY_VALUE, 1.25, vec![(0, ctda2(1.0, GET_VATS_VALUE, 5, 25))])]),
+        // Concentrated Fire: Has Concentrated Fire, Set 1.
+        perk(CONCENTRATED, "ConcentratedFire", 1, vec![entry(fnv_game::vats::HAS_CONCENTRATED_FIRE, perks::SET_VALUE, 1.0, vec![])]),
     ]
     .concat();
     let npcs = [
@@ -241,4 +261,25 @@ fn entry_functions_resolve_to_numbers() {
     // Not a number function (Add Activate Choice), or no number.
     assert_eq!(r(&ep(9, None, vec![]), &mut av, &mut roll), None);
     assert_eq!(r(&ep(perks::SET_VALUE, None, vec![]), &mut av, &mut roll), None);
+}
+
+/// VATS mode's to-hit perks (docs/design/vats-mode.md §17.3): a GetVATSValue condition
+/// sees the mark being worked out, and Concentrated Fire is read; the VATS state is left
+/// as it was.
+#[test]
+fn vats_to_hit_perks_see_the_mark() {
+    use fnv_game::vats::VatsShot;
+    let f = fixture();
+    let mut g = game(&f);
+    let shot = |condition| VatsShot { weapon: FormId(REVOLVER), target: FormId(NPC_REF), distance: 500.0, condition, success: false };
+    assert_eq!(g.vats_hit_perks(shot(Some(25))).apply(40.0), 40.0, "no perks");
+    g.player.perks.insert(FormId(SNIPER), 1);
+    let head = g.vats_hit_perks(shot(Some(25)));
+    assert!((head.apply(40.0) - 50.0).abs() < 1e-6, "the head: × 1.25");
+    assert_eq!(head.ops.len(), 1);
+    assert_eq!(g.vats_hit_perks(shot(Some(26))).apply(40.0), 40.0, "the torso: no Sniper");
+    assert!(!head.concentrated_fire);
+    g.player.perks.insert(FormId(CONCENTRATED), 1);
+    assert!(g.vats_hit_perks(shot(None)).concentrated_fire);
+    assert_eq!(g.vats.shot, None, "the shot is not left behind");
 }

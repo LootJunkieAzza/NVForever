@@ -871,6 +871,10 @@ pub struct Combat {
     /// The player's spread (PSp, spread units, after "Calculate Gun Spread" perks) at the
     /// same time: a scope's sway (docs/spec-notes/weapon-scopes.md §5).
     pub player_spread: Option<f32>,
+    /// The cone (half-angle, degrees) VATS mode's hit chance reads for the gun in hand
+    /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
+    /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
+    pub vats_cone: Option<f32>,
     /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
     /// last one ended, and its own rolls (the view's kick).
     flinch_until: f32,
@@ -1110,6 +1114,13 @@ impl Combat {
     /// The player's melee swing is playing (VATS mode waits for it, vats-mode.md §16.2).
     pub fn player_swinging(&self) -> bool {
         self.melee && self.swings.swing.is_some()
+    }
+
+    /// The player's skill with the weapon in hand (VATS mode's hit chance, vats-mode.md
+    /// §17.2): its WEAP skill's actor value.
+    pub fn player_weapon_skill(&self, script: Option<&mut ScriptState>, sim: &mut SimState) -> f32 {
+        let Some(w) = self.weapon.and_then(|id| self.player_stats(id)) else { return Attacker::default().skill };
+        attacker(script, sim, &self.rules, FormId::PLAYER_REF, &w, false).skill
     }
 
     /// The BPTD part an actor's hit volume part is (VATS mode's marks).
@@ -1368,6 +1379,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         load_magazine: None,
         crosshair_cone: None,
         player_spread: None,
+        vats_cone: None,
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
@@ -1863,9 +1875,13 @@ pub(crate) fn fire(
     c.crosshair_cone = None;
     c.player_spread = None;
     if c.melee {
+        c.vats_cone = None;
         return;
     }
-    let Some(w) = c.weapon.and_then(|id| c.player_stats(id)) else { return };
+    let Some(w) = c.weapon.and_then(|id| c.player_stats(id)) else {
+        c.vats_cone = None;
+        return;
+    };
     let (Some(id), Some(cycle)) = (c.weapon, c.cycle.as_mut()) else { return };
     if !anim.ready {
         if vats_shot.is_some() {
@@ -1928,6 +1944,11 @@ pub(crate) fn fire(
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
         c.player_spread = Some(if c.no_spread { 0.0 } else { actor_spread.max(0.0) });
+        // VATS mode's hit chance: as aimed, no bloom (vats-mode.md §17.2).
+        let aimed = Stance { aiming: true, ..stance.clone() };
+        let vats_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &aimed);
+        let (vats_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, vats_spread);
+        c.vats_cone = Some(if c.no_spread { 0.0 } else { spread::cone_deg(vats_spread.max(0.0), 0.0, &w, &effects) });
     }
     let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
     if eject_now && anim.ejects_on_key {
@@ -2607,7 +2628,12 @@ fn melee(
         let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
         let hits = {
             let world = view(&mut phys, ghosts(script.as_deref()));
-            let straight = vats_mark.and_then(|(target, point, close)| {
+            let straight = vats_mark.and_then(|(target, point, close, lands)| {
+                // The hit roll missed (vats-mode.md §17.4): the blow lands on no one.
+                if !lands {
+                    info!("combat: vats mode blow on {target:08X}: missed (the hit roll)");
+                    return Some(Vec::new());
+                }
                 let flat = ((point[0] - eye[0]).powi(2) + (point[1] - eye[1]).powi(2)).sqrt();
                 let d = vec::sub(point, eye);
                 let end = vec::add(eye, vec::scale(vec::normalize(d), vec::len(d) + VATS_BLOW_PAST));

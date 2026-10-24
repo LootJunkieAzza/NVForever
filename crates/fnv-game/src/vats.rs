@@ -35,6 +35,9 @@ pub struct VatsShot {
     /// The marked body part's condition actor value (25–31; its BPTD part's Actor
     /// Value), `None` for a whole actor or a part without one.
     pub condition: Option<u16>,
+    /// The shot's hit roll (vats-mode.md §17.4): GetVATSValue Is Success. False while a
+    /// mark's chance is worked out, before any roll.
+    pub success: bool,
 }
 
 /// What the engine says of VATS mode.
@@ -48,6 +51,44 @@ impl Game<'_> {
     /// The engine's VATS mode state and the shot leaving now (only while firing).
     pub fn set_vats(&mut self, mode: u8, shot: Option<VatsShot>) {
         self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK) };
+    }
+}
+
+/// "Has Concentrated Fire" [documented: GECK wiki GetNthPerkEntryFunction, code 33; Entry
+/// Point, "run when the player enters VATS; if non-zero the player will be able to use
+/// concentrated fire"; observed: Concentrated Fire's one entry, Set 1].
+pub const HAS_CONCENTRATED_FIRE: u8 = 33;
+
+/// VATS mode's to-hit perks for one mark (vats-mode.md §17.3).
+#[derive(Debug, Clone, Default)]
+pub struct HitPerks {
+    /// The Calculate To Hit Chance entries that apply to this mark, in order.
+    pub ops: Vec<(FormId, crate::perks::Op)>,
+    /// The player has Concentrated Fire.
+    pub concentrated_fire: bool,
+}
+
+impl HitPerks {
+    /// The chance after the entries.
+    pub fn apply(&self, v: f64) -> f64 {
+        self.ops.iter().fold(v, |v, (_, op)| op.apply(v))
+    }
+}
+
+impl Game<'_> {
+    /// The player's to-hit perks for a mark: the Calculate To Hit Chance entries with the
+    /// tabs Weapon and Target [documented: GECK wiki GetPerkModifier, the entry functions'
+    /// arguments; observed: Trigger Discipline tests IsWeaponSkillType on tab 1, Sneering
+    /// Imperialist GetInFaction on tab 2], their GetVATSValue conditions (Sniper's head,
+    /// Hobbler's legs) seeing `shot` as the shot about to leave and GetVATSMode the mode
+    /// as it is; and Has Concentrated Fire.
+    pub fn vats_hit_perks(&mut self, shot: VatsShot) -> HitPerks {
+        let was = self.vats;
+        self.vats = VatsState { mode: was.mode, shot: Some(shot) };
+        let ops = self.entry_ops(FormId::PLAYER_REF, crate::perks::CALCULATE_TO_HIT_CHANCE, &[Some(shot.weapon), Some(shot.target)], Some(shot.target));
+        let concentrated_fire = self.entry_point(FormId::PLAYER_REF, HAS_CONCENTRATED_FIRE, 0.0).0 != 0.0;
+        self.vats = was;
+        HitPerks { ops, concentrated_fire }
     }
 }
 
@@ -87,7 +128,7 @@ fn param_num(a: &Args) -> Option<i64> {
 /// | 4 | Target Distance | units from the player to the target |
 /// | 5 | Targeted Part | 1 if the marked part's condition actor value is the parameter |
 /// | 6 | VATS Action | 1 for action 0 [hypothesis: Attack is the first action] |
-/// | 7 | Is Success | 1: VATS mode's shots never miss (owner) [design] |
+/// | 7 | Is Success | 1 if the shot's hit roll succeeded (vats-mode.md §17.4) |
 /// | 8–14 | critical, crit effect, fatal, explode, dismember, cripple | 0: not known before the shot lands [design] |
 /// | 15 | Weapon Type Is | 1 if the weapon's DNAM animation type is the parameter |
 ///
@@ -110,7 +151,7 @@ pub fn get_vats_value(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
         4 => return Ok(Value::Num(s.distance)),
         5 => param_num(a).is_some_and(|c| s.condition.map(i64::from) == Some(c)),
         6 => param_num(a).unwrap_or(0) == 0,
-        7 => true,
+        7 => s.success,
         15 => param_num(a).is_some_and(|t| g.data.weapon_anim_types.get(&s.weapon) == Some(&t)),
         _ => false,
     };

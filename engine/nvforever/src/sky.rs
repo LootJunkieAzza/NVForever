@@ -917,6 +917,18 @@ impl SkyState {
         sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
     }
 
+    /// Twilight (0..1): 1 while the sun is above the horizon, falling to 0 as it sinks to
+    /// `TWILIGHT_END_DEG` (the end of astronomical twilight) [hypothesis fitted 2026-10-23:
+    /// the share of the horizon colour's wide floor that fits the original's sky is about
+    /// 1.1 with the sun at +11° (19:06), 0.6 at −9° (20:30) and 0 at −54° (23:00); world.md
+    /// §6 "Sky colours"]. 1 indoors (no sky).
+    pub fn twilight(&self) -> f32 {
+        if self.interior.is_some() {
+            return 1.0;
+        }
+        smoothstep(TWILIGHT_END_DEG, 0.0, self.sun_elevation())
+    }
+
     /// Star and moon visibility (0..1) at this hour.
     pub fn night_visibility(&self) -> (f32, f32) {
         let e = self.sun_elevation();
@@ -1434,13 +1446,13 @@ pub fn update_night_sky(
 
 /// Colour of an atmosphere vertex at `elevation` (degrees) with sky-upper weight `up_w`
 /// (the vertex colour's blue), linear RGB. Mixed as display (sRGB) values: sky-upper ×
-/// `up_w` plus horizon × `horizon_weight(elevation)`; below the horizon the colour turns to
-/// sky-lower by 10° down [hypothesis fitted to screenshots of the original game,
-/// docs/spec-notes/world.md §6 "Sky colours": the vertex colours' green channel, read as
-/// the horizon weight, peaks 10-15° up and gives the horizon colour far too much sky].
-pub(crate) fn dome_color(elevation: f32, up_w: f32, lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
+/// `up_w` plus horizon × `horizon_weight(elevation, twilight)`; below the horizon the
+/// colour turns to sky-lower by 10° down [hypothesis fitted to screenshots of the original
+/// game, docs/spec-notes/world.md §6 "Sky colours": the vertex colours' green channel, read
+/// as the horizon weight, peaks 10-15° up and gives the horizon colour far too much sky].
+pub(crate) fn dome_color(elevation: f32, up_w: f32, twilight: f32, lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
     use crate::lodgen::{linear_to_srgb as d, srgb_to_linear as l};
-    let a = horizon_weight(elevation);
+    let a = horizon_weight(elevation, twilight);
     let below = smoothstep(0.0, -10.0, elevation);
     std::array::from_fn(|i| {
         let above = up_w * d(upper[i]) + a * d(horizon[i]);
@@ -1449,18 +1461,24 @@ pub(crate) fn dome_color(elevation: f32, up_w: f32, lower: [f32; 3], horizon: [f
 }
 
 /// Weight of the horizon colour at `elevation` (degrees): 1 at the horizon, about 0.5 at
-/// 15°, 0.3 at 25° [hypothesis fitted to the dusk reference frame, where the sky colours
-/// are graded without further change; world.md §6].
-pub(crate) fn horizon_weight(elevation: f32) -> f32 {
+/// 15°, 0.3 at 25° at dusk [hypothesis fitted to the dusk reference frame, where the sky
+/// colours are graded without further change; world.md §6]. The wide part (the floor,
+/// `HORIZON_FLOOR`) is scaled by `twilight` (`SkyState::twilight`, 1 while the sun is up,
+/// 0 in full night): the original's night sky keeps under a third of it above 25°
+/// [hypothesis fitted 2026-10-23 to clear Mojave frames at 19:06, 20:30 and 23:00, world.md
+/// §6 "Sky colours"].
+pub(crate) fn horizon_weight(elevation: f32, twilight: f32) -> f32 {
     let e = elevation.max(0.0);
     let (near, far) = (HORIZON_NEAR_DEG, HORIZON_FAR_DEG);
     let fl = HORIZON_FLOOR;
-    (1.0 - fl) * (-(e / near).powi(2)).exp() + fl * (-(e / far).powi(2)).exp()
+    (1.0 - fl) * (-(e / near).powi(2)).exp() + fl * twilight.clamp(0.0, 1.0) * (-(e / far).powi(2)).exp()
 }
 
 const HORIZON_NEAR_DEG: f32 = 14.0;
 const HORIZON_FAR_DEG: f32 = 60.0;
 const HORIZON_FLOOR: f32 = 0.28;
+/// Sun elevation (degrees) at which the horizon colour's floor is gone (see `twilight`).
+const TWILIGHT_END_DEG: f32 = -18.0;
 
 /// Fitted daylight factors (see `SkyLight`).
 const SKY_DIM: f32 = 0.6;
@@ -1603,13 +1621,14 @@ pub fn update_sky(
     let upper = sky.color(ColorType::SkyUpper);
     let lower = sky.color(ColorType::SkyLower);
     let horizon = sky.color(ColorType::Horizon);
+    let twilight = sky.twilight();
     if let Ok((m, weights, _)) = dome.single() {
         if let Some(mut mesh) = meshes.get_mut(&m.0) {
             let cols: Vec<[f32; 4]> = weights
                 .0
                 .iter()
                 .map(|wt| {
-                    let c = dome_color(wt[0], wt[1], lower, horizon, upper);
+                    let c = dome_color(wt[0], wt[1], twilight, lower, horizon, upper);
                     [c[0], c[1], c[2], 1.0]
                 })
                 .collect();
@@ -1649,7 +1668,20 @@ pub fn update_sky(
             Some(_) => format!("{near:.0}..{far:.0} power {power:.2} ({:.0} % at 1,000 units)", 100.0 * crate::fog::share(near.max(0.0), far, power, 1_000.0)),
             None => "none".into(),
         };
-        info!("sky: {}  fog {desc}  sun x{:.2}", sky.describe(), sky.sun_scale());
+        let g = sky.cinematic();
+        info!(
+            "sky: {}  fog {desc}  sun x{:.2}  grade: saturation {:.2} contrast {:.2} around {:.2} brightness {:.2} tint ({:.2}, {:.2}, {:.2}) x{:.2}",
+            sky.describe(),
+            sky.sun_scale(),
+            g.saturation,
+            g.contrast,
+            g.contrast_avg_lum,
+            g.brightness,
+            g.tint[0],
+            g.tint[1],
+            g.tint[2],
+            g.tint_amount
+        );
     }
 }
 
@@ -1663,31 +1695,41 @@ mod tests {
 
     #[test]
     fn horizon_weight_falls_with_elevation() {
-        assert!((horizon_weight(0.0) - 1.0).abs() < 1e-6);
-        assert!((horizon_weight(-5.0) - 1.0).abs() < 1e-6);
+        assert!((horizon_weight(0.0, 1.0) - 1.0).abs() < 1e-6);
+        assert!((horizon_weight(-5.0, 1.0) - 1.0).abs() < 1e-6);
         // The dusk fit (world.md §6 "Sky colours"): about 0.86 at 7°, 0.55 at 15°, 0.3 at 25°.
-        assert!((horizon_weight(6.8) - 0.86).abs() < 0.03);
-        assert!((horizon_weight(14.7) - 0.55).abs() < 0.05);
-        assert!((horizon_weight(26.6) - 0.28).abs() < 0.04);
+        assert!((horizon_weight(6.8, 1.0) - 0.86).abs() < 0.03);
+        assert!((horizon_weight(14.7, 1.0) - 0.55).abs() < 0.05);
+        assert!((horizon_weight(26.6, 1.0) - 0.28).abs() < 0.04);
         let mut last = 2.0;
         for e in 0..=90 {
-            let w = horizon_weight(e as f32);
+            let w = horizon_weight(e as f32, 1.0);
             assert!(w <= last && w >= 0.0);
             last = w;
         }
     }
 
     #[test]
+    fn night_sky_loses_the_horizon_floor() {
+        // Near the horizon the weight is the same day and night; high up only the floor
+        // differs, and in full night it is gone.
+        assert!((horizon_weight(5.0, 1.0) - horizon_weight(5.0, 0.0)).abs() < 0.3);
+        assert!(horizon_weight(30.0, 0.0) < 0.02);
+        assert!(horizon_weight(30.0, 1.0) > 0.2);
+        assert!(horizon_weight(30.0, 0.5) > horizon_weight(30.0, 0.0) && horizon_weight(30.0, 0.5) < horizon_weight(30.0, 1.0));
+    }
+
+    #[test]
     fn dome_mixes_display_values() {
         let (lower, horizon, upper) = ([0.1, 0.2, 0.3], [0.7, 0.8, 0.9], [0.03, 0.06, 0.25]);
         // Well below the horizon: sky-lower.
-        let c = dome_color(-20.0, 0.0, lower, horizon, upper);
+        let c = dome_color(-20.0, 0.0, 1.0, lower, horizon, upper);
         assert!(c.iter().zip(lower).all(|(a, b)| (a - b).abs() < 1e-4));
         // At the horizon with no upper weight: the horizon colour.
-        let c = dome_color(0.0, 0.0, lower, horizon, upper);
+        let c = dome_color(0.0, 0.0, 1.0, lower, horizon, upper);
         assert!(c.iter().zip(horizon).all(|(a, b)| (a - b).abs() < 1e-4));
         // Half of a colour as display values is darker than half in linear light.
-        let half = dome_color(90.0, 0.5, lower, horizon, upper)[2];
-        assert!(half < 0.5 * upper[2] + 0.5 * horizon_weight(90.0) * horizon[2]);
+        let half = dome_color(90.0, 0.5, 1.0, lower, horizon, upper)[2];
+        assert!(half < 0.5 * upper[2] + 0.5 * horizon_weight(90.0, 1.0) * horizon[2]);
     }
 }

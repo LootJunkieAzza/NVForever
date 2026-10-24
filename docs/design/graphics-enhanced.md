@@ -480,11 +480,59 @@ Fewer casters rarely removes a whole material.
 
 What would cut it, in order of what it saves:
 - **A bindless `NifSurface`** (frame-rate-audit.md §4): alpha-tested materials would share
-  batch sets in every view, the main view included. A renderer change of its own.
+  batch sets in every view, the main view included. Built in §5.6: it takes the shadows'
+  cost almost to nothing.
 - **2 cascades instead of 3**: about 2 ms, with coarser shadows from 667 to about 2,300 units
   (the middle cascade's range; the first cascade stays 667). The owner's open choice from §5.3.
 - **The arms' shade light** is one more shadow view while the first-person arms are drawn.
 - **Water in view** gives the reflection camera a set of cascades of its own (§5.3).
+
+### 5.6 Bindless NIF materials (2026-10-23)
+
+`NifSurface`, the NIF material's extension of `StandardMaterial`, is bindless where the device
+allows it, as `StandardMaterial` already was (Bevy turns bindless on for an extended material
+only when both parts are): its values go to one storage array for all NIF materials and its
+textures (holes, FaceGen offsets) to Bevy's shared texture arrays, and the shaders read them
+through the index tables (`nif_surface_bindings.wgsl`; without bindless the plain bindings
+50-53). [engineering choice; nif_material.rs "Bindless"]
+
+**Batch sets** (the profile aid's `profile batches:` line, Goodsprings start, 14:00, sun shadows
+on) [observed]:
+
+| | Before | Bindless |
+|---|---|---|
+| Shadow phases (4 views: 3 cascades and the arms' shade light) | ~830 | 49 |
+| Main view, opaque / alpha-mask (and their prepasses) | 169 / 147 | 9 / 14 |
+
+**Frame time** (same place, `--log-frame-times 8 --graphics-cycle "vanilla;vanilla,no-sun-shadows"`,
+the span-profile build; the runs of each build alternated, and only uncapped windows are quoted:
+in some runs the frames were held to the display's 60 Hz whatever the build, the window or the
+compositor's doing) [observed]:
+
+| | Before | Bindless |
+|---|---|---|
+| Sun shadows on (8,000 units, 3 cascades) | 16.5-17.3 ms | 6.4-6.6 ms |
+| Sun shadows off | 9.9-10.0 ms | 6.7-6.8 ms |
+| Render thread, shadows on / off | 16.3-17.0 / 10.0-10.4 ms | 6.3-8.3 / 5.2-6.1 ms |
+
+The render spans that had grown with the shadows shrank most: writing the binned instance
+buffers 4.0 → 0.4 ms, preparing the preprocessing bind groups 2.4 → 0.5, recording the passes
+3.7 → 1.7, submitting 2.4 → 0.8. On the GPU the bin-unpacking pass went from about 1.7 to 0.15 ms.
+The main thread is now about as busy as the render thread (6-8 ms), so the frame is no longer
+held by either at this place; sun shadows cost next to nothing here.
+
+**Same picture** [observed, screenshots of both builds at 1280 × 720 compared pixel by pixel]:
+an NPC's face (Doc Mitchell, FaceGen tint: identical), the Pip-Boy (largest difference 12 of
+255), the Prospector Saloon, Goodsprings at noon and dusk with sun shadows, a weapon in first
+person, Gomorrah's roof fires: the only differences are what changes from run to run anyway
+(wind-blown plants, a debug text line, HUD messages shown a moment apart). The refraction smoke
+(`stealth-boy-refraction`, a moving bend) passes with both builds and its frames agree within
+10 of 255. A build with the bindless attribute taken out (the fallback for devices without
+bindless) drew the same face, Pip-Boy and first-person frames and passed the refraction smoke.
+No pipeline or shader error was logged by any of the three builds.
+
+Not measured: the owner's GTX 1050 (Bevy decides bindless per device; without it the plain
+bindings are used, as before this change), and other places than Goodsprings.
 
 ## 6. Test aids for measuring
 
