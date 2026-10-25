@@ -1032,9 +1032,18 @@ impl<'a> Game<'a> {
                 self.set_line_look(who, said.look);
                 return;
             }
+            // "If this box is unchecked, conversations will never use the same topic twice
+            // (in the same conversation)" [documented: GECK wiki Quest Data Tab, Allow
+            // Repeated Conversation Topics]: a topic used already is passed over unless
+            // the line's quest allows it.
+            let earlier: Vec<FormId> = said.earlier_topics.iter().copied().chain(std::iter::once(said.topic)).collect();
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
             for link in self.links_after(said.topic, def) {
                 if let Some(i) = self.link_line_where(who, Some(to), link, between_actors, Says::Actor) {
+                    let repeats_ok = data.infos.get(&i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).is_some_and(|q| q.repeated_topics());
+                    if earlier.contains(&link.topic) && !repeats_ok {
+                        continue;
+                    }
                     linked.push((link.topic, i));
                 }
             }
@@ -1045,6 +1054,9 @@ impl<'a> Game<'a> {
             };
             self.say_line(who, Some(to), topic, info, next);
             self.set_line_look(who, said.look);
+            if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == who && s.info == info) {
+                s.earlier_topics = earlier;
+            }
             return;
         }
         end(self, ended::NO_LINKS)

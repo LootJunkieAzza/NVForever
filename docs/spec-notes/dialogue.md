@@ -547,6 +547,15 @@ Joe Cobb and Trudy (below).
   result at the start, end result at the end, in game time; only the first response in
   response order is said and timed [documented, above]; Say Once is kept as for SayTo.
   No SayToDone block runs [hypothesis].
+- **No topic twice** (2026-10-25): "If this box is unchecked, conversations will never use
+  the same topic twice (in the same conversation)" [documented: GECK wiki Quest Data Tab,
+  Allow Repeated Conversation Topics]. The next line's linked topics leave out one the
+  conversation has used already unless the candidate line's quest has the flag (QUST DATA
+  bit 2; 118 quests in the masters [observed]). Choices that name an INFO directly
+  (follow-ups) are not filtered. Radio programmes are not filtered either: their quests
+  set the flag, as the wiki asks for radio stations [documented: Creating Radio
+  Stations]. Test: `dialogue.rs`
+  `a_conversation_uses_a_topic_once_unless_its_quest_allows_repeats`.
 - **The next line** (`Game::next_conversation_line`), when a line has ended and its end
   result has run: a Goodbye line ends the conversation [documented]; so does either
   side being gone [hypothesis]. Otherwise the line's next speaker says the next line:

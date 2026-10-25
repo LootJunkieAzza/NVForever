@@ -887,6 +887,10 @@ pub struct Speech {
     /// conversation goes on with the next line, and no SayToDone block runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<u32>,
+    /// The topics of the conversation's earlier lines, in order (for the quests without
+    /// "Allow Repeated Conversation Topics", `crate::dialogue`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier_topics: Vec<FormId>,
     /// A hello said to the player as the player passes (`Game::say_hello`,
     /// docs/spec-notes/dialogue.md §5.2): when it ends no SayToDone block runs and no
     /// topic is added [hypothesis for both].
@@ -2499,7 +2503,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
