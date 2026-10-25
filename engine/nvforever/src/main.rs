@@ -1328,6 +1328,9 @@ fn main() -> AppExit {
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         // Also with --no-foot-ik: the settings page can switch it on.
         app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
+        // Actors jumping and falling: their jump and landing clips (actor_jumps.rs); the
+        // --npc-travel walkers' too, without --play.
+        app.add_plugins(actor_jumps::ActorJumpsPlugin { physics: play.is_some() });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
@@ -1368,8 +1371,6 @@ fn main() -> AppExit {
             app.add_plugins(sneaking::SneakingPlugin);
             // Actors swimming in water (swimming.rs).
             app.add_plugins(swimming::SwimmingPlugin);
-            // Actors jumping and falling: their jump and landing clips (actor_jumps.rs).
-            app.add_plugins(actor_jumps::ActorJumpsPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
             // Actors drawn at a script's scale (actor_scale.rs).
