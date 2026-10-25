@@ -44,7 +44,8 @@ It does not replace a lock's or key's line, nor an inaccessible door's.
   [documented: GetFormFlag]): one cell, `ULPenthouse`. The wiki does not say what the
   flag does; ownership and trespass already decide the penthouse. Stored as before.
 - **Behave Like Exterior** (CELL DATA bit 7) and **XCCM** (an interior's climate): no
-  cell in FalloutNV.esm uses either.
+  cell in FalloutNV.esm uses either; the add-ons have one cell each [observed: `fnvtool
+  esm fields` over the ten masters, esm-audit-2026-10-25 §4]. Neither is read.
 - **Leveled Lock** (XLOC flag bit 2): none of FalloutNV.esm's 426 locked references has
   it, but the add-ons do: Dead Money 22, Old World Blues 3, Honest Hearts 1 [observed:
   docs/handoff/esm-full-audit-2026-10-24.md gap 24]. No source gives the rule; since

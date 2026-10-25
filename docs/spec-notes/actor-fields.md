@@ -55,5 +55,7 @@ impact of that set for the struck actor's material; before, it showed the player
 - **RACE XNAM relations**: race relations are not modelled (faction relations are).
 - **FACT ranks and titles, Hidden, Allow Sell**: no Pip-Boy faction page; no stolen-goods
   barter rule.
-- **BPTD To Hit Chance and IK flags**: VATS mode has no hit chance by design
-  (vats-mode.md); no IK system but head tracking.
+- **BPTD IK flags** other than "IK Data - Headtracking": no IK system but head tracking,
+  which reads that flag, the IK start node and Tracking Max Angle (`head_look.rs`). BPTD To
+  Hit Chance is read since 2026-10-23: VATS mode's chance per mark starts from it
+  (`fnv-combat` vats.rs, vats-mode.md §17).

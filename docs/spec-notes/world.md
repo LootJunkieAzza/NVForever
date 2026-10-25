@@ -372,8 +372,9 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
     have (no master weather has either); the smoke scenario `weather-sound-precip` uses it
     with Honest Hearts' rain model and rain loop beside NVDLC02ZVRainWeather's own
     lightning and thunder.
-  - Not built: the Snow class, sun damage and sun glare bytes, the wind speed moving
-    anything, GetWeatherTraitNumeric and the JIP weather setters, and lightning lighting
+  - Not built: the Snow class, the sun damage byte, the wind's direction (the speed moves
+    trees and grass, `tree.rs`, `grass.rs`; the sun glare byte is drawn since
+    claude/em8-visuals, "Choosing a weather" above), GetWeatherTraitNumeric and the JIP weather setters, and lightning lighting
     the clouds by their own colour.
 - **Weather colours (WTHR NAM0)**: ten colour types in the order sky-upper, fog, unused,
   ambient, sunlight, sun, stars, sky-lower, horizon, effect lighting [documented]; each
