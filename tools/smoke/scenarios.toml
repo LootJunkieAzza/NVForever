@@ -4536,14 +4536,22 @@ paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/carry.rs", "engine/n
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:call:player:AddItem:NVStarBottleCap:1" }
 args = ["--play", "--pos=21000,-14450,7500", "--heading", "90", "--hour", "12", "--no-voice", "--npc-packages", "all,SSHQMalcolmHolmesREF"]
 run_seconds = 360
+# He goes to the Low level where he is when the AI first sees him: in his holding cell
+# before the script moves him (a named resident from the start, as on main since
+# 2026-10-25) or at the marker after it (seen only once moved), so that line is not in
+# the order; the order and the forbid say he was never moved every frame.
 order = [[
   "SSHQMalcolmHolmesREF: put at",
-  "SSHQMalcolmHolmesREF: out of the loaded area and the cell buffer (low process every 120 s)",
   "SSHQMalcolmHolmesREF: runs up to 0x00000014 to talk",
   "SSHQMalcolmHolmesREF: back in the loaded area",
   "SSHQMalcolmHolmesREF: starts a conversation with",
 ]]
+forbid = [
+  { text = "SSHQMalcolmHolmesREF: on its way into the loaded area (moved every frame)", label = "Holmes moved every frame from beyond the cell buffer (the original jumps him hourly)" },
+  { text = "SSHQMalcolmHolmesREF: back in the cell buffer", label = "Holmes's far cell taken into the cell buffer" },
+]
 expect = [
+  { re = 'SSHQMalcolmHolmesREF: out of (the loaded area and )?the cell buffer \(low process every 120 s\)', label = "Holmes at the Low level (every 120 s)" },
   { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [1, 1000000], label = "process summary: Low-level updates every 120 s (Holmes out of the loaded area and the cell buffer)" },
   { re = 'process summary: .* (?P<n>\d+) far walks stopped at the edge of the loaded area', range = [1, 100000], label = "process summary: a far walk stopped at the edge of the loaded area" },
 ]
