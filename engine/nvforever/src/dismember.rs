@@ -29,7 +29,7 @@ use fnv_phys::gore::GoreStart;
 use fnv_sim::FormId;
 use nvf_assets::actor::{dismember_mesh, sever_mesh, skin_weights, LimbShape};
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_play::combat::{Combat, ExplosionFx, ImpactFx};
+use nvf_play::combat::{Combat, ExplosionFx, ExplosionLook, ImpactFx};
 use nvf_play::dismember::Dismembered;
 use nvf_play::phys::PhysState;
 use nvf_play::script::ScriptState;
@@ -478,7 +478,7 @@ fn throw_gore(
         }
         // The explosion (visual and sound) and the blood.
         if let Some(x) = explosion {
-            explosions.write(ExplosionFx { explosion: x, point: at_a, cause: None, normal: None });
+            explosions.write(ExplosionFx { explosion: x, point: at_a, cause: None, normal: None, look: ExplosionLook::Own });
             if let Some(ex) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&x)) {
                 for sound in ex.sound_1.into_iter().chain(ex.sound_2) {
                     sounds.write(PlaySound { sound, at: Some(at_a) });
