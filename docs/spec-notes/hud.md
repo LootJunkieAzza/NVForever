@@ -345,10 +345,14 @@ menu's (`dialogue_menu.rs`).
   map marker's, at depth 5 over the map marker's 3. Built 2026-10-23 (playtest list 7
   item 44): the active quest's marked targets (the Pip-Boy's, conditions passing,
   quests-dialogue.md §2) at any distance, drawn in the map marker's box over the other
-  marks [hypothesis: the box, and no distance limit]; a target in another cell at a door
-  towards it: outdoors the door into its interior (as the Pip-Boy's map), indoors a door of
-  the player's cell to the target's cell, else to its worldspace or that of the door into
-  its interior [hypothesis: one step of doors; the original may walk further].
+  marks [hypothesis: the box, and no distance limit]; a target in another place (an
+  interior, another worldspace) at the door of the player's place that starts the
+  shortest way to it through load doors, up to 8, avoiding locked doors unless the target
+  "Ignores Locks" (`fnv_game::quest_targets::DoorGraph`, 2026-10-25) [hypothesis: the
+  shortest way; one step of doors before]. No distance figure: the icon file sets
+  `_Distance` "set by code, distance to this object in game" and no trait reads it, so the
+  original's compass shows none [documented: `menus/prefabs/compassicon.xml`, Fallout -
+  Misc.bsa].
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
   Perception <p>, <s> sneaking left off` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`;
   `compass: <n> quest target(s) placed, <m> on the compass` when those change.
