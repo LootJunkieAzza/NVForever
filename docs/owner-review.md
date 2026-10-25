@@ -8698,7 +8698,7 @@ the spec it links to.
 
 ## NPCs use their stimpaks (2026-10-25, branch claude/npc-stimpaks)
 
-docs/design/combat-ai.md §20. Hurt NPCs (in a fight, or hit within 15 s) use a stimpak they
+docs/design/combat-ai.md §21. Hurt NPCs (in a fight, or hit within 15 s) use a stimpak they
 carry; the game's stimpak idle plays on the upper body only, so they keep moving.
 - *Guesses:* used only if at most 25 % of its heal would be wasted, or any below 35 %
   health; 3 s between two; the heal lands halfway through the clip; the sound

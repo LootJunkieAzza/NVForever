@@ -1,4 +1,4 @@
-//! NPCs heal themselves with the stimpaks they carry (docs/design/combat-ai.md §20; owner
+//! NPCs heal themselves with the stimpaks they carry (docs/design/combat-ai.md §21; owner
 //! request 2026-10-25). The rules are **[design]** unless tagged: combat is not a parity
 //! target (docs/design/combat.md).
 //!

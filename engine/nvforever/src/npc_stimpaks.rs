@@ -1,4 +1,4 @@
-//! NPCs use the stimpaks they carry (docs/design/combat-ai.md §20). When and which one is
+//! NPCs use the stimpaks they carry (docs/design/combat-ai.md §21). When and which one is
 //! the rules' (`fnv_game::npc_stimpaks`: hurt, in Combat or lately hit, and only a
 //! stimpak little of which would go past full health); this module plays it.
 //!

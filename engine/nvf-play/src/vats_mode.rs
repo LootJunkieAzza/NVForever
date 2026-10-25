@@ -43,8 +43,12 @@
 //!   [`stand_beside`]; the swing is combat's own, [`VatsMode::take_swing`], landing on the mark,
 //!   [`VatsMode::melee_mark`]); a grenade or thrown weapon is thrown on the low arc that
 //!   lands on each mark (`crate::combat::fire`, `fnv_combat::vats::lob_dir`).
-//! - Any menu, death, a script disabling the fighting controls or the weapon leaving the
-//!   hand ends the mode (§9.3, §11.6). Nothing of it is saved (§11.7).
+//! - Any menu, a conversation (a forced greeting too), death, a script disabling the
+//!   fighting controls or the weapon leaving the hand ends the mode (§9.3, §11.6), and so
+//!   does any action but marking, aiming and accepting ([`LEAVING`]: E with nothing
+//!   marked activates what is under the crosshair, Wait, Jump, Sneak, the hotkeys…); a
+//!   weapon that does not come out within [`DRAW_LIMIT`] gives up entering (§11.8).
+//!   Nothing of it is saved (§11.7).
 //!
 //! Log lines (smoke tests read them): `vats mode: on (…)`, `vats mode: refused: …`,
 //! `vats mode: marked …`, `vats mode: mark refused: …`, `vats mode: unmarked …`,
@@ -108,6 +112,44 @@ pub const AFTER_LAST: f32 = 0.3;
 /// [design: owner 2026-10-23, "let the player aim or not whilst vats slow time is
 /// running"; the aim waits out the tap so a tap does not twitch the zoom].
 pub const UNMARK_TAP: f32 = 0.25;
+/// V with the weapon away waits this long, real seconds, for the weapon to come out; then
+/// entering is given up (§11.8) [design: a draw is well under a second].
+pub const DRAW_LIMIT: f32 = 3.0;
+/// The controls whose press ends the mode (§11.8): every action but marking (Use),
+/// aiming or unmarking (Block), V and accepting the marks (Activate while marking with a
+/// mark made, [`leaving_press`]); moving, looking and the camera go on [design: owner
+/// 2026-10-25, "any action besides aiming and marking or accepting marks" kicks the
+/// player out, so they are never stuck in the mode].
+pub const LEAVING: [Control; 17] = [
+    Control::Activate,
+    Control::ReadyItem,
+    Control::CrouchSneak,
+    Control::Jump,
+    Control::MenuMode,
+    Control::Rest,
+    Control::Hotkey1,
+    Control::AmmoSwap,
+    Control::Hotkey3,
+    Control::Hotkey4,
+    Control::Hotkey5,
+    Control::Hotkey6,
+    Control::Hotkey7,
+    Control::Hotkey8,
+    Control::QuickSave,
+    Control::QuickLoad,
+    Control::Grab,
+];
+
+/// The control pressed this frame that ends the mode (§11.8), if any: one of [`LEAVING`],
+/// except Activate while marking with `marks` made, which fires them.
+pub fn leaving_press(phase: Phase, marks: usize, pressed: impl Fn(Control) -> bool) -> Option<Control> {
+    if phase == Phase::Off {
+        return None;
+    }
+    let accepts = phase == Phase::Marking && marks > 0;
+    LEAVING.into_iter().find(|&c| pressed(c) && !(c == Control::Activate && accepts))
+}
+
 /// How far the crosshair's ray looks for a target when the projectile has no range of
 /// its own, units [design].
 pub const REACH: f32 = 8192.0;
@@ -301,6 +343,8 @@ pub struct VatsMode {
     spent: f32,
     /// Real seconds when Block went down while marking (a tap unmarks, §11.5).
     block_at: Option<f64>,
+    /// Real seconds when the weapon began to be drawn for the mode ([`DRAW_LIMIT`]).
+    drawing_at: Option<f64>,
     /// The mark the third-person sights rule looks at while firing (the one being fired
     /// or the next), and whether that rule has the sights up (`None`: not decided yet).
     aim_mark: usize,
@@ -563,11 +607,19 @@ fn read_keys(
     mut vats: ResMut<VatsMode>,
     mut control: ResMut<PlayerControl>,
     player: Res<Player>,
+    mut sounds: Sounds,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate) };
+    // Any other action ends the mode (§11.8), here before activation, so an E with
+    // nothing marked reaches what is under the crosshair.
+    if let Some(c) = leaving_press(vats.phase, vats.queue.len(), pressed) {
+        vats.now = now;
+        vats.keys = Keys::default();
+        end(&mut vats, &format!("{} pressed", crate::bindings::label(c)), &mut sounds);
+    }
     // Block while marking: a tap unmarks, a hold aims (the aim waits out the tap).
     if vats.phase == Phase::Marking {
         if pressed(Control::Block) {
@@ -590,6 +642,7 @@ fn read_keys(
     if vats.phase == Phase::Off && vats.keys.toggle && !control.weapon_out && !locks.fighting {
         control.weapon_out = true;
         vats.phase = Phase::Drawing;
+        vats.drawing_at = Some(now);
         vats.keys.toggle = false;
         info!("vats mode: drawing the weapon first");
     }
@@ -647,12 +700,21 @@ fn update(
     let keys = std::mem::take(&mut v.keys);
     let playing = *state.get() == PlayState::Playing;
     let dead = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF));
+    // A conversation (a forced greeting too) or a script's menu, caught before the state
+    // follows it (§11.8).
+    let held = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.in_menu());
     let Some(combat) = combat else { return };
-    // What ends the mode whatever it is doing (§9.3, §11.6).
+    // What ends the mode whatever it is doing (§9.3, §11.6, §11.8).
     let stop = if !playing {
         Some("a menu opened")
     } else if dead {
         Some("the player died")
+    } else if held {
+        Some("a conversation or a script's menu began")
+    } else if v.phase == Phase::Drawing && !control.weapon_out {
+        Some("the weapon was put away")
+    } else if v.phase == Phase::Drawing && v.drawing_at.is_some_and(|t| v.now - t > f64::from(DRAW_LIMIT)) {
+        Some("the weapon did not come out")
     } else if locks.fighting {
         Some("a script disabled fighting")
     } else if v.active()
@@ -673,7 +735,7 @@ fn update(
                 v.regen_mult = Some(m);
             }
             if keys.toggle {
-                try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, playing && !dead && !locks.fighting, &mut hud, &mut sounds);
+                try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, playing && !dead && !held && !locks.fighting, &mut hud, &mut sounds);
             }
         }
         (_, Some(why)) => end(v, why, &mut sounds),
@@ -701,9 +763,8 @@ fn update(
                     None => end(v, "right click with no marks", &mut sounds),
                 }
             } else if keys.accept {
-                if v.queue.is_empty() {
-                    info!("vats mode: nothing marked to fire");
-                } else {
+                // (With nothing marked, E has already ended the mode in `read_keys`.)
+                if !v.queue.is_empty() {
                     v.phase = Phase::Firing;
                     (v.aim_mark, v.sights_up) = (0, None);
                     let n = v.queue.len();
@@ -1464,6 +1525,24 @@ impl Plugin for VatsModePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn any_action_but_marking_aiming_and_accepting_leaves() {
+        let only = |k: Control| move |c: Control| c == k;
+        // Activate accepts with a mark made, and leaves (to activate) with none or while firing.
+        assert_eq!(leaving_press(Phase::Marking, 2, only(Control::Activate)), None);
+        assert_eq!(leaving_press(Phase::Marking, 0, only(Control::Activate)), Some(Control::Activate));
+        assert_eq!(leaving_press(Phase::Firing, 2, only(Control::Activate)), Some(Control::Activate));
+        assert_eq!(leaving_press(Phase::Drawing, 0, only(Control::Activate)), Some(Control::Activate));
+        for c in [Control::Rest, Control::Jump, Control::CrouchSneak, Control::Hotkey3, Control::QuickLoad, Control::Grab] {
+            assert_eq!(leaving_press(Phase::Marking, 1, only(c)), Some(c), "{c:?}");
+        }
+        // The mode's own controls, moving and the camera stay.
+        for c in [Control::Use, Control::Block, Control::Vats, Control::Forward, Control::Run, Control::TogglePov] {
+            assert_eq!(leaving_press(Phase::Marking, 1, only(c)), None, "{c:?}");
+        }
+        assert_eq!(leaving_press(Phase::Off, 0, only(Control::Rest)), None);
+    }
 
     #[test]
     fn a_chance_reads_as_whole_percent() {

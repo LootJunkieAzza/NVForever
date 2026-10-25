@@ -895,6 +895,21 @@ expect = [
 forbid = [{ re = '1EFiendViolet.*Lost → Combat', label = "Combat ↔ Lost flicker" }]
 
 [[scenario]]
+name = "combat-npc-grenades"
+source = "docs/design/combat-ai.md §20: a gunman carrying grenades throws one now and then at a target it sees, clear of its blast and within the throw's reach, one taken from its inventory each time (npc_grenades.rs)"
+note = "god mode; Violet is given three frag grenades at 14 s and put 1,200 units from the player at 15 s (a frag grenade is thrown from beyond 990: 1.1 x its 900-unit blast)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_grenades.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:call:FiendVioletRef:AddItem:WeapGrenadeFrag:3,15:moveto:FiendVioletRef:player:1200:0:0" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 60
+expect = [
+  { re = 'npc combat: .*Violet.* throws WeapGrenadeFrag at the player \((?P<n>\d+) units', range = [990, 1500], label = "Violet throws a frag grenade, clear of its blast" },
+  { re = 'throws WeapGrenadeFrag at .*; (?P<n>\d) left', range = [0, 2], label = "one taken from her three each throw" },
+  { re = 'npc combat style summary: .*; (?P<n>\d+) grenades thrown', range = [1, 3], label = "the summary counts the throws" },
+]
+
+[[scenario]]
 name = "combat-violet"
 launch = "violet"
 source = "CLAUDE.md: after combat AI changes, the first check of docs/design/combat-ai.md §7"
@@ -4255,7 +4270,7 @@ expect = [
 
 [[scenario]]
 name = "combat-npc-stimpak"
-source = "owner request 2026-10-25: NPCs hurt use a stimpak they carry, not one that would mostly go to waste, playing the game's stimpak idle on the upper body only so they keep moving (docs/design/combat-ai.md §20)"
+source = "owner request 2026-10-25: NPCs hurt use a stimpak they carry, not one that would mostly go to waste, playing the game's stimpak idle on the upper body only so they keep moving (docs/design/combat-ai.md §21)"
 note = "Chet (GSChetRef) in the general store is given a .357 and three Stimpaks and set on the player, who cannot die (GOD). At 6 s (scripts' clock) he loses 2 health: nearly all of a stimpak would be wasted, so he uses none. At 14 s he loses 40: he plays 3rdP_SpecialIdle_Stempak.kf with the syringe (stempax.nif) on his upper body, holds his fire, and halfway through one Stimpak heals him; with health near full again he uses no second one"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_stimpaks.rs", "crates/fnv-game/src/npc_stimpaks.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
@@ -5042,6 +5057,16 @@ order = [[
   { re = 'compass: 2 quest target\(s\) placed, [0-2] on the compass', label = "both targets placed on the compass" },
   { re = 'compass: 1 quest target\(s\) placed, [01] on the compass', label = "the Broc Flower's mark gone, the Xander Root's kept" },
 ]]
+
+[[scenario]]
+name = "compass-quest-target-doors"
+source = "docs/spec-notes/hud.md §11 (2026-10-25): a quest target several load doors away is marked at the first door of the shortest way to it (fnv_game::quest_targets::DoorGraph); from Vault 22's lower level (its doors lead only to the vault's other levels) VCG03's two targets in Goodsprings are marked at the first door of the way out; the one-step rule found no door there"
+areas = ["hud", "quests"]
+paths = ["engine/nvf-play/src/compass.rs", "crates/fnv-game/src/quest_targets.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:startquest VCG03;10.5:setobjectivedisplayed VCG03 10 1;11:forceactivequest VCG03;11.5:close" }
+args = ["--cell", "Vault22c", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
 
 [[scenario]]
 name = "teammate-perk"
@@ -7256,6 +7281,27 @@ order = [[
   { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
   'fast travel: answered "OK"',
 ]]
+
+[[scenario]]
+name = "vats-mode-actions-leave"
+source = "owner 2026-10-25: any action besides aiming, marking or accepting kicks the player out of VATS mode (docs/design/vats-mode.md §11.8)"
+note = "vats-mode-two-marks' setup (the two Goodsprings dogs attack, GOD, a .357). V at 10 s enters; one mark at 10.32; T (Wait) at 10.36 ends the mode with the mark dropped and nothing spent (the Wait menu itself is refused with the dogs about). The clock is back at 1, so V at 10.6 enters again 0.2 s later; E at 10.9 with nothing marked leaves rather than firing (and would activate what is under the crosshair)"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:t,10.6:v,10.9:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "a mark is made" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Wait pressed\)', label = "Wait ends the mode, nothing spent" },
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters again" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Activate pressed\)', label = "E with nothing marked ends the mode" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 2 times, 1 marks, 0 shots, 0 AP spent', label = "the summary: two stays, one mark, nothing fired" },
+]
+forbid = [{ text = "vats mode: firing", label = "nothing was fired" }]
 
 [[scenario]]
 name = "vats-mode-two-marks"
