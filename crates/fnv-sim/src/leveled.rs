@@ -217,7 +217,7 @@ mod tests {
         for (id, each) in [(1u32, true), (2, false)] {
             let entries = vec![LeveledEntry { level: 1, item: FormId(9), count: u16::MAX, condition: None }];
             let list = LeveledList { chance_none: 0, all_levels: false, each, use_all: false, global: None, entries };
-            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, data: BaseData::LeveledItem(list) };
+            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::LeveledItem(list) };
             forms.bases.insert(FormId(id), base);
         }
         let mut rng = ChaCha8Rng::seed_from_u64(1);

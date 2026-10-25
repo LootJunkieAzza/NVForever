@@ -925,7 +925,7 @@ mod tests {
                 .map(|k| LeveledEntry { level: 1, item: FormId(if k % 2 == 0 { id } else { other }), count: 1, condition: None })
                 .collect();
             let list = LeveledList { chance_none: 0, all_levels: false, each: false, use_all: false, global: None, entries };
-            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, data: BaseData::LeveledItem(list) };
+            let base = BaseForm { id: FormId(id), sig: *b"LVLI", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::LeveledItem(list) };
             forms.bases.insert(FormId(id), base);
         }
         assert!(!leveled_item_random(&forms, FormId(1), 0));
