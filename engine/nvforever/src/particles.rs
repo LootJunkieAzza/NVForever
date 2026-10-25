@@ -167,11 +167,12 @@ impl ModelEmitter {
     }
 
     /// The model of placed reference `r` whose drawn rig starts its Idle `start` seconds
-    /// in ("Random Anim Start" bases): the emitter's time starts there too, so the
-    /// sequence's emitter keys and moved nodes (particles.md §6.8) stay in step with the
-    /// rig and its sounds.
+    /// in ("Random Anim Start" bases): the emitter's own time starts there too. Systems
+    /// the rig's playing sequence drives follow that sequence's clock (§6.7); this keeps
+    /// the rest, and the mover of those that are not driven (particles.md §6.8), in step
+    /// with the rig and its sounds.
     pub fn placed_from(path: impl Into<String>, r: u32, start: f32) -> ModelEmitter {
-        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r) }
+        ModelEmitter { path: path.into(), age: start.max(0.0), placed: Some(r), clock: None }
     }
 }
 
