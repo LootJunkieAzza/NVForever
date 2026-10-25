@@ -16,8 +16,9 @@ differences:
 
 - **05 and 06 need a form list** named `ExtProbeList` in the test plugin, holding three
   or more forms of your choice (Object Window, Miscellaneous, FormList). If the GECK
-  refuses either, that is its result; send the message. It runs over two frames: the second frame checks whether
-  an inventory entry kept from the first is still valid.
+  refuses either, that is its result; send the message.
+- **02_foreach runs over two frames**: the second frame checks whether an inventory
+  entry kept from the first is still valid.
 - **09_runaway is the runaway loop: observe with care.** Do **not** mark its quest Start
   Game Enabled. Run every other file first and save the console text. Then start this one
   by hand (`StartQuest` on its quest at the console) and note what happens: the game
