@@ -676,9 +676,19 @@ fn name_index() -> &'static HashMap<String, &'static Kind> {
 }
 
 /// The implementation registered under a catalogue name (any case), in any of the three
-/// registries: the game's opcodes, the console's and the extender's functions.
+/// registries: the game's opcodes, the console's and the extender's functions. Catalogue
+/// names only; [`lookup_alias`] also takes aliases and observed spellings.
 pub fn lookup_name(name: &str) -> Option<&'static Kind> {
     name_index().get(&name.to_ascii_lowercase()).copied()
+}
+
+/// As [`lookup_name`], and a name the function table knows (an alias such as `GetAV`, or
+/// a spelling seen in shipped source) resolves to its function's entry.
+pub fn lookup_alias(table: &fnv_script::table::FunctionTable, name: &str) -> Option<&'static Kind> {
+    lookup_name(name).or_else(|| {
+        let op = table.by_name(name)?;
+        lookup(op).or_else(|| lookup_name(&table.get(op)?.name))
+    })
 }
 
 /// Whether an opcode is implemented: an implementation, or deliberately nothing to do

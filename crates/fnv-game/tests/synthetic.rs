@@ -769,6 +769,18 @@ fn extender_functions_are_extender_rows_of_the_catalogue_and_names_are_unique() 
 }
 
 #[test]
+fn aliases_reach_the_function_they_name() {
+    let (table, _) = catalogue();
+    let ptr = |k: Option<&'static fnv_game::functions::Kind>| k.map(|k| k as *const _);
+    // GetAV is GetActorValue's alias; TCL is ToggleCollision's (a console function).
+    assert!(fnv_game::functions::lookup_name("GetAV").is_none());
+    assert_eq!(ptr(fnv_game::functions::lookup_alias(&table, "getav")), ptr(fnv_game::functions::lookup(0x100E)));
+    assert_eq!(ptr(fnv_game::functions::lookup_alias(&table, "TCL")), ptr(fnv_game::functions::lookup_name("ToggleCollision")));
+    assert!(fnv_game::functions::lookup_alias(&table, "NoSuchFunction").is_none());
+    assert_eq!(table.get(0x100E).and_then(|f| f.origin.as_deref()), Some("GECK1"));
+}
+
+#[test]
 fn menus_and_loading_screens_stop_game_time_for_scripts() {
     // The quest timer of the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage,
     // with a long menu and a loading screen in the middle: neither counts.

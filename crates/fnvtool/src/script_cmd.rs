@@ -852,10 +852,12 @@ fn stubs(l: &Loaded) -> Value {
     }
     let calls = |op: u16| stats.calls.get(&op).map_or(0, |c| c[0] + c[1]);
     let conds = |op: u16| l.table.get(op).map_or(0, |f| f.condition_uses);
+    let origin = |op: u16| l.table.get(op).and_then(|f| f.origin.clone()).unwrap_or_default();
     let mut rows: Vec<(u64, Value)> = Vec::new();
     // Every status, 0 when no stub has it, so a total can be expected to be 0.
     let mut by_status: BTreeMap<&str, u64> = Status::KEYS.iter().map(|k| (*k, 0)).collect();
     let mut by_workstream: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut by_origin: BTreeMap<String, u64> = BTreeMap::new();
     let (mut stub_calls, mut stub_conds) = (0u64, 0u64);
     for (op, name, st) in audit() {
         *by_status.entry(st.key()).or_default() += 1;
@@ -869,8 +871,9 @@ fn stubs(l: &Loaded) -> Value {
         if st.key() != "no_op" {
             stub_calls += c;
             stub_conds += k;
+            *by_origin.entry(origin(op)).or_default() += 1;
         }
-        rows.push((c + k, json!({"opcode": format!("0x{op:04X}"), "name": name, "status": st.key(), "why": why, "calls": c, "condition_uses": k})));
+        rows.push((c + k, json!({"opcode": format!("0x{op:04X}"), "name": name, "origin": origin(op), "status": st.key(), "why": why, "calls": c, "condition_uses": k})));
     }
     rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
     // Functions used that have no registration at all.
@@ -881,7 +884,7 @@ fn stubs(l: &Loaded) -> Value {
         .filter(|(op, _)| **op >= 0x1000 && fnv_game::functions::lookup(**op).is_none())
         .map(|(op, f)| (calls(*op), f.condition_uses, op, f))
         .filter(|(c, k, ..)| c + k > 0)
-        .map(|(c, k, op, f)| (c + k, json!({"opcode": format!("0x{op:04X}"), "name": f.name, "calls": c, "condition_uses": k})))
+        .map(|(c, k, op, f)| (c + k, json!({"opcode": format!("0x{op:04X}"), "name": f.name, "origin": origin(*op), "calls": c, "condition_uses": k})))
         .collect();
     unhandled.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
     let stubs = by_status.iter().filter(|(k, _)| **k != "no_op").map(|(_, n)| n).sum::<u64>();
@@ -893,6 +896,7 @@ fn stubs(l: &Loaded) -> Value {
             "stubs": stubs,
             "by_status": by_status,
             "by_workstream": by_workstream,
+            "by_origin": by_origin,
             "stub_calls": stub_calls,
             "stub_condition_uses": stub_conds,
             "unhandled_used": unhandled.len(),
