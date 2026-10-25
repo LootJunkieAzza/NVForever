@@ -9,11 +9,13 @@
 //! - [`decode`]: bytes → IR, with a report of everything not understood
 //! - [`table`]: the function table from `schemas/script/functions.json`
 //! - [`decompile`]: IR → canonical text
+//! - [`compile`]: source text → compiled bytes, variables and references (the editor's job)
 //! - [`check`]: consistency checks between a unit and its decoded program
 //! - [`resolve`]: which script a form runs and its variables (for `ref.var`)
 //! - [`vm`]: the interpreter over the IR, against a `Host` (docs/spec-notes/scripts.md §4)
 
 pub mod check;
+pub mod compile;
 pub mod decode;
 pub mod decompile;
 pub mod ir;

@@ -1,0 +1,188 @@
+//! Source text → lines of tokens (docs/spec-notes/scripts.md §3.4, script-compiler.md §1).
+//!
+//! A line ends at a line break. Comments run from `;` outside double quotes to the end of
+//! the line. A line with no letter or digit left produces no statement and is dropped
+//! here, as are blank lines [observed: scripts.md §3.4].
+
+/// What a token is, as far as the lexer can tell without knowing names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Letters, digits, `_` and `.`: a name, a number, `Ref.Func`, `Quest.var`.
+    Word,
+    /// `"…"`: the text between the quotes (an unterminated string runs to the end of the
+    /// line).
+    Str,
+    /// `==` `!=` `<=` `>=` `&&` `||` `<` `>` `+` `-` `*` `/` `%`.
+    Op,
+    Open,
+    Close,
+    /// Any other single character (`:`, `` ` ``, `=` …).
+    Punct,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tok {
+    pub kind: Kind,
+    pub text: String,
+}
+
+impl Tok {
+    pub fn is_word(&self, w: &str) -> bool {
+        self.kind == Kind::Word && self.text.eq_ignore_ascii_case(w)
+    }
+    pub fn is_op(&self, o: &str) -> bool {
+        self.kind == Kind::Op && self.text == o
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    /// 1-based line number in the source.
+    pub no: usize,
+    pub toks: Vec<Tok>,
+}
+
+/// The longest source line the editor accepts [documented: Inline Expression; Lambda].
+pub const MAX_LINE: usize = 512;
+
+/// The text of `line` before its comment.
+pub fn strip_comment(line: &str) -> &str {
+    let mut quoted = false;
+    for (i, ch) in line.char_indices() {
+        match ch {
+            '"' => quoted = !quoted,
+            ';' if !quoted => return &line[..i],
+            _ => {}
+        }
+    }
+    line
+}
+
+/// A number as the compiler writes it: digits with at most one `.`, at least one digit
+/// [observed: scripts.md §2.3].
+pub fn is_number(s: &str) -> bool {
+    let mut dot = false;
+    let mut digit = false;
+    for ch in s.chars() {
+        match ch {
+            '0'..='9' => digit = true,
+            '.' if !dot => dot = true,
+            _ => return false,
+        }
+    }
+    digit
+}
+
+fn word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '.'
+}
+
+/// Tokens of one line (comment already removed). Commas separate like spaces; a word
+/// ending in `.` joins the next word (`SomeREF. Disable`) [observed: scripts.md §3.4].
+pub fn tokens(line: &str) -> Vec<Tok> {
+    let cs: Vec<char> = line.chars().collect();
+    let mut out: Vec<Tok> = Vec::new();
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c.is_whitespace() || c == ',' {
+            i += 1;
+            continue;
+        }
+        let two: String = cs[i..(i + 2).min(cs.len())].iter().collect();
+        let (kind, len) = if c == '"' {
+            let end = cs[i + 1..].iter().position(|&q| q == '"').map(|p| i + 1 + p);
+            let text: String = cs[i + 1..end.unwrap_or(cs.len())].iter().collect();
+            out.push(Tok { kind: Kind::Str, text });
+            i = end.map(|e| e + 1).unwrap_or(cs.len());
+            continue;
+        } else if matches!(two.as_str(), "==" | "!=" | "<=" | ">=" | "&&" | "||") {
+            (Kind::Op, 2)
+        } else if "<>+-*/%".contains(c) {
+            (Kind::Op, 1)
+        } else if c == '(' {
+            (Kind::Open, 1)
+        } else if c == ')' {
+            (Kind::Close, 1)
+        } else if word_char(c) {
+            let n = cs[i..].iter().take_while(|&&w| word_char(w)).count();
+            let text: String = cs[i..i + n].iter().collect();
+            if let Some(prev) = out.last_mut() {
+                if prev.kind == Kind::Word && prev.text.ends_with('.') && !is_number(&prev.text) && (c.is_ascii_alphabetic() || c == '_') {
+                    prev.text.push_str(&text);
+                    i += n;
+                    continue;
+                }
+            }
+            (Kind::Word, n)
+        } else {
+            (Kind::Punct, 1)
+        };
+        out.push(Tok { kind, text: cs[i..i + len].iter().collect() });
+        i += len;
+    }
+    out
+}
+
+/// Every line that can produce a statement, with its tokens; `long` collects the numbers
+/// of lines over [`MAX_LINE`] characters.
+pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
+    let src = src.trim_end_matches('\0');
+    let mut out = Vec::new();
+    for (n, raw) in src.split('\n').enumerate() {
+        let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        if raw.chars().count() > MAX_LINE {
+            long.push(n + 1);
+        }
+        let text = strip_comment(raw).trim();
+        if !text.chars().any(|c| c.is_alphanumeric()) {
+            continue;
+        }
+        let toks = tokens(text);
+        if !toks.is_empty() {
+            out.push(Line { no: n + 1, toks });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn texts(l: &str) -> Vec<String> {
+        tokens(l).into_iter().map(|t| t.text).collect()
+    }
+
+    #[test]
+    fn splits_operators_words_and_strings() {
+        assert_eq!(texts("if GetStage MQ01 >= 10 && x"), ["if", "GetStage", "MQ01", ">=", "10", "&&", "x"]);
+        assert_eq!(texts("set x to (a+-1)*2"), ["set", "x", "to", "(", "a", "+", "-", "1", ")", "*", "2"]);
+        let t = tokens("ModPCMiscStat \"Corpses Eaten\" 1");
+        assert_eq!(t[1], Tok { kind: Kind::Str, text: "Corpses Eaten".into() });
+    }
+
+    #[test]
+    fn commas_and_dot_space() {
+        assert_eq!(texts("SomeREF. Disable"), ["SomeREF.Disable"]);
+        assert_eq!(texts("AddItem Caps001, 10"), ["AddItem", "Caps001", "10"]);
+        assert_eq!(texts("set x to 1. * 2"), ["set", "x", "to", "1.", "*", "2"]);
+    }
+
+    #[test]
+    fn comments_and_empty_lines() {
+        let mut long = Vec::new();
+        let l = lines("scn Foo ; name\r\n\r\n; only a comment\n=====\nset s to \"a;b\" ; c\n", &mut long);
+        assert_eq!(l.len(), 2);
+        assert_eq!(l[0].no, 1);
+        assert_eq!(l[1].no, 5);
+        assert_eq!(l[1].toks[3].text, "a;b");
+        assert!(long.is_empty());
+    }
+
+    #[test]
+    fn numbers() {
+        assert!(is_number("19.50") && is_number(".5") && is_number("3") && is_number("1."));
+        assert!(!is_number("1.2.3") && !is_number(".") && !is_number("0x10") && !is_number("a1"));
+    }
+}

@@ -37,6 +37,45 @@
         "decode",
         "M5"
       ]
+    },
+    {
+      "id": "L5.script.compile.vanilla",
+      "layer": 5,
+      "description": "The script compiler (fnv_script::compile, docs/spec-notes/script-compiler.md): every unit of base game + DLC + packs that carries both source (SCTX) and compiled bytes (SCDA) is compiled from its source, seeded with its own variable and reference lists, and the SHA-256 of the result is compared with that of the shipped bytes, which the oracle tools/capture/oracle_script.py (compiled) reads without the Rust code. Keyed by unit. The 22 units whose bytes cannot come from their source (forms renamed after compiling, scripts compiled against an older version of another script, reference list entries kept from earlier compiles) are listed in script-compiler.md section 5.",
+      "oracle": {
+        "golden": "script/compile.json"
+      },
+      "candidate": {
+        "argv": [
+          "{candidate}",
+          "script",
+          "compile",
+          "{data_dir}",
+          "FalloutNV.esm",
+          "DeadMoney.esm",
+          "HonestHearts.esm",
+          "OldWorldBlues.esm",
+          "LonesomeRoad.esm",
+          "GunRunnersArsenal.esm",
+          "ClassicPack.esm",
+          "MercenaryPack.esm",
+          "TribalPack.esm",
+          "CaravanPack.esm",
+          "--schema",
+          "{schema_dir}",
+          "--digests"
+        ]
+      },
+      "comparator": {
+        "kind": "keyed",
+        "select": "/units",
+        "key": "unit"
+      },
+      "tags": [
+        "script",
+        "compile",
+        "M5"
+      ]
     }
   ]
 }
