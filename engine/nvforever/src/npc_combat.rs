@@ -559,6 +559,12 @@ impl Fighters {
     pub fn distance(&self, actor: u32) -> Option<f32> {
         self.poses.get(&actor).map(|p| p.distance)
     }
+
+    /// Whether a fighting actor reloads or has a blow on its way (it does not start using
+    /// a stimpak then, `npc_stimpaks.rs`).
+    pub fn busy(&self, actor: u32) -> bool {
+        self.fighters.get(&actor).is_some_and(|f| !f.blows.is_empty() || f.cycle.as_ref().is_some_and(|c| c.reloading()))
+    }
 }
 
 #[derive(Default)]
@@ -2139,10 +2145,12 @@ pub(crate) fn fight(
             if fighter.block.is_some() {
                 guarding.insert(me, heading(global));
             }
+            // It holds its fire while it uses a stimpak (`npc_stimpaks.rs`).
             let ready = sees
                 && facing
                 && !hold_fire
                 && staggering.is_none()
+                && !g.using_stimpak(me)
                 && idle_holds.is_none()
                 && fighter.block.is_none()
                 && clock >= fighter.recoil_until

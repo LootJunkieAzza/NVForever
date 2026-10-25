@@ -78,6 +78,9 @@
 //!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
 //!   People keep their drawn-weapon fidgets [design].
 //!
+//! - **Stimpaks** (`npc_stimpaks.rs`). An NPC's stimpak idle plays on its upper body
+//!   only, and over the fight's aim and attacks: it walks and runs while it injects.
+//!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
 //! conditions: other fidgets), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
@@ -265,6 +268,12 @@ impl<C> IdleSlot<C> {
 pub struct ActorIdle(pub IdleSlot<Arc<BoundClip>>);
 
 impl ActorIdle {
+    /// Whether a stimpak's upper-body idle shows (`npc_stimpaks.rs`): it is laid over the
+    /// fight's aim and attacks too.
+    pub fn over_pose(&self) -> bool {
+        self.0.shown().any(|(p, w)| w > 0.0 && p.source == IdleSource::Stimpak)
+    }
+
     /// The idles as blend layers ([`IDLE_LAYER`] and the next).
     pub fn layers(&self, player: &mut BlendPlayer) {
         for (k, (p, w)) in self.0.shown().enumerate() {
@@ -789,7 +798,7 @@ pub fn drive(
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         for IdleRequest { actor, idle, source } in requests {
-            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower) {
+            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
                 st.stats.asked += 1;
             }
             match source {
@@ -797,7 +806,7 @@ pub fn drive(
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower => {}
+                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -844,6 +853,8 @@ pub fn drive(
             }
             let Ok((e, _, rig, slot, _, _)) = actors.get_mut(drawn[&actor.0]) else { continue };
             let bound = bind_clip(&rig.skel, clip);
+            // A stimpak plays on the upper body only (`npc_stimpaks.rs`).
+            let bound = if source == IdleSource::Stimpak { crate::npc_stimpaks::upper_body(bound, &rig.skel.names) } else { bound };
             if bound.tracks.is_empty() {
                 st.stats.no_clip += 1;
                 failed(st, "its clip drives no node of the actor's skeleton");
@@ -863,7 +874,7 @@ pub fn drive(
                 IdleSource::Fidget => st.stats.actor_fidgets += 1,
                 IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
                 IdleSource::CombatIdle => st.stats.combat_idles += 1,
-                IdleSource::Gesture | IdleSource::Cower => {}
+                IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak => {}
                 _ => st.stats.started += 1,
             }
             match source {
