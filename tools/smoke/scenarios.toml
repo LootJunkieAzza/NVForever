@@ -5079,6 +5079,7 @@ run_seconds = 40
 expect = [
   "script: ExitGame: the credits, then the main menu",
   { re = 'credits: rolling (?P<n>\d+) lines and 2 pictures', range = [1000, 2000], label = "the credits' lines and the file's two pictures" },
+  { re = 'credits: (?P<n>\d+) loading screens behind them', range = [20, 2000], label = "the load order's loading screens take turns behind the credits (owner 2026-10-25)" },
 ]
 
 [[scenario]]

@@ -20,7 +20,12 @@
 //!
 //! Positions are the credits rectangle's: centred on the screen (`credits_menu.xml`,
 //! `credits_rect` at x 640 of the menus' 1280) over the menu's dark blue (8, 8, 20)
-//! [documented: menus\options\credits_menu.xml]. The text rolls up from below the screen
+//! [documented: menus\options\credits_menu.xml]. Behind the text the game's loading
+//! screens take turns, every LSCR picture of the load order in a shuffled order, each
+//! dimmed to [`SLIDE_BRIGHTNESS`], panning slowly across the screen while it is up and
+//! fading through black to the next as behind the main menu (`crate::main_menu::Phase`)
+//! [design: owner 2026-10-25, "credits should have a scrolling background of loading
+//! screens"]. The text rolls up from below the screen
 //! at [`SPEED`] interface units a second [design: the original's speed is not
 //! documented], and only the lines on screen are drawn. Esc, Enter, Space or a click ends
 //! it early [design]. The game is held under it (`crate::pause::Paused`); at its end the
@@ -55,6 +60,13 @@ const FONT_FILES: [&str; 9] = [
 
 /// The menu's background colour [documented: credits_menu.xml].
 const BACKGROUND: [u8; 3] = [8, 8, 20];
+
+/// The loading screens behind the credits are dimmed to this, so the text reads over
+/// them [design].
+pub const SLIDE_BRIGHTNESS: f32 = 0.35;
+/// Each picture is drawn this much wider than the screen and pans across the extra
+/// while it is up [design].
+pub const PAN: f32 = 0.15;
 
 /// One thing the credits show, placed in the credits rectangle (x from its centre, y down
 /// from the credits' top).
@@ -158,6 +170,13 @@ pub struct Credits {
     faces: HashMap<u8, Face>,
     drawn: HashMap<usize, Entity>,
     root: Option<Entity>,
+    /// The loading screens' pictures behind the text, the one up, its phase and how long
+    /// it has been up; the picture's entity.
+    slides: Vec<String>,
+    slide: usize,
+    phase: Option<crate::main_menu::Phase>,
+    slide_age: f32,
+    picture: Option<Entity>,
 }
 
 impl Credits {
@@ -168,6 +187,72 @@ impl Credits {
 
 #[derive(Component)]
 struct CreditsRoot;
+
+/// The loading screen behind the credits' text.
+#[derive(Component)]
+struct CreditsPicture;
+
+/// The loading screen's picture, its placement and whether it shows.
+type Pictures<'w, 's> = Query<'w, 's, (&'static mut ImageNode, &'static mut Node, &'static mut Visibility), With<CreditsPicture>>;
+
+/// The window's size in pixels.
+fn screen_px(windows: &Query<&Window, With<PrimaryWindow>>) -> Vec2 {
+    windows.single().map_or(Vec2::new(1280.0, 960.0), |w| Vec2::new(w.width(), w.height()))
+}
+
+/// The loading screens behind the credits: one after another with a fade through black,
+/// each panning across [`PAN`] of its width while it is up.
+#[allow(clippy::too_many_arguments)]
+fn slideshow(
+    c: &mut Credits,
+    dt: f32,
+    window: Vec2,
+    data: Option<&GameData>,
+    textures: Option<ResMut<nvf_assets::TextureCache>>,
+    images: &mut Assets<Image>,
+    formats: Option<&CompressedImageFormatSupport>,
+    pictures: &mut Pictures,
+) {
+    let (Some(phase), Some(pic)) = (c.phase, c.picture) else { return };
+    let Ok((mut img, mut node, mut vis)) = pictures.get_mut(pic) else { return };
+    if c.slides.is_empty() {
+        return;
+    }
+    let (phase, next) = phase.step(dt.min(0.1));
+    c.phase = Some(phase);
+    c.slide_age += dt;
+    if next {
+        c.slide = (c.slide + 1) % c.slides.len();
+        c.slide_age = 0.0;
+    }
+    if next || *vis == Visibility::Hidden {
+        let want = c.slides[c.slide].clone();
+        if let (Some(d), Some(mut cache)) = (data, textures) {
+            match cache.get(&want, true, d, images, formats) {
+                Some(h) => {
+                    img.image = h;
+                    *vis = Visibility::Inherited;
+                }
+                None => {
+                    c.slide = (c.slide + 1) % c.slides.len();
+                    return;
+                }
+            }
+        }
+    }
+    let b = SLIDE_BRIGHTNESS;
+    img.color = Color::srgba(b, b, b, phase.alpha());
+    // Cover the window and a pan's width more; move across it over the slide's turn.
+    if let Some(i) = images.get(&img.image) {
+        let (size, offset) = crate::loading::cover(i.size().as_vec2(), window * (1.0 + PAN));
+        let turn = crate::main_menu::HOLD_SECS + 2.0 * crate::main_menu::FADE_SECS;
+        let along = (c.slide_age / turn).clamp(0.0, 1.0);
+        node.width = Val::Px(size.x);
+        node.height = Val::Px(size.y);
+        node.left = Val::Px(offset.x - window.x * PAN * along);
+        node.top = Val::Px(offset.y - window.y * PAN * 0.5);
+    }
+}
 
 /// What [`start`] needs, as system parameters.
 pub type Start<'w> = (ResMut<'w, Credits>, Option<Res<'w, GameData>>, ResMut<'w, Assets<Image>>, Option<Res<'w, CompressedImageFormatSupport>>);
@@ -212,7 +297,8 @@ fn roll(
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut paused: ResMut<crate::pause::Paused>,
     mut to_main: MessageWriter<crate::pause::MainMenuRequest>,
-    mut lines: Query<&mut Node>,
+    (mut lines, mut pictures): (Query<&mut Node, Without<CreditsPicture>>, Pictures),
+    (play, textures): (Option<Res<crate::PlayWorld>>, Option<ResMut<nvf_assets::TextureCache>>),
 ) {
     if !credits.open {
         return;
@@ -227,6 +313,8 @@ fn roll(
             commands.entity(r).despawn();
         }
         credits.drawn.clear();
+        credits.picture = None;
+        credits.phase = None;
         credits.open = false;
         to_main.write(crate::pause::MainMenuRequest);
         return;
@@ -239,9 +327,26 @@ fn roll(
                 .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), overflow: Overflow::clip(), ..default() }, BackgroundColor(Color::srgb_u8(r, g, b)), GlobalZIndex(130), CreditsRoot))
                 .id();
             credits.root = Some(r);
+            // The loading screens behind the text, over the background colour that shows
+            // between them.
+            let pic = commands.spawn((ImageNode::default(), Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, CreditsPicture, ChildOf(r))).id();
+            credits.picture = Some(pic);
+            if let Some(play) = play.as_deref() {
+                let screens = fnv_world::loadscreen::load_screens(play.0.lo, play.0.schema);
+                let mut slides: Vec<String> = screens.iter().filter_map(|s| s.texture.clone()).collect();
+                slides.sort();
+                slides.dedup();
+                crate::main_menu::shuffle(&mut slides);
+                info!("credits: {} loading screens behind them", slides.len());
+                credits.slides = slides;
+            }
+            credits.slide = 0;
+            credits.slide_age = 0.0;
+            credits.phase = Some(crate::main_menu::Phase::In(0.0));
             r
         }
     };
+    slideshow(&mut credits, time.delta_secs(), screen_px(&windows), data.as_deref(), textures, &mut images, formats.as_deref(), &mut pictures);
     // The items on screen: drawn as they come in, taken away as they leave.
     let top_of = |item: &Item, scroll: f32| screen.y - scroll + item.top();
     let scroll = credits.scroll;
