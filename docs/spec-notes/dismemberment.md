@@ -140,8 +140,11 @@ That the effect raises the actor value, and that the value is what the rule read
   [documented: GECK wiki KillActor]; shooting corpses dismembers them, an everyday sight in the
   original).
 
-The hit must land on a body part (a projectile or the player's melee; blasts and NPC melee
-carry no part yet, §7). Then:
+The hit must land on a body part: a projectile's or the player's blow's; since 2026-10-25 a
+blast's, the part the line from the blast's centre to the actor first meets, and an NPC's
+blow's, the part a short line along the blow meets at its landing point [design: as a
+shot's part is the one its ray meets; `nvf_play::combat::facing_part`]. A blast is judged
+by its weapon's On Hit (most grenades and every mine are No Dismember/Explode, §2.1). Then:
 
 1. **The weapon allows it.** Explode only when On Hit is Normal or Explode Only. Sever only when
    it is Normal or Dismember Only. A hit with no weapon (KillActor aside) does neither.
@@ -271,8 +274,6 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 
 ## 7. Not built
 
-- Dismemberment by explosions (blast hits carry no body part), and by NPC melee (no part).
-  Most grenades and mines are No Dismember/Explode anyway (§2.1).
 - Decals (blood on the ground and walls).
 - Pins Limbs projectiles (two in the masters) pinning a severed part to a wall.
 - Creature gore beyond the BPTD data: insect and robot bits come from their own BPTD records and
