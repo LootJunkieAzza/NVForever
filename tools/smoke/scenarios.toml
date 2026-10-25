@@ -7255,6 +7255,27 @@ order = [[
 ]]
 
 [[scenario]]
+name = "vats-mode-actions-leave"
+source = "owner 2026-10-25: any action besides aiming, marking or accepting kicks the player out of VATS mode (docs/design/vats-mode.md §11.8)"
+note = "vats-mode-two-marks' setup (the two Goodsprings dogs attack, GOD, a .357). V at 10 s enters; one mark at 10.32; T (Wait) at 10.36 ends the mode with the mark dropped and nothing spent (the Wait menu itself is refused with the dogs about). The clock is back at 1, so V at 10.6 enters again 0.2 s later; E at 10.9 with nothing marked leaves rather than firing (and would activate what is under the crosshair)"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:t,10.6:v,10.9:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 18
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "a mark is made" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Wait pressed\)', label = "Wait ends the mode, nothing spent" },
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters again" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; Activate pressed\)', label = "E with nothing marked ends the mode" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 2 times, 1 marks, 0 shots, 0 AP spent', label = "the summary: two stays, one mark, nothing fired" },
+]
+forbid = [{ text = "vats mode: firing", label = "nothing was fired" }]
+
+[[scenario]]
 name = "vats-mode-two-marks"
 source = "owner's todo 6: VATS mode, a Dead Eye-style mark and fire (docs/design/vats-mode.md §13)"
 note = "the two Goodsprings dogs (combat-dogs' spot) attack the player, who cannot die (GOD) and holds a .357 (WeapNV357Revolver 0008F216: 26 AP a shot from its DNAM override, 6 rounds; god mode keeps the magazine full). V at 10 s enters VATS mode (after the add-on packs' start-up boxes, about 6.5 s of game time: any menu ends the mode, and one cut the firing short at 6 s, coordinator run 2026-10-18); the clock then runs at 0.05, so the aids 10.3-10.42 s (game time) come about 1 s apart in real time; aimvats turns to the nearest unmarked living actor, the left button marks it, twice; E fires both at half speed. 2 x 26 = 52 AP"
