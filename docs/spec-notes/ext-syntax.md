@@ -152,10 +152,9 @@ time: open.
   `0b101010` equals 52; by its stated rule (bits highest first) it is 42, so the
   example is a slip [documented: Binary Notation; the arithmetic is ours]. Compile case
   to add: open.
-- **Hexadecimal literals**: the Binary Notation page links a Hexadecimal Notation page
-  that is not in the export; ToNumber reads `0x…` strings (ext-strings.md). Whether a
-  `0x` literal works in expressions: open until that page is exported or a compile case
-  shows it.
+- **Hexadecimal literals** (xNVSE 6.1.0): `0x` followed by hex digits, wherever
+  extender expressions are allowed; `0x14` is 20 [documented: Hexadecimal Notation].
+  Letter case of the digits and of the `x`: open.
 - **Block comments** (xNVSE 6.1.7): `/*` starts a comment, `*/` ends it, across any
   number of lines [documented: Multi-line comments]. Nesting, and a `/*` inside a
   string: open.
@@ -214,5 +213,5 @@ NVSEScript is a later task if mods need it.
 Associativity of every operator but `:=`; how unary and binary `-`/`*`/`&` are told
 apart; `&&` against the compound assignments at the same level; short-circuit outside
 `eval`; the let macro's other operators; inline-declared variable scope; `Return` in a
-loop; hex literals; nested and unclosed block comments; break/continue in nested loops;
+loop; hex digit case; nested and unclosed block comments; break/continue in nested loops;
 GoTo across blocks.

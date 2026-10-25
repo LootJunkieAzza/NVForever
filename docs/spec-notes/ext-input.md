@@ -76,6 +76,8 @@ keys are held; `ignoreStatus` as above (6.4.5) [documented: GetNumKeysPressed].
 
 **DisableKey** `DisableKey scanCode` (alias dk) stops the player using a key;
 **EnableKey** (ek) allows it again [documented: DisableKey; EnableKey].
+**IsKeyDisabled** `IsKeyDisabled scanCode` is 1 when the key was disabled by DisableKey
+or DisableControl [documented: IsKeyDisabled, `FOSE.xml`].
 
 **DisableControl** `DisableControl controlCode` (dc) disables whatever key and mouse
 button are bound to a control; **EnableControl** (ec) restores it; with JIP they also

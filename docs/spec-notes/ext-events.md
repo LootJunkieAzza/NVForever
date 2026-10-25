@@ -6,8 +6,8 @@ of one's own, and the handler priority queries.
 Filled for task G4 of the extender plan ([extender-core-tasks.md](../handoff/extender-core-tasks.md))
 from the GECK wiki export, as input to E1–E3. Everything the pages state is tagged
 `[documented: <page>]`; what they leave out is **open (to observe)**. Not in the
-export: "User Defined Event", "Event Handler Priority System", "New xNVSE Event
-Filtering System", GetCurrentEventName, DispatchEventAlt.
+export: GetCurrentEventName and DispatchEventAlt. (User-Defined Event, Event Handler
+Priority System and New xNVSE Event Filtering System arrived on 2026-10-25, `NVSE.xml`.)
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -86,7 +86,9 @@ argument count: open.
 ### 2.3 User-defined events
 
 Any name may be dispatched with DispatchEvent and listened for with SetEventHandler
-(§5) [documented: DispatchEvent; SetEventHandlerAlt].
+(§5) [documented: DispatchEvent; SetEventHandlerAlt]. Names should carry the mod's name
+to avoid clashes. Their arguments have no declared types, so SetEventHandlerAlt cannot
+type-check filters on them [documented: User-Defined Event].
 
 ## 3. SetEventHandler
 
@@ -102,8 +104,9 @@ Any name may be dispatched with DispatchEvent and listened for with SetEventHand
   Filtering in the registration is cheaper than inside the handler.
 - **Priority** (xNVSE 6.2.9): default 1; higher runs first; equal priorities run in
   registration order; any number but **0**, which is reserved as "no priority" and
-  refused here; negative numbers allowed; not available for plugin (LN) events
-  [documented: SetEventHandler].
+  refused here; negative numbers allowed, from **-9999 (min) to 9999 (max)**; not
+  available for plugin (LN) events or the older `SetOn…EventHandler` functions
+  [documented: SetEventHandler; Event Handler Priority System].
 - **Lambdas** work as handlers, block or one-line [documented: SetEventHandler; Lambda].
 - **Session only**: handlers are not saved; they last for the session, so scripts
   register them again when a session starts (GetGameRestarted) [documented:
@@ -123,7 +126,20 @@ Any name may be dispatched with DispatchEvent and listened for with SetEventHand
   SetEventHandlerAlt].
 - **Not for plugin (LN) events.** Several registrations of the same function are
   allowed and each runs. Priority as §3.
-- How each filter type matches (the "New xNVSE Event Filtering System" page): open.
+- **How filters match** (xNVSE 6.2.8) [documented: New xNVSE Event Filtering System]:
+  - a number must equal the dispatched number; for a user-defined event a numeric filter
+    is a float; a plugin's event may declare an int filter, which floors the value;
+  - a form matches the same form (two null forms match); a dispatched reference also
+    matches a filter that is its base form; a form list matches any of its forms; a base
+    form filter refuses a reference with an error;
+  - a string matches without regard to case;
+  - an array matches an array of the same kind and size with equal elements (nested
+    arrays not supported);
+  - an **array of filters** (list, map or string map; keys ignored) matches when any
+    element matches. It holds a reference to the array, so changing the array later
+    changes the filter.
+- **Why flushed on load**: array filters point at savebaked arrays, which a load could
+  replace [documented: New xNVSE Event Filtering System].
 
 ## 5. RemoveEventHandler and DispatchEvent
 
