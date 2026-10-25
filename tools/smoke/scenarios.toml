@@ -9120,6 +9120,26 @@ order = [[
 ]]
 
 [[scenario]]
+name = "b29-rise"
+source = "docs/spec-notes/layer5-captures.md §8.3 d: Volare! (VMS15). The rising bomber (VMS15RisingPlaneREF 00105868, b29_riseanim.nif) is disabled when its cell loads and runs its OnLoad then (PlaneFloated 0: PlayGroup Right, bLoaded 1); the detonator (0010063C) enables it, and its GameMode plays Forward (the 9.9 s rise) once its 3D is there. Drawn at run time by nvf_play::script_draw, the group plays from its start (object_anims.rs); frames in target/smoke (b29_rise_*.png)"
+note = "starts underwater by the wreck: starts VMS15, says Loyal's line 00105201 (ballast given), attaches both ballasts (0010063A, 00100637; button 0), moves to the detonator and activates it at 25 s"
+areas = ["scripts", "quests"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_LOOK = "4:75:-5", NVF_PLAY_TEST_SCRIPT = "1:start:VMS15,2:info:0x00105201,8:activate:0x0010063A,10:button:0,13:activate:0x00100637,15:button:0,25:activate:0x0010063C", NVF_PLAY_TEST_CONSOLE = "19:player.MoveTo 0010063C;19.5:player.SetAngle Z 142.7;20:close", NVF_PLAY_TEST_SHOTS = "24:b29_rise_before.png,27.5:b29_rise_1.png,31:b29_rise_2.png,35.5:b29_rise_3.png,42:b29_rise_after.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 45
+expect = [
+  { re = 'OnActivate of .*0x0010062D ran on Some\(0x0010063C\)', label = "the detonator's script runs" },
+  { re = 'playgroup: VMS15RisingPlaneREF passes the sound key QSTBomberRaise of Forward', label = "Forward's sound key at its start plays (QSTBomberRaise)" },
+]
+order = [[
+  { re = 'OnLoad of .*0x001694DB ran on Some\(0x00105868\)', label = "the disabled bomber's OnLoad at the cell load" },
+  { re = 'playgroup: VMS15RisingPlaneREF plays Right \(flag 1\): not drawn', label = "PlaneFloated 0: it plays Right" },
+  { re = 'VMS15RisingPlaneREF enabled', label = "the detonator enables it" },
+  { re = 'playgroup: VMS15RisingPlaneREF drawn \(enabled at run time\), plays Forward from 0\.\d\d s', label = "the bomber rises from the start of Forward" },
+]]
+
+[[scenario]]
 name = "hair-under-fire"
 source = "owner's playtest 2026-10-24: in third person, the player's hair vanished (the head showed bald) while the player burned or stood in a dust devil. Burning: Flames01's edge overlay covered the hair's cards whole (docs/spec-notes/effect-shaders.md §4); behind blended fire or dust the hair wrote no depth (nif.md §6 'Hair and depth'). PlayMagicShaderVisuals Flames01 (0005F9B6) on the player, frames from behind at 7 s (no fire) and 11 s (burning) in target/smoke; the hair must show in both"
 areas = ["effect-shaders", "render"]

@@ -542,8 +542,20 @@ thresholds fell in one run) [hypothesis: the marker acts as a new If].
   disabled and enabled again while the player was in their cell: neither effect was there
   on the line after `Enable`; both were there at the first sample (`q5b_trial_test2`). An
   exterior case (VMS15's rising plane, enabled in its loaded cell) read `bLoaded` 1 already
-  on the line after `Enable`, and its GameMode (`bLoaded` 1 → 2) did not run in 120 loops;
-  not understood, not used.
+  on the line after `Enable`, and its GameMode (`bLoaded` 1 → 2) did not run in 120 loops.
+  Read again 2026-10-24 (trace `q5b_trial_test3`, private): the plane was disabled with
+  `bLoaded` 0 before `cow WastelandNV 17 14`, and `PlaneFloated` was 0; its OnLoad is the
+  only thing that sets `bLoaded` to 1 (only while `PlaneFloated` is 0). So its OnLoad ran
+  between the two reads, while it was disabled: at the cell load (600 frames before the
+  Enable), or inside Enable [observed]. The jukebox and the radio did not run OnLoad inside
+  Enable, so the runtime takes the cell load: references disabled when their cell loads run
+  OnLoad then, and again the frame after their Enable [hypothesis, the narrowest reading;
+  `Game::set_loaded`, `Game::note_enabled`]. The GameMode that did not run is still not
+  understood: a disabled skull's GameMode runs (`od_09a_disabled_ref_script`), and in the
+  quest the bomber does rise after the detonator, which needs that GameMode [hypothesis:
+  something of the capture's setup, e.g. the console Enable or the 3D not loading, held
+  it]. Not emulated: here the plane's GameMode runs while it is disabled (`bLoaded` 2), and
+  after the detonator's Enable it plays `Forward` once its 3D is loaded (smoke `b29-rise`).
 - Quest scripts against object scripts within one frame: **not settled**. A job samples
   between frames, so the order shows only where a quest script and an object script write
   and read the same variable in one frame. The masters have no such pair that a job can
@@ -605,7 +617,8 @@ Other observations of this round:
   the dead hostage's flagged activation opened the loot menu).
 - Pd (GameMode not skipped around an activation; OnActivate inside Activate; the jar
   replaced by the next sample) — **held**. OnLoad by the next frame, not inside Enable —
-  **held** for the jukebox and the radio, **refuted** for the rising plane (unexplained).
+  **held** for the jukebox and the radio, **refuted** for the rising plane (its OnLoad
+  had run at the cell load, while disabled; its GameMode stall is unexplained; §8.3 d).
 - Pe (menu time not counted; made weakly, the alternative being the whole gap) — **held**.
 - Pf (`rRef.GetVariable` works; `rRef.var` does not compile; the door's OnActivate sets
   PlayerLeft) — the first two **held**; the third **failed** until the run-OnActivate flag
@@ -651,7 +664,9 @@ and `-o C:/fnv-private/goldens/quest2/quest2_<name>.trace.json`.
 
 - **VCG01 from a new game** still needs the owner's `nvfnew` save (§7).
 - The order of quest and object scripts within a frame (§8.3 d).
-- The rising plane's OnLoad and GameMode (§8.3 d).
+- The rising plane's GameMode after Enable (§8.3 d; its OnLoad is read as a cell load
+  while disabled, 2026-10-24). A job to tell "at the cell load" from "inside Enable": read
+  `bLoaded` after the `cow` and before the Enable.
 - `L5.quest.condition_groups` needs AI package choice in the candidate (the conditions are
   Layer 5's, choosing a package is Layer 6's).
 - A Wait-menu gap for GetSecondsPassed.

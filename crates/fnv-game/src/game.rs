@@ -2656,9 +2656,8 @@ impl<'a> Game<'a> {
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
     /// export: object scripts run even for disabled references; observed: capture job
-    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell load
-    /// still needs the reference enabled (a disabled reference has no 3D to load)
-    /// [hypothesis].
+    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell
+    /// load runs for disabled references too (`Game::set_loaded`).
     fn active_refs(&self) -> Vec<FormId> {
         let mut out: BTreeSet<FormId> = BTreeSet::new();
         for c in &self.loaded_cells {
@@ -2691,7 +2690,8 @@ impl<'a> Game<'a> {
     }
 
     /// Make `cells` the loaded set; scripted references in newly loaded cells get
-    /// OnLoad [hypothesis: OnLoad runs when the reference's cell is loaded].
+    /// OnLoad, disabled ones included [hypothesis: OnLoad runs when the reference's cell
+    /// is loaded; observed for a disabled one, below].
     pub fn set_loaded(&mut self, cells: BTreeSet<FormId>) {
         let new: Vec<FormId> = cells.difference(&self.loaded_cells).copied().collect();
         let left: Vec<FormId> = self.loaded_cells.difference(&cells).copied().collect();
@@ -2713,10 +2713,16 @@ impl<'a> Game<'a> {
         // Actors of the new cells choose their package at the next tick, and dress now.
         self.package_scan_due = 0.0;
         self.outfit_loaded_actors();
+        // Disabled references run OnLoad here too [observed: VMS15's rising plane,
+        // disabled, read `bLoaded` 0 before its cell loaded and 1 on the line after its
+        // Enable; only its OnLoad sets it, so that OnLoad had run at the cell load,
+        // layer5-captures.md §8.3 d]. Their Enable queues OnLoad again
+        // (`Game::note_enabled`). References disabled through an enable parent are
+        // treated the same [hypothesis: the plane was disabled by its own flag].
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
             for r in refs {
-                if self.present(r) {
+                if self.world.peek(r).is_none_or(|s| !s.deleted) {
                     self.ref_event(r, event::ON_LOAD, None, None);
                 }
             }

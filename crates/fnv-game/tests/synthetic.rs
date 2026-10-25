@@ -218,6 +218,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   begin MenuMode 1 / 1007 / 1056
     //     set nPip / nLoad / nVats to … + 1
     //   end
+    //   begin OnLoad
+    //     set nOnLoad to nOnLoad + 1
+    //   end
     let body = [
         set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")])),
         call(SET_STAGE, &[r(2), n(10)]),
@@ -236,8 +239,9 @@ fn plugin_bytes() -> Vec<u8> {
                 (1, Some([le16(1), n(1)].concat()), set(var(b's', 4), ex(&[var(b's', 4), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
                 (1, Some([le16(1), n(1056)].concat()), set(var(b's', 6), ex(&[var(b's', 6), a("1"), a("+")]))),
+                (0x15, None, set(var(b's', 7), ex(&[var(b's', 7), a("1"), a("+")]))),
             ]),
-            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1)],
+            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1), (7, "nOnLoad", 1)],
             &[0x14, QUEST, MESSAGE],
         ),
     ]
@@ -880,6 +884,34 @@ fn a_disabled_reference_runs_its_game_mode_block() {
     g.world.set_enabled(FormId(ACT_REF), true).unwrap();
     g.tick();
     assert_eq!(frames(&g), Value::Num(start + 4.0));
+}
+
+/// A reference disabled when its cell loads runs its OnLoad block at that load, and
+/// again at the start of the frame after its Enable [observed: VMS15's rising plane read
+/// `bLoaded` 1 on the line after its Enable, layer5-captures.md §8.3 d; the jukebox's
+/// OnLoad one frame after Enable, same section].
+#[test]
+fn a_disabled_reference_runs_on_load_when_its_cell_loads() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.world.set_enabled(FormId(ACT_REF), false).unwrap();
+    let key = InstKey::Ref { reference: FormId(ACT_REF) };
+    let loads = |g: &Game| match g.var(key, 7) {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!(loads(&g), 1.0);
+    g.tick();
+    assert_eq!(loads(&g), 1.0);
+    g.world.set_enabled(FormId(ACT_REF), true).unwrap();
+    g.note_enabled(FormId(ACT_REF));
+    assert_eq!(loads(&g), 1.0, "not inside Enable");
+    g.tick();
+    assert_eq!(loads(&g), 2.0);
+    g.tick();
+    assert_eq!(loads(&g), 2.0);
 }
 
 #[test]
