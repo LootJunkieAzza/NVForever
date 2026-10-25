@@ -1660,6 +1660,11 @@ impl Ai {
         if game.package_has(actor, flags::ALLOW_FALLS) {
             params.ledges = true;
         }
+        // A creature without the Swims flag keeps off water triangles altogether
+        // (`Game::keeps_out_of_water`).
+        if game.keeps_out_of_water(actor) {
+            params.water = false;
+        }
         if let Ok(s) = game.world.get(actor) {
             params.keys.extend(s.inventory.iter().flat_map(|inv| inv.iter()).map(|(item, _)| item.0));
         }

@@ -162,7 +162,8 @@ pub struct Attacker {
     /// Arm condition as the formula uses it: 1 healthy … 0 crippled (two-handed: 0.5 with
     /// one arm crippled).
     pub arm_condition: f32,
-    /// Attacking unseen (sneak attack).
+    /// Attacking unseen (sneak attack): the sneak multiplier, and always a critical
+    /// (docs/spec-notes/combat-rules.md §4).
     pub sneaking: bool,
     pub in_vats: bool,
     /// Companion Nerve when the attacker is one of the player's teammates: the share its
@@ -350,7 +351,7 @@ pub fn hit(
     let crit_chance = crit_chance(r, w, a, attacker_perks, target_perks);
     let critical = !miss
         && w.crit_mult > 0.0
-        && ((t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
+        && (a.sneaking || (t.headshot_unaware_crit && h.part.head && target.unaware) || crit_roll * 100.0 < crit_chance);
     // Critical damage is added before armour [documented]; shared among projectiles
     // like the base damage [design].
     let crit_bonus = if critical { attacker_perks.crit_damage(w.crit_damage as f32) / n } else { 0.0 };

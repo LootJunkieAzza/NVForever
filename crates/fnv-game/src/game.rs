@@ -233,6 +233,10 @@ pub struct RefExtra {
     pub marked_for_delete: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub teammate: bool,
+    /// SetVatsTarget's VATS targeting for this reference, over its base's DEST flag
+    /// (`Game::vats_targetable`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub vats_target: Option<bool>,
     /// SetCombatStyle's combat style for this reference, over its base form's
     /// (`Game::combat_style`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -2833,6 +2837,7 @@ impl<'a> Game<'a> {
             self.world.activate_scripted(actor, target).map_err(|e| e.to_string())?
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
+        self.note_activating(actor, target);
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v.clone()) });
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);

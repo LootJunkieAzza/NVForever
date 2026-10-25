@@ -1880,3 +1880,45 @@ fn kill_challenges_count_the_players_kills() {
     g.challenge_step(FormId(CHAL_ROBOTS), 1.0);
     assert_eq!(g.player.challenges[&FormId(CHAL_ROBOTS)].progress, 2);
 }
+
+/// The last stubs (script-stubs.md §4): GetForceHitReaction from the engine's body state,
+/// GetVATSTargetHeight from the shot leaving, SetVatsTarget over the base's DEST flag,
+/// IsWaterObject from what the actor activates.
+#[test]
+fn forced_reactions_vats_targets_and_water_objects() {
+    use fnv_game::anim_state::AnimState;
+    use fnv_game::vats::{VatsShot, MODE_PLAYBACK};
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    // GetForceHitReaction: 1 only while the engine says a forced reaction plays.
+    assert_eq!(call(&mut g, 0x1259, Some(ADULT_REF), &[]), 0.0);
+    g.set_anim_state(adult, AnimState { forced_hit: true, ..Default::default() });
+    assert_eq!(call(&mut g, 0x1259, Some(ADULT_REF), &[]), 1.0);
+    g.set_anim_state(adult, AnimState::default());
+    assert_eq!(call(&mut g, 0x1259, Some(ADULT_REF), &[]), 0.0);
+    // GetVATSTargetHeight: the leaving shot's height, 0 with none.
+    assert_eq!(call(&mut g, 0x10EB, None, &[]), 0.0);
+    g.set_vats(MODE_PLAYBACK, Some(VatsShot { weapon: FormId(WEAP), target: adult, distance: 300.0, condition: None, success: true, height: 42.5 }));
+    assert_eq!(call(&mut g, 0x10EB, None, &[]), 42.5);
+    g.set_vats(0, None);
+    assert_eq!(call(&mut g, 0x10EB, None, &[]), 0.0);
+    // SetVatsTarget: the crate's DEST is not flagged VATS Targetable; the script's
+    // setting overrides it either way, and a destroyed object is never a target.
+    let crate_ref = FormId(ACTI_REF);
+    assert!(!g.vats_targetable(crate_ref));
+    call(&mut g, 0x11EB, Some(ACTI_REF), &[n(1.0)]);
+    assert!(g.vats_targetable(crate_ref));
+    call(&mut g, 0x11EB, Some(ACTI_REF), &[n(0.0)]);
+    assert!(!g.vats_targetable(crate_ref));
+    call(&mut g, 0x11EB, Some(ACTI_REF), &[n(1.0)]);
+    g.extra.entry(crate_ref).or_default().destroyed = true;
+    assert!(!g.vats_targetable(crate_ref));
+    // IsWaterObject: the crate names no water, so activating it is not drinking.
+    assert_eq!(call(&mut g, 0x1130, Some(FormId::PLAYER_REF.0), &[]), 0.0);
+    g.note_activating(FormId::PLAYER_REF, crate_ref);
+    assert_eq!(g.activating(FormId::PLAYER_REF), Some(crate_ref));
+    assert_eq!(call(&mut g, 0x1130, Some(FormId::PLAYER_REF.0), &[]), 0.0);
+    g.time += fnv_game::functions::senses::ACTIVATING_SECONDS + 1.0;
+    assert_eq!(g.activating(FormId::PLAYER_REF), None);
+}

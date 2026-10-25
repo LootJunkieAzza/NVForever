@@ -490,6 +490,15 @@ pub struct ActorDef {
     /// CREA ACBS flag "Immobile": PushActorAway does not work on it [documented: GECK
     /// wiki PushActorAway notes, "flagged as immobile"].
     pub immobile: bool,
+    /// CREA ACBS flags "Swims", "Walks", "Flies" and "No Combat in Water" [documented:
+    /// GECK wiki Animation Tab: Swims "allows for swimming and moving across water marked
+    /// navmesh triangles", Walks "allows for movement", No Combat in Water "will not
+    /// perform attacks in water"] (`Game::keeps_out_of_water`,
+    /// `Game::no_combat_in_water`).
+    pub swims: bool,
+    pub walks: bool,
+    pub flies: bool,
+    pub no_combat_in_water: bool,
     /// CREA ACBS flag "Can't Open Doors" (bit 22; on NPC_ the bit is "Can Be All Races")
     /// [documented: GECK wiki GetActorBaseFlagsHigh, the flag table's Creature column]:
     /// the creature's paths use no door (`fnv_ai`'s path parameters).
@@ -696,6 +705,30 @@ impl GameData {
     }
 }
 
+impl ActorDef {
+    /// A creature that moves (Walks or Flies) without Swims keeps off water triangles
+    /// (`Game::keeps_out_of_water`); one with none of the three flags is left as it is.
+    pub fn keeps_out_of_water(&self) -> bool {
+        (self.walks || self.flies) && !self.swims
+    }
+}
+
+#[cfg(test)]
+mod movement_flag_tests {
+    use super::*;
+
+    #[test]
+    fn walkers_and_fliers_without_swims_keep_out_of_water() {
+        let def = |swims, walks, flies| ActorDef { swims, walks, flies, ..Default::default() };
+        // A gecko walks, a cazador flies: neither swims.
+        assert!(def(false, true, false).keeps_out_of_water());
+        assert!(def(false, false, true).keeps_out_of_water());
+        // A dog walks and swims; a creature without movement flags is left alone.
+        assert!(!def(true, true, false).keeps_out_of_water());
+        assert!(!def(false, false, false).keeps_out_of_water());
+    }
+}
+
 /// The default object at `which`'s place in a DOBJ list.
 fn default_in(list: &[Option<FormId>], which: DefaultObject) -> Option<FormId> {
     list.get(which as usize).copied().flatten()
@@ -736,6 +769,8 @@ pub struct EffectItem {
 #[derive(Debug, Clone, Default)]
 pub struct DestructionDef {
     pub health: i32,
+    /// DEST flag "VATS Targetable" [documented: xEdit wbDEST].
+    pub vats_targetable: bool,
     pub stages: Vec<DestructionStage>,
 }
 
@@ -2157,7 +2192,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     }
     let decoded: Vec<(&[u8; 4], Option<Json>)> = subs.iter().map(|s| (&s.sig, val(s))).collect();
     if let Some((_, Some(h))) = decoded.iter().find(|(s, _)| *s == b"DEST") {
-        let mut dd = DestructionDef { health: h.get("health").and_then(Json::as_i64).unwrap_or(0) as i32, stages: Vec::new() };
+        let mut dd = DestructionDef { health: h.get("health").and_then(Json::as_i64).unwrap_or(0) as i32, vats_targetable: flag_bits(h.get("flags")) & 1 != 0, stages: Vec::new() };
         for (sig, v) in decoded.iter() {
             match *sig {
                 b"DSTD" => {
@@ -2637,6 +2672,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.allow_pickpocket = &sig == b"CREA" && has_flag(f, "Allow Pickpocket");
                         a.no_knockdowns = has_flag(f, "No Knockdowns");
                         a.immobile = &sig == b"CREA" && has_flag(f, "Immobile");
+                        a.swims = &sig == b"CREA" && has_flag(f, "Swims");
+                        a.walks = &sig == b"CREA" && has_flag(f, "Walks");
+                        a.flies = &sig == b"CREA" && has_flag(f, "Flies");
+                        a.no_combat_in_water = &sig == b"CREA" && has_flag(f, "No Combat in Water");
                         a.cant_open_doors = &sig == b"CREA" && has_flag(f, "Can't Open Doors");
                         a.no_low_level = has_flag(f, "No Low Level Processing");
                         a.respawn = has_flag(f, "Respawn");

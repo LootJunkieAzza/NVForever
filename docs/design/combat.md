@@ -489,7 +489,9 @@ are marked [design].
 3. **Criticals**: the chance is the documented formula (§4.2): the CritChance actor
    value from Luck × the weapon's Crit % Mult (÷ fire rate for automatic weapons),
    through the critical-chance perks and the target's "Modify Enemy Critical Hit
-   Chance" perks. On top of that, a headshot on an unaware target is always a
+   Chance" perks. On top of that, the player's sneak attacks (sneaking, and not
+   detected by the target) are always criticals [owner statement 2026-10-25;
+   docs/spec-notes/combat-rules.md §4], and a headshot on an unaware target is always a
    critical [design]. The critical adds the weapon's Crit Dmg through
    the critical-damage perks before armour, and applies its critical effect. For
    automatic weapons the chance multiplier is divided by the fire rate (§4.2).

@@ -468,6 +468,22 @@ expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arriv
 manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
 
 [[scenario]]
+name = "nav-water-closed"
+kind = "tool"
+source = "GECK wiki Navmesh Creation Workflow: creatures without the Swims flag \"will avoid using water triangles\" (PathParams::water, fnv-ai keeps_out_of_water): from the Boulder Beach shore to a point in Lake Mead a swimmer's path crosses water triangles; for one that does not swim the goal in water is out of reach at once (no search of the area); standing in the water, it walks out"
+areas = ["nav", "ai"]
+paths = ["crates/fnv-nav/src/path.rs", "crates/fnvtool/src/nav_path.rs", "crates/fnv-ai/src/carry.rs"]
+commands = [
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=56992,37536,2745", "--to=57800,37536,2500"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=56992,37536,2745", "--to=57800,37536,2500", "--no-water"],
+  ["nav", "path", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from=57800,37536,2500", "--to=56992,37536,2745", "--no-water"],
+]
+expect = [
+  { json = "path.legs.0.water_triangles", schema = "fnv.nav.path/1", range = [1, 100], count = 2, label = "the swimmer's way in and the non-swimmer's way out cross water" },
+  { json = "error", schema = "fnv.nav.path/1", equals = "the goal cannot be reached (0 triangles searched)", count = 1, label = "a goal in water is out of a non-swimmer's reach, no search" },
+]
+
+[[scenario]]
 name = "npc-travel"
 source = "CLAUDE.md: after navmesh, pathing or travelling-NPC changes, the travel smoke test"
 areas = ["nav"]
@@ -5069,6 +5085,20 @@ run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
 
 [[scenario]]
+name = "end-credits"
+source = "GECK wiki ExitGame: \"plays credits and returns the game to the main menu\" (nvf-play credits.rs): the game's Credits.txt laid out by its own commands and rolled over credits_menu.xml's background (the run ends while they roll: their end starts the program again for the main menu)"
+areas = ["menus"]
+paths = ["engine/nvf-play/src/credits.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_CREDITS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "14:exitgame;14.3:close", NVF_PLAY_TEST_SHOTS = "30:credits.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  "script: ExitGame: the credits, then the main menu",
+  { re = 'credits: rolling (?P<n>\d+) lines and 2 pictures', range = [1000, 2000], label = "the credits' lines and the file's two pictures" },
+  { re = 'credits: (?P<n>\d+) loading screens behind them', range = [20, 2000], label = "the load order's loading screens take turns behind the credits (owner 2026-10-25)" },
+]
+
+[[scenario]]
 name = "teammate-perk"
 source = "playtest list 7 item 44 (gap audit 2026-10-23; docs/spec-notes/perk-entry-points.md §6): a perk given to the player's teammates (player.AddPerk CalmHeart 1, Cass's quest reward) gives its ability to a teammate, and the ability ends when the actor leaves the team"
 areas = ["perks", "followers", "scripts"]
@@ -7589,6 +7619,23 @@ order = [[
 ]]
 
 [[scenario]]
+name = "vats-mode-object"
+source = "GECK wiki SetVatsTarget: \"turns VATS targeting on or off for a destructible object, overriding the object's base setting\" (docs/design/vats-mode.md §20): the Goodsprings motorcycle 00157C97 (Motorcycle01, DEST flagged VATS Targetable) turned off by SetVatsTarget 0 is not marked; turned on again it is marked and shot"
+note = "north of the bike (from the west the wreck pile 00157C92 is in front of it); the 10mm pistol (0000434F), every roll a hit"
+areas = ["combat", "vats", "destruction"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONSOLE = "6:prid 00157C97;6.2:setvatstarget 0;6.4:close;13:prid 00157C97;13.2:setvatstarget 1;13.4:close", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=00157C97,16.3:aimref=00157C97", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.6:v,16:v,16.32:mouse-left,16.42:e" }
+args = ["--cell", "Goodsprings", "--pos=32990,17100,4700", "--heading", "180", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'vats: 00157C97 VATS targeting off', label = "SetVatsTarget 0 turns the bike's flag off" },
+  { re = 'vats mode: nothing to mark under the crosshair \(00157C97 is not a VATS target\)', label = "so a click on it marks nothing" },
+  { re = 'vats: 00157C97 VATS targeting on', label = "SetVatsTarget 1 turns it on again" },
+  { re = 'vats mode: marked object .* 00157C97, mark 1', label = "now the bike is marked" },
+  { re = 'vats mode: shot 1 of 1 at .*00157C97 \(object\)', label = "and shot" },
+]]
+
+[[scenario]]
 name = "vats-mode-burst"
 source = "owner's todo 6 follow-up: an automatic weapon fires a burst a mark (docs/design/vats-mode.md §16.1)"
 note = "as vats-mode-two-marks, with the 10mm SMG (Weap10mmSubmachineGun 00004321: 22 AP a mark from its DNAM override, fire rate 9, so bursts of round(9 x 0.4) = 4; god mode keeps its 30 rounds). Two marks, E: two bursts of 4 rounds, 44 AP. Written 2026-10-20 by a worker session that does not run the game: not yet run"
@@ -7653,6 +7700,19 @@ args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "
 run_seconds = 18
 expect = [
   { re = 'combat: 0x[0-9A-F]{8} loses 250 fatigue to the ammo', label = "a bean bag hit takes 250 fatigue" },
+]
+
+[[scenario]]
+name = "sneak-attack-critical"
+source = "owner statement 2026-10-25 (\"all unseen hits from a sneaking player are criticals\"); docs/spec-notes/combat-rules.md §4: a sneak attack takes the sneak multiplier and is always a critical"
+note = "a gecko (NVCrGecko) placed at the player (GOD, UNSEEN: nobody perceives the player) at 3 s and held (SetRestrained: unheld it runs off to fight the coyotes); the player sneaks at 6 s and shoots it with the 9mm pistol at 9.1 s, stands at 10 s and shoots again at 11.1 s; only the first shot is a sneak attack (the second may miss a dead gecko)"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1:300:0,3.2:call:0xFF000000:SetRestrained:1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "4:weapon,6:sneak,9:aimactor,9.1:fire,10:sneak,11:aimactor,11.1:fire" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { re = 'combat: hit 0x[0-9A-F]{8} on .* \(DT \d+, sneak attack critical\)', count = 1, label = "the sneaking shot, and only it, is a sneak attack critical" },
 ]
 
 [[scenario]]

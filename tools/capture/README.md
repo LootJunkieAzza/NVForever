@@ -497,11 +497,20 @@ python tools/capture/observe.py run tools/capture/observe/goodsprings.campaign.j
 python tools/capture/observe.py report C:/fnv-private/capture/out/obs_goodsprings_town_day.<time>.jsonl --data "<Data>" --text
 ```
 `run` restarts the game after a crash or hang and retries the session that was cut off
-(`--retries`, default 2); its report goes to `C:\fnv-private\capture\observe\<campaign>\`.
+(`--retries`, default 2); its report goes to `C:\fnv-private\capture\observe\<campaign>\`
+and lists the DLLs in `Data\NVSE\Plugins` (`nvse_plugins`).
+
+**JIP tier (opt-in):** a session with `"jip": true` also probes state only JIP LN NVSE
+reports (processing level, the package under an interrupt package, detection values);
+it refuses to run unless JIP is installed. Data from it is used only as the A/B check of
+`docs/spec-notes/ai-observer-jip.md` allows. The A/B check compares timelines:
+```
+python tools/capture/observe_compare.py --base vanilla.timeline.1.json vanilla.timeline.2.json --with jip.timeline.1.json jip.timeline.2.json --text
+```
 
 Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automatic mode,
-observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py` and
-`tests/test_observe.py`.
+observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py`,
+`tests/test_observe.py` and `tests/test_observe_compare.py`.
 
 **Jobs by hand (plugin version 8):** a script may be given in a short form (just the
 expression, condition or statements; forms named once per job and used as `@name`), which

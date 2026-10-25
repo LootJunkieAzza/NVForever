@@ -129,7 +129,7 @@ fn game(f: &Fixture) -> Game<'_> {
 }
 
 fn shot_of(success: bool) -> VatsShot {
-    VatsShot { weapon: FormId(GUN), target: FormId(NPC_REF), distance: 400.0, condition: None, success }
+    VatsShot { weapon: FormId(GUN), target: FormId(NPC_REF), distance: 400.0, condition: None, success, height: 0.0 }
 }
 
 fn room(right: f32) -> CameraRoom {
@@ -207,7 +207,7 @@ fn the_masters_tree_picks_hit_and_miss_cameras() {
         }
     };
     // The player stands in for the target: who it is matters only to Target Is.
-    let shot = |success| VatsShot { weapon: FormId(0x0000_434F), target: FormId::PLAYER_REF, distance: 600.0, condition: Some(26), success };
+    let shot = |success| VatsShot { weapon: FormId(0x0000_434F), target: FormId::PLAYER_REF, distance: 600.0, condition: Some(26), success, height: 0.0 };
     let open = CameraRoom { area_free: [500.0; 4], target_visible: [500.0; 4] };
     let fatal = VatsOutcome { fatal: true, ..Default::default() };
     for _ in 0..20 {
