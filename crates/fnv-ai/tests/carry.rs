@@ -1220,6 +1220,41 @@ fn continue_during_combat_keeps_the_package_going() {
 }
 
 #[test]
+fn an_actor_warning_the_player_stops_faces_it_then_walks_on() {
+    // `fnv_game::aggro` "The look" / `crate::alert` Warnings: in Normal, warning the
+    // player, a walker stops and turns to the player; once the warning is over it goes
+    // back to its package.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::Travelling);
+    let (me, player) = (FormId(R_TRAVEL), FormId::PLAYER_REF);
+    let at = s.feet(R_TRAVEL);
+    let cell = s.game.world.peek(me).and_then(|m| m.cell);
+    {
+        let p = s.game.world.get(player).unwrap();
+        (p.cell, p.pos) = (cell, [at[0] + 300.0, at[1], at[2]]);
+    }
+    s.game.provocations.aggro_inside.insert(me);
+    assert!(s.game.draws_weapon(me));
+    s.run(3.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Warn { target, .. } if *target == player)), "{:?}", s.events(R_TRAVEL));
+    let a = &s.ai.agents[&me];
+    assert_eq!(a.activity, Activity::There);
+    assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
+    // Facing the player (east of it: heading 0 or π/2 by the walker's convention, so
+    // measured as the heading towards the player).
+    let want = fnv_nav::follow::heading_of([300.0, 0.0]);
+    assert!(fnv_nav::follow::heading_delta(a.walker.heading, want).abs() < 0.05, "{} vs {want}", a.walker.heading);
+    // The warning is over: back to its package.
+    s.game.provocations.aggro_inside.clear();
+    s.run(2.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("warning"))), "{ev:?}");
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+}
+
+#[test]
 fn an_actor_in_combat_stops_and_faces_its_target() {
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL]);
@@ -1566,6 +1601,33 @@ fn an_actor_walking_into_the_loaded_area_is_moved_every_frame() {
     // Into the loaded area: the high process.
     assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
     assert_eq!((s.ai.level(actor), s.ai.process_counts()), (fnv_ai::ProcessLevel::High, (1, 0)));
+}
+
+#[test]
+fn a_far_walk_stops_where_it_comes_into_the_loaded_area() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Its destination's cell is the loaded area; it walks from the other one.
+    s.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default() }));
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    let mut waited = 0;
+    while s.ai.process_stats.far_updates == 0 {
+        s.run(1.0);
+        waited += 1;
+        assert!(waited <= 121);
+    }
+    // The original's Malcolm Holmes: the jump that reached the loaded area stopped at its
+    // edge [observed 2026-10-24]. The engine takes it on from there in the high process.
+    assert_eq!(s.ai.process_stats.reached_loaded, 1);
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling, "not there yet");
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) > 50.0);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
+    s.run(30.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
 }
 
 /// A Use Weapon package (`fnv_game::use_weapon`): the actor walks to the package's

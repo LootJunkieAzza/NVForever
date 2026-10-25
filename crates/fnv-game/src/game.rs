@@ -101,7 +101,10 @@ pub mod event {
 
 /// Nested script runs allowed (a stage result script setting another stage, an
 /// `Activate` running an OnActivate block) [documented: GECK wiki SetStage, at least 250
-/// recursive SetStage calls work].
+/// recursive SetStage calls work]. Stack: 256 nested SetStage result scripts ran in a
+/// 768 KiB thread stack and overflowed 640 KiB [observed: release build, synthetic
+/// quest, 2026-10-24], so they fit a 2 MiB worker thread and, with less room, the 1 MiB
+/// Windows main thread; deeper frames of other nestings are not measured.
 pub const MAX_DEPTH: u32 = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

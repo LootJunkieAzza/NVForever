@@ -68,6 +68,16 @@
 //!   (`Game::idle_picks`); the actor's folder walked as for its fidgets, with no branch
 //!   kept out (`Game::pick_idle`), and the pick played as a script's idle.
 //!
+//! - **Creatures' combat idles** (idles.md §14). A creature standing still with its
+//!   stance drawn (`Game::draws_weapon`: fighting, alerted, or warning the player) is
+//!   checked every [`FIDGET_CHECK_SECONDS`] for an idle from the tree's branch that
+//!   names GetIsAlerted (the gecko's hiss and side hops, the mirelurk's and sentry bot's
+//!   warnings); the tree's own conditions decide: the gecko's want alerted, combat or
+//!   flee, so a gecko hisses standing in a fight and not while it warns (GetIsAlerted 0,
+//!   procedure 44 then, as observed in the original). It ends when the creature moves
+//!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
+//!   People keep their drawn-weapon fidgets [design].
+//!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
 //! conditions: other fidgets), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
@@ -319,6 +329,8 @@ pub struct Stats {
     /// Drawn-weapon fidgets started on actors and on the player.
     pub actor_fidgets: u32,
     pub player_fidgets: u32,
+    /// Creatures' combat idles started (alerted, standing).
+    pub combat_idles: u32,
     /// Fidgets on furniture started on actors and on the player.
     pub actor_furniture_fidgets: u32,
     pub player_furniture_fidgets: u32,
@@ -495,6 +507,10 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && (moving || !weapon_out(game, v.0))) {
             c.play.stop();
         }
+        // A creature's combat idle ends when it moves or is calm again [design].
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::CombatIdle && (moving || !game.draws_weapon(FormId(v.0)))) {
+            c.play.stop();
+        }
         // A fidget on furniture ends when its actor starts getting off: it fades out over
         // the start of the getting-off clip, which starts where the body sits
         // (furniture.md §4) [design].
@@ -620,12 +636,16 @@ pub fn drive(
         // An actor in a conversation has its talking gestures instead (idles.md §12).
         .filter(|(_, v, ..)| !live.contains(&v.0) && !game.is_dead(FormId(v.0)) && !talk_parts.iter().any(|p| p.actor.0 == v.0) && !cowering.iter().any(|(c, _)| *c == v.0))
         .filter_map(|(_, v, rig, _, lo, _)| {
+            let folder = skeleton_folder(&rig.skeleton)?;
+            let still = lo.is_some_and(|l| l.velocity == [0.0; 2]);
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
                 on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
+            } else if folder.split('\\').any(|p| p == "creatures") {
+                (still && game.draws_weapon(FormId(v.0))).then_some(FidgetKind::Alerted)?
             } else {
-                (lo.is_some_and(|l| l.velocity == [0.0; 2]) && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
+                (still && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
             };
-            Some((v.0, skeleton_folder(&rig.skeleton)?, kind))
+            Some((v.0, folder, kind))
         })
         .collect();
     if player_seated {
@@ -769,7 +789,7 @@ pub fn drive(
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         for IdleRequest { actor, idle, source } in requests {
-            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture | IdleSource::Cower) {
+            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower) {
                 st.stats.asked += 1;
             }
             match source {
@@ -777,7 +797,7 @@ pub fn drive(
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture | IdleSource::Cower => {}
+                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -842,6 +862,7 @@ pub fn drive(
             match source {
                 IdleSource::Fidget => st.stats.actor_fidgets += 1,
                 IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
+                IdleSource::CombatIdle => st.stats.combat_idles += 1,
                 IdleSource::Gesture | IdleSource::Cower => {}
                 _ => st.stats.started += 1,
             }
@@ -923,6 +944,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
         s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
+    info!("creature combat idle summary: {} combat idles started on alerted creatures", s.combat_idles);
     info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
     info!("talk gesture summary: {} gestures picked while talking, {} while listening; {} walks of the tree gave none", s.talk_gestures, s.listen_gestures, s.no_gesture);
     info!("cower summary: {} cower idles started on fleeing actors", s.cowers);

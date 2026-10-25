@@ -205,6 +205,11 @@ pub fn draw(
         let Some(a) = shaders.active.get(key) else { continue };
         let d = &b.def;
         b.owed += d.birth_ratio(now - a.since, a.persist) * BIRTHS_PER_RATIO * dt;
+        // Births past the free slots are dropped (as the loop below would skip them);
+        // capping here keeps a broken shader's huge or infinite ratio from looping
+        // without end.
+        let free = MAX_ALIVE.saturating_sub(b.particles.len()) as f32;
+        b.owed = if b.owed.is_finite() { b.owed.min(free + b.owed.fract()) } else { 0.0 };
         if b.owed < 1.0 {
             continue;
         }

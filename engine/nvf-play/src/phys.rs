@@ -791,7 +791,19 @@ impl PhysState {
             *counts.entry("water_volume_refs").or_default() += 1;
         }
         let Some(prepared) = prepared else { return false };
-        let rep = self.world.insert_ref(prepared);
+        // A panic putting the bodies in the world (bad data met by a bug of ours,
+        // `nvf_assets::guard`): the reference has no collision; the bodies added before
+        // it stopped are taken out.
+        let rep = match nvf_assets::guard::guarded(|| Ok(self.world.insert_ref(prepared))) {
+            Ok(rep) => rep,
+            Err(e) => {
+                warn!("phys: 0x{:08X}: collision not added ({e}); the reference has none", pl.form_id);
+                self.world.remove_ref(pl.form_id);
+                *self.stats.counts.entry("add_failed").or_default() += 1;
+                return false;
+            }
+        };
+        let counts = &mut self.stats.counts;
         *counts.entry("with_collision").or_default() += 1;
         match drawn {
             Some(d) => {
@@ -951,7 +963,17 @@ impl PhysState {
             }
         };
         let pose = RefPose { form_id: id, position: s.pos, rotation: ref_rotation(s.rot), scale: 1.0 };
-        let rep = self.world.add_ref(&pose, &objects);
+        // A panic converting or adding the bodies (`nvf_assets::guard`): no collision for
+        // this reference, and nothing of it left in the world.
+        let rep = match nvf_assets::guard::guarded(|| Ok(self.world.add_ref(&pose, &objects))) {
+            Ok(rep) => rep,
+            Err(e) => {
+                warn!("collision of dropped 0x{id:08X} not added ({e}): {path}");
+                self.world.remove_ref(id);
+                *self.stats.counts.entry("created_without_collision").or_default() += 1;
+                return false;
+            }
+        };
         if rep.bodies == 0 {
             *self.stats.counts.entry("object_errors").or_default() += rep.errors.len();
             return false;

@@ -276,6 +276,60 @@ impl Source for Gain {
     }
 }
 
+/// A playing sound that ends, instead of taking the audio output thread down with it, when
+/// its decoder panics on a broken part of its file (nvf_assets::guard); every sound
+/// played goes through one.
+struct GuardedSource<S> {
+    inner: S,
+    dead: bool,
+}
+
+impl<S: Source> GuardedSource<S> {
+    fn new(inner: S) -> Self {
+        GuardedSource { inner, dead: false }
+    }
+}
+
+impl<S: Source> Iterator for GuardedSource<S> {
+    type Item = rodio::Sample;
+
+    fn next(&mut self) -> Option<rodio::Sample> {
+        if self.dead {
+            return None;
+        }
+        match nvf_assets::guard::guarded(|| Ok(self.inner.next())) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("audio output: a sound's file broke while playing ({e}); it stops");
+                self.dead = true;
+                None
+            }
+        }
+    }
+}
+
+impl<S: Source> Source for GuardedSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        if self.dead {
+            Some(0)
+        } else {
+            self.inner.current_span_len()
+        }
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        self.inner.channels()
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        self.inner.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(pos)
+    }
+}
+
 /// The Sound tab of the settings page: the master volume and each category's, as the
 /// original's audio menu lists them. Called by the binary where the tab belongs among
 /// the others (a group's place is where its first row is added).
@@ -445,8 +499,17 @@ fn play_queued<T: Decodable + Asset>(
             *warned = true;
             warn!("audio output: spatial sound is not built; {entity} plays without it");
         }
+        // A broken file's decoder that panics while opening is that sound's failure, not
+        // the game's (nvf_assets::guard): the sound is dropped.
+        let decoder = match nvf_assets::guard::guarded(|| Ok(source.decoder())) {
+            Ok(d) => GuardedSource::new(d),
+            Err(e) => {
+                warn!("audio output: a sound could not be opened ({e}); it is skipped");
+                commands.entity(entity).try_despawn();
+                continue;
+            }
+        };
         let sink = Player::connect_new(out.category_mixer(category.copied().unwrap_or_default()));
-        let decoder = source.decoder();
         let looped = matches!(settings.mode, PlaybackMode::Loop);
         match (settings.start_position, settings.duration, looped) {
             (Some(s), Some(d), true) => sink.append(decoder.skip_duration(s).take_duration(d).repeat_infinite()),

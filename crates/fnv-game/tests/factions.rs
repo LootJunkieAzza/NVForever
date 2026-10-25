@@ -89,6 +89,9 @@ const GET_FACTION_RANK: u16 = 0x1049;
 const GET_FACTION_RELATION: u16 = 0x11C2;
 const ADD_TO_FACTION: u16 = 0x117F;
 const SET_ENEMY: u16 = 0x1078;
+const GET_CURRENT_AI_PACKAGE: u16 = 0x106E;
+const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+const GET_IS_ALERTED: u16 = 0x105B;
 
 /// Template flags: Factions (bit 2), AI Data (bit 4) and AI Packages (bit 5).
 const FACTIONS: u16 = 0x4;
@@ -719,23 +722,114 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 0);
     assert!(g.provocations.take_notes().is_empty(), "outside the radius");
+    assert_eq!(g.warning_to(lurker), None);
+    assert!(!g.draws_weapon(lurker));
     g.world.get(lurker).unwrap().pos = [600.0, 0.0, 0.0];
     for (level, step) in [(1, 0.0), (2, 5.0)] {
         g.time += step;
         seen(&mut g);
         assert_eq!(g.aggro_tick(), 0);
         assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroWarned { actor, level: l, .. } if *actor == lurker && *l == level)));
+        // While it warns it draws (a creature its stance; the AI stops it and turns it
+        // to the player) but is not alerted: GetIsAlerted 0, as the original's gecko.
+        assert_eq!(g.warning_to(lurker), Some(player));
+        assert!(g.draws_weapon(lurker) && !g.is_alerted(lurker));
+        // GetCurrentAIPackage 35 and GetCurrentAIProcedure 44 (GUARD), GetIsAlerted 0
+        // (the original's young gecko, capture `warnings`).
+        assert_eq!(call(&mut g, GET_CURRENT_AI_PROCEDURE, LURKER_REF, &[]), 44.0);
+        assert_eq!(call(&mut g, GET_CURRENT_AI_PACKAGE, LURKER_REF, &[]), 35.0);
+        assert_eq!(call(&mut g, GET_IS_ALERTED, LURKER_REF, &[]), 0.0);
     }
-    // Not again before the timer.
+    // Not again before the timer; it still warns meanwhile. The attack comes 15 s after
+    // the first warning for a creature, 21 s for a person (the original's geckos and
+    // Gomorrah guard): here 10 or 16 s after the second.
+    let wait = if g.creature_type(lurker).is_some() { 10.0 } else { 16.0 };
     g.time += 1.0;
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 0);
-    g.time += 4.0;
+    assert_eq!(g.warning_to(lurker), Some(player));
+    g.time += wait - 2.0;
+    seen(&mut g);
+    assert_eq!(g.aggro_tick(), 0);
+    g.time += 1.0;
     seen(&mut g);
     assert_eq!(g.aggro_tick(), 1);
     assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
     assert!(g.would_attack(lurker, player));
     assert_eq!(g.provocations.grudges[&(lurker, player)].why, Why::Aggro);
+    // Until it is in Combat (a moment later) it still counts as warning, so its stance is
+    // not put away and drawn again; after AGGRO_TURN_SECONDS no longer.
+    assert_eq!(g.warning_to(lurker), Some(player));
+    g.time += fnv_game::aggro::AGGRO_TURN_SECONDS;
+    assert_eq!(g.warning_to(lurker), None);
+}
+
+#[test]
+fn a_guard_package_alone_warns_nobody() {
+    // `fnv_game::aggro` "Guard packages do not warn": Gomorrah's room guards on a Guard
+    // package, with no aggro radius of their own, neither warned nor fought a player by the
+    // door they guard (capture `warnings2`). The lurker on a Guard package guarding OWN_REF,
+    // the player beside OWN_REF and far outside the lurker's own aggro radius: nothing.
+    use fnv_game::package::{PackageDef, PackageType, Target, TargetKind};
+    let mut f = fixture();
+    let guard = PackageDef { ty: PackageType::Guard, target: Some(Target { kind: TargetKind::Reference(Some(FormId(OWN_REF))), count_distance: 100 }), ..PackageDef::default() };
+    f.data.package_defs.insert(FormId(0x8F0), guard);
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    g.extra.entry(lurker).or_default().current_package = Some(FormId(0x8F0));
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(FormId(OWN_REF)).unwrap().pos = [60.0, 0.0, 0.0];
+    g.world.get(lurker).unwrap().pos = [2000.0, 0.0, 0.0];
+    for _ in 0..4 {
+        let now = g.time;
+        g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+        assert_eq!(g.aggro_tick(), 0);
+        g.time += 5.0;
+    }
+    assert!(g.provocations.take_notes().is_empty());
+    assert_eq!(g.warning_to(lurker), None);
+}
+
+#[test]
+fn inside_half_its_aggro_radius_an_actor_attacks_without_warning() {
+    // `fnv_game::aggro` "The timing": the original's Young Gecko attacked on first
+    // detection at 196 of its 500 units.
+    let f = fixture();
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(lurker).unwrap().pos = [300.0, 0.0, 0.0];
+    let now = g.time;
+    g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    assert_eq!(g.aggro_tick(), 1);
+    let notes = g.provocations.take_notes();
+    assert!(!notes.iter().any(|n| matches!(n, Note::AggroWarned { .. })), "{notes:?}");
+    assert!(notes.iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
+}
+
+#[test]
+fn an_aggro_warning_ends_when_the_player_leaves_the_radius() {
+    // The warning look (`fnv_game::aggro`, "The look") lasts while the player is inside;
+    // the count is kept for the grace, the look is not.
+    let f = fixture();
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(lurker).unwrap().pos = [600.0, 0.0, 0.0];
+    let seen = |g: &mut Game| {
+        let now = g.time;
+        g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    };
+    seen(&mut g);
+    g.aggro_tick();
+    assert_eq!(g.warning_to(lurker), Some(player));
+    g.world.get(lurker).unwrap().pos = [700.0, 0.0, 0.0];
+    g.time += 1.0;
+    seen(&mut g);
+    g.aggro_tick();
+    assert_eq!(g.warning_to(lurker), None);
+    assert!(!g.draws_weapon(lurker));
+    assert_eq!(g.provocations.aggro_warnings[&lurker].0, 1, "the count is kept for the grace");
 }
 
 #[test]

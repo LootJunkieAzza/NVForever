@@ -268,14 +268,18 @@ fn build(
 ) -> Option<TreeVisual> {
     let rec = fnv_world::placed::tree_record(world.lo, world.schema, tree)?;
     let bytes = models.data.read(&rec.model)?;
-    let spt = match fnv_spt::Tree::parse(&bytes) {
-        Ok(t) => t,
+    // A broken file (an error or a panic) draws the billboard instead.
+    let (spt, g) = match nvf_assets::guard::guarded(|| {
+        let spt = fnv_spt::Tree::parse(&bytes).map_err(|e| e.to_string())?;
+        let g = fnv_spt::generate(&spt);
+        Ok((spt, g))
+    }) {
+        Ok(v) => v,
         Err(e) => {
             warn!("{}: {e}", rec.model);
             return None;
         }
     };
-    let g = fnv_spt::generate(&spt);
     let scale = rec.size? / g.width().max(g.top()).max(1e-6);
     let mut parts = Vec::new();
     let (rock, rustle) = angular_speeds(rec.rock_speed.unwrap_or(1.0), rec.rustle_speed.unwrap_or(1.0));
