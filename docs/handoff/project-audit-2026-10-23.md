@@ -2,7 +2,7 @@
 
 The owner asked for "a complete audit of all the data types, scripts, known gaps and where
 our documentation is stale … a complete picture on project completion and major playthrough
-blockers". Unlike [outstanding-audit-2026-10-23](outstanding-audit-2026-10-23.md), which was
+blockers". Unlike [outstanding-audit-2026-10-23](archive/outstanding-audit-2026-10-23.md), which was
 gathered from documents, this one checks the claims against the code on main at 5e803939
 (after #618). Six read-only passes ran in parallel: ESM record types, script functions and
 events, a main-quest walk, stale documents, test health, and the other systems, formats and
@@ -256,11 +256,11 @@ Hard means the player cannot progress; soft means play degrades.
 |---|---|
 | `docs/status.md` | Header 2026-10-17/#417; "205 scenarios" (431); "70 of 107 layouts" (92); "160/160 NIF block types" (229 in the schema, 178 concrete); Releases knows only v0.1.0 (tags go to v0.4.0); "Done" for events (5 blocks never fire) and materials (no environment maps); still lists as unbuilt: console multi-statement lines, AvoidThreat, throw phases (built for the player), particle controllers, leveled locks (none in the masters), compass quest markers; omits hotkeys, pickpocketing, perk entry points beyond combat, melee VATS, menu XML; Crafting, Repair and Followers "Partly" with no gap named |
 | `docs/outstanding.md` | As of #417; contradicts outstanding-audit (combat-cover, release, smoke process: "workers do not run the game" vs CLAUDE.md) |
-| `docs/handoff/outstanding-audit-2026-10-23.md` | "3 of 5 lists merged" (all 5); 426 scenarios; "nothing blocks a playthrough"; lab "no run since 10-09" (one on 10-19); v0.2.0 "to tag" |
+| `docs/handoff/archive/outstanding-audit-2026-10-23.md` | "3 of 5 lists merged" (all 5); 426 scenarios; "nothing blocks a playthrough"; lab "no run since 10-09" (one on 10-19); v0.2.0 "to tag" |
 | `docs/handoff/esm-gap-audit-2026-10-21.md` | Rows 8, 9, 17, 18 built; FACT XNAM, NPC_ KFFZ (the gap is CREA KFFZ), CDCK wrong; misses WEAP VATS/VANM, embedded weapon, WRLD fall damage, IMAD RDSD |
 | `docs/handoff/gap-audit-2026-10-23.md` | "No new ESM gap" (see above); knockdown-player PASS (now marked); shoot-bottles PASS vs outstanding-audit's fail |
 | `docs/handoff/handover-2026-10-21/22.md` | Strike through CAMS/CPTH, RGDL, debris, HDR as if built: they were closed, not built |
-| `docs/handoff/queue-2026-10-20.md`, `playtest-2026-10-12.md`, `playtest-list-4/5.md`, `site-update-2026-10-16.md` | Finished; still list built work as open |
+| `docs/handoff/archive/queue-2026-10-20.md`, `playtest-2026-10-12.md`, `playtest-list-4/5.md`, `site-update-2026-10-16.md` | Finished; still list built work as open |
 | `CLAUDE.md` | Points at queue-2026-10-20 as the live queue (finished) and lists playtest lists 1–5 (list 7 is live) |
 | `docs/cli-contract.md` | 28 fnvtool commands undocumented; title says Layer 1 |
 | `docs/development.md` | Layout lacks fnv-save, tools/stress, tools/play, tools/release; test list lacks stress and clippy |
@@ -271,7 +271,8 @@ Hard means the player cannot progress; soft means play degrades.
 | Design notes' "not built" lines | alert.md (combat groups, crimes), combat-ai.md (fleeing, groups, weapon choice), combat.md:418 (NPCs don't shoot), dialogue-play.md (GetSitting, head tracking), layer3.md:7 (clouds), layer4-play.md:439 (grab, VATS, saves …), layer5-play.md:451 (chargen), player-body.md:60 (Pip-Boy), vats-mode.md:437 (perk AP), layer1.md:19 (licence) |
 | Spec notes | nif-node-audit.md (~28 moved line anchors), combat-rules.md, animation.md, controls.md, camera.md, audio.md:533, level-design.md, message-menu.md, grass.md, world.md:375/640, esm.md:202-233, weapon-data-fields.md:7 (145 AMMO is all masters; FalloutNV.esm has 92), skill-books.md:19-25 (27 books, 17 with a skill), effects-animation-audit.md:48 |
 
-**Recommendation**: move the finished handoff files to `docs/handoff/archive/`; fold
+**Recommendation** (2026-10-25: the archive move, the CLAUDE.md pointers and most of the
+table above done in the docs sweeps): move the finished handoff files to `docs/handoff/archive/`; fold
 `outstanding.md` into one list with this file; regenerate the coverage table from an
 updated `function_systems.toml`; replace fixed counts in status.md with pointers to the
 tools; point CLAUDE.md at this file, gap-audit §7 and playtest list 7.

@@ -1,7 +1,7 @@
 # What is left (2026-10-18, brought up to main 2026-10-25)
 
-> Rows below are struck or marked as later PRs closed them, up to #717. The concrete
-> whole-project picture is [outstanding-audit-2026-10-23](handoff/outstanding-audit-2026-10-23.md)
+> Rows below are struck or marked as later PRs closed them, up to #800 (2026-10-25). The concrete
+> whole-project picture is [outstanding-audit-2026-10-23](handoff/archive/outstanding-audit-2026-10-23.md)
 > and [project-audit-2026-10-23](handoff/project-audit-2026-10-23.md); what ESM data is still
 > unused is [esm-audit-2026-10-25](handoff/esm-audit-2026-10-25.md).
 
@@ -87,8 +87,9 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **AI and packages, ESM data** (built 2026-10-21, claude/em1-ai-packages, packages.md §7):
   "Can't Open Doors" creatures kept from load doors, package Begin/End/Change topics and combat style, patrol
   points' topic and script, Run On "Combat Target", Friendly Fire Comments. Left
-  (packages.md §7.7): Observe Combat, Reaction To Player Actions and Idle Chatter (their
-  topics are not said yet), Avoid Radiation (paths), Guard "Remain Near Reference" and
+  (packages.md §7.7): ~~Observe Combat, Reaction To Player Actions and Idle Chatter (their
+  topics are not said yet), Avoid Radiation (paths)~~ (built 2026-10-25, #757,
+  packages.md §7.6b; Observe Combat's running away is not), Guard "Remain Near Reference" and
   stay-at places by object (undocumented), No AI Acquire (no actor picks things up), DOOR
   Minimal Use (undocumented), what such creatures do at a shut hinged door. Owner check: the Camp Searchlight feral trooper ghouls'
   FollowEdwards travel now needs a door they cannot open (`fnvtool ai reach`).
@@ -112,7 +113,8 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 
 ## 3. Decisions waiting for the owner
 
-[owner-review.md](owner-review.md) is the full list. On 2026-10-19, 54 items that later
+[owner-review.md](owner-review.md) is the full list, condensed on 2026-10-24 to the open
+gameplay decisions (the old running log: `git show 85dcaace:docs/owner-review.md`). On 2026-10-19, 54 items that later
 work had overtaken were struck through, each with what overtook it, and the second run of
 owner-decision captures ([spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md)
 §7) answered or narrowed the factual ones. Those still open are listed in §4. What is left
@@ -126,7 +128,7 @@ here needs your ruling: a lab rule, or a choice the original's behaviour does no
 - the `combat-violet` and `combat-dogs` known-failing marks.
 
 **Your choice** (the original's behaviour is known, or does not decide it):
-- **Pausing in conversations** (owner-review item 34).
+- **Pausing in conversations** (owner-review.md item 19; item 34 of the old log).
   - **What the original does.** It stops the game clock, and an attacker does not act
     while the menu is open (captured 2026-10-19). NVForever does the same now.
   - **To decide.** Whether the "live world" proposal should change that, and whether
@@ -134,7 +136,8 @@ here needs your ruling: a lab rule, or a choice the original's behaviour does no
 - **Layer 5's runtime rules where the sources were unclear:** stage conditions, timers,
   reputation tolerances, `ref` handling and Return. Each is a reading of the wiki;
   no capture was designed for them.
-- **Assault and the faction** (owner-review "Karma and crime" item 8). The original agrees
+- **Assault and the faction** ("Karma and crime" item 8 of the old log,
+  `git show 85dcaace:docs/owner-review.md`). The original agrees
   with our decision (captured 2026-10-19); only your sign-off is left.
 - **Looks and constants by area** (not quest-critical), to compare by eye in the game:
   - rendering, menus and interface, combat, AI, dialogue, animation, world and physics,

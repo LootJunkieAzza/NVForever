@@ -32,7 +32,10 @@ cargo test --workspace --release
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
+python -m unittest discover -s tools/stress/tests
+cargo clippy --workspace --all-targets --release -- -D warnings
 cd engine && cargo build --release          # Bevy viewer and game (first build takes a while)
+cargo clippy --release --all-targets -- -D warnings   # in engine/: the Bevy workspace
 ```
 
 With the game installed, two more checks run against your own data:
@@ -42,6 +45,10 @@ With the game installed, two more checks run against your own data:
 # scenarios your branch's changed files call for and prints one line per scenario.
 python tools/smoke plan
 python tools/smoke run --exe engine/target/release/nvforever.exe --data "$D" --fnvtool target/release/fnvtool.exe
+# (up to 3 games at once on the machine, the smoke slots; --slots 1 runs one alone)
+# Stress tests: long trips, every cell, big fights; crashes, hangs, memory, slow frames
+# (design/stress-tests.md).
+python tools/stress --help
 # The parity lab: every layer against independent readers and in-game captures.
 cp parity-lab/lab.local.example.json parity-lab/lab.local.json   # then set your paths
 cd parity-lab && python -m fnvlab run                             # summary in runs/latest.md
@@ -176,7 +183,8 @@ crates/
   fnv-collide   Havok collision blocks as engine-neutral shapes
   fnv-phys      physics: rapier3d world, character controller, swimming, queries
   fnv-sim       core simulation: forms, references, inventories, activation, clock (headless)
-  fnv-script    compiled scripts: bytecode to IR, function table, decompiler, interpreter
+  fnv-script    scripts: bytecode to IR, function table, decompiler, interpreter, and the
+                compiler from source to the editor's bytes (spec-notes/script-compiler.md)
   fnv-game      game rules: script instances, quests, conditions, events, functions, runner,
                 dialogue, detection, combat rules, crime and karma, aid, lockpicking,
                 hacking, followers
@@ -185,6 +193,7 @@ crates/
   fnv-combat    weapons, ammo, projectiles, explosions, body parts, damage rules
   fnv-voice     dialogue voice files: where a line's sound lives and how long it is
   fnv-font      the interface's bitmap fonts (.fnt)
+  fnv-save      NVForever's own save files (design/save-load.md)
   fnvtool       CLI used by the parity lab (JSON on stdout)
 engine/         Bevy workspace (its own):
   nvf-assets    archives, NIF meshes, DDS textures, KF playback for Bevy
@@ -198,12 +207,16 @@ schemas/script/ script function catalogue as data
 parity-lab/     oracle-vs-candidate differential testing (Python stdlib)
 tools/capture/  independent readers, in-game capture plugin and jobs, xEdit export
 tools/smoke/    smoke runner: game-run scenarios as data (scenarios.toml)
+tools/stress/   stress tests: long runs looking for crashes, hangs, leaks, slow frames
+tools/play/     playtest launchers (Play.ps1: the game at named places)
+tools/release/  launchers and notes packed into the release archives
 docs/
   spec-notes/   clean-room format/behaviour notes (tagged documented/observed/hypothesis)
   design/       per-layer and per-system designs
   status.md     what is complete, partly built and not started, per system
   outstanding.md  everything still to do, ranked for a full playthrough
-  handoff/      hand-over notes between coordinating sessions
+  owner-review.md the open gameplay decisions for the owner
+  handoff/      hand-over notes and audits between sessions (finished ones in handoff/archive/)
   adr/          architecture decision records
   development.md  this file
 ```

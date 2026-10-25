@@ -82,7 +82,8 @@ reactions (GeneralIdleFaction) only counts when one of them has no faction that 
 Only hostiles count: a non-hostile actor noticing the player stays Normal. Being hit by
 the player (assault, friendly fire) and an ally's fight (Assistance) make an actor
 hostile to the attacker through a grudge (`fnv_game::provocation`, combat-ai.md §10);
-crimes and the player's reputation do not yet.
+crimes do since (their witnesses and victims, `fnv_game::crime`,
+docs/spec-notes/crime-karma.md); the player's reputation does not.
 
 ## 4. Events and barks
 
@@ -115,7 +116,7 @@ crimes and the player's reputation do not yet.
   15 s (`Timers::bark_cooldown`: the longer idle wait,
   fCombatDetectionDialogueIdleMaxElapsedTime) [design for all three]. A group is the
   same actor, the same base form or a faction in common (`Game::bark_mates`, the rule
-  that keeps them from fighting each other) [design: combat groups are not built]. The
+  that keeps them from fighting each other) [design, written before combat groups were built: combat-ai.md §12]. The
   kinds (`bark_kind`): NormalToCombat, AlertToCombat and LostToCombat are one ("to
   combat"); AlertToNormal, CombatToNormal and LostToNormal one; AlertIdle and LostIdle
   one; NormalToAlert and CombatToLost each their own [design]. A line held back is
@@ -138,7 +139,7 @@ crimes and the player's reputation do not yet.
   not arrived after 30 s ends where it is. [engineering choice for the times and
   distances.]
 - **Combat**: it closes in to where it can attack and faces its target; the attacks are
-  the combat AI's (docs/design/combat-ai.md). Cover and fleeing are not built. A target
+  the combat AI's (docs/design/combat-ai.md). Cover and fleeing were built later (combat-ai.md §12.2, §12.6). A target
   it no longer detects (behind a rise, say) it keeps closing in on, whatever the
   distance, halving the gap each time the way is planned, until it sees it again or
   goes Lost; the combat AI keeps its distance to fight from meanwhile [design: below].
@@ -164,8 +165,11 @@ crimes and the player's reputation do not yet.
 Furniture's fast getting-up set, chosen under `GetIsAlerted == 1` (furniture.md §2), now
 applies to alerted actors.
 
-Not yet: OnStartCombat / OnCombatEnd blocks, IsHostilesNearby, GetPCDetectionState,
-combat groups, crimes. StartCombat, StopCombat, GetAttacked and allies joining are in
+Not yet when this was written: OnStartCombat / OnCombatEnd blocks, IsHostilesNearby,
+GetPCDetectionState, combat groups, crimes. Built since: OnStartCombat and OnCombatEnd
+(`fnv_game::awareness`), combat groups (combat-ai.md §12), crimes (crime-karma.md).
+IsHostilesNearby (JohnnyGuitar) and GetPCDetectionState (JIP) are extender functions, left
+to the extender work (extender-compat.md). StartCombat, StopCombat, GetAttacked and allies joining are in
 combat-ai.md §6 and §10.
 
 ## 7. Line of sight, fixed on the way

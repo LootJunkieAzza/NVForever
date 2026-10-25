@@ -436,13 +436,17 @@ Kept, with the reason: mouse look stays 0.0025 rad per count (what the original'
 `fMouseSensitivity` 0.002 measures is not known) and is not inverted (the original's
 default); F9 stays the test aid that opens the nearest container (in the original it is
 QuickLoad; there is no saving yet); the right Shift also walks (unbound in the original).
-Not built: Ready Item, Grab, Toggle POV, VATS, Rest/Wait, hotkeys, saving.
+Not built (2026-10-09): Ready Item, Grab, Toggle POV, VATS, Rest/Wait, hotkeys, saving.
+All built since except hotkeys 1 and 3–8 (2026-10-25): Ready Item and Toggle POV
+(`nvf-play` `control.rs`), Grab (docs/spec-notes/grab.md), VATS mode (vats-mode.md),
+Rest/Wait (docs/spec-notes/wait-menu.md), saving with F5/F9 (save-load.md).
 
 Open:
 - Real keys and mouse: first hands-on run by the coordinator 2026-10-09 (mouse look,
   WASD, jump, inventory and container menus by keys and mouse, doors, message boxes);
   its findings are fixed above. Crouching and Auto Move by hand are not tried yet.
-- Dialogue and barter are not built.
+- ~~Dialogue and barter are not built.~~ Built since: dialogue-play.md and
+  docs/spec-notes/barter-menu.md.
 - ~~Locked doors that scripts open in the game stay locked~~: with Layer 5 scripts in
   `--play` (docs/design/layer5-play.md) the Freeside → Strip gate 0x00116425's own
   GameMode unlocks it once `VFreeformFreeside.PlayerPassport` is set (the Securitron's
