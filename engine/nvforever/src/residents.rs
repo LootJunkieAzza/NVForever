@@ -1396,6 +1396,7 @@ impl Core {
                 _ if r.named || game.is_teammate(e.actor) => info!("{line}"),
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
+                | AiEvent::DoorRefused { .. }
                 | AiEvent::Approach { .. }
                 | AiEvent::Follow { .. }
                 | AiEvent::Talk { .. }
@@ -1514,6 +1515,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::AlreadyThere { .. } => "is where its package wants it".into(),
         AiEvent::PushedBack { package, away } => format!("was pushed {away:.0} units from the place of {}: goes back", n(package)),
         AiEvent::Door { door, .. } => format!("used door {door}"),
+        AiEvent::DoorRefused { door } => format!("was not let through door {door} by its script: plans again"),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),

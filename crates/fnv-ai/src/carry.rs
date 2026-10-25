@@ -140,6 +140,9 @@ pub enum AiEvent {
     /// Already where the package wants it.
     AlreadyThere { package: FormId },
     Door { door: FormId, to_door: FormId },
+    /// The script of the next door on the way did not let the actor through
+    /// (`fnv_game::npc_doors`): it plans again without that door.
+    DoorRefused { door: FormId },
     /// The walk ended at the package's place, after `seconds` and `travelled` units.
     Arrived { package: FormId, seconds: f64, travelled: f32, patrol_point: Option<FormId> },
     /// No way to the package's location: the package is set aside.
@@ -363,6 +366,10 @@ pub fn keep_step_speed(target_pace: f32, away: f32, keep: f32, walk: f32, run: f
 /// for again, and not more often than every [`REPLAN_SECONDS`] [our choice].
 const REPLAN_DISTANCE: f32 = 64.0;
 const REPLAN_SECONDS: f64 = 0.5;
+
+/// A walking actor is asked by the next door of its way when that door is within this
+/// many units beyond the step it takes (`fnv_game::npc_doors`) [design].
+const DOOR_ASK_MARGIN: f32 = 96.0;
 
 /// An actor pushed aside goes back to where its package has it once nothing has pushed
 /// it for this long, seconds [our choice; whether and when the game's actors go back is
@@ -1644,7 +1651,34 @@ impl Ai {
         if game.cant_open_doors(actor) {
             params.opens_doors = false;
         }
+        // Scripted doors that did not let it through lately (`fnv_game::npc_doors`).
+        params.refused_doors = game.refused_doors(actor);
         params
+    }
+
+    /// Before `actor` reaches the next door of its way, the door's OnActivate block runs
+    /// for it (`fnv_game::npc_doors`): one that refuses it is closed to its paths and it
+    /// takes up its package afresh from where it stands, as when a door on its way is
+    /// locked ([`Ai::apply_door_locks`]). `reach`: how near the door the actor is asked.
+    /// Whether it may walk on.
+    fn ask_door(&mut self, game: &mut Game, actor: FormId, reach: f32) -> bool {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let Some(door) = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach)) else { return true };
+        if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
+            return true;
+        }
+        a.walker.follower = None;
+        a.walker.tri = fnv_nav::graph::NONE;
+        a.walker.moving = false;
+        a.activity = Activity::None;
+        a.package = None;
+        a.goal = None;
+        a.sandbox = None;
+        a.errand = None;
+        a.following = None;
+        a.waiting_at = None;
+        self.log(game, actor, AiEvent::DoorRefused { door: FormId(door) });
+        false
     }
 
     /// A sandboxing actor whose behaviour is over chooses the next one and sets off.
@@ -1984,6 +2018,11 @@ impl Ai {
     }
 
     fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, mover: &mut dyn Mover) {
+        // Within this step's reach of the next door, and a margin [design].
+        let reach = self.agents[&actor].walker.moving_speed() * dt + DOOR_ASK_MARGIN;
+        if !self.ask_door(game, actor, reach) {
+            return;
+        }
         let a = self.agents.get_mut(&actor).expect("listed");
         a.face_to = None;
         let ev = match mover.walk(actor, &mut a.walker, nav, dt) {
