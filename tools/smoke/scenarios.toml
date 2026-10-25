@@ -4935,14 +4935,15 @@ name = "console-wheel"
 source = "owner 2026-10-23: after a click, the mouse wheel selects the next reference behind (up) or in front (down) along the click, round at the ends (docs/design/console.md, Selecting by clicking)"
 areas = ["console"]
 paths = ["engine/nvf-play/src/console.rs"]
-env = { NVF_PLAY_TEST_CONSOLE = "10:click 0.5 0.5;11:wheel 1;12:wheel 1;13:wheel -2;14:wheel -1;15:close" }
+env = { NVF_PLAY_TEST_CONSOLE = "10:click 0.5 0.5;11:wheel 1;12:wheel 1;13:wheel -2;14:wheel -1;15:click 0.5 0.5;15.5:click 0.5 0.5;16:close" }
 args = ["--cell", "Gomorrah00", "--play", "--no-voice"]
-run_seconds = 18
+run_seconds = 19
 expect = [
   { re = 'console: picked 0x[0-9A-F]{8} at \d+ by \w+; ([3-9]|\d{2,}) along the ray', label = "the click finds three or more references along its ray" },
   { re = 'console: wheel \+1 selects 0x[0-9A-F]{8} \(2 of \d+ along the click\)', label = "wheel up selects the next one further" },
   { re = 'console: wheel -2 selects 0x[0-9A-F]{8} \(1 of \d+ along the click\)', label = "wheel down comes back to the clicked one" },
   { re = 'console: wheel -1 selects 0x[0-9A-F]{8} \((\d+) of \1 along the click\)', label = "down past the nearest goes round to the furthest" },
+  { re = 'console: unselected 0x[0-9A-F]{8}', label = "clicking the selected reference again unselects it" },
 ]
 
 [[scenario]]
