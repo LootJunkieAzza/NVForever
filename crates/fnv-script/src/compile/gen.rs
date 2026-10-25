@@ -93,6 +93,9 @@ pub(super) struct Gen<'a> {
     /// Inside a compiler-override block (`Begin _GameMode` … `End`): every line is read
     /// with the extender's grammar (task A12, script-compiler.md §8).
     co: bool,
+    /// The block-form lambdas taken out of the source: parameter names and their lines
+    /// (`__lambda<i>` stands in their place).
+    lambdas: Vec<(Vec<String>, Vec<lex::Line>)>,
 }
 
 fn put16(b: &mut Vec<u8>, v: u16) {
@@ -151,6 +154,7 @@ impl<'a> Gen<'a> {
             extended: false,
             text: String::new(),
             co: false,
+            lambdas: Vec::new(),
         }
     }
 
@@ -160,7 +164,7 @@ impl<'a> Gen<'a> {
 
     pub(super) fn unit(mut self, src: &str) -> Compiled {
         let mut long = Vec::new();
-        let lines = lex::lines(src, &mut long);
+        let lines = self.take_lambdas(lex::lines(src, &mut long));
         for n in long {
             self.diags.push(Diag { line: n, kind: "line_too_long", error: false, detail: format!("over {} characters", lex::MAX_LINE) });
         }
@@ -191,6 +195,86 @@ impl<'a> Gen<'a> {
             self.statement(&s.kw);
         }
         Compiled { bytes: self.out, variables: self.vars, refs: self.refs, diags: self.diags }
+    }
+
+    /// Take the block-form lambdas (`(begin function {…}` … `end)`, which span lines
+    /// [documented: Lambda]) out of the lines; each leaves `__lambda<i>` in its place, which
+    /// the expression parser compiles where it stands.
+    fn take_lambdas(&mut self, lines: Vec<lex::Line>) -> Vec<lex::Line> {
+        let mut out: Vec<lex::Line> = Vec::new();
+        let mut open: Vec<(lex::Line, String, Vec<String>, Vec<lex::Line>)> = Vec::new();
+        for l in lines {
+            let low = l.text.to_ascii_lowercase();
+            if let Some(at) = low.find("(begin function") {
+                let after = &l.text[at + "(begin function".len()..];
+                let names = after.split(['{', '}', ',', ' ']).filter(|w| !w.is_empty()).map(str::to_string).collect();
+                let names: Vec<String> = names;
+                open.push((l.clone(), l.text[..at].to_string(), names, Vec::new()));
+                continue;
+            }
+            let closes = {
+                let t = low.trim_start();
+                t.starts_with("end") && t[3..].trim_start().starts_with(')')
+            };
+            if closes && !open.is_empty() {
+                let (first, before, names, body) = open.pop().unwrap_or_else(|| unreachable!());
+                let i = self.lambdas.len();
+                self.lambdas.push((names, body));
+                let rest = &l.text[l.text.find(')').map_or(l.text.len(), |p| p + 1)..];
+                let text = format!("{before}__lambda{i}{rest}");
+                let merged = lex::Line { no: first.no, toks: lex::tokens(&text), text };
+                match open.last_mut() {
+                    Some(o) => o.3.push(merged),
+                    None => out.push(merged),
+                }
+                continue;
+            }
+            match open.last_mut() {
+                Some(o) => o.3.push(l),
+                None => out.push(l),
+            }
+        }
+        for (first, ..) in open {
+            self.diags.push(Diag { line: first.no, kind: "lambda_without_end", error: true, detail: String::new() });
+        }
+        out
+    }
+
+    /// Compile lambda `i`'s statements with this unit's variables and references; the
+    /// statements, as the decoder reads them back.
+    pub(super) fn lambda(&mut self, i: usize) -> Option<crate::ir::XExpr> {
+        let (names, lines) = self.lambdas.get(i).cloned()?;
+        let mut params = Vec::new();
+        for n in &names {
+            let Some(v) = self.var(n) else {
+                self.diag("unresolved_name", true, n.clone());
+                return None;
+            };
+            params.push(crate::ir::VarRef {
+                on: None,
+                var: crate::ir::VarSlot::Local { index: v.index as u16, letter: letter_of(&v.ty) },
+            });
+        }
+        let saved = (std::mem::take(&mut self.out), self.stmts, std::mem::take(&mut self.chains), self.block.take(), self.loops, self.line, self.text.clone());
+        self.stmts = 0;
+        self.loops = 0;
+        for l in &lines {
+            self.line = l.no;
+            self.text = l.text.clone();
+            match parse::statement(l) {
+                Ok(s) => self.statement(&s.kw),
+                Err(e) => self.diags.push(Diag { line: e.line, kind: "syntax", error: true, detail: e.msg }),
+            }
+        }
+        let bytes = std::mem::replace(&mut self.out, saved.0);
+        self.stmts = saved.1;
+        self.chains = saved.2;
+        self.block = saved.3;
+        self.loops = saved.4;
+        self.line = saved.5;
+        self.text = saved.6;
+        let body = crate::decode::decode(&bytes, self.table).program.top;
+        Some(crate::ir::XExpr::Lambda { params, body, value: None })
     }
 
     // ------------------------------------------------------------------ variables, names
@@ -722,6 +806,30 @@ impl<'a> Gen<'a> {
                 let co = block.starts_with('_');
                 let block = &block.trim_start_matches('_').to_string();
                 self.co = co;
+                // `Begin Function {a, b}`: a user-defined function; its parameters are
+                // variables of the script [documented: User Defined Function].
+                if block.eq_ignore_ascii_case("function") {
+                    let params = Self::arg_tokens(args);
+                    let mut body = Vec::new();
+                    put16(&mut body, crate::ir::FUNCTION_BLOCK);
+                    body.extend_from_slice(&0u32.to_le_bytes());
+                    put16(&mut body, params.len() as u16);
+                    for t in &params {
+                        match self.var(&t.text) {
+                            Some(v) => {
+                                let val = Val::Local { index: v.index as u16, letter: letter_of(&v.ty) };
+                                self.tagged(&mut body, &val);
+                            }
+                            None => {
+                                self.diag("unresolved_name", true, t.text.clone());
+                                self.tagged(&mut body, &Val::Num("0".into()));
+                            }
+                        }
+                    }
+                    let at = self.emit(None, op::BEGIN, &body);
+                    self.block = Some((at + 2, self.out.len()));
+                    return;
+                }
                 let Some(&code) = self.blocks.get(&block.to_ascii_lowercase()) else {
                     self.diag("unknown_block", true, block.clone());
                     return;

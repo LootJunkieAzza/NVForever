@@ -863,6 +863,8 @@ pub struct GameData {
     /// Lower-case Editor ID → FormID (every winning record with an EDID).
     pub edids: HashMap<String, FormId>,
     pub edid_of: HashMap<FormId, String>,
+    /// The name the player sees (FULL) of every winning record that has one.
+    pub full_names: HashMap<FormId, String>,
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
@@ -1315,6 +1317,8 @@ pub struct CombatStyleDef {
 #[derive(Default)]
 struct Read {
     edid: Option<String>,
+    /// FULL: the name the player sees.
+    full: Option<String>,
     script: Option<FormId>,
     quest: Option<QuestDef>,
     info: Option<InfoDef>,
@@ -1432,6 +1436,7 @@ impl GameData {
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
+            full_names: HashMap::new(),
             sigs: HashMap::new(),
             scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
@@ -1514,6 +1519,9 @@ impl GameData {
             if let Some(e) = r.edid {
                 d.edids.entry(e.to_ascii_lowercase()).or_insert(id);
                 d.edid_of.insert(id, e);
+            }
+            if let Some(n) = r.full {
+                d.full_names.insert(id, n);
             }
             if let Some(s) = r.script {
                 d.form_script.insert(id, s);
@@ -2156,6 +2164,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     for s in &subs {
         match &s.sig {
             b"EDID" if out.edid.is_none() => out.edid = val(s).and_then(|v| v.as_str().map(str::to_string)),
+            b"FULL" if out.full.is_none() => out.full = Some(fnv_util::cp1252::decode_z(&s.data)).filter(|n| !n.is_empty()),
             b"SCRI" if out.script.is_none() => out.script = val(s).as_ref().and_then(hexid).and_then(map).map(FormId),
             _ => {}
         }

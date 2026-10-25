@@ -115,6 +115,10 @@ pub struct Unnumbered {
     /// The catalogue's `origin` (`NVSE`, `JIP`, …).
     pub origin: String,
     pub params: Vec<Param>,
+    /// In the wiki's "NVSE-Aware Functions" category: its arguments are whole
+    /// expressions [documented: Script Compiler Override, "Let, if eval, While, Print and
+    /// any other NVSE-Aware Function"].
+    pub aware: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -268,6 +272,7 @@ impl FunctionTable {
                     name: name.clone(),
                     origin: func.get("origin").and_then(Value::as_str).unwrap_or_default().to_string(),
                     params,
+                    aware: strings(func.get("categories")).iter().any(|c| c.to_ascii_lowercase().replace(' ', "_").contains("nvse-aware")),
                 };
                 for s in std::iter::once(&name).chain(&strings(func.get("aliases"))) {
                     t.unnumbered.entry(s.to_ascii_lowercase()).or_insert_with(|| u.clone());

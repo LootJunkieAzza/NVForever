@@ -104,7 +104,7 @@ impl Kw {
             Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue => true,
             Kw::Decl { ty, init, .. } => matches!(ty, DeclType::String | DeclType::Array) || init.is_some(),
             // `Begin _GameMode`: a compiler-override block [documented: Script Compiler Override].
-            Kw::Begin { block, .. } => block.starts_with('_'),
+            Kw::Begin { block, .. } => block.starts_with('_') || block.eq_ignore_ascii_case("function"),
             _ => false,
         }
     }

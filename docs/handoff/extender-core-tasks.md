@@ -61,7 +61,12 @@ macro and `if eval` from A8, and numbers in the VM (script-compiler.md §8). A8 
 `while`/`foreach`/`loop`/`break`/`continue` compile and nest, `while` runs (foreach waits
 for arrays, B3). A9, A10, A12 done: inline expressions and calls on results, hex and
 binary literals, block comments, `string_var`/`array_var` and `int i = 5`, override
-blocks (script-compiler.md §8). Next: A11 (functions, lambdas), then B1.
+blocks (script-compiler.md §8). A11 done: Function blocks, Call, lambdas in both forms
+compile (running them is B7/B8). The compiler tasks are done except NVSEScript.
+
+**B1 (2026-10-25):** string values in the VM (`XVal`, the game's `ExtStore`), copy on
+assignment, `+`, comparisons, slices, `$`/`#`, ToString/ToNumber, errors that let the script
+go on (script-compiler.md §9). Next: B2 (string lifetimes), B3 (arrays).
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any

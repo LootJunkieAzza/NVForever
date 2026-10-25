@@ -962,6 +962,9 @@ pub enum LineKind {
 
 pub struct Game<'a> {
     pub data: &'a GameData,
+    /// The script extender's strings (and later arrays) by id (fnv_script::vm::ExtStore;
+    /// docs/spec-notes/ext-values.md). Not in the save yet (task F1).
+    pub ext: fnv_script::vm::ExtStore,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
@@ -1457,6 +1460,7 @@ impl<'a> Game<'a> {
         world.set_inventory_sources(sources);
         Game {
             data,
+            ext: Default::default(),
             toggles: Default::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
@@ -3666,6 +3670,31 @@ impl Exec<'_, '_> {
 }
 
 impl Host for Exec<'_, '_> {
+    fn var_kind(&mut self, var: &VarRef) -> fnv_script::vm::VarKind {
+        use fnv_script::vm::VarKind;
+        let VarSlot::Local { index, .. } = var.var else { return VarKind::Value };
+        let ty = match var.on {
+            None => self.unit.var_type(index).cloned(),
+            Some(r) => self.remote(r).ok().and_then(|(_, s)| self.game.data.script(s)).and_then(|c| c.var_type(index).cloned()),
+        };
+        match ty {
+            Some(VarType::Other(t)) if t == "string_var" => VarKind::String,
+            Some(VarType::Other(t)) if t == "array_var" => VarKind::Array,
+            _ => VarKind::Value,
+        }
+    }
+
+    fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
+        Some(&mut self.game.ext)
+    }
+
+    /// The form's name, a reference's its base form's [documented: ToString].
+    fn form_text(&mut self, form: u32) -> Option<String> {
+        let f = FormId(form);
+        let names = &self.game.data.full_names;
+        names.get(&f).cloned().or_else(|| crate::functions::base_of(self.game, f).and_then(|b| names.get(&b).cloned()))
+    }
+
     fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
         match (var.on, var.var) {
             (_, VarSlot::Global { global }) => {

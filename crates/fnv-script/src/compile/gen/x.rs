@@ -12,8 +12,11 @@
 //!
 //! A function inside an expression takes up to as many arguments as it has parameters. An
 //! argument is an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50`
-//! [documented: Inline Expression; Let]. Inside a compiler-override block (`Begin
-//! _GameMode`) an argument is a whole expression instead: `Sin 14 == 1` is `Sin (14 == 1)`
+//! [documented: Inline Expression; Let]. The arguments of an NVSE-aware function (the
+//! wiki's category: Call, Print, SetFunctionValue, the ar_* family…) are whole
+//! expressions [documented: Script Compiler Override, "Let, if eval, While, Print and any
+//! other NVSE-Aware Function"], and so is every argument inside a compiler-override block
+//! (`Begin _GameMode`): `Sin 14 == 1` is `Sin (14 == 1)`
 //! [documented: Script Compiler Override, "Unforeseen Consequences"; the page says the
 //! override evaluates such lines differently]. Arguments are separated by a comma or by two
 //! operands meeting without an operator (`Rand 0, 10`, `Rand 0 10`), and a `-` starts the
@@ -141,6 +144,8 @@ struct XFn {
     /// Arguments taken; `None`: all that follow.
     params: Option<usize>,
     opcode: Option<u16>,
+    /// An NVSE-aware function: whole expressions as arguments.
+    aware: bool,
 }
 
 impl Gen<'_> {
@@ -218,7 +223,34 @@ impl Gen<'_> {
                 }
                 Some(e)
             }
+            XKind::Word if t.text.starts_with("__lambda") => match t.text["__lambda".len()..].parse::<usize>() {
+                Ok(i) => self.lambda(i),
+                Err(_) => self.xerr("unresolved_name", t.text.clone()),
+            },
             XKind::Word => self.xword(p, &t.text),
+            // `{params} => expr` [documented: Lambda].
+            XKind::LBrace => {
+                let mut params = Vec::new();
+                while let Some(n) = p.next() {
+                    match n.kind {
+                        XKind::RBrace => break,
+                        XKind::Comma => {}
+                        XKind::Word => match self.var(&n.text) {
+                            Some(v) => params.push(VarRef {
+                                on: None,
+                                var: VarSlot::Local { index: v.index as u16, letter: super::letter_of(&v.ty) },
+                            }),
+                            None => return self.xerr("unresolved_name", n.text.clone()),
+                        },
+                        _ => return self.xerr("syntax", format!("{} in a lambda's parameters", n.text)),
+                    }
+                }
+                if !p.next().is_some_and(|a| a.is(XKind::Op, "=>")) {
+                    return self.xerr("syntax", "a lambda's {params} without =>");
+                }
+                let value = self.xexpr(p, 2)?;
+                Some(XExpr::Lambda { params, body: Vec::new(), value: Some(Box::new(value)) })
+            }
             _ => self.xerr("syntax", format!("unexpected {}", t.text)),
         }
     }
@@ -238,11 +270,20 @@ impl Gen<'_> {
                 None if f.params.iter().any(|p| p.name == "...") => None,
                 None => Some(f.params.len().max(f.encodings.len())),
             };
-            return Some(XFn { func: FuncId::Opcode(op), params, opcode: Some(op) });
+            return Some(XFn { func: FuncId::Opcode(op), params, opcode: Some(op), aware: false });
         }
         let u = self.table.unnumbered.get(&name.to_ascii_lowercase())?;
-        let params = if u.params.iter().any(|p| p.name == "...") { None } else { Some(u.params.len()) };
-        Some(XFn { func: FuncId::Name(u.name.clone()), params, opcode: None })
+        // `Call udf [up to 15 arguments]` [documented: Call; User Defined Function]; the
+        // catalogue's rows for it come from example pages.
+        let named = u.params.iter().filter(|p| !p.name.is_empty()).count();
+        let params = if u.name.eq_ignore_ascii_case("call") {
+            Some(16)
+        } else if u.params.iter().any(|p| p.name == "...") {
+            None
+        } else {
+            Some(named)
+        };
+        Some(XFn { func: FuncId::Name(u.name.clone()), params, opcode: None, aware: u.aware })
     }
 
     /// A word: a call (`[Ref.]Function args`), `Quest.var`, a local, a form.
@@ -304,14 +345,15 @@ impl Gen<'_> {
                 break;
             }
             let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
-            args.push(self.xarg(p, &enc)?);
+            let min = if self.co || f.aware { ARG_OVERRIDE } else { ARG };
+            args.push(self.xarg(p, &enc, min)?);
         }
         Some(args)
     }
 
     /// One argument. A name in a parameter that takes an enumeration, an axis or a string
     /// is that, when nothing follows it but the next argument.
-    fn xarg(&mut self, p: &mut P<'_>, enc: &ParamEnc) -> Option<XExpr> {
+    fn xarg(&mut self, p: &mut P<'_>, enc: &ParamEnc, min: u8) -> Option<XExpr> {
         // Outside an override block an argument is an operand, so what follows the name
         // (`Health + 50`) is not part of it.
         let single = p.peek().is_some_and(|t| matches!(t.kind, XKind::Word | XKind::Str))
@@ -333,7 +375,7 @@ impl Gen<'_> {
                 _ => Some(XExpr::Str { s: t.text.clone() }),
             };
         }
-        self.xexpr(p, if self.co { ARG_OVERRIDE } else { ARG })
+        self.xexpr(p, min)
     }
 }
 

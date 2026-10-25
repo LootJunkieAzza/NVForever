@@ -443,4 +443,19 @@ pub enum XExpr {
     /// `l -> key`: a string map's element.
     Member { l: Box<XExpr>, key: String },
     Assign { op: XAssign, target: Box<XExpr>, value: Box<XExpr> },
+    /// A lambda [documented: Lambda]: `(begin function {params} … end)` (its statements in
+    /// `body`) or `{params} => expr` (`value`, returned as SetFunctionValue would). Its
+    /// parameters and every variable it names are the enclosing script's.
+    Lambda {
+        params: Vec<VarRef>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        body: Vec<Stmt>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        value: Option<Box<XExpr>>,
+    },
 }
+
+/// The event code NVForever gives a `Begin Function {…}` block (a user-defined function,
+/// [documented: User Defined Function]); the vanilla codes end far below it (the
+/// catalogue's `begin_blocks`). Its parameter block lists the parameter variables.
+pub const FUNCTION_BLOCK: u16 = 0x7F00;

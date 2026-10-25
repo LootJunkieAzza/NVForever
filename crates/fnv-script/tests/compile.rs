@@ -206,6 +206,11 @@ fn x(e: &XExpr) -> String {
         XExpr::Binary { op, l, r } => format!("({} {op:?} {})", x(l), x(r)),
         XExpr::Member { l, key } => format!("{}->{key}", x(l)),
         XExpr::Assign { op, target, value } => format!("({} {op:?}= {})", x(target), x(value)),
+        XExpr::Lambda { params, body, value } => format!(
+            "lambda[{}]({})",
+            params.len(),
+            value.as_ref().map(|v| x(v)).unwrap_or_else(|| format!("{} statements", body.len()))
+        ),
     }
 }
 
@@ -274,9 +279,18 @@ fn bad_extended_lines_are_errors() {
 }
 
 #[derive(Default)]
-struct Locals(std::collections::BTreeMap<u16, Value>);
+struct Locals(std::collections::BTreeMap<u16, Value>, fnv_script::vm::ExtStore, std::collections::BTreeSet<u16>);
 
 impl Host for Locals {
+    fn var_kind(&mut self, var: &fnv_script::VarRef) -> fnv_script::vm::VarKind {
+        match var.var {
+            VarSlot::Local { index, .. } if self.2.contains(&index) => fnv_script::vm::VarKind::String,
+            _ => fnv_script::vm::VarKind::Value,
+        }
+    }
+    fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
+        Some(&mut self.1)
+    }
     fn get_var(&mut self, var: &fnv_script::VarRef) -> Result<Value, String> {
         let VarSlot::Local { index, .. } = var.var else { return Err("global".into()) };
         Ok(self.0.get(&index).copied().unwrap_or_default())
@@ -294,10 +308,16 @@ impl Host for Locals {
     }
 }
 
+/// A host whose string variables are the compiled unit's `string_var`s.
+fn host_for(c: &Compiled) -> Locals {
+    let strings = c.variables.iter().filter(|v| v.ty == VarType::Other("string_var".into())).map(|v| v.index as u16).collect();
+    Locals(Default::default(), Default::default(), strings)
+}
+
 fn run(src: &str) -> Locals {
     let t = table();
-    let (_, p) = build(src);
-    let mut h = Locals::default();
+    let (c, p) = build(src);
+    let mut h = host_for(&c);
     Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs");
     h
 }
@@ -320,7 +340,7 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    let (_, p) = build("float a\nbegin GameMode\nlet a := $a\nend");
+    let (_, p) = build("float a\nbegin GameMode\nlet a := &a\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
     assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
@@ -435,4 +455,98 @@ fn compiler_override_blocks_read_every_line_with_the_extender_grammar() {
     // The same line outside an override block: (Sin 14) == 1.
     let l = lets("float f\nbegin GameMode\nif eval Sin 14 == 1\nendif\nend");
     assert_eq!(l[0], "if (Sin(14) Eq 1)");
+}
+
+// ---- user-defined functions and lambdas (task A11) --------------------------------
+
+#[test]
+fn a_function_script_has_a_function_block_with_its_parameters() {
+    let (c, p) = build("scn TestUDF
+int a
+int b
+Begin Function {a, b}
+  SetFunctionValue a + b
+End
+");
+    assert_eq!(p.blocks[0].event, fnv_script::ir::FUNCTION_BLOCK);
+    assert_eq!(p.blocks[0].params.as_ref().map(Vec::len), Some(2));
+    assert!(matches!(&p.blocks[0].body[0], Stmt::Eval { .. }), "SetFunctionValue is the extender's");
+    assert_eq!(c.variables.len(), 2);
+}
+
+#[test]
+fn call_takes_the_function_and_up_to_fifteen_arguments() {
+    let l = lets("int r
+ref f
+begin GameMode
+let r := Call f 1 2 3
+let r := Call f, 1, (2 + 3)
+end");
+    // A `ref` local holding the function is the variable [documented: Lambda, `Call
+    // rCallback 10`].
+    assert_eq!(l[0], "(v1 Set= Call(v2 1 2 3))");
+    assert_eq!(l[1], "(v1 Set= Call(v2 1 (2 Add 3)))");
+}
+
+#[test]
+fn lambdas_in_both_forms() {
+    let src = "int r
+int x
+ref f
+begin GameMode
+  let f := (begin function {x}
+    SetFunctionValue x * 2
+    let r := 1
+  end)
+  let f := ({x} => x + 1)
+end";
+    let l = lets(src);
+    assert_eq!(l[0], "(v3 Set= lambda[1](2 statements))");
+    assert_eq!(l[1], "(v3 Set= lambda[1]((v2 Add 1)))");
+}
+
+// ---- strings (task B1) ---------------------------------------------------------------
+
+impl Locals {
+    fn text(&self, index: u16) -> String {
+        let id = self.0.get(&index).copied().unwrap_or_default().num() as u32;
+        self.1.text(id).unwrap_or_default().to_string()
+    }
+}
+
+#[test]
+fn strings_join_copy_and_convert() {
+    let h = run("string_var a\nstring_var b\nfloat n\nbegin GameMode\nlet a := \"Hello\"\nlet b := a\nlet a += \", world\"\nlet n := #\"0x10\" + #\" 2.5 \"\nlet b := b + $n + $3 + $1.25\nend");
+    assert_eq!(h.text(1), "Hello, world");
+    // Assignment copies: b kept "Hello" when a changed [documented: NVSE Expressions].
+    assert_eq!(h.text(2), "Hello18.531.25");
+    assert_eq!(h.0[&3], Value::Num(18.5));
+}
+
+#[test]
+fn strings_compare_without_case_and_slice() {
+    let h = run("string_var s\nstring_var t\nfloat a\nfloat b\nbegin GameMode\nlet s := \"Abcdef\"\nlet t := s[1:3] + s[-1] + s[0]\nif eval s == \"ABCDEF\" && \"apple\" < \"Banana\"\n  let a := 1\nendif\nlet b := s != \"x\"\nend");
+    assert_eq!(h.text(2), "bcdfA");
+    assert_eq!(h.0[&3], Value::Num(1.0));
+    assert_eq!(h.0[&4], Value::Num(1.0));
+}
+
+#[test]
+fn a_type_error_is_reported_and_the_script_goes_on() {
+    // [documented: Let] a failing let reports and the script carries on.
+    let t = table();
+    let (c, p) = build("string_var s\nfloat a\nbegin GameMode\nlet a := \"x\" + 1\nlet a := 1 / 0\nlet a := 7\nend");
+    let mut h = host_for(&c);
+    Vm::new(&t, &mut h, RunOpts::default()).run(&p.blocks[0].body).expect("non-strict runs go on");
+    assert_eq!(h.0[&2], Value::Num(7.0));
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
+    assert!(matches!(r, Err(fnv_script::vm::VmError::Type(_))), "{r:?}");
+}
+
+#[test]
+fn tostring_and_tonumber() {
+    let h = run("string_var s\nfloat n\nbegin GameMode\nlet s := ToString 42\nlet n := (ToNumber \"12\") * 2\nend");
+    // ToNumber is NVSE-aware, so without the parentheses its argument would be "12" * 2.
+    assert_eq!(h.text(1), "42");
+    assert_eq!(h.0[&2], Value::Num(24.0));
 }

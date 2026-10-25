@@ -220,6 +220,17 @@ impl Decompiler<'_> {
             XExpr::Binary { op, l, r } => format!("({} {} {})", self.xexpr(l), xop_symbol(*op), self.xexpr(r)),
             XExpr::Member { l, key } => format!("{}->{key}", self.xexpr(l)),
             XExpr::Assign { op, target, value } => format!("({} {} {})", self.xexpr(target), xassign_symbol(*op), self.xexpr(value)),
+            XExpr::Lambda { params, body, value } => {
+                let ps: Vec<String> = params.iter().map(|p| self.var(p)).collect();
+                match value {
+                    Some(v) => format!("({{{}}} => {})", ps.join(" "), self.xexpr(v)),
+                    None => {
+                        let mut lines = Vec::new();
+                        self.stmts(body, &mut lines);
+                        format!("(begin function {{{}}} {} end)", ps.join(" "), lines.join("; "))
+                    }
+                }
+            }
         }
     }
 
@@ -284,6 +295,7 @@ impl Decompiler<'_> {
         for b in &p.blocks {
             let mut head = match self.table.block_name(b.event) {
                 Some(n) => format!("begin {}", n.to_lowercase()),
+                None if b.event == FUNCTION_BLOCK => "begin function".to_string(),
                 None => format!("begin #{}", b.event),
             };
             for a in self.args(b.params.as_deref().unwrap_or(&[]), None) {

@@ -209,7 +209,7 @@ not take goes through the compiler and runs as a one-line result script
 expression (`set TimeScale to 10 + 2 * 10`) and a call the reader refuses that contains
 an operator or parenthesis. Smoke `console-compiled-source`.
 
-## 8. The extender's grammar (tasks A7–A10, A12)
+## 8. The extender's grammar (tasks A7–A12)
 
 Written from the wiki export's pages (NVSE Expressions, Let, Let Macro, Eval, Inline
 Expression, Script Compiler Override), our notes in docs/spec-notes/ext-syntax.md. Code:
@@ -231,6 +231,16 @@ expression parser), `vm.rs` (`xeval`).
   Notation; Binary Notation]. `/* … */` comments may span lines [documented: xNVSE 6.1.7].
   `expr.Function args` calls a function on a result or an element [documented: NVSE
   Expressions `.`].
+- **User-defined functions** (A11): `Begin Function {a, b}` is a block of event code
+  0x7F00, NVForever's own (`ir::FUNCTION_BLOCK`), whose parameter block lists the
+  parameter variables [documented: User Defined Function: an object script holding only
+  that block, up to 15 parameters]. `Call udf args…` takes the function and up to 15
+  arguments [documented: Call]; a `ref` local holding a function is passed as the
+  variable. Lambdas: `(begin function {params} … end)`, which may span lines, and
+  `{params} => expr` [documented: Lambda], both an `XExpr::Lambda` whose parameters and
+  variables are the enclosing script's; the block form's statements are compiled with the
+  unit's own lists. Running them (calls, the 30-call nesting limit, SetFunctionValue) is
+  B7/B8.
 - **Compiler-override blocks** (A12): `Begin _GameMode` (any block name after `_`) is that
   block, and inside it `if`, `elseif` and `set` take extended expressions too, with the
   argument rule above [documented: Script Compiler Override].
@@ -248,8 +258,10 @@ expression parser), `vm.rs` (`xeval`).
 - **Functions in an expression.** A function takes up to as many arguments as it has
   parameters (the catalogue's count, or the compiler's observed one, §3). An argument is
   an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50` [documented:
-  Inline Expression; Let]. Inside a compiler-override block an argument is a whole
-  expression instead: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script Compiler
+  Inline Expression; Let]. The arguments of an NVSE-aware function (the wiki's category,
+  80 functions: Call, Print, SetFunctionValue, the ar_* family…) are whole expressions
+  [documented: Script Compiler Override], and so is every argument inside a
+  compiler-override block: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script Compiler
   Override, which says the override reads such lines differently]. Arguments are separated
   by a comma or by two operands meeting without an operator, and a `-` starts the first
   argument (`Abs -3`) [hypothesis; probes in tools/capture/ext-probes/expressions]. In a parameter that takes an actor value, an axis or a
@@ -293,7 +305,35 @@ The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scr
 §2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
 unit with one runs from source (§7).
 
-## 9. Open
+## 9. Values in the VM (task B1)
+
+`fnv_script::vm::XVal` is a value of the extended expressions: a number, a form, a string
+(its text) or an array (by id, B3). docs/spec-notes/ext-values.md has the documented
+rules; what NVForever decides where they are open is tagged here.
+
+- **Storage.** A `string_var` slot holds the id of the variable's own string in the
+  game's `ExtStore` (`Game::ext`); 0 is none [documented: a string_var or array_var holds
+  a number underneath, Array Variable; for strings hypothesis]. Assigning a string copies
+  its text into the variable's string [documented: NVSE Expressions]. A string keeps at
+  most 16,384 characters [documented: String Variable]. Strings are not in NVForever's
+  save yet (F1).
+- **Conversions.** `$x` / ToString: a number's text (whole numbers without decimals,
+  others with up to six [hypothesis]), a form's name (FULL; a reference's base form's),
+  or its FormID in hex without one [documented: ToString]. `#s` / ToNumber: the number in
+  the text, `0x…` as hex [documented: ToNumber], 0 when unreadable [hypothesis].
+- **Operators.** `+` joins two strings [documented]. Strings compare without regard to
+  case, `==`/`!=` included [documented for `<` `>` `<=` `>=`; `==` hypothesis]. `s[i]` is
+  one character and `s[a:b]` the characters a to b, both included, counting from the end
+  when negative [documented: NVSE Expressions, Slice; for `s[i]` hypothesis]. A string is
+  true when not empty [hypothesis; ext-values.md §3 open]. A non-number deciding `&&` or
+  `||` gives 1 or 0 [documented].
+- **Errors.** A string where a number is needed (or the reverse) and division by zero are
+  run-time errors [decision; NVSE Error lists such errors, division by zero
+  documented]. A failing `let` or expression statement reports its error and the script
+  goes on with the next line [documented: Let; NVSE Error]; the trace records it as a
+  skipped piece. Strict runs (tests) stop at it.
+
+## 10. Open
 
 - The editor's error messages and refusals (G2).
 - Rule 7's declaration counting and rule 8's entry order (more cases would come from mods'
