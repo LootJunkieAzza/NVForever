@@ -42,7 +42,7 @@ not done; a package's not while the actor is in combat):
 - **Holds fire** while restrained, while the target is more than 256 units from the
   "target should be here" reference, and, with Hold Fire When Blocked, while anyone else
   stands in the line of fire (`combat_tactics::in_line_of_fire`); also until its weapon
-  is drawn (`alert.rs` draws it for a use) and it faces the target (`npc_combat::FIRE_FACING`).
+  is drawn (`alert.rs` draws it for a use) and it faces the target (within `use_weapon::USE_FACING`, 30°).
 - **Shots**: the weapon's own cycle (`fnv_combat::attack::Cycle`), as the combat AI's
   gunmen: automatic weapons hold the trigger, others wait their semi-auto delay; aimed
   from the eyes at the chest, drawn from the muzzle. Each shot is counted on the use
@@ -79,7 +79,7 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
   would never land; the shipped calls name the actor itself as the stand in most cases].
   A **package's** melee use swings from where its package stands it, when the target is
   within reach [design: the package's own walking is not interrupted].
-- **Swings**: facing the target (`FIRE_FACING`), its weapon drawn, within reach and within
+- **Swings**: facing the target (`USE_FACING`), its weapon drawn, within reach and within
   128 units of height, every `STRIKE_SECONDS` over the weapon's attack speed (Attack Mult),
   sooner at the last clip's `a:` key, which picks the next swing's group (a combo, as
   #353); no block or attack-chance roll, the script asks for the blows [hypothesis]. A blow
