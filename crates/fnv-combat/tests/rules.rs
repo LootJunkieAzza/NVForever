@@ -248,6 +248,32 @@ fn crippled_head_and_arms_widen_the_spread() {
 }
 
 #[test]
+fn spread_perks_cut_the_strength_and_moving_penalties() {
+    let (r, t) = (Rules::defaults(), CombatTuning::default());
+    assert!(r.strength_req_penalty > 0.0);
+    // A weapon wanting Strength 8 in the hands of Strength 5: three points short.
+    let heavy = WeaponStats { strength_req: 8, ..gun(20) };
+    let weak = Stance { skill: 0.0, strength: 5.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    let plain = spread::actor_spread(&r, &t, &heavy, &weak);
+    // Weapon Handling takes 2 off the requirement: one point short.
+    let handled = Stance { strength_req_cut: 2.0, ..weak.clone() };
+    assert!(close(plain - spread::actor_spread(&r, &t, &heavy, &handled), 2.0 * r.strength_req_penalty));
+    // Never below no shortfall.
+    let more = Stance { strength_req_cut: 9.0, ..weak.clone() };
+    assert!(close(plain - spread::actor_spread(&r, &t, &heavy, &more), 3.0 * r.strength_req_penalty));
+    // Run 'n Gun halves the running penalty; a divisor under 1 counts as 1.
+    let w = gun(20);
+    let hip = Stance { skill: 0.0, strength: 10.0, aiming_move_divisor: 1.0, ..Stance::default() };
+    let running = Stance { moving: true, running: true, ..hip.clone() };
+    let base = spread::actor_spread(&r, &t, &w, &hip);
+    let run = spread::actor_spread(&r, &t, &w, &running);
+    let gunning = Stance { aiming_move_divisor: 2.0, ..running.clone() };
+    assert!(close(spread::actor_spread(&r, &t, &w, &gunning) - base, (run - base) / 2.0));
+    let slow = Stance { aiming_move_divisor: 0.5, ..running.clone() };
+    assert!(close(spread::actor_spread(&r, &t, &w, &slow), run));
+}
+
+#[test]
 fn spread_formula_cone_bloom_recoil() {
     let r = Rules::defaults();
     let t = CombatTuning::default();
@@ -259,6 +285,8 @@ fn spread_formula_cone_bloom_recoil() {
     let running = Stance { moving: true, running: true, ..hip.clone() };
     assert!(close(spread::actor_spread(&r, &t, &w, &running), 0.5));
     assert!(close(spread::deviation_deg(1.0, 0.0), 5.955));
+    // The deviation is a diameter: the cone's half-angle is half of it.
+    assert!(close(spread::cone_deg(1.0, 0.0, &fnv_combat::data::WeaponStats::default(), &[]), 5.955 / 2.0));
     assert_eq!(spread::spread_dir([1.0, 0.0, 0.0], 0.0, 0.5, 0.5), [1.0, 0.0, 0.0]);
     for k in 0..20 {
         let d = spread::spread_dir([1.0, 0.0, 0.0], 10.0, k as f32 / 20.0, 0.37);
@@ -930,6 +958,19 @@ fn reload_time_follows_agility() {
     // Nothing else changes; a rate of 0 or below is read as 1.
     assert!(close(fast.interval, base.interval) && close(fast.fire_delay, base.fire_delay));
     assert!(close(base.with_reload_rate(0.0).reload, 2.0));
+}
+
+/// The Modify Attack Speed perks: the shot cycle runs `rate` times as fast; the reload
+/// does not change (perk-entry-points.md §10).
+#[test]
+fn attack_rate_shortens_the_cycle_not_the_reload() {
+    let base = Timing { interval: 0.6, fire_delay: 0.2, reload: 2.0, spin_up: 0.0, rounds: None, attach: Some(0.4) };
+    let fast = base.with_attack_rate(1.2);
+    assert!(close(fast.interval, 0.5) && close(fast.fire_delay, 0.2 / 1.2) && close(fast.attach.unwrap(), 0.4 / 1.2), "{fast:?}");
+    assert!(close(fast.reload, 2.0));
+    let slow = base.with_attack_rate(0.8);
+    assert!(close(slow.interval, 0.75));
+    assert!(close(base.with_attack_rate(0.0).interval, 0.6), "0 is read as 1");
 }
 
 /// Companion Nerve: a teammate's hits do 5 % more per point of the player's Charisma

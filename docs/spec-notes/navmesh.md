@@ -260,6 +260,32 @@ All commands take `<data_dir> <plugins>... --schema <dir>` and print one JSON do
   percentile / max; overall counts, median and 90th percentile deviation, median length
   ratio). FormIDs in captures are in the game's load order and are mapped by plugin name.
 
+## 4c. Obstacles cut the navmesh
+
+The record header's bit 25 "Obstacle" on STAT, MSTT, ACTI, SCOL, CONT and LIGH
+[documented: xEdit wbDefinitionsFNV.pas flag lists; schemas/fnv `header_flags`]: "the
+object will dynamically cut the navmesh in game preventing actors from walking into it"
+[documented: GECK wiki Activator, Flags; the same page: it "only works with NIFs that have
+the correct collision layer set"]. FalloutNV.esm places 59,925 references of obstacle
+bases: rocks (`NVNRockCanyon12` alone 10,747), cliffs whose bounds run to 2,400 units,
+yuccas, Joshua trees with empty bounds; 149 of them can come and go (Initially Disabled
+or with an enable parent): sandbags (55), guard rails, toxic barrels, fences, the Hoover
+Dam force fields, box cars and car hulks [observed 2026-10-24, private survey script, not
+committed].
+
+As built (`fnv_nav::obstacles`): the navmesh, made in the editor, already has holes for
+what is always there, so only references that can be enabled or disabled cut it, and
+only while enabled [hypothesis]. A reference cuts the triangles under its bounds (OBND,
+placed, rotated, scaled) seen from above whose heights meet the bounds from 64 under the
+base to 32 under the top [engine choice: a floor near the top is on the object]; a cut
+triangle takes no part in paths (`NavGraph::usable`). The graph learns the obstacles
+when it is built, enabled as placed; the engine brings them in line with the game's
+enabled state every frame (`fnv_ai::Ai::apply_obstacles`) and actors whose way crosses a
+newly cut triangle plan again, as for a navmesh switched off. Log lines: `nav: N
+obstacles that can be enabled or disabled stand on the navmesh …` at the start, `nav:
+obstacles switched […]` on a change. Not done: the collision-layer condition (fnv-nav
+reads no models), cutting by the shape rather than the bounds.
+
 ## 7. Open questions
 
 - How the original chooses paths (costs, the weight of Preferred and Water, door costs)

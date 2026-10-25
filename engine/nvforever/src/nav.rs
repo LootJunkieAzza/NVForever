@@ -141,6 +141,13 @@ impl NavState {
             s.doors_unresolved,
             t0.elapsed().as_secs_f64()
         )));
+        // Objects flagged Obstacle that can come and go (docs/spec-notes/navmesh.md §7).
+        startup.push((true, format!(
+            "nav: {} obstacles that can be enabled or disabled stand on the navmesh, {} enabled as placed, {} triangles cut",
+            graph.obstacles.len(),
+            graph.obstacles.values().filter(|o| o.enabled).count(),
+            graph.cut_triangles()
+        )));
         // `--npc-ledges`: the paths may go over the navmesh's ledge links, jumping
         // (docs/spec-notes/actor-jumps.md).
         let params = PathParams { ledges, ..PathParams::default() };

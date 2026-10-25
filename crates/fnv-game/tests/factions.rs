@@ -937,3 +937,28 @@ fn a_mine_spares_its_owners_side() {
     assert!(!spares(&g, Some(0x14), LOAFER_REF));
     assert!(!spares(&g, None, BANDIT_REF));
 }
+
+#[test]
+fn a_planted_explosive_goes_off_after_the_timer() {
+    // GECK wiki Projectile notes: GetPlantedExplosive is true after
+    // fProjectileInventoryGrenadeFreakoutTime; after fProjectileInventoryGrenadeTimer the
+    // explosive goes off, "always killing it regardless of its HP".
+    let f = fixture();
+    let mut g = game(&f);
+    let (victim, grenade) = (FormId(OWN_REF), FormId(0x0000_4330));
+    let rules = fnv_game::pickpocket::Rules::default();
+    let start = g.time;
+    g.plant_explosive(victim, grenade);
+    assert!(!g.has_planted_explosive(victim), "not before the freak-out time");
+    g.time = start + rules.freakout_time + 0.01;
+    assert!(g.has_planted_explosive(victim));
+    assert!(g.tick_planted().is_empty(), "not before the timer");
+    g.time = start + rules.grenade_timer + 0.01;
+    let blasts = g.tick_planted();
+    assert_eq!(blasts, vec![fnv_game::pickpocket::Blast { victim, item: grenade }]);
+    assert!(g.is_dead(victim));
+    assert!(!g.has_planted_explosive(victim), "gone off");
+    assert_eq!(g.misc_stat(fnv_game::misc_stats::PANTS_EXPLODED), 1.0);
+    // A dead actor cannot be pickpocketed.
+    assert_eq!(g.pickpocket_refusal(victim), Some(fnv_game::pickpocket::Refusal::NotAllowed));
+}

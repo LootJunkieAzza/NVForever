@@ -553,6 +553,37 @@ impl Ai {
         Some(again)
     }
 
+    /// Bring the graph's obstacles (`fnv_nav::obstacles`: objects flagged Obstacle that
+    /// can be enabled or disabled) in line with whether the game has them enabled now: an
+    /// enabled one cuts the navmesh under it. Every actor whose way now crosses a cut
+    /// triangle takes up its package afresh from where it stands, as for a navmesh
+    /// switched off ([`Ai::apply_navmesh_switches`]). Returns the obstacles that changed
+    /// and the actors sent to plan again, `None` when none changed.
+    pub fn apply_obstacles(&mut self, game: &Game, nav: &mut NavGraph) -> Option<(Vec<u32>, Vec<FormId>)> {
+        if nav.obstacles.is_empty() {
+            return None;
+        }
+        let states: Vec<(u32, bool)> = nav.obstacles.keys().map(|&r| (r, game.present(FormId(r)))).collect();
+        let changed = nav.sync_obstacles(states);
+        if changed.is_empty() {
+            return None;
+        }
+        let blocked: Vec<FormId> = self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.blocked(nav))).map(|(id, _)| *id).collect();
+        for actor in &blocked {
+            if let Some(a) = self.agents.get_mut(actor) {
+                a.walker.follower = None;
+                a.walker.tri = fnv_nav::graph::NONE;
+                a.activity = Activity::None;
+                a.package = None;
+                a.goal = None;
+                a.sandbox = None;
+                a.errand = None;
+                a.following = None;
+            }
+        }
+        Some((changed, blocked))
+    }
+
     /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
     pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
         self.speeds.insert(actor, speeds);

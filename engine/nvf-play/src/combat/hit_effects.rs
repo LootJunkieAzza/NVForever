@@ -9,6 +9,10 @@
 //!   for a blow without a weapon: a cazador's poison with every blow, a radscorpion's
 //!   with its forward power attack (its sting) only ([`applies`]).
 //!
+//! A weapon's object effect with an area (Lanius's sword, the Holorifle, Meanie's
+//! sledgehammer) also reaches the actors around the one hit ([`spread`],
+//! `fnv_game::area_effects`); a blast's does not (the blast's radius picks its targets).
+//!
 //! The effects are applied before the hit's damage, so a killing hit leaves only those
 //! that outlast a death ("No Death Dispel": a corpse burns on) (§4). The player in god
 //! mode takes none.
@@ -117,6 +121,31 @@ pub fn apply(game: &mut Game, fx: &mut HitEffects, target: FormId, items: &[Form
             .collect();
         let by = attacker.map_or("?".to_string(), |a| who(game, a));
         info!("hit effect: {name} on {} by {by}: {}", who(game, target), parts.join(", "));
+    }
+}
+
+/// A weapon hit's object effects reach the actors around `target` when they have an area
+/// (`fnv_game::Game::spread_area`, as a hit's; it logs `area effect: …`).
+pub fn spread(game: &mut Game, fx: &mut HitEffects, target: FormId, items: &[FormId], attacker: Option<FormId>) {
+    for &item in items {
+        let reached = game.spread_area(target, item, attacker, true);
+        if reached.is_empty() {
+            continue;
+        }
+        let name = game.data.name(item).to_string();
+        for (r, ids) in &reached {
+            if ids.is_empty() {
+                continue;
+            }
+            fx.applied += 1;
+            *fx.by_item.entry(name.clone()).or_default() += 1;
+            let entry = fx.live.entry((*r, item)).or_insert_with(|| (Vec::new(), name.clone()));
+            for id in ids {
+                if !entry.0.contains(id) {
+                    entry.0.push(*id);
+                }
+            }
+        }
     }
 }
 

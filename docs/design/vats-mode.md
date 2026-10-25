@@ -6,7 +6,7 @@ run). Owner request (todo
 6): "VATS mode", NVForever's own take on VATS, modelled on Red Dead Redemption's Dead Eye.
 Combat is not a parity target (docs/design/combat.md §1: only the quest script hooks must
 behave as in the original), so this is deliberately **not** the original's VATS (no
-paused target menu, no hit chances, no kill camera). The original's VATS stays "not
+paused target menu, no hit chances, no kill camera; kill cameras came later, §19). The original's VATS stays "not
 started" in docs/status.md; the script functions that ask about VATS answer for this
 mode (§12).
 
@@ -244,10 +244,16 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 
 ## 8. Mark visuals and the HUD
 
-- **"x" marks**: each mark draws a dark-red (0.45, 0.05, 0.03) "x" of two crossed bars,
-  1.9 % of the screen width across, at its point projected on the screen (§6) [design,
-  after the references]. Marks behind the camera are not drawn. A mark that has fired
-  goes [design].
+- **"x" marks**: each mark draws an "x" of two crossed bars in the interface's amber
+  (`interface::AMBER`, the HUD's colour) lifted 25 % of the way to white so it stands out
+  on the amber grade, 1.9 % of the screen width across, at its point projected on the
+  screen (§6) [design, after the references; amber instead of their dark red at the
+  owner's wishes of 2026-10-24, to match the HUD and then to be brighter]. Marks behind
+  the camera are not drawn. A mark that has fired goes [design]. The "x" and its
+  chance are kept at the same size on the screen at any range, so a far mark stays
+  readable [design]. Marks on the same actor and part share a point, so they draw one
+  "x" and one chance, the newest mark's: with Concentrated Fire it climbs as marks are
+  added (§17.2) [design: the owner, 2026-10-24, no stacked marks].
 - **AP bar**: while marking, the HUD's AP bar shows the AP that is left after the
   reservations (`(AP − reserved) / max`), so it drains mark by mark [design]; firing
   spends it for real, so the bar stays where it was.
@@ -433,7 +439,7 @@ while a shot leaves see it:
 | 5 | Targeted Part (a body part's condition actor value) | 1 if the mark's part names that condition: the BPTD part's own Actor Value, as combat's limb hits read it (`fnv_game::combat::limb_condition`, 25–31) |
 | 6 | VATS Action | 1 for the code of the attack action (0) [hypothesis: Attack is the first] |
 | 7 | Is Success | 1 if the shot's hit roll succeeded (§17.4); 0 while a mark's chance is worked out |
-| 8–14 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design] |
+| 8–14 | Is Critical, Crit Effect Is, Crit Effect In List, Is Fatal, Explode Part, Dismember Part, Cripple Part | 0: none of them is known before the shot lands [design]; while a kill camera is chosen 8 and 11–14 answer about the landed shot (§19.3) |
 | 15 | Weapon Type Is (an animation type) | 1 if the weapon's DNAM animation type is it |
 
 The parameter of codes 0, 1, 2 and 3 arrives as a raw FormID (`ptVATSValueParam` is
@@ -477,7 +483,8 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 - Bursts, melee and thrown weapons: built 2026-10-20 (§16). Left: power attacks and
   chained swings in VATS mode, a short last burst, mines.
 - The "Action Point Cost" effect. Hit chances: built 2026-10-23 (§17).
-- A kill camera, the original's VATS menu, GetVATSTargetHeight, SetVatsTarget.
+- The original's VATS menu, GetVATSTargetHeight, SetVatsTarget. (Kill cameras: built
+  2026-10-24, §19.)
 - Tuning by eye: `MARK_SCALE`, the swipe and grade colours, `SHOT_INTERVAL`, the mark's
   size, all [design] and owner-checkable in one run.
 
@@ -716,8 +723,9 @@ open   = distance × tan(cone × fVATSSpreadMult)
 ### 17.5 On the screen
 
 - Beside each mark's "x" (to its right, centred on it) its chance in whole percent,
-  "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), a creamy
-  white that reads on the amber grade [design]. It follows the mark and changes as the
+  "62%", in the HUD's font (`textures\fonts\baked-in_monofonto_large.fnt`), in the
+  marks' brightened amber (§8) [design: the owner's wishes of 2026-10-24; it was a
+  creamy white]. It follows the mark and changes as the
   chance does; it goes with the "x" once the mark is fired.
 - Nothing shows the chance of what is under the crosshair before it is marked [design:
   the owner asked for the marks; a later step if wanted].
@@ -725,7 +733,8 @@ open   = distance × tan(cone × fVATSSpreadMult)
 ### 17.6 Log lines
 
 - `vats mode: marked <name> <ref> (<part>), mark <k>; <r> AP reserved, <left> AP left;
-  <c>% to hit (base <b>[, perks <names>][, concentrated fire +<n>])`
+  <c>% to hit (base <b>[, perks <names>][, concentrated fire +<n>]); <d> units, skill <s>,
+  cone <deg> deg|none` (the distance, skill and cone the chance was worked from)
 - `vats mode: shot <k> of <n> at … , <cost> AP spent; <c>% to hit: hit|missed (rolled
   <r>)` (`burst …; round 1 …`, `throw …`, `swing …` alike; later rounds of a burst at
   debug)
@@ -837,3 +846,120 @@ regenerates at <m> x (the Action Point Regen perks)` when the factor changes.
 - Unit: `fnv-game` `vats` `one_helper_a_roll_the_stranger_first`, `perk_combat`
   `vats_helpers_and_ap_perks`. Smoke: `vats-mysterious-stranger`, `vats-miss-fortune`,
   `vats-grim-reaper-nerves`.
+
+## 19. Kill cameras (2026-10-24)
+
+ESM audit gap 10 (docs/handoff/esm-full-audit-2026-10-24.md): the masters' camera shots
+(CAMS, 276) and camera paths (CPTH, 418) were never loaded. They are now, and VATS mode
+plays them as kill cameras. Built and unit-tested; the path choice is also checked
+against FalloutNV.esm's own tree (`fnv-game` test `camera_paths`, with game data).
+
+### 19.1 What the records say
+
+- **CAMS** [documented: xEdit wbDefinitionsFNV.pas CAMS; GECK wiki CameraShot]: a model
+  (`meshes\vatscameras\…`), the action that starts the shot (Shoot when the command
+  starts, Fly when the projectile starts to fly, Hit when the target takes the hit),
+  where the camera is held and what it looks at (attacker, projectile or target), flags
+  (Position Follows Location, Rotation Follows Target, Don't Follow Bone, First Person
+  Camera, which ignores the model and uses the first-person view, No Tracer, Start At
+  Time Zero), time multipliers (Global slows everything but the camera shot itself; the
+  player's and the target's are relative to it), Max and Min Time (how long before the
+  next camera), Target % Between Actors, and an image space modifier.
+- **CPTH** [documented: xEdit]: conditions, the parent path and the previous sibling,
+  the camera zoom and the shots. The paths form a tree [observed: FalloutNV.esm]:
+  `PlayerDeath`, `MrHouseKC`, `MysteriousStrangerCameras`, `MustDoCam`, `DEMOCams`,
+  `MeleeWeaponAttackKC`, `MeleeWeaponAttack`, weapon roots (`SpecMiniGun`,
+  `MissileLauncherCams`, `FatManCams`, `FlamerAttacks`, `ThrownCams`, `GrenadeCams`),
+  `CloseCameras`, `DefaultMissCams`, `DefaultHitsKC`, `DefaultHits`. Under them the
+  conditions are GetVATSValue (Is Success, Is Fatal, Target Distance, Weapon Type Is,
+  Explode/Dismember Part, VATS Action 15 or 18), GetRandomPercent (to vary the shot),
+  GetDistance with no reference, and eight functions only xEdit names: 518–521
+  GetVATS{Right,Left,Back,Front}AreaFree and 525–528 GetVATS{…}TargetVisible, compared
+  with 40 to 320 [documented: xEdit wbCTDAFunctions, the names and a reference parameter;
+  observed: the comparisons].
+- **The models** [observed: `simplefronthitl03.nif`, `snipercamhit01.nif`]: a root node
+  moved by its own transform controller for about 17 s (Euler keys of a few degrees, a
+  hand-held sway; a few translation keys) over an `NiCamera` 75° across.
+
+### 19.2 When a kill camera plays [design]
+
+VATS mode fires its marks in one run (§9), so a kill camera follows only the run's last
+mark: from the frame every mark's attack has started until 2 game seconds after the mode
+is off (a slow projectile), the last mark's actor is watched, and if it dies the kill
+camera starts. Earlier kills in the run do not cut it short. With the masters' data a
+kill camera plays on every such kill: the original's chance of one is not in our notes
+(the tree's GetRandomPercent conditions only choose between shots).
+
+### 19.3 Choosing the path [hypothesis]
+
+`fnv_game::camera_paths`, `Game::pick_camera_path`: the tree is walked from the roots in
+order (siblings by their previous-sibling links); the first path whose conditions pass is
+entered; its first child chosen so wins, else the path itself when it has shots; a
+passing path that gives nothing is passed over for its next sibling. The conditions run
+on the player with the target as target, while:
+
+- GetVATSValue answers about the last shot, with what is known once it landed: Is
+  Success 1, Is Fatal 1, Is Critical from the killing hit, Explode Part and Dismember
+  Part when a part of the target is gone (`Game::kill_outcome`), Cripple Part 0 [design];
+  VATS Action stays 1 only for action 0 (§12), so the `…KC` paths (action 18) and
+  `PlayerDeath` (15) are not taken [hypothesis: 18 is the original's kill camera outside
+  VATS, `fKillCameraCooldown`; 15 the player's death].
+- A GetDistance naming no reference measures to the target [hypothesis].
+- The area functions read the room measured by rays at the moment of the kill
+  (`nvf_play::kill_cam::measure_room`): AreaFree, how far the way is free from the
+  attacker's middle to its right, left, back and front of the level line from the
+  attacker to the target; TargetVisible, the same from the target's middle (up to 1024
+  units) [hypothesis: from the names; the paths pick a side camera only where these
+  pass, observed].
+
+From the chosen path the shots started by the hit play in order; a path with none plays
+its last shot (`camera_paths::hit_shots`) [design: the choice is made once the shot has
+landed, so its Shoot and Fly shots have passed].
+
+### 19.4 Playing a shot
+
+`nvf_play::kill_cam`:
+
+- It plays for its Max Time in real seconds (0.5 to 10) [hypothesis: with nothing to cut
+  to sooner, the most the page allows]; the world's clock runs at its Global time
+  multiplier (0.25 for most hit shots [observed]) in place of VATS mode's own scale, with
+  the sounds slowed as for VATS mode (§4); the player's and the target's multipliers are
+  not applied [design: one clock for the world]; its image space modifier plays.
+- The camera [hypothesis: the models carry no frame; this one puts their cameras where
+  the shot names say, a front shot's at (−59, −226, 18) between the target and the
+  attacker, observed]: the model's animated root in a frame centred on the actor the shot
+  is held by (its Location; a projectile counts as the attacker) at its middle, +Y level
+  from the attacker to the target, +Z up; the frame follows the actor with Position
+  Follows Location, else it stays where the shot began. It looks at its Target actor's
+  middle moved Target % Between Actors of the way to the other actor (followed with
+  Rotation Follows Target, else as at the start), plus the model's own turn since its
+  first key as a sway. Don't Follow Bone is not told apart: the middle is used for every
+  shot [design]. It keeps in front of walls between the look point and it.
+- A First Person Camera shot leaves the view where it is (the slow motion and the
+  modifier still play).
+- While a model's camera has the view, it counts as third person
+  (`PlayerControl::cinematic`): the body is drawn, the first-person arms are not.
+- The player's death or any menu ends it.
+- Not built: the HUD stays up; the player's input is not held (VATS mode's firing holds
+  it, the kill camera after it does not); the No Tracer flag; the shots' fields of view
+  (the player's stays); the death cameras (§19.5).
+
+### 19.5 Death cameras
+
+The `PlayerDeath` paths (`PlayerDeathDefault`, `…Back`, `…Above`; VATS Action 15) are
+loaded but not played: the death camera is the owner's own design (`death_cam.rs`, owner
+2026-10-16), so the masters' one waits for the owner's word (docs/owner-review.md).
+
+### 19.6 Log lines and checks
+
+- `kill camera: <name> <ref> killed by the last mark: path <EDID> (<FormID>), shots
+  <EDID>, …; room right/left/back/front …, target seen …`, or `… no camera path chosen`
+- `kill camera: shot <k> of <n> <EDID>: <model>, held by the <Location>, looking at the
+  <Target>, <s> s at world speed <x>[, image space modifier <EDID>]`
+- `kill camera: done (<s> s[; <why cut short>])`; at exit `kill camera summary: <n> shown`
+- Unit: `fnv-game` `camera_paths` (tree order, shot data, hit shots) and the
+  `camera_paths` test file (the choice on a synthetic tree; the masters' tree with
+  `FNVLAB_DATA_DIR`), `nvf-assets` `camera_shot`, `nvf-play` `kill_cam` (frame, look
+  point, length).
+- Smoke: `vats-kill-cam` (one mark on a Goodsprings dog left with 1 health: the shot
+  kills it, a path and its shots play, the camera ends).
