@@ -496,3 +496,24 @@ targets, schedules, a replay of the choice), `ai run` (`fnv.ai.run/1`, actors ca
 their packages out over the navmesh, alone or against observer samples) and `ai reach`
 (`fnv.ai.reach/1`, whether every actor can reach where each of its packages sends it) are
 defined in docs/spec-notes/packages.md §5 together with the package notes.
+
+## `fnvtool ext scan <data_dir> <plugins…> --schema s [--functions f]` → `fnv.ext.scan/1`
+
+Script-extender use in a load order's scripts (task N2, docs/handoff/extender-core-tasks.md;
+`crates/fnvtool/src/ext_cmd.rs`). Only names and counts; no script text.
+
+- `summary`: `plugins`, `units` (units with compiled bytes or source), `units_with_extender_use`,
+  `units_without_source`, `units_without_source_using_extender` (no `SCTX`, and the compiled
+  bytes call an opcode at or above 0x1400, past the base game's range [documented: GECK wiki
+  "NVSE Opcode Base"]).
+- `functions`: `[{name, origin, calls, plugins}]`, ranked by `plugins`, then `calls`: catalogue
+  functions of family `extender` named in the source (name or alias, any case; `;` comments,
+  quoted text and the unit's own variable names left out). A word that also names a base-game
+  function is not counted.
+- `syntax`: line counts of `let`, `assign` (`:=`), `compound` (`+=` `-=` `*=` `/=` `^=` `%=`
+  `|=` `&=`), `if_eval`, `while`, `foreach`, `string_var`, `array_var`, `begin_override`
+  (`Begin _Block`), `subscript` (`[`), `member` (`->`).
+- `per_plugin`: the same per plugin.
+
+Over the ten masters every extender count is 0 (14,907 units, 3 without source), as the
+base game uses no extender (script-functions.md §2).
