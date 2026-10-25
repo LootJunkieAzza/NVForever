@@ -657,6 +657,30 @@ pub fn lookup(opcode: u16) -> Option<&'static Kind> {
     index().get(&opcode).map(|&i| &registry()[i].2)
 }
 
+/// Script-extender functions (catalogue `family: "extender"`), by catalogue name. The
+/// game files give them no opcodes: a running extender assigns them (script-functions.md
+/// §2), so they are dispatched by name, like [`console_registry`], once the extender
+/// compiler and table give them numbers (docs/design/extender-compat.md). Empty until the
+/// first one is built. A test checks each name against the catalogue.
+pub fn ext_registry() -> &'static [(&'static str, Kind)] {
+    &[]
+}
+
+fn name_index() -> &'static HashMap<String, &'static Kind> {
+    static IX: OnceLock<HashMap<String, &'static Kind>> = OnceLock::new();
+    IX.get_or_init(|| {
+        let game = registry().iter().map(|(_, n, k)| (*n, k));
+        let named = console_registry().iter().chain(ext_registry()).map(|(n, k)| (*n, k));
+        game.chain(named).map(|(n, k)| (n.to_ascii_lowercase(), k)).collect()
+    })
+}
+
+/// The implementation registered under a catalogue name (any case), in any of the three
+/// registries: the game's opcodes, the console's and the extender's functions.
+pub fn lookup_name(name: &str) -> Option<&'static Kind> {
+    name_index().get(&name.to_ascii_lowercase()).copied()
+}
+
 /// Whether an opcode is implemented: an implementation, or deliberately nothing to do
 /// (stubs count as handled, not implemented).
 pub fn implemented(opcode: u16) -> bool {

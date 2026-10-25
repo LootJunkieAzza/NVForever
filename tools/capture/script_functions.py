@@ -48,6 +48,30 @@ VANILLA_ORIGINS = {"GECK1": "base game (present since the Fallout 3 GECK)",
                    "VEGAS1": "base game (added in New Vegas)",
                    "CONSOLENV": "base game console command"}
 
+# The core extender families (docs/handoff/extender-core-tasks.md, task N1): an NVSE or
+# FOSE1 function in one of them gets `core_family`, the name of the spec note
+# (docs/spec-notes/ext-<family>.md) that covers it.
+CORE_ORIGINS = {"NVSE", "FOSE1"}
+CORE_NAMED = {"values": {"typeof", "isformvalid", "isreference"},
+              "strings": {"tostring", "tonumber", "numtohex", "getformidstring"},
+              "udf": {"call", "setfunctionvalue", "getcallingscript"},
+              "events": {"dispatchevent"}}
+
+
+def core_family(rec):
+    """The core family of an extender function, or None."""
+    if rec["origin"] not in CORE_ORIGINS:
+        return None
+    n = rec["name"].lower()
+    if n.startswith("sv_"):
+        return "strings"
+    if n.startswith("ar_"):
+        return "arrays"
+    if "eventhandler" in n:
+        return "events"
+    return next((fam for fam, names in CORE_NAMED.items() if n in names), None)
+
+
 # Statement opcodes below 0x1000 seen in shipped bytecode, named by lining up the source
 # line [observed]. Function opcodes are 0x1000 and above.
 STATEMENT_OPCODES = {0x10: "Begin", 0x11: "End", 0x15: "Set", 0x16: "If", 0x17: "Else",
@@ -492,6 +516,8 @@ def build(wiki, scan, xedit, notes):
         key = e["name"].lower()
         vanilla = e["origin"] in VANILLA_ORIGINS or e["origin"] == "observed-only"
         e["family"] = "vanilla" if vanilla else "extender"
+        if not vanilla and core_family(e):
+            e["core_family"] = core_family(e)
         if e.get("page"):
             e["wiki"] = WIKI_URL + e["page"].replace(" ", "_")
         ops = observed.get(key, {})

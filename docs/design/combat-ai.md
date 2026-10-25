@@ -1865,3 +1865,38 @@ until lost); smoke `combat-npc-rearm`. Observed 2026-10-25: Violet, stripped of 
 ran 1,638 units, copied a 5.56mm round from a placed `LootAmmoBox556mm` (nearer than the
 box laid for her), picked up the service rifle and fired with it; in `battle-ncr-fiends`
 seven fetches, none given up, and Cook-Cook kept his Incinerator.
+
+## 23. Locked on a target in sight (owner request 2026-10-25)
+
+The owner: NPCs "are still turning sideways when shooting at their target, they need to
+keep locked on whilst shooting"; "if they have a target in sight they should be locked on
+them"; Violet "still breaks focus to take cover"; the strafing clips (aimed and from the
+hip) are there for moving sideways. The original's Fiends stayed within 1.5° of their
+target through every phase of the attack and fired only once turned to it
+(spec-notes/ai-observer.md §15).
+
+- **The lock** (`npc_combat::Fighters::lock_on`): each frame, a person the AI runs, in combat,
+  that sees its target and does not run from it (a flight away or by a door; a flight to cover keeps
+  it) is locked on where that target is drawn this frame. `residents` draws it facing that
+  place, turning at the combat turn rate (240° a second standing, 360° walking) and, once
+  within 10° (`LOCK_HOLD`), following it exactly. On its way to cover, a post or a flee
+  spot it strafes or backs away with its target in front. Out of sight it faces the
+  target's AI place as before (`Core::aims`).
+- **Why it slipped**: the drawn facing used the target's AI place, which for a charging
+  Fiend was 110 units from where it was drawn; a trooper shooting at it faced 16° off.
+  Flights to cover were not turned to the target at all.
+- **Side-steps** (the owner's video of Violet, 2026-10-25: side-on to the player at each
+  shot while strafing; PR #620 had fixed this for the player's body only): a rifle has no
+  walk left of its own, so NPCs walked left with the unarmed `mtleft.kf`, whose `Bip01
+  NonAccum` turns the whole body 76° from the rifle's run (`mtfastleft.kf` 90°; the right
+  and back side-steps 14–16°) [observed: kf_pose_compare, 2026-10-25]. A standing weapon
+  stance without its own left side-steps now takes the fists' `h2hleft.kf` /
+  `h2hfastleft.kf` (`fnv_actor::locomotion::weapon_moves`); the player's body takes
+  `h2hleft.kf` walking (animation.md §9.6).
+- **Fire arc**: a gun fires only within 3° of straight ahead (`FIRE_FACING`, was 30°), or
+  its weapon's Aim Arc when above 0. A scripted weapon use keeps 30° (`USE_FACING`).
+- **Measured**: the `npc combat facing` line at exit (how far off its target a gunman faced
+  at each shot, and a person the AI runs in each frame it was locked on); `battle-ncr-fiends`
+  and `combat-violet` check it. Before: a 2-minute NCR–Fiend battle had 84 frames over 10°
+  (up to 47°) and shots up to 29° off; after: none over 10° (largest 3.6°), shots within
+  0.9°.

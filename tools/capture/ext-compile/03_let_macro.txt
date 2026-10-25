@@ -1,0 +1,5 @@
+scn ExtCase03
+int iA
+Begin GameMode
+    iA = 10
+End

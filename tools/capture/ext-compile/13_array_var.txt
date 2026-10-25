@@ -1,0 +1,10 @@
+scn ExtCase13
+array_var aList
+ref rFirst
+int iSize
+Begin GameMode
+    let aList := Ar_List PlayerREF, PlayerREF
+    let aList[1] := PlayerREF
+    let rFirst := aList[0]
+    let iSize := ar_size aList
+End

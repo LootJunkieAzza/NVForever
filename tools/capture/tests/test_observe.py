@@ -207,6 +207,9 @@ class ScriptRules(unittest.TestCase):
                                EDIDS)["obs_c1_01_s1"][1]
         text = "".join(s.get("script", "") for s in job["steps"])
         self.assertIn("rA.SetAV Confidence 0\n    rA.SetAV Aggression 2\n    rA.StartCombat player", text)
+        job = ob.campaign_jobs(campaign(place=[{"base": "Bob", "package": "Ann", "offset": [0, 900, 0]}]), EDIDS)["obs_c1_01_s1"][1]
+        text = "".join(s.get("script", "") for s in job["steps"])
+        self.assertRegex(text, r"rA\.AddScriptPackage rF\d+\n    rA\.MoveTo player 0 900 0")
         for bad in ([["Confidence"]], [["x y", 1]], [["Confidence", True]]):
             with self.assertRaises(ob.InputError, msg=bad):
                 ob.campaign_jobs(campaign(place=[{"base": "Bob", "av": bad}]), EDIDS)
