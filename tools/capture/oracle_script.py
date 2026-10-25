@@ -14,6 +14,10 @@ from oracle_esm.py, which must sit in the same folder.
 usage: oracle_script.py decompile <data_dir> <plugin>... --functions functions.json
                         [-o out.json]
        -> fnv.script.decompile/1
+       oracle_script.py compiled <data_dir> <plugin>... [-o out.json]
+       -> fnv.script.compiled/1: the SHA-256 of every shipped unit's compiled bytes,
+          for the units that carry both bytes and source (the golden of
+          L5.script.compile.vanilla, docs/spec-notes/script-compiler.md)
 Exit codes: 0 ok, 1 input unreadable, 2 usage error.
 
 What it does, in brief:
@@ -39,6 +43,7 @@ source can be checked against the bytes), "summary" and "warnings" (not compared
 the lab).
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -264,6 +269,7 @@ def record_units(plugin, sig, form, items):
         if cur is not None and s in UNIT_SUBS:
             if s == b"SCDA":
                 cur["scda"] = True
+                cur["scda_bytes"] = bytes(b)
             elif s == b"SCTX":
                 cur["sctx"] = decode_cp1252(b)
             elif s == b"SLSD":
@@ -562,6 +568,29 @@ def decompile(data_dir, names, functions_path):
     }
 
 
+def compiled(data_dir, names):
+    """SHA-256 of the compiled bytes of every unit with both SCDA and SCTX."""
+    warnings = Warnings()
+    plugins = open_plugins(data_dir, names, warnings)
+    rows = []
+    for p in plugins:
+        for sig, form_id, _flags, data, s, e in iter_records(p, warnings):
+            where = f"{p.name} {sig.decode('latin-1')} 0x{form_id:08X}"
+            items = subs(data, s, e, where, warnings)
+            if not any(sub == b"SCHR" for sub, _ in items):
+                continue
+            g = p.globalise(form_id)
+            if g is None:
+                warnings.add("unmappable_formid", where)
+                g = form_id
+            for u in record_units(p, sig, g, items):
+                if u["scda"] and u["sctx"] is not None:
+                    rows.append({"unit": f"{p.name}|{u['label']}",
+                                 "sha256": hashlib.sha256(u["scda_bytes"]).hexdigest()})
+    return {"format": "fnv.script.compiled/1", "load_order": list(names), "count": len(rows),
+            "units": rows, "warnings": warnings.finish()}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -570,12 +599,19 @@ def main(argv=None):
     d.add_argument("plugins", nargs="+")
     d.add_argument("--functions", required=True)
     d.add_argument("-o", "--out")
+    c = sub.add_parser("compiled")
+    c.add_argument("data_dir")
+    c.add_argument("plugins", nargs="+")
+    c.add_argument("-o", "--out")
     try:
         a = ap.parse_args(argv)
     except SystemExit as exc:
         return 2 if exc.code else 0
     try:
-        doc = decompile(a.data_dir, a.plugins, a.functions)
+        if a.cmd == "compiled":
+            doc = compiled(a.data_dir, a.plugins)
+        else:
+            doc = decompile(a.data_dir, a.plugins, a.functions)
     except (InputError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

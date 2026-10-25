@@ -13,6 +13,9 @@ code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completio
 blockers, stale docs; its §7 is the ranked next work) and the owner's `playtest-list-7.md`.
 What ESM data the engine still does nothing with, and the docs that no longer match the code:
 `docs/handoff/esm-audit-2026-10-25.md`.
+Script extender compatibility (xNVSE, JIP LN, JohnnyGuitar as engine code, no DLLs, no
+extender source read): `docs/design/extender-compat.md`, core tasks in
+`docs/handoff/extender-core-tasks.md`.
 
 ## Charter (non-negotiable)
 
