@@ -416,7 +416,39 @@ tyre-smoke columns, 23 of the 89 small boulders and 20 of the 36 force-field glo
 among them. They now emit as render streaming's do (`world::spawn_emitters` under the
 script-drawn root).
 
-### 7.5 Left open
+### 7.5 The rising B-29: a script-drawn rig's sequences drive its emitters (2026-10-25)
+
+The B-29 of Volare! (`VMS15RisingPlaneREF` 00105868, `meshesehicles2929_riseanim.nif`)
+drew white specks spreading over the whole hillside behind it, building up from the moment
+the detonator enabled it, with white blocks along the waterline. What the file holds
+[observed: `fnvtool nif decode`]:
+
+- Four sequences: `Right` (0.03 s, loop), `Forward` (9.93 s, once: the rise), `Idle`
+  (2.97 s, loop), `Left` (0.17 s, loop), each naming the same 126 controlled blocks.
+- 39 box-emitter systems with gravity (a pull down of 450 or 900 units/s², the gravity
+  objects turned upside down): 14 drips `wDrip…` whose emitter objects hang under the
+  animated `b29Root`, and 25 flings `wFling…` at the waterline, 24 of them with a bomb
+  modifier (`delta_v` 675 to 6,750). Rates 60 or 150 a second, 5,000 particles each,
+  `fluidsplat01.dds`, blended (`NiAlphaProperty` flags 4333).
+- Every emitter and modifier active controller carries a blend interpolator; per sequence,
+  `Right`, `Idle` and `Left` give each `EmitterActive` and bomb a lone false (no data), and
+  `Forward` turns them on at set times (`wFlingL01` 3.2 to 3.53 s, its bomb 3.2 to 6.8 s;
+  the drips 3.53 to 4.27 s, when `b29Root` has risen from z −1200 to about +120).
+- Four splash shapes (`WaterSplashL/R`, `WaterRipple`, `waterSplash01`) with material
+  alpha 0, faded in and out by `NiAlphaController` keys in `Forward` only.
+
+The plane starts disabled, so `nvf_play::script_draw` draws it (§7.4). Its own systems were
+emitted from a holder at the reference, with no rig and no sequence: the first sequence's
+keys, read without the lone value as a key, said always on. §6.7 (a drawn model's
+sequence drives its emitters, a lone value is a key) needs the emitter beside the rig's
+`GroupRig`; a script-drawn rig with named sequences carries a `ScriptDrawnRig` on its rig
+root, where `object_anims` builds that `GroupRig`. Now such a model's own systems emit from
+the rig root (`particles::script_drawn_rig`; its add-on nodes stay on the holder), so in
+`Idle` the plane sprays nothing and in `Forward` the spray comes at its keys' times, the
+drips from where `b29Root` is. Smoke `b29-spray-follows-sequence`: the detonator plays `Forward` (#710), the plane emits by it, and `wFlingL01` is born 50 times, its 150 a second for the 0.33 s its keys give [observed 2026-10-25]. Whether the original
+shows anything in `Idle` was not checked against the game (no frame of the rise yet).
+
+### 7.6 Left open
 
 - `NiPSysResetOnLoopCtlr` (1 reference, the Lucky 38 reactor, `nvlucky38reactor.nif`): not
   read; its system loops without the reset.

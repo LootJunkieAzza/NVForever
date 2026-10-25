@@ -60,7 +60,7 @@ use nvf_assets::anim_play::Playing;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::particles::{particle_mesh, InitialVelocity, ParticleSystemDef, PreparedParticles};
 use nvf_play::script::ScriptState;
-use nvf_play::script_draw::{ScriptDrawnModel, ScriptDrawnRoot};
+use nvf_play::script_draw::{ScriptDrawnModel, ScriptDrawnRig, ScriptDrawnRoot};
 use nvf_play::sfx::Sfx;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -278,17 +278,36 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Update, (script_drawn, staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+        app.init_resource::<Particles>().add_systems(Update, (script_drawn, script_drawn_rig, staged_addons, emit, simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
     }
 }
 
 /// A reference a script enabled, drawn by nvf-play (`script_draw`): its model's own
 /// systems and add-on nodes emit as render streaming's do (`world::spawn_emitters`,
-/// particles.md §7.4): the smoke of a burning tyre pile a quest lights.
+/// particles.md §7.4): the smoke of a burning tyre pile a quest lights. One drawn with
+/// its own nodes and named sequences (a `ScriptDrawnRig` on its rig's root, where
+/// `object_anims` puts its `GroupRig`) emits its own systems from that root instead
+/// ([`script_drawn_rig`]), so its sequences drive them (§6.7, §7.5: the rising B-29).
 fn script_drawn(mut commands: Commands, mut models: ModelCtx, added: Query<(Entity, &ScriptDrawnRoot, &ScriptDrawnModel), Added<ScriptDrawnModel>>) {
     for (e, root, path) in &added {
-        if let Some(model) = models.model(&path.0) {
+        let Some(model) = models.model(&path.0) else { continue };
+        // script_draw's rule for a `ScriptDrawnRig`: a rig with named sequences.
+        if model.particles && model.rig.as_ref().is_some_and(|rig| !rig.groups.is_empty()) {
+            // Its add-on nodes only here; its own systems are the rig root's.
+            let addons_only = nvf_assets::model::PreparedModel { particles: false, ..(*model).clone() };
+            crate::world::spawn_emitters(&mut commands, e, root.0, &addons_only, &path.0, Affine3A::IDENTITY);
+        } else {
             crate::world::spawn_emitters(&mut commands, e, root.0, &model, &path.0, Affine3A::IDENTITY);
+        }
+    }
+}
+
+/// A script-drawn rig with named sequences: its model's own systems emit from the rig's
+/// root, beside its `GroupRig` and the clip playing there (`emit`'s drive, §6.7).
+fn script_drawn_rig(mut commands: Commands, mut models: ModelCtx, added: Query<(Entity, &ScriptDrawnRig), Added<ScriptDrawnRig>>) {
+    for (e, rig) in &added {
+        if models.model(&rig.path).is_some_and(|m| m.particles) {
+            commands.entity(e).insert(ModelEmitter::placed(rig.path.clone(), rig.reference));
         }
     }
 }

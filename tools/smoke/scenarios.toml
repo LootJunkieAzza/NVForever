@@ -9151,3 +9151,19 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "3:view", NV
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = ["effect shader: Flames01 on "]
+
+[[scenario]]
+name = "b29-spray-follows-sequence"
+source = "docs/spec-notes/particles.md §7.5 (Volare! spot check 2026-10-24): the rising B-29 is drawn by script_draw when the detonator enables it, and the detonator plays its Forward (the rise, #710); its 39 particle systems (b29_riseanim.nif) emit from its rig root and take their emitter and bomb keys from the sequence the plane plays (§6.7), where before the first sequence's keyless false read as always on and white specks covered the hillside; set off the detonator and look at the plane from the panel; frames in target/smoke (b29_spray_rise.png during the spray, b29_spray_after.png after the rise)"
+areas = ["particles", "effects"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-play/src/script_draw.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_LOOK = "4:75:-5", NVF_PLAY_TEST_SCRIPT = "1:start:VMS15,2:objective:VMS15:45,8:activate:0x0010063C", NVF_PLAY_TEST_CONSOLE = "3:player.MoveTo 0010063C;3.5:player.SetAngle Z 142.7;4:close", NVF_PLAY_TEST_SHOTS = "12:b29_spray_rise.png,24:b29_spray_after.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'OnActivate of .*0x0010062D', label = "the detonator's script runs" },
+  { re = 'particles: model \S*b29_riseanim\.nif: 39 system.*; 39 driven by the sequences \[Right, Forward, Idle, Left\]', label = "the plane's systems keep each sequence's keys" },
+  { re = 'particles: 00105868 \S*b29_riseanim\.nif emits as its Forward says: 39 of 39 systems', label = "the plane's emitters follow the rise (Forward)" },
+  { re = 'particles: born in \S*b29_riseanim\.nif: wDripL04 [1-9]', label = "the drips fall from the risen plane" },
+  { re = 'particles: born in \S*b29_riseanim\.nif: .*[ ,]wFlingL01 (?P<n>\d+)', range = [40, 60], label = "a waterline fling sprays only in its Forward window (150 a second for 0.33 s), not all the time" },
+]
