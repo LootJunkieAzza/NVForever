@@ -7,7 +7,9 @@
 //!   looks within [`ARMED_REACH`] ([`UNARMED_REACH`] with no usable weapon) for a better
 //!   one: on the ground or carried by a dead actor, with ammunition for a gun carried or
 //!   found within the same reach (on the ground, on a body, in an unlocked container).
-//!   The best by rank, nearest on ties, becomes its fetch (`Rearms::fetches`).
+//!   The best by rank, nearest on ties, becomes its fetch (`Rearms::fetches`). Before
+//!   looking, a weapon that does not fire at its target's distance gives way to a
+//!   carried one of its class that does (`Game::take_up_for_distance`).
 //! - The fetch: it runs to each stop in turn (the nearer first), stands there for the
 //!   pick-up idle ([`PICKUP_SECONDS`]) and takes or copies the item (`Game::take_leg`);
 //!   after the last it holds the weapon it went for. A stop it has no way to, that is
@@ -69,6 +71,21 @@ impl Ai {
         game.rearms.next_look.insert(actor, now + LOOK_SECONDS);
         if let Some(weapon) = game.take_up_best_carried(actor) {
             self.log(game, actor, AiEvent::Rearmed { weapon, from: None });
+        }
+        // A weapon that does not fire at its target's distance gives way to one it carries
+        // that does (`Game::take_up_for_distance`).
+        let feet = self.agents[&actor].walker.feet;
+        // The target it fights: the one it detects, else the one it detected last (as the
+        // fight's moves take it, `crate::alert`), in Combat only.
+        let target_at = game.awareness.get(actor).filter(|a| a.state == fnv_game::awareness::State::Combat).and_then(|a| {
+            let latest = a.targets.values().filter(|t| t.detected.is_some()).max_by(|x, y| x.detected.unwrap_or(0.0).total_cmp(&y.detected.unwrap_or(0.0)));
+            a.combat_target().map(|(_, t)| t).or(latest).map(|t| t.at)
+        });
+        if let Some(at) = target_at {
+            let distance = goal::dist(feet, at);
+            if let Some(weapon) = game.take_up_for_distance(actor, distance) {
+                self.log(game, actor, AiEvent::RangeSwap { weapon, distance });
+            }
         }
         let Some(found) = self.look_for_weapon(game, actor) else { return false };
         let first = found.legs[0];
