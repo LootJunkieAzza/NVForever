@@ -17,6 +17,10 @@
 //!   physics world.
 //! - A corpse that gets under the terrain is lifted back above it (a guard, as for the
 //!   player).
+//! - A corpse in water rises and floats at the surface (`fnv_phys::buoyancy`); it is
+//!   left moving for up to [`MAX_AWAKE_IN_WATER`] instead of [`MAX_AWAKE`] so that it
+//!   gets there. A corpse put back at rest (or in the pose its reference stores) stays
+//!   where it lay until a hit or a blast rouses it.
 //! - The player's own body drops the same way when the player dies (`death_cam.rs`): its
 //!   third-person rig carries a [`PlayerRig`] in place of an [`ActorRig`], so that the
 //!   systems of placed actors (head tracking, hit volumes, outfits) leave it alone.
@@ -65,6 +69,11 @@ pub const CALM_WINDOW: f32 = 0.25;
 /// 300 ms a frame (docs/design/frame-rate-audit.md §2)].
 pub const MAX_AWAKE: f32 = 3.0;
 
+/// [`MAX_AWAKE`] for a ragdoll in water (`fnv_phys::buoyancy`): long enough for a corpse
+/// on a deep bed to rise to the surface and settle there [design: from 400 units down it
+/// takes about 10 s].
+pub const MAX_AWAKE_IN_WATER: f32 = 30.0;
+
 pub const FELL_THROUGH: f32 = 150.0;
 pub const LIFT_ABOVE: f32 = 20.0;
 pub const MAX_LIFTS: u8 = 3;
@@ -89,6 +98,8 @@ pub struct Ragdolls {
     pub authored_skipped: usize,
     /// Ragdolls set at rest by [`MAX_AWAKE`] while still moving.
     pub held: usize,
+    /// Ragdolls that came to rest in water (floating).
+    pub floated: usize,
     /// Per live ragdoll: its fastest bone's speed and spin over the last calm window, and the
     /// longest it has been calm ([`CALM_TIME`] sets it at rest), for the exit report of
     /// ragdolls that never came to rest.
@@ -517,10 +528,10 @@ pub(crate) fn pose(
         }
         if c.calm >= CALM_TIME || phys.world.ragdoll_asleep(id) {
             phys.world.set_ragdoll_at_rest(id);
-        } else if c.awake >= MAX_AWAKE {
+        } else if c.awake >= MAX_AWAKE && (c.awake >= MAX_AWAKE_IN_WATER || !phys.world.ragdoll_in_water(id)) {
             phys.world.set_ragdoll_at_rest(id);
             ragdolls.held += 1;
-            info!("ragdoll: actor {id:08X} held at rest still moving after {MAX_AWAKE} s (calm for {:.2} s)", c.calm);
+            info!("ragdoll: actor {id:08X} held at rest still moving after {:.0} s (calm for {:.2} s)", c.awake, c.calm);
         }
         let asleep = phys.world.ragdoll_asleep(id);
         if asleep && c.settled {
@@ -531,6 +542,12 @@ pub(crate) fn pose(
             ragdolls.rested += 1;
             ragdolls.rest.insert(id, rest());
             debug!("ragdoll: actor {id:08X} at rest at ({:.0}, {:.0}, {:.0})", first[0], first[1], first[2]);
+            if phys.world.ragdoll_in_water(id) {
+                ragdolls.floated += 1;
+                let at = phys.world.ragdoll_center(id).unwrap_or(first);
+                let surface = phys.world.water_surface_for(at).unwrap_or(f32::NAN);
+                info!("ragdoll: actor {id:08X} floats at ({:.0}, {:.0}, {:.0}), its trunk {:.0} units under the surface at {surface:.0}, {:.1} s after it started moving", at[0], at[1], at[2], surface - at[2], c.awake);
+            }
         }
         c.settled = asleep;
     }
@@ -582,8 +599,8 @@ fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Optio
     }
     let (live, asleep) = phys.as_deref().map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
     info!(
-        "ragdolls: {} started, {} put back at rest, {} came to rest ({} held at rest still moving after {MAX_AWAKE} s), {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
-        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.held, ragdolls.pushes, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
+        "ragdolls: {} started, {} put back at rest, {} came to rest ({} held at rest still moving after {MAX_AWAKE} s, {} floating in water), {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
+        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.held, ragdolls.floated, ragdolls.pushes, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
     );
     // Those still moving: how fast, and how near they came to resting.
     if let Some(p) = phys.as_deref() {
