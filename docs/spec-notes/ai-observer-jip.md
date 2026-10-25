@@ -37,8 +37,7 @@ A session (or a campaign's `defaults`) with `"jip": true` adds the fields below
 (`tools/capture/observe.py`, `JIP_PART`, `JIP_TRACKED_PART`, `JIP_HEADER`). Without the
 key no JIP function is called, so all existing campaigns are unchanged. `observe.py run`
 refuses a campaign with JIP sessions when there is no `jip*.dll` in `Data\NVSE\Plugins`
-[hypothesis: the plugin's file name starts with "jip"; to be confirmed when it is
-installed].
+[observed 2026-10-25: the plugin's file is `jip_nvse.dll`].
 
 Every meaning below is [documented: GECK wiki export, the page of each function, origin
 JIP].
@@ -83,13 +82,19 @@ The risk: JIP LN NVSE does more than add functions. It may also patch engine beh
 [hypothesis: not checked against our install or its settings file]. If it changes how
 AI runs, its data would describe a different game than the one we rebuild.
 
-**Method.**
-1. **Base:** the unchanged `goodsprings` campaign (no `jip` key) run twice from the
-   `nvftest` save, with `Data\NVSE\Plugins` holding only `nvf_capture.dll` (`observe.py
-   run ... --repeat 2 --timeline ...`). Two runs show how much runs differ on their own.
-2. **With:** the same campaign run twice with JIP LN NVSE installed, at its default
-   settings, and not called. The run report's `nvse_plugins` records the DLL's name,
-   size and SHA-256.
+**Method.** The check uses `goodsprings_ab`, a short campaign of about 6 game hours
+(about 15 real minutes a run): the town from 20:00 to 23:00, across the hour when
+several residents' sleep packages begin, the saloon from 18:00 to 20:00, and an hour
+beside Sunny. It has no `jip` key. A short campaign lets each side be run three times,
+and three runs estimate run-to-run noise better than two runs of the 32-hour
+`goodsprings` campaign would.
+1. **With:** `goodsprings_ab` run three times (`observe.py run ... --repeat 3 --timeline
+   ...`) from the `nvftest` save, with JIP LN NVSE and JohnnyGuitar NVSE installed at
+   their default settings and never called. The run report's `nvse_plugins` records
+   each DLL's name, size and SHA-256. Both plugins are checked together; if they move
+   the AI, a second round with JIP alone tells which plugin does it.
+2. **Base:** the same three runs with `Data\NVSE\Plugins` holding only
+   `nvf_capture.dll`. The two sides can be run in either order.
 3. Compare with `tools/capture/observe_compare.py --base <base timelines> --with <with
    timelines>`. For each session and actor seen in every run it compares: the share of
    time on each package and procedure, the number of segments, the distance walked and
@@ -98,8 +103,8 @@ AI runs, its data would describe a different game than the one we rebuild.
    distance). These are report thresholds [design] that sort what to look at first, not
    pass marks. Every row listed outside is explained in §5: run-to-run noise (two base
    runs are a thin sample), or a JIP effect.
-4. Then `goodsprings_jip` (the same sessions with `"jip": true`) once with JIP. This
-   checks that the probes compile and answer. Its per-sample cost (`us` in the samples)
+4. Then `goodsprings_jip` (the full `goodsprings` sessions with `"jip": true`) once with
+   JIP installed. This checks that the probes compile and answer. Its per-sample cost (`us` in the samples)
    against the base runs shows whether the extra probes change timing.
 
 **Using the data.**
@@ -111,16 +116,27 @@ AI runs, its data would describe a different game than the one we rebuild.
 - Either way, behaviour facts keep coming from base game + xNVSE runs. No goldens are
   made from JIP-tier runs.
 
-**Install (owner).** Our tools never write into the game folder. Copy JIP LN NVSE's DLL
-from its official release into `Data\NVSE\Plugins` yourself, run the "with" half, then
-remove it again so the default campaigns run on vanilla xNVSE.
+**Install (owner).** Our tools never write into the game folder. The owner copies the
+plugins' DLLs from their official releases into `Data\NVSE\Plugins`, and takes them out
+again for the base half and afterwards, so the default campaigns run on plain xNVSE.
 
 **Clean room.** The JIP functions are used only as readers. Their meanings come from the
 wiki pages cited in §3, not from JIP's source code, and nothing of JIP ships.
 
 ## 5. Results
 
-- **Base, 2026-10-25:** `goodsprings` × 2 on plugin version 9, `Data\NVSE\Plugins` =
-  `nvf_capture.dll` only. Results in `C:\fnv-private\capture\observe\jip_ab\`
-  (private). (Results pending; filled in below once the runs end.)
-- **With:** not run yet; waiting for JIP to be installed.
+- 2026-10-25: a first base run of the full `goodsprings` campaign was stopped after
+  three of its four sessions, in favour of the short campaign above. It is not used.
+- **The with set-up, 2026-10-25** [observed: `Data\NVSE\Plugins` on the owner's install]:
+  `jip_nvse.dll` (502,272 bytes, SHA-256 9d277964…), `johnnyguitar.dll` (286,720 bytes,
+  SHA-256 456b6ce7…), `nvf_capture.dll` (version 9), and `JohnnyGuitar.ini` at its
+  shipped settings. JIP has no settings file. The archive also brought
+  `textinput\texteditmenu.xml`, a menu layout with no code. The ini's own comments
+  describe what it switches. On: `bFixItemStackCount` (dropping more than 32,000 items),
+  `bJIPFixes` ("various fixes" to JIP 57.30) and, under `[JIP]`,
+  `bFixPositiveChemDuration` (the Modify Positive Chem Duration perk entry point limited
+  to chems). Off: `bFixFleeing` (NPCs fleeing in CAUTION with no enemies),
+  `bFixNPCShootingAngle`, `bFixDeathVoicelines` and the rest. So the with set-up is not
+  the original game, though none of the switches that are on is about AI.
+- **With** and **base** (`goodsprings_ab` × 3 each, plugin version 9): running.
+  Results go to `C:\fnv-private\capture\observe\jip_ab\` (private).

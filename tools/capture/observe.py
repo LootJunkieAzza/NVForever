@@ -163,7 +163,7 @@ JIP_TRACKED_PART = [("proc_level", "num", "GetActorProcessingLevel"),
 # GetPCDetectionState: -1 menu or loading, 0 hidden, 1 caution, 2 detected, 3 danger.
 JIP_HEADER = [("pc_detection", "num", "GetPCDetectionState")]
 # How a run tells that JIP LN NVSE is installed: a DLL in Data\NVSE\Plugins whose name
-# starts with "jip" [hypothesis: the plugin's file is jip_nvse.dll; to confirm on install].
+# starts with "jip" [observed 2026-10-25: the plugin's file is jip_nvse.dll].
 JIP_DLL_PREFIX = "jip"
 
 # Game events (plugin version 9; docs/spec-notes/ai-observer.md section 12): xNVSE's
