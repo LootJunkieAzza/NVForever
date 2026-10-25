@@ -108,6 +108,14 @@ is not covered: the frames show no weapon.
   2026-10-20]. With "true iron sights" the front post is at the middle and the gun is
   higher and nearer the eye; the world is framed the same, so only the weapon moves
   [observed: the same screenshots].
+- In first person a gun whose model has no sighting node keeps the hip pose while aimed:
+  the original plays no down-the-sights clip for it and only zooms the view [observed:
+  the owner's screenshots, 2026-10-24, Laser Rifle at the hip and aimed, same pose,
+  zoomed; the owner: "base game has no aim animation it literally just zooms the screen
+  in"]. The third-person body still plays its `AimIS` clips [observed: the owner, "third
+  person is still animated"]. [hypothesis] The original decides by the node, as true
+  iron sights do; checked only on the laser rifle. NVForever does this whatever the
+  true-iron-sights switch says (`player_body.rs`, `Rig::sights_clips`).
 - NVForever (on by default, settings page, `--no-true-iron-sights`): the arms rig's
   `Bip01 Translate` is turned about the sighting node so the barrel's axis lies along
   the view and moved so the node lands on the camera node, eased in with the zoom

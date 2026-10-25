@@ -75,7 +75,8 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   While any slot runs, `.claude\smoke.lock` exists as a shared lock, so captures (which
   `mkdir` both game locks) wait; smoke never takes the capture lock `run.lock`, it only
   waits while it is held. Runners queue first-come, first-served (`smoke-queue` beside
-  the first lock) and the first 3 share the slots. `--exclusive` is the old way (both
+  the first lock); the slots are dealt in queue order, and slots a run cannot use (its
+  `--jobs`, or fewer launches) go to the runners behind it. `--exclusive` is the old way (both
   locks, one game on the machine) for a check that needs the screen to itself.
   It prints one line per scenario. **The summary is enough**: open a log in
   `target/smoke/` only for a FAIL, and then only the lines it quotes. `plan` shows what

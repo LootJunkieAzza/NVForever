@@ -1256,6 +1256,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 Some("leave") => event::ON_TRIGGER_LEAVE,
                 Some(o) => return Err(format!("trigger event {o:?} is not enter, inside or leave")),
             };
+            if code == event::ON_TRIGGER {
+                g.trigger_frame(t);
+            }
             if !g.ref_event(t, code, Some(Value::Ref(a.0)), Some(a)) {
                 return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
             }

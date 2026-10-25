@@ -16,8 +16,9 @@ killed (Windows; `python -m smoke.stacks PID` takes them from a game that hangs 
 Every `--play` launch runs with NVF_PLAY_AIDS_FROM_SCRIPTS=1: the world test aids wait
 for the scripts' first frame, so a late start on a busy machine cannot run them first
 (scenarios.toml's header; engine/nvf-play/src/pause.rs WorldAidClock).
-Up to --slots (default NVF_SMOKE_SLOTS or 3) games run on the machine at once, across
-every runner (smoke/slots.py); launches sharing an NVFOREVER_HOME run in order.
+Up to NVF_SMOKE_SLOTS (default 3) games run on the machine at once, across every
+runner (smoke/slots.py), dealt first come, first served; --slots N / --jobs N let this
+run use at most N of them. Launches sharing an NVFOREVER_HOME run in order.
 --exclusive takes both game locks per launch, one game on the machine at a time.
 """
 from __future__ import annotations
@@ -80,7 +81,8 @@ def parser() -> argparse.ArgumentParser:
                                 f"(default NVF_SMOKE_SLOTS or {slots.DEFAULT_SLOTS}; 1 = the machine to itself, "
                                 "as --exclusive)")
             q.add_argument("--jobs", type=int, default=None,
-                           help="this run's launches at once (default: the slots; the queue's share caps it)")
+                           help="this run's launches at once (default: --slots or the machine's slots; "
+                                "the queue's share caps it)")
             q.add_argument("--exclusive", action="store_true",
                            help="the old way: both game locks per launch, one game on the machine at a time "
                                 "(for a check that needs the screen to itself)")
@@ -237,7 +239,7 @@ def cmd_run(a, suite: Suite, say) -> int:
     if any(x.kind != GAME for x in launches) and not env.fnvtool.exists():
         say(f"warning: no fnvtool at {env.fnvtool}; tool scenarios will fail (build it or pass --fnvtool)")
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
-    locks, jobs = game_gate(a, say)
+    locks, jobs = game_gate(a, say, game_groups(launches))
     if jobs > 1 and len(launches) > 1:
         say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
     started = time.monotonic()
@@ -250,8 +252,9 @@ def cmd_run(a, suite: Suite, say) -> int:
     return finish(verdicts, env, time.monotonic() - started, checks_ok, say)
 
 
-def game_gate(a, say):
-    """What a game launch waits for, and how many launches this run starts at once."""
+def game_gate(a, say, groups: int | None = None):
+    """What a game launch waits for, and how many launches this run starts at once.
+    `groups`: the run's game launch groups (`chains`), the most slots it can use."""
     paths = default_lock_paths(a.repo)
     if a.no_locks or not paths:
         return None, max(1, a.jobs or 1)
@@ -260,8 +263,15 @@ def game_gate(a, say):
         # One game on the machine: both locks, as before the slots. A one-slot pool would
         # only cap this runner, and other runners' games could still run beside it.
         return Locks(paths, poll=a.lock_poll, say=say), 1
-    pool = slots.Slots(paths[-1], paths[:-1], count=count, poll=min(a.lock_poll, 10.0), say=say)
-    return pool, max(1, a.jobs or pool.count)
+    jobs = max(1, a.jobs or count)
+    pool = slots.Slots(paths[-1], paths[:-1], count=count, poll=min(a.lock_poll, 10.0), say=say,
+                       want=min(jobs, groups or jobs))
+    return pool, jobs
+
+
+def game_groups(launches: list[Launch]) -> int:
+    """The groups of `chains` with a game launch in them (each holds one slot at a time)."""
+    return sum(1 for g in chains(launches) if any(launches[i].kind == GAME for i in g))
 
 
 def chains(launches: list[Launch]) -> list[list[int]]:
