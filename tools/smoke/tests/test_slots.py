@@ -16,7 +16,7 @@ from smoke import cli  # noqa: E402
 from smoke.plan import Launch  # noqa: E402
 from smoke.runner import OWNER, Locks, Queue, Verdict  # noqa: E402
 from smoke.scenarios import GAME, Scenario  # noqa: E402
-from smoke.slots import FileLock, Slot, Slots, file_is_locked  # noqa: E402
+from smoke.slots import FileLock, Slot, Slots, deal, file_is_locked  # noqa: E402
 
 
 def quiet(_):
@@ -190,6 +190,69 @@ class SlotTests(unittest.TestCase):
             later.leave()
             r.finish()
 
+    def test_runners_that_want_fewer_slots_leave_the_rest_to_those_behind(self):
+        # A full run, two runners that can use one slot (--jobs 1, or one launch), seven
+        # default runners: the free slots get used (the queue shape seen 2026-10-24).
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            rs = []
+            for pid, want in [(1, None), (2, 1), (3, 1)] + [(p, None) for p in range(4, 11)]:
+                r = m.runner(pid, count=3, want=want)
+                r.queue.join()
+                rs.append(r)
+                time.sleep(0.002)
+            self.assertEqual([r.share() for r in rs], [1, 1, 1] + [0] * 7)
+            full = rs[0].acquire()
+            capped = [rs[1].acquire(), rs[2].acquire()]  # the free slots 2 and 3, not only slot 1
+            self.assertEqual(sorted(s.index for s in [full, *capped]), [1, 2, 3])
+            self.assertIn("share", rs[1].try_take())
+            self.assertIn("queue", rs[3].try_take())
+            rs[1].release(capped[0])
+            rs[1].finish()  # a capped runner is done: the full run and the next default runner share
+            m.live.discard(2)
+            self.assertEqual([r.share() for r in rs[2:5]], [1, 1, 0])
+            self.assertEqual(rs[0].share(), 1)
+            got = rs[3].acquire()
+            for r, held in [(rs[0], [full]), (rs[2], [capped[1]]), (rs[3], [got])]:
+                for s in held:
+                    r.release(s)
+            for r in rs:
+                r.finish()
+            self.assertFalse(m.shared.exists())
+
+    def test_a_capped_runner_ahead_gives_its_unused_slots_to_the_next(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            first = m.runner(1, count=3, want=1)
+            first.queue.join()
+            time.sleep(0.002)
+            second = m.runner(2, count=3)
+            second.queue.join()
+            self.assertEqual((first.share(), second.share()), (1, 2))
+            self.assertIn("want=1", first.queue.ticket.read_text())
+            first.finish()
+            second.finish()
+
+    def test_a_ticket_without_want_from_an_older_runner_wants_every_slot(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            m.live.add(9)
+            old = Queue(m.gate.parent / "smoke-queue", pid=9, alive=lambda p: p in m.live, label="smoke runner slots")
+            old.join()
+            time.sleep(0.002)
+            r = m.runner(1, count=3)
+            self.assertEqual(r.share(), 1)  # the old ticket takes 2, as before
+            old.leave()
+            r.finish()
+
+    def test_deal_goes_round_in_queue_order(self):
+        self.assertEqual(deal(3, [3, 3]), [2, 1])
+        self.assertEqual(deal(3, [3, 1, 1, 3]), [1, 1, 1, 0])
+        self.assertEqual(deal(3, [1, 3, 3]), [1, 1, 1])
+        self.assertEqual(deal(3, [1, 1]), [1, 1])  # a slot nobody can use stays free
+        self.assertEqual(deal(4, [3, 3, 3]), [2, 1, 1])
+        self.assertEqual(deal(2, []), [])
+
     def test_game_starts_are_spread_out_machine_wide(self):
         with tempfile.TemporaryDirectory() as d:
             m = Machine(d)
@@ -272,6 +335,14 @@ class ParallelRunTests(unittest.TestCase):
         ls = [launch("save-write", "save-home"), launch("a"), launch("save-load", "save-home"),
               launch("b"), launch("save-order", "save-home"), launch("tool", "save-home", kind="tool")]
         self.assertEqual(cli.chains(ls), [[0, 2, 4], [1], [3], [5]])
+
+    def test_a_run_wants_no_more_slots_than_its_game_launch_groups(self):
+        ls = [launch("save-write", "h"), launch("a"), launch("save-load", "h"), launch("t", kind="tool")]
+        self.assertEqual(cli.game_groups(ls), 2)
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            self.assertEqual(m.runner(1, count=3, want=5).want, 3)
+            self.assertEqual(m.runner(2, count=3, want=1).want, 1)
 
     def test_runs_at_once_and_reports_in_plan_order(self):
         ls = [launch("save-write", "h"), launch("a"), launch("b"), launch("save-load", "h")]
