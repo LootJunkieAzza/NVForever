@@ -222,6 +222,27 @@ xNVSE 6.3.6 added a second, C-like script language ("NVSEScript": scripts start 
 NVSEScript, marked work in progress]. The plan compiles the ordinary language first;
 NVSEScript is a later task if mods need it.
 
+## 9a. What the GECK accepted (compile cases, 2026-10-25)
+
+The owner compiled the 23 cases of tools/capture/ext-compile/ in the GECK with xNVSE
+loaded, as Object scripts [observed: ext-compile README, Observed column]:
+
+- **All 22 forms expected to compile were saved without an error**: `let` and `:=`,
+  chained `:=`, the let macro (`x = 10`, `x += 10` without `let`), the compound
+  assignments, `if eval` with `!` on a call, `while`/`loop` with an assignment in the
+  condition, `break`/`continue`, `foreach` over an array and over a container,
+  `string_var`, `array_var`, `sv_Length`, subscripts and `ar_size`, inline `int`
+  declarations (with `let` and with the macro), `Begin Function {a, b}`, `Call` with
+  arguments and in `if eval`, `SetFunctionValue` in branches, block and one-line
+  lambdas, an inline expression as a function argument, `&&` and `||` without
+  parentheses (in `let` and in `if eval`), and `Begin _GameMode`.
+- **`let := 5` (no variable) was refused** with two messages on its line: "Missing
+  required parameter 'expression' for parameter #'1'." and "Could not parse this line."
+  So the GECK treats everything after `let` as one parameter of type "expression".
+
+Compiling says the forms parse; how they group (associativity, `&&` against `||`) needs
+the compiled bytes or the run-time probes (ext-probes/expressions).
+
 ## 10. Open (to observe), collected
 
 Associativity of every operator but `:=`; how unary and binary `-`/`*`/`&` are told
