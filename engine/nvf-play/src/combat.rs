@@ -594,13 +594,13 @@ fn body_part(c: &Combat, parts: &ActorParts, actor: ActorId, part: Option<u8>) -
     c.forms.body_parts.get(&data)?.parts.get(part? as usize).cloned()
 }
 
-/// The limb damage of a hit dealing `dealt` on part `bp` with weapon `w`: none when the
-/// part has no limb condition or the weapon's Limb Dmg Mult is 0 [documented: WEAP field;
-/// hypothesis: 0 means no limb damage].
-fn limb_hit(bp: Option<&BodyPart>, dealt: f32, w: &WeaponStats) -> Option<LimbHit> {
+/// The limb damage of hit `d` on part `bp` with weapon `w` (`Damage::limb_damage`: without
+/// the part's damage multiplier): none when the part has no limb condition or the
+/// weapon's Limb Dmg Mult is 0 [documented: WEAP field; hypothesis: 0 means no limb damage].
+fn limb_hit(bp: Option<&BodyPart>, d: &damage::Damage, w: &WeaponStats) -> Option<LimbHit> {
     let bp = bp?;
     let condition = fnv_game::combat::limb_condition(bp.actor_value.as_deref()?)?;
-    let damage = (dealt * w.limb_dmg_mult.max(0.0)) as f64;
+    let damage = d.limb_damage(w.limb_dmg_mult) as f64;
     (damage > 0.0).then_some(LimbHit { condition, health_percent: bp.health_percent as f64, damage })
 }
 
@@ -3337,7 +3337,7 @@ fn melee(
             let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
             let location = bp.as_ref().map_or(0, BodyPart::location);
-            let limb = limb_hit(bp.as_ref(), d.dealt, &w);
+            let limb = limb_hit(bp.as_ref(), &d, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
             let mut items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
@@ -4138,7 +4138,7 @@ fn fly(
         log_hit_perks(shooter, Some(target), &ap, &tp, &d);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);
-        let limb = limb_hit(bp.as_ref(), d.dealt, &w);
+        let limb = limb_hit(bp.as_ref(), &d, &w);
         let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location, critical: d.critical, limb };
         if target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });

@@ -273,6 +273,21 @@ pub struct Damage {
     pub miss: bool,
 }
 
+impl Damage {
+    /// The limb damage of this hit with a weapon of Limb Dmg Mult `limb_dmg_mult`: the
+    /// health damage dealt without the body part's damage multiplier, × the Limb Dmg
+    /// Mult. The original leaves the part multiplier out: over 3,254 hits its limb loss
+    /// over its health damage was Limb Dmg Mult × 100 ÷ (max health × health % × the
+    /// part's damage mult), so a head hit (×2) costs the head the condition of the hit
+    /// before its ×2; critical bonuses stay in [observed 2026-10-25: JIP GetHitLimbDamage
+    /// and GetHitHealthDamage, docs/handoff/observer-jip-audit-2026-10-25.md §3.6, guns;
+    /// melee: two machete hits did not fit]. A Limb Dmg Mult of 0 deals none.
+    pub fn limb_damage(&self, limb_dmg_mult: f32) -> f32 {
+        let unscaled = if self.part_mult > 0.0 { self.dealt / self.part_mult } else { self.dealt };
+        (unscaled * limb_dmg_mult.max(0.0)).max(0.0)
+    }
+}
+
 /// Apply ammo effects of one kind to a value (Add, Multiply, Subtract), in list order.
 pub fn apply_effects(v: f32, effects: &[&AmmoEffect], kind: &str) -> f32 {
     effects.iter().filter(|e| e.kind.as_deref() == Some(kind)).fold(v, |v, e| match e.operation.as_deref() {
