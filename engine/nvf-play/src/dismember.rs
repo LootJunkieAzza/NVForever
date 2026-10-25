@@ -107,7 +107,7 @@ pub fn resolve(
                 let bloody_mess = k.by.is_some_and(|a| with_world(rt, &mut sim, |rt| rt.game.has_bloody_mess(a)));
                 let blow = Blow { on_hit: k.on_hit, corpse: k.corpse, crippled: k.crippled, overkill: k.overkill, max_health: k.max_health, bloody_mess };
                 let (pe, ps) = dismember::chances(part, &blow, &settings);
-                let fate = dismember::decide(part, &blow, &settings, d.rng.next_f32(), d.rng.next_f32());
+                let fate = dismember::decide(part, &blow, &settings, d.rng.next_f32());
                 (fate, format!("overkill {:.0} of limb share {:.0}, explode {pe:.0} %, sever {ps:.0} %{}", k.overkill, dismember::limb_health(part, k.max_health), if bloody_mess { ", Bloody Mess" } else { "" }))
             }
         };

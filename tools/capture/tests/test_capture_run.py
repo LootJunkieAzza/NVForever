@@ -135,6 +135,15 @@ class Base(unittest.TestCase):
         return code, report, err.getvalue(), game
 
 
+class TestJobStatus(unittest.TestCase):
+    def test_a_cut_line_that_parses_to_a_string_is_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "out.jsonl")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"kind": "start"}\n"1|0|0"\n{"kind": "end"}\n')
+            self.assertEqual(cr.job_status(path), ("ended", 0))
+
+
 class TestRun(Base):
     def test_ok_run_reports_every_job_and_disarms(self):
         a, b = self.write_job("a1"), self.write_job("b1")

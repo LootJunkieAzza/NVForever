@@ -480,7 +480,8 @@ def header_fields(extra_header=()):
 def session_extras(s):
     """(extra parts, extra header fields) of a session: `more` (MORE_PART, MORE_HEADER),
     `extra` (a part of [name, kind, expression] fields, the expression called on each
-    actor, e.g. ["critical", "num", "IsInCriticalStage GooStart"]) and `extra_header`
+    actor, e.g. ["critical", "num", "IsInCriticalStage GooStart"]; or a list of such parts,
+    for more fields than one probe script should hold) and `extra_header`
     ([name, kind, expression] read once per sample, e.g. ["pipboy", "num", "MenuMode
     1002"])."""
     parts, header = [], []
@@ -490,19 +491,23 @@ def session_extras(s):
     if s.get("jip"):
         parts += [JIP_PART] + JIP_ARRAY_PARTS
         header += JIP_HEADER
-    for key, out in (("extra", None), ("extra_header", header)):
-        items = s.get(key) or []
+    def fields_of(key, items):
         fields = []
         for item in items:
             if not (isinstance(item, list) and len(item) == 3 and item[1] in ("num", "ref") and isinstance(item[2], str)
                     and isinstance(item[0], str) and item[0].isidentifier()):
                 raise InputError(f"session {s.get('name')}: {key} items are [name, num|ref, expression], got {item!r}")
             fields.append(tuple(item))
-        if out is None:
-            if fields:
-                parts.append(fields)
-        else:
-            out += fields
+        return fields
+
+    # `extra` may also be a list of such parts (each one probe script, kept short).
+    extra = s.get("extra") or []
+    several = bool(extra) and all(isinstance(p, list) and p and all(isinstance(x, list) for x in p) for p in extra)
+    for items in (extra if several else [extra]):
+        fields = fields_of("extra", items)
+        if fields:
+            parts.append(fields)
+    header += fields_of("extra_header", s.get("extra_header") or [])
     return parts, header
 
 
@@ -555,11 +560,12 @@ def check_campaign(c):
 
 
 def job_name(campaign, session):
-    """obs_<campaign>_<NN>_<session>: the plugin runs pending jobs in file-name order
+    """obs_<campaign>_<NN>_<session> (NNN from 100 sessions): the plugin runs pending jobs in file-name order
     [observed 2026-10-17: melee_spacing's creature_cazador ran before its first session,
     dogs], so the session's place in the campaign leads its name."""
     k = next(i for i, x in enumerate(campaign["sessions"]) if x["name"] == session["name"])
-    return f"obs_{campaign['name']}_{k + 1:02d}_{session['name']}"
+    width = max(2, len(str(len(campaign["sessions"]))))  # 100 sessions or more: 001, so 057 runs before 100
+    return f"obs_{campaign['name']}_{k + 1:0{width}d}_{session['name']}"
 
 
 def go_steps(go, ctx):
@@ -790,7 +796,10 @@ def session_job(campaign, session, ctx):
             then = cs.function(n.decls + list(sc.get("decls") or []), n.setup + [x.format(*ops) for x in sc["lines"]],
                                returns_value=False)
         when = condition_script(t["when"], ctx) if t.get("when") else cs.function(["float fV"], ["let fV := 1", "SetFunctionValue fV"])
-        hooks.append({"name": f"timed_{k}", "when": when, "after": t["after"], "then": then, "once": not t.get("repeat")})
+        hook = {"name": f"timed_{k}", "when": when, "after": t["after"], "then": then}
+        if not t.get("repeat"):
+            hook["once"] = True  # plugin version 9; a repeating hook loads in version 6 and later
+        hooks.append(hook)
     if hooks:
         obs["hooks"] = hooks
     # `shots`: {"label", "when": [expression, names...], "gap": samples, "max": n}:
