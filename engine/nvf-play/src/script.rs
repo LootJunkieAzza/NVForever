@@ -766,6 +766,13 @@ impl Runtime {
                     g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
                     // Its activate children go off (`fnv_game::traps`).
                     g.set_off_children(target);
+                    // An activator that gives water: the player drinks it, as
+                    // `Game::default_activation` has it drunk (its actor effect, the
+                    // Adjust Drinking Radiation perks); this path (the player's hand) never
+                    // did (perk-entry-points.md §9).
+                    if matches!(a.outcome, Outcome::Activated) && g.drink_water(target).is_some() {
+                        g.drink_from(player, target);
+                    }
                     if let Outcome::PickedUp { item, count, .. } = a.outcome {
                         self.skip.insert(g.events.len());
                         g.emit(EventKind::ItemAdded { to: player, item, count, silent: false });
@@ -1363,7 +1370,8 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// and they follow the multiplier itself].
 /// Pausing (loading screens, menus) is the clock's own state and is not touched. The
 /// engine's own slow motion ([`ClockScale`]) multiplies it, and so does VATS mode's
-/// (`crate::vats_mode`, docs/design/vats-mode.md §4), and so does the player's Turbo
+/// (`crate::vats_mode`, docs/design/vats-mode.md §4; a kill camera's shot in its place,
+/// `crate::kill_cam`), and so does the player's Turbo
 /// ([`PlayerTimeScale`] keeps the player at full speed); those also slow sound
 /// (`audio_out::SoundSpeed`, [`crate::audio_out::slowed_sound`] of their product).
 #[allow(clippy::too_many_arguments)]
@@ -1371,6 +1379,7 @@ fn time_multiplier(
     mut script: ResMut<ScriptState>,
     scale: Option<Res<ClockScale>>,
     vats: Option<Res<crate::vats_mode::VatsMode>>,
+    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
     mut player_scale: ResMut<PlayerTimeScale>,
@@ -1393,7 +1402,9 @@ fn time_multiplier(
         }
         player_scale.0 = exempt;
     }
-    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats.map_or(1.0, |v| v.time_scale()) * turbo;
+    // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
+    let vats_scale = kill_cam.and_then(|k| k.time_scale()).unwrap_or_else(|| vats.map_or(1.0, |v| v.time_scale()));
+    let engine = scale.map_or(1.0, |s| s.0.max(0.0)) * vats_scale * turbo;
     let want = asked * engine;
     if (clock.relative_speed() - want).abs() > 1e-6 {
         clock.set_relative_speed(want);

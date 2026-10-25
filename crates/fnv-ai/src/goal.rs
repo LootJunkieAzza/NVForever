@@ -216,15 +216,26 @@ pub struct Ambush {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flee {
     pub from: Option<FormId>,
-    /// Game units; [`STANDARD_FLEE_DISTANCE`] when the target names none.
+    /// Game units; [`flee_distance`] when the target names none.
     pub distance: f32,
     pub to: Option<Box<Goal>>,
 }
 
 /// How far a fleeing actor without a destination gets from its threat when the package
-/// names no distance [our choice: fCombatFleeNormalDistance's default, 2048, Combat
-/// Flee].
+/// names no distance and the game settings are missing [our choice: fCombatFleeNormalDistance's
+/// default, 2048, Combat Flee]. With the masters loaded [`flee_distance`] reads
+/// `fFleeDistanceExterior` / `fFleeDistanceInterior` instead.
 pub const STANDARD_FLEE_DISTANCE: f32 = 2048.0;
+
+/// The distance a Flee package without one of its own runs to: `fFleeDistanceInterior`
+/// (3000 in FalloutNV.esm) indoors and `fFleeDistanceExterior` (5000) outdoors [observed:
+/// the masters' values; hypothesis: the settings are for flee packages, by their names, as
+/// the `fCombatFlee…` ones are for combat fleeing (`crate::alert`)].
+pub fn flee_distance(game: &Game, actor: FormId) -> f32 {
+    let indoors = place_of_ref(game, actor).is_some_and(|p| matches!(p.space, Space::Interior(_)));
+    let name = if indoors { "fFleeDistanceInterior" } else { "fFleeDistanceExterior" };
+    game.world.setting_f32(name).filter(|d| *d > 0.0).unwrap_or(STANDARD_FLEE_DISTANCE)
+}
 
 /// The activate distance of a Dialogue package that gives none [documented: GECK wiki,
 /// Dialogue Package: "The standard distance is 150, as defined in the
@@ -668,7 +679,7 @@ fn flee(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         _ => None,
     };
     let n = def.target.map_or(0, |t| t.count_distance);
-    Goal::Flee(Flee { from, distance: if n > 0 { n as f32 } else { STANDARD_FLEE_DISTANCE }, to })
+    Goal::Flee(Flee { from, distance: if n > 0 { n as f32 } else { flee_distance(game, actor) }, to })
 }
 
 /// The furniture a package gives an actor that has arrived at `at`, if any:

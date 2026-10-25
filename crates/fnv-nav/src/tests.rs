@@ -741,3 +741,48 @@ fn a_navmesh_with_triangles_but_no_vertices_is_skipped() {
     assert!(!g.usable(first_bad));
     assert_eq!(g.corners(first_bad), [[0.0; 3]; 3]);
 }
+
+/// Sandbags across the corridor at x = 500 (as [`hinged`]'s door: 100 wide, 8 thick),
+/// `height` tall from z = `base`, initially disabled.
+fn sandbags(base: f32, height: f32) -> crate::obstacles::Obstacle {
+    let d = hinged(0x5B0, 500.0, 0.0);
+    crate::obstacles::Obstacle { reference: 0x5B0, space: W, position: [d.position[0], d.position[1], base], rotation: d.rotation, scale: 1.0, bounds: ([-50.0, -4.0, 0.0], [50.0, 4.0, height]), initially_enabled: false }
+}
+
+/// An obstacle that comes and goes (ESM full audit gap 22, `crate::obstacles`): while
+/// enabled it cuts the triangles under it and the corridor is shut; a path planned
+/// across it before is blocked; disabled again, the way is open.
+#[test]
+fn an_enabled_obstacle_cuts_the_navmesh_under_it() {
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 1, 100.0, &[], flat), W)]);
+    g.set_obstacles(vec![sandbags(0.0, 90.0)], |o| o.initially_enabled);
+    assert_eq!(g.obstacles.len(), 1);
+    assert_eq!(g.cut_triangles(), 0, "disabled: nothing cut");
+    let (from, to) = (Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [950.0, 50.0, 0.0] });
+    assert!(g.can_reach(from, to, &PathParams::default()));
+    let mut w = Walker::new(W, from.pos, 0.0, 100.0);
+    w.go_to(&g, to, &PathParams::default()).unwrap();
+    assert_eq!(g.sync_obstacles([(0x5B0, true), (0x999, true)]), vec![0x5B0]);
+    assert!(g.sync_obstacles([(0x5B0, true)]).is_empty(), "applied once");
+    // The triangles touching x = 496..504: the squares on both sides of the line.
+    assert!(g.cut_triangles() >= 2);
+    assert!(w.follower.as_ref().unwrap().blocked(&g));
+    assert!(!g.can_reach(from, to, &PathParams::default()));
+    assert_eq!(g.sync_obstacles([(0x5B0, false)]), vec![0x5B0]);
+    assert_eq!(g.cut_triangles(), 0);
+    assert!(g.can_reach(from, to, &PathParams::default()));
+}
+
+/// The floor near an obstacle's top is on it, not under it, and a floor far below its
+/// base is another level: neither is cut.
+#[test]
+fn an_obstacle_cuts_only_floor_within_its_height() {
+    let floor = [[490.0, 0.0, 0.0], [510.0, 0.0, 0.0], [500.0, 100.0, 0.0]];
+    assert!(sandbags(0.0, 90.0).cuts(floor));
+    // Sunk until its top is 10 above the floor.
+    assert!(!sandbags(-80.0, 90.0).cuts(floor));
+    // Standing on a deck 200 above the floor.
+    assert!(!sandbags(200.0, 90.0).cuts(floor));
+    // Beside the floor, seen from above.
+    assert!(!sandbags(0.0, 90.0).cuts([[600.0, 0.0, 0.0], [700.0, 0.0, 0.0], [650.0, 100.0, 0.0]]));
+}

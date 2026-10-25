@@ -21,6 +21,11 @@
 //!   background loops (the space's own room tone), music, voices or radios; not the
 //!   loops [`crate::sfx::LoopSound`] starts (they repeat their file, and each repeat
 //!   would cut the tail). A sound takes the environment of the moment it starts.
+//! - **How much**: a sound sends into the reverb as much as its SOUN's Reverb
+//!   Attenuation Control lets through, 100 nothing and 0 all of it [documented: GECK
+//!   wiki Sound, Attenuation tab]; in between that share of the amplitude ([`send_of`],
+//!   [hypothesis: linear]). 1,687 of FalloutNV.esm's 3,190 sounds store 80, 1,032 store
+//!   0 and 107 store 100 [observed]. The dry sound is not changed.
 //! - **Per sound** [hypothesis: DirectSound's I3DL2 reverb is an effect on each sound
 //!   buffer, so the reverb of a sound falls off with its distance as the sound does]:
 //!   each such sound runs through its own [`Reverb`] and is played in stereo, and goes
@@ -226,6 +231,38 @@ pub struct Reverb {
     /// Frames of tail still to play once the input has ended.
     tail: usize,
     rate: f32,
+    /// The share of the sound sent into the reverb, 0 to 1 ([`RoomSend::send`]).
+    send: f32,
+}
+
+/// The reverb a sound plays through: the environment, and how much of the sound goes
+/// into it (module notes, "How much").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RoomSend {
+    pub preset: &'static Preset,
+    /// 0 to 1, from the SOUN's Reverb Attenuation Control ([`send_of`]).
+    pub send: f32,
+}
+
+impl RoomSend {
+    /// The whole sound into `preset`.
+    pub fn full(preset: &'static Preset) -> RoomSend {
+        RoomSend { preset, send: 1.0 }
+    }
+
+    /// This sound's reverb at `rate`.
+    pub fn reverb(&self, rate: u32) -> Reverb {
+        Reverb { send: self.send.clamp(0.0, 1.0), ..Reverb::new(self.preset, rate) }
+    }
+}
+
+/// The share of a sound sent into the reverb by its Reverb Attenuation Control: "When
+/// set to 100, the sound's reverb send is 100% attenuated -- no sound is sent into the
+/// current reverb preset. When set to 0, ... all of the sound is allowed into the current
+/// reverb preset" [documented: GECK wiki Sound, Attenuation tab; owner export]; in
+/// between, that share of the amplitude [hypothesis: linear, not in decibels].
+pub fn send_of(control_percent: f32) -> f32 {
+    (1.0 - control_percent / 100.0).clamp(0.0, 1.0)
 }
 
 impl Reverb {
@@ -260,6 +297,7 @@ impl Reverb {
             allpasses,
             tail,
             rate: r,
+            send: 1.0,
         }
     }
 
@@ -295,7 +333,7 @@ impl Reverb {
 
     /// One frame: the dry frame with its reflections and reverb.
     pub fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
-        let (wl, wr) = self.wet(0.5 * (l + r));
+        let (wl, wr) = self.wet(0.5 * (l + r) * self.send);
         (l + wl, r + wr)
     }
 
@@ -309,13 +347,15 @@ impl Reverb {
     }
 }
 
-/// The reverb a sound effect is played through now: the listener's environment, unless
-/// reverb is off or the record keeps out of it (module notes).
-pub fn for_sound(room: Option<&'static Preset>, settings: &SfxSettings, s: &Sound) -> Option<&'static Preset> {
+/// The reverb a sound effect is played through now: the listener's environment, with the
+/// share of the sound its Reverb Attenuation Control sends; none when reverb is off, the
+/// record keeps out of it or sends nothing (module notes).
+pub fn for_sound(room: Option<&'static Preset>, settings: &SfxSettings, s: &Sound) -> Option<RoomSend> {
     if !settings.reverb || s.has("Environment Ignored") || s.has("Menu Sound") || crate::sfx::is_interface(s.edid.as_deref()) {
         return None;
     }
-    room
+    let send = send_of(s.reverb_attenuation_percent);
+    room.filter(|_| send > 0.0).map(|preset| RoomSend { preset, send })
 }
 
 /// The environment of the cell the listener is in (module notes).
@@ -376,8 +416,14 @@ fn follow(mut room: ResMut<RoomReverb>, d: Res<PlayWorld>, loc: Res<Location>, p
 fn report(mut exit: MessageReader<AppExit>, room: Res<RoomReverb>, sfx: Option<Res<Sfx>>) {
     if exit.read().last().is_some() && room.changes > 0 {
         let heard: Vec<&str> = room.heard.iter().copied().collect();
-        let sounds = sfx.map_or(0, |s| s.reverbed);
-        info!("reverb summary: {} changes of space, environments {}, {} sounds through a reverb", room.changes, if heard.is_empty() { "none".to_string() } else { heard.join(", ") }, sounds);
+        let (sounds, kept_out, sends) = sfx.map_or((0, 0, 0.0), |s| (s.reverbed, s.reverb_kept_out, s.reverb_send_sum));
+        let mean = if sounds > 0 { sends / sounds as f32 } else { 0.0 };
+        info!(
+            "reverb summary: {} changes of space, environments {}, {} sounds through a reverb (mean send {mean:.2}), {kept_out} kept out by their reverb attenuation control",
+            room.changes,
+            if heard.is_empty() { "none".to_string() } else { heard.join(", ") },
+            sounds
+        );
     }
 }
 
@@ -445,6 +491,29 @@ mod tests {
         let peak = out[early..].iter().map(|f| f.0.abs()).fold(0.0, f32::max);
         let end = out[out.len() - rate as usize / 20..].iter().map(|f| f.0.abs()).fold(0.0, f32::max);
         assert!(end < peak * 0.003, "end {end} vs peak {peak}");
+    }
+
+    #[test]
+    fn reverb_attenuation_control_sets_the_send() {
+        assert_eq!(send_of(0.0), 1.0);
+        assert_eq!(send_of(100.0), 0.0);
+        assert!((send_of(80.0) - 0.2).abs() < 1e-6);
+        let p = preset(Some("Stone Corridor")).unwrap();
+        let early = (p.reflections_delay * 22050.0).round() as usize;
+        let reflected = |send: f32| {
+            let mut r = RoomSend { preset: p, send }.reverb(22050);
+            let first = r.process(1.0, 1.0);
+            let mut out = vec![first];
+            while let Some(f) = r.tail() {
+                out.push(f);
+            }
+            out[early].0
+        };
+        // The dry sound is whole; what is reflected scales with the send.
+        let mut r = RoomSend { preset: p, send: 0.2 }.reverb(22050);
+        assert_eq!(r.process(1.0, 1.0), (1.0, 1.0));
+        assert!((reflected(0.2) - 0.2 * reflected(1.0)).abs() < 1e-5);
+        assert_eq!(reflected(0.0), 0.0);
     }
 
     #[test]

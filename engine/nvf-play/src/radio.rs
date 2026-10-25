@@ -62,7 +62,7 @@
 //!   line lasts its fitted length in silence.
 //! - **Loudness** [design]: the sound's static attenuation (songs, loops), DJ lines at
 //!   full level; by distance from a receiver or actor the radio template's (the station's
-//!   `INAM`, else the receiver's) minimum and maximum distance as
+//!   `INAM`, else the receiver's) minimum and maximum distance and attenuation curve as
 //!   `crate::sfx::distance_gain` uses them; without either template 150 and 1800 units
 //!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
 //!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A

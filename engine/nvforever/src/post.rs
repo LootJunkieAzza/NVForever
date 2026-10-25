@@ -90,10 +90,30 @@ pub fn glow_intensity(hdr: &fnv_world::imagespace::Hdr) -> f32 {
     GLOW_INTENSITY * (scale / 2.0).clamp(0.5, 2.0)
 }
 
+/// The most the image space modifiers raise the light glow to (Bevy's bloom intensity)
+/// [engineering choice: CGCameraFlashISFX multiplies Bright Scale by 5 and Bright Clamp by
+/// 0.1, which this reading turns into a factor of 50; a full-strength glow is the flash].
+pub const GLOW_MODIFIED_MAX: f32 = 1.0;
+
+/// The light glow's strength with the image space modifiers on the screen: the image
+/// space's ([`glow_intensity`]) times the modifiers' change to Bright Scale and divided by
+/// their change to Bright Clamp ("the clamp for which lum levels bloom": a lower clamp
+/// lets more of the picture glow) [hypothesis: image-modifiers.md §11; documented: GECK
+/// wiki ImageSpace Modifiers, HDR], up to [`GLOW_MODIFIED_MAX`]; never below the
+/// image space's own when the modifiers raise it.
+pub fn modified_glow(base: f32, scale_ratio: f32, clamp_ratio: f32) -> f32 {
+    let k = scale_ratio / clamp_ratio.max(0.01);
+    if (k - 1.0).abs() < 1e-4 {
+        return base;
+    }
+    (base * k).clamp(0.0, GLOW_MODIFIED_MAX.max(base))
+}
+
 /// Set the light glow's strength on [`ImageSpaceGlow`] cameras from the image space now.
-fn image_space_glow(sky: Option<Res<crate::sky::SkyState>>, mut cams: Query<&mut bevy::post_process::bloom::Bloom, With<ImageSpaceGlow>>) {
+fn image_space_glow(sky: Option<Res<crate::sky::SkyState>>, screen: Option<Res<crate::imagespace::ScreenModifiers>>, mut cams: Query<&mut bevy::post_process::bloom::Bloom, With<ImageSpaceGlow>>) {
     let Some(sky) = sky else { return };
-    let intensity = glow_intensity(&sky.cinematic().hdr);
+    let ratio = |i: usize| screen.as_deref().map_or(1.0, |s| s.hdr_ratio(i));
+    let intensity = modified_glow(glow_intensity(&sky.cinematic().hdr), ratio(fnv_world::imagespace::HDR_BRIGHT_SCALE), ratio(fnv_world::imagespace::HDR_BRIGHT_CLAMP));
     for mut b in &mut cams {
         if b.intensity != intensity {
             b.intensity = intensity;

@@ -8,6 +8,8 @@
 //! - [`graph`]: the nav graph: triangles joined across cells and doors, point lookup
 //! - [`path`]: A* over the graph and the funnel algorithm
 //! - [`doors`]: doors that open in place (no XTEL) standing on the navmesh
+//! - [`obstacles`]: objects flagged Obstacle that come and go, cutting the navmesh while
+//!   enabled
 //! - [`follow`]: following a path; a walker that keeps actors on the navmesh surface
 //! - [`jump`]: jumps over ledge links: the ballistic arc and when to jump an obstacle
 //!
@@ -19,6 +21,7 @@ pub mod follow;
 pub mod graph;
 pub mod jump;
 pub mod load;
+pub mod obstacles;
 pub mod path;
 pub mod record;
 

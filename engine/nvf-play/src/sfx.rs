@@ -13,10 +13,15 @@
 //!   PCM (8, 16 or 24 bits) and 32-bit float are decoded here, Ogg Vorbis by rodio, both
 //!   to samples played through Bevy's audio as a source of our own ([`PcmSound`]).
 //!   Other encodings are reported once and not played.
-//! - **Loudness** [design; the record's five-point attenuation curve is not used]: the
-//!   static attenuation is taken off (gain 10^(−dB ÷ 20)). A sound with a place is at
-//!   full gain within its minimum distance of the listener (the player's eye), falls as
-//!   minimum ÷ distance beyond it and fades to nothing at its maximum distance.
+//! - **Loudness**: the static attenuation is taken off (gain 10^(−dB ÷ 20)). A sound with
+//!   a place follows its record's attenuation curve [documented: GECK wiki Sound,
+//!   Attenuation tab: five sliders, "the sound's volume percentage at its inner radius"
+//!   down to "at its outer radius", the curve between, "logarithmic" by default]: the
+//!   first point within its minimum distance of the listener (the player's eye), the last
+//!   at its maximum distance, silent beyond ([`distance_gain`]). The three middle points
+//!   stand evenly between the two distances and the volume goes straight from point to
+//!   point ([`curve_gain`]) [hypothesis]; a percentage is a share of the amplitude
+//!   [hypothesis]. A record without a curve plays the default 100, 50, 20, 5, 0.
 //! - **Panning** [design; how the game places sounds is not known]: a sound with a place
 //!   is heard more on the side of the listener it is on ([`pan_gains`]): the ear facing
 //!   it hears it whole, the other ear loses up to [`PAN_DEPTH`] of it, by how far to the
@@ -43,12 +48,13 @@
 //! [`SfxSettings`] turns them off (`nvforever --no-sound`) and sets the volume.
 
 use crate::player::Player;
-use crate::reverb::{Preset, Reverb};
+use crate::reverb::{Preset, Reverb, RoomSend};
+use crate::voice_filter::VoiceFilter;
 use crate::PlayWorld;
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
 use crate::audio_out::{AddAudioSource, KeepsSpeed, SoundCategory};
 use bevy::prelude::*;
-use fnv_combat::fx::{FxForms, Sound};
+use fnv_combat::fx::{FxForms, Sound, DEFAULT_ATTENUATION_CURVE};
 use fnv_combat::rng::SplitMix;
 use fnv_sim::FormId;
 use std::collections::{HashMap, HashSet};
@@ -167,7 +173,7 @@ impl SoundAt {
 
 /// One frame of `channels` samples mixed to one and placed by `pan`: the left sample
 /// and the right one; `None` when the input has ended.
-fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan) -> Option<(Sample, Sample)> {
+fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan, filter: Option<&mut VoiceFilter>) -> Option<(Sample, Sample)> {
     let mut sum = 0.0;
     let mut n = 0;
     for s in frame.take(channels.max(1)) {
@@ -177,7 +183,10 @@ fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan) ->
     if n == 0 {
         return None;
     }
-    let m = sum / channels.max(1) as f32;
+    let mut m = sum / channels.max(1) as f32;
+    if let Some(f) = filter {
+        m = f.run(m);
+    }
     let [l, r] = pan.get();
     Some((m * l, m * r))
 }
@@ -189,13 +198,15 @@ pub struct Panned<T: Decodable + TypePath + Clone> {
     pub inner: T,
     pub pan: Pan,
     /// Played through this environment's reverb ([`crate::reverb`]).
-    pub reverb: Option<&'static Preset>,
+    pub reverb: Option<RoomSend>,
+    /// Played through the voice filter ([`crate::voice_filter`]).
+    pub voice_filter: bool,
 }
 
 impl<T: Decodable + TypePath + Clone> Panned<T> {
     /// Panned, without reverb.
     pub fn new(inner: T, pan: Pan) -> Panned<T> {
-        Panned { inner, pan, reverb: None }
+        Panned { inner, pan, reverb: None, voice_filter: false }
     }
 }
 
@@ -204,6 +215,7 @@ pub struct PanDecoder<S> {
     pan: Pan,
     right: Option<Sample>,
     reverb: Option<Reverb>,
+    filter: Option<VoiceFilter>,
 }
 
 impl<S: Source> Iterator for PanDecoder<S> {
@@ -214,7 +226,7 @@ impl<S: Source> Iterator for PanDecoder<S> {
             return Some(r);
         }
         let c = self.input.channels().get() as usize;
-        let (l, r) = with_reverb(pan_frame(&mut self.input, c, &self.pan), &mut self.reverb)?;
+        let (l, r) = with_reverb(pan_frame(&mut self.input, c, &self.pan, self.filter.as_mut()), &mut self.reverb)?;
         self.right = Some(r);
         Some(l)
     }
@@ -254,8 +266,9 @@ impl<T: Decodable + TypePath + Clone> Decodable for Panned<T> {
 
     fn decoder(&self) -> Self::Decoder {
         let input = self.inner.decoder();
-        let reverb = self.reverb.map(|p| Reverb::new(p, input.sample_rate().get()));
-        PanDecoder { input, pan: self.pan.clone(), right: None, reverb }
+        let reverb = self.reverb.map(|p| p.reverb(input.sample_rate().get()));
+        let filter = self.voice_filter.then(|| VoiceFilter::new(input.sample_rate().get()));
+        PanDecoder { input, pan: self.pan.clone(), right: None, reverb, filter }
     }
 }
 
@@ -268,7 +281,7 @@ pub struct PcmSound {
     /// Played at a place: mixed to one channel and panned, in stereo.
     pan: Option<Pan>,
     /// Played through this environment's reverb, in stereo ([`crate::reverb`]).
-    reverb: Option<&'static Preset>,
+    reverb: Option<RoomSend>,
 }
 
 pub struct PcmDecoder {
@@ -286,7 +299,7 @@ impl PcmDecoder {
         let frame = self.sound.samples.get(self.at..self.at + c)?;
         self.at += c;
         match &self.sound.pan {
-            Some(pan) => pan_frame(frame.iter().copied(), c, pan),
+            Some(pan) => pan_frame(frame.iter().copied(), c, pan, None),
             None if c == 1 => Some((frame[0], frame[0])),
             None => Some((frame[0], frame[1])),
         }
@@ -336,7 +349,7 @@ impl Decodable for PcmSound {
     type Decoder = PcmDecoder;
 
     fn decoder(&self) -> PcmDecoder {
-        let reverb = self.reverb.map(|p| Reverb::new(p, self.rate));
+        let reverb = self.reverb.map(|p| p.reverb(self.rate));
         PcmDecoder { sound: self.clone(), at: 0, right: None, reverb }
     }
 }
@@ -431,15 +444,32 @@ impl PcmSound {
     }
 }
 
-/// The gain of a sound `distance` units from the listener (see the module notes).
+/// The gain of a sound `distance` units from the listener: its attenuation curve between
+/// the minimum and the maximum distance (see the module notes).
 pub fn distance_gain(s: &Sound, distance: f32) -> f32 {
+    let curve = s.attenuation_curve.unwrap_or(DEFAULT_ATTENUATION_CURVE).map(|p| (p / 100.0).clamp(0.0, 1.0));
     let (min, max) = (s.min_distance.max(1.0), s.max_distance);
-    if max > 0.0 && distance >= max {
+    if distance <= min {
+        return curve[0];
+    }
+    if max <= min {
+        // No span to lay the curve on: the inner level, falling as min ÷ distance [design].
+        return curve[0] * min / distance;
+    }
+    if distance >= max {
         return 0.0;
     }
-    let near = (min / distance.max(min)).min(1.0);
-    let fade = if max > min && distance > min { 1.0 - (distance - min) / (max - min) } else { 1.0 };
-    near * fade
+    curve_gain(&curve, (distance - min) / (max - min))
+}
+
+/// A five-point curve at `t` (0 at the inner radius, 1 at the outer): the points stand
+/// evenly over the span, straight lines between them [hypothesis: the GECK's five
+/// sliders say nothing of where the middle three stand].
+pub fn curve_gain(curve: &[f32; 5], t: f32) -> f32 {
+    let x = t.clamp(0.0, 1.0) * 4.0;
+    let i = (x.floor() as usize).min(3);
+    let f = x - i as f32;
+    curve[i] + (curve[i + 1] - curve[i]) * f
 }
 
 /// The gain the record's static attenuation leaves.
@@ -463,6 +493,12 @@ pub struct Sfx {
     /// and how many sounds were played through one.
     pub room_reverb: Option<&'static Preset>,
     pub reverbed: u32,
+    /// Sounds kept out of the room's reverb by their Reverb Attenuation Control (100),
+    /// and the sum of the sends of those played through one (`crate::reverb::send_of`).
+    pub reverb_kept_out: u32,
+    pub reverb_send_sum: f32,
+    /// Placed sounds played by a curve of their own (not the default 100, 50, 20, 5, 0).
+    pub own_curve: u32,
     /// The listener is under water ([`listener_submerged`]), how many sounds that
     /// silenced (Mute When Submerged, audio.md §15.2) and the deepest the listener went
     /// under a surface, units.
@@ -513,7 +549,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         forms.addons.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0, voices: 0, same: HashMap::new(), most_voices: 0, voice_limited: 0 });
+    commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0, room_reverb: None, reverbed: 0, reverb_kept_out: 0, reverb_send_sum: 0.0, own_curve: 0, submerged: false, muted_submerged: 0, deepest: 0.0, flat_2d: 0, voices: 0, same: HashMap::new(), most_voices: 0, voice_limited: 0 });
 }
 
 /// The archive path of the file a SOUN plays this time: the file it names, or the Ogg
@@ -755,9 +791,16 @@ fn one_shot_at(
     let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed);
     let category = SoundCategory::of_effect(s.edid.as_deref());
     let reverb = crate::reverb::for_sound(sfx.room_reverb, settings, &s);
+    if reverb.is_none() && sfx.room_reverb.is_some() && settings.reverb && crate::reverb::send_of(s.reverb_attenuation_percent) <= 0.0 {
+        sfx.reverb_kept_out += 1;
+    }
+    if distance.is_some() && s.attenuation_curve.is_some_and(|c| c != DEFAULT_ATTENUATION_CURVE) {
+        sfx.own_curve += 1;
+    }
     if let Some(p) = reverb {
         sfx.reverbed += 1;
-        debug!("sfx: {name} through reverb {}", p.name);
+        sfx.reverb_send_sum += p.send;
+        debug!("sfx: {name} through reverb {} (send {:.2})", p.preset.name, p.send);
     }
     let own = |pcm: PcmSound, pan: Option<Pan>| PcmSound { pan, reverb, ..pcm };
     let mut e = match (placed, assets.get(&handle).cloned()) {
@@ -785,8 +828,8 @@ fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {
     if let (Some(_), Some(s)) = (exit.read().last(), sfx) {
         if s.played + s.silent + s.failed > 0 {
             info!(
-                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned; {} not started at the voice limit, at most {} one-shots at once",
-                s.played, s.silent, s.failed, s.muted_submerged, s.deepest, s.flat_2d, s.voice_limited, s.most_voices
+                "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned; {} not started at the voice limit, at most {} one-shots at once; {} placed by a curve of their own",
+                s.played, s.silent, s.failed, s.muted_submerged, s.deepest, s.flat_2d, s.voice_limited, s.most_voices, s.own_curve
             );
         }
     }
@@ -900,7 +943,7 @@ mod tests {
     #[test]
     fn a_sound_through_reverb_is_stereo_with_a_tail() {
         let room = crate::reverb::preset(Some("Small Room"));
-        let mono = PcmSound { samples: vec![0.5; 100].into(), channels: 1, rate: 22050, pan: None, reverb: room };
+        let mono = PcmSound { samples: vec![0.5; 100].into(), channels: 1, rate: 22050, pan: None, reverb: room.map(RoomSend::full) };
         let d = mono.decoder();
         assert_eq!(d.channels().get(), 2);
         let tail = crate::reverb::Reverb::tail_seconds(room.unwrap());
@@ -922,9 +965,21 @@ mod tests {
         assert!((static_gain(&s) - 0.1).abs() < 1e-6);
         assert_eq!(distance_gain(&s, 0.0), 1.0);
         assert_eq!(distance_gain(&s, 200.0), 1.0);
-        // Half way out: 200 ÷ 600 of the level, half faded.
-        assert!((distance_gain(&s, 600.0) - (200.0 / 600.0) * 0.5).abs() < 1e-6);
+        // The default curve (100, 50, 20, 5, 0) over the 800 units from 200 to 1000.
+        assert!((distance_gain(&s, 400.0) - 0.5).abs() < 1e-6);
+        assert!((distance_gain(&s, 600.0) - 0.2).abs() < 1e-6);
+        assert!((distance_gain(&s, 700.0) - 0.125).abs() < 1e-6);
+        assert!((distance_gain(&s, 800.0) - 0.05).abs() < 1e-6);
         assert_eq!(distance_gain(&s, 1000.0), 0.0);
         assert_eq!(distance_gain(&s, 5000.0), 0.0);
+        // The record's own curve: FXBulletWhiz's (100, 30, 20, 5, 0) falls faster at first.
+        let whiz = Sound { attenuation_curve: Some([100.0, 30.0, 20.0, 5.0, 0.0]), ..s.clone() };
+        assert!((distance_gain(&whiz, 400.0) - 0.3).abs() < 1e-6);
+        // A flat one (100 at every point) is whole up to the outer radius.
+        let flat = Sound { attenuation_curve: Some([100.0; 5]), ..s.clone() };
+        assert_eq!(distance_gain(&flat, 999.0), 1.0);
+        // No span: the inner level, then min ÷ distance.
+        let point = Sound { min_distance: 200.0, max_distance: 0.0, ..Sound::default() };
+        assert!((distance_gain(&point, 400.0) - 0.5).abs() < 1e-6);
     }
 }

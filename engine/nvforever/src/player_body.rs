@@ -291,8 +291,9 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
-    /// The weapon's hand grip clip (`1lmhandgrip1.kf`).
-    Grip(&'static str),
+    /// Weapon prefix and hand grip number: the grip clip (`1lmhandgrip1.kf`,
+    /// `2hahandgrip1_plasmarifle.kf`).
+    Grip(&'static str, u8),
 }
 
 impl ClipKey {
@@ -319,7 +320,7 @@ impl ClipKey {
             ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
-            ClipKey::Grip(p) => vec![format!("{p}handgrip1.kf")],
+            ClipKey::Grip(p, n) => vec![format!("{p}handgrip{n}.kf")],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -540,13 +541,20 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        let found = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)).and_then(|path| {
+        let mut path = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p));
+        // A grip clip may carry the weapon's name after its number
+        // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
+        if let (None, ClipKey::Grip(p, n)) = (&path, key) {
+            let stem = format!("{}{p}handgrip{n}_", self.folder);
+            path = ctx.models.data.vfs.paths(|x| x.starts_with(&stem) && x.ends_with(".kf") && !x[self.folder.len()..].contains('\\')).into_iter().min();
+        }
+        let found = path.and_then(|path| {
             let clip = ctx.clip(&path)?;
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
-            Some(c) if matches!(key, ClipKey::Grip(_)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Move(..)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
@@ -600,6 +608,8 @@ struct Motion {
     /// docs/spec-notes/weapon-mods.md §2).
     weapon_mods: u8,
     prefix: &'static str,
+    /// The weapon's DNAM Hand Grip ([`Frame::grip`]).
+    grip: Option<u8>,
     hands: WeaponHands,
     events: Vec<HandEvent>,
     speed: f32,
@@ -661,6 +671,7 @@ impl Default for Motion {
             weapon: None,
             weapon_mods: 0,
             prefix: UNARMED,
+            grip: None,
             hands: WeaponHands::default(),
             events: Vec::new(),
             speed: 0.0,
@@ -826,8 +837,11 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
 fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>, u8) {
     let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return (Vec::new(), None, 0) };
     let eq = inv.equipped();
-    let worn = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
+    let mut worn: Vec<FormId> = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
     let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
+    // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
+    // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
+    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack)));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
 
@@ -944,6 +958,7 @@ fn ensure_body(
     m.weapon_mods = weapon_mods;
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
+    m.grip = w.and_then(|w| w.grip);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
     if weapon.is_some() {
         info!("player weapon: mods {weapon_mods} on, models {:?} and {:?} (first person)", w.and_then(|w| w.model_for(false, weapon_mods)), w.and_then(|w| w.model_for(true, weapon_mods)));
@@ -1069,6 +1084,16 @@ const LOOK_REBUILD: f32 = 0.1;
 
 fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>) -> Result<Body, String> {
     let a = world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn), look)?;
+    // The armour pieces drawn (an addon in the Backpack slot is left out while a weapon
+    // with Hide Backpack is held).
+    let mut drawn: Vec<String> = Vec::new();
+    for p in a.parts.iter().filter(|p| p.role == "armor") {
+        let name = world.actors.armors.get(&p.form).and_then(|x| x.edid.clone()).unwrap_or_else(|| p.form.to_string());
+        if !drawn.contains(&name) {
+            drawn.push(name);
+        }
+    }
+    info!("player body: armour drawn {drawn:?}");
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
@@ -1217,6 +1242,8 @@ struct Frame {
     limping: bool,
     /// The weapon prefix, and whether the weapon is out.
     prefix: &'static str,
+    /// The weapon's DNAM Hand Grip (1 to 6), `None` for the default.
+    grip: Option<u8>,
     drawn: Option<&'static str>,
     hands: WeaponHands,
     airborne: f32,
@@ -1242,6 +1269,10 @@ struct Frame {
     reload_round_now: bool,
     /// How fast the reload clips play (`nvf_play::combat::WeaponAnim::reload_rate`).
     reload_rate: f32,
+    /// How fast the attack and the draw and holster clips play
+    /// (`nvf_play::combat::WeaponAnim::attack_rate`, `equip_rate`).
+    attack_rate: f32,
+    equip_rate: f32,
     /// The weapon starts to spin up this frame: its attack clip plays from the start.
     spin_now: bool,
     /// A pull starts a shot that leaves at the clip's `Hit` key (a throw's release): the
@@ -1292,14 +1323,17 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let bone = |name: &str| skel.by_name.get(name).copied();
     for ev in events {
         match ev {
+            // At the Equip Speed perks' rate (Quick Draw), as the hands time it.
             HandEvent::StartDraw => {
                 if let Some(c) = &draw {
-                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    rig.animator.layers[l].rate = f.equip_rate;
                 }
             }
             HandEvent::StartHolster => {
                 if let Some(c) = &put_away {
-                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    let l = rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                    rig.animator.layers[l].rate = f.equip_rate;
                 }
             }
             HandEvent::ToHand => rig.animator.cut(TAG_HOLSTER),
@@ -1392,15 +1426,22 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     want.push((c, TAG_AIM + i as u32, w, Mode::Loop));
                 }
             }
-            // A Land Mine weapon is held with its hand grip clip over the aim: it puts the
-            // left hand out of view and the right thumb over the mine's rim [observed: the
-            // game's first-person frames of the frag mine (owner 2026-10-23), which show no
-            // left hand; `1lmhandgrip1.kf` is the type's only grip clip; hypothesis: the
-            // game plays it for the weapon's default grip].
-            if f.prefix == "1lm" {
-                if let Some(c) = rig.clip(ctx, ClipKey::Grip(f.prefix)) {
-                    want.push((c, TAG_GRIP, 1.0, Mode::Loop));
-                }
+            // The weapon's hand grip clip over the aim: WEAP DNAM Hand Grip, "a hand pose
+            // animation for 3rd person" [documented: GECK wiki Weapons], so the body rig
+            // only (the arms rig's folder has the same files: whether the game plays them
+            // in first person is not known). A Land Mine weapon with the default grip is
+            // held with its type's grip clip in both views: it puts the left hand out of
+            // view and the right thumb over the mine's rim [observed: the game's
+            // first-person frames of the frag mine (owner 2026-10-23), which show no left
+            // hand; `1lmhandgrip1.kf` is the type's only grip clip; hypothesis: the game
+            // plays it for the weapon's default grip].
+            let grip = match (f.grip, rig.view) {
+                (Some(n), View::Third) => Some(n),
+                _ if f.prefix == "1lm" => Some(1),
+                _ => None,
+            };
+            if let Some(c) = grip.and_then(|n| rig.clip(ctx, ClipKey::Grip(f.prefix, n))) {
+                want.push((c, TAG_GRIP, 1.0, Mode::Loop));
             }
         }
     }
@@ -1428,7 +1469,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 info!("player {:?} rig: {} starts at the pull; the shot leaves at its Hit key", rig.view, c.path);
             }
             if !going {
-                rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                // At the attack's rate: the weapon's multipliers and the Modify Attack Speed
+                // perks, as combat times the shot.
+                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                rig.animator.layers[l].rate = f.attack_rate;
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
                 // The attack's own up and down forms keep the body bent with the pitch while
                 // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
@@ -1436,7 +1480,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     let tag = TAG_ATTACK + i as u32;
                     rig.animator.cut(tag);
                     if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
-                        rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        rig.animator.layers[l].rate = f.attack_rate;
                     }
                 }
             }
@@ -1483,7 +1528,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let covered = special.covers();
     for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
-        a.want(&c.clip, *tag, *w, *mode, fade);
+        let l = a.want(&c.clip, *tag, *w, *mode, fade);
+        if *tag == TAG_EQUIP {
+            a.layers[l].rate = f.equip_rate;
+        }
     }
     // Clips that play once to their end once started: landing, attack, reload.
     for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
@@ -2054,6 +2102,10 @@ fn drive_body(
         _ => &mut body.third,
     };
     let (draw_t, away_t) = timing_rig.transitions(&mut ctx, stance, prefix);
+    // The Equip Speed perks (Quick Draw): the draw and holster take 1 ÷ the rate as long.
+    let eq = if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 };
+    let quick = |t: fnv_actor::player_clips::Transition| fnv_actor::player_clips::Transition { length: t.length / eq, switch_at: t.switch_at / eq };
+    let (draw_t, away_t) = (quick(draw_t), quick(away_t));
     let want_out = control.weapon_out && stance != Stance::Swim;
     let mut events = std::mem::take(&mut m.events);
     m.hands.update(want_out, dt, draw_t, away_t, &mut events);
@@ -2149,6 +2201,7 @@ fn drive_body(
         female: body.female,
         limping: limbs.as_deref().is_some_and(|l| l.limping()),
         prefix,
+        grip: m.grip,
         drawn: (m.hands.phase == WeaponPhase::Drawn).then_some(prefix),
         hands: m.hands,
         airborne: if m.falling { m.airborne } else { 0.0 },
@@ -2169,6 +2222,8 @@ fn drive_body(
         reload_now,
         reload_round_now,
         reload_rate: if anim.reload_rate > 0.0 { anim.reload_rate } else { 1.0 },
+        attack_rate: if anim.attack_rate > 0.0 { anim.attack_rate } else { 1.0 },
+        equip_rate: if anim.equip_rate > 0.0 { anim.equip_rate } else { 1.0 },
         spin_now,
         wind_now,
     };

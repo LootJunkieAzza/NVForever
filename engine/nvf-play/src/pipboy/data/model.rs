@@ -157,6 +157,19 @@ pub fn marker_icon(kind: u8, discovered: bool) -> String {
     format!("interface\\icons\\world map\\icon_map_{name}.dds")
 }
 
+/// The line a World Map marker's reputation (REFR `WMI1`) shows under its name: the
+/// reputation's name and the player's standing title with it ("Goodsprings: Neutral"),
+/// or the name alone without a standing (no scripts' game) [documented: GECK wiki
+/// Reference, Map Marker, "Reputation: The reputation that is shown when the player
+/// hovers over the icon on the world map"; hypothesis: the wording, a second line, and
+/// the title (`crate::reputation::title`); docs/owner-review.md].
+pub fn reputation_line(name: &str, title: Option<&str>) -> String {
+    match title {
+        Some(t) => format!("{name}: {t}"),
+        None => name.to_string(),
+    }
+}
+
 /// Text from the plugins' Windows-1252 bytes, up to the first NUL.
 pub fn cp1252(bytes: &[u8]) -> String {
     const HIGH: [char; 32] = [
@@ -240,6 +253,13 @@ mod tests {
         assert_eq!(marker_icon(3, false), "interface\\icons\\world map\\icon_map_undiscovered.dds");
         assert_eq!(marker_icon(5, true), "interface\\icons\\world map\\icon_map_cave.dds");
         assert_eq!(marker_icon(99, true), "interface\\icons\\world map\\icon_map_settlement.dds");
+    }
+
+    #[test]
+    fn a_markers_reputation_line() {
+        assert_eq!(reputation_line("Goodsprings", Some("Neutral")), "Goodsprings: Neutral");
+        assert_eq!(reputation_line("NCR", Some("Liked")), "NCR: Liked");
+        assert_eq!(reputation_line("NCR", None), "NCR");
     }
 
     #[test]

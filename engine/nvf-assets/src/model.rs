@@ -693,6 +693,8 @@ pub struct ModelCache {
     pub morphs: crate::morph::MorphMeshes,
     /// The colour of the light inside files by archive path (`model_light.rs`).
     pub(crate) light_colours: HashMap<String, Option<[f32; 3]>>,
+    /// VATS camera shot models by archive path (`camera_shot.rs`).
+    pub(crate) camera_models: HashMap<String, Option<Arc<crate::camera_shot::CameraModel>>>,
     /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
     billboards: HashMap<u32, Option<MeshAndMaterial>>,
     /// [`ModelCtx::node_strings`] by (archive path, key).

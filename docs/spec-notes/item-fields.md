@@ -29,8 +29,10 @@ Not built, and why:
   burst is, is not documented; VATS mode's bursts come from the fire rate (vats-mode.md).
 - **Don't Use 1st / 3rd Person IS Animations** (63 and 44 weapons): which clip plays
   instead is not documented; the aim clips are chosen by weapon type (animation.md).
-- **Hide Backpack** (8 weapons): no backpack is drawn apart from the armour that carries
-  it, so there is nothing to hide.
+- **Hide Backpack** (16 weapons over the masters): built 2026-10-24 (weapon-data-fields.md
+  §7). This note said there was nothing to hide; 4 ARMO and 7 ARMA use the Backpack slot
+  (the power armours' backpack addons, the flamer and Rock-It hoses, `NVSlaveBackpack`)
+  [observed].
 - **EAMT** on WEAP is "Enchantment Capacity" in xEdit, not an animation; the actors'
   unarmed animation type (NPC_/CREA EAMT) is built.
 

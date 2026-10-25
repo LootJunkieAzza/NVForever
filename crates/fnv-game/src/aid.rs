@@ -209,11 +209,14 @@ pub struct Mods {
     /// Used on one limb (its condition code, 25-30) from the Pip-Boy's CND page: a Value
     /// And Parts restore gives that limb the whole amount ([`PARTS_LIMB_SHARE`]).
     pub limb: Option<u16>,
+    /// Only this effect of the item (an area effect reaching an actor around the target,
+    /// `crate::area_effects`).
+    pub only: Option<usize>,
 }
 
 impl Default for Mods {
     fn default() -> Mods {
-        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false, worn: None, limb: None }
+        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false, worn: None, limb: None, only: None }
     }
 }
 
