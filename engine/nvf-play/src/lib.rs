@@ -40,6 +40,7 @@ pub mod created_spots;
 pub mod dropped;
 pub mod effect_sounds;
 pub mod fade;
+pub mod drowning;
 pub mod falls;
 pub mod flashlight;
 pub mod free_cam;
@@ -52,6 +53,7 @@ pub mod interface;
 pub mod intro;
 pub mod levelup;
 pub mod hud;
+pub mod hud_breath;
 pub mod hud_limbs;
 pub mod hud_needs;
 pub mod hud_target;
@@ -100,6 +102,7 @@ pub mod sim;
 pub mod space;
 pub mod terminal;
 pub mod tutorial_menu;
+pub mod credits;
 mod test_aid;
 pub mod sfx;
 pub mod sneak_gauges;
@@ -306,6 +309,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
+            .add_plugins(credits::CreditsPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
             .add_plugins(slots::SlotsPlugin)
@@ -326,6 +330,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(mines::MinesPlugin)
             .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)
+            .add_plugins(drowning::DrowningPlugin)
             .add_plugins(pickpocket::PickpocketPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)

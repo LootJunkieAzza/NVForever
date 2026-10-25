@@ -195,8 +195,11 @@ pub const HELPER_EYE: f32 = 110.0;
 /// A mark's "x": its size as a share of the screen width, and its colour: the interface's
 /// amber (`crate::interface::AMBER`) lifted [`MARK_LIFT`] of the way to white, so it
 /// stands out on the amber grade [design: the owner's wishes, 2026-10-24, to match the HUD
-/// and then to be brighter; it was a dark red before].
-pub const MARK_SIZE: f32 = 0.019;
+/// and then to be brighter; it was a dark red before; owner 2026-10-25: smaller and thinner
+/// than 0.019 with 22 % bars].
+pub const MARK_SIZE: f32 = 0.013;
+/// Each bar's thickness, a share of the "x"'s size [design].
+const MARK_BAR: f32 = 10.0;
 /// How far the marks' amber is lifted towards white (0 = the HUD's amber) [design].
 const MARK_LIFT: f32 = 0.25;
 const MARK_COLOUR: Color = Color::srgb(lift(crate::interface::AMBER[0]), lift(crate::interface::AMBER[1]), lift(crate::interface::AMBER[2]));
@@ -955,6 +958,20 @@ fn mark(
     let mut filter = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
     filter.exclude.extend(phys.npcs.values().map(|b| b.ch.key()));
     let hit = phys.ray(from, dir, reach, filter);
+    // A placed object VATS may target (§20): a destructible flagged VATS Targetable, or
+    // one a script's SetVatsTarget turned on.
+    if let Some((object, point)) = hit.as_ref().and_then(|h| match h.owner {
+        Owner::Ref { form_id, .. } => Some((form_id, h.point)),
+        _ => None,
+    }) {
+        let targetable = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, sim, |rt| rt.game.vats_targetable(FormId(object))));
+        if targetable {
+            mark_object(v, object, point, script, sim, player, hud, sounds);
+        } else {
+            info!("vats mode: nothing to mark under the crosshair ({object:08X} is not a VATS target)");
+        }
+        return;
+    }
     let Some((actor, part)) = hit.as_ref().and_then(|h| match h.owner {
         Owner::Actor { form_id, part, .. } => Some((form_id, (part != fnv_phys::actors::WHOLE).then_some(part))),
         _ => None,
@@ -1026,6 +1043,7 @@ fn mark(
                 distance: crate::combat::distance(player.eye(), point) as f64,
                 condition,
                 success: false,
+                height: (point[2] - player.feet[2]) as f64,
             });
             let (perks, names) = match (shot, script.and_then(|s| s.rt.as_mut())) {
                 (Some(shot), Some(rt)) => with_world(rt, sim, |rt| {
@@ -1055,6 +1073,45 @@ fn mark(
             );
             v.spots.push(spot);
             sounds.play(v, if part.is_some() { "UIVATSSelectTargetPart" } else { "UIVATSSelectTarget" });
+        }
+        Err(r) => {
+            v.stats.refused += 1;
+            info!("vats mode: mark refused: {} ({} marks, {:.0} AP reserved)", r.message(), v.queue.len(), v.queue.reserved());
+            hud.show(r.message().to_string());
+            sounds.play(v, "UIVATSInsufficientAP");
+        }
+    }
+}
+
+/// Mark the placed object `object` at `point` (§20): the whole object, at
+/// [`WHOLE_TO_HIT`]'s base chance; its point stays where it was marked.
+#[allow(clippy::too_many_arguments)]
+fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Option<&mut ScriptState>, sim: &mut SimState, player: &Player, hud: &mut HudMessage, sounds: &mut Sounds) {
+    let ap_now = player_ap(script.as_deref_mut(), sim).map_or(f32::INFINITY, |a| a.0);
+    let earlier = v.queue.marks().iter().filter(|m| m.target.0 == object).count() as u32;
+    match v.queue.push(FormId(object), None, ap_now) {
+        Ok(k) => {
+            let name = sim.base_of(object).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| "?".into());
+            let shot = v.weapon.as_ref().map(|w| fnv_game::vats::VatsShot {
+                weapon: w.id,
+                target: FormId(object),
+                distance: crate::combat::distance(player.eye(), point) as f64,
+                condition: None,
+                success: false,
+                height: (point[2] - player.feet[2]) as f64,
+            });
+            let perks = match (shot, script.and_then(|s| s.rt.as_mut())) {
+                (Some(shot), Some(rt)) => with_world(rt, sim, |rt| rt.game.vats_hit_perks(shot)),
+                _ => HitPerks::default(),
+            };
+            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, perks, earlier, chance: 0.0, landed: None };
+            if let Some(w) = v.weapon.as_ref() {
+                spot.chance = chance_of(&spot, w, player.eye(), None);
+            }
+            v.stats.marks += 1;
+            info!("vats mode: marked object {} {object:08X}, mark {k}; {:.0} AP reserved; {:.0}% to hit; {:.0} units", spot.name, v.queue.reserved(), spot.chance, crate::combat::distance(player.eye(), point));
+            v.spots.push(spot);
+            sounds.play(v, "UIVATSSelectTarget");
         }
         Err(r) => {
             v.stats.refused += 1;
@@ -1199,14 +1256,15 @@ impl VatsMode {
     /// The last mark's shot, once every mark's attack has started (a kill camera watches
     /// its actor, `crate::kill_cam`, §19): as the scripts see a shot, with the weapon VATS
     /// mode was entered with, and its point now.
-    pub fn final_shot(&self, eye: [f32; 3]) -> Option<(fnv_game::vats::VatsShot, [f32; 3])> {
+    pub fn final_shot(&self, player: &Player) -> Option<(fnv_game::vats::VatsShot, [f32; 3])> {
+        let eye = player.eye();
         let n = self.queue.len();
         if self.phase != Phase::Firing || n == 0 || self.started < n {
             return None;
         }
         let (m, s) = (self.queue.marks().get(n - 1)?, self.spots.get(n - 1)?);
         let d = ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2) + (s.point[2] - eye[2]).powi(2)).sqrt();
-        let shot = fnv_game::vats::VatsShot { weapon: self.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false) };
+        let shot = fnv_game::vats::VatsShot { weapon: self.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false), height: (s.point[2] - player.feet[2]) as f64 };
         Some((shot, s.point))
     }
 }
@@ -1371,7 +1429,7 @@ fn tell_scripts(v: &VatsMode, script: Option<&mut ScriptState>, player: &Player)
         let (m, s) = (v.queue.marks().get(i)?, v.spots.get(i)?);
         let eye = player.eye();
         let d = ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2) + (s.point[2] - eye[2]).powi(2)).sqrt();
-        Some(VatsShot { weapon: v.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false) })
+        Some(VatsShot { weapon: v.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false), height: (s.point[2] - player.feet[2]) as f64 })
     });
     if rt.game.vats.mode != mode || rt.game.vats.shot != shot {
         rt.game.set_vats(mode, shot);
@@ -1392,7 +1450,7 @@ fn spawn_marks(mut commands: Commands) {
             .with_children(|p| {
                 for deg in [45.0f32, -45.0] {
                     p.spawn((
-                        Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(22.0), top: Val::Percent(39.0), ..default() },
+                        Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(MARK_BAR), top: Val::Percent((100.0 - MARK_BAR) / 2.0), ..default() },
                         BackgroundColor(MARK_COLOUR),
                         UiTransform::from_rotation(Rot2::degrees(deg)),
                     ));

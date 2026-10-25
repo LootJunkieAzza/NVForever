@@ -79,7 +79,9 @@ mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod destroyed;
 mod npc_grenades;
+mod npc_stimpaks;
 mod use_weapon;
 mod provoked;
 mod weapons;
@@ -1199,6 +1201,7 @@ fn main() -> AppExit {
         buffer: Default::default(),
         centre: None,
         waiting: Vec::new(),
+        model_overrides: Default::default(),
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -1237,6 +1240,7 @@ fn main() -> AppExit {
     )
     .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
+    .add_plugins(destroyed::DestroyedPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(PreUpdate, actors::take_background_work)
@@ -1382,6 +1386,8 @@ fn main() -> AppExit {
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // NPCs heal with the stimpaks they carry (npc_stimpaks.rs).
+            app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).

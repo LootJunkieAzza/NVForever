@@ -233,6 +233,10 @@ pub struct RefExtra {
     pub marked_for_delete: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub teammate: bool,
+    /// SetVatsTarget's VATS targeting for this reference, over its base's DEST flag
+    /// (`Game::vats_targetable`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub vats_target: Option<bool>,
     /// SetCombatStyle's combat style for this reference, over its base form's
     /// (`Game::combat_style`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -1031,6 +1035,8 @@ pub struct Game<'a> {
     /// The companion wheel's state: the open wheel, back-up orders, who sneaks with the
     /// player (`crate::companion_wheel`). Not saved.
     pub companions: crate::companion_wheel::Companions,
+    /// NPCs using the stimpaks they carry (`crate::npc_stimpaks`). Not saved.
+    pub npc_stimpaks: crate::npc_stimpaks::NpcStimpaks,
     /// Teammates brought to the player when the player changed cells
     /// (`crate::followers`), for the engine's log; they are in [`Game::teleported`] too.
     /// Not part of the saved state.
@@ -1440,6 +1446,7 @@ impl<'a> Game<'a> {
             caravan_requests: Vec::new(),
             teammate_containers: Vec::new(),
             companions: Default::default(),
+            npc_stimpaks: Default::default(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
             rest: Default::default(),
@@ -2827,6 +2834,7 @@ impl<'a> Game<'a> {
             self.world.activate_scripted(actor, target).map_err(|e| e.to_string())?
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
+        self.note_activating(actor, target);
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v.clone()) });
         if matches!(act.outcome, Outcome::Activated) {
             self.radio_activated(target);

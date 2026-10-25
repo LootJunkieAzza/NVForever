@@ -246,9 +246,9 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 
 - **"x" marks**: each mark draws an "x" of two crossed bars in the interface's amber
   (`interface::AMBER`, the HUD's colour) lifted 25 % of the way to white so it stands out
-  on the amber grade, 1.9 % of the screen width across, at its point projected on the
+  on the amber grade, 1.3 % of the screen width across with bars 10 % of that thick, at its point projected on the
   screen (§6) [design, after the references; amber instead of their dark red at the
-  owner's wishes of 2026-10-24, to match the HUD and then to be brighter]. Marks behind
+  owner's wishes of 2026-10-24, to match the HUD and then to be brighter; smaller and thinner, owner 2026-10-25]. Marks behind
   the camera are not drawn. A mark that has fired goes [design]. The "x" and its
   chance are kept at the same size on the screen at any range, so a far mark stays
   readable [design]. Marks on the same actor and part share a point, so they draw one
@@ -988,3 +988,23 @@ loaded but not played: the death camera is the owner's own design (`death_cam.rs
   point, length).
 - Smoke: `vats-kill-cam` (one mark on a Goodsprings dog left with 1 health: the shot
   kills it, a path and its shots play, the camera ends).
+
+## 20. Placed objects as targets (2026-10-25)
+
+- A click whose ray first meets a placed object marks it when `Game::vats_targetable`
+  allows: a script's SetVatsTarget for that reference (kept on it, saved), else its
+  base's DEST flag "VATS Targetable" [documented: GECK wiki SetVatsTarget, "turns VATS
+  targeting on or off for a destructible object, overriding the object's base setting";
+  xEdit wbDEST]; never once destroyed. In the masters the flag is on 8 activators
+  (generators, fuse boxes, a fire extinguisher, the Lonesome Road maintenance bots), 16
+  movable statics (the trucks, the motorcycle, the vertibirds, a munition shell) and the
+  thrown weapons' projectiles; the traps' scripts turn it on when they are armed
+  [observed: FalloutNV.esm and the DLC masters].
+- The whole object is marked at the hit point, at the whole-actor base chance
+  (`WHOLE_TO_HIT`) [design]; the point does not move. Shots, bursts, throws and melee
+  swings go at it as at an actor's mark; its damage is the object's destruction
+  (destruction-stages.md).
+- Log `vats mode: marked object <name> <ref>, mark <k>; …`; a click on an object VATS
+  may not target logs `nothing to mark under the crosshair (<ref> is not a VATS target)`.
+- Not built: thrown grenades and placed mines in flight or on the ground (projectiles,
+  not placed objects).

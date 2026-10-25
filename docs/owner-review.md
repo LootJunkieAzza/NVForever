@@ -8695,3 +8695,14 @@ the spec it links to.
     (Invisibility or Chameleon at least 1) can no longer be marked in VATS mode unless
     you have Enhanced Sensors (ED-E), which the perk's entry point names. Before, VATS
     mode marked them like anyone. Keep the refusal? ([perk-entry-points §13](spec-notes/perk-entry-points.md))
+
+## NPCs use their stimpaks (2026-10-25, branch claude/npc-stimpaks)
+
+docs/design/combat-ai.md §21. Hurt NPCs (in a fight, or hit within 15 s) use a stimpak they
+carry; the game's stimpak idle plays on the upper body only, so they keep moving.
+- *Guesses:* used only if at most 25 % of its heal would be wasted, or any below 35 %
+  health; 3 s between two; the heal lands halfway through the clip; the sound
+  NPCHumanUsingStimpak at that moment. *Check:* an NPC with stimpaks in a fight: does it
+  heal at sensible moments, and does the half-body injection look right while it runs?
+- *Not built:* no syringe drawn for the minigun/heavy-weapon idle; the syringe shows for
+  the whole idle (its visibility track is not played).

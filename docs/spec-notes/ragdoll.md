@@ -328,3 +328,34 @@ Observational (not a lab scenario), like `collide survey`.
 5. Templates (§6): how the original pairs a template's constraints with the skeleton's,
    and what their entities point at. A mod's `.rdt` made in NifSkope, opened next to the
    skeleton, would show it.
+6. Bodies in water (§8): whether corpses float in the original at all, how high they
+   ride, how fast they rise, and whether loose clutter floats too. A capture could kill an
+   NPC swimming in Lake Mead and read its bones' heights for 30 s.
+
+## 8. Bodies in water [design unless tagged]
+
+The owner asked (2026-10-25) that anything ragdolled float to the surface in water, so
+that a drowned or killed swimmer comes up. No game facts were gathered for this: every
+number below is a [design] choice, and §7 item 6 lists the questions a capture could
+answer.
+
+- **What floats.** Ragdoll bodies and gore pieces (`crates/fnv-phys/src/buoyancy.rs`).
+  Loose clutter does not (not asked for; a heavy object should sink, and the data gives no
+  densities).
+- **Where.** In the water the character swims in (`crates/fnv-phys/src/water.rs`): an
+  exterior cell's surface, or a placed water volume. A body is in water when the water
+  surface above its centre of mass is above the bottom of its colliders.
+- **How much.** Before each physics step, each awake body gets an upward change of
+  velocity of `FLOAT_RATIO` (1.2) × gravity × the share of its height under the surface,
+  and its velocity and spin die out at `WATER_DRAG` and `WATER_SPIN_DRAG` (2 per second)
+  times that share. A body all under water rises at 0.2 g, at most about 70 units a
+  second, and floats with about a sixth of its height above the surface. Every body
+  counts as equally dense.
+- **Rest.** A ragdoll that is still moving 3 s after it started is held at rest where it
+  is (§4); one in water gets 30 s (`MAX_AWAKE_IN_WATER`, engine/nvforever/src/ragdoll.rs)
+  so that it reaches the surface first. Once it is calm there it is held at rest at the
+  surface as on land. A corpse put back at rest, or laid in the pose its reference stores
+  (`XRGD`), stays where it lies, under water too, until a hit or a blast rouses it: the
+  designers placed those bodies there.
+- Log: `ragdoll: actor X floats at (x, y, z), its trunk N units under the surface at S`
+  when a ragdoll in water comes to rest; smoke `ragdoll-floats`.

@@ -204,6 +204,8 @@ pub struct Flinch {
     pub clip: Arc<BoundClip>,
     /// When it started (`Time::elapsed_secs`).
     pub at: f32,
+    /// A power attack forced it (GetForceHitReaction, `crate::anim_state`).
+    pub forced: bool,
 }
 
 impl ClipSet {
@@ -926,6 +928,10 @@ pub fn drive(
         // A fighter's aim and attack (`attack_anims.rs`) over all of it.
         if let Some(mut p) = pose {
             p.layers(&mut player, drawn, dt);
+        }
+        // A stimpak's upper-body idle over the fight's pose too (`npc_stimpaks.rs`).
+        if let Some(i) = idle.filter(|i| i.over_pose()) {
+            i.layers(&mut player);
         }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;

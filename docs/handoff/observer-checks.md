@@ -334,3 +334,14 @@ The numbers above stay put so links to them hold; each item here gives its own p
     To check: save while it is half-way along its route, reload, and see whether it
     goes on or starts again from the first point.
     ([save-load §5 item 4](../design/save-load.md))
+25. **Dialogue at low Intelligence** (P3; few players run Intelligence 3 or below).
+    Ours (PR #743), with the player's Intelligence at or below
+    iDialogueDummySpeakThisIntOrBelow (3 in FalloutNV.esm):
+    - a topic's Dumb Response (DIAL TDUM) replaces the player's line, e.g. "Pizza." for
+      "Peace." in Helios One's ARCHIMEDES conversation;
+    - INFO lines flagged Low Intelligence (acting note "{Dummy}") replace their High
+      Intelligence twins ("{Non-Dummy}").
+
+    To check: `player.setav intelligence 1`, then screenshots of those conversations.
+    Check Intelligence 4 too: is the player dim there?
+    ([dialogue §2](../spec-notes/dialogue.md))

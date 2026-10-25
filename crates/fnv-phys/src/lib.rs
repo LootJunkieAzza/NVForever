@@ -17,6 +17,7 @@
 //! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
 //! - [`grab`]: a body held by the player's grab
 //! - [`water`]: water areas (cell water surfaces) the character swims in
+//! - [`buoyancy`]: ragdolls and gore pieces float in water
 //! - [`swim`]: swimming speeds (the stroke cycle)
 //!
 //! Units and axes are the game's: lengths in game units, Z up, rotations row-major 3×3
@@ -27,6 +28,7 @@
 pub mod actors;
 pub mod air;
 pub mod arrival;
+pub mod buoyancy;
 pub mod character;
 pub mod convert;
 pub mod gore;

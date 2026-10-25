@@ -736,6 +736,8 @@ pub struct EffectItem {
 #[derive(Debug, Clone, Default)]
 pub struct DestructionDef {
     pub health: i32,
+    /// DEST flag "VATS Targetable" [documented: xEdit wbDEST].
+    pub vats_targetable: bool,
     pub stages: Vec<DestructionStage>,
 }
 
@@ -2157,7 +2159,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     }
     let decoded: Vec<(&[u8; 4], Option<Json>)> = subs.iter().map(|s| (&s.sig, val(s))).collect();
     if let Some((_, Some(h))) = decoded.iter().find(|(s, _)| *s == b"DEST") {
-        let mut dd = DestructionDef { health: h.get("health").and_then(Json::as_i64).unwrap_or(0) as i32, stages: Vec::new() };
+        let mut dd = DestructionDef { health: h.get("health").and_then(Json::as_i64).unwrap_or(0) as i32, vats_targetable: flag_bits(h.get("flags")) & 1 != 0, stages: Vec::new() };
         for (sig, v) in decoded.iter() {
             match *sig {
                 b"DSTD" => {

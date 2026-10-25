@@ -1334,7 +1334,8 @@ impl Plugin for ScriptPlugin {
 
 /// ExitGame (`UiRequests::exit_game`): back to the main menu, as the pause menu's Quit
 /// to the main menu (`crate::pause::MainMenuRequest`) [documented: GECK wiki ExitGame,
-/// "returns the game to the main menu"; the credits it plays first are not built]. A run
+/// "plays credits and returns the game to the main menu": `crate::credits` rolls them and
+/// asks for the main menu at their end]. A run
 /// a test aid drives quits instead, as the console's `qqq` does, so that it ends where
 /// its log can be read [design]. Logged: `script: ExitGame: …`.
 fn exit_game(
@@ -1342,17 +1343,24 @@ fn exit_game(
     unattended: Option<Res<crate::test_aid::Unattended>>,
     mut to_main: MessageWriter<crate::pause::MainMenuRequest>,
     mut exit: MessageWriter<AppExit>,
+    (mut credits, data, mut images, formats): crate::credits::Start,
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     if std::mem::take(&mut rt.game.ui.exit_game) == 0 {
         return;
     }
-    if unattended.is_some_and(|u| u.0) {
+    // Test aid `NVF_PLAY_TEST_CREDITS=1`: a driven run rolls the credits too.
+    if unattended.is_some_and(|u| u.0) && std::env::var("NVF_PLAY_TEST_CREDITS").as_deref() != Ok("1") {
         info!("script: ExitGame: quit (a test aid drives this run)");
         exit.write(AppExit::Success);
     } else {
-        info!("script: ExitGame: back to the main menu (no credits)");
-        to_main.write(crate::pause::MainMenuRequest);
+        let bc = crate::interface::bc_supported(formats.as_deref());
+        if crate::credits::start(&mut credits, data.as_deref(), &mut images, bc) {
+            info!("script: ExitGame: the credits, then the main menu");
+        } else {
+            info!("script: ExitGame: back to the main menu (Credits.txt could not be read)");
+            to_main.write(crate::pause::MainMenuRequest);
+        }
     }
 }
 

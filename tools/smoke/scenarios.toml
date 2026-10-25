@@ -4269,6 +4269,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-npc-stimpak"
+source = "owner request 2026-10-25: NPCs hurt use a stimpak they carry, not one that would mostly go to waste, playing the game's stimpak idle on the upper body only so they keep moving (docs/design/combat-ai.md §21)"
+note = "Chet (GSChetRef) in the general store is given a .357 and three Stimpaks and set on the player, who cannot die (GOD). At 6 s (scripts' clock) he loses 2 health: nearly all of a stimpak would be wasted, so he uses none. At 14 s he loses 40: he plays 3rdP_SpecialIdle_Stempak.kf with the syringe (stempax.nif) on his upper body, holds his fire, and halfway through one Stimpak heals him; with health near full again he uses no second one"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_stimpaks.rs", "crates/fnv-game/src/npc_stimpaks.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.2:call:GSChetRef:AddItem:Stimpak:3,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player,6:damage:GSChetRef:Health:2,14:damage:GSChetRef:Health:40" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'npc stimpak: \S+ \S+ uses Stimpak \(health \d+/\d+\): 3rdPSpecialIdleStimpak', count = 1, label = "he uses one stimpak, after the big hit only (not after losing 2)" },
+  { re = 'idle: \S+ plays 3rdPSpecialIdleStimpak .*\(Stimpak\)', label = "the game's stimpak idle plays" },
+  { re = '(?i)anim object: \S+ holds \S*stempax\.nif', label = "the syringe is in his hand" },
+  { re = 'npc stimpak: \S+ \S+ injects Stimpak: health \d+ -> \d+, moving at (?P<n>\d+) units/s', range = [0, 1000], label = "the stimpak takes effect (his speed then is logged: he is not held still)" },
+  { re = 'npc stimpaks summary: 1 stimpak idles started, 1 injected \((?P<n>\d+) health restored\), 0 stopped', range = [20, 100], label = "one stimpak used, its heal not wasted" },
+]
+
+[[scenario]]
 name = "npc-muzzle-flash-rifle"
 source = "owner request 2026-10-20: every weapon's projectile and fire effects drawn, the player's and NPCs' shots (engine/nvforever/src/shot_fx.rs)"
 note = "Violet (FiendVioletRef 0x000F570B) is given and made to equip a service rifle (WeapNVServiceRifle) and set on the player at 4 s (scripts' clock), god mode; at 12 s the player is put 100 units in front of her. Her flashes go under the rifle's muzzle marker. Frames npc_flash_rifle_00..39.png in target/smoke (14 to 16 s, every 0.05 s, the flash lasting 0.04 s) catch some of her flashes at the rifle's muzzle"
@@ -5049,6 +5067,20 @@ env = { NVF_PLAY_TEST_CONSOLE = "10:startquest VCG03;10.5:setobjectivedisplayed 
 args = ["--cell", "Vault22c", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 expect = [{ re = 'compass: 2 quest target\(s\) placed', label = "both targets marked at the first door of the way out" }]
+
+[[scenario]]
+name = "end-credits"
+source = "GECK wiki ExitGame: \"plays credits and returns the game to the main menu\" (nvf-play credits.rs): the game's Credits.txt laid out by its own commands and rolled over credits_menu.xml's background (the run ends while they roll: their end starts the program again for the main menu)"
+areas = ["menus"]
+paths = ["engine/nvf-play/src/credits.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_CREDITS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "14:exitgame;14.3:close", NVF_PLAY_TEST_SHOTS = "30:credits.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  "script: ExitGame: the credits, then the main menu",
+  { re = 'credits: rolling (?P<n>\d+) lines and 2 pictures', range = [1000, 2000], label = "the credits' lines and the file's two pictures" },
+  { re = 'credits: (?P<n>\d+) loading screens behind them', range = [20, 2000], label = "the load order's loading screens take turns behind the credits (owner 2026-10-25)" },
+]
 
 [[scenario]]
 name = "teammate-perk"
@@ -6538,6 +6570,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "ragdoll-floats"
+source = "owner 2026-10-25: anything ragdolled floats to the surface in water (docs/spec-notes/ragdoll.md §8, crates/fnv-phys/src/buoyancy.rs)"
+note = "the player swims out from the Boulder Beach shore as wade-in-swim (on to x about 59300), is killed under the lake's surface (2600) at 19 s, and its body rises and comes to rest floating there"
+areas = ["ragdoll", "physics"]
+paths = ["crates/fnv-phys/src/buoyancy.rs", "crates/fnv-phys/src/ragdoll.rs", "crates/fnv-phys/src/water.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/death_cam.rs"]
+env = { NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0", NVF_PLAY_TEST_CONSOLE = "19:player.killactor;20:close" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 50
+expect = [
+  "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
+  { re = 'ragdoll: actor 00000014 floats at \(5\d{4}, 37\d{3}, [\d.]+\), its trunk (?P<n>-?\d+) units under the surface at 2600', range = [-25, 25], label = "the body comes to rest floating, its trunk at the lake's surface (6 under, 13 s after the death, 2026-10-25)" },
+]
+forbid = [{ re = 'ragdoll: actor 00000014 held at rest still moving', label = "the body is never frozen part way up" }]
+
+[[scenario]]
 name = "aim-zoom"
 source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
 note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
@@ -7556,6 +7603,23 @@ order = [[
 ]]
 
 [[scenario]]
+name = "vats-mode-object"
+source = "GECK wiki SetVatsTarget: \"turns VATS targeting on or off for a destructible object, overriding the object's base setting\" (docs/design/vats-mode.md §20): the Goodsprings motorcycle 00157C97 (Motorcycle01, DEST flagged VATS Targetable) turned off by SetVatsTarget 0 is not marked; turned on again it is marked and shot"
+note = "north of the bike (from the west the wreck pile 00157C92 is in front of it); the 10mm pistol (0000434F), every roll a hit"
+areas = ["combat", "vats", "destruction"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:30", NVF_PLAY_TEST_CONSOLE = "6:prid 00157C97;6.2:setvatstarget 0;6.4:close;13:prid 00157C97;13.2:setvatstarget 1;13.4:close", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=00157C97,16.3:aimref=00157C97", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.6:v,16:v,16.32:mouse-left,16.42:e" }
+args = ["--cell", "Goodsprings", "--pos=32990,17100,4700", "--heading", "180", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'vats: 00157C97 VATS targeting off', label = "SetVatsTarget 0 turns the bike's flag off" },
+  { re = 'vats mode: nothing to mark under the crosshair \(00157C97 is not a VATS target\)', label = "so a click on it marks nothing" },
+  { re = 'vats: 00157C97 VATS targeting on', label = "SetVatsTarget 1 turns it on again" },
+  { re = 'vats mode: marked object .* 00157C97, mark 1', label = "now the bike is marked" },
+  { re = 'vats mode: shot 1 of 1 at .*00157C97 \(object\)', label = "and shot" },
+]]
+
+[[scenario]]
 name = "vats-mode-burst"
 source = "owner's todo 6 follow-up: an automatic weapon fires a burst a mark (docs/design/vats-mode.md §16.1)"
 note = "as vats-mode-two-marks, with the 10mm SMG (Weap10mmSubmachineGun 00004321: 22 AP a mark from its DNAM override, fire rate 9, so bursts of round(9 x 0.4) = 4; god mode keeps its 30 rounds). Two marks, E: two bursts of 4 rounds, 44 AP. Written 2026-10-20 by a worker session that does not run the game: not yet run"
@@ -8421,6 +8485,43 @@ expect = [
 ]
 
 [[scenario]]
+name = "drowning"
+source = "docs/spec-notes/drowning.md: put on the Lake Mead bed 790 under the surface (a new character: Endurance 5, 200 health), the player holds its breath 10 s, then loses 40 health a second until it dies (captures dr_short and dr_rules, 2026-10-25); the HUD's breath meter is read from AirTimer01.NIF"
+areas = ["physics", "hud", "drowning"]
+paths = ["crates/fnv-game/src/breath.rs", "engine/nvf-play/src/drowning.rs", "engine/nvf-play/src/hud_breath.rs"]
+args = ["--play", "--pos=59500,38500,1820", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'drowning: head under water \([\d.]+ below the surface\), breath 10\.0 of 10\.0 s, 40\.0 health a second without$', label = "the head goes under with a whole breath of 10 s; 40 a second is a fifth of 200" },
+  { re = 'drowning: out of breath, drowning \(40 health a second\)', label = "the breath runs out" },
+  { re = 'drowning: 10\.0 damage, health 1\d\d/200', label = "the damage comes in quarter-second hits" },
+  { re = 'drowning: 10\.0 damage, health 0/200, dead', label = "with no way up the player drowns" },
+  { re = 'hud: breath meter read: 17 pieces, sequence 0\.533 s', label = "the meter's model: the word O2 and 16 ticks, Forward 16 frames long" },
+  { re = 'drowning: sound NPCHumanDrowning', min = 3, max = 3, label = "the game's drowning sound while drowning, every 1.7 s until it dies 5 s on: 0, 1.7 and 3.4 s (owner 2026-10-25)" },
+]
+forbid = [
+  { text = "drowning: head above water", label = "the player stays on the bed" },
+  { text = "combat: ? hits the player", label = "drowning is no blow: not through the combat hit path" },
+  { text = "says Hit line", label = "no hit grunts while drowning (owner 2026-10-25)" },
+  { text = "says Death line", label = "no death cry when drowned (owner 2026-10-25)" },
+  { text = "screen splatter:", label = "no blood on the screen from drowning" },
+]
+
+[[scenario]]
+name = "drowning-rebreather"
+source = "docs/spec-notes/drowning.md: with the Rebreather's ability VMS15WaterBreathingActual (Water Breathing, magnitude 0) the player on the Lake Mead bed never runs out of breath (capture dr_rules, 2026-10-25)"
+areas = ["physics", "drowning"]
+paths = ["crates/fnv-game/src/breath.rs", "engine/nvf-play/src/drowning.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "0.5:call:player:AddSpell:VMS15WaterBreathingActual" }
+args = ["--play", "--pos=59500,38500,1820", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'drowning: head under water', label = "the head is under water" },
+  { re = 'script: test aid calls AddSpell on ', label = "the ability is given" },
+]
+forbid = [{ text = "drowning: out of breath", label = "Water Breathing: no drowning" }]
+
+[[scenario]]
 name = "wade-in-swim"
 source = "owner's report 2026-10-18 (docs/spec-notes/physics.md §6.6, Walking in again): running east from the Boulder Beach shore into Lake Mead, the player starts swimming once its feet are wade_depth (115) under the surface, and keeps swimming over the deepening bed"
 areas = ["physics", "controls", "player-body"]
@@ -8709,6 +8810,7 @@ order = [[
   { re = 'damage stage: 00157C97 add-on node 2 waits for model stages 1-3 \(at 0\)', label = "the intact bike's smoke waits" },
   { re = 'damage stage: 00157C97 add-on node 2 on at model stage 1', label = "30 damage (stage 1) starts the smoke" },
   { re = 'damage stage: 00157C97 add-on node 2 off at model stage [45]', label = "the destroying stage stops the intact model's smoke (its stage explosions can take it from 2 through 4 to 5 in one frame)" },
+  { re = 'destroyed: 00157C97 drawn with Vehicles\\Motorcycle01Hulk\.NIF', label = "the destroyed bike is drawn as its hulk (DSTD's DMDL, destruction-stages.md §4)" },
 ]]
 expect = ["Screenshot saved to bike_smoke_2.png"]
 

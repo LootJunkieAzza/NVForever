@@ -123,9 +123,11 @@ pub fn clip_candidates(folder: &str, body: Body, prefix: &str, m: Move) -> Vec<S
     }
     v.push(format!("{folder}\\{stem}"));
     // The deathclaw's walk is `locomotion\mtfoward.kf`, its sequence named Forward
-    // [observed: the base meshes archive, 2026-10-16]: looked for last.
-    if m == Move::Forward {
-        v.push(format!("{folder}\\locomotion\\{prefix}foward.kf"));
+    // [observed: the base meshes archive, 2026-10-16], and the nightstalker's walk and run
+    // `mtfoward.kf` and `mtfastfoward.kf` [observed: the base meshes archive, 2026-10-25;
+    // no other clip of the base game and add-ons is spelt so]: looked for last.
+    if matches!(m, Move::Forward | Move::FastForward) {
+        v.push(format!("{folder}\\locomotion\\{prefix}{}.kf", m.group().to_ascii_lowercase().replace("forward", "foward")));
     }
     v
 }
@@ -607,7 +609,11 @@ mod tests {
         // The right spelling comes first.
         let c = clip_candidates(folder, Body::Male, "mt", Move::Forward);
         assert_eq!(c[1], "meshes\\creatures\\deathclaw\\locomotion\\mtforward.kf");
-        assert!(clip_candidates(folder, Body::Male, "mt", Move::FastForward).iter().all(|p| !p.contains("foward")));
+        // The nightstalker's run is misspelt the same way.
+        let folder = "meshes\\creatures\\nightstalker";
+        let set = LocomotionSet::find(folder, Body::Male, "mt", |p| p == "meshes\\creatures\\nightstalker\\locomotion\\mtfastfoward.kf");
+        assert_eq!(set.clips.get(&Move::FastForward).map(String::as_str), Some("meshes\\creatures\\nightstalker\\locomotion\\mtfastfoward.kf"));
+        assert!(clip_candidates(folder, Body::Male, "mt", Move::Backward).iter().all(|p| !p.contains("foward")));
     }
 
     #[test]

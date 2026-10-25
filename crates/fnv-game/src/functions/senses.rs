@@ -65,6 +65,8 @@ pub struct Senses {
     /// The radiation zones explosions left (`crate::radiation`; not saved [design]).
     pub rad_zones: Vec<crate::radiation::RadZone>,
     pub rad_serial: u32,
+    /// What each actor last activated and when ([`Game::time`]), for IsWaterObject.
+    pub activating: BTreeMap<FormId, (FormId, f64)>,
 }
 
 /// The ray under the crosshair, game space: where it starts (about the player's eye,
@@ -91,7 +93,7 @@ impl Reticle {
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0 }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new(), reticle: None, grabbed: None, radiation: Default::default(), rad_zones: Vec::new(), rad_serial: 0, activating: BTreeMap::new() }
     }
 }
 
@@ -199,6 +201,36 @@ pub fn is_running(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let m = g.motion(r);
     yes(m.running || m.run_mode)
+}
+
+/// How long after an activation the object counts as "being activated", game seconds
+/// [design: about the length of an activation's idle].
+pub const ACTIVATING_SECONDS: f64 = 2.0;
+
+impl Game<'_> {
+    /// `actor` activates `target` now (for IsWaterObject).
+    pub fn note_activating(&mut self, actor: FormId, target: FormId) {
+        let now = self.time;
+        self.senses.activating.insert(actor, (target, now));
+    }
+
+    /// What `actor` is activating: the reference it activated within
+    /// [`ACTIVATING_SECONDS`].
+    pub fn activating(&self, actor: FormId) -> Option<FormId> {
+        self.senses.activating.get(&actor).filter(|(_, at)| self.time - at <= ACTIVATING_SECONDS).map(|(t, _)| *t)
+    }
+}
+
+/// `actor.IsWaterObject`: 1 if the object the actor is activating is placeable water
+/// [documented: GECK wiki IsWaterObject, "Returns 1 if the object currently being
+/// activated is Placeable Water. Used in vanilla game for drinking animation"]. Placeable
+/// water is taken as an activator with a Water Type (ACTI WNAM: the sinks, toilets and
+/// pumps the player drinks from, [`Game::drink_water`]) [hypothesis]; "being activated"
+/// as activated within [`ACTIVATING_SECONDS`] [design]. Its one use is the condition of
+/// the idle `ActWaterSource` [observed: FalloutNV.esm].
+pub fn is_water_object(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::bool(g.activating(r).and_then(|t| g.drink_water(t)).is_some()))
 }
 
 /// `actor.IsSwimming`: 1 while the calling actor swims [documented: GECK wiki

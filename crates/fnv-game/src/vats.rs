@@ -12,6 +12,15 @@
 //!   masters' conditions give each code, docs/spec-notes/perk-entry-points.md §4]; what
 //!   each returns is in [`get_vats_value`].
 //!
+//! - **GetVATSTargetHeight** [documented: GECK wiki, "the delta z from the player to the
+//!   targeted limb or bounding volume center point"]: the point of the shot leaving now
+//!   less the player's feet [hypothesis: from the feet; the masters' conditions pick the
+//!   VATS melee "Low" attacks below 30 to 50 units], 0 otherwise.
+//! - **SetVatsTarget** [documented: GECK wiki, "turns VATS targeting on or off for a
+//!   destructible object, overriding the object's base setting"]: kept on the reference
+//!   (saved); VATS mode marks a placed object when [`Game::vats_targetable`] says so
+//!   (vats-mode.md §20).
+//!
 //! Not part of the saved state: the mode is never saved (vats-mode.md §11.7).
 
 use crate::functions::{base_of, list_members, Args, Ctx};
@@ -38,6 +47,8 @@ pub struct VatsShot {
     /// The shot's hit roll (vats-mode.md §17.4): GetVATSValue Is Success. False while a
     /// mark's chance is worked out, before any roll.
     pub success: bool,
+    /// The marked point's height over the player's feet, game units (GetVATSTargetHeight).
+    pub height: f64,
 }
 
 /// How a shot came out, once it has landed (a kill camera's choice,
@@ -150,6 +161,34 @@ impl Game<'_> {
 
 pub fn get_vats_mode(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(Value::Num(g.vats.mode as f64))
+}
+
+/// `GetVATSTargetHeight` (module notes): the height of the shot leaving now over the
+/// player's feet, 0 when none leaves.
+pub fn get_vats_target_height(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(g.vats.shot.map_or(0.0, |s| s.height)))
+}
+
+/// `ref.SetVatsTarget flag` (module notes).
+pub fn set_vats_target(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let on = a.num_or(0, 0.0) != 0.0;
+    g.extra.entry(r).or_default().vats_target = Some(on);
+    tracing::info!("vats: {:08X} VATS targeting {}", r.0, if on { "on" } else { "off" });
+    Ok(Value::ZERO)
+}
+
+impl Game<'_> {
+    /// Whether VATS mode may mark the placed object `r`: SetVatsTarget's setting, else its
+    /// base's DEST flag "VATS Targetable"; never once it is destroyed. Actors are marked
+    /// by VATS mode's own rules, not this.
+    pub fn vats_targetable(&self, r: FormId) -> bool {
+        let extra = self.extra.get(&r);
+        if extra.is_some_and(|e| e.destroyed) {
+            return false;
+        }
+        extra.and_then(|e| e.vats_target).unwrap_or_else(|| base_of(self, r).and_then(|b| self.data.destructibles.get(&b)).is_some_and(|d| d.vats_targetable))
+    }
 }
 
 /// The query's parameter as a form: a reference value from a script, or the raw FormID a

@@ -671,3 +671,9 @@ measured is in actors.md §8.10.
   creature standing, which the missing navmesh explains).
 - Walks: the player in the creature's faction (`AddToFaction`, no `tdetect`), the base
   spawned 600 units off on its own package, 0.6 game hours.
+- `creature_runs_all` (one creature per skeleton, from the save `nvfairport`): most
+  creatures attack the player as soon as they are spawned 200 units off, so the `chase_*`
+  sessions (spawn beside, wait until engaged, move the player away) are the way to get a
+  run; walks set `place`'s `av` (`[["Aggression", 0]]`: actor values set on the spawned
+  creature with SetAV before any StartCombat) so creatures without a faction to join
+  wander too. Ranged robots and the alien stand off and shoot instead of running.
