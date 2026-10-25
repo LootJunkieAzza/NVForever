@@ -305,7 +305,7 @@ The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scr
 §2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a
 unit with one runs from source (§7).
 
-## 9. Values in the VM (tasks B1, B3)
+## 9. Values in the VM (tasks B1, B3, B7, B8)
 
 `fnv_script::vm::XVal` is a value of the extended expressions: a number, a form, a string
 (its text) or an array (by id, B3). docs/spec-notes/ext-values.md has the documented
@@ -359,8 +359,27 @@ rules; what NVForever decides where they are open is tagged here.
   Ar_DeepEquals, Ar_Dump (a `ScriptPrint` trace line), TypeOf; each as its page says
   [documented: ext-arrays.md §5]. Ar_Find and Ar_Unique compare strings without regard to
   case [hypothesis]. A parameter whose catalogue name starts with `...` (`...entry19`)
-  makes the list open-ended. The functions that take a function (Ar_Filter, Ar_MapTo,
-  Ar_ForEach, Ar_CustomSort, ar_Any, ar_All, Ar_Generate, Ar_FindWhere) wait for B7/B8.
+  makes the list open-ended. Ar_ForEach, Ar_Filter, Ar_MapTo, ar_Any, ar_All, Ar_FindWhere
+  and Ar_Generate run their function once per element, with one array per element (`*it`
+  the value, `it["key"]` the key) [documented: Ar Filter; Ar MapTo; Ar ForEach; Ar Any;
+  Ar All; Ar Generate]; ar_Any and ar_All stop at the first element that decides
+  [hypothesis]. Ar_CustomSort: open.
+- **User-defined functions** (B7, the game host `Exec::call_function`): `Call udf args`
+  runs the function script's `Begin Function` block with variables of its own for this
+  call, its parameters set from the arguments in order, on the calling reference of
+  `ref.Call` [documented: Call; User Defined Function]. Its value is the last one
+  SetFunctionValue set, which does not end the function, or 0 [documented:
+  SetFunctionValue; 0 hypothesis]. Its strings and arrays go when it ends [documented: Ar
+  Null], and an array it returns lives on as a temporary of the caller's statement.
+  GetCallingScript gives the calling script, 0 from a result script [documented]. At most
+  30 calls nest; a deeper one is refused [documented: User Defined Function].
+- **Lambdas** (B8): evaluating a lambda gives a value that names it, kept by the game
+  with the instance whose variables it shares [documented: Lambda: it reads and changes
+  the parent's variables]; the same lambda of the same instance keeps its name. The
+  values start at 0xFE800000, in a `ref` slot [decision: a FormID that high would need a
+  255th plugin]. `Call f args` runs it; the `{params} => expr` form returns its
+  expression's value [documented: Lambda]. A lambda made by a result script has fresh
+  variables of its own [hypothesis].
 
 ## 10. Open
 

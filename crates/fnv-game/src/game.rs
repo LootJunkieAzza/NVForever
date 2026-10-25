@@ -962,9 +962,16 @@ pub enum LineKind {
 
 pub struct Game<'a> {
     pub data: &'a GameData,
-    /// The script extender's strings (and later arrays) by id (fnv_script::vm::ExtStore;
+    /// The script extender's strings and arrays by id (fnv_script::vm::ExtStore;
     /// docs/spec-notes/ext-values.md). Not in the save yet (task F1).
     pub ext: fnv_script::vm::ExtStore,
+    /// The user-defined functions running, innermost last (script-compiler.md §9).
+    udf: Vec<UdfFrame>,
+    /// The lambdas scripts made: the unit, the lambda, the instance whose variables it
+    /// shares; named by `LAMBDA_BASE + index`.
+    lambdas: Vec<(&'a Compiled, fnv_script::ir::XExpr, Option<InstKey>)>,
+    /// A lambda already made, by where its expression is and whose variables it shares.
+    lambda_ids: std::collections::HashMap<(usize, Option<InstKey>), u32>,
     /// The console's world toggles (`functions::toggles`).
     pub toggles: crate::functions::toggles::Toggles,
     /// The game's difficulty (`crate::difficulty`): the engine sets it from its settings.
@@ -1415,6 +1422,21 @@ enum Locals {
     Temp(BTreeMap<u16, Value>),
 }
 
+/// A user-defined function running: the value it set, and the script that called it.
+struct UdfFrame {
+    value: Option<fnv_script::vm::XVal>,
+    caller: Option<FormId>,
+}
+
+/// User-defined functions nest at most this deep; a call deeper is refused [documented:
+/// User Defined Function, NVSE aborts after 30 nested calls].
+pub const MAX_UDF_DEPTH: usize = 30;
+
+/// Lambdas are named by values from here on, in a `ref` variable's slot [decision: a
+/// FormID this high needs a 255th plugin, which NVForever's load order never gives a
+/// lambda's place to; script-compiler.md §9].
+pub const LAMBDA_BASE: u32 = 0xFE80_0000;
+
 /// What a script run is attached to.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RunCtx {
@@ -1461,6 +1483,9 @@ impl<'a> Game<'a> {
         Game {
             data,
             ext: Default::default(),
+            udf: Vec::new(),
+            lambdas: Vec::new(),
+            lambda_ids: Default::default(),
             toggles: Default::default(),
             difficulty: Default::default(),
             combat_requests: Vec::new(),
@@ -3814,5 +3839,113 @@ impl Host for Exec<'_, '_> {
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
+    }
+
+    fn make_lambda(&mut self, l: &fnv_script::ir::XExpr) -> Result<fnv_script::vm::XVal, String> {
+        let key = (l as *const _ as usize, self.inst_key());
+        if let Some(&id) = self.game.lambda_ids.get(&key) {
+            return Ok(fnv_script::vm::XVal::Ref(id));
+        }
+        let id = LAMBDA_BASE + self.game.lambdas.len() as u32;
+        self.game.lambdas.push((self.unit, l.clone(), key.1));
+        self.game.lambda_ids.insert(key, id);
+        Ok(fnv_script::vm::XVal::Ref(id))
+    }
+
+    fn set_function_value(&mut self, v: fnv_script::vm::XVal) -> Result<(), String> {
+        let game = &mut *self.game;
+        let frame = game.udf.last_mut().ok_or("SetFunctionValue outside a user-defined function")?;
+        game.ext.retain(&v);
+        if let Some(old) = frame.value.replace(v) {
+            game.ext.release(&old);
+        }
+        Ok(())
+    }
+
+    fn calling_script(&mut self) -> Option<u32> {
+        self.game.udf.last().and_then(|f| f.caller).map(|f| f.0)
+    }
+
+    /// `Call`: a function script's `Begin Function` block with fresh variables of its own,
+    /// its parameters set from the arguments, on the calling reference (`ref.Call`); or a
+    /// lambda, over the variables of the script that made it [documented: Call; User
+    /// Defined Function; Lambda]. The function's strings and arrays go when it ends
+    /// [documented: Ar Null, arrays of a function script are freed].
+    fn call_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>) -> Result<fnv_script::vm::XVal, String> {
+        use fnv_script::vm::XVal;
+        let id = match f {
+            XVal::Ref(id) => *id,
+            XVal::Num(x) => *x as u32,
+            _ => return Err("Call needs a function script or a lambda".into()),
+        };
+        if self.game.udf.len() >= MAX_UDF_DEPTH {
+            return Err(format!("more than {MAX_UDF_DEPTH} nested user-defined function calls"));
+        }
+        let caller = match self.unit.unit.owner {
+            fnv_script::UnitOwner::Script { form } => Some(FormId(form)),
+            _ => None,
+        };
+        let data = self.game.data;
+        let opts = self.game.opts();
+        let self_ref = on.and_then(|v| v.as_form()).map(FormId);
+        let (unit, params, body, value, locals): (&Compiled, Vec<VarRef>, Vec<Stmt>, Option<fnv_script::ir::XExpr>, Locals) = if id >= LAMBDA_BASE {
+            let (unit, l, inst) = self.game.lambdas.get((id - LAMBDA_BASE) as usize).cloned().ok_or("an unknown lambda")?;
+            let fnv_script::ir::XExpr::Lambda { params, body, value } = l else { return Err("an unknown lambda".into()) };
+            let locals = match inst {
+                Some(k) => Locals::Instance(k),
+                None => Locals::Temp(BTreeMap::new()),
+            };
+            (unit, params, body, value.map(|v| *v), locals)
+        } else {
+            let unit = data.script(FormId(id)).ok_or_else(|| format!("{} is not a function script", data.name(FormId(id))))?;
+            let block = unit.program.blocks.iter().find(|b| b.event == fnv_script::ir::FUNCTION_BLOCK).ok_or_else(|| format!("{} has no Function block", data.name(FormId(id))))?;
+            let params = block.params.iter().flatten().filter_map(|a| if let Arg::Var(v) = a { Some(*v) } else { None }).collect();
+            (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
+        };
+        self.game.udf.push(UdfFrame { value: None, caller });
+        let ctx = RunCtx { self_ref: self_ref.or(self.ctx.self_ref), ..self.ctx };
+        let mut ex = Exec { game: &mut *self.game, unit, locals, ctx };
+        let mut vm = Vm::new(&data.table, &mut ex, opts);
+        let mut result = Ok(());
+        for (p, a) in params.iter().zip(args) {
+            if let Err(e) = vm.bind(p, a) {
+                result = Err(e.to_string());
+                break;
+            }
+        }
+        let mut lambda_value = None;
+        if result.is_ok() {
+            match &value {
+                Some(v) => match vm.xeval(v) {
+                    Ok(x) => lambda_value = Some(x),
+                    Err(e) => result = Err(e.to_string()),
+                },
+                None => {
+                    if let Err(e) = vm.run(&body) {
+                        result = Err(e.to_string());
+                    }
+                }
+            }
+        }
+        // A function script's own strings and arrays go with it.
+        if let Locals::Temp(m) = &ex.locals {
+            for (&index, v) in m {
+                match unit.var_type(index) {
+                    Some(VarType::Other(t)) if t == "string_var" => ex.game.ext.destroy(v.num() as u32),
+                    Some(VarType::Other(t)) if t == "array_var" => ex.game.ext.release(&XVal::Array(v.num() as u32)),
+                    _ => {}
+                }
+            }
+        }
+        let frame = self.game.udf.pop();
+        let v = match lambda_value {
+            Some(v) => v,
+            None => {
+                let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
+                self.game.ext.hand_over(&v);
+                v
+            }
+        };
+        result.map(|_| v)
     }
 }

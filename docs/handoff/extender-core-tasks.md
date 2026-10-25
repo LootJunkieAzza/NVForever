@@ -68,8 +68,10 @@ compile (running them is B7/B8). The compiler tasks are done except NVSEScript.
 assignment, `+`, comparisons, slices, `$`/`#`, ToString/ToNumber, errors that let the script
 go on (script-compiler.md §9). **B3 and most of D2:** arrays with reference counts,
 `[]`, `->`, slices, box/unbox, foreach over arrays and strings, 27 ar_* functions and TypeOf
-(script-compiler.md §9). Next: B7 (UDF calls) and B8 (lambdas), which the remaining
-ar_* functions need; then F1 (the save section).
+(script-compiler.md §9). **B7, B8:** Call, SetFunctionValue, GetCallingScript, the
+30-call limit, lambdas over the parent's variables, and the ar_* functions that take a
+function. Next: F1 (strings, arrays and lambdas in the save), then C2/C5 (the extender
+module and what the engine reports), D1 (the sv_* functions).
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any

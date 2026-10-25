@@ -176,6 +176,24 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// Run a user-defined function or a lambda (`Call`, the ar_* functions that take a
+    /// function): its value (what SetFunctionValue set; 0 when nothing).
+    fn call_function(&mut self, _f: &XVal, _on: Option<Value>, _args: Vec<XVal>) -> Result<XVal, String> {
+        Err("user-defined functions are not run by this host".into())
+    }
+    /// SetFunctionValue inside a function.
+    fn set_function_value(&mut self, _v: XVal) -> Result<(), String> {
+        Err("SetFunctionValue outside a user-defined function".into())
+    }
+    /// The script that called the running function (GetCallingScript).
+    fn calling_script(&mut self) -> Option<u32> {
+        None
+    }
+    /// The value that names a lambda this run made (`let f := ({x} => x)`), kept by the
+    /// host with the variables it shares.
+    fn make_lambda(&mut self, _l: &XExpr) -> Result<XVal, String> {
+        Err("lambdas are not run by this host".into())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -754,6 +772,17 @@ impl ExtStore {
             }
         }
     }
+    /// Let go of a hold on `v` without freeing it now: it becomes a temporary of the
+    /// running statement (a function's result handed to its caller).
+    pub fn hand_over(&mut self, v: &XVal) {
+        if let XVal::Array(id) = v {
+            if let Some(a) = self.arrays.get_mut(id) {
+                a.refs = a.refs.saturating_sub(1);
+                self.fresh.push(*id);
+            }
+        }
+    }
+
     /// Free the arrays made since the last sweep that nothing holds (the temporaries of a
     /// statement), with what only they held.
     pub fn sweep(&mut self) {
@@ -853,6 +882,11 @@ fn position(i: f64, len: usize) -> Option<usize> {
 }
 
 impl Vm<'_, '_> {
+    /// Set a variable from an extended value: a function's parameter before it runs.
+    pub fn bind(&mut self, var: &VarRef, v: XVal) -> Result<(), VmError> {
+        self.write_var(var, v)
+    }
+
     fn store(&mut self) -> Result<&mut ExtStore, VmError> {
         self.host.ext().ok_or_else(|| VmError::NotBuilt("the extender's values in this host".into()))
     }
@@ -927,7 +961,7 @@ impl Vm<'_, '_> {
                 let a = self.xeval(l)?;
                 self.element(&a, &XVal::Str(key.clone()))?
             }
-            XExpr::Lambda { .. } => return Err(VmError::NotBuilt("lambdas (B8)".into())),
+            XExpr::Lambda { .. } => self.host.make_lambda(e).map_err(VmError::Host)?,
             XExpr::Call { call } => self.xcall(call)?,
             XExpr::Unary { op, e } => {
                 let v = self.xeval(e)?;
@@ -1509,7 +1543,66 @@ impl Vm<'_, '_> {
                 };
                 Ok(XVal::Str(t.into()))
             }
-            _ => Err(VmError::NotBuilt(format!("the extender function {n} (task D2: the functions taking a function wait for B7/B8)"))),
+            // The functions that run a function per element: it gets one array per
+            // element, `*it` the value and `it["key"]` the key [documented: Ar Filter; Ar
+            // MapTo; Ar ForEach; Ar Any; Ar All].
+            "ar_foreach" | "ar_filter" | "ar_mapto" | "ar_any" | "ar_all" | "ar_findwhere" => {
+                let (a, f) = (val(self, 0)?, val(self, 1)?);
+                let id = array_of(&a).ok_or_else(|| VmError::Type(format!("{n} of an empty array variable")))?;
+                let kind = self.store()?.array(id).map(|a| a.kind).unwrap_or(ArrayKind::List);
+                let entries: Vec<(XKey, XVal)> = self.store()?.array(id).map(|a| a.entries.clone()).unwrap_or_default();
+                let mut kept = Vec::new();
+                for (k, v) in entries {
+                    let store = self.store()?;
+                    let it = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v.clone())]);
+                    let r = self.host.call_function(&f, None, vec![XVal::Array(it)]).map_err(VmError::Host)?;
+                    match n {
+                        "ar_filter" if r.truthy() => kept.push((k, v)),
+                        "ar_mapto" => kept.push((k, r)),
+                        "ar_any" if r.truthy() => return num(1.0),
+                        "ar_all" if !r.truthy() => return num(0.0),
+                        "ar_findwhere" if r.truthy() => return Ok(v),
+                        _ => {}
+                    }
+                }
+                match n {
+                    "ar_filter" | "ar_mapto" => Ok(XVal::Array(self.store()?.new_array(kind, kept))),
+                    "ar_all" => num(1.0),
+                    _ => num(0.0),
+                }
+            }
+            // [documented: Ar Generate] `count` values from `valueFn`, keys from `keyFn` when
+            // given (its first key's type picks the kind).
+            "ar_generate" => {
+                let (count, vf) = (val(self, 0)?.num()?.max(0.0) as usize, val(self, 1)?);
+                let kf = if nargs > 2 { Some(val(self, 2)?) } else { None };
+                let mut es = Vec::new();
+                let mut kind = ArrayKind::List;
+                for i in 0..count.min(1_000_000) {
+                    let v = self.host.call_function(&vf, None, Vec::new()).map_err(VmError::Host)?;
+                    let key = match &kf {
+                        None => XKey::Num(i as f64),
+                        Some(kf) => match self.host.call_function(kf, None, Vec::new()).map_err(VmError::Host)? {
+                            XVal::Num(x) => {
+                                if i == 0 {
+                                    kind = ArrayKind::Map;
+                                }
+                                XKey::Num(x)
+                            }
+                            XVal::Str(s) => {
+                                if i == 0 {
+                                    kind = ArrayKind::StringMap;
+                                }
+                                XKey::Str(s)
+                            }
+                            _ => return num(0.0),
+                        },
+                    };
+                    es.push((key, v));
+                }
+                Ok(XVal::Array(self.store()?.new_array(kind, es)))
+            }
+            _ => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
         }
     }
 
@@ -1534,6 +1627,28 @@ impl Vm<'_, '_> {
                 other => XVal::Num(other.num()?),
             }),
             n if n.starts_with("ar_") || n == "typeof" => self.array_function(n, c),
+            // `[ref.]Call udf args…` [documented: Call; User Defined Function].
+            "call" => {
+                let f = arg(self, 0)?;
+                let on = match &c.on {
+                    Some(e) => Some(self.xeval(e)?.value()?),
+                    None => None,
+                };
+                let mut args = Vec::with_capacity(c.args.len().saturating_sub(1));
+                for k in 1..c.args.len() {
+                    args.push(arg(self, k)?);
+                }
+                self.host.call_function(&f, on, args).map_err(VmError::Host)
+            }
+            // [documented: SetFunctionValue] the last value set is returned; it does not
+            // end the function.
+            "setfunctionvalue" => {
+                let v = arg(self, 0)?;
+                self.host.set_function_value(v).map_err(VmError::Host)?;
+                Ok(XVal::Num(0.0))
+            }
+            // [documented: GetCallingScript] 0 from a dialogue or stage result.
+            "getcallingscript" => Ok(XVal::Ref(self.host.calling_script().unwrap_or(0))),
             _ => Err(VmError::NotBuilt(format!("the extender function {name} (tasks C, D)"))),
         }
     }

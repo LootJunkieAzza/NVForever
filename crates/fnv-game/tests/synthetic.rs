@@ -1632,3 +1632,127 @@ fn a_unit_whose_bytes_call_an_unknown_high_opcode_runs_from_its_source() {
     assert_eq!(data.issues.count("script_compiled_from_source"), 1);
     assert!(fnv_game::source_compile::highest_opcode(&data.table) < 0x7FFF);
 }
+
+// ---- user-defined functions and lambdas (extender tasks B7, B8) -------------------------
+
+/// No names: the function scripts below name only their own variables.
+struct NoNames;
+
+impl fnv_script::compile::Env for NoNames {
+    fn form(&self, _: &str) -> Option<fnv_script::compile::FormInfo> {
+        None
+    }
+    fn info(&self, _: u32) -> Option<fnv_script::compile::FormInfo> {
+        None
+    }
+    fn editor_id(&self, _: u32) -> Option<String> {
+        None
+    }
+    fn local_form(&self, _: u32) -> Option<u32> {
+        None
+    }
+    fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> {
+        None
+    }
+}
+
+/// A plugin with the global TestGlobal and function scripts compiled by NVForever's
+/// compiler: TestAdd {a, b} returns a + b; TestFact {n} returns n! by calling itself.
+fn udf_fixture() -> Fixture {
+    let (table, _) = catalogue();
+    let compiled = |src: &str| {
+        let c = fnv_script::compile::compile(src, &table, &NoNames, None);
+        assert!(c.errors().next().is_none(), "{:?}", c.diags);
+        c
+    };
+    let glob = record(b"GLOB", 0, 0x0000_0800, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
+    let mut scripts = Vec::new();
+    for (fid, edid, src) in [
+        (0x0000_0901u32, "TestAdd", "scn TestAdd\nint a\nint b\nBegin Function {a, b}\n  SetFunctionValue a + b\nEnd\n".to_string()),
+        (
+            0x0000_0902u32,
+            "TestFact",
+            "scn TestFact\nint n\nint r\nBegin Function {n}\n  if eval n <= 1\n    SetFunctionValue 1\n  else\n    let r := Call TestFact (n - 1)\n    SetFunctionValue n * r\n  endif\nEnd\n".to_string(),
+        ),
+    ] {
+        // TestFact calls itself: its own name resolves through a seed reference list.
+        let c = if edid == "TestFact" {
+            struct Me;
+            impl fnv_script::compile::Env for Me {
+                fn form(&self, e: &str) -> Option<fnv_script::compile::FormInfo> {
+                    e.eq_ignore_ascii_case("TestFact").then_some(fnv_script::compile::FormInfo { form: 0x0000_0902, sig: *b"SCPT" })
+                }
+                fn info(&self, _: u32) -> Option<fnv_script::compile::FormInfo> {
+                    None
+                }
+                fn editor_id(&self, _: u32) -> Option<String> {
+                    None
+                }
+                fn local_form(&self, _: u32) -> Option<u32> {
+                    None
+                }
+                fn script_vars(&self, _: u32) -> Option<Vec<fnv_script::VarDecl>> {
+                    None
+                }
+            }
+            let c = fnv_script::compile::compile(&src, &table, &Me, None);
+            assert!(c.errors().next().is_none(), "{:?}", c.diags);
+            c
+        } else {
+            compiled(&src)
+        };
+        let vars: Vec<(u32, String, u8)> = c.variables.iter().map(|v| (v.index, v.name.clone(), u8::from(v.ty == fnv_script::VarType::Int))).collect();
+        let vars: Vec<(u32, &str, u8)> = vars.iter().map(|(i, n, t)| (*i, n.as_str(), *t)).collect();
+        let refs: Vec<u32> = c.refs.iter().filter_map(|r| if let fnv_script::unit::RefSlot::Form(f) = r { Some(*f) } else { None }).collect();
+        let subs = unit(0, &c.bytes, &vars, &refs);
+        scripts.push(record(b"SCPT", 0, fid, &[vec![sub(b"EDID", z(edid))], subs].concat()));
+    }
+    let plugin = [tes4(), top(b"GLOB", &glob), top(b"SCPT", &scripts.concat())].concat();
+    let plugins = vec![Plugin::parse(&plugin, "Udf.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = schema();
+    let (table, j) = catalogue();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+fn global_after(f: &Fixture, src: &str) -> f32 {
+    let mut g = game(f);
+    g.run_source(src, Default::default()).expect("compiles");
+    let errors: Vec<String> = g.events.iter().filter_map(|e| match &e.kind {
+        EventKind::ScriptError { error, .. } => Some(error.clone()),
+        _ => None,
+    }).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    g.world.global(FormId(0x0000_0800)).unwrap()
+}
+
+#[test]
+fn call_runs_a_function_script_with_its_parameters() {
+    let f = udf_fixture();
+    assert_eq!(global_after(&f, "let TestGlobal := Call TestAdd 2, 3"), 5.0);
+    // Recursion: each call has its own variables [documented: User Defined Function].
+    assert_eq!(global_after(&f, "let TestGlobal := Call TestFact 5"), 120.0);
+}
+
+#[test]
+fn deeper_than_thirty_calls_is_refused() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    g.cfg.strict = false;
+    g.run_source("let TestGlobal := Call TestFact 40", Default::default()).expect("compiles");
+    let refused = g.events.iter().any(|e| matches!(&e.kind, EventKind::Skipped { what, .. } | EventKind::ScriptError { error: what, .. } if what.contains("nested")));
+    assert!(refused, "a 31st nested call is refused [documented: User Defined Function]");
+}
+
+#[test]
+fn lambdas_and_the_array_functions_that_take_them() {
+    let f = udf_fixture();
+    assert_eq!(global_after(&f, "int x\nlet TestGlobal := Call ({x} => x * 3) 4"), 12.0);
+    let src = "array_var a\narray_var b\narray_var it\nlet a := Ar_List 1, 2, 3, 4\nlet b := Ar_Filter a, ({it} => *it > 2)\nlet TestGlobal := Ar_Size b";
+    assert_eq!(global_after(&f, src), 2.0);
+    let src = "array_var a\narray_var b\narray_var it\nlet a := Ar_List 1, 2, 3\nlet b := Ar_MapTo a, ({it} => *it * 10)\nlet TestGlobal := b[2]";
+    assert_eq!(global_after(&f, src), 30.0);
+}

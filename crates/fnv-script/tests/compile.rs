@@ -350,7 +350,8 @@ fn if_eval_tests_an_extended_condition() {
 #[test]
 fn not_built_yet_stops_the_statement() {
     let t = table();
-    let (_, p) = build("float a\nbegin GameMode\nlet a := ({a} => a)\nend");
+    // foreach over a container is B5.
+    let (_, p) = build("ref r\nbegin GameMode\nforeach r <- player\nloop\nend");
     let mut h = Locals::default();
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
     assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
