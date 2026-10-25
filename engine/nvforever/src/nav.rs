@@ -26,9 +26,9 @@ use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::ModelCtx;
 use nvf_play::RefVisual;
 
-/// Walking speed of travellers, game units per second: the player's observed walking
-/// speed [observed: physics.md §6.3]; NPC speeds are not captured [hypothesis].
-pub const WALK_SPEED: f32 = 86.8;
+/// Walking speed of travellers, game units per second: a person's walk in light armour
+/// (`fnv_ai::NPC_WALK`, docs/spec-notes/actors.md §8.10).
+pub const WALK_SPEED: f32 = fnv_ai::NPC_WALK;
 
 /// One NPC on its way.
 pub struct Traveller {

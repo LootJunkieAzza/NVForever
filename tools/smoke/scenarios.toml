@@ -3805,6 +3805,22 @@ expect = [
 forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
 
 [[scenario]]
+name = "person-armour-pace"
+launch = "ncr-fiends"
+source = "AI observer in the original game, 2026-10-16 to 10-24 (docs/spec-notes/actors.md §8.10, People): people in medium armour walk and run at 0.925 of the light-armoured, in heavy at 0.85"
+note = "the NCR troopers wear medium armour (ArmorNVNCRTrooper*, BMDT Medium), Cook-Cook heavy (ArmorMetal); the people's speeds are fnv_ai::NPC_WALK 85.3 and NPC_RUN 344"
+areas = ["combat", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'person pace: LvlNCRTrooperGun 0x000F36F5 walks 79 and runs 318 units/s \(92\.5%', label = "an NCR trooper in medium armour walks 79 and runs 318" },
+  { re = 'person pace: 1ECookCook 0x000F5704 walks 80 and runs 322 units/s \(85\.0%', label = "Cook-Cook in metal armour (Speed Mult 110) walks 80 and runs 322" },
+]
+forbid = [{ re = 'person pace: LvlFiend', label = "a fiend in light raider armour is slowed" }]
+
+[[scenario]]
 name = "allies-alerted"
 launch = "ncr-fiends"
 source = "owner's list 2: allies alerted when one senses the enemy (GECK wiki Confidence, Alarms; docs/design/combat-ai.md §12.3)"
@@ -6472,10 +6488,10 @@ manual = "on a failure, explain the change against docs/spec-notes/animation.md 
 [[scenario]]
 name = "creature-pace"
 source = "owner's playtest 2026-10-16 (engine/nvforever/src/creature_pace.rs, docs/spec-notes/actors.md §8.10): creatures move at their clips' pace × scale × Speed Mult × 0.70, measured on cazadors in the original game; a steady walk keeps its walk clip"
-note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 8 s, so they stay calm (sandbox)"
+note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 3 s, so they stay calm (sandbox); at 8 s the console aid sometimes came after the first detection under a loaded machine (2026-10-25)"
 areas = ["actors", "ai"]
 paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:tdetect;8.5:close", NVF_PLAY_TEST_GOTO = "9:-74027:30369:8200" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close", NVF_PLAY_TEST_GOTO = "9:-74027:30369:8200" }
 args = ["--play", "--pos=-80027,30369,8500", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 70
 expect = [

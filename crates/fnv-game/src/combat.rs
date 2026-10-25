@@ -165,6 +165,41 @@ pub fn leg_speed(g: &Game, crippled: usize) -> f64 {
     .clamp(0.0, 1.0)
 }
 
+/// `fMoveMediumArmorPenalty` and `fMoveHeavyArmorPenalty` when the load order lacks
+/// them [observed: 0.075 and 0.15 in FalloutNV.esm].
+pub const MEDIUM_ARMOR_MOVE_PENALTY: f64 = 0.075;
+pub const HEAVY_ARMOR_MOVE_PENALTY: f64 = 0.15;
+
+/// The share of its speed an actor keeps in body armour of class `class`: 1 in light
+/// armour (or none), 1 − `fMoveMediumArmorPenalty` in medium, 1 − `fMoveHeavyArmorPenalty`
+/// in heavy [observed: the AI observer in the original game, NPCs walking holstered
+/// (docs/spec-notes/actors.md §8.10): light armour 85.5 units/s (median of the actors'
+/// medians), medium 77–79 (85.3 × 0.925 = 78.9), power armour 68–72 (85.3 × 0.85 =
+/// 72.5); running, a medium-armoured initiate 316 (344 × 0.925 = 318)].
+pub fn armor_speed(g: &Game, class: fnv_sim::forms::ArmorClass) -> f64 {
+    use fnv_sim::forms::ArmorClass;
+    match class {
+        ArmorClass::Light => 1.0,
+        ArmorClass::Medium => 1.0 - setting(g, "fMoveMediumArmorPenalty", MEDIUM_ARMOR_MOVE_PENALTY),
+        ArmorClass::Heavy => 1.0 - setting(g, "fMoveHeavyArmorPenalty", HEAVY_ARMOR_MOVE_PENALTY),
+    }
+    .clamp(0.1, 1.0)
+}
+
+/// The class of the body armour (upper-body slot) actor `id` wears by the rules
+/// (`World::equipment`: its equipped items, before its first outfitting the ones that will
+/// be, as the engine draws it); light without any.
+pub fn worn_armor_class(world: &fnv_sim::World, id: FormId) -> fnv_sim::forms::ArmorClass {
+    use fnv_sim::forms::{ArmorClass, ItemKind};
+    world
+        .equipment(id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|i| world.forms.item(i))
+        .find(|it| it.kind == ItemKind::Armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+        .map_or(ArmorClass::Light, |it| it.armor_class)
+}
+
 /// Settings with their documented defaults (GECK wiki Experience Settings).
 pub(crate) fn setting(g: &Game, name: &str, default: f64) -> f64 {
     g.world.setting_f32(name).map_or(default, |v| v as f64)
@@ -550,6 +585,12 @@ impl Game<'_> {
     pub fn leg_speed_mult(&mut self, r: FormId) -> f64 {
         let crippled = [LEFT_MOBILITY, RIGHT_MOBILITY].into_iter().filter(|&c| self.is_crippled(r, c)).count();
         leg_speed(self, crippled)
+    }
+
+    /// The share of its speed an actor keeps in the body armour it wears ([`armor_speed`],
+    /// [`worn_armor_class`]).
+    pub fn armor_speed_mult(&mut self, r: FormId) -> f64 {
+        armor_speed(self, worn_armor_class(&self.world, r))
     }
 
     /// An actor's limb conditions, codes 25–31 in order.

@@ -8409,6 +8409,11 @@ Town spares NPCs fall damage. Specs: [actor-flags §3](spec-notes/actor-flags.md
 - *Guess:* NPC clips play faster with their Speed Mult so the feet keep up (the wiki says
   the original's do not: "the animations only sync up with a speed of 100%"). Say if
   you would rather have the original's sliding feet.
+- *Against the rule* (2026-10-25, creature/NPC pace session): in an AI observer capture
+  Cook-Cook (Speed Mult 110) ran 255 units/s in metal armour with the Incinerator drawn,
+  which is the people's run × the armour and two-handed penalties without his Speed Mult
+  (258; with it 284). One actor only; NVForever keeps the wiki's rule. Say if people
+  should ignore Speed Mult (docs/spec-notes/actors.md §8.10, People).
 - *Guess:* the pickpocket prompt reads "Steal"; the menu's line shows the chance for one
   unit of the selected row; a stack's value counts all the units moved.
 - *Guess:* a take or placement is one roll each; Take All is refused while stealing; a

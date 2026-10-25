@@ -35,8 +35,9 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct AiConfig {
-    /// Game units per second [observed: the player's walk and run, physics.md §6.3;
-    /// NPC speeds are not captured].
+    /// A person's walk and run in light armour at Speed Mult 100, game units per second
+    /// ([`NPC_WALK`], [`NPC_RUN`]); each actor's own are set by the engine
+    /// ([`Ai::set_speeds`]: creatures, armour, Speed Mult).
     pub walk_speed: f32,
     pub run_speed: f32,
     /// A place counts as reached within this distance even when the package's radius is
@@ -65,12 +66,27 @@ const HOME_REACH: f32 = 4096.0;
 /// allow swimming (`Ai::path_params`), against 1 on land [our choice].
 pub const NO_SWIM_WATER_COST: f32 = 50.0;
 
+/// A person's walk, game units per second: the root motion of the people's walk clip
+/// (`mtforward.kf`, 85.26 male, 85.06 female) [observed: the AI observer in the original
+/// game, 2026-10-16 to 10-24 (docs/spec-notes/actors.md §8.10): NPCs in light armour
+/// walking holstered held a median 85.5 (the medians of 40 actors, 76–86, most 85–86); the
+/// player walked 86.8 (physics.md §6.3), which NPCs used before; `fMoveBaseSpeed` (77) is
+/// not it: the Novac caravan merchant's 77 was a walk with its weapon drawn].
+pub const NPC_WALK: f32 = 85.3;
+
+/// A person's run, game units per second: the player's observed run (physics.md §6.3)
+/// [observed: light-armoured NPCs ran 337–344 (VESGSGeckoman), and the slower runs fit it
+/// with their penalties: fiends with a two-handed bat drawn 309.6 (344 × 0.9), a
+/// medium-armoured initiate 316 (× 0.925), Cook-Cook in metal armour with the
+/// Incinerator 255 (× (1 − 0.15 − 0.1) = 258)].
+pub const NPC_RUN: f32 = 344.0;
+
 /// fMoveSneakMult when the load order does not set it [observed: FalloutNV.esm].
 const SNEAK_MULT: f32 = 0.57;
 
 impl Default for AiConfig {
     fn default() -> Self {
-        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true, chats_anywhere: false, find_buying: false }
+        AiConfig { walk_speed: NPC_WALK, run_speed: NPC_RUN, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true, chats_anywhere: false, find_buying: false }
     }
 }
 

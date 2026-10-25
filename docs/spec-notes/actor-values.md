@@ -197,7 +197,7 @@ gives one [documented], else the masters' value [observed].
   above their formulas. Before this, the skill was a guess from the attribute.
 - Hits on an actor: its Agility for knockdown and knockback (creatures now have one),
   and its own Damage Threshold and Damage Resistance on top of its armour.
-- Not yet: NPC attacks, movement speed from Speed Multiplier, Action Points, poison and
+- Not yet: NPC attacks, Action Points, poison and
   radiation.
 
 ## 7. Tool
