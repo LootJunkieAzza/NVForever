@@ -1287,7 +1287,7 @@ stopped and started, as Victor's walk had before #258). Code:
   | `nvbighorner` VCrTier2BigHornerMed | 1.5, 100 | 75.0 / 314.15 | 112.1 (1.00) | 469 (1.00) |
   | `nightstalker` VCrTier4NightStalkerMed | 1.0, 100 | 100.7 / 500.0 (`mtfoward`, `mtfastfoward`) | 100.6 (1.00) | 498.8 (1.00) chase |
   | `nvcazadores` VCrTier3CazadorSmall | 0.5, 300 | mt 216.73 / 545.54, h2h 298.15 / 545.54 | 440–443 in three sessions (h2h 1.00) | dashes of 0.8–0.9 s at 680–1,090; closing at about 490 with `IsRunning` 0 |
-  | `nvsecuritron` VHDSecuritronBattleMk1East; VStreetSecuritronMk2 | 1.0, 100 | 120.19 / 314.72 | did not wander | Mk I a mean of 282 (0.90), Mk II 313.7–316.8 (1.00)† |
+  | `nvsecuritron` VHDSecuritronBattleMk1East; VStreetSecuritronMk2 | 1.0, 100 | 120.19 / 314.72 | Mk II 124.0–126.1 (1.03–1.05)‡ | Mk I a mean of 282 (0.90), Mk II 313.7–316.8 (1.00)† |
   | `mistergutsy` VCrTier0CrMisterGutsy | 1.0, 100 | 78.89 / 300.0 | 79.0 and 79.3 (1.00) | 300.0 (1.00)† |
   | `protectron` VCrTier0CrProtectron | 1.0, 100 | 25.25 / 83.37 | 22.0, 22.2 and 22.6 (0.88) | a mean of 84.4 over 17 s (1.01)† |
   | `sentrybot` CrSentryBotRHQ | 1.0, 100 | 96.0 / 384.0 | 96.2, 95.7 and 94.5 (1.00) | 383.7 (1.00)† |
@@ -1295,9 +1295,9 @@ stopped and started, as Victor's walk had before #258). Code:
   | `eyebot` CrEyebotCombat | 1.0, 100 | 168.86 / 337.72 | 169.0 (1.00) | 333.3 (0.99); 337.7 (1.00)† |
   | `giantant` VCrTier2AntSoldierMed | 0.3, 120 | 273.92 / 1050.57 | 88.5–93.3, 3 s (0.90–0.95) | 379.4 (1.00) chase |
   | `queenant` VCrTier3GiantAntQueen | 1.0, 100 | 112.42 / 152.43 (sequence `Fastforward`) | 112.1 (1.00) | 156.1 (1.02)† |
-  | `smspinebreaker` CrNightkin | 1.0, 100 | 87.12 / 608.74 | did not wander | 603 (0.99); 596 (0.98)† |
+  | `smspinebreaker` CrNightkin | 1.0, 100 | 87.12 / 608.74 | 81.0–83.4 (0.93–0.96)‡ | 603 (0.99); 596 (0.98)† |
   | `nvsporecarrier` CrSporeCarrierFU3 | 1.1, 100 | 96.0 / 460.8 | 105.6 (1.00) | 506.2 (1.00) chase |
-  | `nvsporecarrier` NVDLC04Tunneler | 1.0, 150 | 96.0 / 460.8 | did not wander | 690.9 (1.00); 690.8 (1.00)† |
+  | `nvsporecarrier` NVDLC04Tunneler | 1.0, 150 | 96.0 / 460.8 | 144.1 (1.00)‡ | 690.9 (1.00); 690.8 (1.00)† |
   | `mirelurkking` NVCrLakelurk | 1.0, 100 | 30.16 / no run clip | 27.9–31.4 (0.93–1.04) | about 361 over 0.8 s (chase); a mean of 358 over 3.9 s† |
   | `blowfly` VCrTier1BloatFlyMed | 1.0, 100 | 175.0 / 525.0 | 174.8 (1.00) | 524.8 fleeing, 525.5 (1.00)† |
   | `radroach` VCrTier1RadroachMed | 1.0, 100 | 90.03 / 224.87 | 89.9 and 90.2 (1.00) | 226.3 (1.01); 224.9 (1.00)† |
@@ -1328,12 +1328,21 @@ stopped and started, as Victor's walk had before #258). Code:
   runs only for the bloatfly, the alien and the brahmin; with the player in the
   creature's factions StartCombat did not take.
 
+  ‡ [observed with JIP LN NVSE and JohnnyGuitar NVSE installed, as †: `creature_flee`'s
+  `wpkg_*` sessions, 2026-10-25]: as the `pkg_*` runs, with VFSAlleyTrapWalkTowardPlayerPackage
+  (0016293B: Travel to within 300 of the player, not Always Run; its quest-variable
+  condition did not stop it, given by AddScriptPackage) for the walk; the gecko control
+  walked 49.9 (50.0 before). Its `fpkg_*` sessions gave DefaultFollowPlayerFar (001554DC:
+  Follow the player within 512): from 2,700 off, every one ran at 1.5 times its own run
+  (gecko 694.5 against 463, nightkin 916.8 against 608.7, tunneler 1,037.5 against 691,
+  securitron Mk II 474.2 against 314.7), then walked once near: a follower far behind
+  catches up at half as fast again as its run (NVForever's `fnv_ai::CATCH_UP_BOOST`).
+
   Not measured: the raven (`nvraven`, no movement clips; it did not stay in the scan);
   turrets (`sentryturret`, `minisentryturret`), spore plants, Mr. House and his
   computers, the Think Tank doctors (`brainbot`), the brain tanks and Festus do not move.
   Ordinary super mutants and lobotomites are NPC records (people's speeds, below), not
-  creatures. The walks of nightkin, tunnelers and securitrons (they did not wander in
-  48–72 s). The cazador's run (its dashes last under a second). The cyberdog with the
+  creatures. The cazador's run (its dashes last under a second). The cyberdog with the
   sonic bark charged on its `mt` run (333), not its folder's `h2h` one, which NVForever's
   alert stance would pick for it (dog folder) [observed; not changed here]. The Mk I
   securitron ran 0.90 against the Mk II's 1.00 [observed, one run each; not explained].
