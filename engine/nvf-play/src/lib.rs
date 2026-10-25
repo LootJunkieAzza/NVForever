@@ -100,6 +100,7 @@ pub mod terminal;
 pub mod tutorial_menu;
 mod test_aid;
 pub mod sfx;
+pub mod sneak_gauges;
 pub mod ui_sounds;
 pub mod stress;
 pub mod vats_mode;
@@ -298,7 +299,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((world_sounds::WorldSoundsPlugin, effect_sounds::EffectSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin, radiation::RadiationPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
-            .add_plugins(levelup::LevelUpPlugin)
+            .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)

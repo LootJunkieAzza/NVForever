@@ -1391,6 +1391,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "opening-no-hud"
+source = "owner report 2026-10-24: \"E) Talk Doc Mitchell\" showed in the starting bed sequence; while an idle holds the camera only subtitles show (no HUD, crosshair, prompt, corner or quest lines)"
+note = "Doc Mitchell is under the crosshair during the wake-up; the reticle logs the prompt it keeps back"
+areas = ["hud", "reticle", "idles"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 60
+order = [[
+  { text = "player view: driven by an idle's camera node", label = "the wake-up holds the camera" },
+  { text = "reticle: no prompt on \"Doc Mitchell\": an idle holds the camera", label = "no E) Talk prompt on Doc Mitchell while it does" },
+]]
+
+[[scenario]]
 name = "opening-hidden-item-lines"
 source = "owner report 2026-10-18: \"Pip-Boy 3000 removed\" showed at the start of a new game; the opening's player.RemoveItem passes HideMessageFlag 1 (docs/design/script-function-params.md)"
 areas = ["corner-messages", "script-params"]
@@ -2432,6 +2446,20 @@ expect = [
   { text = "script: player entered trigger 0x0015834D", label = "the player steps into the second trap" },
   { re = 'script: OnTriggerEnter of .*SCPT 0x0002CBA1 ran on', label = "its OnTriggerEnter runs" },
   { text = "playgroup: 0x0015834D plays Forward", label = "and it springs on the player" },
+]
+
+[[scenario]]
+name = "trigger-seconds-passed"
+source = "B-29 spot check 2026-10-24: GetSecondsPassed in an OnTrigger block counts from the previous frame's OnTrigger run when the script has no GameMode (Game::trigger_frame); VMS15's detonator spot (SCPT 0x0014F50D) beeps when its timer is 0 and resets it after 0.5 s, and beeped every frame before"
+note = "Lake Mead: VMS15 started and objective 45 shown at 1-2 s; at 5 s the player is moved onto the Ballast Detonator (one SCRIPT list, so after the objective) (0x0010063C), inside the spot's trigger box: OnTriggerEnter shows 'Loyal's detonator begins to beep.', then OnTrigger plays WPNMineTick (0x00040D4F) about twice a second for the rest of the run (about 15 s: some 30 beeps; every frame was some 1,000)"
+areas = ["scripts"]
+paths = ["engine/nvf-play/src/script_trigger.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "1:start:VMS15,2:objective:VMS15:45,5:moveto:player:0x0010063C" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { text = "on screen: Loyal's detonator begins to beep.", label = "the player is in the detonator spot with objective 45 shown" },
+  { text = "world sounds: a script plays 0x00040D4F", min = 10, max = 60, label = "the beep comes about twice a second, not every frame" },
 ]
 
 [[scenario]]
@@ -5013,15 +5041,15 @@ order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu:
 
 [[scenario]]
 name = "pipboy-items-extras"
-source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's DPS card, the ammunition's badge and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
+source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's skill badge (the Guns picture and the skill the pistol needs, in place of a DPS card, which the original does not show there) and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
 areas = ["repair", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs"]
-env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:point=260:201,17.5:click=260:201,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_extras.png" }
+env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=items,15.5:tab=0,17:repair=open,18:point=260:201,19.5:click=260:201,22:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_items_extras.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 23
+run_seconds = 25
 expect = [
-  { re = 'pipboy items: 10mm Pistol selected: .*dps: Some\("[1-9]\d*"\)', label = "a DPS figure for the pistol" },
-  { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("', label = "the ammunition's badge" },
+  { re = 'pipboy items: 10mm Pistol selected: .*dps: None', label = "no DPS card on the ITEMS page" },
+  { re = 'pipboy items: 10mm Pistol selected: .*badge: Some\("[^"]*weap_skill_icon_sm_arms\.dds"\), skill_req: Some\(\d+\)', label = "the Guns badge and the skill the pistol needs" },
   { re = 'pipboy items: 10mm Pistol Mod X\)', label = "Mod X) for a weapon with mod slots" },
   "pipboy repair: clicked row 1",
   { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "the click on the chosen part repairs the pistol" },
@@ -5439,29 +5467,28 @@ expect = [
 
 [[scenario]]
 name = "hud-needs-words"
-source = "owner 2026-10-23 (screenshot of the original): H2O FOD SLP on the HP label's line in Hardcore, RAD and LMB after them; each word faded, amber, red or flashing red by the need's or radiation's stage or the crippled limbs' count (engine/nvf-play/src/hud_needs.rs, docs/spec-notes/hud.md §13)"
-note = "Hardcore on at 3 s, then Dehydration 650 (Critical: red), Hunger 850 (Deadly: flashing), Sleep Deprivation 450 (Advanced: normal), rads 450 (Advanced: red); the console cripples the left arm at 10 s, the right leg at 12 s and the left leg at 14 s (LMB normal, red, flashing); Dehydration 100 at 18 s (faded), rads 650 at 18.5 s (Critical: flashing), Hardcore off at 19 s (the need words hidden)"
+source = "owner 2026-10-23 (screenshot of the original): H2O FOD SLP on the HP label's line in Hardcore, RAD and LMB after them; each word faded, amber, red or flashing red by the need's or radiation's stage or the crippled limbs' count; owner 2026-10-24: nothing under the first stage (200), then faded, normal, red, flashing, RAD the same; LMB hidden with no limb crippled (engine/nvf-play/src/hud_needs.rs, docs/spec-notes/hud.md §13)"
+note = "Hardcore on at 3 s, then Dehydration 650 (Critical: red), Hunger 850 (Deadly: flashing), Sleep Deprivation 250 (Minor: faded), rads 450 (Advanced: normal); the console cripples the left arm at 10 s, the right leg at 12 s and the left leg at 14 s (LMB normal, red, flashing); Dehydration 100 at 18 s (hidden), rads 650 at 18.5 s (Critical: red), Hardcore off at 19 s (the need words hidden), rads 850 at 20 s (Deadly: flashing). RAD and LMB start hidden, as the words do, so nothing is logged for them before a change"
 areas = ["hud", "hardcore"]
 paths = ["engine/nvf-play/src/hud_needs.rs", "engine/nvf-play/src/hud.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/radiation.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:650,3.4:set_av:player:Hunger:850,3.6:set_av:player:SleepDeprivation:450,3.8:set_av:player:RadiationRads:450,18:set_av:player:Dehydration:100,18.5:set_av:player:RadiationRads:650,19:hardcore:0", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV LeftAttackCondition 1000;10.5:close;12:player.DamageAV RightMobilityCondition 1000;12.5:close;14:player.DamageAV LeftMobilityCondition 1000;14.5:close", NVF_PLAY_TEST_SHOTS = "16:needs_limbs.png,21:needs_off.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:650,3.4:set_av:player:Hunger:850,3.6:set_av:player:SleepDeprivation:250,3.8:set_av:player:RadiationRads:450,18:set_av:player:Dehydration:100,18.5:set_av:player:RadiationRads:650,19:hardcore:0,20:set_av:player:RadiationRads:850", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV LeftAttackCondition 1000;10.5:close;12:player.DamageAV RightMobilityCondition 1000;12.5:close;14:player.DamageAV LeftMobilityCondition 1000;14.5:close", NVF_PLAY_TEST_SHOTS = "16:needs_limbs.png,21:needs_off.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 24
-manual = "needs_limbs.png: on the HP label's line H2O red, FOD flashing red, SLP amber, RAD red, LMB flashing red (start-up message boxes hide the HUD before 10 s); needs_off.png: only RAD and LMB, in H2O's and FOD's places, both flashing"
+manual = "needs_limbs.png: on the HP label's line H2O red, FOD flashing red, SLP faded, RAD amber, LMB flashing red (start-up message boxes hide the HUD before 10 s); needs_off.png: only RAD and LMB, in H2O's and FOD's places, both flashing"
 expect = [
-  { re = 'hud needs: LMB faded \(0 limbs crippled\)', label = "the limb word starts faded" },
-  { re = 'hud needs: RAD faded \(no stage\)', label = "the radiation word starts faded, in every mode" },
-  { re = 'hud needs: RAD red \(stage 2 of 5, \w+\)', label = "Advanced radiation sickness is red" },
-  { re = 'hud needs: RAD flashing \(stage 3 of 5, \w+\)', label = "Critical radiation sickness flashes" },
+  { re = 'hud needs: RAD normal \(stage 2 of 5, \w+\)', label = "Advanced radiation sickness is amber" },
   "test aid: Hardcore mode on",
   { re = 'hud needs: H2O red \(stage 3 of 5, \w+\)', label = "Critical dehydration is red" },
   { re = 'hud needs: FOD flashing \(stage 4 of 5, \w+\)', label = "Deadly hunger flashes" },
-  { re = 'hud needs: SLP normal \(stage 2 of 5, \w+\)', label = "Advanced sleep deprivation is amber" },
-  { re = 'hud needs: LMB normal \(1 limbs crippled\)', label = "one crippled limb" },
+  { re = 'hud needs: SLP faded \(stage 1 of 5, \w+\)', label = "Minor sleep deprivation is faded" },
+  { re = 'hud needs: LMB normal \(1 limbs crippled\)', label = "one crippled limb shows the word" },
   { re = 'hud needs: LMB red \(2 limbs crippled\)', label = "two crippled limbs" },
   { re = 'hud needs: LMB flashing \(3 limbs crippled\)', label = "three crippled limbs flash" },
-  { re = 'hud needs: H2O faded \(no stage\)', label = "dehydration lowered fades the word" },
+  { re = 'hud needs: H2O hidden \(no stage\)', label = "dehydration under 200 hides the word" },
+  { re = 'hud needs: RAD red \(stage 3 of 5, \w+\)', label = "Critical radiation sickness is red" },
   "test aid: Hardcore mode off",
   { re = 'hud needs: SLP hidden \(Hardcore off\)', label = "the need words go outside Hardcore" },
+  { re = 'hud needs: RAD flashing \(stage 4 of 5, \w+\)', label = "Deadly radiation sickness flashes" },
 ]
 
 [[scenario]]
@@ -5536,6 +5563,29 @@ expect = [
   { re = 'phys: 0x001531F5 \S*skeletonmale50scasual\.nif: collision posed from XRGD' },
   { re = 'phys: 0x0017B38F \S*skeletonfemale50scasual\.nif: collision posed from XRGD \(17 bodies\)' },
 ]
+
+[[scenario]]
+name = "combat-bloom-recoil"
+source = "owner 2026-10-24 (docs/spec-notes/combat-rules.md §3, fnv_combat::spread::Kick): the 10mm Pistol (0000434F) pulled and let go eight times, 0.55 s apart (about its fastest), from the hip: the bloom builds shot by shot and the crosshair's arrows open wide; each shot climbs the view; once the trigger rests the bloom settles and the arrows close again, while the climb stays for the player to pull down"
+areas = ["combat", "hud"]
+paths = ["crates/fnv-combat/src/spread.rs", "crates/fnv-combat/src/tuning.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11.00:fire,11.20:fire,11.55:fire,11.75:fire,12.10:fire,12.30:fire,12.65:fire,12.85:fire,13.20:fire,13.40:fire,13.75:fire,13.95:fire,14.30:fire,14.50:fire,14.85:fire,15.05:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
+run_seconds = 18
+expect = [
+  { re = 'combat: kick: shot 1 in a row, bloom (?P<n>[0-9.]+)', range = [0.05, 0.3], label = "one shot blooms a little" },
+  { re = 'combat: kick: shot [6-8] in a row, bloom (?P<n>[0-9.]+)', range = [0.6, 1.0], label = "a run of shots builds the bloom" },
+  { re = 'combat: kick: .*view up (?P<n>[0-9.]+) deg', range = [0.5, 3.0], all = true, label = "every shot kicks the view up" },
+  { re = 'combat: kick: shot [6-8] in a row, .*crosshair cone now (?P<n>[0-9.]+) deg', range = [3.0, 15.0], label = "the crosshair cone opens wide during the run (about 1.4 deg at rest)" },
+  { re = 'combat: kick settled .*crosshair cone (?P<n>[0-9.]+) deg', range = [0.3, 2.0], label = "the cone is back to its resting size" },
+  { re = 'combat: kick settled (?P<n>[0-9.]+) s after the last shot', range = [0.35, 2.0], label = "the weapon settles within two seconds of the last shot" },
+  { re = 'combat: kick settled .*climbed the view (?P<n>[0-9.]+) deg up', range = [6.0, 20.0], label = "the climb is left for the player (not eased back)" },
+]
+order = [[
+  { re = 'combat: kick: shot 1 in a row' },
+  { re = 'combat: kick: shot [6-8] in a row' },
+  { re = 'combat: kick settled' },
+]]
 
 [[scenario]]
 name = "compass-reticle"
@@ -6156,6 +6206,7 @@ run_seconds = 20
 expect = [
   { re = 'true iron sights: the sights are on the eye', label = "aimed, the pistol's sights come onto the eye" },
   { re = 'true iron sights: off the eye', label = "letting go of Block lowers the pistol again" },
+  { re = 'player weapon model \(First person\): a sighting node: aimed with the down-the-sights clips', label = "the pistol still plays its down-the-sights clips" },
   { re = 'crosshair: hidden down the true iron sights', label = "no crosshair down the sights" },
   { re = 'crosshair: shown again', label = "the crosshair is back after aiming" },
 ]
@@ -6197,7 +6248,7 @@ name = "true-iron-sights-laser"
 source = "owner 2026-10-20: the laser rifle's model has no sighting node, so it keeps the original aim and its crosshair (engine/nvforever/src/iron_sights.rs)"
 note = "Laser rifle drawn at 3 s, Block held 6-9 s"
 areas = ["combat", "camera"]
-paths = ["engine/nvforever/src/iron_sights.rs", "engine/nvf-play/src/reticle.rs"]
+paths = ["engine/nvforever/src/iron_sights.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/reticle.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_EQUIP = "00004336", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aim,9:aim" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
 run_seconds = 12
@@ -6205,6 +6256,7 @@ expect = [
   { re = 'aim zoom: \S+ \(\S+\) sight FOV', label = "the laser rifle still zooms when aimed" },
   { re = 'true iron sights: the sights are on the eye', count = 0, label = "the laser rifle keeps the original aim" },
   { re = 'crosshair: hidden down the true iron sights', count = 0, label = "the laser rifle keeps its crosshair" },
+  { re = 'player weapon model \(First person\): no sighting node: aimed with the hip clips', label = "aimed in first person, the laser rifle keeps the hip pose (owner 2026-10-24: the original only zooms)" },
 ]
 
 [[scenario]]
@@ -6875,6 +6927,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "vats-mark-forehead"
+source = "owner's playtest 2026-10-24: a VATS mark on the head needed the crosshair on the neck; the human head's capsule stopped at the base of the skull (Bip01 Head has no bone above it) and now reaches the crown (engine/nvforever/src/limbs.rs skull_tip, docs/design/combat.md §5.9)"
+note = "GSGeneralStore (energy-resist-hit's spot), god mode, a .357 drawn and loaded; V at 16 s (after the add-on packs' start-up boxes: a run that pressed V at 12 s met them, and an open menu keeps the mode off) enters VATS mode (clock 0.05), aimnpc=0.95@0 puts the crosshair on the nearest NPC's forehead (95 % of its height, over the centre of its head, part 0 of DefaultBodyPartData; above the top of the old head ball) and a click marks it: the mark is on the head. A first run aimed over the body's middle (aimnpc=0.93): Chet leans, his head 17 units to the side of it, and the ray passed beside the head. 40 s: the interior is ready at once, and on a busy machine the scripts (whose start the aids wait for) were not running by 18 s, so two runs ended before any aid"
+areas = ["combat", "vats"]
+paths = ["engine/nvforever/src/limbs.rs", "engine/nvf-play/src/hitvol.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "8:weapon,10:reload,16.3:aimnpc=0.95@0", NVF_PLAY_TEST_KEYS = "16:v,16.32:mouse-left" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode with the .357" },
+  { re = 'vats mode: marked .* \((?i:head)\), mark 1;', label = "the click on the forehead marks the head" },
+]]
+expect = [
+  { text = "vats mode: nothing to mark under the crosshair", count = 0, label = "the forehead is part of the head's volume" },
+]
+
+[[scenario]]
 name = "vats-mode-hit-chance"
 source = "owner 2026-10-23: a hit chance in VATS mode, shown as a percentage beside each mark's x and rolled per shot (docs/design/vats-mode.md §17)"
 note = "vats-mode-two-marks' setup (the Goodsprings dogs set on the player, god mode, a .357): two marks, each logged with its chance and the dog torso's or part's BPTD base; E fires both, each shot rolled (hit or missed, either is right: the check is that the chance is worked out and rolled, not the outcome). Frame vats_hit_chance.png at 10.4 s (game time at the 0.05 clock) shows the two labels beside the x's"
@@ -7072,7 +7141,7 @@ name = "vats-mode-dof"
 source = "queue item 14 (docs/spec-notes/image-modifiers.md §8.4): in VATS mode the view's depth of field is focused on the mark, what is beyond it blurred (fVATSDOFStrengthCap 0.6, fVATSDOFRange 500), faded with the mode's look"
 note = "vats-mode-unmark's setup: a .357 among the Goodsprings dogs (god mode); V at 10 s, a mark at 10.32 (game time at the 0.05 clock), right clicks at 10.5 and 10.55 take it back (the depth of field goes with the mark) and end the mode. Frames: vats_dof_before.png at 9.5 s, vats_dof_marked.png at 10.45"
 areas = ["imagespace", "vats"]
-paths = ["engine/nvforever/src/imagespace*", "engine/nvf-play/src/vats_mode.rs"]
+paths = ["engine/nvforever/src/imagespace*", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/test_aid.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.5:mouse-right,10.55:mouse-right", NVF_PLAY_TEST_SHOTS = "9.5:vats_dof_before.png,10.45:vats_dof_marked.png" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
@@ -7875,6 +7944,34 @@ run_seconds = 30
 expect = [
   { re = 'detection summary: .*; (?P<n>\d+) of \d+ measured under the sun in shade', range = [1, 1000000], label = "someone is in shade" },
   { re = 'detection summary: .*; \d+ of (?P<n>\d+) measured under the sun in shade', range = [10, 1000000], label = "the sun is measured" },
+]
+
+[[scenario]]
+name = "sneak-gauges"
+source = "Owner request 2026-10-24 (docs/design/detection.md §10): the settings switch sneak-gauges shows light and noise bars under the sneak word while sneaking; the player sneaks at noon in Goodsprings and fires a Normal-level gun, which fills the noise bar"
+areas = ["detection", "hud"]
+paths = ["engine/nvf-play/src/sneak_gauges.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "4:5", NVF_PLAY_TEST_SETTINGS = "4.5:sneak-gauges", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:sneak,12:weapon,15:reload,20:fire" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'sneak gauges shown: light \d+, noise \d+', label = "the gauges show while sneaking" },
+  { re = 'sneak gauges summary: on true, shown (?P<n>[\d.]+) s', range = [10, 30], label = "shown for the time sneaking" },
+  { re = 'sneak gauges summary: .*most light (?P<n>\d+)', range = [30, 100], label = "noon light measured at the player" },
+  { re = 'sneak gauges summary: .*most noise (?P<n>\d+)', range = [100, 1000], label = "the shot is loud" },
+]
+
+[[scenario]]
+name = "detection-pipboy-light"
+source = "Sneak audit (docs/design/detection.md §9): at night in Goodsprings the Pip-Boy light, switched on at 4 s, counts as the game's PipboyLight640 at the player's chest and lights the player near the top of the light term"
+areas = ["detection"]
+paths = ["engine/nvforever/src/detection.rs", "engine/nvf-play/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_CONTROL = "4:flashlight" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "23", "--no-voice"]
+run_seconds = 20
+expect = [
+  { re = 'detection summary: .*; the Pip-Boy light on at (?P<n>\d+) measurements', range = [20, 1000000], label = "the light is on and measured" },
+  { re = 'detection summary: .*; the Pip-Boy light on at \d+ measurements, the player lit up to (?P<n>\d+)', range = [85, 100], label = "the light lights the player" },
 ]
 
 [[scenario]]

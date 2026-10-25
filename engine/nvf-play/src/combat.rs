@@ -13,7 +13,9 @@
 //!   attack and reload clips when [`WeaponAnim::attacks`] / [`WeaponAnim::reloads`] count
 //!   up and gives their timing back.
 //! - **Shots** leave the eye along the view, inside the spread cone (the documented New
-//!   Vegas spread plus bloom); recoil kicks the view up and recovers [design]. They are
+//!   Vegas spread plus bloom, which builds while shots follow each other and shrinks once
+//!   the weapon rests); recoil climbs the view up in a random pattern and stays there
+//!   for the player to pull down (`fnv_combat::spread::Kick`) [design]. They are
 //!   drawn from the muzzle of the held weapon ([`WeaponAnim::muzzle`], the model's
 //!   `ProjectileNode`), closing on the view ray by the point aimed at; in third person a
 //!   shot with something between the muzzle and that point leaves the muzzle instead
@@ -899,7 +901,7 @@ pub struct Combat {
     swing_rng: SplitMix,
     time: f32,
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
-    /// spread, no bloom), so an unattended check hits what it aims at.
+    /// spread, no bloom, no recoil), so an unattended check hits what it aims at.
     no_spread: bool,
     /// A save's weapon and magazine, applied when that weapon is next taken in hand
     /// (`crate::save`).
@@ -933,6 +935,10 @@ pub struct Combat {
     flinch_until: f32,
     flinch_end: Option<f32>,
     flinch_rng: SplitMix,
+    /// The recoil's rolls, its own so other rolls keep their order.
+    kick_rng: SplitMix,
+    /// The bloom has just shrunk away; logged with the crosshair cone.
+    kick_just_settled: bool,
     /// The spent-ammo items' own rolls (docs/spec-notes/spent-ammo-items.md), so they
     /// leave the shots' rolls as they were.
     spent_rng: SplitMix,
@@ -1687,6 +1693,8 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
+        kick_rng: SplitMix(5),
+        kick_just_settled: false,
         spent_rng: SplitMix(4),
     });
 }
@@ -2242,9 +2250,13 @@ pub(crate) fn fire(
             c.looping = None;
         }
     }
-    // Recoil recovers whatever happens.
-    let back = c.kick.recover(&c.tuning, dt);
-    player.pitch = (player.pitch - back.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+    // Bloom shrinks whatever happens, once the weapon has rested for the settle delay.
+    // The recoil's climb stays: pulling the view back down is the player's (owner,
+    // 2026-10-24).
+    let was_settled = c.kick.settled();
+    c.kick.recover(&c.tuning, dt);
+    // Logged with this frame's crosshair cone, below.
+    c.kick_just_settled |= !was_settled && c.kick.settled();
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
     c.crosshair_cone = None;
@@ -2342,6 +2354,12 @@ pub(crate) fn fire(
         let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
+        if std::mem::take(&mut c.kick_just_settled) {
+            info!(
+                "combat: kick settled {:.2} s after the last shot, crosshair cone {cone:.2} deg; the burst climbed the view {:.2} deg up, {:.2} deg sideways",
+                c.kick.since_shot, c.kick.climb_deg, c.kick.climb_yaw_deg
+            );
+        }
         c.player_spread = Some(if c.no_spread { 0.0 } else { actor_spread.max(0.0) });
         // VATS mode's hit chance: as aimed, no bloom (vats-mode.md §17.2).
         let aimed = Stance { aiming: true, ..stance.clone() };
@@ -2530,10 +2548,22 @@ pub(crate) fn fire(
                     p3(seen_from),
                     if leaving.covered { "; cover in front of the barrel: it leaves the muzzle" } else { "" }
                 );
-                // VATS mode's shots kick nothing and grow no bloom [design, vats-mode.md §11.1].
-                if vats_shot.is_none() {
-                    let kick = c.kick.shot(&c.tuning, w.min_spread, w.base_damage as f32);
-                    player.pitch = (player.pitch + kick.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+                // VATS mode's shots kick nothing and grow no bloom [design, vats-mode.md §11.1],
+                // nor do the NO_SPREAD test aid's, so each lands where it was aimed, nor a
+                // throw (a grenade has no recoil).
+                if vats_shot.is_none() && !c.no_spread && !c.self_ammo {
+                    let rng = &mut c.kick_rng;
+                    let kick = c.kick.shot(&c.tuning, &w, cycle.timing.interval, &mut || rng.next_f32());
+                    player.pitch = (player.pitch + kick.pitch_deg.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+                    player.heading += kick.yaw_deg.to_radians();
+                    info!(
+                        "combat: kick: shot {} in a row, bloom {:.2}, crosshair cone now {:.2} deg, view up {:.2} deg, sideways {:.2} deg",
+                        c.kick.burst,
+                        c.kick.bloom,
+                        spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects),
+                        kick.pitch_deg,
+                        kick.yaw_deg
+                    );
                 }
                 debug!("combat: shot, cone {cone:.2}°, magazine {}", cycle.magazine);
                 // The shot wears the weapon (§17); a thrown weapon is spent instead.

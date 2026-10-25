@@ -336,9 +336,10 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);
-    c.text(p, 2, EXIT, MAIN.min.x + BUTTONS.x - 10.0, MAIN.min.y + BUTTONS.y, Align::Right, bright);
+    let by = MAIN.min.y + BUTTONS.y + frame::BUTTON_TEXT_Y;
+    c.text(p, 2, EXIT, MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, bright);
     let ew = c.width(2, EXIT);
-    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, MAIN.min.y + BUTTONS.y - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
+    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, by - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
     // The rows: the weapon, then the mods.
     let rows: Vec<(String, bool)> = std::iter::once((o.name.clone(), o.extra.equipped)).chain(o.choices.iter().map(|ch| (if ch.count > 1 { format!("{} ({})", ch.name, ch.count) } else { ch.name.clone() }, false))).collect();
     let x0 = MAIN.min.x + LIST.min.x + ROW_X;

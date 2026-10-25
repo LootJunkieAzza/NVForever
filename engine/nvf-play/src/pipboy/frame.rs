@@ -40,6 +40,11 @@ const LEAD_LINE: f32 = 50.0;
 const CARD_TEXT_X: f32 = 5.0;
 const CARD_TEXT_Y: f32 = 20.0;
 const CARD_VALUE_IN: f32 = 10.0;
+/// A button's text under the button's own y: `text_box.xml` centres the text in a box
+/// `_verbuf` (15 in the menus' buttons) taller than it, then 7 + 3 lower (not glowing)
+/// [documented: `text_box.xml` `button_text` y; the original's "Maintain R)" sits there
+/// on the owner's ITEMS screenshot].
+pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
 /// The tab line: 650 down, as wide as the menus; a tab is its text and 35 across, 15 up
 /// and down; the lines between the tabs are as long as each other [hypothesis: the files
 /// leave their length to code; it fills the line evenly, as on the owner's screenshots].

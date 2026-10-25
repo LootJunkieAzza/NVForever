@@ -268,8 +268,13 @@ impl WorldAidClock {
     }
 }
 
-fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, mut clock: ResMut<PlayClock>) {
+/// The start's loading screen (`crate::loading::StartCover`) counts on neither clock: the
+/// test aids count from when it comes down, as if the run began then.
+pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, loading: Option<Res<crate::loading::Loading>>, mut clock: ResMut<PlayClock>) {
     clock.frame = virt.is_paused().then(|| real.delta_secs().min(0.25));
+    if loading.is_some_and(|l| l.starting()) {
+        return;
+    }
     clock.stopped += clock.frame.unwrap_or(0.0);
 }
 

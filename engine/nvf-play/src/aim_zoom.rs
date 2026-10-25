@@ -37,6 +37,9 @@ pub const ZOOM_SECONDS: f32 = 0.25;
 pub struct AimZoom {
     /// 0 unzoomed, 1 the weapon's Sight FOV.
     pub blend: f32,
+    /// The view is zooming in (Block held with a gun that has a Sight FOV): true iron
+    /// sights (nvforever `iron_sights.rs`) bring the gun up at their own pace meanwhile.
+    pub aimed: bool,
     /// The weapon's Sight FOV as a vertical angle (radians), held while zooming out.
     pub sight: Option<f32>,
     /// The unzoomed vertical field of view (radians).
@@ -108,6 +111,7 @@ fn zoom(
     if let Some((_, deg)) = sight {
         z.sight = Some(vertical_fov(deg));
     }
+    z.aimed = sight.is_some();
     let step = time.delta_secs().min(0.25) / ZOOM_SECONDS;
     let was = z.blend;
     z.blend = if sight.is_some() { (z.blend + step).min(1.0) } else { (z.blend - step).max(0.0) };

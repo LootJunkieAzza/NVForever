@@ -31,8 +31,11 @@ behind the screen).
    10, 2026-10-13) [observed: `--cell GSGasStation` through its door: 26 cell loads in
    all after the fix, no fade in the frame after the screen].
 5. The screen comes down when physics has every cell it asked for around the player
-   (`PhysState::loading_done`) and the renderer has all the cells around the camera
-   (`Streamer::settled`, reported through `Loading::render_busy`), and that has been so
+   (`PhysState::loading_done`), the renderer has all the cells around the camera
+   (`Streamer::settled`, reported through `Loading::render_busy`) and no actor in view is
+   still waiting for its parts to be read (`readahead::actors_waiting`, reported through
+   `Loading::actors_busy`; owner 2026-10-24: NPCs were seen being drawn in after the
+   screen), and that has been so
    for 0.25 s and 3 frames (`SETTLE_SECS`, `SETTLE_FRAMES`: time for textures and meshes
    to reach the graphics card). `PlayState` returns to `Playing`, the clock runs again.
 6. If loading has not finished after 120 s (`TIMEOUT_SECS`) the screen comes down with a
@@ -41,6 +44,29 @@ behind the screen).
 The player arrives standing: physics puts the character on the support the arrival rule
 found and counts it as on the ground until its first step, so the body does not play the
 jump loop behind the screen and a landing when it comes down (`PhysState::arrive_player`).
+
+## 1a. The start (owner 2026-10-24)
+
+A `--play` run that starts in the world (not on the main menu, `--menu`) is held behind
+the same screen from its first frame (`nvf_play::loading::StartCover`, asked for by
+nvforever). Before, the world was in view while the script data still loaded on its
+thread (4–9 s on an unbusy machine, up to 21 s with three smoke games starting at once),
+and NPCs were drawn in as their parts were read. The screen comes down when what step 5
+waits for is in, and the scripts are made (and a `--load`ed save put back into them).
+A travel asked for under it goes out behind it and is waited for too.
+
+- Its time counts on no clock: the test aids' clock (`pause::PlayClock`) and
+  `--run-seconds` count from when it comes down, as if the run began then. A step at
+  14 s comes 14 s after the world can be played, with the world and the scripts run for
+  14 s; the world aids' late-start rule (`pause::WorldAidClock`, `SCRIPTS_START_SECONDS`)
+  then never holds them back. A run lasts its seconds plus its start.
+- Log: `loading screen: the start is held until the world can be played`, `loading
+  screen down after <s> s (the start: cells, actors and scripts ready); …`, or after
+  120 s `the start still waits for <what> after <s> s; going on without it`.
+- A run taking over from another (`--handoff`, loading a save while playing) shows its
+  window once this screen is down.
+- [hypothesis] The original never shows the world before its scripts run: it reads the
+  plugins, scripts and all, before the main menu.
 
 ## 2. What is on hold
 
@@ -73,9 +99,8 @@ jump loop behind the screen and a landing when it comes down (`PhysState::arrive
 
 ## 4. Scope and open points
 
-- Only travel shows a loading screen. The start of a run still streams in view, as
-  before; a loading screen there would be the same code with the start as the trip
-  (owner's call).
+- Travel and a world start (§1a) show a loading screen. A New Game chosen on the main
+  menu still loads behind the menu and the intro film.
 - Travel without `--play` (the free camera following `--npc-travel` NPCs) is unchanged:
   no loading screen.
 - The game's rules for choosing a screen and its layout are open (spec note §3, §4).
@@ -87,5 +112,6 @@ jump loop behind the screen and a landing when it comes down (`PhysState::arrive
 - `fnv-world`: `loadscreen::tests` (locations, choice).
 - `nvf-play`: `loading::tests` (cover, destination, and the sequence: screen up and
   clock paused before the travel goes out, held while the renderer is busy, down and
-  playing again after).
+  playing again after; held while actors are read; the start's screen and its clock;
+  a travel under the start's screen).
 - In the game (owner's data): Doc Mitchell's front door, both ways; see the pull request.

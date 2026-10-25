@@ -334,8 +334,8 @@ fn draw(
     sim: Res<SimState>,
     (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
     mut spread: Local<f32>,
-    mut logged: Local<(bool, i32, bool)>,
-    (locks, bindings, creator, sights, scope): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>),
+    mut logged: Local<(bool, i32, bool, Option<String>)>,
+    (locks, bindings, creator, sights, scope, driven): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>, Option<Res<crate::aim_zoom::TrueSights>>, Option<Res<crate::aim_zoom::Scope>>, Option<Res<crate::player::ViewDriven>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -346,8 +346,19 @@ fn draw(
     texts: Query<Entity, With<Texts>>,
 ) {
     // Not over the character creator, whatever state the opening leaves the game in
-    // [owner 2026-10-17: "E) Talk" stayed under it].
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open());
+    // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
+    // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
+    // 2026-10-24: "E) Talk Doc Mitchell" showed in the starting bed sequence].
+    let held = driven.is_some_and(|d| d.0);
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held;
+    // What the idle keeps off the screen, once per target.
+    let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
+    if kept != logged.3 {
+        if let Some(name) = &kept {
+            info!("reticle: no prompt on \"{name}\": an idle holds the camera");
+        }
+        logged.3 = kept;
+    }
     let Some(kit) = kit.as_ref() else {
         if playing {
             let loaded = Kit::load(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
