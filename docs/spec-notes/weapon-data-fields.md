@@ -91,7 +91,56 @@ within the engine's 30° as before [hypothesis: 0 means no arc of its own].
   relates to damage caused…"); 2 weapons have an Impulse Dist. Not built: a kill pushes
   the ragdoll by the engine's shot and blow pushes, as before.
 
-## 7. Checks
+## 7. Grip, power attack override, embedded node, Hide Backpack (2026-10-24)
+
+From the ESM audit (docs/handoff/esm-full-audit-2026-10-24.md, gaps 11–14 and 29). Counts
+over the ten masters [observed: WEAP `DNAM`, `NNAM`].
+
+- **Hand Grip** (`DNAM` `grip_animation`: HandGrip1 on 11 weapons, HandGrip2 on 7,
+  HandGrip3 on 13, an unnamed 172 on the BB gun, DEFAULT on the rest): "Specifies a hand pose animation for 3rd person"
+  [documented: GECK wiki Weapons]. The clips are `<prefix>handgrip<n>.kf`, some with the
+  weapon's name after the number (`2hahandgrip1_plasmarifle.kf`,
+  `2hrhandgrip3_combatshotgun.kf`; `1gthandgrip1`–`3` for the throwing knife, hatchet and
+  spear) in both `_male` and `_1stperson` [observed: Fallout - Meshes.bsa]. Built: the
+  player's third-person body plays the weapon's grip clip over its aim (`player_body.rs`,
+  the Land Mine's own rule kept in both views). Not in first person [documented: "for 3rd
+  person"; the first-person files exist, owner review], not on NPCs (their rigs play no
+  grip layer yet).
+- **Power Attack Animation Override** (`DNAM`, AttackCustom1Power … AttackCustom5Power on
+  87 weapons: Custom3 34, Custom2 29, Custom4 12, Custom1 9, Custom5 3) [documented:
+  xEdit; no GECK wiki text]. The clips `1hmattackcustom1power.kf`–`…3`, `2hm…1`–`5` and
+  `h2h…1, 2, 4, 5` are in the base meshes [observed]. Built [hypothesis: which power
+  attacks it replaces]: the standing power attack plays the override's clip
+  (`fnv_combat::melee::MeleeInput::power_override`, nvforever `attack_anims.rs` for NPCs);
+  the directional ones keep their clips; a folder without the clip falls back on
+  `attackpower`. Damage and the attack group (`AttackPower`) are unchanged.
+- **Embedded Weapon Node** (`NNAM`, 103 weapons: `ProjectileNode` 30,
+  `ProjectileNode_RGatling` 16, `ProjectileNode_HeadLaser` 13 …): "Node that the weapon is
+  attached to" [documented: GECK wiki Weapons, Embedded Weapon]. Built: a creature's
+  embedded weapon shoots from the node of that name in its skeleton (the sentry bot's
+  `ProjectileNode_RGatling` and `Weapon`, the eyebot's `ProjectileNode_HeadLaser` are
+  there [observed: `fnvtool nif decode` of their `skeleton.nif`]; the protectron's and the
+  fire geckos' are not, and they still shoot from the eyes) (nvforever `npc_combat.rs`).
+  Embedded guns were never fired before this: a creature fought with a gun only when a
+  weapon model was drawn in its hands, so the sentry bot only struck [observed: smoke
+  `creature-embedded-muzzle`, 2026-10-24]. Now a creature with nothing in its hands fights
+  with the first embedded gun among its items whose node its skeleton has [design];
+  creatures whose node is not in the skeleton keep their own attack.
+- **Hide Backpack** (`DNAM` flags1 bit 4, 16 weapons: the miniguns, flamers, Gatling
+  lasers, grenade machine guns, Shishkebabs, the Cyberdog guns, the arc welder): "Hides
+  any equipped armor or armor addon that occupies the Backpack biped slot" [documented:
+  GECK wiki Weapons]. Built: while such a weapon is held, the pieces in biped slot 7 are
+  not drawn (`fnv_actor::Resolver::resolve_wearing`; the player's body and NPCs'
+  outfits are dressed again when it is taken up or put away).
+- **VATS special attacks** (`VATS`: AP, damage multiplier, Mod Required; `VANM` attack
+  name, Machete "Back Slash"; 88 and 86 weapons): not built. The original offers them as
+  a choice in its VATS menu; NVForever's VATS mode (docs/design/vats-mode.md) has no
+  attack choice: a mark is one shot, burst, swing or throw by the weapon's style (§16),
+  and power attacks in VATS mode are not built (§14). A special attack would need a way
+  to pick it per mark and its clip (`vats1hmattackpower_back.kf` …) played at the mark:
+  a design question for the owner (owner-review).
+
+## 8. Checks
 
 Unit tests: the exclusion in `fnv_sim` and `fnv_actor` choice, `style_weapon::pick`;
 the resistance step and the free fourth shot in `fnv_combat`; the projectile speed

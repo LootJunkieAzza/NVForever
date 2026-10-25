@@ -91,6 +91,7 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 | `esm decode <plugin> --schema <dir> --formid X \| --edid E` | `fnv.esm.decode/1` | schema-decoded record(s) |
 | `esm loadorder <data-dir> <plugins…> [--schema <dir>]` | `fnv.esm.loadorder/1` | masters, overrides, injected forms, ONAM check, FormID-reference resolution |
 | `esm survey <data-dir> <plugins…> [--plugin P]` | `fnv.esm.survey/1` | per (record, subrecord) size/string/FormID statistics |
+| `esm fields <data-dir> <plugins…> --schema <dir>` | `fnv.esm.fields/1` | per record type, subrecord and schema field path: present / non-zero counts, top values, flag bits set |
 
 ### Top-level keys of the other documents
 
@@ -117,6 +118,13 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 - `fnv.esm.survey/1`: `records` {type: count}, `pairs` [{record, sub, count,
   distinct_sizes, top_sizes, zstring_like, formid_array_like, first_u32_formid,
   max_per_record}], `errors`.
+- `fnv.esm.fields/1`: `plugins` [name]; `records` {type: {count, name, header_bits
+  {"bit[ name]": count}, plugins}}; `fields` [{path (`REC/SUB[/field…]`, arrays as `[]`),
+  present, nonzero, distinct (a number, or ">256"), top [[value, count]] (6 at most),
+  plugins (those with a non-zero value), sub_name?, status? {ok, unknown, trailing,
+  error} (subrecord rows), bits? {name: count}, unknown_bits? {bit: count}}]. A
+  subrecord the schema does not know counts its raw size as its value. Every record of
+  every plugin is counted, overrides included.
 
 # Layer 2 (meshes, animations, textures)
 

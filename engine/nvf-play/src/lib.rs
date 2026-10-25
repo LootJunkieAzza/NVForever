@@ -67,12 +67,14 @@ pub mod challenges;
 pub mod poker;
 pub mod menu;
 pub mod mines;
+pub mod thrown;
 pub mod message_menu;
 pub mod moved;
 pub mod music;
 pub mod pad;
 pub mod pause;
 pub mod phys;
+pub mod pickpocket;
 pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
@@ -101,7 +103,9 @@ pub mod sfx;
 pub mod ui_sounds;
 pub mod stress;
 pub mod vats_mode;
+pub mod kill_cam;
 pub mod voice;
+pub mod voice_filter;
 pub mod wait;
 pub mod world_sounds;
 pub mod xp_meter;
@@ -316,10 +320,13 @@ impl Plugin for PlayPlugin {
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(mines::MinesPlugin)
+            .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)
+            .add_plugins(pickpocket::PickpocketPlugin)
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(kill_cam::KillCamPlugin)
             .add_plugins(grab::GrabPlugin)
             .add_plugins(difficulty::DifficultyPlugin);
         test_aid::setup(app);

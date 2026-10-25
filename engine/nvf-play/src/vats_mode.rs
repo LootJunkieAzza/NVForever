@@ -1113,6 +1113,22 @@ fn melee_step(v: &mut VatsMode, dt: f32, combat: &Combat, mut script: Option<&mu
     }
 }
 
+impl VatsMode {
+    /// The last mark's shot, once every mark's attack has started (a kill camera watches
+    /// its actor, `crate::kill_cam`, §19): as the scripts see a shot, with the weapon VATS
+    /// mode was entered with, and its point now.
+    pub fn final_shot(&self, eye: [f32; 3]) -> Option<(fnv_game::vats::VatsShot, [f32; 3])> {
+        let n = self.queue.len();
+        if self.phase != Phase::Firing || n == 0 || self.started < n {
+            return None;
+        }
+        let (m, s) = (self.queue.marks().get(n - 1)?, self.spots.get(n - 1)?);
+        let d = ((s.point[0] - eye[0]).powi(2) + (s.point[1] - eye[1]).powi(2) + (s.point[2] - eye[2]).powi(2)).sqrt();
+        let shot = fnv_game::vats::VatsShot { weapon: self.weapon.as_ref()?.id, target: m.target, distance: d as f64, condition: s.condition, success: s.landed.unwrap_or(false) };
+        Some((shot, s.point))
+    }
+}
+
 /// The test aid `NVF_PLAY_TEST_VATS_HELPER`: `stranger` or `fortune` brings that helper
 /// for every mark whose odds for them are above 0 (the player has the perk), `none` none
 /// (vats-mode.md §13).
@@ -1407,6 +1423,10 @@ fn report(mut exit: MessageReader<AppExit>, vats: Res<VatsMode>) {
     );
 }
 
+/// VATS mode's frame (`update`), for systems that read what it decided (`crate::kill_cam`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VatsUpdate;
+
 pub struct VatsModePlugin;
 
 impl Plugin for VatsModePlugin {
@@ -1414,7 +1434,7 @@ impl Plugin for VatsModePlugin {
         app.init_resource::<VatsMode>()
             .add_systems(Startup, spawn_marks)
             .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).after(crate::player::encumbered_walks).before(PlaySet::Physics))
-            .add_systems(Update, update.in_set(PlaySet::Activation).before(crate::combat::fire))
+            .add_systems(Update, update.in_set(PlaySet::Activation).in_set(VatsUpdate).before(crate::combat::fire))
             .add_systems(Update, (draw_marks, draw_labels).after(PlaySet::Activation))
             .add_systems(Last, report);
     }

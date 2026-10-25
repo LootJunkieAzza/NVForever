@@ -762,6 +762,33 @@ the player puts down. Code: `fnv_combat::mine` (rules), `nvf_play::mines` (in pl
   Light Step perk (mines do not go off for the player), and the Explosives chance of
   setting one off while disarming, which the owner's rule leaves out.
 
+## 11b. Thrown weapons land (2026-10-24)
+
+From the ESM audit (gap 5). Code: `fnv_combat::data::ProjectileStats::lands_as_weapon`,
+`nvf_play::thrown`.
+
+- **The records** [observed: FalloutNV.esm and the add-ons, PROJ `DATA` flags]: "Can Be
+  Picked Up" without "Can Be Disabled" on `NVThrowingKnifeProjectile` (Missile; Pins
+  Limbs, Rotation), `NVHatchetProjectile`, `NVSpearProjectile`,
+  `NVDLC02WeapTomahawkProjectile` (and Honest Hearts' `NVdlc02tomahawkrProjectiletest`),
+  `TrapBaseballProjectile` (Lobber) and Old World Blues' `NVDLC03MineMeat`. The
+  mines and C-4 carry both flags.
+- **What they mean** [documented: GECK wiki Projectile]: "Can be Picked Up: If checked,
+  projectile can be picked up by the player character after it has been disabled, or
+  regardless of it if Can be Disabled isn't enabled." "Default Weapon Source: Projectile
+  references store whichever weapon they fired from/as, and if they can be picked up by
+  an NPC or the player they will be added to inventory as that weapon." The same page's
+  notes say the flag "doesn't appear to work with Missile type projectiles": the
+  masters' thrown weapons are Missiles that set it; what the original does with them is
+  an owner question.
+- **As built** [hypothesis: where a landed weapon goes]: a projectile with the flag, no
+  "Can Be Disabled" and no explosion becomes its weapon where its flight ends: in the
+  inventory of the actor it struck (taken from the body), else as a loose reference at
+  the point it struck, 4 units out from the surface, turned the way it flew (or where it
+  ran out of range), in the thrower's cell; `crate::dropped` draws it and lets it settle.
+  The weapon is the one thrown, else the PROJ's Default Weapon Source. Log lines
+  `thrown: … landed at …` and `thrown summary` at the end.
+
 ## 12. Limb hits (step C8)
 
 - **Which body part data** (`CombatForms::body_parts_for`):
