@@ -213,3 +213,61 @@ Argument counts for the events with no first argument and for LoadGame; handler-
 order for most events; duplicate SetEventHandler registrations; filter matching under
 SetEventHandlerAlt; DispatchEvent's map when replaced, and whether handlers run inline;
 IsEventHandlerFirst/Last's real meaning.
+
+## Implementation tables (E1–E3)
+
+One row per function E1–E3 cover, then one row per built-in event, from §2–§7 and their pages ([documented] unless marked open). **Filters**: SetEventHandler's `"first"` and `"second"` filter the First and Second columns; SetEventHandlerAlt's `1::`, `2::` … filter the arguments in the same order, and `0::` the calling reference (§3–§4). An event whose First is "—" passes no first argument the table names; its handler's parameter count is open.
+
+### Functions
+
+| Function | Aliases | Arguments (? = optional) | Returns | Behaviour | Edge cases |
+|---|---|---|---|---|---|
+| SetEventHandler | — | event name string; handler udf/lambda; `"first"::x`?; `"second"::y`?; `"priority"::n`? (pairs in any order) | bool | registers the handler for the event | filters: forms or form lists (any member); an array filter is ignored; priority default 1, range -9999..9999, 0 refused, higher runs first, ties by registration order (6.2.9); lasts for the session, never saved |
+| SetEventHandlerAlt | — | event name; handler; up to 16 `index::filter`?; `"priority"::n`? | bool | registers with indexed filters (6.2.8): 0 the calling reference, 1-15 the arguments | filter matching per §4; array value = any of; duplicates each run; flushed on every load; not for plugin (LN) events |
+| RemoveEventHandler | — | event name; handler; filter1?; filter2?; `"priority"::n`? (default 0 = any) | bool | removes matching handlers; 1 if any was removed | no filters: all of that handler for that event; takes Alt's numeric indexes |
+| DispatchEvent | — | event name; infoMap stringmap?; senderName string? | none | calls handlers of a user-defined event with one string map | default map: eventName, eventSender (the mod file); infoMap replaces the map, senderName the sender; inline or deferred: open |
+| DispatchEventAlt | — | [ref.] event name; up to 15 values any | bool | calls handlers whose filters match the arguments (6.2.8) | optional calling reference passed on; handlers may take fewer parameters than sent |
+| GetCurrentEventName | — | — | string | the event being handled | inside a SetEventHandler-style handler; outside: open |
+| IsEventHandlerFirst | — | event name; handler; startPriority int; scriptsToIgnore?; pluginsToIgnore array?; pluginHandlersToIgnore array? | bool | 1 if no handler is at lower-or-equal priority (page's wording) | 0 when the handler is not at startPriority; the wording reads reversed against "higher runs first": open (6.2.9) |
+| IsEventHandlerLast | — | as IsEventHandlerFirst | bool | 1 if no handler is at higher-or-equal priority (page's wording) | as above (6.2.9) |
+| GetEventHandlers | — | eventName string?; handler?; priority int? | array | handlers matching the filters: a stringmap by event, then a map by priority, then handler arrays [script or plugin map, filters map] | only extender-managed handlers (6.2.9) |
+| Get(Higher\\|Lower)PriorityEventHandlers | — | as IsEventHandlerFirst | array (map by priority) | handlers at higher-or-equal (lower-or-equal) priority | Ar_Null when the handler is not at startPriority (6.2.9) |
+| DumpEventHandlers | — | as GetEventHandlers | none | prints them by event and priority, plugin handlers included | (6.2.9) |
+
+### Events
+
+| Event | Fires when | First (filter `"first"`, `1::`) | Second (filter `"second"`, `2::`) |
+|---|---|---|---|
+| OnActivate | a reference is activated; **before** its OnActivate block, even when activation is refused; does not block it | activated ref | activating ref |
+| OnActorEquip (OnEquip) | an actor equips an item, after the slot is cleared, before it counts as equipped | actor | item (base form) |
+| OnActorUnequip (OnUnequip) | an actor unequips an item; not for dropped equipped ammo | actor | item (base form) |
+| OnAdd | an item is picked up from the world | item (world ref) | container |
+| OnClose | a reference closes | ref | same ref |
+| OnCombatEnd | an actor leaves combat | target (actor) | ender (actor) |
+| OnDeath | an actor dies | killed | killer |
+| OnDrop | a reference drops an item into the world; not container-to-container moves | dropper | dropped world ref |
+| OnHit | a reference is hit, **before damage** | target | attacker, or the projectile when the target is not an actor and the weapon is not melee/unarmed |
+| OnHitWith | a reference is hit, before damage | target | weapon (base form) |
+| OnLoad | a reference's 3D loads | ref | same ref |
+| OnMagicEffectHit | a magic effect hits | target | base effect |
+| OnMurder | an actor is murdered | murdered | murderer |
+| OnOpen | a reference opens | ref | same ref |
+| OnPackageStart / OnPackageChange / OnPackageDone | an AI package starts / changes / ends | actor | package |
+| OnReset | a reference is reset | ref | same ref |
+| OnSell | an item is sold (never fired before xNVSE 6.2.8) | item (base form) | seller (player or vendor) |
+| OnStartCombat | an actor enters combat; not again on loading a save mid-combat | target | starter |
+| OnTrigger / OnTriggerEnter / OnTriggerLeave | something is in / enters / leaves a trigger | trigger | action ref |
+| SayToDone | a SayTo line ends | speaker | info |
+| OnApplyIMOD / OnRemoveIMOD | an imagespace modifier is applied / removed | — | imagespace modifier |
+| OnLockBroken / OnLockpickSuccess / OnLockpickBroken | a lock is broken / picked / a pick breaks | — | object ref |
+| OnTerminalHacked / OnTerminalHackFailed | a terminal hack succeeds / fails | — | terminal ref |
+| OnRepair | an item is repaired | — | repaired inventory ref; 3rd the repairer, 4th 0 normal / 1 vendor |
+| OnDisable / OnEnable | a reference is disabled / enabled | — | ref |
+| LoadGame | a save is loaded (mostly loaded already; again for the missing-plugins warning; not CenterOnCell from the main menu) | save file name | — (its example also takes the name length) |
+| PostLoadGame | after a load (not a new game, not CenterOnCell from the main menu) | success flag | — |
+| SaveGame | the game is saved | save file name | — |
+| NewGame | a new game starts (not CenterOnCell from the main menu) | — | — |
+| ExitGame / ExitToMainMenu / QQQ | the game quits / returns to the main menu / is quit by console | — | — |
+| RuntimeScriptError | a script raises an extender error | error message | an int |
+| DeleteGame / RenameGame / RenameNewGame | a save is deleted / renamed (old full name / new full name) | file name | its length |
+| DeleteGameName / RenameGameName / RenameNewGameName | the same, relative names | relative file name | its length |
