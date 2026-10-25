@@ -196,14 +196,30 @@ impl Ai {
     /// coordinator 2026-10-12: teleports (fast travel, MoveTo) can leave a follower
     /// beyond the cell buffer while its leader is near: Cheyenne after Sunny Smiles].
     fn with_leader(&self, actor: FormId, level: ProcessLevel) -> ProcessLevel {
-        let leader = match self.agents.get(&actor).and_then(|a| a.goal.as_ref()) {
-            Some(crate::goal::Goal::Follow(f)) if self.agents.contains_key(&f.target) => f.target,
-            _ => return level,
-        };
+        let Some(leader) = self.leader_of(actor) else { return level };
         match (level, self.level(leader)) {
             (ProcessLevel::Low, ProcessLevel::High | ProcessLevel::MidHigh | ProcessLevel::Coming) => ProcessLevel::MidHigh,
             _ => level,
         }
+    }
+
+    /// The one `actor` follows on a Follow or Accompany package, when the AI looks
+    /// after it.
+    fn leader_of(&self, actor: FormId) -> Option<FormId> {
+        match self.agents.get(&actor).and_then(|a| a.goal.as_ref()) {
+            Some(crate::goal::Goal::Follow(f)) if self.agents.contains_key(&f.target) => Some(f.target),
+            _ => None,
+        }
+    }
+
+    /// Whether `actor` follows one in the loaded area or coming into it: out of the
+    /// loaded area such a follower comes in frame by frame ([`ProcessLevel::Coming`]) from
+    /// beyond the cell buffer too, not in the far walk's jumps at a walk [design: as
+    /// [`Ai::with_leader`]; smoke sunny-wells on main 8ec4062d: Cheyenne, beyond the
+    /// buffer in the saloon, took about 20 game minutes to come out after Sunny Smiles,
+    /// who had gone on to the wells].
+    pub fn follows_near_leader(&self, actor: FormId) -> bool {
+        self.leader_of(actor).is_some_and(|l| matches!(self.level(l), ProcessLevel::High | ProcessLevel::Coming))
     }
 
     /// How many of the actors the AI looks after are at the Low level.
