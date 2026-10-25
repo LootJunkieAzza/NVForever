@@ -141,8 +141,9 @@ shot is leaving, so Center of Mass applies to VATS mode's shots that land while 
   log `perks: <actor>: <perk>'s ability <spell> on` and `perks: <actor>'s ability
   <spell> off`) [hypothesis: held only while a teammate, one rank; a companion's
   RemovePerk needs nothing, it is no longer a teammate when it is called].
-- Not built: entry points the engine asks only of the player (attack speed, rate of
-  fire: Old Vaquero's and Causeless Rebel's), so those two do nothing yet. An ability of a
+- Not built: ~~entry points the engine asks only of the player (attack speed, rate of
+  fire: Old Vaquero's and Causeless Rebel's), so those two do nothing yet~~ (built
+  2026-10-25, §12). An ability of a
   teammate perk the player loses (`player.RemovePerk perk 1`) stays on the teammates [design:
   no shipped script does that].
 - Checks: `fnv-game` `tests/perk_combat.rs` `teammate_perks_apply_to_teammates`; smoke
@@ -382,3 +383,79 @@ Owner 2026-10-24: "can you continue on with the rest of the perks".
 
 Checks: `fnv-combat` `rules` `spread_perks_cut_the_strength_and_moving_penalties`; smoke
 `perk-spread-perks`, `perk-teammate-attack-speed`.
+
+## 13. The companion perks: Spotter, Search and Mark, Enhanced Sensors (2026-10-25)
+
+The three entry points [documented: GECK wiki Perk entry points]: 69 Has Improved
+Detection, "Max compass range and VATS targeting of cloaked enemies"; 70 Has Improved
+Spotting, "Enemy highlighting"; 71 Has Improved Item Detection, "Item highlighting". Each
+perk sets its point to 1 with no conditions [observed: `EnhancedSensors` DATA 45 01 01,
+`Spotting` 46 01 01, `SearchAndMark` 47 01 01, EPFD 1.0], held by the player while the
+companion follows (the companions' scripts add and remove them). The highlights are the
+DOBJ's effect shaders [observed: FalloutNV.esm DOBJ slot 31 Spotter Effect
+`fxSpotterShader` 0015FF60, a red edge (200, 55, 77) and no fill, flags 8 (no particles);
+slot 32 Item Detected Effect `fxSearchAndMark` 0015FF61, a green fill (0, 255, 0) with
+`effects\fxparttinyglowy.dds` pulsing and a green edge (85, 195, 85)].
+
+- When: "whenever the player is actively aiming" (the fandom wiki, for both; the GECK wiki
+  gives no time) [hypothesis]: while the player aims with a weapon out
+  (`nvf_play::perk_marks`, ten times a second), the marks play as effect shaders
+  (nvforever `effect_shaders`, a play of its own per reference and shader, until the
+  player stops aiming or the mark leaves the list; logged `effect shader: <shader> on
+  <ref> (…, while the player aims (a companion perk))`). The counts are logged `perk
+  marks: <perk> marks <n> <what> while the player aims` when they change.
+- Spotter: the actors the compass would show red (fighting the player or ready to attack
+  it, `compass.rs`), within the compass's actor range, alive and present.
+- Search and Mark: items lying in the loaded cells, placed or dropped at run time
+  (`World::created`), within `SEARCH_RANGE` 1500 units [design: "within a short
+  distance", the fandom wiki; no setting names it]: ALCH of equip type Chems or Stimpak,
+  WEAP of skill Guns or Energy Weapons, AMMO [hypothesis: the fandom wiki's "chems,
+  firearms & ammunition"].
+- Enhanced Sensors, compass: the compass's actor range is Perception 10's, the most a
+  SPECIAL reaches, whatever the player's Perception (`compass::actor_range`) [hypothesis:
+  "max compass range" read as the range at the top of the scale].
+- Enhanced Sensors, VATS: an actor whose Invisibility or Chameleon is at least 1 (a
+  Stealth Boy, a Nightkin's cloak) is not marked in VATS mode without the perk (logged
+  `vats mode: <ref> is cloaked: not marked …`), and is with it (`… marked through
+  Enhanced Sensors`) [documented: the entry point's description; hypothesis: those actor
+  values are what "cloaked" reads]. This rule did not exist before: VATS mode marked
+  cloaked actors like any other.
+- Not built: Spotter and Search and Mark in VATS mode; the shaders' z test "Greater
+  Than" (seen through walls) is not built for any shader (effect-shaders.md §4).
+
+Checks: smoke `perk-spotter` and `perk-search-and-mark` (frames before and while aiming:
+the dogs glow red, the dropped pistol green), `perk-vats-cloaked`, `perk-enhanced-sensors`.
+
+## 14. Better Healing: Modify Recovered Health (12) (2026-10-25)
+
+The sources disagree: the GECK wiki's entry point is "Run when the player's natural
+healing rate is calculated; Modifies a bonus to the natural healing rate" [documented],
+the fandom wiki's Better Healing "Regain +20% more health from all consumable sources".
+The records: Better Healing multiplies point 12 by 1.2 with no conditions [observed:
+DATA 0c 03 01, EPFD 1.2]; Cardiac Arrest (Old World Blues) by 1.25. So the original game
+was asked (unattended captures with nvf_capture, the `nvftest` save, Health 200,
+2026-10-25; private: `C:\fnv-private\capture\out\pk_better_healing*.jsonl`) [observed]:
+
+- No natural healing: hurt to 120 or 30, the player stays there for 10 s, with the perk or
+  without.
+- A Stimpak (30 at once, Medicine potency): +40 without, +48 with the perk at Medicine 17;
+  +90 and +108 at Medicine 100 (117, capped).
+- A Brahmin Wellington (5 a second for 10 s, Survival potency): from 10 health, without
+  → with the perk: Survival 0: 50 → 60; 32: 80 → 90; 50: 100 → 120; 70: 120 → 140; 100:
+  150 → 180.
+
+Every figure is the effect's magnitude × the skill potency (aid-items.md §4) × 1.2 with the
+perk, the per-second amount of an effect over time cut to a whole number (32 Survival:
+5 × 1.64 = 8.2 → 8 a second, with the perk 9.84 → 9) and an effect at once's total too
+(40.2 → 40, 48.24 → 48). So the entry point applies to the health ingestibles restore,
+the fandom wiki's reading, and the GECK wiki's "natural healing" has nothing to act on.
+
+As built: `Game::ingest_on` (and the Pip-Boy's EFFECTS figure, `Game::aid_preview`) asks
+point 12 for the user from 1, and `aid::Mods::health` multiplies a beneficial change of
+Health by it (`Mods::on_change`); logged among the use's perks (`aid: the player used …;
+perks: BetterHealing (entry point 12)`). Not built: the whole-number cut, which applies to
+all healing, not to the perk (NVForever's healing keeps the fraction); Cardiac Arrest's
+condition, if any, is the record's (not looked at beyond its entry).
+
+Checks: `fnv-game` `aid::tests::better_healing_multiplies_restored_health_only` (the
+captured figures); smoke `perk-better-healing`.

@@ -199,6 +199,9 @@ pub struct Mods {
     pub duration: f64,
     /// Multiplies the rads an effect gives (perks' "Modify Radiation Consumed").
     pub rads: f64,
+    /// Multiplies the health a beneficial effect restores (perks' "Modify Recovered
+    /// Health": Better Healing).
+    pub health: f64,
     /// Applied by a hit (a weapon's, a creature's or a blast's effect,
     /// [`Game::apply_hit_effect`]): the target's resistances cut the harmful magnitudes,
     /// and the same item's active effect is refreshed rather than lengthened
@@ -216,7 +219,7 @@ pub struct Mods {
 
 impl Default for Mods {
     fn default() -> Mods {
-        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false, worn: None, limb: None, only: None }
+        Mods { potency: 1.0, duration: 1.0, rads: 1.0, health: 1.0, hit: false, worn: None, limb: None, only: None }
     }
 }
 
@@ -244,6 +247,9 @@ impl Mods {
     pub fn on_change(&self, mut c: ValueChange) -> ValueChange {
         if c.code == RAD_LEVEL && c.amount < 0.0 {
             c.amount *= self.rads;
+        }
+        if c.code == crate::actor_values::HEALTH && c.amount > 0.0 {
+            c.amount *= self.health;
         }
         if c.parts && !LIMB_CONDITIONS.contains(&c.code) {
             c.limb = self.limb;
@@ -307,7 +313,8 @@ impl Game<'_> {
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
         let duration = if def.equip_type == EQUIP_CHEMS { self.entry_point(actor, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0).0 } else { 1.0 };
-        let mods = Mods { potency, duration, ..Mods::default() };
+        let health = self.entry_point(actor, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0).0;
+        let mods = Mods { potency, duration, health, ..Mods::default() };
         let mut out: Vec<(u16, f64)> = Vec::new();
         for (index, e) in items.iter().enumerate() {
             let label = format!("{} effect {index} (preview)", data.name(item));
@@ -315,7 +322,7 @@ impl Game<'_> {
                 continue;
             }
             let m = data.magic_effects.get(&e.effect);
-            let Some(c) = m.and_then(|m| value_change(m, e, potency, false)) else { continue };
+            let Some(c) = m.and_then(|m| value_change(m, e, potency, false)).map(|c| mods.on_change(c)) else { continue };
             let amount = match c.kind {
                 ChangeKind::PerSecond => c.amount * mods.seconds(m, e),
                 ChangeKind::Once | ChangeKind::Modifier => c.amount,
@@ -353,7 +360,8 @@ impl Game<'_> {
         // take"; the GECK wiki's entry point says "any ingestible"].
         let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
         let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
-        let mods = Mods { potency, duration, rads, limb, ..Mods::default() };
+        let health = perk(self, crate::perks::MODIFY_RECOVERED_HEALTH, 1.0);
+        let mods = Mods { potency, duration, rads, health, limb, ..Mods::default() };
         self.emit(EventKind::Ingested { actor, item, potency });
         let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
         if actor == FormId::PLAYER_REF {
@@ -650,6 +658,29 @@ mod tests {
         assert_eq!(m.on_change(stim).limb, Some(27));
         let hydra = value_change(&mgef(35, 0, None), &item(10, 60, None), 1.0, false).unwrap();
         assert_eq!(m.on_change(hydra).limb, None);
+    }
+
+    #[test]
+    fn better_healing_multiplies_restored_health_only() {
+        // The original game (captures pk_better_healing*): a Stimpak, 30 at Medicine 17's
+        // potency, restored 40 and 48 with Better Healing; Medicine 100: 90 and 108.
+        let s = |n: &str| SETTINGS.iter().find(|x| x.0 == n).unwrap().1;
+        let m = Mods { health: 1.2, ..Mods::default() };
+        for (medicine, without, with) in [(17.0, 40.2, 48.24), (100.0, 90.0, 108.0)] {
+            let p = potency(IngestibleDef::MEDICINE, medicine, 0.0, s);
+            let stim = value_change(&mgef(34, 0, Some(16)), &item(30, 0, Some(16)), p, false).unwrap();
+            assert!((stim.amount - without).abs() < 1e-6, "{}", stim.amount);
+            assert!((m.on_change(stim).amount - with).abs() < 1e-6);
+        }
+        // A Brahmin Wellington, 5 a second at Survival 50's potency 2: 10, with the perk 12.
+        let p = potency(IngestibleDef::FOOD, 0.0, 50.0, s);
+        let food = value_change(&mgef(0, 0, Some(16)), &item(5, 10, Some(16)), p, false).unwrap();
+        assert!((m.on_change(food).amount - 12.0).abs() < 1e-9);
+        // Other values, and harm to health, are left alone.
+        let water = value_change(&mgef(0, 0, Some(5)), &item(5, 0, Some(5)), 1.0, false).unwrap();
+        assert_eq!(m.on_change(water).amount, water.amount);
+        let harm = value_change(&mgef(0, MagicEffectDef::DETRIMENTAL, Some(16)), &item(5, 0, Some(16)), 1.0, false).unwrap();
+        assert_eq!(m.on_change(harm).amount, harm.amount);
     }
 
     #[test]

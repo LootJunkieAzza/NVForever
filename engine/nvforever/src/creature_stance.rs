@@ -18,8 +18,12 @@
 //!   the whole body that would stop their legs [design]. The draw cycle is
 //!   `fnv_actor::weapon::WeaponAnim`, as for people's weapons (`weapons.rs`), on the same
 //!   blend layers 2 and 3 (a creature has no `WeaponHold`).
-//! - **When**: `fnv_game` says the creature is alerted (a combat state, or SetAlert), as
-//!   `alert.rs` draws people's weapons.
+//! - **When**: `fnv_game` says the creature is alerted (a combat state, SetAlert), as
+//!   `alert.rs` draws people's weapons; and while it warns the player
+//!   (`Game::warning_to`, not alerted), drawn once and held [owner decision 2026-10-25:
+//!   the original's warning gecko drew and put away its stance every 2 s (capture
+//!   `warnings`, idles.md §14.3), which looks like an unintended quirk; draw and hold
+//!   instead]. The draw clip is the gecko's hiss.
 //! - Attacks (`attack_anims.rs`) play over the aim on layers 4 and 5 and are found as
 //!   before: a creature with a stance still has no `WeaponHold`.
 
@@ -65,9 +69,25 @@ pub struct CreatureStance {
     pub drawn: bool,
     /// The stage last logged.
     logged: Stage,
+    /// What the creature does with its stance, last logged.
+    mode: Mode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Calm,
+    /// Warning the player: drawn and held (module notes).
+    Warning,
+    Alerted,
 }
 
 impl CreatureStance {
+    /// The stance `clips`, at rest, to be drawn when `drawn` (a creature taking up its
+    /// own attack again after a body weapon, `body_weapons.rs`).
+    pub fn new(clips: Arc<CreatureClips>, drawn: bool) -> CreatureStance {
+        CreatureStance { clips, anim: WeaponAnim::new(false), drawn, logged: Stage::Holstered, mode: Mode::Calm }
+    }
+
     /// Advance the draw cycle by `dt`.
     pub fn step(&mut self, dt: f32) {
         self.anim.step(self.drawn, dt, &self.clips.facts);
@@ -90,7 +110,7 @@ struct Stances(HashMap<String, Option<Arc<CreatureClips>>>);
 
 /// On a creature looked at that has no stance.
 #[derive(Component)]
-struct NoStance;
+pub struct NoStance;
 
 /// The folder of a skeleton path (`creatures\deathclaw\skeleton.nif` → `meshes\creatures\deathclaw`).
 fn folder_of(skeleton: &str) -> String {
@@ -151,7 +171,7 @@ fn attach(
         });
         match found.flatten() {
             Some(clips) => {
-                commands.entity(e).insert(CreatureStance { clips, anim: WeaponAnim::new(false), drawn: false, logged: Stage::Holstered });
+                commands.entity(e).insert(CreatureStance { clips, anim: WeaponAnim::new(false), drawn: false, logged: Stage::Holstered, mode: Mode::Calm });
             }
             None => {
                 commands.entity(e).insert(NoStance);
@@ -160,18 +180,30 @@ fn attach(
     }
 }
 
-/// Draw the stance of alerted creatures, put it away when they are calm; log each stage.
+/// Draw the stance of alerted creatures and of those warning the player, put it away when
+/// they are calm; log each change.
 fn alerted(script: Option<Res<ScriptState>>, mut q: Query<(&ActorRig, &mut CreatureStance, Option<&Name>), Without<Dying>>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     for (rig, mut s, name) in &mut q {
         let id = FormId(rig.reference);
         // As `detection.rs` names actors: the base's editor ID from the entity's name.
         let label = || format!("{} {:08X}", name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or(""), rig.reference).trim().to_string();
-        let want = game.is_alerted(id);
-        if s.drawn != want {
-            s.drawn = want;
-            info!("creature stance: {} {}", label(), if want { "draws (alerted)" } else { "puts away (calm)" });
+        let mode = if game.is_alerted(id) {
+            Mode::Alerted
+        } else if game.draws_weapon(id) {
+            Mode::Warning
+        } else {
+            Mode::Calm
+        };
+        if mode != s.mode {
+            s.mode = mode;
+            info!("creature stance: {} {}", label(), match mode {
+                Mode::Alerted => "draws (alerted)",
+                Mode::Warning => "draws (warning the player)",
+                Mode::Calm => "puts away (calm)",
+            });
         }
+        s.drawn = mode != Mode::Calm;
         if s.anim.stage != s.logged {
             s.logged = s.anim.stage;
             info!("creature stance: {} {:?}", label(), s.logged);
@@ -196,7 +228,7 @@ mod tests {
         let f = |duration: f32| ClipFacts { duration, blend_time: 0.2, prn: Vec::new(), switch: None };
         let facts = StanceFacts::from([(EquipClip::Equip, f(1.0)), (EquipClip::Aim, f(2.0)), (EquipClip::Unequip, f(1.0))]);
         let clips = Arc::new(CreatureClips { clips: BTreeMap::new(), facts });
-        let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered };
+        let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered, mode: Mode::Calm };
         let mut stages = vec![s.anim.stage];
         for i in 0..300 {
             s.drawn = i < 150;

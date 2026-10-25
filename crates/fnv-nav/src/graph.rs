@@ -369,6 +369,11 @@ impl NavGraph {
         // Outline vertices.
         g.boundary_vertex = vec![false; g.vertices.len()];
         for t in &g.tris {
+            // A triangle with a bad vertex index (deleted above) has no vertices of its own:
+            // in a navmesh with triangles but no vertices its index is past the end.
+            if t.has(tri_flags::DELETED) {
+                continue;
+            }
             for e in 0..3 {
                 if !matches!(t.kind[e], EdgeKind::Internal | EdgeKind::Portal) {
                     g.boundary_vertex[t.v[e] as usize] = true;
@@ -534,7 +539,13 @@ impl NavGraph {
 
     /// The three corners of a triangle.
     pub fn corners(&self, t: u32) -> [[f32; 3]; 3] {
-        self.tris[t as usize].v.map(|v| self.vertices[v as usize])
+        self.tris[t as usize].v.map(|v| self.vertex(v))
+    }
+
+    /// A vertex by index; the origin for an index past the end (only a deleted triangle
+    /// of a navmesh without vertices has one).
+    fn vertex(&self, v: u32) -> [f32; 3] {
+        self.vertices.get(v as usize).copied().unwrap_or_default()
     }
 
     pub fn centre(&self, t: u32) -> [f32; 3] {
@@ -722,8 +733,8 @@ impl NavGraph {
     /// the part of this edge facing the other triangle's nearest edge.
     pub fn portal(&self, t: u32, e: usize) -> ([f32; 3], [f32; 3]) {
         let tri = &self.tris[t as usize];
-        let right = self.vertices[tri.v[e] as usize];
-        let left = self.vertices[tri.v[(e + 1) % 3] as usize];
+        let right = self.vertex(tri.v[e]);
+        let left = self.vertex(tri.v[(e + 1) % 3]);
         if tri.kind[e] != EdgeKind::Portal {
             return (left, right);
         }

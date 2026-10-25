@@ -68,6 +68,7 @@ pub mod poker;
 pub mod menu;
 pub mod mines;
 pub mod thrown;
+pub mod perk_marks;
 pub mod message_menu;
 pub mod moved;
 pub mod music;
@@ -300,6 +301,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
             .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins((levelup::LevelUpPlugin, sneak_gauges::SneakGaugesPlugin))
+            .add_plugins(perk_marks::PerkMarksPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)

@@ -121,7 +121,13 @@ impl ModelCollision for Models<'_> {
     }
 }
 
+/// A panic while building a model's collision is that model's failure (no collision),
+/// not the game's (`nvf_assets::guard`).
 fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult {
+    nvf_assets::guard::guarded(|| read_model_unguarded(data, path, times))
+}
+
+fn read_model_unguarded(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult {
     let schema = &*data.schema;
     let t = Instant::now();
     let read = data.vfs.read(path);
@@ -338,8 +344,16 @@ pub(super) fn fix_static_base(base_sig: Option<[u8; 4]>, objects: &mut [fnv_coll
 /// Prepare one placed reference's collision (`fnv_phys::ref_collision`, the rule
 /// `fnvtool phys cell` uses), its dynamic bodies asleep, a static's fixed
 /// ([`fix_static_base`]), a posed one's put in its stored pose ([`pose_stored`]) and a
-/// jointed object's held ([`hold_jointed`]).
+/// jointed object's held ([`hold_jointed`]). A panic while preparing it (bad data met by
+/// a bug of ours, `nvf_assets::guard`) leaves that reference without collision, logged.
 pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShapes {
+    nvf_assets::guard::guarded(|| Ok(reference_unguarded(src, pl, times))).unwrap_or_else(|e| {
+        bevy::log::warn!("phys: 0x{:08X}: collision not prepared ({e}); the reference has none", pl.form_id);
+        RefShapes { tallies: vec!["prepare_failed"], water: Vec::new(), prepared: None, dynamic_local: None, door: None, drawn: None }
+    })
+}
+
+fn reference_unguarded(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShapes {
     let t0 = Instant::now();
     let before = *times;
     let mut tallies = Vec::new();

@@ -166,7 +166,7 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
 
 /// The NPCs and creatures of the loaded cells (and those a script moved in), with their
 /// feet: a moving body's (`PhysState::npcs`) or the reference's place.
-fn actors_near(g: &fnv_game::Game, bodies: &std::collections::HashMap<u32, [f32; 3]>) -> Vec<(FormId, [f32; 3])> {
+pub(crate) fn actors_near(g: &fnv_game::Game, bodies: &std::collections::HashMap<u32, [f32; 3]>) -> Vec<(FormId, [f32; 3])> {
     let placed = g.world.placed;
     let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
     let mut ids: BTreeSet<FormId> = g.loaded_cells.iter().filter_map(|c| placed.by_cell.get(c)).flatten().copied().filter(is_actor).collect();
@@ -179,6 +179,20 @@ fn actors_near(g: &fnv_game::Game, bodies: &std::collections::HashMap<u32, [f32;
         })
         .collect()
 }
+
+/// How far the compass shows actors: the player's Perception × [`ACTOR_RANGE_PER_PERCEPTION`],
+/// or its most, Perception 10's, with Enhanced Sensors (entry point 69 Has Improved
+/// Detection, "Max compass range" [documented: GECK wiki Perk entry points];
+/// perk-entry-points.md §13).
+pub(crate) fn actor_range(g: &mut fnv_game::Game) -> f32 {
+    let perception = fnv_game::functions::actor_value_capped(g, FormId::PLAYER_REF, fnv_game::actor_values::PERCEPTION) as f32;
+    let sensors = g.player_has_entry(fnv_game::perks::HAS_IMPROVED_DETECTION);
+    let p = if sensors { MAX_PERCEPTION } else { perception.max(1.0) };
+    p * ACTOR_RANGE_PER_PERCEPTION
+}
+
+/// The most a SPECIAL reaches [documented: GECK wiki Actor Value Indices, 1 to 10].
+const MAX_PERCEPTION: f32 = 10.0;
 
 /// Who and what is near, ten times a second.
 #[allow(clippy::too_many_arguments)]
@@ -214,7 +228,7 @@ fn gather(
         let found = with_world(rt, &mut sim, |rt| {
             let g = &mut rt.game;
             perception = fnv_game::functions::actor_value_capped(g, FormId::PLAYER_REF, fnv_game::actor_values::PERCEPTION) as f32;
-            let range = perception.max(1.0) * ACTOR_RANGE_PER_PERCEPTION;
+            let range = actor_range(g);
             let mut out = Vec::new();
             for (r, at) in actors_near(g, &bodies) {
                 let d = ((at[0] - feet[0]).powi(2) + (at[1] - feet[1]).powi(2) + (at[2] - feet[2]).powi(2)).sqrt();

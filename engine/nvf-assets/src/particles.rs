@@ -12,7 +12,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::PrimitiveTopology;
 use bevy::prelude::*;
 use crate::anim_play::OwnCycle;
-use fnv_nif::anim::{Channel, Keys, ValueTrack};
+use fnv_nif::anim::{Channel, Keys, TrackData, TransformTrack, ValueTrack};
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject, Transform as NifTransform};
 use fnv_nif::value::Struct;
 use fnv_nif::NifFile;
@@ -22,6 +22,11 @@ use std::sync::Arc;
 /// A float a controller keys over time (`NiPSysEmitterSpeedCtlr`,
 /// `NiPSysGravityStrengthCtlr`, a keyed birth rate…): the controller's own keys on its own
 /// cycle, or a sequence's keys on the sequence's time and cycle (particles.md §6.6).
+/// The most particles one system keeps alive, whatever its file asks for: a broken
+/// file's huge `bs_max_vertices` must not fill memory [hypothesis: vanilla systems ask
+/// for far fewer; particles.md quotes 12 and 14].
+pub const MAX_PARTICLES: usize = 8192;
+
 #[derive(Debug, Clone)]
 pub struct FloatKeys {
     pub channel: Channel<1>,
@@ -236,6 +241,10 @@ pub struct Emitter {
     pub mesh: Option<MeshEmission>,
     /// Fields driven by float controllers (particles.md §6.6).
     pub keyed: Vec<(EmitterParam, FloatKeys)>,
+    /// The name of the node `frame` is the place of (the emitter object; a mesh emitter's
+    /// system's parent): a drawn model's node of that name, which its sequence may move,
+    /// is where it emits from (particles.md §6.7).
+    pub object: Option<String>,
 }
 
 impl Emitter {
@@ -257,12 +266,23 @@ impl Emitter {
             life_variation: 0.0,
             mesh: None,
             keyed: Vec::new(),
+            object: None,
         }
     }
 
     /// Its values `t` seconds after it appeared: each keyed field's controller value in
     /// place of the field's own.
     pub fn values(&self, t: f32) -> EmitterValues {
+        self.values_keyed(t, &self.keyed)
+    }
+
+    /// Its values at time `t` of a sequence that drives it: the fields that sequence keys
+    /// take its keys, the others their own value (particles.md §6.7).
+    pub fn values_in(&self, t: f32, s: &SequenceEmission) -> EmitterValues {
+        self.values_keyed(t, &s.keyed)
+    }
+
+    fn values_keyed(&self, t: f32, keyed: &[(EmitterParam, FloatKeys)]) -> EmitterValues {
         let mut v = EmitterValues {
             speed: self.speed,
             speed_variation: self.speed_variation,
@@ -275,7 +295,7 @@ impl Emitter {
             life: self.life,
             life_variation: self.life_variation,
         };
-        for (param, keys) in &self.keyed {
+        for (param, keys) in keyed {
             let Some(x) = keys.at(t) else { continue };
             *match param {
                 EmitterParam::Speed => &mut v.speed,
@@ -497,15 +517,32 @@ pub struct Drag {
 #[derive(Debug, Clone, Default)]
 pub struct ModifierActive {
     pub keys: Vec<(f32, bool)>,
+    /// The keys each sequence of the model gives it, by the sequence's index among the
+    /// file's sequences ([`SequenceEmission::index`]), for particles born while a drawn
+    /// model plays that sequence (particles.md §6.7).
+    pub by_sequence: Vec<(usize, Vec<(f32, bool)>)>,
 }
 
 impl ModifierActive {
     /// Whether the modifier acts at the emitter's time `t` (`period` > 0 with `loops`:
     /// the keys repeat).
     pub fn on(&self, t: f32, period: f32, loops: bool) -> bool {
-        let t = if loops && period > 0.0 { t.rem_euclid(period) } else { t };
-        self.keys.iter().rev().find(|(k, _)| *k <= t + 1e-4).or(self.keys.first()).is_none_or(|(_, on)| *on)
+        keys_on(&self.keys, t, period, loops)
     }
+
+    /// Whether it acts at time `t` of sequence `sequence` (its keys there, else its own).
+    pub fn on_in(&self, sequence: Option<usize>, t: f32, period: f32, loops: bool) -> bool {
+        match sequence.and_then(|i| self.by_sequence.iter().find(|(s, _)| *s == i)) {
+            Some((_, keys)) => keys_on(keys, t, period, loops),
+            None => self.on(t, period, loops),
+        }
+    }
+}
+
+/// The state of on/off `keys` at `t` (the first key's before it; none: on).
+fn keys_on(keys: &[(f32, bool)], t: f32, period: f32, loops: bool) -> bool {
+    let t = if loops && period > 0.0 { t.rem_euclid(period) } else { t };
+    keys.iter().rev().find(|(k, _)| *k <= t + 1e-4).or(keys.first()).is_none_or(|(_, on)| *on)
 }
 
 /// One `NiParticleSystem`.
@@ -526,6 +563,11 @@ pub struct ParticleSystemDef {
     pub active: Vec<(f32, bool)>,
     pub period: f32,
     pub loops: bool,
+    /// How each sequence of the model that drives its emitter does (particles.md §6.7):
+    /// a drawn model playing one of them emits by it, and not at all while it plays
+    /// none of them. Empty: no sequence drives it, or the model is not drawn with its
+    /// own nodes (an explosion), and `rate`/`active` are the whole story.
+    pub sequences: Vec<SequenceEmission>,
     /// The most emitters served at once (`BSPSysMultiTargetEmitterCtlr`); 0: no limit.
     pub max_emitters: usize,
     pub grow_time: f32,
@@ -543,12 +585,97 @@ pub struct ParticleSystemDef {
     pub strip: Option<Strip>,
     /// Parts of the texture a particle can show: (u, width, v, height).
     pub subtextures: Vec<[f32; 4]>,
+    /// A node above the emitter that a sequence of the file moves (a dust devil's mover
+    /// on its path): the emitter, its meshes and the file's bombs move with it.
+    pub mover: Option<Mover>,
+    /// The system's material alpha keyed over the emitter's time (`NiAlphaController`):
+    /// each particle's alpha is scaled by it at the emitter time it is drawn at; the
+    /// material is then built with alpha 1.
+    pub alpha_keys: Option<FloatKeys>,
+}
+
+/// A node above a system's emitter that a sequence of the file moves, played on the
+/// emitter's time by the sequence's cycle [hypothesis: the model's sequence runs from
+/// the emitter's appearance, as the emitter controllers' keys do (§6.6);
+/// docs/spec-notes/particles.md §6.8]. `fxdustwhirlwind01.nif`'s
+/// `FXDustWhirlWindMover` travels its path in 12 s, again and again.
+#[derive(Debug, Clone)]
+pub struct Mover {
+    /// The node's name, for the log.
+    pub node: String,
+    pub track: TransformTrack,
+    pub cycle: OwnCycle,
+    /// The place of the node's parent in the file.
+    pub parent: Affine3A,
+    /// The node's own transform where the track leaves a part unkeyed.
+    pub rest: (Vec3, Quat, f32),
+    /// From the file's frame to the node's, at rest.
+    pub to_node: Affine3A,
+}
+
+impl Mover {
+    /// How the file's places move at the emitter's time `clock`: the node's place at that
+    /// time over its place at rest.
+    pub fn moved(&self, clock: f32) -> Affine3A {
+        let t = self.cycle.time(clock);
+        let (rt, rr, rs) = self.rest;
+        let translation = self.track.translation.sample(t).map(Vec3::from_array).filter(|v| v.is_finite()).unwrap_or(rt);
+        let rotation = self.track.rotation_at(t).map(|q| Quat::from_xyzw(q[1], q[2], q[3], q[0])).filter(|q| q.is_finite()).unwrap_or(rr);
+        let scale = self.track.scale.sample(t).map(|[v]| v).filter(|v| v.is_finite() && *v > -1e30).unwrap_or(rs);
+        self.parent * Affine3A::from_scale_rotation_translation(Vec3::splat(scale), rotation, translation) * self.to_node
+    }
+}
+
+/// The nearest node at or above block `anchor` that a sequence of the file moves (the
+/// first sequence with a keyed transform track for it).
+fn mover_of(file: &NifFile, dec: &Decoded, by_block: &HashMap<usize, &SceneObject>, anchor: i32, place: &dyn Fn(i32) -> Affine3A) -> Option<Mover> {
+    let mut seqs = fnv_nif::anim::sequences(file, dec);
+    seqs.sort_by_key(|q| (sequence_rank(&q.name.as_deref().unwrap_or_default().to_ascii_lowercase()), q.block));
+    let mut at = usize::try_from(anchor).ok().and_then(|b| by_block.get(&b)).copied();
+    let mut depth = 0;
+    while let Some(o) = at.filter(|o| o.parent.is_some()) {
+        if let Some(name) = o.name.as_deref() {
+            for seq in &seqs {
+                let track = seq.tracks.iter().find_map(|tr| match &tr.data {
+                    TrackData::Transform(t) if tr.node_name.as_deref() == Some(name) && (t.translation.is_animated() || t.rotation.is_animated() || t.euler.is_some() || t.scale.is_animated()) => Some(t),
+                    _ => None,
+                });
+                if let Some(track) = track {
+                    let rest = affine(&o.transform);
+                    let (rs, rr, rt) = rest.to_scale_rotation_translation();
+                    let parent = place(o.parent.map_or(-1, |p| p as i32));
+                    return Some(Mover {
+                        node: name.to_string(),
+                        track: track.clone(),
+                        cycle: OwnCycle { start: 0.0, stop: seq.stop_time - seq.start_time, frequency: 1.0, phase: 0.0, cycle_type: seq.cycle_type },
+                        parent,
+                        rest: (rt, rr, rs.x),
+                        to_node: (parent * rest).inverse(),
+                    });
+                }
+            }
+        }
+        at = o.parent.and_then(|p| by_block.get(&p)).copied();
+        depth += 1;
+        if depth > 256 {
+            break;
+        }
+    }
+    None
 }
 
 impl ParticleSystemDef {
+    /// How the file's places have moved at the emitter's time `t` (identity without a
+    /// [`Mover`]).
+    pub fn moved(&self, t: f32) -> Affine3A {
+        self.mover.as_ref().map_or(Affine3A::IDENTITY, |m| m.moved(t))
+    }
+
     /// Its birth rate `t` seconds after the emitter appeared.
     pub fn rate_at(&self, t: f32) -> f32 {
-        self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate).max(0.0)
+        let r = self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate);
+        // A broken file's infinite or NaN rate births nothing.
+        if r.is_finite() { r.max(0.0) } else { 0.0 }
     }
 
     /// A particle's colour (before the emitter's) at `t`, the share of its life lived.
@@ -579,6 +706,12 @@ impl ParticleSystemDef {
         if self.color_keys.is_some() {
             s += ", colour keys";
         }
+        if self.alpha_keys.is_some() {
+            s += ", keyed alpha";
+        }
+        if let Some(m) = &self.mover {
+            s += &format!(", moved by {} ({:.1} s)", m.node, m.cycle.stop);
+        }
         let keyed: Vec<String> = self.emitter.keyed.iter().map(|(p, _)| format!("{p:?}")).chain(self.gravity.iter().filter(|g| g.strength_keys.is_some()).map(|_| "GravityStrength".to_string())).collect();
         if !keyed.is_empty() {
             s += &format!(", keyed {}", keyed.join("/"));
@@ -597,32 +730,12 @@ impl ParticleSystemDef {
     /// burst: 400,000 a second for 0.00001 s) gives its few particles whatever the frame
     /// length.
     pub fn on_time(&self, from: f32, to: f32) -> f32 {
-        if self.active.is_empty() {
-            return (to - from).max(0.0);
-        }
-        let state = |t: f32| self.active.iter().rev().find(|(k, _)| *k <= t).or(self.active.first()).is_none_or(|(_, on)| *on);
-        // The span split at the keys (and, looping, at the period's ends).
-        let looping = self.loops && self.period > 0.0;
-        let mut on = 0.0;
-        let mut t = from;
-        let mut steps = 0;
-        while t < to && steps < 4096 {
-            steps += 1;
-            let (base, local) = if looping { let n = (t / self.period).floor(); (n * self.period, t - n * self.period) } else { (0.0, t) };
-            let mut next = self.active.iter().map(|(k, _)| *k).filter(|k| *k > local).fold(f32::INFINITY, f32::min);
-            if looping {
-                next = next.min(self.period);
-            }
-            let end = (base + next).min(to);
-            if state(local) {
-                on += end - t;
-            }
-            if end <= t {
-                break;
-            }
-            t = end;
-        }
-        on
+        span_on(&self.active, self.period, self.loops, from, to)
+    }
+
+    /// The sequence of the model named `name` that drives this emitter, if any.
+    pub fn sequence(&self, name: &str) -> Option<&SequenceEmission> {
+        self.sequences.iter().find(|s| s.sequence.eq_ignore_ascii_case(name))
     }
 
     /// A particle's size as a share of its radius, `age` seconds into a life of `life`
@@ -638,6 +751,173 @@ impl ParticleSystemDef {
         }
         s
     }
+}
+
+/// How many of the seconds from `from` to `to` on/off `keys` say on (none: all of them),
+/// the keys repeating every `period` when `loops`.
+fn span_on(keys: &[(f32, bool)], period: f32, loops: bool, from: f32, to: f32) -> f32 {
+    if keys.is_empty() {
+        return (to - from).max(0.0);
+    }
+    let state = |t: f32| keys.iter().rev().find(|(k, _)| *k <= t).or(keys.first()).is_none_or(|(_, on)| *on);
+    // The span split at the keys (and, looping, at the period's ends).
+    let looping = loops && period > 0.0;
+    let mut on = 0.0;
+    let mut t = from;
+    let mut steps = 0;
+    while t < to && steps < 4096 {
+        steps += 1;
+        let (base, local) = if looping { let n = (t / period).floor(); (n * period, t - n * period) } else { (0.0, t) };
+        let mut next = keys.iter().map(|(k, _)| *k).filter(|k| *k > local).fold(f32::INFINITY, f32::min);
+        if looping {
+            next = next.min(period);
+        }
+        let end = (base + next).min(to);
+        if state(local) {
+            on += end - t;
+        }
+        if end <= t {
+            break;
+        }
+        t = end;
+    }
+    on
+}
+
+/// How one sequence of a model drives a particle system's emitter: the `NiPSysEmitterCtlr`
+/// tracks (birth rate, on/off) and the emitter float controllers' tracks its controlled
+/// blocks give that system [observed: `repbay.nif`, REPCONN's rocket bay, whose Forward,
+/// Right and Left each give every one of its 56 systems an on/off track; particles.md
+/// §6.7]. Times are the sequence's own.
+#[derive(Debug, Clone)]
+pub struct SequenceEmission {
+    /// The sequence's name (the group a script plays) and its index among the file's
+    /// `NiControllerSequence` blocks.
+    pub sequence: String,
+    pub index: usize,
+    pub rate: f32,
+    pub rate_keys: Option<FloatKeys>,
+    /// On/off keys over the sequence's time; a track without keys is its lone value from
+    /// 0 [observed: most of `repbay.nif`'s are a lone false]. Empty: on throughout.
+    pub active: Vec<(f32, bool)>,
+    /// The sequence's length, and whether it repeats (cycle type 0).
+    pub period: f32,
+    pub loops: bool,
+    /// Emitter fields the sequence keys (speed, radius…).
+    pub keyed: Vec<(EmitterParam, FloatKeys)>,
+}
+
+impl SequenceEmission {
+    /// Its birth rate at the sequence's time `t`.
+    pub fn rate_at(&self, t: f32) -> f32 {
+        self.rate_keys.as_ref().and_then(|k| k.at(t)).unwrap_or(self.rate).max(0.0)
+    }
+
+    /// How many of the seconds from `from` to `to` of the sequence's time it is on. A
+    /// clamped sequence holds its end: past its length the last key's state goes on
+    /// [hypothesis: as a clamped sequence holds its other tracks' end values].
+    pub fn on_time(&self, from: f32, to: f32) -> f32 {
+        span_on(&self.active, self.period, self.loops, from, to)
+    }
+}
+
+/// The on/off keys of bool interpolator `interp`: its keys, or its lone value from 0
+/// (`None`: an undefined value, as a blend interpolator's) [documented: nif.xml
+/// NiBoolInterpolator; observed: `repbay.nif`].
+fn bool_keys(dec: &Decoded, interp: i32) -> Vec<(f32, bool)> {
+    match fnv_nif::anim::bool_track(dec, interp) {
+        Some(t) if !t.keys.is_empty() => t.keys,
+        Some(t) => t.value.map(|v| vec![(0.0, v)]).unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
+/// Every `NiControllerSequence` of the file with its index among them.
+fn sequences<'a>(file: &'a NifFile, dec: &'a Decoded) -> impl Iterator<Item = (usize, &'a Struct)> + 'a {
+    file.blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.type_name == "NiControllerSequence")
+        .filter_map(|(i, _)| dec.blocks[i].as_ref().ok())
+        .enumerate()
+}
+
+/// How each sequence of the file drives the emitter of the particle system named
+/// `system`, whose emitter modifier is named `emitter` (its float controllers' controller
+/// ID) (particles.md §6.7).
+fn sequence_emissions(file: &NifFile, dec: &Decoded, system: &str, emitter: &str) -> Vec<SequenceEmission> {
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    let mut out = Vec::new();
+    for (index, seq) in sequences(file, dec) {
+        let cycle = sequence_cycle(seq);
+        let mut found = SequenceEmission {
+            sequence: seq.text("name").unwrap_or_default().to_string(),
+            index,
+            rate: -1.0,
+            rate_keys: None,
+            active: Vec::new(),
+            period: cycle.stop,
+            loops: cycle.cycle_type == 0,
+            keyed: Vec::new(),
+        };
+        let mut drives = false;
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() != Some(system) {
+                continue;
+            }
+            let interp = cb.block_ref("interpolator").unwrap_or(-1);
+            let ty = text(cb, "controller_type").unwrap_or_default();
+            if ty == "NiPSysEmitterCtlr" {
+                drives = true;
+                match text(cb, "interpolator_id").as_deref() {
+                    Some("BirthRate") => match float_keys(file, dec, interp, cycle) {
+                        Some(k) if matches!(k.channel, Channel::Keys(_)) => {
+                            found.rate = 0.0;
+                            found.rate_keys = Some(k);
+                        }
+                        _ => {
+                            let v = dec.get(interp).and_then(|s| s.float("value")).unwrap_or(0.0);
+                            if v.is_finite() && v > -1e30 {
+                                found.rate = v.max(0.0);
+                            }
+                        }
+                    },
+                    Some("EmitterActive") => found.active = bool_keys(dec, interp),
+                    _ => {}
+                }
+            } else if let Some(param) = EmitterParam::of_controller(&ty).filter(|_| text(cb, "controller_id").as_deref() == Some(emitter)) {
+                if let Some(k) = float_keys(file, dec, interp, cycle) {
+                    drives = true;
+                    found.keyed.push((param, k));
+                }
+            }
+        }
+        if drives {
+            out.push(found);
+        }
+    }
+    out
+}
+
+/// The on/off keys each sequence of the file gives the `NiPSysModifierActiveCtlr` of the
+/// modifier named `modifier` of system `system`, by sequence index (particles.md §6.7).
+fn sequence_modifier_actives(file: &NifFile, dec: &Decoded, system: &str, modifier: &str) -> Vec<(usize, Vec<(f32, bool)>)> {
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    let mut out = Vec::new();
+    for (index, seq) in sequences(file, dec) {
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() == Some(system)
+                && text(cb, "controller_type").as_deref() == Some("NiPSysModifierActiveCtlr")
+                && text(cb, "controller_id").as_deref() == Some(modifier)
+            {
+                out.push((index, bool_keys(dec, cb.block_ref("interpolator").unwrap_or(-1))));
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// The particle systems of one file.
@@ -665,10 +945,7 @@ struct SequenceEmitter {
 /// when its cycle type is 0 [documented: nif.xml NiControllerSequence, CycleType].
 fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<SequenceEmitter> {
     let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
-    for (i, b) in file.blocks.iter().enumerate() {
-        if b.type_name != "NiControllerSequence" {
-            continue;
-        }
+    for i in sequence_order(file, dec) {
         let Ok(seq) = &dec.blocks[i] else { continue };
         let mut found = SequenceEmitter { rate: -1.0, rate_keys: None, active: Vec::new(), period: seq.float("stop_time").unwrap_or(0.0) - seq.float("start_time").unwrap_or(0.0), loops: seq.int("cycle_type").unwrap_or(0) == 0 };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
@@ -694,13 +971,82 @@ fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<Seque
                     }
                 }
                 Some("EmitterActive") => {
-                    found.active = fnv_nif::anim::bool_track(dec, interp).map(|t| t.keys).unwrap_or_default();
+                    found.active = bool_keys(dec, interp);
                 }
                 _ => {}
             }
         }
         if found.rate >= 0.0 {
             return Some(found);
+        }
+    }
+    None
+}
+
+/// A placed model plays its `Idle` sequence, or `SpecialIdle` when it has none
+/// [hypothesis: nvf_assets::anim_play picks the same for the drawn model]; the other
+/// groups run only when a script or the game starts them. So the sequences that may key
+/// a placed model's particle systems are looked at in that order: `Idle`, `SpecialIdle`,
+/// then the rest in file order (for effect models whose one sequence is another group,
+/// such as an explosion's `SpecialIdle_AreaEffect`). Before 2026-10-23 the first
+/// sequence of the file won: `nvbouldersm.nif`'s `Forward` puffed dust each time a
+/// boulder was drawn (docs/spec-notes/particles.md §6.9).
+fn sequence_order(file: &NifFile, dec: &Decoded) -> Vec<usize> {
+    let mut seqs: Vec<(usize, u8)> = file
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.type_name == "NiControllerSequence")
+        .map(|(i, _)| {
+            let name = dec.blocks[i].as_ref().ok().and_then(|s| s.text("name")).unwrap_or_default().to_ascii_lowercase();
+            (i, sequence_rank(&name))
+        })
+        .collect();
+    seqs.sort_by_key(|&(i, rank)| (rank, i));
+    seqs.into_iter().map(|(i, _)| i).collect()
+}
+
+/// 0 for `Idle`, 1 for `SpecialIdle`, 2 for any other sequence name (lower case).
+fn sequence_rank(name: &str) -> u8 {
+    match name {
+        "idle" => 0,
+        "specialidle" => 1,
+        _ => 2,
+    }
+}
+
+/// The `NiAlphaController` keys a particle system's own material has: its own
+/// interpolator's keys on its own cycle, or the blend interpolator's from a sequence
+/// (controlled block named after the system, controller type `NiAlphaController`)
+/// [observed: `sanddust02.nif`'s `PCloud01`, stored alpha 0, keyed 0 → 0.05 → 0 in its
+/// `Idle`; docs/spec-notes/particles.md §6.9].
+fn material_alpha_keys(file: &NifFile, dec: &Decoded, material: Option<i32>, system: &str) -> Option<FloatKeys> {
+    let type_of = |r: i32| usize::try_from(r).ok().and_then(|i| file.blocks.get(i)).map(|b| b.type_name.as_str());
+    let mut c = material.and_then(|m| dec.get(m)).and_then(|m| m.block_ref("controller")).unwrap_or(-1);
+    let mut steps = 0;
+    while let (Some(ty), Some(ctl)) = (type_of(c), dec.get(c)) {
+        if ty == "NiAlphaController" {
+            if let Some(k) = float_keys(file, dec, ctl.block_ref("interpolator").unwrap_or(-1), controller_cycle(ctl)).filter(|k| matches!(k.channel, Channel::Keys(_))) {
+                return Some(k);
+            }
+            break;
+        }
+        c = ctl.block_ref("next_controller").unwrap_or(-1);
+        steps += 1;
+        if steps > 64 {
+            break;
+        }
+    }
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    for i in sequence_order(file, dec) {
+        let Ok(seq) = &dec.blocks[i] else { continue };
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() == Some(system) && text(cb, "controller_type").as_deref() == Some("NiAlphaController") {
+                if let Some(k) = float_keys(file, dec, cb.block_ref("interpolator").unwrap_or(-1), sequence_cycle(seq)).filter(|k| matches!(k.channel, Channel::Keys(_))) {
+                    return Some(k);
+                }
+            }
         }
     }
     None
@@ -738,10 +1084,7 @@ fn float_keys(file: &NifFile, dec: &Decoded, interp: i32, cycle: OwnCycle) -> Op
 /// gravity strength]).
 fn sequence_float(file: &NifFile, dec: &Decoded, system: &str, controller: &str, modifier: &str) -> Option<FloatKeys> {
     let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
-    for (i, b) in file.blocks.iter().enumerate() {
-        if b.type_name != "NiControllerSequence" {
-            continue;
-        }
+    for i in sequence_order(file, dec) {
         let Ok(seq) = &dec.blocks[i] else { continue };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
             let fnv_nif::value::Value::Struct(cb) = cb else { continue };
@@ -760,10 +1103,7 @@ fn sequence_float(file: &NifFile, dec: &Decoded, system: &str, controller: &str,
 /// whose controller ID is the modifier's name [observed: `explosiongrenadefrag.nif`]).
 fn sequence_modifier_active(file: &NifFile, dec: &Decoded, system: &str, modifier: &str) -> Option<Vec<(f32, bool)>> {
     let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
-    for (i, b) in file.blocks.iter().enumerate() {
-        if b.type_name != "NiControllerSequence" {
-            continue;
-        }
+    for i in sequence_order(file, dec) {
         let Ok(seq) = &dec.blocks[i] else { continue };
         for cb in seq.list("controlled_blocks").unwrap_or_default() {
             let fnv_nif::value::Value::Struct(cb) = cb else { continue };
@@ -771,7 +1111,7 @@ fn sequence_modifier_active(file: &NifFile, dec: &Decoded, system: &str, modifie
                 && text(cb, "controller_type").as_deref() == Some("NiPSysModifierActiveCtlr")
                 && text(cb, "controller_id").as_deref() == Some(modifier)
             {
-                let keys = fnv_nif::anim::bool_track(dec, cb.block_ref("interpolator").unwrap_or(-1)).map(|t| t.keys).unwrap_or_default();
+                let keys = bool_keys(dec, cb.block_ref("interpolator").unwrap_or(-1));
                 return Some(keys);
             }
         }
@@ -808,10 +1148,10 @@ impl ModelCtx<'_> {
         if let Some(p) = self.cache.particles.get(&key) {
             return p.clone();
         }
-        let p = match self.prepare_particles(&key) {
+        let p = match crate::guard::guarded(|| self.prepare_particles(&key)) {
             Ok(p) => Some(Arc::new(p)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "particles", format!("{key}: {e}"));
                 None
             }
         };
@@ -853,7 +1193,14 @@ impl ModelCtx<'_> {
             // Its properties, with those of the nodes above it.
             let parent = objects.iter().find(|o| o.is_node && o.children.contains(&i)).map(|o| o.block);
             let fake = SceneObject { block: i, type_name: b.type_name.clone(), name: None, parent, transform: NifTransform::IDENTITY, is_node: false, children: Vec::new() };
-            let props = shape_props(&file, &dec, &fake, &by_block);
+            let mut props = shape_props(&file, &dec, &fake, &by_block);
+            // A keyed material alpha scales each particle's alpha at draw time; the
+            // material itself is then opaque in alpha (its stored value is often 0).
+            let material_block = ps.refs("properties").unwrap_or_default().iter().copied().find(|&r| type_of(r) == Some("NiMaterialProperty"));
+            let alpha_keys = material_alpha_keys(&file, &dec, material_block, ps.text("name").unwrap_or_default());
+            if alpha_keys.is_some() {
+                props.material_alpha = Some(1.0);
+            }
             let mut template = particle_mesh();
             let (mut material, _missing) = shape_material(&props, &mut template, &mut self.textures, &self.data, &mut self.images, self.formats.as_deref());
             // The template is one unit across; particles keep the full soft distance.
@@ -864,7 +1211,7 @@ impl ModelCtx<'_> {
             let data = ps.block_ref("data").and_then(|r| dec.get(r));
             let mut def = ParticleSystemDef {
                 name: ps.text("name").unwrap_or_default().to_string(),
-                max: data.and_then(|d| d.int("bs_max_vertices")).unwrap_or(0).max(0) as usize,
+                max: (data.and_then(|d| d.int("bs_max_vertices")).unwrap_or(0).max(0) as usize).min(MAX_PARTICLES),
                 material,
                 emitter: Emitter::blank(),
                 rate: 0.0,
@@ -872,6 +1219,7 @@ impl ModelCtx<'_> {
                 active: Vec::new(),
                 period: 0.0,
                 loops: true,
+                sequences: Vec::new(),
                 max_emitters: 0,
                 grow_time: 0.0,
                 fade_time: 0.0,
@@ -888,12 +1236,14 @@ impl ModelCtx<'_> {
                     .and_then(|d| d.floats("subtexture_offsets"))
                     .map(|f| f.as_chunks::<4>().0.to_vec())
                     .unwrap_or_default(),
+                mover: None,
+                alpha_keys,
             };
             // The modifiers' on/off keys: a `NiPSysModifierActiveCtlr` in the system's
             // controller chain names its modifier; a blend interpolator leaves the keys to
             // the model's sequence.
             let system_name = def.name.clone();
-            let mut switched: HashMap<String, Vec<(f32, bool)>> = HashMap::new();
+            let mut switched: HashMap<String, ModifierActive> = HashMap::new();
             // Float controllers by (controller type, modifier name): their own keys, or a
             // blend interpolator's from the model's sequence (particles.md §6.6).
             let mut floats: HashMap<(String, String), FloatKeys> = HashMap::new();
@@ -905,7 +1255,8 @@ impl ModelCtx<'_> {
                         if let Some(name) = ctl.text("modifier_name").map(str::to_string) {
                             let own = ctl.block_ref("interpolator").and_then(|r| fnv_nif::anim::bool_track(&dec, r)).map(|t| t.keys).unwrap_or_default();
                             let keys = if own.is_empty() { sequence_modifier_active(&file, &dec, &system_name, &name).unwrap_or_default() } else { own };
-                            switched.insert(name, keys);
+                            let by_sequence = sequence_modifier_actives(&file, &dec, &system_name, &name);
+                            switched.insert(name, ModifierActive { keys, by_sequence });
                         }
                     } else if ty == "NiPSysGravityStrengthCtlr" || EmitterParam::of_controller(ty).is_some() {
                         if let Some(name) = ctl.text("modifier_name").map(str::to_string) {
@@ -922,9 +1273,11 @@ impl ModelCtx<'_> {
                     }
                 }
             }
-            let modifier_keys = |m: &Struct| m.text("name").and_then(|n| switched.get(n)).cloned().unwrap_or_default();
+            let modifier_active = |m: &Struct| m.text("name").and_then(|n| switched.get(n)).cloned().unwrap_or_default();
             let mut has_emitter = false;
             let mut emitter_name = String::new();
+            // The block the emitter starts particles from (its object, or its first mesh).
+            let mut anchor = -1;
             for &r in ps.refs("modifiers").unwrap_or_default() {
                 let (Some(ty), Some(m)) = (type_of(r), dec.get(r)) else { continue };
                 let f = |key: &str| m.float(key).unwrap_or(0.0);
@@ -936,8 +1289,10 @@ impl ModelCtx<'_> {
                         has_emitter = true;
                         emitter_name = m.text("name").unwrap_or_default().to_string();
                         let round = ty != "NiPSysBoxEmitter";
+                        anchor = m.block_ref("emitter_object").unwrap_or(-1);
                         def.emitter = Emitter {
                             frame: place(m.block_ref("emitter_object").unwrap_or(-1)),
+                            object: dec.get(m.block_ref("emitter_object").unwrap_or(-1)).and_then(|o| o.text("name")).map(str::to_string),
                             size: if round { Vec3::new(f("radius"), f("radius"), f("height")) } else { Vec3::new(f("width"), f("height"), f("depth")) },
                             round,
                             speed: f("speed"),
@@ -958,6 +1313,7 @@ impl ModelCtx<'_> {
                     "NiPSysMeshEmitter" => {
                         has_emitter = true;
                         emitter_name = m.text("name").unwrap_or_default().to_string();
+                        anchor = m.refs("emitter_meshes").and_then(|r| r.first().copied()).unwrap_or(parent.map_or(-1, |p| p as i32));
                         let meshes: Vec<EmitterMesh> = m
                             .refs("emitter_meshes")
                             .unwrap_or_default()
@@ -984,6 +1340,7 @@ impl ModelCtx<'_> {
                             // No meshes: from the system's parent node, named `<system>-Emitter`
                             // as the box emitters' objects are [design, particles.md §6.1].
                             frame: place(parent.map_or(-1, |p| p as i32)),
+                            object: parent.and_then(|p| dec.get(p as i32)).and_then(|o| o.text("name")).map(str::to_string),
                             speed: f("speed"),
                             speed_variation: f("speed_variation"),
                             declination: f("declination"),
@@ -1009,7 +1366,7 @@ impl ModelCtx<'_> {
                             decay: f("decay"),
                             decay_type: m.int("decay_type").unwrap_or(0),
                             symmetry: m.int("symmetry_type").unwrap_or(0),
-                            active: ModifierActive { keys: modifier_keys(m) },
+                            active: modifier_active(m),
                         });
                     }
                     "NiPSysColliderManager" => {
@@ -1101,13 +1458,13 @@ impl ModelCtx<'_> {
                             strength: f("strength"),
                             strength_keys: m.text("name").and_then(|n| floats.get(&("NiPSysGravityStrengthCtlr".to_string(), n.to_string()))).cloned(),
                             spherical: m.int("force_type").unwrap_or(0) == 1,
-                            active: ModifierActive { keys: modifier_keys(m) },
+                            active: modifier_active(m),
                         });
                     }
                     "NiPSysDragModifier" => {
                         let frame = place(m.block_ref("drag_object").unwrap_or(-1));
                         let axis = m.floats("drag_axis").filter(|a| a.len() >= 3).map_or(Vec3::X, |a| Vec3::new(a[0], a[1], a[2]));
-                        def.drag.push(Drag { axis: frame.transform_vector3(axis).normalize_or_zero(), percentage: f("percentage"), active: ModifierActive { keys: modifier_keys(m) } });
+                        def.drag.push(Drag { axis: frame.transform_vector3(axis).normalize_or_zero(), percentage: f("percentage"), active: modifier_active(m) });
                     }
                     // Ageing, moving and bounds are what any simulation does; a spawn
                     // modifier only acts when the age-death modifier spawns on death.
@@ -1157,8 +1514,19 @@ impl ModelCtx<'_> {
                     break;
                 }
             }
+            // How each of the model's sequences drives it, for a drawn model playing one
+            // (particles.md §6.7); a sequence that gives no birth rate leaves the
+            // controller's own.
+            def.sequences = sequence_emissions(&file, &dec, &def.name, &emitter_name);
+            for s in &mut def.sequences {
+                if s.rate < 0.0 && s.rate_keys.is_none() {
+                    s.rate = def.rate;
+                    s.rate_keys = def.rate_keys.clone();
+                }
+            }
             // An emitter controller of a model's own sequence leaves its rate and on/off
-            // keys to the sequence (its interpolators are blend interpolators).
+            // keys to the sequence (its interpolators are blend interpolators). Without a
+            // drawn model to say which plays (an explosion), the first sequence's.
             if (def.rate <= 0.0 && def.rate_keys.is_none()) || def.active.is_empty() {
                 if let Some(se) = sequence_emitter(&file, &dec, &def.name) {
                     if def.rate <= 0.0 && def.rate_keys.is_none() {
@@ -1172,6 +1540,7 @@ impl ModelCtx<'_> {
                     def.loops = se.loops;
                 }
             }
+            def.mover = mover_of(&file, &dec, &by_block, anchor, &place);
             if has_emitter && def.max > 0 {
                 out.systems.push(def);
             }
@@ -1184,6 +1553,13 @@ impl ModelCtx<'_> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn idle_then_special_idle_key_placed_emitters() {
+        let mut names = ["forward", "specialidle", "idle", "backward"].map(|n| (sequence_rank(n), n));
+        names.sort();
+        assert_eq!(names.map(|(_, n)| n), ["idle", "specialidle", "backward", "forward"]);
+    }
+
     fn def() -> ParticleSystemDef {
         ParticleSystemDef {
             name: String::new(),
@@ -1195,6 +1571,7 @@ mod tests {
             active: vec![(0.0, true), (0.5, false)],
             period: 1.0,
             loops: true,
+            sequences: Vec::new(),
             max_emitters: 2,
             grow_time: 0.5,
             fade_time: 0.25,
@@ -1208,6 +1585,8 @@ mod tests {
             colliders: Vec::new(),
             strip: None,
             subtextures: Vec::new(),
+            mover: None,
+            alpha_keys: None,
         }
     }
 
@@ -1228,13 +1607,50 @@ mod tests {
     #[test]
     fn a_switched_modifier_acts_while_its_keys_say_on() {
         // The frag grenade's smoke drags: on from 0, off at 0.33 s, clamped (5.03 s).
-        let drag = ModifierActive { keys: vec![(0.0, true), (0.333, false), (5.033, false)] };
+        let drag = ModifierActive { keys: vec![(0.0, true), (0.333, false), (5.033, false)], ..Default::default() };
         assert!(drag.on(0.0, 5.033, false) && drag.on(0.3, 5.033, false));
         assert!(!drag.on(0.4, 5.033, false) && !drag.on(9.0, 5.033, false));
         // Looping keys repeat after the period.
         assert!(drag.on(5.1, 5.033, true));
         // No keys: always on.
         assert!(ModifierActive::default().on(3.0, 0.0, false));
+    }
+
+    fn emission(sequence: &str, index: usize, active: Vec<(f32, bool)>, period: f32) -> SequenceEmission {
+        SequenceEmission { sequence: sequence.into(), index, rate: 1200.0, rate_keys: None, active, period, loops: false, keyed: Vec::new() }
+    }
+
+    #[test]
+    fn a_drawn_model_emits_by_the_sequence_it_plays() {
+        // repbay.nif's PFire01: off all through Forward (a lone false), on from 0.5 to
+        // 1 s of Right (23.3 s, clamped).
+        let d = ParticleSystemDef {
+            sequences: vec![emission("Forward", 0, vec![(0.0, false)], 19.97), emission("Right", 1, vec![(0.0, false), (0.5, true), (1.0, false), (23.33, false)], 23.33)],
+            ..def()
+        };
+        assert_eq!(d.sequence("forward").map(|s| s.index), Some(0));
+        assert!(d.sequence("Left").is_none());
+        let fwd = d.sequence("Forward").unwrap();
+        assert_eq!(fwd.on_time(0.0, 30.0), 0.0);
+        let right = d.sequence("Right").unwrap();
+        assert!((right.on_time(0.0, 2.0) - 0.5).abs() < 1e-5);
+        assert!((right.on_time(0.75, 0.8) - 0.05).abs() < 1e-5);
+        assert_eq!(right.rate_at(0.6), 1200.0);
+        // A clamped sequence holds its end: PCloud04's Forward turns it on at 18.3 s and
+        // it stays on past the sequence's end until another sequence replaces it.
+        let cloud = emission("Forward", 0, vec![(0.0, false), (18.33, true), (19.97, true)], 19.97);
+        assert!((cloud.on_time(20.0, 21.0) - 1.0).abs() < 1e-5);
+        assert_eq!(cloud.on_time(0.0, 18.0), 0.0);
+    }
+
+    #[test]
+    fn a_modifier_follows_the_sequence_a_particle_was_born_under() {
+        let bomb = ModifierActive { keys: vec![(0.0, true)], by_sequence: vec![(1, vec![(0.0, false), (2.0, true)])] };
+        assert!(!bomb.on_in(Some(1), 1.0, 23.3, false));
+        assert!(bomb.on_in(Some(1), 3.0, 23.3, false));
+        // Another sequence (no keys of its own) or none: the modifier's own keys.
+        assert!(bomb.on_in(Some(0), 1.0, 20.0, false));
+        assert!(bomb.on_in(None, 1.0, 20.0, false));
     }
 
     #[test]

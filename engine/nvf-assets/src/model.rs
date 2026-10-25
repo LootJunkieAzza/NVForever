@@ -509,6 +509,18 @@ fn model_light(file: &NifFile, dec: &Decoded) -> Option<ModelLight> {
     })
 }
 
+/// `clip` when it can be played ([`Clip::check`]); a broken one is logged and dropped
+/// (once per model: prepared models are cached).
+fn playable(path: &str, clip: Clip) -> Option<Clip> {
+    match clip.check() {
+        Ok(()) => Some(clip),
+        Err(e) => {
+            warn!("{path}: clip {} not played: {e}", clip.name);
+            None
+        }
+    }
+}
+
 /// A controller's own timing (fields of NiTimeController [documented: nif.xml]).
 fn own_cycle(c: &Struct, flags: i64) -> OwnCycle {
     OwnCycle {
@@ -582,13 +594,19 @@ pub fn free_transform_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, Arc<
 /// controllers (Active, not manager controlled). The dust tube placed near Goodsprings
 /// (`effects\ambient\fxdustmeshtube01.nif`) is built so: one such controller, looping,
 /// that shows its mesh for part of a 56.7 s cycle [observed: `fnvtool nif decode`,
-/// docs/spec-notes/effects-animation-audit.md §6]. A track whose value never changes
-/// over its keys is kept: it holds a node the file hides shown, or the reverse.
+/// docs/spec-notes/nif.md §6 "Visibility controllers"]. A track whose value never
+/// changes over its keys is kept: it holds a node the file hides shown, or the reverse.
+///
+/// Left out: controllers on `##` nodes, the weapon parts the holder's clips show and hide
+/// (animation.md §9.7, effects-animation-audit.md §1). A placed frag mine
+/// (`weapons\1handminedrop\minefrag.nif`) holds one on `##FMine` (shown from 0 s,
+/// clamped) [observed]; played, it made the mine an animated rig, whose shapes lost the
+/// light parts `nvf_play::mines` shows from the mine's state.
 pub fn free_visibility_tracks(file: &NifFile, dec: &Decoded) -> Vec<(String, BoolTrack, OwnCycle)> {
     node_tracks_of_own(file, dec, false)
         .into_iter()
         .filter_map(|(node, t, cycle)| match t {
-            NodeTrack::Visibility(t) if !t.keys.is_empty() || t.value.is_some() => Some((node, t, cycle)),
+            NodeTrack::Visibility(t) if !node.starts_with("##") && (!t.keys.is_empty() || t.value.is_some()) => Some((node, t, cycle)),
             _ => None,
         })
         .collect()
@@ -911,7 +929,12 @@ impl ModelCtx<'_> {
         if let Some(out) = self.cache.node_strings.get(&k) {
             return out.clone();
         }
-        let out = Arc::new(self.read_node_strings(path, key));
+        // A panic reading a broken file counts as no strings (logged once: cached).
+        let read = crate::guard::guarded(|| Ok(self.read_node_strings(path, key)));
+        let out = Arc::new(read.unwrap_or_else(|e| {
+            warn!("{path}: {key} strings not read: {e}");
+            HashMap::new()
+        }));
         self.cache.node_strings.insert(k, out.clone());
         out
     }
@@ -979,7 +1002,7 @@ impl ModelCtx<'_> {
         let m = match self.prepare(&path, keep_cpu, first_person, swaps) {
             Ok(m) => Some(Arc::new(m)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "model", format!("{key}: {e}"));
                 None
             }
         };
@@ -1096,7 +1119,7 @@ impl ModelCtx<'_> {
         let m = match m {
             Ok(m) => Some(Arc::new(m)),
             Err(e) => {
-                self.cache.failures.push(format!("{key}: {e}"));
+                crate::guard::failed(&mut self.cache.failures, "model", format!("{key}: {e}"));
                 None
             }
         };
@@ -1118,7 +1141,12 @@ impl ModelCtx<'_> {
 
 /// Prepare the model at `path` (normalised) into `sink`'s asset stores: on the main
 /// thread ([`Stores`]) or on a worker thread ([`Deferred`]).
+/// A panic while preparing is that model's failure, not the game's (guard.rs).
 fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Result<PreparedModel, String> {
+    crate::guard::guarded(|| prepare_unguarded(sink, path, keep_cpu, first_person, swaps))
+}
+
+fn prepare_unguarded(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_person: bool, swaps: &[AltTexture]) -> Result<PreparedModel, String> {
     let game = sink.data().clone();
     let bytes = game.read(path).ok_or("not in any archive")?;
     let schema = game.schema.clone();
@@ -1196,6 +1224,10 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
             None => idle = Some(Clip::from_controllers(free, moving, shows)),
         }
     }
+    // A broken file's clips (NaN keys, timing out of range) are dropped, the model
+    // standing still instead.
+    let idle = idle.and_then(|c| playable(path, c));
+    let effect = effect.and_then(|c| playable(path, c));
     if let Some(c) = idle.as_ref().filter(|c| !c.visibility.is_empty()) {
         info!("{path}: its {} sequence shows and hides {} node(s)", c.name, c.visibility.len());
     }
@@ -1203,9 +1235,9 @@ fn prepare_into(sink: &mut impl ModelSink, path: &str, keep_cpu: bool, first_per
     // sequence, by shape block (docs/spec-notes/vertex-morphs.md §3).
     let morph_of = shape_morphs(&file, &dec, &seqs, |b| by_block.get(&b).and_then(|o| o.name.clone()));
     // A door's Open and Close, when both move nodes of this file.
-    let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
+    let door = named("open").zip(named("close")).and_then(|(open, close)| Some(DoorClips { open: playable(path, open)?, close: playable(path, close)? }));
     // Every named sequence that animates this file (scripts' PlayGroup).
-    let groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).collect();
+    let groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).filter_map(|c| playable(path, c)).collect();
     // Shapes whose material a clip of the rig drives.
     let animated_shapes: HashSet<String> = idle
         .iter()

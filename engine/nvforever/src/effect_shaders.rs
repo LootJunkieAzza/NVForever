@@ -8,8 +8,10 @@
 //!   gets up to two overlays drawn on the same surface (its mesh, and its skin when it
 //!   has one): the fill (texture × colour, panned by the texture speed) and the edge
 //!   (the edge colour, faded in towards the outline by the NIF material's view-angle
-//!   falloff). The player's are the meshes of its third-person body. Both are unlit, cast no shadow and sit a decal's depth step in front of
-//!   the surface. Their alpha follows the record's cycle every frame; a mesh drawn later
+//!   falloff). Cut-out and blended meshes (hair, beards, lashes) get none: the overlays
+//!   do not carry the mesh's texture alpha. The player's are the meshes of its
+//!   third-person body. Both are unlit, cast no shadow and sit a decal's depth step in
+//!   front of the surface. Their alpha follows the record's cycle every frame; a mesh drawn later
 //!   (a cell loaded again, armour put on) gets its overlays then.
 //! - **Holes** (§7 of the notes): a shader with a holes texture gives every mesh it
 //!   covers (and its own overlays) a copy of the mesh's material that the holes texture
@@ -67,6 +69,9 @@ pub(crate) enum Source {
     Script(u64),
     /// An active magic effect (its id).
     Effect(u32),
+    /// A companion perk's mark while the player aims (`nvf_play::perk_marks`): the
+    /// reference and the shader.
+    Perk(u32, u32),
 }
 
 /// A shader playing on a reference.
@@ -189,7 +194,7 @@ fn play(
         Query<&Children>,
         Query<(&Mesh3d, Option<&SkinnedMesh>, &MeshMaterial3d<NifMaterial>), (Without<Overlay>, Without<RefVisual>)>,
     ),
-    (combat, mut fades, mut transforms): (Option<Res<nvf_play::combat::Combat>>, Query<&mut RigMaterials>, Query<&mut Transform>),
+    (combat, mut fades, mut transforms, perk_marks): (Option<Res<nvf_play::combat::Combat>>, Query<&mut RigMaterials>, Query<&mut Transform>, Option<Res<nvf_play::perk_marks::PerkMarks>>),
 ) {
     let (Some(rt), Some(world)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), world) else { return };
     let st = &mut *st;
@@ -204,6 +209,9 @@ fn play(
         if let Some(sh) = m.shader {
             want.push((Source::Effect(e.id), e.target.0, sh.0, None, m.has(MagicEffectDef::FX_PERSIST)));
         }
+    }
+    if let Some(marks) = perk_marks.as_deref() {
+        want.extend(marks.0.iter().map(|(r, sh, _)| (Source::Perk(r.0, sh.0), r.0, sh.0, None, true)));
     }
     let wanted: HashSet<Source> = want.iter().map(|w| w.0).collect();
 
@@ -291,6 +299,7 @@ fn play(
                 (Some(u), _) => format!("for {u:.1} s"),
                 (None, Source::Script(_)) => "until stopped".to_string(),
                 (None, Source::Effect(_)) => "while the effect lasts".to_string(),
+                (None, Source::Perk(..)) => "while the player aims (a companion perk)".to_string(),
             }
         );
         st.active.insert(k, Active { on, shader: s, since: now, until, persist, fill, edge, covered: HashMap::new(), holes_texture, holed: HashMap::new(), addons: Vec::new() });
@@ -323,8 +332,16 @@ fn play(
         a.covered.retain(|e, _| meshes.iter().any(|(m, ..)| m == e));
         a.holed.retain(|e, _| meshes.iter().any(|(m, ..)| m == e));
         let before = a.covered.len();
-        for &(e, mesh, skin, _) in meshes {
+        for &(e, mesh, skin, mat) in meshes {
             if a.covered.contains_key(&e) {
+                continue;
+            }
+            // A cut-out or blended mesh (hair, beards, lashes) gets no overlay: drawn
+            // without the mesh's texture alpha, it covered every card of the hair in the
+            // membrane's colour and the head showed bald (owner's playtest, 2026-10-24).
+            let own = a.holed.get(&e).map_or(&mat.0, |(original, _)| original);
+            if models.materials.get(own).is_some_and(|m| !matches!(m.base.alpha_mode, AlphaMode::Opaque) || m.extension.alpha_cut > 0.0) {
+                a.covered.insert(e, Vec::new());
                 continue;
             }
             let mut overlays = Vec::new();
@@ -561,6 +578,8 @@ fn actor_alpha(
                         if let AlphaMode::Mask(cut) = m.base.alpha_mode {
                             m.extension.alpha_cut = cut * a;
                         }
+                        // A see-through actor's hair hides nothing behind it.
+                        m.extension.depth_write = false;
                         if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
                             m.base.alpha_mode = AlphaMode::Blend;
                         }

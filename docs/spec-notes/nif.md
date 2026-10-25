@@ -961,8 +961,12 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   and starts hidden (`vis_nodes` in `model.rs`). Random Anim Start bases start the
   free tracks at the same phase as the clip [hypothesis]. An item lying in the world
   whose only animation is such controllers (a gun's `##` parts, its slide) stays as
-  stored (`Clip::only_free_motion`, effects-animation-audit.md §3 "Items"); a reference
-  a script enables (`nvf_play::script_draw`) does not apply that item rule yet, for free
+  stored (`Clip::only_free_motion`, effects-animation-audit.md §3 "Items"). Free
+  controllers on `##` nodes are not played at all: they are the parts the holder's clips
+  show and hide (animation.md §9.7), and a placed frag mine's one on `##FMine`
+  (`minefrag.nif`, Active, clamped, shown from 0 s [observed]) turned the mine into an
+  animated rig that lost the light parts `nvf_play::mines` shows from its armed state. A reference
+  a script enables (`nvf_play::script_draw`) does not apply the item rule yet, for free
   transform or visibility tracks. Before this, only
   `object_anims` (script groups, needing the script runtime) and `shot_fx` (effects)
   applied the sequence tracks, and nothing applied the free ones: the arcs' spots
@@ -1058,6 +1062,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   normal-map alpha as an ordinary specular mask; what it does with it and with the
   `_hl` map is open — an in-game picture of hair under a strong light, from the side,
   would show whether there is any highlight to rebuild].
+- **Hair and depth** [observed, `characters\hair\hairbase.nif`]: the hair shape's
+  NiAlphaProperty is flags 4333 (0x10ED), threshold 0: blend on, SRC_ALPHA /
+  INV_SRC_ALPHA, alpha test off [documented: nif.xml AlphaFlags], so the renderers draw
+  it blended. A blended shape writes no depth in the renderers, so fire and dust drawn
+  after the hair covered it wherever the room lay behind, and the player's head showed
+  bald in third person while burning or in a dust devil (owner's playtest, 2026-10-24).
+  Hair-shader shapes that are blended with no test now write depth where their alpha
+  is 0.25 or more and drop fainter fragments [engineering choice; whether the game's
+  hair writes depth is not known: the file has no NiZBufferProperty, and the Z-buffer
+  test flag (bit 31) above says nothing of writing]. Smoke check `hair-under-fire`.
 
 ## 7. Coverage status
 

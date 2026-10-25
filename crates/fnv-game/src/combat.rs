@@ -547,7 +547,7 @@ impl Game<'_> {
         // Pretend In Combat: "the actor to enter combat when the package is begun" [documented:
         // Combat Package Flags]: its weapon is out as in a fight [our choice].
         let drawn = self.package_has(actor, flags::WEAPON_DRAWN) || self.package_has(actor, flags::PRETEND_IN_COMBAT);
-        !unequipped && !fleeing && (self.is_alerted(actor) || drawn || self.active_weapon_use(actor).is_some())
+        !unequipped && !fleeing && (self.draws_weapon(actor) || drawn || self.active_weapon_use(actor).is_some())
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and

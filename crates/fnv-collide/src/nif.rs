@@ -6,7 +6,7 @@
 //! space are computed alongside, because comparing the two is how the scale and the
 //! transform conventions are established on the data.
 
-use fnv_nif::file::NifFile;
+use fnv_nif::file::{NifFile, RawBlock};
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, Transform, SHAPE_DATA_TYPES};
 use fnv_nif::{Struct, Value};
 use std::collections::HashMap;
@@ -155,6 +155,19 @@ impl RawCollision {
     }
 }
 
+/// The first three floats of field `name`; `None` when it has fewer.
+fn floats3(s: &Struct, name: &str) -> Option<[f32; 3]> {
+    match s.floats(name)? {
+        [x, y, z, ..] => Some([*x, *y, *z]),
+        _ => None,
+    }
+}
+
+/// Most shapes one collision object's tree may visit: a bhkListShape that lists the same
+/// sub-tree twice at every level (a broken mod's file) would otherwise double the work
+/// per level [design].
+const MAX_SHAPES: usize = 4096;
+
 fn vec3s(v: &[f32], dim: usize) -> Vec<[f32; 3]> {
     v.chunks_exact(dim).map(|c| [c[0], c[1], c[2]]).collect()
 }
@@ -191,7 +204,7 @@ pub fn iso_from_mat44(m: &[f32; 16]) -> Option<(Iso, f32)> {
 }
 
 struct Walk<'a> {
-    file: &'a NifFile,
+    blocks: &'a [RawBlock],
     dec: &'a Decoded,
     types: Vec<String>,
     mats: Vec<[f32; 16]>,
@@ -199,6 +212,11 @@ struct Walk<'a> {
     mixed: usize,
     problems: Vec<String>,
     depth: usize,
+    /// The shape refs from the root down to the one being read: a ref met again on its
+    /// own path is a cycle and is refused.
+    path: Vec<i32>,
+    /// Shapes visited so far (capped at [`MAX_SHAPES`]).
+    visited: usize,
     /// Largest stored `radius` of the box, convex-vertices and triangle-mesh shapes met.
     shell: f32,
     /// Material of the first convex (sphere-rep) shape met.
@@ -207,10 +225,37 @@ struct Walk<'a> {
 
 impl Walk<'_> {
     fn ty(&self, i: usize) -> &str {
-        &self.file.blocks[i].type_name
+        self.blocks.get(i).map_or("", |b| b.type_name.as_str())
     }
 
+    /// The shape tree under ref `r`. Cycles, nesting deeper than 32 and more than
+    /// [`MAX_SHAPES`] shapes are refused with a problem; the depth and path are restored
+    /// on every exit.
     fn shape(&mut self, r: i32) -> Option<Shape> {
+        if self.path.contains(&r) {
+            self.problems.push(format!("shape ref {r} contains itself"));
+            return None;
+        }
+        if self.depth >= 32 {
+            self.problems.push("shape nesting deeper than 32".into());
+            return None;
+        }
+        self.visited += 1;
+        if self.visited > MAX_SHAPES {
+            if self.visited == MAX_SHAPES + 1 {
+                self.problems.push(format!("more than {MAX_SHAPES} shapes in one collision object"));
+            }
+            return None;
+        }
+        self.depth += 1;
+        self.path.push(r);
+        let out = self.shape_at(r);
+        self.path.pop();
+        self.depth -= 1;
+        out
+    }
+
+    fn shape_at(&mut self, r: i32) -> Option<Shape> {
         let Some(s) = self.dec.get(r) else {
             self.problems.push(format!("shape ref {r} missing or undecodable"));
             return None;
@@ -218,11 +263,6 @@ impl Walk<'_> {
         let i = r as usize;
         let ty = self.ty(i).to_string();
         self.types.push(ty.clone());
-        self.depth += 1;
-        if self.depth > 32 {
-            self.problems.push("shape nesting deeper than 32".into());
-            return None;
-        }
         // Box, convex-vertices and triangle-mesh shapes store a `radius` beside their
         // geometry [documented: nif.xml bhkConvexShape, bhkPackedNiTriStripsShape,
         // bhkNiTriStripsShape]; a sphere's or capsule's radius is its geometry.
@@ -236,15 +276,12 @@ impl Walk<'_> {
         if matches!(ty.as_str(), "bhkBoxShape" | "bhkSphereShape" | "bhkCapsuleShape" | "bhkMultiSphereShape" | "bhkConvexVerticesShape") && self.convex_material.is_none() {
             self.convex_material = Some(material(s));
         }
-        let out = match ty.as_str() {
-            "bhkBoxShape" => {
-                let d = s.floats("dimensions")?;
-                Some(Shape::Box { half_extents: [d[0], d[1], d[2]] })
-            }
+        match ty.as_str() {
+            "bhkBoxShape" => Some(Shape::Box { half_extents: floats3(s, "dimensions")? }),
             "bhkSphereShape" => Some(Shape::Sphere { radius: s.float("radius")? }),
             "bhkCapsuleShape" => {
-                let (a, b) = (s.floats("first_point")?, s.floats("second_point")?);
-                Some(Shape::Capsule { a: [a[0], a[1], a[2]], b: [b[0], b[1], b[2]], radius: s.float("radius")? })
+                let (a, b) = (floats3(s, "first_point")?, floats3(s, "second_point")?);
+                Some(Shape::Capsule { a, b, radius: s.float("radius")? })
             }
             "bhkMultiSphereShape" => {
                 let spheres = s.list("spheres").unwrap_or_default();
@@ -252,9 +289,9 @@ impl Walk<'_> {
                     .iter()
                     .filter_map(|v| match v {
                         Value::Struct(b) => {
-                            let c = b.floats("center")?;
+                            let c = floats3(b, "center")?;
                             Some((
-                                Iso { translation: [c[0], c[1], c[2]], rotation: Iso::IDENTITY.rotation },
+                                Iso { translation: c, rotation: Iso::IDENTITY.rotation },
                                 Shape::Sphere { radius: b.float("radius")? },
                             ))
                         }
@@ -287,9 +324,7 @@ impl Walk<'_> {
                 self.problems.push(format!("unsupported shape type {other}"));
                 None
             }
-        };
-        self.depth -= 1;
-        out
+        }
     }
 
     fn packed(&mut self, shape: &Struct) -> Option<Shape> {
@@ -329,9 +364,14 @@ impl Walk<'_> {
         let mut start = 0u32;
         for p in parts {
             if let Value::Struct(p) = p {
-                let n = p.int("num_vertices").unwrap_or(0) as u32;
-                bounds.push((start, start + n, material(p)));
-                start += n;
+                // A negative or huge count (a broken file) ends the sub-parts: the
+                // triangles past it get no material.
+                let Some(end) = u32::try_from(p.int("num_vertices").unwrap_or(0)).ok().and_then(|n| start.checked_add(n)) else {
+                    self.problems.push("packed strips sub-part vertex count out of range".into());
+                    break;
+                };
+                bounds.push((start, end, material(p)));
+                start = end;
             }
         }
         let part_of = |v: u32| bounds.iter().position(|&(a, b, _)| v >= a && v < b);
@@ -362,7 +402,7 @@ impl Walk<'_> {
             let m = mesh_data(d);
             let base = vertices.len() as u32;
             vertices.extend(m.positions);
-            triangles.extend(m.triangles.into_iter().map(|t| t.map(|v| v + base)));
+            triangles.extend(m.triangles.into_iter().map(|t| t.map(|v| v.saturating_add(base))));
         }
         let materials = vec![mat; triangles.len()];
         Some(Shape::TriMesh { vertices, triangles, materials })
@@ -443,9 +483,12 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             out.phantoms.push((co as usize, body_type.clone()));
         }
         let info = body.strukt("rigid_body_info");
-        let f4 = |n: &str| info.and_then(|s| s.floats(n)).map(|v| [v[0], v[1], v[2], v.get(3).copied().unwrap_or(0.0)]);
+        let f4 = |n: &str| match info.and_then(|s| s.floats(n))? {
+            [x, y, z, rest @ ..] => Some([*x, *y, *z, rest.first().copied().unwrap_or(0.0)]),
+            _ => None,
+        };
         let mut w = Walk {
-            file,
+            blocks: &file.blocks,
             dec,
             types: Vec::new(),
             mats: Vec::new(),
@@ -453,6 +496,8 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             mixed: 0,
             problems: Vec::new(),
             depth: 0,
+            path: Vec::new(),
+            visited: 0,
             shell: 0.0,
             convex_material: None,
         };
@@ -650,6 +695,96 @@ impl crate::shape::CollisionObject {
 mod tests {
     use super::*;
     use crate::shape::Motion;
+
+    /// Synthetic blocks: (type, fields).
+    fn blocks(list: Vec<(&str, Vec<(&str, Value)>)>) -> (Vec<RawBlock>, Decoded) {
+        let raw = list.iter().map(|(t, _)| RawBlock { type_name: t.to_string(), range: 0..0 }).collect();
+        let structs = list.into_iter().map(|(_, f)| Ok(Struct { fields: f.into_iter().map(|(n, v)| (n.into(), v)).collect() })).collect();
+        (raw, Decoded { blocks: structs, lineage: Vec::new() })
+    }
+
+    fn walk<'a>(raw: &'a [RawBlock], dec: &'a Decoded) -> Walk<'a> {
+        Walk {
+            blocks: raw,
+            dec,
+            types: Vec::new(),
+            mats: Vec::new(),
+            compressed: false,
+            mixed: 0,
+            problems: Vec::new(),
+            depth: 0,
+            path: Vec::new(),
+            visited: 0,
+            shell: 0.0,
+            convex_material: None,
+        }
+    }
+
+    #[test]
+    fn a_list_shape_listing_itself_is_refused() {
+        let (raw, dec) = blocks(vec![
+            ("bhkListShape", vec![("sub_shapes", Value::RefList(vec![0, 1, 0]))]),
+            ("bhkSphereShape", vec![("radius", Value::Float(2.0))]),
+        ]);
+        let mut w = walk(&raw, &dec);
+        let shape = w.shape(0).unwrap();
+        assert_eq!(shape, Shape::Compound { children: vec![(Iso::IDENTITY, Shape::Sphere { radius: 2.0 })] });
+        assert_eq!(w.problems.iter().filter(|p| p.contains("contains itself")).count(), 2);
+        assert_eq!((w.depth, w.path.len()), (0, 0));
+    }
+
+    #[test]
+    fn doubling_list_shapes_stop_at_the_shape_cap() {
+        // Each list names the next one twice: 2^30 shapes without the cap.
+        let mut list: Vec<(&str, Vec<(&str, Value)>)> = (0..30).map(|i| ("bhkListShape", vec![("sub_shapes", Value::RefList(vec![i + 1, i + 1]))])).collect();
+        list.push(("bhkSphereShape", vec![("radius", Value::Float(1.0))]));
+        let (raw, dec) = blocks(list);
+        let mut w = walk(&raw, &dec);
+        assert!(w.shape(0).is_some());
+        // Past the cap each remaining sibling is refused at once.
+        assert!(w.visited > MAX_SHAPES && w.visited < MAX_SHAPES + 64, "{}", w.visited);
+        assert_eq!(w.problems.len(), 1, "{:?}", w.problems);
+        assert_eq!((w.depth, w.path.len()), (0, 0));
+    }
+
+    #[test]
+    fn early_exits_restore_the_depth_and_short_fields_are_refused() {
+        let (raw, dec) = blocks(vec![
+            ("bhkMoppBvTreeShape", vec![("shape", Value::Ref(1))]),
+            // No `shape` field: the `?` exits early.
+            ("bhkTransformShape", vec![("transform", Value::Floats([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0].to_vec()))]),
+            ("bhkBoxShape", vec![("dimensions", Value::Floats(vec![1.0, 2.0]))]),
+        ]);
+        let mut w = walk(&raw, &dec);
+        assert!(w.shape(0).is_none());
+        assert!(w.shape(2).is_none());
+        assert_eq!((w.depth, w.path.len()), (0, 0));
+    }
+
+    #[test]
+    fn negative_sub_part_counts_are_reported() {
+        let (raw, dec) = blocks(vec![
+            ("bhkPackedNiTriStripsShape", vec![("data", Value::Ref(1))]),
+            (
+                "hkPackedNiTriStripsData",
+                vec![
+                    ("vertices", Value::FloatList { dim: 3, data: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] }),
+                    ("triangles", Value::List(vec![Value::Struct(Struct { fields: vec![("triangle".into(), Value::IntList(vec![0, 1, 2]))] })])),
+                    (
+                        "sub_shapes",
+                        Value::List(vec![
+                            Value::Struct(Struct { fields: vec![("num_vertices".into(), Value::Int(-5))] }),
+                            Value::Struct(Struct { fields: vec![("num_vertices".into(), Value::Int(3))] }),
+                        ]),
+                    ),
+                ],
+            ),
+        ]);
+        let mut w = walk(&raw, &dec);
+        let Some(Shape::TriMesh { triangles, materials, .. }) = w.shape(0) else { panic!("a mesh") };
+        assert_eq!((triangles.len(), materials), (1, vec![0]));
+        assert_eq!(w.problems.len(), 1, "{:?}", w.problems);
+    }
 
     fn sim(t: [f32; 3]) -> Similarity {
         Similarity { iso: Iso { translation: t, rotation: Iso::IDENTITY.rotation }, scale: 1.0 }

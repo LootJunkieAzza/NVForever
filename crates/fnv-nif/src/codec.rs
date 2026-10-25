@@ -22,6 +22,12 @@ pub struct CodecError {
 /// Arrays longer than this are rejected as corrupt counts.
 const MAX_ELEMENTS: i64 = 1 << 26;
 
+/// Elements (and 2D rows) that take no bytes one array may hold: a structure whose
+/// fields are all left out in this version, a row of width 0. Every other element takes
+/// at least a byte, so an array is at most the bytes left plus this many long; a broken
+/// count past that would build millions of empty values from a few bytes.
+const MAX_EMPTY: usize = 1 << 16;
+
 /// Everything about the file that decoding depends on.
 #[derive(Clone, Copy)]
 pub struct FileCtx<'a> {
@@ -110,7 +116,7 @@ impl<'a> Codec<'a> {
                     match &f.width {
                         None => self.read_array(ty, n, c, sub_arg, sub_template, &fpath)?,
                         Some(w) => {
-                            let widths = self.widths(w, n, &scope, &fpath, c.pos)?;
+                            let widths = self.widths(w, n, &scope, &fpath, c.pos, c.remaining())?;
                             let mut rows = Vec::with_capacity(widths.len());
                             for (i, w) in widths.into_iter().enumerate() {
                                 rows.push(self.read_array(ty, w, c, sub_arg, sub_template, &format!("{fpath}[{i}]"))?);
@@ -134,8 +140,12 @@ impl<'a> Codec<'a> {
         scope: &FieldScope<'_>,
         path: &str,
         pos: usize,
+        remaining: usize,
     ) -> Result<Vec<i64>, CodecError> {
         check_count(rows, path, pos)?;
+        if rows as usize > remaining.saturating_add(MAX_EMPTY) {
+            return Err(err(path, format!("{rows} rows exceed the {remaining} bytes left"), Some(pos)));
+        }
         if let Some(name) = w.as_ident() {
             if let Some((_, Value::IntList(v))) = scope.fields.iter().rev().find(|(n, _)| &**n == name) {
                 if v.len() as i64 != rows {
@@ -200,9 +210,20 @@ impl<'a> Codec<'a> {
                 Ok(Value::IntList(v))
             }
             _ => {
+                if n > c.remaining().saturating_add(MAX_EMPTY) {
+                    return Err(err(path, format!("{n} elements exceed the {} bytes left", c.remaining()), Some(c.pos)));
+                }
                 let mut v = Vec::with_capacity(n.min(4096));
+                let mut empty = 0;
                 for i in 0..n {
+                    let before = c.pos;
                     v.push(self.read_one(ty, c, arg, template, &format!("{path}[{i}]"))?);
+                    if c.pos == before {
+                        empty += 1;
+                        if empty > MAX_EMPTY {
+                            return Err(err(path, format!("more than {MAX_EMPTY} elements of no bytes"), Some(c.pos)));
+                        }
+                    }
                 }
                 Ok(Value::List(v))
             }

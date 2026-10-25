@@ -59,7 +59,7 @@ fn moves(v: &ValueTrack) -> bool {
     fn keys<const N: usize>(c: &Channel<N>) -> bool {
         match c {
             Channel::Static(_) => false,
-            Channel::BSpline { .. } => true,
+            Channel::BSpline { .. } | Channel::Path(_) => true,
             Channel::Keys(k) => k.keys.iter().any(|x| x.value != k.keys[0].value || x.forward.iter().chain(&x.backward).any(|t| *t != 0.0)),
         }
     }

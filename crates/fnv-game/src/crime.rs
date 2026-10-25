@@ -34,7 +34,12 @@
 //!   are public cannot have trespassing"]; an owner who sees the player there warns
 //!   (GuardTrespass) every `fAITrespassWarningTimer` (5 s) up to `iGuardWarnings` (2)
 //!   times, then attacks [documented for Guard packages, GECK wiki Guard Package;
-//!   hypothesis: the same for owned cells]. A door whose XTEL is flagged No Alarm
+//!   hypothesis: the same for owned cells]. While it warns (it has warned and sees the
+//!   player at the tick) it is alerted: it draws its weapon, stops and faces the
+//!   player (`Game::warning_to`; `crate::aggro`, "The look") [hypothesis; owner
+//!   2026-10-24: warning guards draw their weapon]. Guard packages' own warnings are not
+//!   built.
+//!   A door whose XTEL is flagged No Alarm
 //!   sends "no trespass alarm … when the player uses the door" [documented: GECK wiki
 //!   Reference, Teleport]: arriving through one, the player is not trespassing in the
 //!   cell arrived in until leaving it ([`Game::arrived_through`]) [hypothesis: the alarm
@@ -293,6 +298,9 @@ pub struct Crimes {
     pub settings: Option<Settings>,
     /// Warnings each actor gave the trespassing player, and when it gave the last.
     pub warnings: BTreeMap<FormId, (u32, f64)>,
+    /// Actors warning the trespassing player now: they have warned it and saw it at the
+    /// last crime tick, and have not turned on it (`Game::warning_to`).
+    pub warning_now: std::collections::BTreeSet<FormId>,
     /// The cell the player trespasses in, with its owner.
     pub trespassing: Option<(FormId, FormId)>,
     /// The cell the player arrived in through a No Alarm door, while the player is in it
@@ -684,6 +692,7 @@ impl Game<'_> {
             self.crimes.trespassing = key;
             self.crimes.warnings.clear();
         }
+        self.crimes.warning_now.clear();
         let Some((_, o)) = here else { return 0 };
         let mut turned = 0;
         for w in self.crime_witnesses() {
@@ -692,10 +701,12 @@ impl Game<'_> {
             }
             let (level, last) = self.crimes.warnings.get(&w).copied().unwrap_or((0, f64::NEG_INFINITY));
             if now - last < s.warning_timer {
+                self.crimes.warning_now.insert(w);
                 continue;
             }
             if (level as f64) < s.guard_warnings {
                 self.crimes.warnings.insert(w, (level + 1, now));
+                self.crimes.warning_now.insert(w);
                 self.detection_bark(w, Some(FormId::PLAYER_REF), "GuardTrespass");
                 self.crimes.notes.push(Note::Warned { actor: w, level: level + 1 });
             } else {
@@ -802,14 +813,18 @@ pub fn is_trespassing(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
     yes(r == FormId::PLAYER_REF && g.trespass_cell().is_some())
 }
 
-/// `actor.GetTrespassWarningLevel target`: the warnings the actor gave the player
-/// [documented].
+/// `actor.GetTrespassWarningLevel target`: the warnings the actor gave the player, by a
+/// Guard package, for trespassing or for its aggro radius [documented: "the number of
+/// warnings an actor on a Guard Package (or responding to trespassing or responding to an
+/// aggro radius violation) has given"]; the larger count of the two kept.
 pub fn get_trespass_warning_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if a.opt_form(0).is_some_and(|t| t != FormId::PLAYER_REF) {
         return Ok(Value::Num(0.0));
     }
-    Ok(Value::Num(g.crimes.warnings.get(&r).map_or(0, |w| w.0) as f64))
+    let trespass = g.crimes.warnings.get(&r).map_or(0, |w| w.0);
+    let guard = g.provocations.aggro_warnings.get(&r).map_or(0, |w| w.0);
+    Ok(Value::Num(trespass.max(guard) as f64))
 }
 
 /// `[reportedTo.]SendTrespassAlarm [reportedTo]`: that actor goes "all the way to fully

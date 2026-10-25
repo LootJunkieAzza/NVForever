@@ -218,24 +218,26 @@ impl GameData {
     /// surveys: whether the pick matters).
     pub fn template_sources_any_pick(&self, id: FormId, from_template: fn(&ActorDef) -> bool) -> Vec<FormId> {
         let mut out = Vec::new();
-        self.sources_into(id, from_template, 0, &mut out);
+        self.sources_into(id, from_template, 0, &mut std::collections::HashSet::new(), &mut out);
         out.sort();
         out.dedup();
         out
     }
 
-    fn sources_into(&self, id: FormId, from_template: fn(&ActorDef) -> bool, depth: usize, out: &mut Vec<FormId>) {
-        if depth > 2 * MAX_DEPTH {
+    /// Each id is followed once (`seen`): a list naming itself, or lists naming each
+    /// other many times over (a broken mod), would otherwise be walked exponentially.
+    fn sources_into(&self, id: FormId, from_template: fn(&ActorDef) -> bool, depth: usize, seen: &mut std::collections::HashSet<FormId>, out: &mut Vec<FormId>) {
+        if depth > 2 * MAX_DEPTH || !seen.insert(id) {
             return;
         }
         if let Some(def) = self.actors.get(&id) {
             match def.template.filter(|t| from_template(def) && (self.actors.contains_key(t) || self.leveled_actors.contains_key(t))) {
-                Some(t) => self.sources_into(t, from_template, depth + 1, out),
+                Some(t) => self.sources_into(t, from_template, depth + 1, seen, out),
                 None => out.push(id),
             }
         } else if let Some(list) = self.leveled_actors.get(&id) {
             for &(_, e) in &list.entries {
-                self.sources_into(e, from_template, depth + 1, out);
+                self.sources_into(e, from_template, depth + 1, seen, out);
             }
         }
     }

@@ -212,6 +212,9 @@ pub enum AiEvent {
     SearchLook { at: [f32; 3], seconds: f32 },
     /// In Combat it stops and faces `target`, `away` units from it.
     Hold { target: FormId, away: f32 },
+    /// Giving aggro radius warnings, it stops and faces `target`, `away` units from it
+    /// (`crate::alert`, `fnv_game::aggro`).
+    Warn { target: FormId, away: f32 },
     /// In Combat it runs up to `target`, `away` units off, a way of `length` units to
     /// `to` (`crate::alert`); `aiming`: it aims down its sights and walks.
     Close { target: FormId, to: [f32; 3], away: f32, length: f32, aiming: bool },

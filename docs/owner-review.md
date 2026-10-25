@@ -8313,6 +8313,83 @@ there. The step height (24) is unchanged. Spec: [physics §6.9.1](spec-notes/phy
   the feet (was 0.5 above the feet themselves).
 - *Check:* walk and run up those stairs, and any other stairs that used to catch: no stalls?
 
+
+## Warnings you can see (2026-10-24, owner's playtest, branch claude/aggro-warning-look)
+
+Young geckos (and every creature with an aggro radius) warned in silence while they walked
+on, so the attack came with no sign. Now, from its first warning until it attacks or you
+leave its radius, an actor that warns you is alerted: it stops, turns to you and draws its
+stance (a creature) or its weapon (a person); a creature standing alerted plays its idle
+tree's combat idles (the gecko's hiss and side hops). Owners and guards warning a
+trespasser do the same. Spec: [idles §14](spec-notes/idles.md), [combat-ai §13.1](design/combat-ai.md).
+
+- *Guess:* the original's warning look (no page describes it; the creatures' warning
+  idles want GetIsAlerted, which is the evidence).
+- *Guess:* the warner stops and faces you instead of walking on with its package.
+- *Decision:* only creatures walk their tree's combat idles; people keep their
+  drawn-weapon fidgets.
+- *Built after:* Guard packages' own warnings (same day, below).
+- *Which young geckos warn:* plain Young Geckos (radius 500) and the Goodsprings Young
+  Gecko Hunters (650). Young Golden and Fire Geckos, and the Crescent, Nopah and roach
+  hunters, are Aggressive or Very Aggressive and attack on sight, as their records say.
+- *Check:* walk up to a Young Gecko near Goodsprings: does it stop, face you, hiss or hop,
+  and attack after two warnings?
+
+
+## Guard packages warn (2026-10-24, branch claude/aggro-warning-look; taken out 2026-10-25, see "what `warnings2` settled")
+
+An NPC or creature on a Guard package now warns you when you come into the area it
+guards, twice, 5 s apart, then attacks, with the same look as the aggro warnings (it
+stops, faces you, draws its weapon or stance). Gomorrah's bouncers, room guards and
+cash-room guard guard their doors this way, as do the Strip securitrons and super mutant
+guards on DefaultGuardNPC and the Nellis Boomer tower guards. Spec: [packages §3](spec-notes/packages.md), [combat-ai §13.1](design/combat-ai.md).
+
+- *Guess:* the guarded area is the package target's Count / Distance around the guarded
+  reference (25 units around a Gomorrah guard's door), else the package location's radius.
+  The capture campaign `warnings` (sessions gomorrah_cashroom, gomorrah_bouncer) checks it
+  in the original.
+- *Decision:* one warning count serves the Guard package and the aggro radius;
+  GetTrespassWarningLevel answers the larger of that and the trespass count.
+- *Check:* walk up to a door a Gomorrah guard stands by: two warnings, then a fight?
+
+
+## Warnings timed from the original (2026-10-24, capture `warnings`, branch claude/aggro-warning-look)
+
+The original game, observed (idles.md §14.3): a warning gecko stops, faces you and draws
+and puts away its stance every 2 s (the hiss you saw), never "alerted"; it attacks about
+15 s after it starts warning if you stay; inside about half its radius it attacks at once.
+NVForever now does the same timing (it waited 10 s before); the cycle was replaced by draw and hold on 2026-10-25 (below).
+
+- *Guess:* the 15 s as two warnings 5 s apart and the attack 10 s after the second.
+- *Guess:* half the radius for the attack without warning (seen at 196 and 246 of 500).
+- *Seen in Gomorrah:* the cash-room guard warned from his own 128-unit aggro radius, gun
+  drawn and holstered in turn every 2.5 s, and fought after 21 s (NVForever: draw and hold, below).
+- *Open:* Guard packages' own warnings were not seen in the original (the door test came
+  out empty); they stay a guess from the wiki's Guard package summary.
+
+
+## Warnings: draw and hold, a line per warning (2026-10-25, owner, branch claude/aggro-warning-look)
+
+You judged the original's draw-and-holster cycle an unintended quirk. A warning actor now
+draws once and holds its weapon (a creature its stance, the gecko's hiss) and says a
+GuardTrespass line at each warning: the Detection lines' 15 s cooldown no longer silences
+the second warning. Smoke `warning-guard-draws` (Gomorrah's cash-room guard) and
+`aggro-warning-look` (a young gecko).
+
+- *Check:* a Gomorrah or Goodsprings warning: two different lines 5 s apart, weapon held.
+
+
+## Warnings: what `warnings2` settled (2026-10-25, branch claude/aggro-warning-look)
+
+- *Settled:* Guard packages do not warn by themselves. Gomorrah's room guards stood by
+  silently with the player at their door; the Guard-package warning I added on 10-24 is
+  taken out. Guards warn by their own aggro radius (the cash-room guard's 128).
+- *Settled:* creatures attack 15 s after the warning starts, people 21 s (the cash-room
+  guard, four runs); at once inside about half the radius.
+- *Open:* the cash-room guard warned at 98-121 units (inside his 128) for over a minute
+  and never attacked; the geckos at the same share of their radius did. Not built.
+- *Open:* the split of the wait into warnings (the setgs runs were spoilt by varying
+  start distances).
 ## Actors and logic: ESM full audit gaps (2026-10-24, branch claude/esm-actors-bec8d0)
 
 The creature flag bits 28–31 were named one bit off in the schema: Mr. House, Yes Man,
@@ -8614,3 +8691,7 @@ the spec it links to.
     first? ([save-load §4.1](design/save-load.md))
 25. **Delete-save key.** Delete on the load page asks Yes/No. Which key do you want?
     ([save-load §6.1](design/save-load.md))
+26. **Cloaked actors in VATS mode.** A Stealth Boy user or a cloaked Nightkin
+    (Invisibility or Chameleon at least 1) can no longer be marked in VATS mode unless
+    you have Enhanced Sensors (ED-E), which the perk's entry point names. Before, VATS
+    mode marked them like anyone. Keep the refusal? ([perk-entry-points §13](spec-notes/perk-entry-points.md))

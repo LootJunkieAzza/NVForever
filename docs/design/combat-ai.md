@@ -51,6 +51,9 @@ nvforever `npc_combat`, for every drawn living actor in Combat with a target:
   skeleton) draw and fight with the weapon they carry where their skeleton folder has its
   stance (`2hm`, `2hr`, `2ha`, `2hh`, `2hl`; no `1hm` or `1hp` there) (playtest list 7
   item 39, `outfits::arm_creatures`, §18);
+- a creature's body weapons ("Embedded Weapon": Mister Handy's buzzsaw and flamer,
+  Mister Gutsy's plasma gun and flamer, robots' lasers, a fire gecko's flame), the one
+  its target's distance calls for (`body_weapons.rs`, §19);
 - no weapon: a creature attacks with its own damage (CREA DATA Damage) and reach (RNAM
   Attack Reach) [documented: xEdit field names], from the template that supplies its
   stats [hypothesis for the reach]; an NPC fights with its fists (WEAP `Fists`).
@@ -909,6 +912,30 @@ The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` �
 - Log: `provocation: … warns the player inside its aggro radius (warning n; d of r
   units)`, `provocation: … attacks the player, who stayed inside its aggro radius`; the
   provocation summary counts both. Smoke `aggro-radius` (a Goodsprings coyote).
+- **The look** (owner's playtest 2026-10-24: young geckos showed no warning before they
+  attacked) [hypothesis]: from its first warning until it attacks or the player leaves
+  its radius (or its sight, at an aggro tick), the actor is alerted (`Game::warning_to`,
+  `Game::is_alerted`, GetIsAlerted 1): a person draws its weapon, a creature its unarmed
+  stance (`creature_stance.rs`); the AI stops it and turns it to the player
+  (`fnv_ai::alert`, `AiEvent::Warn`, back to its package after); standing, a creature
+  plays its tree's combat idles (the gecko's hiss and side hops, docs/spec-notes/idles.md
+  §14). A trespass warning (`crate::crime`) gives the same look, so a warning owner or
+  guard draws its weapon (owner 2026-10-24).
+- **The timing and the cycle** (capture `warnings`, 2026-10-24, idles.md §14.3)
+  [observed; the split hypotheses]: the attack comes 15 s after the first warning (the
+  second warning at 5 s, the attack two timers after it); inside half the aggro radius
+  the actor attacks without warning. The original's warners drew and put away their
+  weapon or stance every 2-2.5 s; the owner judged that a quirk (2026-10-25): NVForever's
+  draw once and hold it, and say a GuardTrespass line at each warning (the Detection
+  lines' cooldown does not hold warnings back).
+- **Guard packages do not warn** (built 2026-10-24, taken out 2026-10-25): Gomorrah's
+  room guards on vGomorrahGuardPackage, with no aggro radius of their own, neither
+  warned nor fought the player by the door they guard [observed: capture `warnings2`].
+  A guard warns by its own aggro radius (the cash-room guard's 128). GetTrespassWarningLevel
+  counts the aggro radius warnings as well as the trespass ones [documented].
+- **Attack delays** [observed, `warnings2`]: creatures 15 s after the first warning,
+  people 21 s (Gomorrah's cash-room guard, four runs).
+  Smoke `aggro-warning-look` (VERGSGecko6REF, a Young Gecko, radius 500).
 
 ### 13.2 Cowards stay out (`fnv_game::provocation`, item 14)
 
@@ -1611,3 +1638,65 @@ run; resolved in 43 s, 4 NCR and 2 Fiends dead]:
 | First shots | troopers opened fire at 1,730–2,030 units, Fiends at 1,410–1,880 (item 40: before, the shotgun Fiend would have run to 600) | — |
 | Cover | 1 cover taken in the battle (the styles' Take Cover Chance, rolled every 10 s) | — |
 | Staggers | 11 staggers held a fighter's attacks | — |
+
+## 19. Creatures' body weapons (owner request 2026-10-24)
+
+Owner: Mister Handy and Mister Gutsy "werent attacking with the saw, they also need to be
+able to switch to flamer/plasma weapon too for their ai". Creatures carry their built-in
+weapons as WEAP records flagged "Embedded Weapon" ("Checked if the weapon is a built in
+part of the creature" [documented: GECK wiki Weapons]); nothing used them: §3's creature
+without a drawable weapon fought with its CREA damage and its folder's `h2hattack…` clips,
+and the Mister Handy/Gutsy folder (`creatures\mistergutsy`) has none, so they dealt
+damage with no clip at all. The same held for every robot, turret and securitron and for
+fire geckos', fire ants', centaurs' and lakelurks' ranged attacks (`fnvtool actor
+creature-weapons`: 560 embedded rows, actors.md §10.6).
+
+**The records** [observed: FalloutNV.esm, 2026-10-24]:
+
+| Creature | Weapon | Stance | Range (Min–Max) | Node (NNAM) | Limb (Actor Value) |
+|---|---|---|---|---|---|
+| CrMisterHandy, CrMisterHandyNV | MisterHandyBuzzsaw (20 damage, reach 0.65) | `1hm` | melee | `Weapon` | Right Attack |
+| | MisterHandyFlamer2HL (2 × 8/s) | `2hl`, AttackSpin | 128–600 | `ProjectileNode_HeadLaser` | Left Attack |
+| CrMisterGutsy | MisterGutsyPlasma1HP (60 × 2.5/s) | `1hp`, AttackRight | 512–1024 | `ProjectileNode_HeadLaser01` | Right Attack |
+| | MisterGutsyFlamer2HL (6 × 8/s) | `2hl`, AttackSpin | 128–600 | `ProjectileNode_HeadLaser` | Left Attack |
+
+Their clips are in `creatures\mistergutsy\specialanims\` (`1hmaim.kf`,
+`1hmattackleft_chop.kf`, `1hmattackright_chop.kf`, `…_stab`, `…_uppercut`; `1hpaim.kf`,
+`1hpattackright.kf`; `2hlaim.kf`, `2hlattackspin.kf` with up and down forms; equip,
+holster and unequip of each), as their CREA KFFZ lists name them; the skeleton has the
+`Weapon`, `ProjectileNode_HeadLaser` and `ProjectileNode_HeadLaser01` nodes. Only the
+bloatfly and protectron folders also keep stance clips there.
+
+**What is built** (`engine/nvforever/src/body_weapons.rs`; the choice
+`fnv_combat::body_weapon`):
+
+- A creature without a drawable weapon gets as its arms each embedded weapon it carries
+  whose stance its skeleton has (root or `specialanims`), and its own attack where its
+  folder has `h2hattack…` clips (a fire gecko bites and breathes fire).
+- The arm in use is drawn as a weapon without a model (its stance's draw cycle and aim);
+  `npc_combat` fights with it as with any weapon: a gun shoots its projectile from the
+  WEAP NNAM node, a melee weapon strikes with its damage and reach, its clips are the
+  stance's attack clips (people's names first, else the stance's `<prefix>attack…` clips
+  in its folder in turn: the buzzsaw's chop, stab and uppercut).
+- **Switching by distance** [design: the original's rule is not documented; built on the
+  wiki's Min Range "they don't need to be closer than this value" and Max Range "they
+  don't want to be any further away than this value"]: melee within 192 units; a gun
+  within its Min–Max Range; the arm in use kept within its band widened by 15 %; if no
+  gun suits, the one that reaches furthest (beyond all) or the melee arm, else the gun
+  with the smallest Min Range (nearer than all); among guns that suit, the most damage
+  per second; at most one switch every 1.5 s, the new arm's equip clip played before it
+  attacks. Mister Handy: saw within 192, flamer beyond. Mister Gutsy: flamer within 512,
+  plasma gun beyond 600, and between the two the one in use.
+- An arm whose limb condition (the WEAP Embedded Weapon Actor Value) is 0 is left out
+  [hypothesis: "the condition value affected when the weapon is targeted", GECK wiki
+  Weapons]: crippling Mister Handy's left arm leaves it its saw.
+- Body weapons do not wear or break, do not reload (no magazine) and do not slow their
+  creature as two-handed weapons in hand do [design].
+
+**Not built**: VATS targeting of a body weapon; the original's own switching rule (a
+capture of a Mister Gutsy at several distances would settle it); the protectron's and
+other robots' clips and nodes were not looked at one by one (they take the same path:
+whatever stances their folders have).
+
+**Checks**: unit tests (`fnv_combat::body_weapon`, `fnv_actor::anims`,
+`attack_anims::body_attack_names`); smoke `body-weapons-handy-gutsy`.
