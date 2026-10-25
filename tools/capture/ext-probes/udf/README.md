@@ -13,8 +13,8 @@ The owner compiles them in the GECK with xNVSE loaded and runs them in the origi
    (an object script with a `Begin Function` block, so the type the GECK accepts for
    that block), and save it. If `ExtUdfReturnValue` does not compile, note the error
    and leave it out; only `02_return_value` needs it. `ExtUdfDepth` calls itself by
-   name; if the GECK refuses the name on the first save, save it once without the
-   `Call` line, then add the line back and save again.
+   name: save it once without the `Call` line, then add the line back and save again
+   [documented: User Defined Function].
 2. **Then the callers**, one quest per file, as in [../strings/README.md](../strings/README.md).
    They print `EXTPROBE|<id>|<value>` between `EXTPROBE|udf/<script>|begin` and `…|end`.
 3. **05_depth is observe with care**: deep recursion may crash the game. Do not mark its
@@ -64,6 +64,6 @@ The owner compiles them in the GECK with xNVSE loaded and runs them in the origi
 | 04_lambdas | `lambda.reads_parent` | `{} => iP * 2` | `12` | [documented: Lambda] |  |
 | 04_lambdas | `lambda.param` | `{i} => iP += i` called with 10 | `16` | [documented: Lambda (the page's own example)] |  |
 | 04_lambdas | `lambda.block` | a block lambda setting iP := 100 | `100` | [documented: Lambda] |  |
-| 05_depth | `depth.10` | ExtUdfDepth 10 (calls itself 10 deep) | to observe | — | 10 if each call has its own variables |
-| 05_depth | `depth.100` | 100 deep | to observe | — | a limit, an error or 100 |
+| 05_depth | `depth.10` | ExtUdfDepth 10 (calls itself 10 deep) | to observe | [documented: User Defined Function (recursion allowed, at most 30 nested calls)] | 10 if each call has its own variables; within the limit |
+| 05_depth | `depth.100` | 100 deep, past the documented limit of 30 | to observe | [documented: User Defined Function (NVSE aborts recursion past 30 nested calls)] | what the aborted calls return, and whether an error is printed |
 | 05_depth | `depth.1000` | 1000 deep | to observe (with care) | — | where it stops; a crash is possible |
