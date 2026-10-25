@@ -37,6 +37,7 @@ const GLASSES: u32 = 0x891;
 const METAL: u32 = 0x892;
 const PERK_SPELL_1: u32 = 0x875;
 const PERK_SPELL_2: u32 = 0x876;
+const CONCUSSED: u32 = 0x877;
 const SHARP_EYES: u32 = 0x8A0;
 const ROBOT: u32 = 0x400;
 const ROBOT_TEMPLATE: u32 = 0x401;
@@ -75,7 +76,12 @@ fn mgef(fid: u32, edid: &str, flags: u32, av: i32) -> Vec<u8> {
 
 /// EFID + EFIT (magnitude, area, duration, type Self, actor value), with conditions.
 fn effect(base: u32, magnitude: u32, av: i32, conds: Vec<fnv_esm::raw::Subrecord>) -> Vec<fnv_esm::raw::Subrecord> {
-    let mut v = vec![sub(b"EFID", base.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[magnitude, 0, 0, 0]), av.to_le_bytes().to_vec()].concat())];
+    effect_for(base, magnitude, 0, av, conds)
+}
+
+/// [`effect`] with a duration in seconds (EFIT duration).
+fn effect_for(base: u32, magnitude: u32, duration: u32, av: i32, conds: Vec<fnv_esm::raw::Subrecord>) -> Vec<fnv_esm::raw::Subrecord> {
+    let mut v = vec![sub(b"EFID", base.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[magnitude, 0, duration, 0]), av.to_le_bytes().to_vec()].concat())];
     v.extend(conds);
     v
 }
@@ -160,6 +166,9 @@ fn plugin_bytes() -> Vec<u8> {
         spel(HEAD_CRIPPLED, "HeadCrippleEffect", 4, vec![effect(REDUCE_PER, 4, 6, vec![head_crippled()])]),
         spel(PERK_SPELL_1, "PerkSharpEyes1", 4, vec![effect(MOD_PER, 1, 6, vec![])]),
         spel(PERK_SPELL_2, "PerkSharpEyes2", 4, vec![effect(MOD_PER, 2, 6, vec![])]),
+        // As the masters' PlayerConcussed: an Actor Effect lasting ten years, its Reduced
+        // Perception only while the head is crippled.
+        spel(CONCUSSED, "PlayerConcussed", 0, vec![effect_for(REDUCE_PER, 4, 315_360_000, 6, vec![head_crippled()])]),
     ]
     .concat();
     // A perk of two ranks, an ability each holding the whole bonus (as Action Boy's).
@@ -517,6 +526,31 @@ fn a_crippled_head_lowers_perception() {
         g.tick();
     }
     assert_eq!(av(&mut g, robot, PERCEPTION), 5.0);
+}
+
+/// A lasting spell cast while its effect's conditions fail keeps the effect, inactive:
+/// it takes hold once they pass (the masters' `PlayerConcussed`, cast by `GenericScript`
+/// while the head is whole; docs/spec-notes/crippled-limbs.md §2).
+#[test]
+fn a_lasting_spell_cast_before_its_conditions_pass_takes_hold_later() {
+    use fnv_game::functions::{add_actor_value_damage, restore_actor_value_damage};
+    let f = fixture();
+    let mut g = game(&f);
+    g.tick();
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    g.apply_magic_item(P, FormId(CONCUSSED), None, false);
+    assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(REDUCE_PER)]), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    add_actor_value_damage(&mut g, P, 25, 100.0);
+    for _ in 0..90 {
+        g.tick();
+    }
+    assert_eq!(av(&mut g, P, PERCEPTION), 1.0);
+    restore_actor_value_damage(&mut g, P, 25, 100.0);
+    for _ in 0..90 {
+        g.tick();
+    }
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
 }
 
 /// A perk's ability is on the player while the perk is held: the highest rank's alone,

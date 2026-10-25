@@ -3004,10 +3004,14 @@ impl<'a> Game<'a> {
                 continue;
             }
             let label = format!("{} effect {index}", data.name(source));
-            // A lasting effect (an ability, a worn enchantment) whose conditions fail is
-            // listed inactive, to take hold when they pass (`crate::abilities`).
+            // A lasting effect whose conditions fail (an ability, a worn enchantment, or a
+            // spell's effect with a duration) is listed inactive, to take hold when they
+            // pass (`crate::abilities::recheck_conditions`); only an instant one is dropped.
+            // PlayerConcussed is cast while the head is whole and its Reduced Perception
+            // holds once the head is crippled (crippled-limbs.md §2) [hypothesis: the
+            // original rechecks a spell's effects as it does an ability's].
             let pass = self.conditions_pass(&e.conditions, Some(target), caster, &label);
-            if !pass && !permanent {
+            if !pass && !permanent && e.duration == 0 {
                 continue;
             }
             let seconds = mods.seconds(data.magic_effects.get(&e.effect), e);
@@ -3084,7 +3088,8 @@ impl<'a> Game<'a> {
         // The target's OnMagicEffectHit for each effect that took (not abilities and worn
         // enchantments, which are not hits) [hypothesis: after the effects start].
         if !permanent {
-            let mut hit: Vec<FormId> = started.iter().map(|a| a.effect).collect();
+            let took = |id: u32| self.effects.iter().any(|x| x.id == id && !x.inactive);
+            let mut hit: Vec<FormId> = started.iter().filter(|a| a.extended || took(a.id)).map(|a| a.effect).collect();
             hit.dedup();
             for e in hit {
                 self.ref_event(target, event::ON_MAGIC_EFFECT_HIT, Some(Value::Ref(e.0)), caster);
