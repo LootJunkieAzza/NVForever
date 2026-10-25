@@ -301,7 +301,10 @@ pub fn attack_clips(stance: Stance, prefix: &str, attack: &str, sights: bool) ->
         }
         _ => attack,
     };
-    for a in [group, "attackright"] {
+    // A power attack override (`attackcustom3power`) falls back on the standing power
+    // attack where the folder lacks it (`h2h` has no `attackcustom3power`).
+    let custom = group.starts_with("attackcustom").then_some("attackpower");
+    for a in std::iter::once(group).chain(custom).chain(["attackright"]) {
         for is in if sights { &["is", ""][..] } else { &[""][..] } {
             if stance == Stance::Sneak {
                 out.push(format!("sneak{prefix}{a}{is}.kf"));
@@ -571,6 +574,8 @@ mod tests {
         assert_eq!(c[..3], ["h2hattack5_b.kf".to_string(), "h2hattack5.kf".to_string(), "h2hattack5_a.kf".to_string()]);
         assert_eq!(attack_clips(Stance::Stand, "1hm", "attackforwardpower", false)[0], "1hmattackforwardpower.kf");
         assert_eq!(attack_clips(Stance::Sneak, "h2h", "attackpower", false)[..2], ["sneakh2hattackpower.kf".to_string(), "h2hattackpower.kf".to_string()]);
+        let custom = attack_clips(Stance::Stand, "1hm", "attackcustom3power", false);
+        assert_eq!(custom[..3], ["1hmattackcustom3power.kf".to_string(), "1hmattackcustom3power_a.kf".to_string(), "1hmattackpower.kf".to_string()]);
         let c = attack_clips(Stance::Sneak, "2hr", "attack3", false);
         assert_eq!(c[0], "sneak2hrattack3.kf");
         assert!(c.contains(&"2hrattackright.kf".to_string()));

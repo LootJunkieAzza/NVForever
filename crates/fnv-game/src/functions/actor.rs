@@ -646,7 +646,31 @@ macro_rules! flag {
     };
 }
 
-flag!(set_ghost, get_ghost, ghost);
+/// `SetGhost flag`: projectiles pass, no damage, enemies ignore it (`Game::is_ghost`).
+/// SetGhost 0 also clears a base Is Ghost flag (actor-flags.md §3).
+pub fn set_ghost(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let on = a.num_or(0, 1.0) != 0.0;
+    let e = g.extra.entry(r).or_default();
+    (e.ghost, e.ghost_off) = (on, !on);
+    none()
+}
+
+/// `GetPlantedExplosive`: "Returns whether a live explosive has been planted on an
+/// actor" [documented: GECK wiki GetPlantedExplosive]; true once
+/// `fProjectileInventoryGrenadeFreakoutTime` has passed [documented: GECK wiki Projectile
+/// notes] (`crate::pickpocket`).
+pub fn get_planted_explosive(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.has_planted_explosive(r))
+}
+
+/// `GetIsGhost`: SetGhost or the base's Is Ghost flag.
+pub fn get_ghost(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.is_ghost(r))
+}
+
 flag!(set_restrained, get_restrained, restrained);
 flag!(set_unconscious_flag, get_unconscious, unconscious);
 

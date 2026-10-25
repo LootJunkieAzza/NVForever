@@ -228,6 +228,16 @@ pub struct Weapon {
     /// ([`held_world_model`]): drawn in the hand in third person in place of `MODL`.
     #[serde(skip)]
     pub held_world_model: Option<String>,
+    /// DNAM "Hand Grip": HandGrip1 … HandGrip6 as 1 … 6, `None` for DEFAULT ("a hand pose
+    /// animation for 3rd person" [documented: GECK wiki Weapons]); the clips are
+    /// `<prefix>handgrip<n>[_<name>].kf` [observed: Fallout - Meshes.bsa,
+    /// `1gthandgrip1.kf` … `2hrhandgrip3_combatshotgun.kf`]. Not part of any report.
+    #[serde(skip)]
+    pub grip: Option<u8>,
+    /// DNAM flags1 "Hide Backpack": "hides any equipped armor or armor addon that occupies
+    /// the Backpack biped slot" [documented: GECK wiki Weapons]. Not part of any report.
+    #[serde(skip)]
+    pub hide_backpack: bool,
 }
 
 /// A WEAP's `MOD4` "World Model" when the third-person view holds it in place of `MODL`:
@@ -720,6 +730,12 @@ fn armor(d: &[Decoded]) -> Armor {
     }
 }
 
+/// The number of a WEAP DNAM "Hand Grip" (`HandGrip2` → 2); `None` for DEFAULT and the
+/// unnamed values.
+pub fn hand_grip(name: &str) -> Option<u8> {
+    name.strip_prefix("HandGrip")?.parse::<u8>().ok().filter(|n| (1..=6).contains(n))
+}
+
 fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues) -> Weapon {
     let dnam = first(d, b"DNAM");
     let flags = dnam.and_then(|v| v.get("flags1"));
@@ -739,6 +755,8 @@ fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Iss
         mod_first_person: [b"WNM1", b"WNM2", b"WNM3", b"WNM4", b"WNM5", b"WNM6", b"WNM7"].map(|sig| fid(lo, pi, id, "WNM", first(d, sig), issues)),
         mod_first_person_models: Default::default(),
         held_world_model: held_world_model(path(first(d, b"MODL")).as_deref(), path(first(d, b"MOD4")).as_deref()),
+        grip: dnam.and_then(|v| v.get("grip_animation")).and_then(text).as_deref().and_then(hand_grip),
+        hide_backpack: flags.is_some_and(|f| has_flag(f, "Hide Backpack")),
     }
 }
 
@@ -759,7 +777,7 @@ mod tests {
 
     #[test]
     fn a_modded_weapon_draws_the_model_of_its_mods() {
-        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default(), held_world_model: None };
+        let mut w = Weapon { edid: None, model: Some("plain.nif".into()), anim_type: None, damage: 0, projectile: None, explosion_damage: 0.0, embedded: false, non_playable: false, not_for_npcs: false, first_person: None, first_person_model: Some("1st.nif".into()), mod_models: Default::default(), mod_first_person: [None; 7], mod_first_person_models: Default::default(), held_world_model: None, grip: None, hide_backpack: false };
         w.mod_models[0] = Some("ext.nif".into());
         w.mod_models[2] = Some("ext_scope.nif".into());
         w.mod_first_person_models[2] = Some("1st_ext_scope.nif".into());

@@ -663,3 +663,88 @@ fn a_look_turning_the_body_faces_the_target_until_stop_look() {
     assert_eq!(s.agent(R_GREET).walker.heading, heading);
     assert!(s.events().iter().any(|e| matches!(e, AiEvent::LookOver { .. })));
 }
+
+// ---- out of the loaded area (fnv_ai::process) ---------------------------------------
+
+/// [`sim`] with a slow walk (2 units/s) and the actor out of the cell buffer: a run there
+/// would cross the room in one update, a walk does not.
+fn far_sim<'a>(f: &'a Fixture, actor: u32, player: [f32; 3]) -> Sim<'a> {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.25, package_interval: Some(10.0), ..GameConfig::default() });
+    game.new_game();
+    let mut ai = Ai::new(AiConfig { walk_speed: 2.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&game, FormId(actor)).unwrap();
+    assert!(ai.set_level(&game, FormId(actor), fnv_ai::ProcessLevel::Low));
+    let mut s = Sim { game, ai, nav: nav() };
+    s.player_to(player);
+    s
+}
+
+/// Runs until the actor's next far update, then returns.
+fn next_far_update(s: &mut Sim) {
+    let n = s.ai.process_stats.far_updates;
+    let mut waited = 0;
+    while s.ai.process_stats.far_updates == n {
+        s.run(1.0);
+        waited += 1;
+        assert!(waited <= 121, "an update within {} s", fnv_ai::FAR_PROCESS_SECONDS);
+    }
+}
+
+#[test]
+fn far_away_a_dialogue_package_walks_its_actor_to_the_player_but_does_not_talk() {
+    let f = fixture();
+    let mut s = far_sim(&f, R_COME, [1100.0, 1100.0, 0.0]);
+    // Malcolm Holmes's shape (ComeAndTalk: no locations, the player, Always Run). Out of
+    // the high process it sets off, at a walk [observed 2026-10-24: about 10,000 units a
+    // game hour though his package runs]. The first update takes up the package and
+    // keeps the time owed for the next, which walks it.
+    next_far_update(&mut s);
+    assert_eq!(s.agent(R_COME).activity, Activity::Travelling);
+    assert!(matches!(s.agent(R_COME).talk, Some(Talking::Approaching { .. })));
+    next_far_update(&mut s);
+    let walked = flat(s.agent(R_COME).walker.feet, CORNER);
+    assert!(walked > 0.0 && walked <= 2.0 * 2.0 * fnv_ai::FAR_PROCESS_SECONDS + 1.0, "walked {walked}");
+    // It keeps going in later updates, and does not talk out there.
+    for _ in 0..3 {
+        next_far_update(&mut s);
+    }
+    assert!(flat(s.agent(R_COME).walker.feet, CORNER) > walked);
+    assert_eq!(s.talks(), 0);
+    assert!(s.game.dialogue.is_none());
+    // In the loaded area it runs on and talks.
+    assert!(s.ai.set_level(&s.game, FormId(R_COME), fnv_ai::ProcessLevel::High));
+    s.run(10.0);
+    assert_eq!(s.talks(), 1);
+    assert!(flat(s.agent(R_COME).walker.feet, [1100.0, 1100.0, 0.0]) <= 150.0);
+}
+
+#[test]
+fn far_away_an_approach_keeps_its_route_when_the_player_moves() {
+    let f = fixture();
+    let mut s = far_sim(&f, R_COME, [1100.0, 1100.0, 0.0]);
+    next_far_update(&mut s);
+    next_far_update(&mut s);
+    let Some(Talking::Approaching { to, .. }) = s.agent(R_COME).talk else { panic!("{:?}", s.agent(R_COME).talk) };
+    // The player goes to the other corner: the walk goes on to where they were
+    // [observed 2026-10-24: Holmes's jumps after the player moved landed where they had
+    // without the move].
+    s.player_to([1100.0, 100.0, 0.0]);
+    next_far_update(&mut s);
+    assert!(matches!(s.agent(R_COME).talk, Some(Talking::Approaching { to: now, .. }) if now == to), "no new plan");
+    let follower = s.agent(R_COME).walker.follower.as_ref().expect("walking");
+    let end = *follower.path.legs.last().unwrap().points.last().unwrap();
+    assert!(flat(end, [1100.0, 1100.0, 0.0]) < 50.0, "still bound for {end:?}");
+}
+
+#[test]
+fn far_away_a_dialogue_package_with_a_wait_location_keeps_its_actor_there() {
+    let f = fixture();
+    // Sunny Smiles's (and Ringo's) shape: wait at the editor location. The player is in
+    // the trigger box, which in the loaded area would bring the actor over.
+    let mut s = far_sim(&f, R_GREET, [500.0, 500.0, 0.0]);
+    next_far_update(&mut s);
+    next_far_update(&mut s);
+    assert!(flat(s.agent(R_GREET).walker.feet, GREETER) < 1.0, "stays at {:?}", s.agent(R_GREET).walker.feet);
+    assert_eq!(s.talks(), 0);
+}

@@ -441,9 +441,10 @@ role; their exact names come from C1.
   - The actor's spread widens the cone instead of swaying the weapon, so the
     crosshair stays true. A light idle sway remains in the scope, for feel.
   - The crosshair shows the current cone.
-  - **Bloom**: each shot widens the cone and it recovers over time, scaled by the
-    weapon's spread.
-  - **Recoil**: the view kicks up and recovers, stronger for heavier weapons.
+  - **Bloom**: each shot widens the cone, scaled by the weapon's spread. Continuous fire
+    keeps widening it; it closes again once the trigger has rested a moment.
+  - **Recoil**: the view climbs up in a random pattern that leans side to side,
+    stronger for heavier weapons. It stays there: the player pulls it back down.
   - Jumping adds a penalty of its own.
 
   Bloom, recoil and the jump penalty are tuning values.
@@ -648,6 +649,11 @@ beyond combat. Third, C5 already passes a hit location everywhere (`GetHitLocati
   - Lengths come from the part's bone chain, radii from a share of the actor's size by
     kind of part [design] (combat-rules.md §12). The skeleton's own collision was not
     used.
+  - The human skeleton has no bone above `Bip01 Head` (the base of the skull), so a
+    head chain that ends on such a bone is carried on to the crown (`nvforever`
+    `limbs::skull_tip`, 2026-10-24) [observed: `skeleton.nif`, `headhuman.nif`; design:
+    the reach]. Before, the head's capsule was a ball at the neck, and a VATS mark on the
+    head needed the crosshair on the neck (the owner's playtest).
   - `Owner::Actor` gains the part index.
 - **Damage:**
   - The part's damage multiplier in §5.3 (head ×2 for most humans [observed: C1
