@@ -496,6 +496,11 @@ struct Pose {
 #[derive(Resource, Default)]
 pub struct Fighters {
     fighters: HashMap<u32, Fighter>,
+    /// When each gunman may next throw a grenade, and at whom that wait was rolled
+    /// (`npc_grenades`): kept over a change of fighter, rolled again for a new target.
+    grenade_at: HashMap<u32, (FormId, f32)>,
+    /// The grenade rolls' own sequence, as `stance_rng`.
+    grenade_rng: u64,
     /// Each fighter's pose this frame.
     poses: HashMap<u32, Pose>,
     stats: Stats,
@@ -636,6 +641,9 @@ struct Stats {
     fov_waits: usize,
     blast_holds: usize,
     evades: usize,
+    /// Grenades thrown, and throws held for a comrade or a bystander (`npc_grenades`).
+    grenades: usize,
+    grenade_holds: usize,
 }
 
 /// The chance (percent) of a creature's blow being a power attack where its combat style
@@ -825,6 +833,9 @@ pub fn evade_point(feet: V3, at: V3, radius: f32) -> V3 {
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
+/// The spread of an NPC's grenade throw, degrees [design].
+pub const GRENADE_CONE: f32 = 2.0;
+
 pub(crate) fn next_unit(rng: &mut u64) -> f32 {
     *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
     (*rng >> 40) as f32 / (1u64 << 24) as f32
@@ -1132,6 +1143,10 @@ pub(crate) fn fight(
     if f.maneuver_rng == 0 {
         f.maneuver_rng = 0xBF58_476D_1CE4_E5B9;
     }
+    if f.grenade_rng == 0 {
+        f.grenade_rng = 0x6A09_E667_F3BC_C909;
+    }
+    let gravity = phys.as_deref().map_or(686.0, |p| p.world.params.gravity);
     // Live grenades, to get away from (§17.7).
     let grenades = c.live_grenades();
     let clock = time.elapsed_secs();
@@ -2158,12 +2173,75 @@ pub(crate) fn fight(
                         }
                     }
                     let reloading = cycle.reloading();
-                    fighter.firing_for = if ready && !reloading { fighter.firing_for + dt } else { 0.0 };
+                    // Now and then a grenade it carries instead of a shot (`npc_grenades`).
+                    let mut threw = false;
+                    if ready && !fleeing && person {
+                        let due = match f.grenade_at.get(&id) {
+                            Some(&(t, at)) if t == target => at,
+                            _ => {
+                                let at = clock + crate::npc_grenades::wait(crate::npc_grenades::FIRST_AFTER, next_unit(&mut f.grenade_rng));
+                                f.grenade_at.insert(id, (target, at));
+                                at
+                            }
+                        };
+                        let grenade = (clock >= due).then(|| g.world.peek(me).and_then(|s| s.inventory.as_ref()).and_then(|inv| crate::npc_grenades::carried(&c.forms, inv.iter()))).flatten();
+                        let away_feet = vec::len(vec::sub(tfeet, eyes));
+                        if clock >= due {
+                            match grenade {
+                                None => {
+                                    let items: Vec<String> = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map(|i| i.iter().map(|(it, n)| format!("{} {n} ({:?})", g.data.name(it), c.forms.weapons.get(&it).and_then(|w| w.anim_type.clone()))).collect()).unwrap_or_default();
+                                    debug!("npc combat: {me_name} has no grenade to throw: {}", items.join(", "));
+                                    // Nothing to throw: looked for again after a wait.
+                                    let next = clock + crate::npc_grenades::wait(crate::npc_grenades::BETWEEN, next_unit(&mut f.grenade_rng));
+                                    f.grenade_at.insert(id, (target, next));
+                                }
+                                Some(gr) if !crate::npc_grenades::in_band(&gr, away_feet, gravity) => {
+                                    debug!("npc combat: {me_name} keeps its {}: {target_name} is {away_feet:.0} units away (throws between {:.0} and {:.0})", g.data.name(gr.weapon), gr.blast * crate::npc_grenades::MIN_BLAST_SHARE, crate::npc_grenades::reach(&gr, gravity));
+                                    // Looked at again in a second.
+                                    f.grenade_at.insert(id, (target, clock + 1.0));
+                                }
+                                Some(_) => {}
+                            }
+                        }
+                        if let Some(gr) = grenade.filter(|gr| crate::npc_grenades::in_band(gr, away_feet, gravity)) {
+                            // Its blast would catch a comrade or a bystander (§17.6).
+                            let spares = style.is_none_or(|s| g.spares_spectators(me, s));
+                            let ignores_group = style.is_some_and(|s| s.ignore_damaging_group);
+                            let caught = places
+                                .iter()
+                                .filter(|(k, _)| **k != id && **k != target.0)
+                                .filter(|(_, p)| vec::len(vec::sub(p.0, tfeet)) < gr.blast)
+                                .map(|(k, _)| FormId(*k))
+                                .find(|k| !g.would_attack(me, *k) && if g.comrades(me, *k) { !ignores_group } else { spares });
+                            let next = clock + crate::npc_grenades::wait(crate::npc_grenades::BETWEEN, next_unit(&mut f.grenade_rng));
+                            f.grenade_at.insert(id, (target, next));
+                            match caught {
+                                Some(k) => {
+                                    f.stats.grenade_holds += 1;
+                                    info!("npc combat: {me_name} keeps its grenade: {} would be caught in its blast at {target_name} (radius {:.0})", tactics::who(g, k), gr.blast);
+                                }
+                                None => {
+                                    let lobbed = gr.gravity_mult * gravity;
+                                    let aim = fnv_combat::vats::lob_dir(eyes, tfeet, gr.speed, lobbed).unwrap_or_else(|| fnv_combat::vats::lob_far(eyes, tfeet));
+                                    fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: eyes, aim, cone: GRENADE_CONE, muzzle: None, harmless: false });
+                                    anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
+                                    let _ = g.world.remove_item(me, gr.weapon, 1);
+                                    let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(gr.weapon));
+                                    f.stats.grenades += 1;
+                                    info!("npc combat: {me_name} throws {} at {target_name} ({away_feet:.0} units, blast {:.0}); {left} left", g.data.name(gr.weapon), gr.blast);
+                                    // Its FireExplosive line, on its attack timer (fnv_game::combat_lines).
+                                    g.attack_line(me, Some(target), false, true);
+                                    threw = true;
+                                }
+                            }
+                        }
+                    }
+                    fighter.firing_for = if ready && !reloading && !threw { fighter.firing_for + dt } else { 0.0 };
                     // Automatic weapons hold the trigger; others pull it again each time
                     // the cycle is ready and the style's firing delay has passed. Not while
                     // it reloads: a pull would stop a round-by-round reload after a round.
                     fighter.pull_in = (fighter.pull_in - dt).max(0.0);
-                    let mut trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    let mut trigger = ready && !reloading && !threw && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
                     // A wall in the way holds the shot (`combat_tactics` module notes),
                     // looked at as the trigger is pulled, not every frame; the shot goes
                     // at the point the line is clear to.
@@ -2693,7 +2771,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.shots_beyond,
     );
     info!(
-        "npc combat style summary: {} dodges ({} left, {} right, {} forward, {} back), {} idles; {} rushes; {} creature attacks begun on the run ({} lunges); {} pursuits stopped at the combat radius; {} targets outside the targeting field of view; {} explosive shots held for a comrade or a bystander; {} runs from grenades",
+        "npc combat style summary: {} dodges ({} left, {} right, {} forward, {} back), {} idles; {} rushes; {} creature attacks begun on the run ({} lunges); {} pursuits stopped at the combat radius; {} targets outside the targeting field of view; {} explosive shots held for a comrade or a bystander; {} runs from grenades; {} grenades thrown, {} kept for a comrade or a bystander",
         s.dodges.iter().sum::<usize>(),
         s.dodges[0],
         s.dodges[1],
@@ -2707,6 +2785,8 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.fov_waits,
         s.blast_holds,
         s.evades,
+        s.grenades,
+        s.grenade_holds,
     );
     if !s.powers.is_empty() || s.powers_unplayable > 0 {
         info!(

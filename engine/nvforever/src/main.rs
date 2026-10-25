@@ -79,6 +79,7 @@ mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod npc_grenades;
 mod use_weapon;
 mod provoked;
 mod weapons;

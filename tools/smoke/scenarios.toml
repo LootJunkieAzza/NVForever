@@ -877,6 +877,21 @@ expect = [
 forbid = [{ re = '1EFiendViolet.*Lost → Combat', label = "Combat ↔ Lost flicker" }]
 
 [[scenario]]
+name = "combat-npc-grenades"
+source = "docs/design/combat-ai.md §20: a gunman carrying grenades throws one now and then at a target it sees, clear of its blast and within the throw's reach, one taken from its inventory each time (npc_grenades.rs)"
+note = "god mode; Violet is given three frag grenades at 14 s and put 1,200 units from the player at 15 s (a frag grenade is thrown from beyond 990: 1.1 x its 900-unit blast)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_grenades.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:call:FiendVioletRef:AddItem:WeapGrenadeFrag:3,15:moveto:FiendVioletRef:player:1200:0:0" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 60
+expect = [
+  { re = 'npc combat: .*Violet.* throws WeapGrenadeFrag at the player \((?P<n>\d+) units', range = [990, 1500], label = "Violet throws a frag grenade, clear of its blast" },
+  { re = 'throws WeapGrenadeFrag at .*; (?P<n>\d) left', range = [0, 2], label = "one taken from her three each throw" },
+  { re = 'npc combat style summary: .*; (?P<n>\d+) grenades thrown', range = [1, 3], label = "the summary counts the throws" },
+]
+
+[[scenario]]
 name = "combat-violet"
 launch = "violet"
 source = "CLAUDE.md: after combat AI changes, the first check of docs/design/combat-ai.md §7"
