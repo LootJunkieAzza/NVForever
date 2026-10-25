@@ -223,6 +223,12 @@ impl Vfs {
         self.archives.iter().map(|(n, _)| n.as_str())
     }
 
+    /// The game's `Data` folder (its top-level files, `Credits.txt`, are not in the asset
+    /// namespace).
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     /// Archives and loose folders skipped because they could not be read: (name, why).
     pub fn skipped(&self) -> &[(String, String)] {
         &self.skipped

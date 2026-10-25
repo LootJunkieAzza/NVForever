@@ -236,7 +236,8 @@ the compass the eight directions' letters in Bevy's font.
 - The compass's faded ends.
 - The XP meter is built: experience.md (`xp_meter.rs`).
 - The radiation meter is built: radiation.md §6 (`radiation.rs`); its place is a guess.
-- The messages at the top left with their icons, subtitles, the breath meter,
+- The breath meter is built: drowning.md §3 (`hud_breath.rs`).
+- The messages at the top left with their icons, subtitles,
   the armour-piercing icons. The ammo type's label is built (§4). The crippled-limb
   picture is built (§12), and Hardcore mode's words (§13).
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)

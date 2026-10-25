@@ -45,6 +45,7 @@ pub mod anim_state;
 pub mod anims;
 pub mod awareness;
 pub mod blackjack;
+pub mod breath;
 pub mod camera_paths;
 pub mod books;
 pub mod caravan;
