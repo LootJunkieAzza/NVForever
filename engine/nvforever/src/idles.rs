@@ -806,7 +806,7 @@ pub fn drive(
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak => {}
+                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {

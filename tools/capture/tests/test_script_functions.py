@@ -108,6 +108,17 @@ class WikiParsing(unittest.TestCase):
             self.assertEqual(sf.xedit_from_catalogue(p), {1: ("GetDistance", ["ptReference"]),
                                                           5: ("GetLocked", [])})
 
+    def test_core_family(self):
+        def fam(name, origin="NVSE"):
+            return sf.core_family({"name": name, "origin": origin})
+        self.assertEqual(fam("Sv_Length"), "strings")
+        self.assertEqual(fam("ar_Size", "FOSE1"), "arrays")
+        self.assertEqual(fam("SetEventHandler"), "events")
+        self.assertEqual(fam("call"), "udf")
+        self.assertEqual(fam("TypeOf"), "values")
+        self.assertIsNone(fam("GetDistance"))
+        self.assertIsNone(fam("Ar_Whatever", "JIP"))   # a plugin's, not core
+
 
 class Bytecode(unittest.TestCase):
     def test_statements_with_reference_prefix(self):

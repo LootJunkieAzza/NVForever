@@ -1,0 +1,35 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "goodsprings_ticks",
+ "title": "Plain run (docs/handoff/observer-jip-audit-2026-10-25.md Q3): Goodsprings from 20:00 for 14 game hours, sampled every 15 game loops, so the package switches of residents in unloaded interiors at 22:00, 06:00 and 08:00 can be timed against the processing levels jip_state_goodsprings reads",
+ "save": "nvftest",
+ "defaults": {
+  "every": 15,
+  "depth": 1,
+  "track": [
+   "DocMitchellREF",
+   "SunnyRef",
+   "TrudyRef",
+   "RingoRef",
+   "EasyPeteRef",
+   "GSChetRef",
+   "GSJoeCobbRef",
+   "CheyenneREF",
+   "GSVictorRef",
+   "GoodspringsSettler01Ref",
+   "GoodspringsSettler02Ref",
+   "GoodspringsSettler03Ref",
+   "GoodspringsSettler04Ref"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "town_ticks",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 20,
+   "hours": 14
+  }
+ ]
+}

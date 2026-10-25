@@ -1061,7 +1061,10 @@ pub fn spawn_model(
     // holding it [design; hypothesis: the game leaves them still on the ground,
     // effects-animation-audit.md §3].
     let idle = model.rig.as_ref().and_then(|rig| rig.idle.as_ref()).filter(|c| !(c.only_free_motion() && is_item(&base.sig)));
-    if let Some(rig) = model.rig.as_ref().filter(|rig| (rig.idle.is_some() && idle.is_some()) || door.is_some() || activator.is_some() || scripted) {
+    // An activator whose model joins its bodies (a swinging trap): its nodes, for its
+    // bodies to move once it is let go (swing_traps.rs).
+    let jointed = model.jointed && &base.sig == b"ACTI";
+    if let Some(rig) = model.rig.as_ref().filter(|rig| (rig.idle.is_some() && idle.is_some()) || door.is_some() || activator.is_some() || scripted || jointed) {
         // Animated (Idle sequence): its own node hierarchy per reference.
         // "Random Anim Start" bases start their idle at a phase spread by reference
         // (fnv_actor::anims::random_anim_start; animation.md §8).
@@ -1093,6 +1096,9 @@ pub fn spawn_model(
         if let Some(l) = model.light.as_ref().filter(|_| &base.sig == b"LIGH") {
             let anchor = l.parent.as_ref().and_then(|n| nodes.get(n)).copied().unwrap_or(root);
             commands.entity(root).insert(crate::lights::LightRig { reference: r, anchor });
+        }
+        if jointed {
+            commands.entity(root).insert(crate::swing_traps::TrapRig { form_id: r, path: path.clone(), nodes: nodes.clone() });
         }
         if !rig.groups.is_empty() {
             commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));

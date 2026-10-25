@@ -421,7 +421,7 @@ mod tests {
     fn store() -> FormStore {
         let mut f = FormStore::default();
         for (id, kind, name) in [(GUN, ItemKind::Weapon, "10mm Pistol"), (MAGS, ItemKind::ItemMod, "10mm Pistol Extended Mags"), (SIGHT, ItemKind::ItemMod, "10mm Pistol Laser Sight"), (SILENCER, ItemKind::ItemMod, "10mm Pistol Silencer")] {
-            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: None, non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, thrown: false, quest_item: false, icon: Some(format!("{name}.dds")), placed_count: None, teaches: None, cant_be_taken: false, modulates_voice: false };
+            let it = Item { kind, value: Some(10), money: None, weight: Some(1.0), slots: None, projectile: None, health: None, non_playable: false, cant_drop: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: None, weapon_damage: None, weight_mods: [0.0; 3], drawable: false, not_for_npcs: false, thrown: false, quest_item: false, icon: Some(format!("{name}.dds")), placed_count: None, teaches: None, cant_be_taken: false, modulates_voice: false, weapon_traits: None };
             f.bases.insert(id, BaseForm { id, sig: *b"WEAP", edid: None, name: Some(name.into()), script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
         }
         f

@@ -1790,3 +1790,113 @@ while backing off at 85 units/s, rifle in her right hand and the syringe in her 
 **Not built**: a syringe for the two-handed heavy idle (no ANIO names it); the clip's
 visibility track of the syringe (it shows for the whole idle); NPCs not drawn do not
 heal; companions are treated as any NPC (the wheel's Use Stimpak gives the player's).
+
+## 22. NPCs re-arm: better weapons, their own dropped one, fists last (owner request 2026-10-25)
+
+The owner's report: a Viper Gunslinger fought with her fists. The audit found the records
+and both leveled-list resolutions sound (every Viper rolls a weapon from
+`LL2WastelanderVipersWeaponNV`; half of its level-1 entries are a tire iron or a knife
+[observed: FalloutNV.esm]); she had lost hers to a hit on the weapon (§17 of
+combat-rules.md, a broken weapon falls) or a crippled arm, and nothing had an NPC take up
+a weapon again. The owner's rules, 2026-10-25: every NPC goes for a weapon that is
+better than its own by overall damage per second; one skilled with guns does not put a
+melee weapon above its gun even when the melee weapon is better; a gun is usable only
+with ammunition for it, which the NPC must find too, though using it spends none; the
+NPC takes a copy of the ammunition and leaves the source as it was ("a weird engine
+quirk but lets keep it in"); fists are the last resort; it plays a pick-up animation.
+Combat is not a parity target; the rules are **[design]** unless tagged. Rules:
+`fnv_game::rearm` (ranking), `fnv_ai::rearm` (looking and fetching); engine:
+`npc_combat` holds fire while it fetches.
+
+- **Who.** A living actor other than the player in a combat state (Alert, Lost, Combat),
+  not fleeing, not on furniture, whose package does not continue during combat: an NPC,
+  or a Super Mutant creature (CREA type 4, the creatures whose skeleton has the people's
+  weapon stances, `outfits.rs`). Animals, insects, robots and ghouls do not.
+- **The rank of a weapon** for an actor (`Game::weapon_rank`), compared in this order:
+  1. its class is the actor's: ranged (Guns, Energy Weapons, Big Guns, Explosives) for an
+     NPC whose best ranged skill is at least its best melee skill (Melee Weapons,
+     Unarmed), else melee; a creature has no class of its own (every weapon matches);
+  2. damage per second: per attack the damage the outfitting ranks by (base damage, the
+     projectile's explosion for a weapon not thrown, `forms::weapon_choice_damage`) times
+     its condition's damage share (`inventory::condition_mult`, combat-rules.md §17),
+     times attacks per second: an automatic weapon's Fire Rate, else its Attack
+     Shots/Sec, else 1 for a gun; for a melee weapon its Attack Mult (at least 0.25)
+     over 1.2 s, the combat AI's strike pace (`npc_combat::STRIKE_SECONDS`).
+  A weapon is not ranked at all (unusable) when it cannot be drawn, is Player Only or Not
+  Used In Normal Combat, is broken (condition 0), is ruled out by the actor's combat
+  style (Melee Only, Ranged Only), is a grenade, mine or thrown weapon (never a primary
+  weapon, as in `fnv_game::style_weapon`; grenades are thrown by §20's rules), or is a gun
+  whose accepted ammunition (WEAP `NAM0`, an AMMO or a form list of them [documented:
+  xEdit]) the actor neither carries nor can find. The weapon it holds now keeps whatever
+  rank it has.
+- **What it takes up**, looking every second: with no usable weapon in hand (it broke,
+  fell, was taken), first the best usable weapon it carries, equipped at once (the
+  fight's empty-hand rule, `Game::arm_by_style`, takes up the same one by this rank). Its other
+  carried weapons do not replace a usable one it holds: the outfitting's choice stands
+  (in a first trial Cook-Cook swapped his Incinerator for his Flamer mid-fight, against
+  what the original was observed to do, actors.md §9.3). Then, within
+  1024 units (4096 with no usable weapon in hand), the best weapon it can reach that
+  ranks above the one it holds, nearest on ties: a weapon lying on the ground (not owned
+  by someone else, not taken by another fetcher) or carried by a dead actor. A gun it has
+  no ammunition for counts only with a source of that ammunition within the same reach:
+  ammunition on the ground, in a dead actor's inventory or in a container that is not
+  locked. With no way there (navmesh) the item is given up for this fight.
+- **The fetch.** It runs there (the ammunition first when it is nearer), and holds its
+  fire meanwhile (as a fleeing actor, `npc_combat`). At each item it stops and plays the
+  pick-up idle, `LoosePickUpGroundObject` (`PickUpGroundObject_0.3.kf`), a child of
+  `NPCPickUpItem` (0x00069B6E) [observed: FalloutNV.esm], or `SBGroundGrab`
+  (`GroundGrab_0.83.kf`) for a super mutant, and stands for 0.6 s (the people's clip runs 0.57 s). A weapon is taken (the
+  ground reference leaves the world; from a body it leaves the body's inventory, its
+  condition kept). Ammunition is copied: one round of it is added to the fetcher's
+  inventory and the source keeps its own. Then the weapon it went for is equipped. A
+  fetch that has not arrived after 20 s, or whose item is gone, is dropped and the item
+  given up.
+- **Fists** remain what an NPC fights with when nothing is usable and nothing is within
+  reach.
+- **Not changed**: the weapon an actor starts with (the outfitting's rule by damage,
+  observed in the original for Cook-Cook, actors.md §9.3) and what a held gun without
+  ammunition does (it fires: NPCs use no ammunition, owner 2026-10-17).
+
+**Checks**: unit tests `fnv_game::rearm` (damage per second, the rank's order, a weapon's
+class); `crates/fnv-ai/tests/carry.rs` (an unarmed fighter fetches a gun and a copy of its
+rounds; a gunman takes a weak gun over a strong knife, and the knife only with no rounds
+anywhere; a gun with no rounds is left; the weapon held is kept over other carried ones
+until lost); smoke `combat-npc-rearm`. Observed 2026-10-25: Violet, stripped of her items,
+ran 1,638 units, copied a 5.56mm round from a placed `LootAmmoBox556mm` (nearer than the
+box laid for her), picked up the service rifle and fired with it; in `battle-ncr-fiends`
+seven fetches, none given up, and Cook-Cook kept his Incinerator.
+
+## 23. Locked on a target in sight (owner request 2026-10-25)
+
+The owner: NPCs "are still turning sideways when shooting at their target, they need to
+keep locked on whilst shooting"; "if they have a target in sight they should be locked on
+them"; Violet "still breaks focus to take cover"; the strafing clips (aimed and from the
+hip) are there for moving sideways. The original's Fiends stayed within 1.5° of their
+target through every phase of the attack and fired only once turned to it
+(spec-notes/ai-observer.md §15).
+
+- **The lock** (`npc_combat::Fighters::lock_on`): each frame, a person the AI runs, in combat,
+  that sees its target and does not run from it (a flight away or by a door; a flight to cover keeps
+  it) is locked on where that target is drawn this frame. `residents` draws it facing that
+  place, turning at the combat turn rate (240° a second standing, 360° walking) and, once
+  within 10° (`LOCK_HOLD`), following it exactly. On its way to cover, a post or a flee
+  spot it strafes or backs away with its target in front. Out of sight it faces the
+  target's AI place as before (`Core::aims`).
+- **Why it slipped**: the drawn facing used the target's AI place, which for a charging
+  Fiend was 110 units from where it was drawn; a trooper shooting at it faced 16° off.
+  Flights to cover were not turned to the target at all.
+- **Side-steps** (the owner's video of Violet, 2026-10-25: side-on to the player at each
+  shot while strafing; PR #620 had fixed this for the player's body only): a rifle has no
+  walk left of its own, so NPCs walked left with the unarmed `mtleft.kf`, whose `Bip01
+  NonAccum` turns the whole body 76° from the rifle's run (`mtfastleft.kf` 90°; the right
+  and back side-steps 14–16°) [observed: kf_pose_compare, 2026-10-25]. A standing weapon
+  stance without its own left side-steps now takes the fists' `h2hleft.kf` /
+  `h2hfastleft.kf` (`fnv_actor::locomotion::weapon_moves`); the player's body takes
+  `h2hleft.kf` walking (animation.md §9.6).
+- **Fire arc**: a gun fires only within 3° of straight ahead (`FIRE_FACING`, was 30°), or
+  its weapon's Aim Arc when above 0. A scripted weapon use keeps 30° (`USE_FACING`).
+- **Measured**: the `npc combat facing` line at exit (how far off its target a gunman faced
+  at each shot, and a person the AI runs in each frame it was locked on); `battle-ncr-fiends`
+  and `combat-violet` check it. Before: a 2-minute NCR–Fiend battle had 84 frames over 10°
+  (up to 47°) and shots up to 29° off; after: none over 10° (largest 3.6°), shots within
+  0.9°.

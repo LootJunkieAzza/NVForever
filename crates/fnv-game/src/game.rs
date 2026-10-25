@@ -887,6 +887,10 @@ pub struct Speech {
     /// conversation goes on with the next line, and no SayToDone block runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<u32>,
+    /// The topics of the conversation's earlier lines, in order (for the quests without
+    /// "Allow Repeated Conversation Topics", `crate::dialogue`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier_topics: Vec<FormId>,
     /// A hello said to the player as the player passes (`Game::say_hello`,
     /// docs/spec-notes/dialogue.md §5.2): when it ends no SayToDone block runs and no
     /// topic is added [hypothesis for both].
@@ -971,6 +975,8 @@ pub struct Game<'a> {
     pub destruction_changes: Vec<(FormId, crate::combat::DestructionChange)>,
     /// Activate children waiting for their delay (`crate::traps`). Not saved.
     pub due_children: Vec<crate::traps::DueChild>,
+    /// The swinging traps let go and whom they hit (`crate::swing_traps`). Not saved.
+    pub swing_traps: crate::swing_traps::SwingTraps,
     /// Knockouts and getting up since the engine last took them
     /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
     pub knockout_news: Vec<crate::unconscious::News>,
@@ -1037,6 +1043,8 @@ pub struct Game<'a> {
     pub companions: crate::companion_wheel::Companions,
     /// NPCs using the stimpaks they carry (`crate::npc_stimpaks`). Not saved.
     pub npc_stimpaks: crate::npc_stimpaks::NpcStimpaks,
+    /// NPCs taking up weapons again (`crate::rearm`). Not saved.
+    pub rearms: crate::rearm::Rearms,
     /// Teammates brought to the player when the player changed cells
     /// (`crate::followers`), for the engine's log; they are in [`Game::teleported`] too.
     /// Not part of the saved state.
@@ -1426,6 +1434,7 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             destruction_changes: Vec::new(),
             due_children: Vec::new(),
+            swing_traps: Default::default(),
             knockout_news: Vec::new(),
             magic_news: Vec::new(),
             idle_requests: Vec::new(),
@@ -1447,6 +1456,7 @@ impl<'a> Game<'a> {
             teammate_containers: Vec::new(),
             companions: Default::default(),
             npc_stimpaks: Default::default(),
+            rearms: Default::default(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),
             rest: Default::default(),
@@ -2496,7 +2506,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, earlier_topics: Vec::new(), hello, look: LineLook::Both, response: 0, force_subtitles: false, two_d: false });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }

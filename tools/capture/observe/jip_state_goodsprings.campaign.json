@@ -1,0 +1,45 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "jip_state_goodsprings",
+ "title": "JIP tier, state only (docs/handoff/observer-jip-audit-2026-10-25.md Q1, Q4, Q11): processing levels of the Goodsprings residents loaded and not, through the evening, bedtime and the night; the package held under Sunny's dialogue with the player",
+ "save": "nvftest",
+ "defaults": {
+  "jip": true,
+  "every": 60,
+  "depth": 1,
+  "track": [
+   "DocMitchellREF",
+   "SunnyRef",
+   "TrudyRef",
+   "RingoRef",
+   "EasyPeteRef",
+   "GSChetRef",
+   "GSJoeCobbRef",
+   "CheyenneREF",
+   "GSVictorRef",
+   "GoodspringsSettler01Ref",
+   "GoodspringsSettler02Ref",
+   "GoodspringsSettler03Ref",
+   "GoodspringsSettler04Ref"
+  ]
+ },
+ "sessions": [
+  {
+   "name": "town_night",
+   "go": {
+    "coc": "Goodsprings"
+   },
+   "hour": 18,
+   "hours": 12
+  },
+  {
+   "name": "meet_sunny",
+   "go": {
+    "moveto": "SunnyRef"
+   },
+   "hour": 10,
+   "hours": 1,
+   "every": 15
+  }
+ ]
+}
