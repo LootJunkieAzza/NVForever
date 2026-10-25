@@ -57,16 +57,17 @@
 //! heat-haze shells, Mister Handy's jet) is not drawn as a surface; it shows what lies
 //! behind it, shifted on the screen by its normal (normal map applied) in view space times
 //! its refraction strength ([`NifSurface::refraction`], which the model's
-//! `BSRefractionStrengthController` animates) [hypothesis, docs/spec-notes/
-//! explosion-effects.md §7]. It is drawn after the opaque pass from Bevy's copy of it (the
+//! `BSRefractionStrengthController` animates) times [`REFRACTION_SCREEN`], in screen UV
+//! [hypothesis, docs/spec-notes/explosion-effects.md §7, refraction.md §6]. It is drawn after the opaque pass from Bevy's copy of it (the
 //! view transmission texture, as the water is), writes no depth, so the flames and smoke
 //! inside a fireball's shell still show, and draws nothing into the depth-only passes
 //! (shadows). Particles and other blended shapes are drawn later and are not bent.
 //!
 //! Fire refraction: a refracting shape with the Fire Refraction flag as well
-//! (`nif_spawn::fire_period`) moves its bend: the normal map is read a second time,
-//! scrolled up its texture once every [`NifSurface::fire_period`] seconds, and that
-//! tilt is added to the shift [hypothesis, docs/spec-notes/refraction.md §3]. The
+//! (`nif_spawn::fire_period`) moves its bend: its normal map is read scrolled up its
+//! texture once every [`NifSurface::fire_period`] seconds, and that tilt is added to the
+//! tilt of the shape's own (vertex) normal; the unscrolled normal map is not used, so the
+//! map counts once [hypothesis, docs/spec-notes/refraction.md §3]. The
 //! Stealth Boy's field (nvforever `stealth_field.rs`) uses the same to make an actor's
 //! body shimmer. A refracting shape keeps the outline of its alpha cut
 //! ([`NifSurface::alpha_cut`]).
@@ -224,8 +225,9 @@ pub struct NifSurface {
     /// blend mode 0 ONE]; the view-angle falloff still fades it [hypothesis]. 0 for every
     /// other shape (an additive SRC_ALPHA / ONE shape adds colour × alpha, [`add_display`]).
     pub add_whole: f32,
-    /// The screen shift of a refracting shape per unit of its view-space normal (module
-    /// notes, "Refraction"), in screen UV; 0 for every other shape.
+    /// The refraction strength of a refracting shape as the model stores or keys it (module
+    /// notes, "Refraction"): × [`REFRACTION_SCREEN`] the screen shift per unit of its
+    /// view-space normal, in screen UV; 0 for every other shape.
     pub refraction: f32,
     /// Seconds for the normal map of a refracting shape to scroll once up its texture,
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
@@ -281,9 +283,16 @@ pub struct NifSurfaceUniform {
     pub soft: Vec4,
 }
 
+/// Screen UV of shift per unit of refraction strength and of view-space tilt
+/// [hypothesis, docs/spec-notes/refraction.md §6]. The models store strengths from 0.015
+/// (the Ghoul body glow) to 1.0 (the HELIOS One beam, the displacer impact); read as screen
+/// UV whole, 1.0 would move the picture by a screen width and the Incinerator's burst (keyed
+/// to 0.156) drew a plain lens-like dome over the flames (owner, 2026-10-25).
+pub const REFRACTION_SCREEN: f32 = 0.1;
+
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction, fire_period: s.fire_period, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft }
     }
 }
 

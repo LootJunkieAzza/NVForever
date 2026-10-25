@@ -159,7 +159,8 @@ The owner saw the Incinerator's fire burst as "an untextured dome shape that exp
   is flat (`FXFlatNormal_n.dds`), strength 0.04.
 - **Rule** [hypothesis]: a shape with the Refraction flag is not drawn as a surface; it
   shows what lies behind it shifted on the screen by its normal (normal map applied) in
-  view space times its refraction strength, in screen UV. Reasons: the jet's white,
+  view space times its refraction strength, in screen UV (since 2026-10-25 times 0.1
+  as well: refraction.md §6). Reasons: the jet's white,
   flat-normal clouds only make sense as distortion, and with a flat normal map the bend
   must come from the mesh's own normals; a strength of 0.05 as a share of the screen is a
   visible but small shift. The diffuse texture is not used. Fire Refraction (bit 16) and
