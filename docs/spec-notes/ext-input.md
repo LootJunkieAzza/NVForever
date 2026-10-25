@@ -9,8 +9,7 @@ Written for task D6 of the extender plan ([extender-core-tasks.md](../handoff/ex
 from the GECK wiki export. Everything the pages state is tagged `[documented: <page>]`;
 what they leave out is **open (to observe)**. All of these come from FOSE1 [observed:
 `schemas/script/functions.json`]. The DirectX scancode table is in the appendix
-[documented: Template:DirectX Scancodes, pasted by the owner from geckwiki.com, 2026-10-25]; so is the controller button table (§3a); the controller trigger table is still
-missing.
+[documented: Template:DirectX Scancodes, pasted by the owner from geckwiki.com, 2026-10-25]; the controller button and trigger codes are in §3a.
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -121,8 +120,10 @@ bit table was then pasted by the owner from geckwiki.com, 2026-10-25:
 
 [documented: Template:Controller Button Codes, pasted by the owner from geckwiki.com, 2026-10-25]. Bit 2048 is not used; the fifteen
 bits sum to 63487, the "every button" value of the DisableButton page, so the table and
-that page agree [documented: both; the arithmetic is ours]. The trigger codes used by the
-Hold/Disable/IsTrigger functions (Template:Controller Trigger Codes): still open.
+that page agree [documented: both; the arithmetic is ours]. Trigger codes for the
+Hold/Release/Disable/Enable/IsTrigger functions: **0 left trigger, 1 right trigger**
+[documented: DisableTrigger, "XBox Controller Trigger Codes", pasted by the owner from
+geckwiki.com, 2026-10-25], the same numbers TapTrigger uses.
 
 ## 4. Session tests
 
@@ -133,7 +134,7 @@ GetGameRestarted].
 
 ## 5. Open (to observe), collected
 
-The controller trigger table; scancodes the sample omits; unbound controls in GetControl and
+scancodes the sample omits; unbound controls in GetControl and
 GetAltControl; GetKeyPress order; disabled keys without `ignoreStatus`; DisableKey and
 DisableControl across saves; TapKey on disabled keys and its timing.
 

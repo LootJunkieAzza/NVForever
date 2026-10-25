@@ -166,11 +166,9 @@ game. Nothing here is urgent; each item unblocks part of the work.
    Hexadecimal Notation, User Defined Function, String/Array Variable, NVSE Error, the
    event priority and filtering pages and User-Defined Event, and `FOSE.xml` settled
    GetType (it is GetObjectType's alias), and you pasted Form Type IDs, the DirectX
-   scancodes, GetCurrentEventName, DispatchEventAlt and sUActn: thank you. Still
-   missing: **Template:Controller Trigger Codes** (you pasted the button codes;
-   `Controller.xml` has the controller functions, which only include these tables by
-   reference; ext-input.md),
-   and **Player Character String Codes** (ext-format.md, minor).
+   scancodes, the controller button and trigger codes, the known plugin names,
+   GetCurrentEventName, DispatchEventAlt and sUActn: thank you. Still missing, minor:
+   **Player Character String Codes** (ext-format.md).
 2. **The GECK with xNVSE loaded**, to compile, in a private test plugin of yours:
    `tools/capture/ext-compile/` (23 cases; note what the GECK says for each) and the
    probe sets in `tools/capture/ext-probes/` (strings, expressions, arrays, loops, udf;

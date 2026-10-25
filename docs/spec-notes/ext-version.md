@@ -9,8 +9,7 @@ Written for task C5 of the extender plan ([extender-core-tasks.md](../handoff/ex
 from the GECK wiki export. Everything the pages state is tagged `[documented: <page>]`;
 what they leave out is **open (to observe)**. Origins are from
 `schemas/script/functions.json` [observed]. The list of known plugin names that
-GetPluginVersion and IsPluginInstalled include (`Template:NVSE_Plugins`) is **not in the
-export**; the names below are only the ones pages spell out.
+GetPluginVersion and IsPluginInstalled include is in §2a [documented: the GetPluginVersion page's list, pasted by the owner from geckwiki.com, 2026-10-25].
 
 Behaviour is our own wording of the GECK wiki export (`C:\fnv-private\geckwiki\`,
 private); no extender source, no opcode numbers or argument encodings (those come only
@@ -61,7 +60,72 @@ from a cited document or from compiling our own test scripts with xNVSE,
 | ShowOff NVSE | `"ShowOffNVSE Plugin"` | [documented: GetPluginVersion; Category:Functions (ShowOff NVSE)] |
 | JIP PP LN | `"JIP PP LN"` | [documented: AttachModel and the other JIP PP LN pages] |
 | CacheUI | `"CUI"` | [documented: Category:Functions (CacheUI Plugin)] |
-| hNVSE | `hNVSE` (unquoted on its page) | [documented: Category:Functions (hNVSE)] |
+| hNVSE | `hNVSE` (unquoted on its page; `"hNVSE"` in §2a) | [documented: Category:Functions (hNVSE)] |
+
+Two names are only on category pages, not in the list below: `"JIP PP LN"` and `"CUI"`.
+
+## 2a. Known plugin names
+
+The wiki's list of plugins and the name each registers [documented: the GetPluginVersion page's list, pasted by the owner from geckwiki.com, 2026-10-25]. These are
+the strings mods pass to IsPluginInstalled and GetPluginVersion; C5 keys its answers on
+them.
+
+| Plugin | Registered name | Note |
+|---|---|---|
+| Aim Transition Patch | `"AimTransitionFix"` |  |
+| AnhNVSE | `"AnhNVSE"` |  |
+| ARES_NVSE | `"ARESPlugin"` |  |
+| Book Menu Restored Plugin | `"Book Menu Restored"` |  |
+| Charisma Tweaks | `"Charisma Overhaul"` |  |
+| Climate Control NVSE | `"ClimateControl"` |  |
+| Console Paste Support | `"Console Clipboard"` |  |
+| Controller Support NVSE | `"Controller Support"` |  |
+| Crash Logger | `"CobbCrashLogger"` |  |
+| Cursor Unilaterally Matched | `"CUM"` |  |
+| Fog-Based Object Culling | `"FogCulling"` |  |
+| GaryGaryGary | `"GAAARY"` |  |
+| GECK Extender | `"ZeGaryHax"` | cannot be tested with IsPluginInstalled or GetPluginVersion |
+| hNVSE | `"hNVSE"` |  |
+| Height Randomizer | `"HeightRandomizer"` |  |
+| High Res Local Maps | `"HighResLocalMaps"` |  |
+| High Resolution Bloom | `"HighResBloom"` |  |
+| High Resolution Screens | `"HDPipboy"` |  |
+| High Resolution Water Fog | `"HighResWaterDepth"` |  |
+| Hot Reload (NVSE) | `"hot_reload"` | see also GetGameHotReloaded |
+| Improved Console (NVSE) | `"Improved Console"` |  |
+| Improved Lighting Shaders | `"Improved Lighting Shaders for FNV"` |  |
+| JIP LN NVSE | `"JIP NVSE Plugin"` |  |
+| JIP Realistic Weapon Overheating | `"RWO Plugin"` |  |
+| JohnnyGuitar NVSE | `"JohnnyGuitarNVSE"` |  |
+| kNVSE Animation Plugin | `"kNVSE"` |  |
+| kNVSE JSON Generator | `"MyFirstPlugin"` |  |
+| LStewieAl's Tweaks | `"lStewieAl's Tweaks"` |  |
+| Manual Reload | `"Manual Reload"` |  |
+| MCM | `"MCM Extensions"` |  |
+| FNV Mod Limit Fix | `"MLF"` |  |
+| MoonlightNVSE | `"MoonlightNVSE"` |  |
+| NVAC - New Vegas Anti Crash | `"NVAC - New Vegas Anti Crash"` |  |
+| New Vegas - Enhanced Camera | `"EnhancedCamera"` |  |
+| New Vegas Reloaded | `"NewVegasReloaded"` |  |
+| New Vegas Stutter Remover | `"sr_New_Vegas_Stutter_Remover"` |  |
+| No Skill Tags | `"NO TAGS REDONE"` |  |
+| NVTF - New Vegas Tick Fix | `"NVTF"` |  |
+| NX | `"Extensions for NVSE"` |  |
+| OneTweak | `"OneTweak"` |  |
+| Pip-Boy Shading Fix | `"PipBoyShadingFix"` |  |
+| Plugins+ | `"Plugins+"` |  |
+| Project Nevada | `"pn_nvse"` |  |
+| FNV ReShade Helper | `"FNVReShadeHelper"` |  |
+| ROOG FNV - ROOG TTW | `"Hard Hardcore"` |  |
+| ROOGNVSE Plugin | `"ttw_nvse"` |  |
+| ShowOff NVSE | `"ShowOffNVSE Plugin"` |  |
+| Simple Exterior Fog Remover | `"ExteriorFogRemover"` |  |
+| SUP NVSE | `"SUP NVSE Plugin"` |  |
+| SUPDate Checker | `"SUPDate Checker"` |  |
+| UIO - User Interface Organizer | `"UI Organizer Plugin"` |  |
+| YAPR - Yet Another Pip-Boy Remover | `"PipBoyTweaks"` |  |
+| yGTM - Gameplay Tweaks and Madness | `"yGTM"` |  |
+| yUI - User Interface | `"yUI"` |  |
 
 ## 3. Plugins' own version getters
 
@@ -109,5 +173,5 @@ low.
 
 ## 6. Open (to observe)
 
-The version/revision/beta split of 6.4.9; GetPluginVersion's name matching; the full
-known-plugin list (`Template:NVSE_Plugins`, not exported).
+The version/revision/beta split of 6.4.9; GetPluginVersion's name matching (case,
+spaces); plugins newer than the wiki's list.
