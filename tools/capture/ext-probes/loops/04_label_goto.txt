@@ -1,0 +1,28 @@
+scn ExtProbeLoops04
+; Label and GoTo (tools/capture/ext-probes/loops/README.md)
+int i
+int j
+int r
+int n
+int iFrame
+ref rItem
+ref rKeep
+ref rForm
+array_var a
+array_var e
+string_var s
+string_var c
+Begin GameMode
+    let iFrame += 1
+    if iFrame == 1
+        Print "EXTPROBE|loops/ExtProbeLoops04|begin"
+        let r := 0
+        Label 1
+        let r += 1
+        if r < 3
+            GoTo 1
+        endif
+        Print "EXTPROBE|goto.count|" + $r
+        Print "EXTPROBE|loops/ExtProbeLoops04|end"
+    endif
+End
