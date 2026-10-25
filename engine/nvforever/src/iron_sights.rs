@@ -25,7 +25,9 @@
 //!   true iron sight check its nif for the sight node"]: a gun with a Sight FOV whose
 //!   model has a sighting node. The laser rifle, laser pistol and minigun models have
 //!   none and keep the original aim; the plasma rifle has one [observed:
-//!   laserrifle.nif, laserpistol.nif, minigun.nif, plasmarifle.nif].
+//!   laserrifle.nif, laserpistol.nif, minigun.nif, plasmarifle.nif]. In first person
+//!   those guns play no down-the-sights clip either: the hip pose stays and only the view
+//!   zooms, as the original (`player_body.rs`, `Rig::sights_clips`; camera.md §4.1).
 //! - The node is named `##SightingNode` on most guns and `SightingNode` (once
 //!   `SightingNOde`) on 18 others: cowboy repeaters, the .32 snubnose, the .44 magnums,
 //!   the heavy-frame 10mms [observed: docs/spec-notes/nif-node-audit.md row 1].
