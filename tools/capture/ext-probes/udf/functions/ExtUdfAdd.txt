@@ -1,0 +1,9 @@
+scn ExtUdfAdd
+; function script for tools/capture/ext-probes/udf/README.md
+int a
+int b
+int iSum
+Begin Function {a, b}
+    let iSum := a + b
+    SetFunctionValue iSum
+End

@@ -1,0 +1,15 @@
+scn ExtUdfDepth
+; function script for tools/capture/ext-probes/udf/README.md
+int n
+int m
+int r
+Begin Function {n}
+    if n <= 0
+        SetFunctionValue 0
+        Return
+    endif
+    let m := n - 1
+    let r := Call ExtUdfDepth m
+    let r += 1
+    SetFunctionValue r
+End

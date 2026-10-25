@@ -1,0 +1,7 @@
+scn ExtUdfReturnStops
+; function script for tools/capture/ext-probes/udf/README.md
+Begin Function { }
+    SetFunctionValue 3
+    Return
+    SetFunctionValue 4
+End

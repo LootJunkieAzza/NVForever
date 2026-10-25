@@ -1,0 +1,6 @@
+scn ExtUdfNoValue
+; function script for tools/capture/ext-probes/udf/README.md
+int x
+Begin Function { }
+    let x := 1
+End

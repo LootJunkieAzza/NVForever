@@ -1,0 +1,34 @@
+scn ExtProbeUdf01
+; argument passing and the return value (tools/capture/ext-probes/udf/README.md)
+int i
+int r
+int iP
+ref rL
+ref rRef
+string_var s
+array_var a
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|udf/ExtProbeUdf01|begin"
+    Print "EXTPROBE|udf.add|" + $(Call ExtUdfAdd 2 3)
+    let i := 5
+    let r := Call ExtUdfSetNum i
+    Print "EXTPROBE|udf.num_by_value|" + $i
+    let s := "hi"
+    let r := Call ExtUdfSetStr s
+    Print "EXTPROBE|udf.str_after_call|[" + s + "]"
+    let a := Ar_List 1, 2
+    let r := Call ExtUdfSetArr a
+    Print "EXTPROBE|udf.arr_after_call|" + $(a[0])
+    Print "EXTPROBE|udf.twice|" + $(Call ExtUdfTwice)
+    let r := Call ExtUdfAfterValue
+    let r := 42
+    let r := Call ExtUdfNoValue
+    Print "EXTPROBE|udf.no_value|" + $r
+    Print "EXTPROBE|udf.return_stops|" + $(Call ExtUdfReturnStops)
+    Print "EXTPROBE|udf/ExtProbeUdf01|end"
+End
