@@ -291,8 +291,9 @@ enum ClipKey {
     ReloadOpen(Stance, &'static str, &'static str),
     /// The Pip-Boy coming up (first person); a woman's.
     PipBoy(bool),
-    /// The weapon's hand grip clip (`1lmhandgrip1.kf`).
-    Grip(&'static str),
+    /// Weapon prefix and hand grip number: the grip clip (`1lmhandgrip1.kf`,
+    /// `2hahandgrip1_plasmarifle.kf`).
+    Grip(&'static str, u8),
 }
 
 impl ClipKey {
@@ -319,7 +320,7 @@ impl ClipKey {
             ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
             // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
             // male one]
-            ClipKey::Grip(p) => vec![format!("{p}handgrip1.kf")],
+            ClipKey::Grip(p, n) => vec![format!("{p}handgrip{n}.kf")],
             ClipKey::PipBoy(female) => {
                 let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
                 own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
@@ -540,13 +541,20 @@ impl Rig {
         if let Some(c) = self.clips.get(&key) {
             return c.clone();
         }
-        let found = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)).and_then(|path| {
+        let mut path = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p));
+        // A grip clip may carry the weapon's name after its number
+        // (`2hrhandgrip3_combatshotgun.kf`): the folder's one for that prefix and number.
+        if let (None, ClipKey::Grip(p, n)) = (&path, key) {
+            let stem = format!("{}{p}handgrip{n}_", self.folder);
+            path = ctx.models.data.vfs.paths(|x| x.starts_with(&stem) && x.ends_with(".kf") && !x[self.folder.len()..].contains('\\')).into_iter().min();
+        }
+        let found = path.and_then(|path| {
             let clip = ctx.clip(&path)?;
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
-            Some(c) if matches!(key, ClipKey::Grip(_)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
+            Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Move(..)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
@@ -600,6 +608,8 @@ struct Motion {
     /// docs/spec-notes/weapon-mods.md §2).
     weapon_mods: u8,
     prefix: &'static str,
+    /// The weapon's DNAM Hand Grip ([`Frame::grip`]).
+    grip: Option<u8>,
     hands: WeaponHands,
     events: Vec<HandEvent>,
     speed: f32,
@@ -642,6 +652,8 @@ struct Motion {
     sway: ViewSway,
     /// The true iron sights were last reported on the eye (a smoke check).
     sights_told: bool,
+    /// How far the gun is on its way up to the eye (0–1, not eased; `iron_sights::step`).
+    sights_share: f32,
 }
 
 impl Motion {
@@ -661,6 +673,7 @@ impl Default for Motion {
             weapon: None,
             weapon_mods: 0,
             prefix: UNARMED,
+            grip: None,
             hands: WeaponHands::default(),
             events: Vec::new(),
             speed: 0.0,
@@ -687,6 +700,7 @@ impl Default for Motion {
             velocity: Vec2::ZERO,
             sway: ViewSway::default(),
             sights_told: false,
+            sights_share: 0.0,
         }
     }
 }
@@ -826,8 +840,11 @@ fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
 fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>, u8) {
     let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return (Vec::new(), None, 0) };
     let eq = inv.equipped();
-    let worn = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
+    let mut worn: Vec<FormId> = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
     let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
+    // A weapon with "Hide Backpack" goes with the armour: while it is equipped the body is
+    // dressed without the pieces in the Backpack slot (`Resolver::resolve_wearing`).
+    worn.extend(weapon.filter(|w| world.actors.weapons.get(w).is_some_and(|x| x.hide_backpack)));
     (worn, weapon, weapon.map_or(0, |w| inv.equipped_mods(w)))
 }
 
@@ -944,6 +961,7 @@ fn ensure_body(
     m.weapon_mods = weapon_mods;
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
     m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
+    m.grip = w.and_then(|w| w.grip);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
     if weapon.is_some() {
         info!("player weapon: mods {weapon_mods} on, models {:?} and {:?} (first person)", w.and_then(|w| w.model_for(false, weapon_mods)), w.and_then(|w| w.model_for(true, weapon_mods)));
@@ -1069,6 +1087,16 @@ const LOOK_REBUILD: f32 = 0.1;
 
 fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>) -> Result<Body, String> {
     let a = world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn), look)?;
+    // The armour pieces drawn (an addon in the Backpack slot is left out while a weapon
+    // with Hide Backpack is held).
+    let mut drawn: Vec<String> = Vec::new();
+    for p in a.parts.iter().filter(|p| p.role == "armor") {
+        let name = world.actors.armors.get(&p.form).and_then(|x| x.edid.clone()).unwrap_or_else(|| p.form.to_string());
+        if !drawn.contains(&name) {
+            drawn.push(name);
+        }
+    }
+    info!("player body: armour drawn {drawn:?}");
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
@@ -1217,6 +1245,8 @@ struct Frame {
     limping: bool,
     /// The weapon prefix, and whether the weapon is out.
     prefix: &'static str,
+    /// The weapon's DNAM Hand Grip (1 to 6), `None` for the default.
+    grip: Option<u8>,
     drawn: Option<&'static str>,
     hands: WeaponHands,
     airborne: f32,
@@ -1399,15 +1429,22 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     want.push((c, TAG_AIM + i as u32, w, Mode::Loop));
                 }
             }
-            // A Land Mine weapon is held with its hand grip clip over the aim: it puts the
-            // left hand out of view and the right thumb over the mine's rim [observed: the
-            // game's first-person frames of the frag mine (owner 2026-10-23), which show no
-            // left hand; `1lmhandgrip1.kf` is the type's only grip clip; hypothesis: the
-            // game plays it for the weapon's default grip].
-            if f.prefix == "1lm" {
-                if let Some(c) = rig.clip(ctx, ClipKey::Grip(f.prefix)) {
-                    want.push((c, TAG_GRIP, 1.0, Mode::Loop));
-                }
+            // The weapon's hand grip clip over the aim: WEAP DNAM Hand Grip, "a hand pose
+            // animation for 3rd person" [documented: GECK wiki Weapons], so the body rig
+            // only (the arms rig's folder has the same files: whether the game plays them
+            // in first person is not known). A Land Mine weapon with the default grip is
+            // held with its type's grip clip in both views: it puts the left hand out of
+            // view and the right thumb over the mine's rim [observed: the game's
+            // first-person frames of the frag mine (owner 2026-10-23), which show no left
+            // hand; `1lmhandgrip1.kf` is the type's only grip clip; hypothesis: the game
+            // plays it for the weapon's default grip].
+            let grip = match (f.grip, rig.view) {
+                (Some(n), View::Third) => Some(n),
+                _ if f.prefix == "1lm" => Some(1),
+                _ => None,
+            };
+            if let Some(c) = grip.and_then(|n| rig.clip(ctx, ClipKey::Grip(f.prefix, n))) {
+                want.push((c, TAG_GRIP, 1.0, Mode::Loop));
             }
         }
     }
@@ -2167,6 +2204,7 @@ fn drive_body(
         female: body.female,
         limping: limbs.as_deref().is_some_and(|l| l.limping()),
         prefix,
+        grip: m.grip,
         drawn: (m.hands.phase == WeaponPhase::Drawn).then_some(prefix),
         hands: m.hands,
         airborne: if m.falling { m.airborne } else { 0.0 },
@@ -2218,14 +2256,14 @@ fn drive_body(
             on: state.weapon_sway && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none(),
         })
     });
-    // True iron sights: eased in with the zoom, for the guns whose model has a sighting
-    // node, while the
-    // player looks through the arms rig by themself.
-    let sights_in = (state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()))
-        .then(|| zoom.as_deref().map_or(0.0, |z| z.blend))
-        .filter(|s| *s > 0.0 && combat.as_deref().is_some_and(|c| c.sight_fov().is_some()));
+    // True iron sights: brought up at their own pace while the view zooms in, for the
+    // guns whose model has a sighting node, while the player looks through the arms rig
+    // by themself.
+    let sights_can = state.true_iron_sights && !third_view && idles.held.is_none() && !idles.first.covers() && pipboy.is_none() && body.first.as_ref().is_some_and(|f| f.sighting.is_some()) && combat.as_deref().is_some_and(|c| c.sight_fov().is_some());
+    m.sights_share = if sights_can { crate::iron_sights::step(m.sights_share, zoom.as_deref().is_some_and(|z| z.aimed), dt) } else { 0.0 };
+    let sights_in = Some(m.sights_share).filter(|s| *s > 0.0);
     // The view's direction in the arms rig's own frame (turned by the heading only).
-    let sights = sights_in.map(|s| (s, Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
+    let sights = sights_in.map(|s| (crate::iron_sights::ease(s), Quat::from_rotation_z(held) * Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch))));
     // The crosshair goes while the gun is on its way to the eye.
     let lined = sights.is_some();
     if let Some(t) = true_sights.as_deref_mut() {

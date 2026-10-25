@@ -197,6 +197,11 @@ pub struct MeleeInput<'a> {
     pub first: &'a str,
     /// Random rolls in 0..1 for the variant and a blank `a:` key.
     pub rolls: [f32; 2],
+    /// The weapon's power attack override (WEAP DNAM, `attackcustom3power`;
+    /// `fnv_combat::data::WeaponStats::power_attack_override`): the standing power
+    /// attack plays it instead of `attackpower` [hypothesis: which power attacks it
+    /// replaces is not documented; the directional ones keep their own clips].
+    pub power_override: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -283,9 +288,10 @@ impl Melee {
         if free && (self.power || self.tap) {
             let power = self.power.then(|| PowerDir::of(input.forward, input.right));
             let next = next.filter(|_| self.chained && power.is_none());
-            let stem = match power {
-                Some(d) => d.stem().to_string(),
-                None => swing_stem(&next.map_or_else(|| input.first.to_string(), |n| n.stem(input.rolls[1])), input.rolls[0]),
+            let stem = match (power, input.power_override) {
+                (Some(PowerDir::Stand), Some(o)) => o.to_string(),
+                (Some(d), _) => d.stem().to_string(),
+                (None, _) => swing_stem(&next.map_or_else(|| input.first.to_string(), |n| n.stem(input.rolls[1])), input.rolls[0]),
             };
             events.push(MeleeEvent::Started { stem: stem.clone(), power, chained: next.is_some() });
             self.swing = Some(Swing { stem, power, t: 0.0, timing: provisional, timed: false, struck: false });
@@ -326,12 +332,17 @@ mod tests {
     /// Runs `secs` with Use held as `trigger` says (by time since the start of the run)
     /// and the clip timing the engine would report for each stem.
     fn run(m: &mut Melee, secs: f32, forward: f32, trigger: impl Fn(f32) -> bool) -> Vec<MeleeEvent> {
+        run_with(m, secs, forward, None, trigger)
+    }
+
+    /// [`run`] with a weapon's power attack override.
+    fn run_with(m: &mut Melee, secs: f32, forward: f32, power_override: Option<&str>, trigger: impl Fn(f32) -> bool) -> Vec<MeleeEvent> {
         let t = CombatTuning::default();
         let mut out = Vec::new();
         let mut now = 0.0;
         let mut i = 0u32;
         while now < secs {
-            let input = MeleeInput { trigger: trigger(now), dt: DT, forward, right: 0.0, first: "attackright", rolls: [0.25, (i % 2) as f32 * 0.6] };
+            let input = MeleeInput { trigger: trigger(now), dt: DT, forward, right: 0.0, first: "attackright", rolls: [0.25, (i % 2) as f32 * 0.6], power_override };
             out.extend(m.tick(input, &t, SwingTiming::of(None, None, None, 1.0, 1.0)));
             if let Some(s) = m.swing.clone() {
                 let timing = if s.stem.starts_with("attackright_") { right() } else if s.stem.starts_with("attackleft_") { left() } else { power() };
@@ -393,7 +404,7 @@ mod tests {
         let mut now = 0.0f32;
         while now < 1.5 {
             let trigger = now < 0.05 || (0.25..0.3).contains(&now);
-            let input = MeleeInput { trigger, dt: DT, forward: 0.0, right: 0.0, first: "attackright", rolls: [0.0, 0.0] };
+            let input = MeleeInput { trigger, dt: DT, forward: 0.0, right: 0.0, first: "attackright", rolls: [0.0, 0.0], power_override: None };
             for e in m.tick(input, &t, SwingTiming::of(None, None, None, 1.0, 1.0)) {
                 if let MeleeEvent::Started { stem, .. } = e {
                     starts.push((now, stem));
@@ -441,6 +452,19 @@ mod tests {
         let mut m = Melee::default();
         let s = started(&run(&mut m, 2.5, 0.0, |t| t < 1.0));
         assert_eq!(s, [("attackpower".to_string(), false)]);
+    }
+
+    #[test]
+    fn a_power_attack_override_replaces_the_standing_one() {
+        // The Machete Gladius's AttackCustom3Power: standing, the override plays; moving,
+        // the direction's own.
+        let mut m = Melee::default();
+        let s = started(&run_with(&mut m, 2.5, 0.0, Some("attackcustom3power"), |t| t < 1.0));
+        assert_eq!(s, [("attackcustom3power".to_string(), false)]);
+        let mut m = Melee::default();
+        let ev = run_with(&mut m, 2.5, 1.0, Some("attackcustom3power"), |t| t < 1.0);
+        assert!(ev.iter().any(|e| matches!(e, MeleeEvent::Started { stem, power: Some(PowerDir::Forward), .. } if stem == "attackforwardpower")));
+        assert!(ev.contains(&MeleeEvent::Strike { power: Some(PowerDir::Forward) }));
     }
 
     #[test]

@@ -182,6 +182,11 @@ pub struct NavGraph {
     pub in_place: HashMap<u32, crate::doors::InPlaceDoor>,
     /// The doors that open in place standing on each triangle.
     pub door_tris: HashMap<u32, Vec<u32>>,
+    /// Obstacles that can come and go, by reference ([`crate::obstacles`]).
+    pub obstacles: HashMap<u32, crate::obstacles::ObstacleCut>,
+    /// How many enabled obstacles cut each triangle; empty when none does. A cut
+    /// triangle takes no part in paths ([`NavGraph::usable`]).
+    pub cut: Vec<u16>,
     /// Triangle lists of each space's buckets ([`BUCKET`]-unit squares).
     buckets: HashMap<Space, HashMap<(i32, i32), Vec<u32>>>,
     pub stats: BuildStats,
@@ -275,6 +280,7 @@ impl NavGraph {
             }
         }
         g.learn_in_place_doors(lo, schema, ix);
+        g.learn_obstacles(lo, schema, ix);
         g
     }
 
@@ -544,10 +550,11 @@ impl NavGraph {
         &self.meshes[self.tris[t as usize].mesh as usize]
     }
 
-    /// Whether paths may cross triangle `t`.
+    /// Whether paths may cross triangle `t`: not deleted, its navmesh enabled, and no
+    /// enabled obstacle cuts it ([`crate::obstacles`]).
     pub fn usable(&self, t: u32) -> bool {
         let tri = &self.tris[t as usize];
-        !tri.has(tri_flags::DELETED) && self.meshes[tri.mesh as usize].enabled
+        !tri.has(tri_flags::DELETED) && self.meshes[tri.mesh as usize].enabled && self.cut.get(t as usize).is_none_or(|&c| c == 0)
     }
 
     /// Enable or disable a navmesh (`EnableNavMesh` / `DisableNavmesh`). Returns false

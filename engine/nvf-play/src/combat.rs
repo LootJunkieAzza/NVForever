@@ -299,6 +299,16 @@ impl Cause {
 
 /// The hit an explosion's blast makes on an actor: its cause's, with no place on the body
 /// (GetHitLocation −1) and no critical.
+/// A weapon hit's object effects with an area reach the actors around the one hit
+/// (`hit_effects::spread`); a blast's do not.
+fn spread_hit_areas(script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, target: FormId, items: &[FormId], attacker: Option<FormId>) {
+    if items.is_empty() {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    with_world(rt, sim, |rt| hit_effects::spread(&mut rt.game, &mut stats.hit_effects, target, items, attacker));
+}
+
 fn blast_hit_info(cause: Option<Cause>) -> HitInfo {
     HitInfo { attacker: cause.map(|c| c.actor), weapon: cause.map(|c| c.weapon), location: -1, critical: false, limb: None }
 }
@@ -368,6 +378,10 @@ pub struct ExplosionFx {
     pub point: V3,
     /// Who set it off, when known (nvforever `detection` raises its event as theirs).
     pub cause: Option<FormId>,
+    /// The normal of the ground under the blast, when there is ground near enough
+    /// (`nvforever::shot_fx` aligns the model with it unless the EXPL always uses the
+    /// world's orientation).
+    pub normal: Option<V3>,
 }
 
 /// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
@@ -397,6 +411,19 @@ pub struct ActorHit {
     pub guard_broken: bool,
     /// The weapon of the hit, when known (Meltdown, perk-entry-points.md §9).
     pub weapon: Option<FormId>,
+}
+
+/// A hit that forces its target's hit reaction whatever it crippled: Khan Trick
+/// [documented: GECK wiki GetForceHitReaction, "set by Khan Trick (AttackCustom4Power and
+/// AttackCustom5Power)"; perk-entry-points.md §11.4]. The body plays the reaction for
+/// `location` (nvforever `deaths`), without the stagger rule's wait.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ForcedHitReaction {
+    pub form_id: u32,
+    /// Where it was hit (`GetHitLocation`'s numbering).
+    pub location: i32,
+    /// The move that forced it, for the log.
+    pub by: &'static str,
 }
 
 /// An actor's weapon left its hand: it reached zero condition and fell (§17), or a hit
@@ -658,6 +685,8 @@ pub struct CombatStats {
     pub armor_broken: u32,
     /// Actors disarmed by a crippled arm ([`disarm`]).
     pub disarmed: u32,
+    /// Weapons dropped by actors that died holding them ([`death_drops`]).
+    pub death_drops: u32,
     /// Other actors' shots and blows (combat AI), their hits on the player and the
     /// damage those did, and whether the player died.
     pub actor_shots: u32,
@@ -843,6 +872,8 @@ pub struct Combat {
     flying: Vec<Flying>,
     /// Thrown mines that came to rest this frame, for `crate::mines` to place.
     settled: Vec<SettledMine>,
+    /// Thrown weapons that landed this frame, for `crate::thrown` to put down.
+    landed: Vec<LandedThrow>,
     ghosts: Vec<Ghost>,
     /// The weapon's looping shoot sound while it plays, and the seconds it has left
     /// unless another shot comes.
@@ -884,12 +915,19 @@ pub struct Combat {
     /// The player's spread (PSp, spread units, after "Calculate Gun Spread" perks) at the
     /// same time: a scope's sway (docs/spec-notes/weapon-scopes.md §5).
     pub player_spread: Option<f32>,
+    /// When (`time`) the player's block last stopped a blow: Scribe Counter's window
+    /// (perk-entry-points.md §11).
+    player_blocked_at: Option<f32>,
+    /// The special move the swing playing is (chosen as it starts), for its strike.
+    special_swing: Option<SpecialMove>,
     /// The cone (half-angle, degrees) VATS mode's hit chance reads for the gun in hand
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
     pub vats_cone: Option<f32>,
     /// The weapon and factor of the last Modify Throwing Velocity line (one a change).
     throw_logged: Option<(FormId, u32)>,
+    /// The spread perks last logged, with their weapon ([`spread_perks`]).
+    spread_perks_logged: Option<(FormId, SpreadPerks)>,
     /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
     /// last one ended, and its own rolls (the view's kick).
     flinch_until: f32,
@@ -939,11 +977,30 @@ impl Combat {
         std::mem::take(&mut self.settled)
     }
 
+    /// The thrown weapons that landed since the last call (`crate::thrown`).
+    pub(crate) fn take_landed(&mut self) -> Vec<LandedThrow> {
+        std::mem::take(&mut self.landed)
+    }
+
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
     /// `by` (the actor who put it down and that weapon), when someone did.
     pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
         self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon })));
     }
+}
+
+/// A thrown weapon whose projectile ended (`crate::thrown`): the weapon it was, its PROJ,
+/// where it ended, the surface's normal there (none when it ran out of range in the
+/// air), the way it flew, the actor it struck, and who threw it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LandedThrow {
+    pub weapon: FormId,
+    pub proj: FormId,
+    pub point: V3,
+    pub normal: Option<V3>,
+    pub dir: V3,
+    pub struck: Option<FormId>,
+    pub by: FormId,
 }
 
 /// A thrown mine that came to rest ([`ProjEvent::Settled`]): its PROJ, where, the way it
@@ -1183,6 +1240,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<HitMarks>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
+            .add_message::<ForcedHitReaction>()
             .add_message::<ActorPush>()
             .add_message::<WeaponBroken>()
             .add_message::<ActorFire>()
@@ -1192,7 +1250,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, disarm, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, perk_speed, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1210,6 +1268,95 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
         pace.0 = want;
         info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
     }
+}
+
+/// Scribe Counter's window: a blow begun this long (combat seconds) after the player's
+/// block stopped one is the counter [design: "quick counter-attack after Block", the
+/// fandom wiki; the original's window is not documented].
+pub const COUNTER_WINDOW: f32 = 1.0;
+
+/// An unarmed special move the player's perks give a power attack (perk-entry-points.md
+/// §11).
+#[derive(Debug, Clone, Copy)]
+struct SpecialMove {
+    name: &'static str,
+    /// Its clip's stem: the weapon's prefix and this are the clip file
+    /// (`h2hattackcustom1power.kf`), perk-entry-points.md §11.3.
+    stem: &'static str,
+    /// The DOBJ's effect for the direction, put on with the blow.
+    spell: Option<FormId>,
+    /// Legion Assault knocks the target back [the fandom wiki, "Knock back opponents";
+    /// the DOBJ names no effect for it].
+    knock_back: bool,
+    /// Khan Trick forces the target's hit reaction ([`ForcedHitReaction`]).
+    forces_reaction: bool,
+    /// Legion Assault's clip lunges forward: the player moves with it ([`LUNGE`]).
+    lunges: bool,
+}
+
+/// Legion Assault's lunge: `h2hattackcustom1power.kf` moves its `Bip01` 332 units
+/// forward over its 1.6 s [observed: the clip's root track, 18 keys; perk-entry-points.md
+/// §11.4]. The body holds `Bip01` still (`nvf_assets::anim_blend`), so the player is moved
+/// that far over that time, at the swing's speed (`crate::player::Lunge`).
+pub const LUNGE: (f32, f32) = (332.0, 1.6);
+
+/// The special move a power attack in `dir` is, when the player has its perk.
+fn special_move(script: Option<&mut ScriptState>, sim: &mut SimState, dir: fnv_combat::melee::PowerDir) -> Option<SpecialMove> {
+    use fnv_combat::melee::PowerDir;
+    use fnv_game::data::DefaultObject as D;
+    use fnv_game::perks as p;
+    // The clips [observed: `h2hattackcustom1power.kf` … in both rigs' folders of Fallout -
+    // Meshes.bsa; custom1's Bip01 goes 332 units forward over its 1.6 s, a lunge;
+    // documented: GECK wiki GetForceHitReaction, "Khan Trick (AttackCustom4Power and
+    // AttackCustom5Power)"; hypothesis: custom2 for the back by elimination, 4 left and 5
+    // right in the entry points' order].
+    let (point, slot, name, stem) = match dir {
+        PowerDir::Forward => (p::HAS_UNARMED_FORWARD_POWER_ATTACK, D::UnarmedForwardPa, "Legion Assault", "attackcustom1power"),
+        PowerDir::Back => (p::HAS_UNARMED_BACK_POWER_ATTACK, D::UnarmedBackwardPa, "Ranger Takedown", "attackcustom2power"),
+        PowerDir::Left => (p::HAS_UNARMED_LEFT_POWER_ATTACK, D::UnarmedLeftPa, "Khan Trick", "attackcustom4power"),
+        PowerDir::Right => (p::HAS_UNARMED_RIGHT_POWER_ATTACK, D::UnarmedRightPa, "Khan Trick", "attackcustom5power"),
+        PowerDir::Stand => return None,
+    };
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(point), rt.game.data.default_object(slot)));
+    let side = matches!(dir, PowerDir::Left | PowerDir::Right);
+    has.then_some(SpecialMove { name, stem, spell, knock_back: dir == PowerDir::Forward, forces_reaction: side, lunges: dir == PowerDir::Forward })
+}
+
+/// Scribe Counter: its clip `h2hcounter.kf` [observed: both rigs' folders; hypothesis:
+/// the move by the name], the DOBJ's counter effect (none in FalloutNV.esm).
+fn scribe_counter(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<SpecialMove> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    let (has, spell) = with_world(rt, sim, |rt| (rt.game.player_has_entry(fnv_game::perks::HAS_UNARMED_COUNTER_ATTACK), rt.game.data.default_object(fnv_game::data::DefaultObject::UnarmedCounterPa)));
+    has.then_some(SpecialMove { name: "Scribe Counter", stem: "counter", spell, knock_back: false, forces_reaction: false, lunges: false })
+}
+
+/// Knock `target` down away along `dir`, as a blast's knockdown does; logged with `why`.
+fn knock_down(script: Option<&mut ScriptState>, by: FormId, target: FormId, dir: V3, why: &str) -> bool {
+    let shove = [dir[0] * BLAST_KNOCKDOWN_SPEED, dir[1] * BLAST_KNOCKDOWN_SPEED, BLAST_KNOCKDOWN_SPEED * fnv_game::unconscious::PUSH_LIFT];
+    let down = script.and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, Some(by), shove));
+    if down {
+        info!("combat: {why} knocks {target} down");
+    } else {
+        info!("combat: {why}: {target} cannot be knocked down (No Knockdowns, or seated or talking)");
+    }
+    down
+}
+
+/// The Knockdown Chance perks of `attacker`'s hit with `weapon` on `target` (Super Slam
+/// 0.15 / 0.30, And Stay Back 0.1, Elijah's Last Words 0.25; perk-entry-points.md §11):
+/// from 0, rolled once a hit.
+fn perk_knockdown(c: &mut Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, attacker: FormId, weapon: FormId, target: FormId, dir: V3) {
+    let (chance, by) = owner_weapon_perk(script.as_deref_mut(), sim, attacker, fnv_game::perks::KNOCKDOWN_CHANCE, weapon, 0.0);
+    if chance <= 0.0 || by.is_empty() {
+        return;
+    }
+    let roll = c.rng.next_f32();
+    if roll >= chance {
+        info!("combat: Knockdown Chance {chance:.2} ({}): rolled {roll:.2}, {target} stays up", by.join(", "));
+        return;
+    }
+    knock_down(script, attacker, target, dir, &format!("Knockdown Chance {chance:.2} ({}, rolled {roll:.2})", by.join(", ")));
 }
 
 /// Meltdown (Has Meltdown, perk-entry-points.md §9): a foe the player (or a teammate with
@@ -1368,6 +1515,80 @@ fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stat
     }
 }
 
+/// The default of `iDeathDropWeaponChance`, percent [observed: FalloutNV.esm, 100].
+const DEATH_DROP_CHANCE: f32 = 100.0;
+
+/// Actors seen alive with a weapon in the hand ([`death_drops`]).
+#[derive(Default)]
+struct DeathDrops {
+    armed: HashMap<u32, FormId>,
+    rng: Option<SplitMix>,
+}
+
+/// An actor other than the player that dies with a weapon in its hand drops it, with the
+/// chance `iDeathDropWeaponChance` (percent; 100 in the masters) [hypothesis: the
+/// setting's meaning, from its name; the original's corpses lie with their gun beside
+/// them]. The weapon falls as a disarmed one does (`WeaponBroken`): a reference in front
+/// of the body, out of its inventory. A weapon flagged "Can't Drop" stays with the body
+/// [documented: GECK wiki Weapon, "the weapon cannot be shot out from the hands of
+/// actors"; hypothesis: death too]. Only deaths seen in play count: an actor dead when it
+/// is drawn was never seen holding a weapon, so a corpse laid out by the game keeps its
+/// own (`Game::starts_dead`).
+fn death_drops(
+    mut st: Local<DeathDrops>,
+    mut sim: ResMut<SimState>,
+    mut stats: ResMut<CombatStats>,
+    parts: Res<ActorParts>,
+    script: Option<Res<ScriptState>>,
+    mut broken: MessageWriter<WeaponBroken>,
+) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    for (&id, p) in &parts.by_ref {
+        if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
+            continue;
+        }
+        match p.weapon {
+            Some(item) => st.armed.insert(id, item),
+            None => st.armed.remove(&id),
+        };
+    }
+    let died: Vec<(FormId, FormId)> = st.armed.iter().filter(|(id, _)| rt.game.is_dead(FormId(**id))).map(|(id, item)| (FormId(*id), *item)).collect();
+    for (actor, _) in &died {
+        st.armed.remove(&actor.0);
+    }
+    if died.is_empty() {
+        return;
+    }
+    let chance = sim.forms.setting_f32("iDeathDropWeaponChance").unwrap_or(DEATH_DROP_CHANCE);
+    for (actor, item) in died {
+        let roll = st.rng.get_or_insert(SplitMix(5)).next_f32() * 100.0;
+        if roll >= chance {
+            info!("combat: {actor} died holding its {} ({item}): kept (roll {roll:.0} against iDeathDropWeaponChance {chance:.0})", item_name(&sim, item));
+            continue;
+        }
+        if sim.forms.item(item).is_some_and(|it| it.cant_drop) {
+            info!("combat: {actor} died holding its {} ({item}): it can't be dropped and stays with the body", item_name(&sim, item));
+            continue;
+        }
+        if sim.world.inventory_mut(actor).is_ok_and(|i| i.count(item) == 0) {
+            continue;
+        }
+        let dropped = match sim.world.drop_equipped(actor, item) {
+            Ok(refs) if !refs.is_empty() => Ok(refs),
+            _ => sim.world.drop_item(actor, item, 1),
+        };
+        match dropped {
+            Ok(refs) => {
+                stats.death_drops += 1;
+                let dropped = refs.first().copied();
+                info!("combat: {actor} died: it drops its {} ({item}){} (iDeathDropWeaponChance {chance:.0})", item_name(&sim, item), dropped.map_or(String::new(), |r| format!(": reference {r}")));
+                broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
+            }
+            Err(e) => warn!("combat: {actor} died: its {} could not be dropped: {e}", item_name(&sim, item)),
+        }
+    }
+}
+
 /// The view sways while the player aims with a crippled arm (crippled-limbs.md §3): a
 /// slow figure of eight of `arm_sway_deg` (one arm) or `arms_sway_deg` (both) at its
 /// widest, which the shots follow as they leave along the view [documented: Fallout wiki
@@ -1437,6 +1658,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         kick: Kick::default(),
         flying: Vec::new(),
         settled: Vec::new(),
+        landed: Vec::new(),
         ghosts: Vec::new(),
         looping: None,
         ejects_seen: 0,
@@ -1458,7 +1680,10 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         crosshair_cone: None,
         player_spread: None,
         vats_cone: None,
+        player_blocked_at: None,
+        special_swing: None,
         throw_logged: None,
+        spread_perks_logged: None,
         flinch_until: 0.0,
         flinch_end: None,
         flinch_rng: SplitMix(3),
@@ -1466,9 +1691,45 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     });
 }
 
+/// The player's spread perks for the weapon `id`: Modify Weapon Strength Req (points off
+/// the requirement, from 0: Weapon Handling 2) and Modify Aiming Move Speed (the moving
+/// penalty's divisor, from 1: Run 'n Gun × 2) [documented: GECK wiki Gun Spread Formula
+/// (New Vegas), Perk entry points; perk-entry-points.md §12]. Logged when they change.
+fn spread_perks(logged: &mut Option<(FormId, SpreadPerks)>, script: Option<&mut ScriptState>, sim: &mut SimState, id: FormId) -> SpreadPerks {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return SpreadPerks::default() };
+    let (cut, moving, by) = with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        let (cut, a) = g.entry_point_with(FormId::PLAYER_REF, fnv_game::perks::MODIFY_WEAPON_STRENGTH_REQ, &[Some(id)], 0.0);
+        let (moving, b) = g.entry_point_with(FormId::PLAYER_REF, fnv_game::perks::MODIFY_AIMING_MOVE_SPEED, &[Some(id)], 1.0);
+        let by: Vec<String> = a.iter().chain(&b).map(|x| g.data.name(x.perk)).collect();
+        (cut as f32, moving as f32, by)
+    });
+    let p = SpreadPerks { strength_req_cut: cut, aiming_move_divisor: moving.max(1.0) };
+    if *logged != Some((id, p)) {
+        *logged = Some((id, p));
+        if !by.is_empty() {
+            info!("combat: spread perks for {id}: Strength requirement -{cut:.0}, moving penalty / {:.2} ({})", p.aiming_move_divisor, by.join(", "));
+        }
+    }
+    p
+}
+
+/// What [`spread_perks`] gives the player's stance.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SpreadPerks {
+    strength_req_cut: f32,
+    aiming_move_divisor: f32,
+}
+
+impl Default for SpreadPerks {
+    fn default() -> Self {
+        SpreadPerks { strength_req_cut: 0.0, aiming_move_divisor: 1.0 }
+    }
+}
+
 /// The player's stance for the spread: aiming, moving, running, sneaking, in the air,
-/// the weapon's skill and Strength, crippled arms.
-fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs, skill: f32, strength: f32) -> Stance {
+/// the weapon's skill and Strength, crippled arms, the spread perks.
+fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs, skill: f32, strength: f32, perks: SpreadPerks) -> Stance {
     Stance {
         aiming: control.aiming,
         moving: phys.player.as_ref().is_some_and(|ch| ch.velocity[0].hypot(ch.velocity[1]) > 1.0),
@@ -1477,7 +1738,8 @@ fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs,
         airborne: phys.player.as_ref().is_some_and(|ch| !ch.grounded && !ch.swimming),
         skill,
         strength,
-        aiming_move_divisor: 1.0,
+        aiming_move_divisor: perks.aiming_move_divisor,
+        strength_req_cut: perks.strength_req_cut,
         left_arm_crippled: limbs.arms().0,
         right_arm_crippled: limbs.arms().1,
         head_crippled: limbs.crippled(fnv_game::combat::HEAD),
@@ -1597,6 +1859,10 @@ pub fn jam_anim(reload: &str) -> Option<String> {
     (!rest.is_empty()).then(|| format!("Jam{rest}"))
 }
 
+/// Rays (shots, swings, blast lines) that passed a ghost's hit volume ([`ghosts`]), for
+/// the exit summary.
+static GHOST_PASSES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// The physics world as combat sees it: rays that skip the player's capsule and the
 /// layers nothing solid is on, and actor hit volumes.
 struct PhysView<'a> {
@@ -1634,6 +1900,13 @@ impl CombatWorld for PhysView<'_> {
         // wall, dust and no damage, and one past a flying or low creature's capsule
         // missed its body (the owner's playtest list 5 items 16 and 25) [design].
         f.exclude.extend(self.npcs.iter().copied());
+        // A ghost's hit volume is passed; counted when it would have been struck.
+        if !self.ghosts.is_empty() {
+            let struck = self.q.ray(from, d, len, &f).map(|h| h.owner.key());
+            if struck.is_some_and(|k| self.ghosts.iter().any(|&a| k == Key::Actor(a as u32))) {
+                GHOST_PASSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         f.exclude.extend(self.ghosts.iter().map(|&a| Key::Actor(a as u32)));
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
@@ -1700,13 +1973,18 @@ impl CombatWorld for PhysView<'_> {
 /// [hypothesis: the note names projectiles; a ghost "cannot be harmed by a weapon" in any
 /// way, so a blow that stopped on it would only be wasted]. A ghosted player is still
 /// struck, as "the player can" be damaged [documented: same notes; hypothesis: that its
-/// body still stops projectiles].
-fn ghosts(script: Option<&ScriptState>) -> Vec<ActorId> {
-    let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
-    rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect()
+/// body still stops projectiles]. Creatures whose base is flagged Is Ghost count as
+/// ghosts too (docs/spec-notes/actor-flags.md §3).
+fn ghosts(script: Option<&ScriptState>, phys: &PhysState, sim: Option<&SimState>) -> Vec<ActorId> {
+    let (Some(rt), Some(sim)) = (script.and_then(|s| s.rt.as_ref()), sim) else { return Vec::new() };
+    let set: Vec<ActorId> = rt.game.extra.iter().filter(|(r, e)| e.ghost && **r != FormId::PLAYER_REF).map(|(r, _)| r.0 as ActorId).collect();
+    let flagged = phys.world.actor_volumes().filter(|&id| id != FormId::PLAYER_REF.0 && !set.contains(&(id as ActorId)) && sim.world.peek(FormId(id)).is_some_and(|s| rt.game.base_is_ghost(s.base, FormId(id))));
+    let flagged: Vec<ActorId> = flagged.map(|id| id as ActorId).collect();
+    set.into_iter().chain(flagged).collect()
 }
 
-fn view(phys: &mut PhysState, ghosts: Vec<ActorId>) -> PhysView<'_> {
+fn view<'p>(phys: &'p mut PhysState, script: Option<&ScriptState>, sim: Option<&SimState>) -> PhysView<'p> {
+    let ghosts = ghosts(script, phys, sim);
     let mut actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
     // The player has no hit volume (its capsule is its body), so it was never among the
@@ -2058,7 +2336,8 @@ pub(crate) fn fire(
     {
         let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
-        let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
+        let sp = spread_perks(&mut c.spread_perks_logged, script.as_deref_mut(), &mut sim, id);
+        let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength, sp);
         let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
         let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
@@ -2142,7 +2421,8 @@ pub(crate) fn fire(
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
-                let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
+                let sp = spread_perks(&mut c.spread_perks_logged, script.as_deref_mut(), &mut sim, id);
+                let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength, sp);
                 // The Calculate Gun Spread perks change the actor spread, not the weapon's
                 // minimum (docs/spec-notes/perk-entry-points.md §2).
                 let formula = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
@@ -2155,7 +2435,7 @@ pub(crate) fn fire(
                 let cone = if c.no_spread {
                     0.0
                 } else if vats_shot.is_some() {
-                    spread::deviation_deg(spread::crippled_spread(&c.rules, &c.tuning, &w, &stance), 0.0)
+                    spread::half_angle(spread::deviation_deg(spread::crippled_spread(&c.rules, &c.tuning, &w, &stance), 0.0))
                 } else {
                     spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects)
                 };
@@ -2184,7 +2464,7 @@ pub(crate) fn fire(
                     let aim = fnv_combat::vats::lob_dir(eye, point, speed, g).unwrap_or_else(|| fnv_combat::vats::lob_far(eye, point));
                     shot::Leaving { origin: eye, aim, aim_point: point, aim_distance: vec::len(vec::sub(point, eye)), seen: Seen::ON_PATH, covered: false }
                 } else {
-                    let world = view(&mut phys, ghosts(script.as_deref()));
+                    let world = view(&mut phys, script.as_deref(), Some(&sim));
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
                         _ if vats_shot.is_some() => {
@@ -2696,10 +2976,10 @@ fn melee(
     mut script: Option<ResMut<ScriptState>>,
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
-    (mut messages, mut pushes, mut broken): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>),
+    (mut messages, mut pushes, mut broken, mut forced): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>, MessageWriter<ForcedHitReaction>),
     (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
     (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
-    (mut vats, mut dm): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>),
+    (mut vats, mut dm, mut lunge): (Option<ResMut<crate::vats_mode::VatsMode>>, ResMut<crate::dismember::Dismemberment>, ResMut<crate::player::Lunge>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -2736,11 +3016,47 @@ fn melee(
     // Both legs crippled: no directional power attacks outside VATS mode (crippled-limbs.md
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
-    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
+    // The weapon's power attack override plays for the standing power attack.
+    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref() };
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
             MeleeEvent::Started { stem, power, chained } => {
+                // The unarmed special moves (perk-entry-points.md §11) are chosen as the
+                // swing starts, so it plays the move's own clip: a power attack in a
+                // direction whose move the player has; Scribe Counter, a plain blow begun
+                // within COUNTER_WINDOW of the player's block, a standing power attack.
+                let (mut stem, mut power) = (stem, power);
+                let unarmed = Some(id) == c.fists || script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.data.weapon_skills.get(&id).copied() == Some(fnv_game::actor_values::UNARMED as i64));
+                c.special_swing = None;
+                if unarmed {
+                    let countering = power.is_none() && c.player_blocked_at.is_some_and(|t| c.time - t <= COUNTER_WINDOW);
+                    let special = match power {
+                        Some(d) => special_move(script.as_deref_mut(), &mut sim, d),
+                        None if countering => scribe_counter(script.as_deref_mut(), &mut sim),
+                        None => None,
+                    };
+                    if let Some(m) = special {
+                        if power.is_none() {
+                            power = Some(fnv_combat::melee::PowerDir::Stand);
+                            c.player_blocked_at = None;
+                        }
+                        info!("combat: {} ({:?} power attack, unarmed): clip {}", m.name, power.unwrap_or(fnv_combat::melee::PowerDir::Stand), m.stem);
+                        if m.lunges {
+                            // At the swing's speed: the clip plays faster, the lunge too.
+                            let (far, secs) = LUNGE;
+                            let rate = if speed > 0.0 { speed } else { 1.0 };
+                            lunge.start(far, secs / rate);
+                            info!("combat: {}: the player lunges {far:.0} units over {:.2} s", m.name, secs / rate);
+                        }
+                        stem = m.stem.to_string();
+                        if let Some(s) = c.swings.swing.as_mut() {
+                            s.stem = stem.clone();
+                            s.power = power;
+                        }
+                        c.special_swing = Some(m);
+                    }
+                }
                 if power.is_some() {
                     stats.power_attacks += 1;
                     // Without a clip to time it, a power attack takes longer [design].
@@ -2763,6 +3079,8 @@ fn melee(
         }
     }
     if let Some(power) = strike {
+        // The special move chosen as the swing started (its clip is playing).
+        let special = c.special_swing.take();
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();
@@ -2773,7 +3091,7 @@ fn melee(
         // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
         let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
         let hits = {
-            let world = view(&mut phys, ghosts(script.as_deref()));
+            let world = view(&mut phys, script.as_deref(), Some(&sim));
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
                 // The hit roll missed (vats-mode.md §17.4): the blow lands on no one.
                 if !lands {
@@ -2882,8 +3200,30 @@ fn melee(
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
-            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            let mut items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            // A special move's effect goes on with the blow (Ranger Takedown's knockdown
+            // spell, Khan Trick's head crippling: the DOBJ's).
+            if let Some(spell) = special.and_then(|m| m.spell) {
+                items.push(spell);
+            }
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
+            spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
+            if r.as_ref().is_some_and(|r| !r.died && !r.immune && !r.knocked_out) {
+                if let Some(m) = special.filter(|m| m.forces_reaction) {
+                    info!("combat: {}: {target} is forced into its hit reaction (location {location})", m.name);
+                    forced.write(ForcedHitReaction { form_id: target.0, location, by: m.name });
+                }
+            }
+            if r.as_ref().is_some_and(|r| !r.died && !r.immune) {
+                // Legion Assault knocks back (no DOBJ spell); the Knockdown Chance perks
+                // (Super Slam, Elijah's Last Words) may knock the target down.
+                let away = player.look_dir();
+                if special.is_some_and(|m| m.knock_back) {
+                    knock_down(script.as_deref_mut(), FormId::PLAYER_REF, target, away, "Legion Assault");
+                } else {
+                    perk_knockdown(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, target, away);
+                }
+            }
             if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
                 dm.checks.push(check);
             }
@@ -3031,7 +3371,7 @@ fn actor_attacks(
         let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
         let reach = if range > 0.0 { range } else { AIM_REACH };
         let leaving = {
-            let world = view(&mut phys, ghosts(script.as_deref()));
+            let world = view(&mut phys, script.as_deref(), Some(&sim));
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -3128,6 +3468,9 @@ fn actor_attacks(
             } else {
                 stats.blows_blocked += 1;
                 info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
+                if b.target == FormId::PLAYER_REF {
+                    c.player_blocked_at = Some(c.time);
+                }
                 c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
                 if let Some(sound) = block_sound(c, &sim, sfx.as_deref(), b.target) {
                     sounds.write(sound);
@@ -3165,6 +3508,7 @@ fn actor_attacks(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
+        spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, b.target, &items, info.attacker);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
         }
@@ -3265,7 +3609,7 @@ fn fly(
         return;
     }
     {
-        let world = view(&mut phys, ghosts(script.as_deref()));
+        let world = view(&mut phys, script.as_deref(), Some(&sim));
         let hold = c.tracer_hold;
         for f in &mut c.flying {
             let before = f.p.pos;
@@ -3284,6 +3628,12 @@ fn fly(
             // enemy's shot was drawn from the player's gun (the owner's playtest list 5
             // item 20).
             let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
+            // A thrown weapon lands where its flight ends (`crate::thrown`): the weapon
+            // thrown, else the PROJ's Default Weapon Source.
+            let lands = c.forms.projectiles.get(&f.proj).filter(|p| p.lands_as_weapon()).and_then(|p| {
+                let thrown = c.forms.weapons.get(&f.by.weapon).is_some_and(|w| w.projectile == Some(f.proj));
+                if thrown { Some(f.by.weapon) } else { p.default_weapon }
+            });
             let ghost = move |to: V3| Ghost { id, proj, owner, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
@@ -3293,6 +3643,10 @@ fn fly(
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
                         c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, normal, material, projectiles: f.projectiles_per_shot, force: f.force, by: f.by });
+                        if let Some(weapon) = lands {
+                            let struck = actor.map(|a| if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) });
+                            c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: Some(normal), dir: f.dir, struck, by: f.by.actor });
+                        }
                         if f.tracer {
                             debug!(
                                 "combat: tracer from ({:.1}, {:.1}, {:.1}) to the hit at ({:.1}, {:.1}, {:.1})",
@@ -3310,6 +3664,9 @@ fn fly(
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
+                        if let Some(weapon) = lands {
+                            c.landed.push(LandedThrow { weapon, proj: f.proj, point, normal: None, dir: f.dir, struck: None, by: f.by.actor });
+                        }
                         if f.tracer {
                             c.marks.push(line(point, hold.unwrap_or(0.08)));
                         }
@@ -3364,6 +3721,7 @@ fn fly(
         }
         stats.explosions += 1;
         let Some(mut x) = c.forms.explosions.get(&id).cloned() else { continue };
+        let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
         // Splash Damage's Adjust Explosion Radius, for the cause's blasts (the player's
         // and its teammates'; perk-entry-points.md §8).
         if let Some(cause) = cause {
@@ -3373,7 +3731,7 @@ fn fly(
                 x.radius = r.max(0.0);
             }
         }
-        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor) });
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: cause.map(|c| c.actor), normal: ground.as_ref().map(|g| g.normal) });
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
@@ -3382,7 +3740,6 @@ fn fly(
             // is near: the dirt it throws up (`ImpactExplosionDirt.nif`) [hypothesis:
             // that the game shows the EXPL's IPDS on what lies under the blast, as a
             // shot's on what it hits; the reach is a design choice].
-            let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
             let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
             if let (Some(impact), Some(g)) = (impact, ground) {
                 // The dirt is the cause's (no one's without one): detection hears it as theirs.
@@ -3395,7 +3752,7 @@ fn fly(
             }
         }
         let hits = {
-            let world = view(&mut phys, ghosts(script.as_deref()));
+            let world = view(&mut phys, script.as_deref(), Some(&sim));
             blast(&world, &c.tuning, &x, at)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
@@ -3570,6 +3927,7 @@ fn fly(
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
+        spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
         // The ammo's Fatigue Mod (AMEF type 5: the bean bag's 250) takes that much fatigue,
         // once a hit [documented: GECK wiki GetAmmoEffectTraitNumeric effect types;
         // hypothesis: from 0, once a hit; logic-fields.md §3].
@@ -3579,6 +3937,10 @@ fn fly(
                 with_world(rt, &mut sim, |rt| rt.game.damage_fatigue(target, f64::from(fatigue)));
                 info!("combat: {target} loses {fatigue:.0} fatigue to the ammo");
             }
+        }
+        // The Knockdown Chance perks on the shooter's hit (And Stay Back, per pellet).
+        if r.as_ref().is_some_and(|r| !r.died && !r.immune) && target != FormId::PLAYER_REF {
+            perk_knockdown(c, script.as_deref_mut(), &mut sim, shooter, id, target, p.dir);
         }
         if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
             dm.checks.push(check);
@@ -3701,6 +4063,13 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken
         );
         info!("{}", hit_effects::summary(&s.hit_effects));
+        let passes = GHOST_PASSES.load(std::sync::atomic::Ordering::Relaxed);
+        if passes > 0 {
+            info!("combat summary: {passes} rays passed through ghosts (SetGhost or Is Ghost)");
+        }
+        if s.death_drops > 0 {
+            info!("combat summary: {} weapons dropped by actors that died holding them", s.death_drops);
+        }
         if s.disarmed > 0 {
             info!("crippled limbs summary: {} actors disarmed by a crippled arm", s.disarmed);
         }
@@ -3897,7 +4266,7 @@ mod tests {
     fn shots_pass_an_npcs_character_and_strike_its_body() {
         // The playtest list 5 item 16: the character was struck as a wall (dust, no damage).
         let mut phys = npc_world();
-        let world = view(&mut phys, Vec::new());
+        let world = view(&mut phys, None, None);
         let h = world.ray([-300.0, 0.0, 45.0], [300.0, 0.0, 45.0], &[PLAYER]).expect("the body is struck");
         assert_eq!(h.actor, Some(0x1234));
         assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);

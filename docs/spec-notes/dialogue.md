@@ -705,8 +705,10 @@ a script does when GameMode stands still during dialogue. With a pause the extra
 `MenuMode 1009` test inside GameMode can never be false; why it is there remains
 unexplained (a guard for the frame in which the menu closes, or plain caution). In the
 runtime both blocks now run as that reading expects.
-Still stubs: `IsActorTalkingThroughActivator` (talking activators), `GetDisposition`,
-`SetDisposition`, `Exists`.
+`IsActorTalkingThroughActivator` (talking-activators.md), `GetDisposition`,
+`SetDisposition` and `Exists` are built (script-function-coverage.md); none of the 74
+functions the masters' dialogue conditions use is a stub [observed: `fnvtool dialogue
+lines --all` against `fnvtool script coverage`, 2026-10-24].
 
 ## 7. What needs in-game captures
 

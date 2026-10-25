@@ -36,7 +36,23 @@ pub struct Sound {
     /// a day [documented: xEdit wbAlocTime].
     pub start_hour: f32,
     pub stop_hour: f32,
+    /// `SNDD` "Attenuation Curve": five volume percentages from the minimum to the
+    /// maximum attenuation distance ("the topmost slider is the sound's volume
+    /// percentage at its inner radius. The bottommost ... at its outer radius"
+    /// [documented: GECK wiki Sound, Attenuation tab]); `None` when the record has none
+    /// (an `SNDX`, or a sound built by hand), which plays the default curve
+    /// ([`DEFAULT_ATTENUATION_CURVE`]). Not part of any report.
+    #[serde(skip)]
+    pub attenuation_curve: Option<[f32; 5]>,
+    /// `SNDD` "Reverb Attenuation Control", percent: 100 sends nothing into the reverb, 0
+    /// all of it [documented: GECK wiki Sound]. Not part of any report.
+    #[serde(skip)]
+    pub reverb_attenuation_percent: f32,
 }
+
+/// The curve the GECK starts a sound with, "a logarithmic falloff" [documented: GECK wiki
+/// Sound]: 100, 50, 20, 5, 0 [observed: 2,423 of FalloutNV.esm's 3,190 sounds store it].
+pub const DEFAULT_ATTENUATION_CURVE: [f32; 5] = [100.0, 50.0, 20.0, 5.0, 0.0];
 
 impl Sound {
     pub fn has(&self, flag: &str) -> bool {
@@ -124,6 +140,12 @@ pub struct ProjectileFx {
     pub sound_countdown: Option<FormId>,
     /// `DATA` sound_disable: a mine being disarmed (`WPNMineDisarm`).
     pub sound_disable: Option<FormId>,
+    /// `DATA` flag "Supersonic": "the sound emanates from the point of the projectile's
+    /// path closest to the listener (Think bullets whizzing by your head). If unchecked,
+    /// the sound emitter follows the projectile around until it is destroyed"
+    /// [documented: GECK wiki Projectile]. Not part of any report.
+    #[serde(skip)]
+    pub supersonic: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -439,6 +461,11 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 random_chance_percent: first(d, b"RNAM").and_then(Value::as_f64).unwrap_or(0.0) as f32,
                 start_hour: n("start_time") / 256.0 * 24.0,
                 stop_hour: n("stop_time") / 256.0 * 24.0,
+                attenuation_curve: v.and_then(|v| v.get("attenuation_curve")).and_then(Value::as_array).and_then(|a| {
+                    let p: Vec<f32> = a.iter().filter_map(Value::as_f64).map(|x| x as f32).collect();
+                    <[f32; 5]>::try_from(p).ok()
+                }),
+                reverb_attenuation_percent: n("reverb_attenuation_control"),
             })
         }
         b"WEAP" => {
@@ -463,7 +490,8 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
         }
         b"PROJ" => {
             let v = first(d, b"DATA");
-            Loaded::Projectile(ProjectileFx { sound: field(v, "sound"), sound_countdown: field(v, "sound_countdown"), sound_disable: field(v, "sound_disable") })
+            let supersonic = v.and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Supersonic"));
+            Loaded::Projectile(ProjectileFx { sound: field(v, "sound"), sound_countdown: field(v, "sound_countdown"), sound_disable: field(v, "sound_disable"), supersonic })
         }
         b"EXPL" => {
             let v = first(d, b"DATA");

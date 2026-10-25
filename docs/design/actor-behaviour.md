@@ -169,6 +169,31 @@ reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
 out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
 after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
 
+*Followers in a line* (`Ai::ahead_in_column`; owner playtest 2026-10-24: three
+mercenaries following one leader should walk behind it in single file, not bunch up on
+its heels). Several actors whose packages follow the same target form a column, all of
+it our choice [the original's behaviour is not documented or observed]: the first
+follows the target as above, each after it walks after the one ahead, keeping 128 units
+(`COLUMN_GAP`, or the package's distance if that is smaller) plus the same 64 of slack.
+The order is kept once made; a newcomer joins at the end, the nearer the target the
+further forward, so followers do not overtake each other. Members are present and
+alive; one ahead that is in neither the target's cell nor the follower's own (left
+behind) is passed over, so a follower still goes through a door after the one ahead of
+it. A follower runs when the one ahead is far, or when the target is more than 512
+units beyond where its place in the line would be (192 units per place), so a long
+line does not run while its leader walks. The player's companions on Follow packages
+line up behind the player the same way. Combat does not take a fighter out of the line
+(a follower may walk after one ahead that is fighting). Log: the `walks after` line
+names the one ahead.
+
+*Catching up* (`carry::catch_up`; owner playtest 2026-10-24: followers should get a
+speed boost to close the distance, faster than their top speed). A follower more than
+512 units behind (the gap that makes it run, as above; in another cell, the length of
+its way) goes faster than its own pace, by up to half again (`CATCH_UP_BOOST`), rising
+evenly over the next 1024 units (`CATCH_UP_SPAN`) [our choice]. The boost is worked out
+again at every update while it walks, so it eases off as the gap closes. The engine
+plays the run clip faster to match (up to its 2.5 rate limit), so the feet do not slide.
+
 ### 5.2 Getting there
 
 - **The path** is `fnv_nav`'s: across any number of interiors and worldspaces, doors

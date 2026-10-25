@@ -144,6 +144,16 @@ pub const HAS_MELTDOWN: u8 = 46;
 pub const SEE_ENEMY_HEALTH: u8 = 47;
 pub const HAS_JURY_RIGGING: u8 = 48;
 
+/// The unarmed special moves (docs/spec-notes/perk-entry-points.md §11) [documented: GECK
+/// wiki GetNthPerkEntryFunction, codes 61–66; observed: Legion Assault 61, Ranger Takedown
+/// 62, Scribe Counter 64, Khan Trick 65 and 66, each Set 1 with no conditions].
+pub const HAS_UNARMED_FORWARD_POWER_ATTACK: u8 = 61;
+pub const HAS_UNARMED_BACK_POWER_ATTACK: u8 = 62;
+pub const HAS_UNARMED_CROUCHED_POWER_ATTACK: u8 = 63;
+pub const HAS_UNARMED_COUNTER_ATTACK: u8 = 64;
+pub const HAS_UNARMED_LEFT_POWER_ATTACK: u8 = 65;
+pub const HAS_UNARMED_RIGHT_POWER_ATTACK: u8 = 66;
+
 /// The weight Adjust Heavy Weapon Weight starts at: "a Weapon which weighs 10.0 lbs or more
 /// (after the DecreaseWeight Weapon Mod effect)" [documented: GECK wiki Entry Point].
 pub const HEAVY_WEAPON_WEIGHT: f32 = 10.0;
@@ -486,9 +496,15 @@ impl Game<'_> {
     /// The value after the perk entries of `point` the actor has (no argument tabs); the
     /// perks that changed it, in order.
     pub fn entry_point(&mut self, actor: FormId, point: u8, value: f64) -> (f64, Vec<Applied>) {
+        self.entry_point_with(actor, point, &[], value)
+    }
+
+    /// [`Self::entry_point`] with the argument tabs `tabs` (a weapon's entry points: the
+    /// weapon at tab 1).
+    pub fn entry_point_with(&mut self, actor: FormId, point: u8, tabs: &[Option<FormId>], value: f64) -> (f64, Vec<Applied>) {
         let mut v = value;
         let mut applied = Vec::new();
-        for (perk, op) in self.entry_ops(actor, point, &[], None) {
+        for (perk, op) in self.entry_ops(actor, point, tabs, None) {
             v = op.apply(v);
             applied.push(Applied { perk, value: v });
         }

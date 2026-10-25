@@ -455,10 +455,10 @@ pub struct ActorDef {
     /// carry No VATS Melee [documented: GECK wiki Category:NPC], so it is read off the
     /// actor's own record.
     pub no_vats_melee: bool,
-    /// ACBS "Not Pushable" (NPC_ bit 27; CREA bit 27 "Not Pushable / Allow Pickpocket"),
-    /// "No Rotating To Head-track" (NPC_ bit 30, CREA bit 29), and the creatures' "No
-    /// Head", "No Right Arm", "No Left Arm" (bits 15–17) [documented: xEdit ACBS flags]
-    /// (docs/spec-notes/actor-fields.md §1).
+    /// ACBS "Not Pushable" (bit 27), "No Rotating To Head-track" (bit 30, NPC_ and CREA),
+    /// and the creatures' "No Head", "No Right Arm", "No Left Arm" (bits 15–17)
+    /// [documented: GECK wiki ActorHasBaseFlag flag table] (docs/spec-notes/actor-fields.md
+    /// §1, actor-flags.md §3).
     pub not_pushable: bool,
     pub no_head_track: bool,
     pub no_head: bool,
@@ -475,8 +475,13 @@ pub struct ActorDef {
     pub calc_max: i64,
     /// ACBS template flag "Stats": the template supplies the stats.
     pub template_stats: bool,
-    /// CREA ACBS "Invulnerable".
+    /// CREA ACBS "Invulnerable" (bit 31) [documented: GECK wiki ActorHasBaseFlag].
     pub invulnerable: bool,
+    /// CREA ACBS "Is Ghost" (bit 29): as SetGhost 1 from the start (actor-flags.md §3).
+    pub is_ghost: bool,
+    /// CREA ACBS "Allow Pickpocket" (bit 28): the player may pickpocket the creature;
+    /// NPCs always may (docs/spec-notes/pickpocket.md).
+    pub allow_pickpocket: bool,
     /// ACBS flag "No Knockdowns" (NPC_ and CREA): PushActorAway and explosions do not
     /// knock the actor down [documented: GECK wiki PushActorAway notes]. Never from the
     /// template: "Base Data does not include … No Knockdowns" [documented: GECK wiki
@@ -657,12 +662,24 @@ impl IngestibleDef {
 /// DOBJ, the list's names in order] (docs/spec-notes/default-objects.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefaultObject {
+    Stimpak = 0,
+    PerkParalysis = 5,
     DeathMusic = 11,
     LevelUpMusic = 13,
     DrugWearsOffImageSpace = 20,
     /// The explosion of Meltdown's kills [observed: FalloutNV.esm's DOBJ names
     /// MinePlasmaExplosion 0007078C there] (perk-entry-points.md §9).
     MeltdownExplosion = 24,
+    /// The unarmed special moves' effects [documented: xEdit DOBJ, "Unarmed Forward PA" …
+    /// "Unarmed Counter PA"; observed: FalloutNV.esm names none for forward and counter,
+    /// VictoryRifleKnockdownSpell 0001DEA8 for back, HeadCrippleEffect 00067572 for left,
+    /// right and crouched] (perk-entry-points.md §11).
+    UnarmedForwardPa = 25,
+    UnarmedBackwardPa = 26,
+    UnarmedLeftPa = 27,
+    UnarmedRightPa = 28,
+    UnarmedCrouchPa = 29,
+    UnarmedCounterPa = 30,
 }
 
 impl GameData {
@@ -684,6 +701,8 @@ mod default_object_tests {
     #[test]
     fn default_objects_by_their_place() {
         let list: Vec<Option<FormId>> = (0..34).map(|i| (i != 19).then_some(FormId(0x100 + i))).collect();
+        assert_eq!(default_in(&list, DefaultObject::Stimpak), Some(FormId(0x100)));
+        assert_eq!(default_in(&list, DefaultObject::PerkParalysis), Some(FormId(0x105)));
         assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
         assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
         assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
@@ -824,6 +843,9 @@ pub struct GameData {
     /// SPEL SPIT type (0 Actor Effect, 1 Disease, 2 Power, 3 Lesser Power, 4 Ability,
     /// 5 Poison, 10 Addiction) [documented: xEdit wbDefinitionsFNV.pas SPEL].
     pub spell_types: HashMap<FormId, i64>,
+    /// SPEL SPIT flags (bit 4 "Area Effect Ignores LOS", `crate::area_effects`)
+    /// [documented: xEdit wbDefinitionsFNV.pas SPEL].
+    pub spell_flags: HashMap<FormId, u8>,
     /// RACE SPLO: the race's actor effects [hypothesis: as NPC_'s; none in FalloutNV.esm,
     /// observed].
     pub race_spells: HashMap<FormId, Vec<FormId>>,
@@ -886,6 +908,9 @@ pub struct GameData {
     pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
     /// RCPE: the recipes (`crate::crafting`).
     pub recipes: HashMap<FormId, crate::crafting::RecipeDef>,
+    /// CPTH and CAMS: the camera paths and shots (`crate::camera_paths`).
+    pub camera_paths: HashMap<FormId, crate::camera_paths::CameraPathDef>,
+    pub camera_shots: HashMap<FormId, crate::camera_paths::CameraShotDef>,
     /// RCCT: the recipe categories and subcategories.
     pub recipe_categories: HashMap<FormId, crate::crafting::RecipeCategoryDef>,
     /// CSNO: the casinos (`crate::casino`).
@@ -1267,6 +1292,7 @@ struct Read {
     effects: Option<Vec<EffectItem>>,
     ingestible: Option<IngestibleDef>,
     spell_type: Option<i64>,
+    spell_flags: Option<u8>,
     /// RACE SPLO list; ARMO EITM; ENCH ENIT type (`GameData::race_spells` …).
     race_spells: Option<Vec<FormId>>,
     /// VTYP DNAM bit 0, "Allow Default Dialog"; `None` without a DNAM.
@@ -1292,6 +1318,8 @@ struct Read {
     perk: Option<PerkDef>,
     av_info: Option<ActorValueInfo>,
     recipe: Option<crate::crafting::RecipeDef>,
+    camera_path: Option<crate::camera_paths::CameraPathDef>,
+    camera_shot: Option<crate::camera_paths::CameraShotDef>,
     recipe_category: Option<crate::crafting::RecipeCategoryDef>,
     casino: Option<crate::casino::CasinoDef>,
     class_services: Option<u32>,
@@ -1371,6 +1399,7 @@ impl GameData {
             effect_items: HashMap::new(),
             ingestibles: HashMap::new(),
             spell_types: HashMap::new(),
+            spell_flags: HashMap::new(),
             race_spells: HashMap::new(),
             voices_without_default: Default::default(),
             armor_enchantments: HashMap::new(),
@@ -1395,6 +1424,8 @@ impl GameData {
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
+            camera_paths: HashMap::new(),
+            camera_shots: HashMap::new(),
             recipe_categories: HashMap::new(),
             casinos: HashMap::new(),
             caravan_cards: HashMap::new(),
@@ -1557,6 +1588,9 @@ impl GameData {
             if let Some(v) = r.spell_type {
                 d.spell_types.insert(id, v);
             }
+            if let Some(v) = r.spell_flags.filter(|&v| v != 0) {
+                d.spell_flags.insert(id, v);
+            }
             if let Some(v) = r.race_spells.filter(|v| !v.is_empty()) {
                 d.race_spells.insert(id, v);
             }
@@ -1619,6 +1653,12 @@ impl GameData {
             }
             if let Some(v) = r.recipe {
                 d.recipes.insert(id, v);
+            }
+            if let Some(v) = r.camera_path {
+                d.camera_paths.insert(id, v);
+            }
+            if let Some(v) = r.camera_shot {
+                d.camera_shots.insert(id, v);
             }
             if let Some(v) = r.recipe_category {
                 d.recipe_categories.insert(id, v);
@@ -2023,6 +2063,26 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         };
         let recipe = crate::crafting::RecipeDef::from_raw(FormId(g), &subs, &map, &mut cond);
         out.recipe = Some(recipe);
+    }
+    // Camera paths and shots (`crate::camera_paths`): a path's conditions are the common
+    // CTDA, read as a recipe's.
+    if &sig == b"CPTH" {
+        let mut ctx = DecodeCtx { schema, on_formid: None };
+        let issues = &mut out.issues;
+        let mut cond = |s: &fnv_esm::Subrecord| {
+            let v = decode_sub(&sig, s, &mut ctx).value.or_else(|| decode_sub(b"PACK", s, &mut ctx).value)?;
+            match cond::parse(&v, types, &map) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    issues.note("condition unreadable", || format!("0x{g:08X}: {e}"));
+                    None
+                }
+            }
+        };
+        out.camera_path = Some(crate::camera_paths::CameraPathDef::from_raw(&subs, &map, &mut cond));
+    }
+    if &sig == b"CAMS" {
+        out.camera_shot = crate::camera_paths::CameraShotDef::from_raw(&subs, &map);
     }
     if &sig == b"RCCT" {
         out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));
@@ -2562,7 +2622,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
-                        a.invulnerable = has_flag(f, "Invulnerable");
+                        a.invulnerable = &sig == b"CREA" && has_flag(f, "Invulnerable");
+                        a.is_ghost = &sig == b"CREA" && has_flag(f, "Is Ghost");
+                        a.allow_pickpocket = &sig == b"CREA" && has_flag(f, "Allow Pickpocket");
                         a.no_knockdowns = has_flag(f, "No Knockdowns");
                         a.immobile = &sig == b"CREA" && has_flag(f, "Immobile");
                         a.cant_open_doors = &sig == b"CREA" && has_flag(f, "Can't Open Doors");
@@ -2572,7 +2634,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         a.autocalc_service = &sig == b"NPC_" && has_flag(f, "Autocalc Service");
                         a.no_vats_melee = has_flag(f, "No VATS Melee");
-                        a.not_pushable = has_flag(f, "Not Pushable") || has_flag(f, "Not Pushable / Allow Pickpocket");
+                        a.not_pushable = has_flag(f, "Not Pushable");
                         a.no_head_track = has_flag(f, "No Rotating To Head-track");
                         a.no_head = has_flag(f, "No Head");
                         a.no_right_arm = has_flag(f, "No Right Arm");
@@ -2730,6 +2792,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     }
                     b"SPIT" if &sig == b"SPEL" => {
                         out.spell_type = v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"SPIT", Some("type"), t));
+                        out.spell_flags = v.as_ref().map(|v| flag_bits(v.get("flags")) as u8);
                     }
                     b"CTDA" => {
                         if let Some(c) = cond(v, &mut out.issues) {

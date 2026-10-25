@@ -82,9 +82,10 @@ names]. Locations Discovered also counts the map markers found (`found_markers`)
 | Roulette / Blackjack Games Played | a spin is paid; a blackjack hand is dealt | `nvf-play` roulette, blackjack |
 | Slots Games Played | a slot machine spin is paid ([slots](slots.md) §4) | `nvf-play` slots |
 | Caravan Games Won / Lost | a Caravan game ends (a forfeit is a loss) | `nvf-play` caravan ([caravan](caravan.md) §7) |
+| Pockets Picked | an unseen take from a pocket [hypothesis: one per take] | `fnv_game::pickpocket` ([pickpocket](pickpocket.md) §4) |
+| Pants Exploded | a live explosive planted in a pocket goes off | `fnv_game::pickpocket` ([pickpocket](pickpocket.md) §5) |
 
-**Not counted** (only ModPCMiscStat changes them): Pockets Picked (pickpocketing is not
-built), Pants Exploded, Weapons Created, Sandman Kills,
+**Not counted** (only ModPCMiscStat changes them): Weapons Created, Sandman Kills,
 Paralyzing Punches, Robots Disabled, Corpses Eaten, Mysterious Stranger Visits, Miss
 Fortunate Occurrences, Dismembered Limbs (no dismemberment), Speech
 Failures and New Vegas skill-check successes (the checks' pass and fail are not judged by
