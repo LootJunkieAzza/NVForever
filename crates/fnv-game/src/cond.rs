@@ -124,9 +124,20 @@ impl ParamTypes {
 }
 
 /// Condition indices xEdit knows that the catalogue has no entry for, with their
-/// parameter types: 451 IsLastIdlePlayed takes an IDLE [documented: xEdit
+/// parameter types: 451 IsLastIdlePlayed takes an IDLE; 518–521 and 525–528, the VATS
+/// area functions (`crate::vats::is_area_function`), a reference [documented: xEdit
 /// wbCTDAFunctions].
-const XEDIT_ONLY: &[(u16, &[&str])] = &[(451, &["ptIdleForm"])];
+const XEDIT_ONLY: &[(u16, &[&str])] = &[
+    (451, &["ptIdleForm"]),
+    (518, &["ptReference"]),
+    (519, &["ptReference"]),
+    (520, &["ptReference"]),
+    (521, &["ptReference"]),
+    (525, &["ptReference"]),
+    (526, &["ptReference"]),
+    (527, &["ptReference"]),
+    (528, &["ptReference"]),
+];
 
 /// How a raw 4-byte parameter is read for an xEdit parameter type. Types that name a
 /// record are FormIDs (mapped through the plugin's master list); enumerations are codes;
@@ -192,9 +203,9 @@ pub fn parse(v: &Json, types: &ParamTypes, map: &dyn Fn(u32) -> Option<u32>) -> 
 }
 
 /// Combine evaluated conditions: a condition with the OR flag is joined to the next one;
-/// the OR groups are joined with AND [hypothesis: the grouping commonly described for
-/// this engine generation, in which OR binds tighter than AND, as `||` does in compiled
-/// script expressions (scripts.md §3.3); to be captured]. An empty list passes.
+/// the OR groups are joined with AND, so OR binds tighter than AND [documented: GECK
+/// wiki Category:Conditions, "AND/OR Precedence": consecutive ORs are one block, and
+/// A AND B OR C AND D is A AND (B OR C) AND D]. An empty list passes.
 pub fn combine(results: &[(bool, bool)]) -> bool {
     // (passed, or-flag)
     let mut all = true;

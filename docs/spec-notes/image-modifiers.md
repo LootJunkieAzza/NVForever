@@ -163,9 +163,8 @@ Menus, message boxes, subtitles and the HUD are drawn over the result and are no
 affected [observed for a message box: the same capture shows the pack box over the white
 screen].
 
-Depth of field is drawn as §8 says, motion blur as §9 says. Not drawn: the HDR and
-bloom parameters (the renderer has no eye adaptation or bloom pass), radial blur "use
-target".
+Depth of field is drawn as §8 says, motion blur as §9 says, the HDR and bloom tracks as
+§11 says. Not drawn: radial blur "use target".
 
 ## 6. The opening
 
@@ -371,3 +370,87 @@ and when a script or the console applies one of these records.
 Log line (smoke `imagespace-motion-blur`): "motion blur: strength S (source)" when it
 changes, S in steps of 0.05 ("under 0.05" for less; source the modifier's Editor ID or
 `iron sights`), and "motion blur: off".
+
+## 10. Sounds
+
+### 10.1 The fields [documented: xEdit wbDefinitionsFNV.pas IMAD]
+
+`RDSD` "Sound - Intro" and `RDSI` "Sound - Outro", each a SOUN form ID (schema
+`sky.json`).
+
+### 10.2 The records [observed: a scan of the ten masters, 2026-10-24]
+
+20 records set RDSD, one (NVDLC03BattleBrewDrinkISFX) RDSI too:
+
+- Scripted ones: BarkScorpionPoisonISFX, NVDLC01CloudPoisonISFX and the Sacred Datura
+  pair (FXPoisonStinger); CGCameraFlashISFX (FXExplosionThermite); NVCaveEnteringISFX and
+  NVCaveExitISFX (AMBRCaveWind01, the cave scripts' `imod` / `rimod`); the stealth suit's
+  NVDLC03StealthSuitONISFX (UIRadioSignalFound) and OFFISFX (UIRadioSignalLost);
+  NVDLC03BattleBrewDrinkISFX (NVDLC03BattleBrewHeartbeat, outro NVDLC03RedMistWearOff);
+  NVDLC03RedMistISFX, the X-8, rez-in and radar-fence ones of Old World Blues.
+- Weather adapters: NVColoradoRiverIS, NVJacobstownIS, NVBlackMountainIS and the three
+  NVWasteland…ISUPDATE (thunder and birds).
+
+### 10.3 Played [hypothesis]
+
+When a modifier comes on the screen (a script's apply, an explosion's, `--imod`, a held
+one) its intro sound plays at the listener; when it leaves (removed, or an animated one
+at its end) its outro sound. The names say so, and the data fits: the stealth suit's ON
+and OFF records each have a "signal found" or "signal lost" intro, and Battle Brew's
+starts a heartbeat and ends with the chems' wear-off sound. Not played: the weather
+adapters' (when the game plays a weather adapter's sounds is not known). Log line
+(smoke `imagespace-sounds`): `image space modifier sound: <Editor ID> intro|outro
+0x<SOUN>`.
+
+## 11. HDR and bloom tracks
+
+### 11.1 The fields [documented: xEdit IMAD]
+
+`\x00IAD`..`\x10IAD` multiply and `\x40IAD`..`\x50IAD` add tracks, the 14 HDR values, the
+skin dimmer and bloom's three, in the order `fnv_world::imagespace::Hdr` keeps (world.md
+§6); every key read and played as the cinematic tracks are (§3). Several modifiers:
+multipliers multiplied, adds summed (as §4's pairs) [hypothesis].
+
+### 11.2 The records [observed: the masters, 2026-10-24]
+
+Scripted modifiers with HDR keys: the poison stings (BarkScorpionPoisonISFX,
+NVDLC01CloudPoisonISFX, the Sacred Datura pair: Target LUM and Bright Scale ×2 and ×3 a
+quarter of the way through, back to ×1); CGCameraFlashISFX (Bright Scale ×5 and Bright
+Clamp ×0.1 for half its 8 s); NVDLC03PlayerRezInISFX (Bright Scale up to ×10);
+NVDLC03RadarConcussionISFX (Emissive Mult and Bright Scale ×2, Bright Clamp ×0.25);
+NVCaveEnteringISFX (Eye Adapt Speed ×1 to ×0.5 over its keys); NVDLC03X8ExperimentFX
+(sets every value outright). The flash-bang (FlashBangISfx) has no HDR keys: its
+whiteout is its fade and cinematic tracks (§5).
+
+### 11.3 On the picture [hypothesis, every rule]
+
+The values with the modifiers on them, over the image space's own (with the weather's
+adapters), give a factor per value (`ScreenModifiers::hdr_ratio`):
+
+- **Target LUM**: the picture's exposure moves by log2 of the factor (×2: one EV
+  brighter), at most 4 EV either way, through the eye adaptation, so it follows at the
+  adaptation's speed (`eye_adapt::modifier_ev`). The image space's own Target LUM keeps
+  its fitted role in the eye adaptation (world.md §6).
+- **Bright Scale and Bright Clamp**: the light glow's strength times the Bright Scale
+  factor over the Bright Clamp factor ("Bright Clamp: the clamp for which lum levels
+  bloom" [documented: GECK wiki ImageSpace]: a lower clamp lets more glow), up to a
+  full-strength glow (`post::modified_glow`).
+- **Eye Adapt Speed**: the adaptation speed, from the value with the modifiers on it
+  (`eye_adapt::adapt_speed`): 3 EV/s at the common 0.9, in proportion to it ("higher
+  numbers give faster chasing"), at once at 0 [documented: GECK wiki ImageSpace]. The
+  wiki's other line, "1.0 causes the adapted lum to never change", does not fit the
+  first; the masters store values up to 8. This applies to the image spaces' own values
+  too (interiors store 0.3 to 8).
+- **Sunlight Dimmer** and **Emissive Mult**: the sun's light and the emissive light
+  times their factors, on top of the image space's own use of them (world.md §6).
+- Not used: Upper LUM Clamp, LUM Ramp Min and Max ("Not used" [documented: GECK wiki
+  ImageSpace]); Blur Radius and Blur Passes of the HDR pass and bloom's (the light glow
+  has its own blur); the skin dimmer; LUM Ramp No Tex (the sky), Grass Dimmer and Tree
+  Dimmer ("scale the grass brightness" and so on [documented]): the weather adapters
+  change these by up to three times against the base image space (NVWastelandNoonISUPDATE
+  sets the grass dimmer to 0.5, the base has 1.5), and the grass, trees and sky were
+  matched to the owner's frames without them, so applying them waits for frames that
+  show what they do.
+
+Log lines: `eye adaptation: … modifiers +1.00 EV` when a Target LUM change starts and
+ends; `eye adaptation: speed S EV/s (Eye Adapt Speed E)` when the speed changes.

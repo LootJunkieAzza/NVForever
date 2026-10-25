@@ -11,12 +11,14 @@ Read from the actor's Base Data source (template flag "Base Data") [documented: 
 wiki Category:NPC, Template Data: Base Data supplies the configuration flags except No
 Knockdowns, No VATS Melee and a few others] (`fnv_game::data::GameData::minor_flags`).
 
-- **Not Pushable** (NPC_ bit 27, CREA bit 27 "Not Pushable / Allow Pickpocket"): 25
-  creatures, 26 placed; no NPC. The player and walking actors do not push it aside
-  (`nvf_play::hitvol`, `blocking`) [hypothesis: the CREA bit means Not Pushable for
-  creatures; the label names both].
-- **No Rotating To Head-track** (NPC_ bit 30, CREA bit 29): 1 NPC (1 placed), 6
-  creatures (2 placed). The head does not turn to look at things, as with a package's
+- **Not Pushable** (bit 27, NPC_ and CREA [documented: GECK wiki ActorHasBaseFlag flag
+  table]): 25 creatures, 26 placed; no NPC. The player and walking actors do not push it
+  aside (`nvf_play::hitvol`, `blocking`). (Before 2026-10-24 the schema named this bit
+  "Not Pushable / Allow Pickpocket" after xEdit; the later CREA bits are in
+  actor-flags.md §3.)
+- **No Rotating To Head-track** (bit 30, NPC_ and CREA [documented: ActorHasBaseFlag]):
+  1 NPC, 4 creatures in FalloutNV.esm (the three tumbleweeds and CG02Andy) [observed:
+  raw read, 2026-10-24; the earlier count of 6 read CREA bit 29, Is Ghost]. The head does not turn to look at things, as with a package's
   HeadTracking Off; a forced look (a conversation, a script's Look) still turns it
   [hypothesis] (nvforever `head_look.rs`).
 - **No Head, No Right Arm, No Left Arm** (CREA bits 15–17): 48 creatures each, 38 placed.

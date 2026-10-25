@@ -396,21 +396,22 @@ menu's (`dialogue_menu.rs`).
   first word two spaces of the font after "HP", one space between words [hypothesis].
 - **Looks** [design: owner 2026-10-23]: faded (the HUD's amber at 0.3 opacity), normal
   amber, red (the enemy bar's red), flashing red (the crippled-limb picture's pulse,
-  §12).
+  §12). A word with nothing to say is not drawn [design: owner 2026-10-24].
 - **A need's look** follows the stage the game holds for it (aid-items.md §11: the
   DEHY/HUNG/SLPD records' thresholds 200 … 1000, Minor, Advanced, Critical, Deadly,
   Fatal) [design: owner 2026-10-23, "none/lowest faded, then normal, red, flashing for the
-  last ones"]: no stage and Minor faded, Advanced normal, Critical red, Deadly and Fatal
-  flashing. Counted from the worst stage, so a plugin's shorter list loses the faded
-  stage first.
+  last ones"; owner 2026-10-24: "faded, not faded, red, red flashing starting at the 200
+  mark"]: no stage (under 200) hidden, Minor faded, Advanced normal, Critical red, Deadly
+  and Fatal flashing. Counted from the worst stage, so a plugin's shorter list loses the
+  faded stage first.
 - **The radiation word** follows the radiation sickness stage the game holds (the RADS
   records' thresholds 200 … 1000, Minor … Fatal; held in every mode, aid-items.md §11)
-  [design: owner 2026-10-23, "same rules … for each radiation threshold"]: each threshold
-  steps it up: no stage (under 200 rads) faded, Minor normal, Advanced red, Critical,
-  Deadly and Fatal flashing.
+  by the needs' rule [design: owner 2026-10-23, "same rules"; owner 2026-10-24]: under
+  200 rads hidden, Minor faded, Advanced normal, Critical red, Deadly and Fatal flashing.
 - **The limb word** follows how many of the six limbs (conditions 25–30) are crippled
-  [design: owner 2026-10-23]: 0 faded, 1 normal, 2 red, 3 or more flashing. The brain (31)
-  is not counted [design: not a limb; the picture of §12 has no piece for it].
+  [design: owner 2026-10-23; owner 2026-10-24: hidden with none]: 0 hidden, 1 normal,
+  2 red, 3 or more flashing. The brain (31) is not counted [design: not a limb; the
+  picture of §12 has no piece for it].
 - **When they show**: H2O, FOD and SLP only in Hardcore [design: owner]. RAD in every mode
   [design: radiation sickness is not a Hardcore rule]. LMB in every mode
   [design: crippled limbs matter in every mode and the §12 picture goes after 5 s; the

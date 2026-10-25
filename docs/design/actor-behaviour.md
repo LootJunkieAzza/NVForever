@@ -181,6 +181,33 @@ reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
 out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
 after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
 
+*Followers in a line* (`Ai::ahead_in_column`; owner playtest 2026-10-24: three
+mercenaries following one leader should walk behind it in single file, not bunch up on
+its heels). Several actors whose packages follow the same target form a column, all of
+it our choice [the original's behaviour is not documented or observed]: the first
+follows the target as above, each after it walks after the one ahead, keeping 128 units
+(`COLUMN_GAP`, or the package's distance if that is smaller) plus the same 64 of slack.
+The order is kept once made; a newcomer joins at the end, the nearer the target the
+further forward, so followers do not overtake each other. Members are present and
+alive; one ahead that is in neither the target's cell nor the follower's own (left
+behind) is passed over, so a follower still goes through a door after the one ahead of
+it. A follower runs when it is more than 384 units beyond its distance from the one ahead,
+or the target is that much beyond where its place in the line would be (192 units per
+place), so a long
+line does not run while its leader walks. The player's companions on Follow packages
+line up behind the player the same way. Combat does not take a fighter out of the line
+(a follower may walk after one ahead that is fighting). Log: the `walks after` line
+names the one ahead.
+
+*Catching up* (`carry::catch_up`; owner playtest 2026-10-24: followers should get a
+speed boost to close the distance, faster than their top speed). A follower more than
+384 units beyond its distance (the gap that makes it run, as above; in another cell,
+the length of its way) goes faster than its own pace, by up to half again (`CATCH_UP_BOOST`), rising
+evenly over the next 1024 units (`CATCH_UP_SPAN`) [our choice]. The boost is worked out
+again at every update while it walks, so it eases off as the gap closes; nearer, in
+step with a moving target, the pace is the target's (Follow, above). The engine
+plays the run clip faster to match (up to its 2.5 rate limit), so the feet do not slide.
+
 ### 5.2 Getting there
 
 - **The path** is `fnv_nav`'s: across any number of interiors and worldspaces, doors
@@ -710,7 +737,31 @@ Checked by the `far-actors` (camera flying north at 400 units/s: Mid-High update
 who left the loaded area, who fell out of the buffer and the updates at each rate. Tests
 in `crates/fnv-ai/tests/carry.rs` ("process levels") and `cell_buffer.rs`.
 
-Not done: actors of cells never loaded are not handed to the AI at all, as before.
+- **Far travel to the player** (2026-10-24, owner: Malcolm Holmes after the first star
+  cap): the original moves such an actor in jumps once per game hour along a route, at
+  about a walk's pace although his package runs, stops the jump at the edge of the loaded
+  area and runs in from there; it kept to its first route for 3 hours after the player
+  moved [observed: ai-observer.md §13]. Here: out of the high process a Dialogue package
+  without a wait location (Holmes's has none) takes its actor towards its target (no
+  talking), on the route planned when it set off, planned again only when that route ends
+  with the target elsewhere [hypothesis]; one with a wait location keeps its actor there
+  (Ringo's GSRingoDialoguePackage would otherwise follow the player out of the gas
+  station) [hypothesis]; an actor a script puts out of the loaded area never takes its
+  cell into the cell buffer (only leaving the loaded area does), so it is at the Low
+  level; at the
+  Low level actors walk whatever their package says [hypothesis: one actor seen]; a
+  low-process walk stops where it comes into the loaded area (`Ai::set_loaded`, from the
+  engine) and the high process takes over; the Coming level (moved every frame) is only
+  for actors in the cell buffer, as from beyond the original moves them in its jumps.
+  Unit tests in `crates/fnv-ai/tests/talk.rs` ("far away …") and `carry.rs`
+  (`a_far_walk_stops_where_it_comes_into_the_loaded_area`); smoke scenario
+  `holmes-comes-from-far`. Worldspaces: an actor only goes where a path of navmesh and
+  load doors leads, so with no door link to the player's worldspace there is no route
+  and the package is set aside (§5.2); Holmes's own package also needs the player in
+  WastelandNV.
+
+Not done: actors of cells never loaded are not handed to the AI at all, as before (an
+actor a script moves with MoveTo is: `take_moved`, §5.2).
 
 ### 5.10 Escort, Find, Use Item At, Ambush, Flee Not Combat (2026-10-17)
 

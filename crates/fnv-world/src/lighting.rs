@@ -107,17 +107,38 @@ pub fn cell_image_space(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<u3
 }
 
 /// What drives a reference's external emittance (REFR XEMI).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Emittance {
-    /// A region's weather (REGN RDWT, the entry with the highest chance): its sunlight
-    /// colour at the current hour [hypothesis: e.g. InvertedDaylightWarmRegionNV's weather
+    /// A region's weathers (REGN RDWT): the sunlight colour at the current hour of the
+    /// weather the region shows [hypothesis: e.g. InvertedDaylightWarmRegionNV's weather
     /// has black sunlight by day and warm sunlight at night, and the Prospector Saloon
     /// porch beam that names it is invisible by day in game; NVInteriorRegion's weather
     /// has warm sunlight by day and black at night, the saloon's window rays name it].
-    Weather(u32),
+    /// Which weather that is: [`RegionEmittance::shown`].
+    Weather(RegionEmittance),
     /// A light: its colour and its fade (brightness) [documented: the GECK tutorials say
     /// emittance takes the light's colour and brightness, level-design.md §2].
     Light { color: [u8; 3], fade: f32 },
+}
+
+/// The weathers of a region named as an emittance source.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegionEmittance {
+    /// Every weather the region lists (RDWT), in record order.
+    pub listed: Vec<u32>,
+    /// The listed weather with the highest chance (the first of equals).
+    pub best: u32,
+}
+
+impl RegionEmittance {
+    /// The weather whose sunlight drives the emittance: the weather on screen now when the
+    /// region lists it, else the region's highest-chance weather [hypothesis: a region's
+    /// weather is only rolled where the camera stands (world.md §6 "Choosing a weather"),
+    /// so a region the camera is not in shows its likeliest weather]. `current` is `None`
+    /// for callers without a sky (tools, tests): they get the highest-chance weather.
+    pub fn shown(&self, current: Option<u32>) -> u32 {
+        current.filter(|c| self.listed.contains(c)).unwrap_or(self.best)
+    }
 }
 
 /// Resolve an XEMI target: a region with a weather, or a light.
@@ -128,15 +149,24 @@ pub fn emittance(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Emittance>
         b"REGN" => {
             let f = Fields::new(r, pi, schema).ok()?;
             let list = f.get(b"RDWT")?;
-            let best = list
+            let entries: Vec<(u32, f64)> = list
                 .as_array()?
                 .iter()
                 .filter_map(|w| Some((crate::fields::global(lo, pi, crate::fields::formid_of(w.get("weather")?)?)?, num(w, "chance")?)))
-                .max_by(|a, b| a.1.total_cmp(&b.1))?;
-            Some(Emittance::Weather(best.0))
+                .collect();
+            region_emittance(&entries).map(Emittance::Weather)
         }
         _ => None,
     }
+}
+
+/// A region's (weather, chance) entries as an emittance source; `None` when it lists none.
+pub fn region_emittance(entries: &[(u32, f64)]) -> Option<RegionEmittance> {
+    let best = entries.iter().fold(None::<(u32, f64)>, |b, &e| match b {
+        Some(b) if b.1 >= e.1 => Some(b),
+        _ => Some(e),
+    })?;
+    Some(RegionEmittance { listed: entries.iter().map(|e| e.0).collect(), best: best.0 })
 }
 
 /// LIGH DATA flags [documented: xEdit].
@@ -197,6 +227,21 @@ pub fn ref_xrds(lo: &LoadOrder, schema: &Schema, refr: u32) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn region_emittance_follows_the_shown_weather() {
+        let r = region_emittance(&[(0xA, 20.0), (0xB, 70.0), (0xC, 70.0)]).unwrap();
+        assert_eq!(r.listed, vec![0xA, 0xB, 0xC]);
+        // Highest chance, the first of equals.
+        assert_eq!(r.best, 0xB);
+        // Headless callers (no sky) and weathers the region does not list: the best.
+        assert_eq!(r.shown(None), 0xB);
+        assert_eq!(r.shown(Some(0xD)), 0xB);
+        // The weather on screen, when the region lists it.
+        assert_eq!(r.shown(Some(0xA)), 0xA);
+        assert_eq!(r.shown(Some(0xC)), 0xC);
+        assert_eq!(region_emittance(&[]), None);
+    }
 
     #[test]
     fn merge_takes_flagged_fields_from_template() {

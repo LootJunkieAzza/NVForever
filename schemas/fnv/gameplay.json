@@ -1657,10 +1657,11 @@
           "24": "Tilt Front/Back",
           "25": "Tilt Left/Right",
           "26": "No Knockdowns",
-          "27": "Not Pushable / Allow Pickpocket",
-          "28": "Is Ghost",
-          "29": "No Rotating To Head-track",
-          "30": "Invulnerable"
+          "27": "Not Pushable",
+          "28": "Allow Pickpocket",
+          "29": "Is Ghost",
+          "30": "No Rotating To Head-track",
+          "31": "Invulnerable"
          }
         }
        },
@@ -1717,7 +1718,7 @@
       ]
      },
      "confidence": "documented",
-     "note": "xEdit wbDefinitionsFNV.pas CREA record; Level is an xEdit union (u16 level, or u16 level mult /1000 when 'PC Level Mult' is set), decoded as raw u16; template flag names from wbTemplateFlags (FO3/FNV branch); xEdit lists bit 27 twice ('Not Pushable' and 'Allow Pickpocket')"
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; Level is an xEdit union (u16 level, or u16 level mult /1000 when 'PC Level Mult' is set), decoded as raw u16; template flag names from wbTemplateFlags (FO3/FNV branch); ACBS flag bits 27-31 named from the GECK wiki ActorHasBaseFlag table (xEdit lists bit 27 twice, 'Not Pushable' and 'Allow Pickpocket', which moved every later name down one bit)"
     },
     "SNAM": {
      "name": "Faction",
@@ -2640,6 +2641,13 @@
   "LSCR": {
    "name": "Load Screen",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Displays In Main Menu"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(LSCR) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Observed: 33 of the 208 LSCR of FalloutNV.esm carry it (docs/spec-notes/loading-screens.md)."
+   },
    "subrecords": {
     "LNAM": {
      "name": "Location",

@@ -27,7 +27,7 @@
 //!   hello, a line between two actors, a detection bark) is heard from where its
 //!   speaker stands ([`hearing`]): at full volume within [`DIALOG_MIN_DISTANCE`] of the
 //!   player's eye, falling as minimum ÷ distance beyond it and fading to nothing at
-//!   [`DIALOG_MAX_DISTANCE`] ([`voice_gain`], the shape `crate::sfx` gives sound effects),
+//!   [`DIALOG_MAX_DISTANCE`] ([`voice_gain`]),
 //!   and panned to the side it is on (`crate::sfx::pan_gains`), following the speaker and
 //!   the player while it plays. A speaker in another cell (an interior other than the
 //!   player's, or inside while the player is outside) is not heard. While a line is not
@@ -36,6 +36,11 @@
 //!   when a response starts out of hearing. The
 //!   conversation with the player stays at full volume and unpanned. Lip sync follows
 //!   [`VoiceState::spoken`] from `nvforever`'s `lips.rs` (docs/spec-notes/lipsync.md).
+//!
+//! - **Through a helmet or a speaker** ([`crate::voice_filter`]): a speaker wearing an
+//!   armour that "modulates voice" (power armour helmets) or a talking activator without
+//!   "No Voice Filter" is heard through the voice filter (`voice: playing … through the
+//!   voice filter`).
 //!
 //! - **A response's own sound.** A response with a sound (TRDT; creatures' and robots'
 //!   combat lines, `fnv_game::combat_lines`) plays that SOUN where its speaker stands
@@ -93,7 +98,8 @@ pub const MOUTH_HEIGHT: f32 = 110.0;
 
 /// The gain of dialogue said `distance` units from the listener: 1 within
 /// [`DIALOG_MIN_DISTANCE`], minimum ÷ distance beyond it, faded linearly to 0 at
-/// [`DIALOG_MAX_DISTANCE`] [design: the shape of `crate::sfx::distance_gain`].
+/// [`DIALOG_MAX_DISTANCE`] [design: dialogue has no SOUN curve; this is the shape sound
+/// effects had before they followed theirs].
 pub fn voice_gain(distance: f32) -> f32 {
     let (min, max) = (DIALOG_MIN_DISTANCE, DIALOG_MAX_DISTANCE);
     if distance >= max {
@@ -213,6 +219,8 @@ pub struct VoiceState {
     pub missing: u64,
     /// Responses that started out of the player's hearing (no sound, no subtitle).
     pub unheard: u64,
+    /// Responses played through the voice filter ([`crate::voice_filter`]).
+    pub filtered: u64,
 }
 
 /// Marks the audio entity of a line.
@@ -495,14 +503,18 @@ fn play(
                 let seconds = bank.seconds(path).unwrap_or(fitted);
                 // Played also out of hearing, silent: it is heard if the speaker comes
                 // near (or the player does) while it lasts.
+                // Said through a helmet or a speaker: the voice filter (crate::voice_filter).
+                let filtered = crate::voice_filter::speaker_filtered(&sim, s.speaker);
                 let entity = match (settings.play, sounds.as_mut(), bank.read(path)) {
                     (true, Some(assets), Some(bytes)) => {
                         let source = AudioSource { bytes: bytes.into() };
                         let volume = Volume::Linear(settings.volume.max(0.0));
                         let playback = PlaybackSettings::DESPAWN.with_volume(volume);
+                        // The conversation's line, filtered, at both ears whole.
+                        let pan = pan.clone().or_else(|| filtered.then(|| Pan::new([1.0, 1.0])));
                         match (&pan, panned.as_mut()) {
                             (Some(pan), Some(panned)) => {
-                                let handle = panned.add(Panned::new(source, pan.clone()));
+                                let handle = panned.add(Panned { voice_filter: filtered, ..Panned::new(source, pan.clone()) });
                                 Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
                             }
                             _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound, SoundCategory::Voice)).id()),
@@ -511,6 +523,7 @@ fn play(
                     _ => None,
                 };
                 st.started += 1;
+                st.filtered += u64::from(filtered && entity.is_some());
                 let place = match heard {
                     Some(Some((_, d))) => format!(" at {d:.0} units, gain {:.2}", voice_gain(d)),
                     _ => String::new(),
@@ -520,7 +533,8 @@ fn play(
                     (None, None) => " [silent: voice playback is off]".to_string(),
                     (None, Some(_)) => String::new(),
                 };
-                info!("voice: playing {path} ({seconds:.2} s) {who} line {} response {number}{place}{silent}", g.data.name(s.info));
+                let filter = if filtered { " through the voice filter" } else { "" };
+                info!("voice: playing {path} ({seconds:.2} s) {who} line {} response {number}{place}{filter}{silent}", g.data.name(s.info));
                 (entity, seconds)
             }
             None => {
@@ -568,7 +582,10 @@ impl Plugin for VoicePlugin {
 /// At exit: how many responses were played and how many were out of hearing.
 fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
     if exit.read().next().is_some() {
-        info!("voice summary: {} responses started with a file, {} without one, {} started out of the player's hearing (silent, no subtitle while out of it)", state.started, state.missing, state.unheard);
+        info!(
+            "voice summary: {} responses started with a file, {} without one, {} started out of the player's hearing (silent, no subtitle while out of it), {} through the voice filter",
+            state.started, state.missing, state.unheard, state.filtered
+        );
     }
 }
 
