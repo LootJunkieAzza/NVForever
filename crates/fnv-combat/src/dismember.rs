@@ -1,5 +1,5 @@
 //! Dismemberment: whether a hit severs or explodes the body part it lands on
-//! (docs/spec-notes/dismemberment.md §4). Pure rules: the caller supplies the rolls.
+//! (docs/spec-notes/dismemberment.md §4). Pure rules: the caller supplies the roll.
 
 use crate::data::{BodyPart, BodyPartData, CombatForms};
 use serde::Serialize;
@@ -42,39 +42,38 @@ pub enum Fate {
     Explode,
 }
 
-/// The game settings the rule reads, with the masters' values as defaults [observed:
-/// FalloutNV.esm GMST, §3].
+/// The odds of the rule, measured in the original (docs/spec-notes/dismemberment.md §4,
+/// capture campaign `dismember_odds`, 2026-10-25) [observed], and the one game setting it
+/// reads. The masters' iCombat* and iMess* settings (§3) do not map onto the measured odds
+/// in a way the data can tell apart, so they are not read.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Settings {
+    /// Percent: a killing hit takes a severable part (head, arm, leg), without Bloody Mess.
     pub dismember_chance: f32,
-    pub explode_chance: f32,
-    pub mess_intact_dismember: f32,
-    pub mess_intact_explode: f32,
-    pub mess_crippled_explode: f32,
-    pub mess_torso_explode: f32,
+    /// Percent of the parts a Normal-formula weapon takes that are severed (the rest explode).
+    pub sever_share: f32,
+    /// Percent, with Bloody Mess: a severable part goes.
+    pub mess_part_chance: f32,
+    /// Percent, with Bloody Mess: the torso (explodable only) explodes when the hit crippled
+    /// it, and when it did not.
+    pub mess_torso_crippled: f32,
+    pub mess_torso_intact: f32,
+    /// With Bloody Mess, a No Dismember/Explode weapon's odds are this share of the others'.
+    pub mess_neither_scale: f32,
     /// Seconds from the hit to the exploded part's skin going.
     pub explode_delay: f32,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { dismember_chance: 50.0, explode_chance: 75.0, mess_intact_dismember: 15.0, mess_intact_explode: 25.0, mess_crippled_explode: 25.0, mess_torso_explode: 10.0, explode_delay: 0.03 }
+        Settings { dismember_chance: 75.0, sever_share: 25.0, mess_part_chance: 100.0, mess_torso_crippled: 80.0, mess_torso_intact: 20.0, mess_neither_scale: 0.5, explode_delay: 0.03 }
     }
 }
 
 impl Settings {
     pub fn from_forms(forms: &CombatForms) -> Settings {
         let d = Settings::default();
-        let s = |k: &str, v: f32| forms.setting(k).unwrap_or(v);
-        Settings {
-            dismember_chance: s("iCombatDismemberPartChance", d.dismember_chance),
-            explode_chance: s("iCombatExplodePartChance", d.explode_chance),
-            mess_intact_dismember: s("iMessIntactLimbDismemberChance", d.mess_intact_dismember),
-            mess_intact_explode: s("iMessIntactLimbExplodeBonus", d.mess_intact_explode),
-            mess_crippled_explode: s("iMessCrippledLimbExplodeBonus", d.mess_crippled_explode),
-            mess_torso_explode: s("iMessTorsoExplodeChance", d.mess_torso_explode),
-            explode_delay: s("fExplodeLimbRemovalDelay", d.explode_delay),
-        }
+        Settings { explode_delay: forms.setting("fExplodeLimbRemovalDelay").unwrap_or(d.explode_delay), ..d }
     }
 }
 
@@ -86,7 +85,8 @@ pub struct Blow {
     pub corpse: bool,
     /// The part hit is crippled (its condition at or below 0 after the hit).
     pub crippled: bool,
-    /// Damage beyond the health the target had left (the whole damage on a corpse).
+    /// Damage beyond the health the target had left (the whole damage on a corpse). Only
+    /// logged: it does not change the odds [observed, §4].
     pub overkill: f32,
     /// The target's maximum health.
     pub max_health: f32,
@@ -99,38 +99,52 @@ pub fn limb_health(part: &BodyPart, max_health: f32) -> f32 {
     (max_health * part.health_percent as f32 / 100.0).max(1.0)
 }
 
-/// The chances (percent) that the blow explodes and, failing that, severs the part.
+/// The chances (percent) that the blow explodes the part and that it severs it; one roll
+/// decides, so they add up to the chance the part goes (§4).
 pub fn chances(part: &BodyPart, b: &Blow, s: &Settings) -> (f32, f32) {
-    let ready = b.corpse || b.crippled || b.bloody_mess;
-    if !ready {
+    let (severable, explodable) = (part.severable(), part.explodable());
+    if !severable && !explodable {
         return (0.0, 0.0);
     }
-    let intact = !b.corpse && !b.crippled;
-    let torso = part.location() == 0;
-    let mut explode = 0.0;
-    let lh = limb_health(part, b.max_health);
-    if part.explodable() && b.on_hit.may_explode() && b.overkill >= lh {
-        explode = part.explodable_chance_percent as f32 + s.explode_chance * ((b.overkill - lh) / lh).min(1.0);
-        if b.bloody_mess {
-            explode += if intact { s.mess_intact_explode } else { s.mess_crippled_explode };
-            if torso {
-                explode += s.mess_torso_explode;
-            }
+    let mut gone = if b.bloody_mess {
+        if severable {
+            s.mess_part_chance
+        } else if b.crippled || b.corpse {
+            s.mess_torso_crippled
+        } else {
+            s.mess_torso_intact
         }
+    } else if severable {
+        s.dismember_chance
+    } else {
+        0.0 // the torso goes only with Bloody Mess
+    };
+    if b.on_hit == OnHit::Neither {
+        gone *= if b.bloody_mess { s.mess_neither_scale } else { 0.0 };
     }
-    let mut sever = 0.0;
-    if part.severable() && b.on_hit.may_sever() {
-        sever = if intact { s.mess_intact_dismember } else { s.dismember_chance };
+    // Which way it goes: the weapon's On Hit where the part allows a choice. Bloody Mess
+    // explodes what the weapon could not take otherwise (No Dismember/Explode, the torso).
+    let sever = match b.on_hit {
+        _ if !severable => 0.0,
+        _ if !explodable => 1.0,
+        OnHit::Normal => s.sever_share / 100.0,
+        OnHit::DismemberOnly => 1.0,
+        OnHit::ExplodeOnly | OnHit::Neither => 0.0,
+    };
+    if !b.bloody_mess && ((sever == 0.0 && !b.on_hit.may_explode()) || (sever == 1.0 && !b.on_hit.may_sever())) {
+        return (0.0, 0.0);
     }
-    (explode.clamp(0.0, 100.0), sever.clamp(0.0, 100.0))
+    let gone = gone.clamp(0.0, 100.0);
+    (gone * (1.0 - sever), gone * sever)
 }
 
-/// What the blow does to the part, given two rolls uniform in [0, 1).
-pub fn decide(part: &BodyPart, b: &Blow, s: &Settings, explode_roll: f32, sever_roll: f32) -> Option<Fate> {
+/// What the blow does to the part, given a roll uniform in [0, 1).
+pub fn decide(part: &BodyPart, b: &Blow, s: &Settings, roll: f32) -> Option<Fate> {
     let (explode, sever) = chances(part, b, s);
-    if explode_roll * 100.0 < explode {
+    let r = roll * 100.0;
+    if r < explode {
         Some(Fate::Explode)
-    } else if sever_roll * 100.0 < sever {
+    } else if r < explode + sever {
         Some(Fate::Sever)
     } else {
         None
@@ -184,6 +198,10 @@ mod tests {
         Blow { on_hit, crippled: true, overkill, max_health: 100.0, ..Blow::default() }
     }
 
+    fn torso() -> BodyPart {
+        part("Torso", &["Explodable"], 60, 50, "Endurance Condition")
+    }
+
     #[test]
     fn on_hit_labels() {
         assert_eq!(OnHit::from_label(Some("Explode Only")), OnHit::ExplodeOnly);
@@ -192,48 +210,55 @@ mod tests {
     }
 
     #[test]
-    fn overkill_below_the_limb_share_never_explodes() {
+    fn a_kill_takes_the_head_three_times_in_four_whatever_the_overkill() {
         let s = Settings::default();
-        // Head share of 100 health is 20.
-        assert_eq!(chances(&head(), &blow(OnHit::ExplodeOnly, 19.0), &s), (0.0, 0.0));
-        assert_eq!(chances(&head(), &blow(OnHit::ExplodeOnly, 20.0), &s).0, 30.0);
-        assert_eq!(chances(&head(), &blow(OnHit::ExplodeOnly, 30.0), &s).0, 30.0 + 37.5);
-        assert_eq!(chances(&head(), &blow(OnHit::ExplodeOnly, 400.0), &s).0, 100.0);
+        // Normal formula: a quarter of the parts taken are severed.
+        assert_eq!(chances(&head(), &blow(OnHit::Normal, 5.0), &s), (56.25, 18.75));
+        assert_eq!(chances(&head(), &blow(OnHit::Normal, 500.0), &s), (56.25, 18.75));
+        let mut intact = blow(OnHit::Normal, 5.0);
+        intact.crippled = false;
+        assert_eq!(chances(&head(), &intact, &s), (56.25, 18.75));
     }
 
     #[test]
     fn weapons_choose_what_they_may_do() {
         let s = Settings::default();
-        assert_eq!(chances(&head(), &blow(OnHit::DismemberOnly, 400.0), &s), (0.0, 50.0));
-        assert_eq!(chances(&head(), &blow(OnHit::Neither, 400.0), &s), (0.0, 0.0));
-        assert_eq!(chances(&head(), &blow(OnHit::Normal, 5.0), &s), (0.0, 50.0));
+        assert_eq!(chances(&head(), &blow(OnHit::ExplodeOnly, 50.0), &s), (75.0, 0.0));
+        assert_eq!(chances(&head(), &blow(OnHit::DismemberOnly, 50.0), &s), (0.0, 75.0));
+        assert_eq!(chances(&head(), &blow(OnHit::Neither, 50.0), &s), (0.0, 0.0));
     }
 
     #[test]
-    fn intact_limbs_stay_unless_bloody_mess() {
+    fn the_torso_goes_only_with_bloody_mess() {
         let s = Settings::default();
-        let mut b = blow(OnHit::Normal, 25.0);
-        b.crippled = false;
-        assert_eq!(chances(&head(), &b, &s), (0.0, 0.0));
+        assert_eq!(chances(&torso(), &blow(OnHit::Normal, 500.0), &s), (0.0, 0.0));
+        let mut b = blow(OnHit::Normal, 50.0);
         b.bloody_mess = true;
-        // 30 + 75 × 5/20 + 25 (intact bonus).
-        assert_eq!(chances(&head(), &b, &s), (30.0 + 18.75 + 25.0, 15.0));
+        assert_eq!(chances(&torso(), &b, &s), (80.0, 0.0));
+        b.crippled = false;
+        assert_eq!(chances(&torso(), &b, &s), (20.0, 0.0));
     }
 
     #[test]
-    fn corpses_are_always_ready() {
+    fn bloody_mess_takes_every_head_and_overrides_no_dismember() {
         let s = Settings::default();
-        let b = Blow { on_hit: OnHit::DismemberOnly, corpse: true, overkill: 10.0, max_health: 100.0, ..Blow::default() };
-        assert_eq!(decide(&head(), &b, &s, 0.0, 0.49), Some(Fate::Sever));
-        assert_eq!(decide(&head(), &b, &s, 0.0, 0.5), None);
+        let mut b = blow(OnHit::ExplodeOnly, 50.0);
+        b.bloody_mess = true;
+        assert_eq!(chances(&head(), &b, &s), (100.0, 0.0));
+        b.on_hit = OnHit::Normal;
+        assert_eq!(chances(&head(), &b, &s), (75.0, 25.0));
+        b.on_hit = OnHit::Neither;
+        assert_eq!(chances(&head(), &b, &s), (50.0, 0.0));
+        assert_eq!(chances(&torso(), &b, &s), (40.0, 0.0));
     }
 
     #[test]
-    fn torso_only_explodes() {
+    fn one_roll_decides() {
         let s = Settings::default();
-        let torso = part("Torso", &["Explodable"], 60, 50, "Endurance Condition");
-        assert_eq!(chances(&torso, &blow(OnHit::Normal, 59.0), &s), (0.0, 0.0));
-        assert_eq!(chances(&torso, &blow(OnHit::Normal, 60.0), &s), (50.0, 0.0));
+        let b = Blow { on_hit: OnHit::Normal, corpse: true, overkill: 10.0, max_health: 100.0, ..Blow::default() };
+        assert_eq!(decide(&head(), &b, &s, 0.56), Some(Fate::Explode));
+        assert_eq!(decide(&head(), &b, &s, 0.57), Some(Fate::Sever));
+        assert_eq!(decide(&head(), &b, &s, 0.75), None);
     }
 
     #[test]

@@ -73,6 +73,10 @@ class ScriptRules(unittest.TestCase):
         (name, (session, job)), = jobs.items()
         self.assertEqual(name, "obs_c1_01_s1")
         self.check(job)
+        many = {"name": "c1", "sessions": [{"name": f"s{k}"} for k in range(1, 101)]}
+        names = [ob.job_name(many, s) for s in many["sessions"]]
+        self.assertEqual((names[56], names[99]), ("obs_c1_057_s57", "obs_c1_100_s100"))
+        self.assertEqual(names, sorted(names), "the plugin runs jobs in file-name order")
         kinds = [next(iter(s)) for s in job["steps"] if next(iter(s)) != "query"]
         self.assertEqual(kinds, ["script", "frames", "console", "until", "frames", "frames", "remember", "console",
                                  "script", "frames", "remember", "observe", "script", "console", "frames"])
@@ -161,6 +165,13 @@ class ScriptRules(unittest.TestCase):
         self.assertIn("MenuMode 1002", co["header"][-1])
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(campaign(extra=[["x y", "num", "GetAV Health"]]), EDIDS)
+        two = ob.campaign_jobs(campaign(extra=[[["g0", "num", "IsLimbGone 0"]], [["kbl", "num", "GetKillingBlowLimb"]]]),
+                               EDIDS)["obs_c1_01_s1"][1]
+        to = [s["observe"] for s in two["steps"] if "observe" in s][0]
+        self.assertEqual(len(to["groups"][0]["probe"]), len(ob.PARTS) + 2, "one probe per extra part")
+        self.assertIn("rA.GetKillingBlowLimb", to["groups"][0]["probe"][-1])
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(campaign(extra=[[["g0", "num", "IsLimbGone 0"]], [["x y", "num", "GetAV Health"]]]), EDIDS)
         cond = ob.campaign_jobs(campaign(timed=[{"after": 1, "when": ["{0}.GetCurrentPackage == {1}", "Bob", "Ann"],
                                                  "script": {"lines": ["{0}.PlaceAtMe {1} 1 256 0", "{0}.AddItem {1} 1"],
                                                             "names": ["Bob", "Ann"]}}]), EDIDS)["obs_c1_01_s1"][1]

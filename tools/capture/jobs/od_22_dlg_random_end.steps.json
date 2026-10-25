@@ -327,8 +327,7 @@
       "name": "timed_0",
       "when": "float fV\nBegin Function { }\nlet fV := 1\nSetFunctionValue fV\nEnd\n",
       "after": 60,
-      "then": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nlet rF2 := BuildRef fM1 212\nrF1.Say rF2 1\nSetFunctionValue 1\nEnd\n",
-      "once": false
+      "then": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1104098\nlet rF2 := BuildRef fM1 212\nrF1.Say rF2 1\nSetFunctionValue 1\nEnd\n"
      }
     ],
     "shots": {

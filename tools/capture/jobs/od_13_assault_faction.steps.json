@@ -526,8 +526,7 @@
       "name": "timed_1",
       "when": "float fV\nBegin Function { }\nlet fV := 1\nSetFunctionValue fV\nEnd\n",
       "after": 1,
-      "then": "float fM1\nref rF1\nfloat fA\nfloat fD\nfloat fZ\nfloat fP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nlet fD := player.GetDistance rF1\nlet fZ := rF1.GetPos Z - player.GetPos Z - 30\nif fD > 1\n  let fP := 0 - fZ / fD * 57.3\n  player.SetAngle X fP\nendif\nSetFunctionValue 1\nEnd\n",
-      "once": false
+      "then": "float fM1\nref rF1\nfloat fA\nfloat fD\nfloat fZ\nfloat fP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nlet fD := player.GetDistance rF1\nlet fZ := rF1.GetPos Z - player.GetPos Z - 30\nif fD > 1\n  let fP := 0 - fZ / fD * 57.3\n  player.SetAngle X fP\nendif\nSetFunctionValue 1\nEnd\n"
      },
      {
       "name": "timed_2",

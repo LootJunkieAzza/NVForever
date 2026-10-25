@@ -8812,7 +8812,7 @@ expect = [
 
 [[scenario]]
 name = "dismember-chet"
-source = "dismemberment (docs/spec-notes/dismemberment.md): overkill explodes a crippled part with an Explode Only weapon (.308) [observed: owner], a blade severs a corpse's limb (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit], KillActor's limb dismembers a dead actor [documented: GECK wiki KillActor]; an exploded part throws its limb replacement model's pieces and its debris, owned by the corpse [observed: owner]"
+source = "dismemberment (docs/spec-notes/dismemberment.md): a killing head shot with an Explode Only weapon (.308) explodes the head (75 %, the fixed rolls) [observed: dismember_odds], a blade severs a corpse's limb (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit], KillActor's limb dismembers a dead actor [documented: GECK wiki KillActor]; an exploded part throws its limb replacement model's pieces and its debris, owned by the corpse [observed: owner]"
 note = "the hit aid kills Chet with a sniper rifle on the head (500 damage, so the overkill passes the head's share: the explode chance is 100 %), then knifes his corpse's left arm four times (50 % each, seeded rolls), then the console has KillActor explode his left leg; screenshots before and after for a look"
 areas = ["combat"]
 paths = ["crates/fnv-combat/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/gore.rs", "engine/nvf-assets/src/actor.rs"]
