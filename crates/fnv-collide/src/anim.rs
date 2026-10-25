@@ -73,8 +73,28 @@ impl AnimSequence {
 /// Seconds from a sequence's start to its `end` text key, else its length
 /// ([`AnimSequence::end`], for callers holding a sequence in another form).
 pub fn sequence_end(start: f32, stop: f32, text_keys: &[(f32, String)]) -> f32 {
-    let length = (stop - start).max(0.0);
-    text_keys.iter().find(|(_, k)| k.trim().eq_ignore_ascii_case("end")).map_or(length, |(t, _)| (t - start).clamp(0.0, length))
+    // Non-finite times (a broken file) count as 0: the sequence ends at once.
+    let length = Some(stop - start).filter(|l| l.is_finite()).unwrap_or(0.0).max(0.0);
+    let end = text_keys.iter().find(|(_, k)| k.trim().eq_ignore_ascii_case("end")).map_or(length, |(t, _)| (t - start).clamp(0.0, length));
+    if end.is_finite() {
+        end
+    } else {
+        length
+    }
+}
+
+/// Whether `time` has reached `end`; true when either is NaN.
+fn ended(time: f32, end: f32) -> bool {
+    !matches!(time.partial_cmp(&end), Some(std::cmp::Ordering::Less))
+}
+
+/// A sequence end time, with a non-finite one (a broken file) as 0.
+fn finite_end(t: f32) -> f32 {
+    if t.is_finite() {
+        t.max(0.0)
+    } else {
+        0.0
+    }
 }
 
 /// A model's node hierarchy and its sequences.
@@ -221,7 +241,9 @@ pub struct DoorMotion {
 
 impl DoorMotion {
     /// At rest, open or closed; `open_end`/`close_end` from [`AnimSequence::end`].
+    /// Non-finite ends count as 0 (the door snaps), so it never swings forever.
     pub fn new(open: bool, open_end: f32, close_end: f32) -> DoorMotion {
+        let (open_end, close_end) = (finite_end(open_end), finite_end(close_end));
         let (phase, time) = if open { (DoorPhase::Open, open_end) } else { (DoorPhase::Closed, close_end) };
         DoorMotion { phase, time, open_end, close_end }
     }
@@ -280,15 +302,17 @@ impl DoorMotion {
         Some(before)
     }
 
+    /// A sequence ends at its end time; a NaN time or end (fields set by hand from bad
+    /// data) ends it too, so the door is never left swinging.
     fn settle(&mut self) {
         match self.phase {
-            DoorPhase::Opening if self.time >= self.open_end => {
+            DoorPhase::Opening if ended(self.time, self.open_end) => {
                 self.phase = DoorPhase::Open;
-                self.time = self.open_end;
+                self.time = finite_end(self.open_end);
             }
-            DoorPhase::Closing if self.time >= self.close_end => {
+            DoorPhase::Closing if ended(self.time, self.close_end) => {
                 self.phase = DoorPhase::Closed;
-                self.time = self.close_end;
+                self.time = finite_end(self.close_end);
             }
             _ => {}
         }
@@ -368,6 +392,24 @@ mod tests {
         d.update(0.1);
         assert!(d.is_open() && !d.swinging());
         assert_eq!(d.pose(), (true, 2.0));
+    }
+
+    #[test]
+    fn non_finite_door_times_do_not_swing_forever() {
+        let mut d = DoorMotion::new(false, f32::NAN, f32::INFINITY);
+        assert_eq!((d.open_end, d.close_end), (0.0, 0.0));
+        d.set_open(true);
+        assert!(d.is_open() && !d.swinging());
+        let mut d = DoorMotion { open_end: f32::NAN, ..DoorMotion::new(false, 1.0, 1.0) };
+        d.set_open(true);
+        assert!(d.is_open() && d.time == 0.0);
+        let mut d = DoorMotion::new(false, 1.0, 1.0);
+        d.set_open(true);
+        d.time = f32::NAN;
+        d.update(0.1);
+        assert!(d.is_open() && d.time == 1.0);
+        assert_eq!(sequence_end(0.0, f32::NAN, &[]), 0.0);
+        assert_eq!(sequence_end(0.0, 2.0, &[(f32::NAN, "end".into())]), 2.0);
     }
 
     #[test]

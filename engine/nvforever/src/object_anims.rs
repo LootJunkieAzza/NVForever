@@ -79,6 +79,11 @@ impl GroupRig {
         GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None, run_time: false }
     }
 
+    /// The entity of its node named `name` (a node its sequences may move).
+    pub fn node(&self, name: &str) -> Option<Entity> {
+        self.nodes.get(name).copied()
+    }
+
     fn clip(&self, i: usize) -> Option<&Clip> {
         self.model.rig.as_ref()?.groups.get(i)
     }

@@ -505,7 +505,7 @@ fn play(
                 // near (or the player does) while it lasts.
                 // Said through a helmet or a speaker: the voice filter (crate::voice_filter).
                 let filtered = crate::voice_filter::speaker_filtered(&sim, s.speaker);
-                let entity = match (settings.play, sounds.as_mut(), bank.read(path)) {
+                let entity = match (settings.play, sounds.as_mut(), bank.read(path).and_then(|b| crate::sfx::checked(path, b))) {
                     (true, Some(assets), Some(bytes)) => {
                         let source = AudioSource { bytes: bytes.into() };
                         let volume = Volume::Linear(settings.volume.max(0.0));

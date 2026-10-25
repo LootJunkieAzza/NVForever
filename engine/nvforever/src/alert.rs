@@ -13,6 +13,11 @@
 //!   to the geckos without her weapon drawn; VCG02SunnyTravelToWell1 has Weapon Drawn).
 //!   An actor fleeing a fight holsters it until it fights again [owner 2026-10-17;
 //!   docs/design/combat-ai.md §12.2.1].
+//! - **Warning** (`Game::warning_to`, not alerted): the actor draws its weapon and holds
+//!   it while it says its warnings (GuardTrespass) [owner decision 2026-10-25: the
+//!   original's warning guard drew and holstered his gun every 2.5 s (Gomorrah's
+//!   cash-room guard, capture `warnings` cashroom_near, idles.md §14.3), which looks like
+//!   an unintended quirk; draw and hold instead].
 //! - **Head**: an Alert or Lost actor looks at where its latest alarm is (what it
 //!   noticed, heard or last saw), at chest height; one in Combat looks at its target.
 //!   The look is a [`LookOverride`] this module puts on and takes off again, never over
@@ -64,11 +69,22 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
-                let why = if fleeing { " (it flees)" } else if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };
+                let why = if fleeing {
+                    " (it flees)"
+                } else if game.active_weapon_use(id).is_some() {
+                    " (a weapon use)"
+                } else if !fighting && want != game.draws_weapon(id) {
+                    " (its package's flags)"
+                } else if !fighting && want && game.warning_to(id).is_some() {
+                    " (it warns the player)"
+                } else {
+                    ""
+                };
                 info!("alert: {} {id} {} its weapon{why}", game.data.name(id), if want { "draws" } else { "holsters" });
             }
-            // Hidden while holstered under Weapons Unequipped.
-            let hide = unequipped && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
+            // Hidden while holstered under Weapons Unequipped; a creature's body weapon is
+            // part of its body (its `Weapon` node carries body parts).
+            let hide = unequipped && !hold.body && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
             if hide != hidden {
                 // The parts on the back (the flamer's tank) go with it.
                 for &part in rig.nodes.get(hold.stance.weapon_node).into_iter().chain(&hold.back) {

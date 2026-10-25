@@ -41,7 +41,8 @@ static BODIES: LazyLock<Mutex<HashMap<String, Option<BodyNodes>>>> = LazyLock::n
 
 pub use fnv_world::xrgd::{posable, stored};
 
-/// The nodes the collision objects of the file at `path` hang on, in body order.
+/// The nodes the collision objects of the file at `path` hang on, in body order. A file
+/// that breaks the reader (a panic, caught) counts as one without collision.
 pub fn body_nodes(data: &GameData, path: &str) -> Option<BodyNodes> {
     let key = fnv_vfs::normalize(path);
     let mut cache = BODIES.lock().ok()?;
@@ -49,19 +50,29 @@ pub fn body_nodes(data: &GameData, path: &str) -> Option<BodyNodes> {
         .entry(key.clone())
         .or_insert_with(|| {
             let bytes = data.read(&key)?;
-            let file = NifFile::parse(&bytes, Some(&data.schema)).ok()?;
-            let dec = Decoded::new(&file, &bytes, &data.schema);
-            let ex = fnv_collide::nif::extract(&file, &dec);
-            (!ex.objects.is_empty()).then(|| Arc::new(ex.objects.iter().map(|o| o.node_name.clone()).collect()))
+            let read = nvf_assets::guard::guarded(|| {
+                let Ok(file) = NifFile::parse(&bytes, Some(&data.schema)) else { return Ok(None) };
+                let dec = Decoded::new(&file, &bytes, &data.schema);
+                let ex = fnv_collide::nif::extract(&file, &dec);
+                Ok((!ex.objects.is_empty()).then(|| Arc::new(ex.objects.iter().map(|o| o.node_name.clone()).collect())))
+            });
+            read.unwrap_or_else(|e| {
+                bevy::log::warn!("clutter pose: {key}: collision not read ({e}); left in the file's pose");
+                None
+            })
         })
         .clone()
 }
 
 /// Every node's transform from the model's root (game space, the root's own left out)
 /// with the bodies' nodes put where `bones` says (module notes); `None` when the entries
-/// do not match the bodies one for one or a body's node is missing.
+/// do not match the bodies one for one, a body's node is missing, an entry is not
+/// finite or a node's parent does not come before it (a broken record or model).
 pub fn pose(nodes: &[ModelNode], bodies: &[Option<String>], bones: &[Bone]) -> Option<Vec<Affine3A>> {
     if bodies.len() != bones.len() || bones.is_empty() {
+        return None;
+    }
+    if !bones.iter().all(|b| b.position.iter().chain(&b.angles).all(|v| v.is_finite())) {
         return None;
     }
     let mut local: Vec<Affine3A> = nodes.iter().map(|n| n.local).collect();
@@ -75,7 +86,10 @@ pub fn pose(nodes: &[ModelNode], bodies: &[Option<String>], bones: &[Bone]) -> O
     // Parents come before their children (`model_nodes`).
     let mut world: Vec<Affine3A> = Vec::with_capacity(nodes.len());
     for (i, n) in nodes.iter().enumerate() {
-        let parent = n.parent.map_or(Affine3A::IDENTITY, |p| world[p]);
+        let parent = match n.parent {
+            Some(p) => *world.get(p)?,
+            None => Affine3A::IDENTITY,
+        };
         world.push(parent * local[i]);
     }
     Some(world)
@@ -105,5 +119,9 @@ mod tests {
         assert!((Vec3::from(at(1)) - Vec3::new(0.0, 10.0, 0.0)).length() < 1e-4, "{:?}", at(1));
         assert!(pose(&nodes, &bodies, &bones[..1]).is_none(), "one entry per body");
         assert!(pose(&nodes, &[Some("Torso".into()), Some("Tail".into())], &bones).is_none(), "a body's node must exist");
+        let nan = [bones[0], Bone { position: [f32::NAN, 0.0, 0.0], ..bones[1] }];
+        assert!(pose(&nodes, &bodies, &nan).is_none(), "entries must be finite");
+        let looped = vec![node("Torso", Some(1), Vec3::ZERO), node("Head", Some(0), Vec3::ZERO)];
+        assert!(pose(&looped, &bodies, &bones).is_none(), "a parent after its child");
     }
 }

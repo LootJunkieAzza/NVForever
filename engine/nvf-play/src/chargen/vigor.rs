@@ -205,11 +205,24 @@ fn open_close(
     menu.open = Some(OpenMenu { vigor, roots: [ra, rc], shade, nodes, flip, materials: HashMap::new(), shown: HashMap::new(), keyed_row: false, fov_before: None, aid_from: None });
 }
 
+/// The machine's clips by name. A broken file (a panic reading it) gives none, and a clip
+/// that cannot be played ([`Clip::check`]) is left out; each is logged.
 fn read_clips(data: &GameData) -> HashMap<String, Clip> {
     let Some(bytes) = data.read(ACTIVATE) else { return HashMap::new() };
-    let Ok(f) = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)) else { return HashMap::new() };
-    let dec = fnv_nif::scene::Decoded::new(&f, &bytes, &data.schema);
-    fnv_nif::anim::sequences(&f, &dec).iter().map(Clip::from_sequence).map(|c| (c.name.clone(), c)).collect()
+    let read = nvf_assets::guard::guarded(|| {
+        let Ok(f) = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)) else { return Ok(Vec::new()) };
+        let dec = fnv_nif::scene::Decoded::new(&f, &bytes, &data.schema);
+        Ok(fnv_nif::anim::sequences(&f, &dec).iter().map(Clip::from_sequence).collect())
+    });
+    let clips: Vec<Clip> = read.unwrap_or_else(|e| {
+        warn!("vigor tester: {ACTIVATE} not read: {e}");
+        Vec::new()
+    });
+    clips
+        .into_iter()
+        .filter(|c| c.check().map_err(|e| warn!("vigor tester: clip {} not played: {e}", c.name)).is_ok())
+        .map(|c| (c.name.clone(), c))
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]

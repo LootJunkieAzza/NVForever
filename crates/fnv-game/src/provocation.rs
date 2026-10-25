@@ -201,6 +201,9 @@ pub struct Provocations {
     /// Aggro radius warnings each actor gave the player inside its radius, and when it
     /// gave the last (`crate::aggro`).
     pub aggro_warnings: std::collections::BTreeMap<FormId, (u32, f64)>,
+    /// Actors warning the player now: inside their aggro radius with the player watched
+    /// at the last aggro tick (`crate::aggro`, `Game::warning_to`).
+    pub aggro_inside: std::collections::BTreeSet<FormId>,
     /// (helper, victim) pairs whose staying out was noted ([`Note::StaysOut`], once).
     pub stayed_out: std::collections::BTreeSet<(FormId, FormId)>,
 }

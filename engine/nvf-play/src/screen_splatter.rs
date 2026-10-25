@@ -351,7 +351,7 @@ fn read_pictures(data: &GameData, images: &mut Assets<Image>) -> Result<Pictures
         let bytes = data.read(path).ok_or_else(|| format!("{path}: not in the game's files"))?;
         let dds = fnv_dds::Dds::parse(&bytes).map_err(|e| format!("{path}: {e}"))?;
         let (w, h) = (dds.header.width, dds.header.height);
-        if w != h || !(w as usize).is_multiple_of(ATLAS_SIDE) {
+        if w == 0 || w != h || !(w as usize).is_multiple_of(ATLAS_SIDE) {
             return Err(format!("{path}: {w}x{h}, not a square atlas"));
         }
         let rgba = fnv_dds::decode_blocks(dds.format, w, h, dds.levels[0][0]).or_else(|| fnv_dds::to_rgba8(dds.format, dds.levels[0][0])).ok_or_else(|| format!("{path}: its format is not decoded"))?;
@@ -365,7 +365,16 @@ fn read_pictures(data: &GameData, images: &mut Assets<Image>) -> Result<Pictures
     let flare = match decode(FLARE_DOT) {
         Ok((dot_side, dot)) => {
             let d = dot_side as u32;
-            Some(images.add(Image::new(Extent3d { width: d, height: d, depth_or_array_layers: 1 }, TextureDimension::D2, flare_picture(&dot), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD)))
+            match nvf_assets::texture::checked_image(d, d, 1, TextureFormat::Rgba8UnormSrgb, flare_picture(&dot)) {
+                Ok(mut img) => {
+                    img.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+                    Some(images.add(img))
+                }
+                Err(e) => {
+                    warn!("screen splatter: {FLARE_DOT}: {e}; no flares are drawn");
+                    None
+                }
+            }
         }
         Err(e) => {
             warn!("screen splatter: {e}; no flares are drawn");

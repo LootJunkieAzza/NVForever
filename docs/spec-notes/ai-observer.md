@@ -602,3 +602,44 @@ StartCombat a scan of its own 30 game loops later, and then every trooper and ra
 engaged; so did a trooper spawned with no offset [observed: npc-behaviour-compare.md
 §14]. That the queued MoveTo drops the StartCombat is a [hypothesis]. Use `attack_late`
 whenever `offset` and `attack` go together.
+
+## 13. An actor heading for the player from far away: Malcolm Holmes [observed 2026-10-24, plugin version 7]
+
+Campaigns `tools/capture/observe/holmes_far_travel.campaign.json` (sessions near, mid,
+far; one game load each, `--only`) and `holmes_far_moving.campaign.json` (part1 then
+part2 in one load), save `nvfstrip`, TimeScale 30, a sample every 60 game loops (about a
+real second), the player standing still in god mode. The first star cap
+(NVStarBottleCap, 00103B1C) runs NVStarBottleCapScript on being added: it moves
+SSHQMalcolmHolmesREF (0010651A) to SSHQMalcolmHolmesMarker (35732, -12347), enables him
+and evaluates his packages; SSHQMalcolmHolmesTalkToPlayerPackage (00171472: Dialogue,
+Always Run, target the player, while the player is in WastelandNV and
+VFreeformSSHQ.talkedtomalcolm is 0) takes him to the player. Raw output
+`C:\fnv-private\capture\out\obs_holmes_*.jsonl` (the near file ending 1792869043 is a
+broken-header run: ignore it).
+
+1. **Jumps, not a walk.** Out of the loaded area (cell 00000000) he stood still with
+   package 00171472 (type 34, procedure 43, target the player) and moved once per game
+   hour (20.17, 21.17, 22.18, 23.17: one game hour apart, counted from the load), by
+   9,050–10,170 units (median about 9,750). That is about 2.8 units per game second, 84
+   per real second at TimeScale 30: a walk (NPC walk 86.8), not a run, although the
+   package has Always Run.
+2. **Along a route.** From the marker to the player at Goodsprings Cemetery (101,000
+   units) the jumps landed at (25985, -14471), (15825, -14426), (8246, -9478),
+   (-558, -13665), (-9841, -11319): the bends mean a path over the navmesh, so the
+   distance to the player shrank by only 6,800–9,700 per jump. To 188 (44,500 units):
+   (34871, -2355), (34810, 7812), (34708, 17970), nearly straight north.
+3. **Repeatable**: far and far_moving gave the same jump positions within about 2 units.
+4. **No new aim at a moving player within 3 hours**: in far_moving the player moved to
+   Primm (66,000 units south) at 22.8; his next jumps landed exactly where they did in
+   far, on the old route towards Goodsprings. [hypothesis] The route is planned once,
+   when the package starts; what happens when it runs out was not seen.
+5. **Into the loaded area** (near, the player at Novac, 24,400 units): one full jump,
+   then at the next hour a short one of 5,330 units into a loaded cell (00084330), about
+   10,450 units from the player [hypothesis: the edge of the 5 × 5 loaded cells]. There
+   his package showed as a runtime Dialogue package (FF001312, type 6, procedure 43),
+   moving and running, about 320–345 units per sample towards the player.
+6. Not seen: crossing into another worldspace (his package only holds while the player
+   is in WastelandNV), and a moving player past 3 hours.
+
+What NVForever does with it: `fnv_ai::process` (module notes) and
+docs/design/actor-behaviour.md §5.9.

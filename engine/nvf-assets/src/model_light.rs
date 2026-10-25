@@ -25,13 +25,18 @@ impl ModelCtx<'_> {
         if let Some(c) = self.cache.light_colours.get(&key) {
             return *c;
         }
-        let c = (|| {
+        let read = || {
             let bytes = self.data.read(&key)?;
             let schema = self.data.schema.clone();
             let file = NifFile::parse(&bytes, Some(&schema)).ok()?;
             let dec = Decoded::new(&file, &bytes, &schema);
             first_light_colour(file.blocks.iter().zip(dec.blocks.iter()).filter_map(|(b, d)| Some((b.type_name.as_str(), d.as_ref().ok()?))))
-        })();
+        };
+        // A panic reading a broken file counts as no light colour (logged once: cached).
+        let c = crate::guard::guarded(|| Ok(read())).unwrap_or_else(|e| {
+            bevy::log::warn!("{key}: light colour not read: {e}");
+            None
+        });
         self.cache.light_colours.insert(key, c);
         c
     }

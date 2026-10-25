@@ -103,7 +103,8 @@ fn play(
                 st.queue = (0..n)
                     .filter_map(|k| match bank.file(info.0, k, speaker.0) {
                         Some(path) => {
-                            let seconds = bank.seconds(&path).unwrap_or(0.0);
+                            // Without a length from the file (a broken header): the text's fitted length.
+                            let seconds = bank.seconds(&path).unwrap_or_else(|| g.response_seconds_as(Some(speaker), info, k));
                             Some((path, seconds))
                         }
                         None => {
@@ -146,7 +147,7 @@ fn play(
         return;
     };
     let k = st.count - st.queue.len();
-    let bytes = voice.bank.as_ref().and_then(|b| b.read(&path));
+    let bytes = voice.bank.as_ref().and_then(|b| b.read(&path)).and_then(|b| crate::sfx::checked(&path, b));
     st.entity = match (settings.play, sounds.as_mut(), bytes) {
         (true, Some(assets), Some(bytes)) => {
             let source = AudioSource { bytes: bytes.into() };

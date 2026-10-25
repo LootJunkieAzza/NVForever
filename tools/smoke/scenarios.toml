@@ -3205,6 +3205,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "repconn-rocket-launch"
+source = "docs/spec-notes/particles.md §6.7: a drawn model's sequences drive its emitters; REPCONN's launch (RepconLaunchSCRIPT on RepconLaunchButton 0x0008CD96) plays the rocket bay's (repbay.nif, ref 0x0008D36C, editor ID AnimationTest) Forward, then Right 20 s later, whose 56 smoke and fire systems ride on the rockets; owner spot check 2026-10-24: no exhaust showed"
+note = "The player stands in the viewing pod (its XMarker 0x001000D6) facing the bay, 8,800 units south-west. Come Fly With Me (VMS01) is started and objective 100 shown, which the button's GameMode reads to make it usable; the button is pressed at 20 s, after the add-ons' start-up message boxes. PFire01 is on for 0.5 s of Right at 1,200 a second (about 600 born); before the press the bay emits nothing. Frames: rocket_open.png (the bay open, Forward's clouds), rocket_liftoff.png and rocket_climb.png (Right, the exhaust with the rockets)"
+areas = ["particles", "effects", "object-anims"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-play/src/script_draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:-9294:-30133:8820,15:-9294:-30133:8820", NVF_PLAY_TEST_SCRIPT = "7:start:VMS01,7.5:objective:VMS01:100,20:activate:0x0008CD96", NVF_PLAY_TEST_LOOK = "18:202:4", NVF_PLAY_TEST_SHOTS = "39:rocket_open.png,41.5:rocket_liftoff.png,43:rocket_climb.png" }
+args = ["--play", "--pos=-9294,-30133,8820", "--heading", "202", "--hour", "12", "--no-voice"]
+run_seconds = 70
+expect = [
+  { re = 'particles: model \S*repbay\.nif: 56 system\(s\) .*; 56 driven by the sequences \[Forward, Right, Left\]', label = "every one of the bay's systems is driven by its sequences" },
+  { re = 'script: RepconLaunchButton activated by 0x00000014', label = "the button is usable once objective 100 shows" },
+  { text = "playgroup: AnimationTest plays Forward", label = "the bay opens" },
+  { re = 'particles: 0008D36C \S*repbay\.nif emits as its Forward says: 56 of 56 systems', label = "its emitters follow Forward" },
+  { text = "playgroup: AnimationTest plays Right", label = "the rockets launch" },
+  { re = 'particles: 0008D36C \S*repbay\.nif emits as its Right says: 56 of 56 systems', label = "and then Right" },
+  { re = 'particles: born in \S*repbay\.nif: .*\bPFire01 (?P<n>\d+)', range = [300, 1200], label = "PFire01 burns for Right's 0.5 s only (about 600), not all the time" },
+]
+
+[[scenario]]
 name = "smoke-blend-bison-steve"
 source = "docs/spec-notes/nif.md §6 \"Alpha blend of unlit shapes\" (owner 2026-10-23, screenshots of the Bison Steve Hotel's main entrance: ours drew far more smoke than the game): unlit alpha-blended shapes put colour × alpha^1.5 on the frame; the lobby (BisonSteve01) from the entrance marker, looking east over FXMistLow01 00172699 and FXSmokeWisps01 0017209E; one frame in target/smoke (bison_steve_smoke.png) to judge against the owner's game screenshot"
 areas = ["particles", "effects", "rendering"]
@@ -3215,6 +3234,23 @@ run_seconds = 8
 manual = "bison_steve_smoke.png against the owner's game screenshot of the lobby (2026-10-23): the room's floor, rug and desk clear, only a faint haze low over the floor"
 expect = [
   { re = 'test aid: screenshot .*bison_steve_smoke\.png', label = "the lobby frame is saved" },
+]
+
+[[scenario]]
+name = "broken-files"
+source = "owner 2026-10-24: nothing may crash on a missing or bad file from a broken mod (engine/nvf-assets/src/guard.rs). The test aid makes the Bison Steve lobby's furniture models missing (drawn as the game's red error marker, meshes/marker_error.nif, like the original), its clutter models panic while loading (caught: that model is skipped), its architecture textures missing and the male idle clip garbled; the game goes on and exits normally"
+areas = ["crash", "assets"]
+paths = ["engine/nvf-assets/src/guard.rs", "engine/nvf-assets/src/data.rs", "engine/nvforever/src/crash.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_BROKEN_FILES = "missing:meshes/furniture/;panic:meshes/clutter/;missing:textures/architecture/;corrupt:_male/mtidle.kf" }
+args = ["--play", "--cell", "BisonSteve01", "--pos=-1408,-896,0", "--heading", "90", "--no-voice", "--no-messages"]
+run_seconds = 10
+expect = [
+  { re = 'model not loaded: meshes\\furniture\\.*not in any archive', label = "a missing furniture model is logged" },
+  { re = 'a broken file panicked while loading at .*test panic reading meshes\\clutter\\', label = "a clutter model's panic is caught, not a crash" },
+  { re = 'model not loaded: meshes\\clutter\\.*panicked: test panic', label = "the panicking model counts as failed" },
+  { re = 'texture not loaded: textures\\architecture\\', label = "a missing texture is logged" },
+  { re = 'world: 0x[0-9A-F]{8} meshes\\furniture\\.*drawn as the error marker', label = "error markers drawn in place of the missing models" },
+  "run log: the game exited normally",
 ]
 
 [[scenario]]
@@ -4365,6 +4401,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "holmes-comes-from-far"
+source = "owner 2026-10-24 (actors heading for the player from outside the loaded area): Malcolm Holmes after the first star cap, as the original's observer capture holmes_far_travel showed (fnv_ai::process, docs/spec-notes/ai-observer.md §13)"
+note = "the player stands on Holmes's observed route, about 15,000 units west of SSHQMalcolmHolmesMarker; at 1 s AddItem gives the first star cap, whose OnAdd script (NVStarBottleCapScript) moves him to the marker out of the loaded area and enables him. His Dialogue package (Always Run, the player) walks him at the Low level, every 120 s, and the walk stops at the edge of the loaded area; from there he runs in and talks"
+areas = ["ai", "process-levels"]
+paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "1:call:player:AddItem:NVStarBottleCap:1" }
+args = ["--play", "--pos=21000,-14450,7500", "--heading", "90", "--hour", "12", "--no-voice", "--npc-packages", "all,SSHQMalcolmHolmesREF"]
+run_seconds = 360
+order = [[
+  "SSHQMalcolmHolmesREF: put at",
+  "SSHQMalcolmHolmesREF: out of the loaded area and the cell buffer (low process every 120 s)",
+  "SSHQMalcolmHolmesREF: runs up to 0x00000014 to talk",
+  "SSHQMalcolmHolmesREF: back in the loaded area",
+  "SSHQMalcolmHolmesREF: starts a conversation with",
+]]
+expect = [
+  { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [1, 1000000], label = "process summary: Low-level updates every 120 s (Holmes out of the loaded area and the cell buffer)" },
+  { re = 'process summary: .* (?P<n>\d+) far walks stopped at the edge of the loaded area', range = [1, 100000], label = "process summary: a far walk stopped at the edge of the loaded area" },
+]
+
+[[scenario]]
 name = "ringo-comes-out"
 source = "playtest list 4 item 13 (docs/design/actor-behaviour.md §5.9, fnv_ai::process ProcessLevel::Coming): Ringo, sent out of the gas station by RingoTravelPackage after the player left, is moved every frame on his way into the loaded area and comes out of the door"
 note = "the player leaves through the gas station door at 5 s (after Ringo's greeting); at 15 s the result script of INFO 0x00105D09 gives Ringo (0x00104C7D) RingoTravelPackage; he takes it up at his next 18 s update in the cell buffer, then walks every frame"
@@ -4573,6 +4630,50 @@ order = [[
   { re = 'provocation: VERGSCoyote6REF 0x00157B38 attacks the player, who stayed inside its aggro radius', label = "then it attacks" },
 ]]
 expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<m>\d+) attacks', label = "the aggro radius in the provocation summary" }]
+
+
+[[scenario]]
+name = "aggro-warning-look"
+source = "owner's playtest 2026-10-24, \"baby geckos were not showing the aggressive stay away from me warnings\" (crates/fnv-game/src/aggro.rs \"The look\", crates/fnv-ai/src/alert.rs Warnings, engine/nvforever/src/idles.rs creatures' combat idles): a young gecko warning the player stops and faces the player and draws its unarmed stance and holds it (owner 2026-10-25; the original drew and put it away every 2 s, capture `warnings`), not alerted, then attacks 15 s after its first warning; standing in the fight it plays its idle tree's combat idles (hiss, side hops)"
+note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined"
+areas = ["combat", "alert", "idles"]
+paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
+args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 50
+order = [[
+  { re = 'provocation: VERGSGecko6REF 0x00157B3C warns the player inside its aggro radius \(warning 1;', label = "the gecko's first warning" },
+  { re = 'VERGSGecko6REF: stops and faces the player to warn it', label = "it stops and turns to the player" },
+  { re = 'provocation: VERGSGecko6REF 0x00157B3C warns the player inside its aggro radius \(warning 2;', label = "its second warning" },
+  { re = 'provocation: VERGSGecko6REF 0x00157B3C attacks the player, who stayed inside its aggro radius', label = "then it attacks" },
+]]
+expect = [
+  { re = 'creature stance: .*00157B3C draws \(warning the player\)', label = "warning, it draws its unarmed stance (the hiss) and holds it" },
+  { re = 'creature stance: .*00157B3C draws \(alerted\)', label = "fighting, it draws its stance and keeps it" },
+  { re = 'idle: .*VERGSGecko6REF.* plays .*NVgecko(Hiss|HopLeft|HopRight).*\(CombatIdle\)', label = "standing in the fight, it plays a gecko combat idle" },
+  { re = 'creature combat idle summary: (?P<n>[1-9]\d*) combat idles started', label = "combat idles in the idle summary" },
+]
+
+
+[[scenario]]
+name = "warning-guard-draws"
+source = "owner 2026-10-25 (crates/fnv-game/src/aggro.rs, engine/nvforever/src/alert.rs Warning, crates/fnv-game/src/awareness.rs detection_bark): a person warning the player draws its weapon and holds it (the original drew and holstered in turn; owner: draw and hold), says a GuardTrespass line at each warning (no bark cooldown between them), then attacks"
+note = "Gomorrah's cash-room guard 0x00127950 (vGOMCashroomGuard: Aggressive, his own aggro radius 128, vGomorrahGuardPackage); the player is put 90 units from him, where the original's guard warned (capture warnings, cashroom_near, 2026-10-24)"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "engine/nvforever/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "Gomorrah01", "--pos=4461,4021,6420", "--play", "--hour", "12", "--no-messages"]
+run_seconds = 45
+order = [[
+  { re = 'provocation: .*0x00127950 warns the player inside its aggro radius \(warning 1;', label = "the guard's first warning" },
+  { re = 'alert: .*00127950 draws its weapon \(it warns the player\)', label = "he draws his weapon to warn" },
+  { re = 'alert: .*00127950 says GuardTrespass line', label = "he says a warning line" },
+  { re = 'provocation: .*0x00127950 warns the player inside its aggro radius \(warning 2;', label = "his second warning" },
+  { re = 'alert: .*00127950 says GuardTrespass line', label = "a line for the second warning too" },
+  { re = 'provocation: .*0x00127950 attacks the player, who stayed inside its aggro radius', label = "then he attacks" },
+]]
+forbid = [{ re = 'alert: .*00127950 holsters its weapon', label = "no holstering while he warns" }]
+
 
 [[scenario]]
 name = "package-duration-geckos"
@@ -6678,9 +6779,9 @@ expect = [
 
 [[scenario]]
 name = "novac-brahmin-gate"
-source = "Owner 2026-10-17: a Novac pack brahmin could not get through the open chain-link gate by the motel (CLFenceGate01 0008EF2F)"
+source = "Owner 2026-10-17: a Novac pack brahmin could not get through the open chain-link gate by the motel (CLFenceGate01 0008EF2F); owner 2026-10-24: it ran at every start and swapped between run and walk"
 areas = ["navigation"]
-paths = ["crates/fnv-nav/src/follow.rs", "crates/fnv-nav/src/path.rs", "engine/nvforever/src/residents.rs"]
+paths = ["crates/fnv-nav/src/follow.rs", "crates/fnv-nav/src/path.rs", "engine/nvforever/src/residents.rs", "crates/fnv-ai/src/carry.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Novac", "--pos=23300,-32300,7100", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all"]
 # The caravan sets off for Freeside at noon; the brahmin follows its merchant through the
@@ -6688,7 +6789,13 @@ args = ["--cell", "Novac", "--pos=23300,-32300,7100", "--play", "--hour", "12", 
 # it detoured or walked back to the stop in front of the gate at each replan).
 run_seconds = 150
 expect = [
-  { re = 'ai \[[\d:]+\] 0x001650BD: runs after VCaravanMerchant01NovacREF \(VES09BrahminFollowMerchant\)' },
+  # It sets off walking, about 450 + 64 units behind (its package keeps it about 450 back),
+  # and keeps step rather than running at every start (owner 2026-10-24: it swapped
+  # between running and walking all the way; main gave 140 walk/run clip changes in this
+  # run, 9 with the fix).
+  { re = 'ai \[[\d:]+\] 0x001650BD: walks after VCaravanMerchant01NovacREF \(VES09BrahminFollowMerchant\)' },
+  { re = 'ai \[[\d:]+\] 0x001650BD: runs after VCaravanMerchant01NovacREF', count = 0, label = "the brahmin never sets off running" },
+  { re = 'creature pace summary: .* (?P<n>\d+) changes between walk and run clips', range = [0, 25], label = "few changes between walk and run clips" },
   { re = '0x001650BD: VES09BrahminFollowMerchant, on its way in WastelandNV, walked (?P<n>\d+) units', range = [8000, 100000], label = "the brahmin follows its merchant out of Novac" },
   { re = 'physics moved actors in .* gave up (?P<n>\d+) times', range = [0, 1], label = "physics gives up at most once" },
   { re = 'moved (?P<n>\d+) stuck actors on', range = [0, 2], label = "at most two stuck actors moved on" },
@@ -8833,6 +8940,27 @@ order = [[
 ]]
 
 [[scenario]]
+name = "body-weapons-handy-gutsy"
+source = "owner 2026-10-24: Mister Handy and Gutsy never attacked with the saw and must switch to the flamer or plasma gun (docs/design/combat-ai.md §19, engine/nvforever/src/body_weapons.rs, fnv_combat::body_weapon)"
+note = "a Crazed Mister Handy (CrMisterHandyNV: MisterHandyBuzzsaw, MisterHandyFlamer2HL) and a Mister Gutsy (CrMisterGutsy: MisterGutsyPlasma1HP, MisterGutsyFlamer2HL) placed at the player in Goodsprings at 3 s; god mode; the player is put 1,400 units north at 16 s, so both switch to their longer arm; at 26 s the Gutsy (the second created reference, 0xFF000001) is brought 300 units from the player, inside its plasma gun's Min Range. The two Goodsprings coyotes nearby (0x00157B36, 0x00157B37) are disabled at 2 s, or the robots fight them instead (2026-10-24 runs: Handy flamer -> saw at 104-107 units, saw -> flamer at 896-1329; Gutsy plasma -> flamer at 430 on a coyote, once)"
+areas = ["combat", "creatures"]
+paths = ["engine/nvforever/src/body_weapons.rs", "crates/fnv-combat/src/body_weapon.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/weapons.rs", "crates/fnv-actor/src/anims.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT = "2:call:0x00157B36:Disable,2:call:0x00157B37:Disable,3:call:player:PlaceAtMe:CrMisterHandyNV:1,3.2:call:player:PlaceAtMe:CrMisterGutsy:1,26:moveto:0xFF000001:player:0:300:0,26.5:combat:0xFF000001:player", NVF_PLAY_TEST_GOTO = "16:-61000:5900:8500" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'body weapons: \S+ \S+ fights with MisterHandyBuzzsaw, MisterHandyFlamer2HL', label = "Mister Handy's arms: buzzsaw and flamer" },
+  { re = 'body weapons: \S+ \S+ fights with MisterGutsyPlasma1HP, MisterGutsyFlamer2HL', label = "Mister Gutsy's arms: plasma gun and flamer" },
+  { re = 'attack anims: \S+ plays meshes.creatures.mistergutsy.(specialanims.)?1hmattack\S+\.kf', label = "a buzzsaw blow plays a 1hm attack clip (specialanims)" },
+  { re = 'attack anims: \S+ plays meshes.creatures.mistergutsy.(specialanims.)?2hlattackspin\.kf', label = "a flamer shot plays the 2hl spin clip" },
+  { re = 'attack anims: \S+ plays meshes.creatures.mistergutsy.(specialanims.)?1hpattackright\.kf', label = "a plasma shot plays the 1hp attack clip" },
+  { re = 'body weapons: \S+ switches from MisterHandyBuzzsaw to MisterHandyFlamer2HL', label = "Mister Handy takes up its flamer at a distance" },
+  { re = 'body weapons: \S+ switches from MisterGutsyPlasma1HP to MisterGutsyFlamer2HL', label = "Mister Gutsy takes up its flamer when brought close" },
+  { re = 'npc combat summary: .*?(?P<n>\d+) shots \((?P<m>\d+) from a muzzle', label = "shots from the weapons' nodes" },
+]
+forbid = [{ re = 'attack anims summary: .*without a clip: .*mistergutsy', label = "no attack of Mister Handy's or Gutsy's without a clip" }]
+
+[[scenario]]
 name = "ghost-tumbleweed"
 source = "ESM full audit gap 1 (docs/spec-notes/actor-flags.md §3): a creature flagged Is Ghost (CREA ACBS bit 29, a tumbleweed) lets shots pass through it, as SetGhost 1 does (GECK wiki SetGhost: Projectiles pass through them)"
 note = "a tumbleweed (NVCRTumbleweed) placed at the player (GOD) at 3 s; the player shoots at it with a 10mm pistol"
@@ -9012,16 +9140,29 @@ order = [[
 ]]
 
 [[scenario]]
+name = "hair-under-fire"
+source = "owner's playtest 2026-10-24: in third person, the player's hair vanished (the head showed bald) while the player burned or stood in a dust devil. Burning: Flames01's edge overlay covered the hair's cards whole (docs/spec-notes/effect-shaders.md §4); behind blended fire or dust the hair wrote no depth (nif.md §6 'Hair and depth'). PlayMagicShaderVisuals Flames01 (0005F9B6) on the player, frames from behind at 7 s (no fire) and 11 s (burning) in target/smoke; the hair must show in both"
+areas = ["effect-shaders", "render"]
+paths = [
+  "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/nif_material.wgsl",
+  "engine/nvforever/src/effect_shaders.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_SCRIPT = "8:call:player:PlayMagicShaderVisuals:0x0005F9B6", NVF_PLAY_TEST_SHOTS = "7:hair_no_fire.png,11:hair_on_fire.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = ["effect shader: Flames01 on "]
+
+[[scenario]]
 name = "b29-spray-follows-sequence"
-source = "docs/spec-notes/particles.md §7.5 (Volare! spot check 2026-10-24): the rising B-29's 39 particle systems (b29_riseanim.nif) take their emitter and bomb keys from the sequence the plane plays; Idle holds every emitter off (EmitterActive false, no keys), where before the first sequence's keyless false read as always on and white specks covered the hillside; set off the detonator and look at the plane from the panel; one frame in target/smoke (b29_spray_idle.png)"
+source = "docs/spec-notes/particles.md §7.5 (Volare! spot check 2026-10-24): the rising B-29 is drawn by script_draw when the detonator enables it; its 39 particle systems (b29_riseanim.nif) emit from its rig root and take their emitter and bomb keys from the sequence the plane plays (§6.7); Idle holds every emitter off (EmitterActive false, no keys), where before the first sequence's keyless false read as always on and white specks covered the hillside; set off the detonator and look at the plane from the panel; one frame in target/smoke (b29_spray_idle.png)"
 areas = ["particles", "effects"]
-paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-play/src/script_draw.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_LOOK = "4:75:-5", NVF_PLAY_TEST_SCRIPT = "1:start:VMS15,2:objective:VMS15:45,8:activate:0x0010063C", NVF_PLAY_TEST_CONSOLE = "3:player.MoveTo 0010063C;3.5:player.SetAngle Z 142.7;4:close", NVF_PLAY_TEST_SHOTS = "24:b29_spray_idle.png" }
 args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 26
 expect = [
   { re = 'OnActivate of .*0x0010062D', label = "the detonator's script runs" },
-  { re = 'particles: model \S*b29_riseanim\.nif: 39 system.*driven by sequences Right/Forward/Idle/Left', label = "the plane's systems keep each sequence's keys" },
-  { re = 'particles: 00105868 \S*b29_riseanim\.nif follows its sequence Idle', label = "the plane's emitters follow its Idle" },
+  { re = 'particles: model \S*b29_riseanim\.nif: 39 system.*; 39 driven by the sequences \[Right, Forward, Idle, Left\]', label = "the plane's systems keep each sequence's keys" },
+  { re = 'particles: 00105868 \S*b29_riseanim\.nif emits as its Idle says: 39 of 39 systems', label = "the plane's emitters follow its Idle" },
   { re = 'particles: born in \S*b29_riseanim\.nif', count = 0, label = "no spray while the plane plays Idle" },
 ]

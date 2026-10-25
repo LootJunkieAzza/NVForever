@@ -297,9 +297,61 @@ names [hypothesis] unless tagged otherwise.
 - Code: `nvf_assets::particles` (`EmitterMesh`, `Strip`, `Bomb`, `Collider`,
   `FloatKeys`); `nvforever::particles` (emission from meshes, bomb push, collisions,
   trails, ribbons).
-- Not built: an emitter object moved by the model's sequence still emits from its place
-  in the file, except on a placed model drawn with its own nodes (§7.5); spawning on
-  collision; the strip's cap sizes (0 in both files).
+- Not built: spawning on collision; the strip's cap sizes (0 in both files). An emitter
+  object moved by the model's sequence: §6.7.
+
+### 6.7 Drawn models whose sequences drive their emitters [2026-10-24]
+
+- **The models** [observed: `fnvtool sim activator-models`, FalloutNV.esm]: 21 activator
+  bases have sequences with `NiPSysEmitterCtlr` tracks: REPCONN's rocket bay `repbay.nif`
+  (RepconDome; Forward, Right, Left), the force-field glows (`forcefieldrightglow02.nif`,
+  35 references, and the left one; Forward loops 25 s, Backward 7.2 s clamped), the
+  protectron pods (Open, Close), the vertibird encounters, the B-29s
+  (`b29_riseanim.nif`, `b29_bombanim01/02.nif`), the Hoover Dam AA gun and the Fort's
+  howitzer. Scripts start every one: the force fields' `OnLoadPlayForwardSCRIPT` plays
+  Forward on load and another script Backward to power them down; RepconLaunchSCRIPT
+  plays the bay's Forward, then Right (or Left, sabotaged) [observed: `fnvtool sim
+  playgroup-calls`].
+- **`repbay.nif`** [observed: `fnvtool nif decode`]: 56 systems, each under a node named
+  `<system>-Emitter` that hangs from a node the sequences move (`objBase`, `Rocket01`…
+  `Rocket21`; the sequences' 26 transform tracks move the doors, the platform, the
+  rockets and debris). The systems' own `NiPSysEmitterCtlr`s carry blend interpolators;
+  each of the three sequences gives every system a `BirthRate` (a lone float) and an
+  `EmitterActive` track. Most `EmitterActive` tracks are a `NiBoolInterpolator` with a
+  lone value and no keys: `PFire01` is false all through Forward and Left, and in Right
+  has keys off, on at 0.5 s, off at 1 s; `PCloud04` is off in Right and Left, and in
+  Forward off then on from 18.3 s to the end; `PCloudRise` on from 10 s to 18.3 s of
+  Forward. Bomb and drag modifiers are switched per sequence too
+  (`NiPSysModifierActiveCtlr`, `NiBoolTimelineInterpolator`).
+- **Before this**: a track without keys was read as no track (always on), and only the
+  first sequence's tracks were read, on the emitter's own time from load. The bay's fire
+  and smoke burned from the moment it was drawn, at the rockets' resting places inside
+  the closed dome; at the launch nothing showed [observed 2026-10-24: the REPCONN launch
+  spot check, 2.2 million particles born, none on screen].
+- **Reading** [hypothesis, from the data above and as the sequences' other tracks act]:
+  - A `NiBoolInterpolator` without keys is its lone value from 0 (an undefined value, as
+    a blend interpolator's, is no track).
+  - A placed model drawn with its own nodes (`object_anims::GroupRig`) whose sequences
+    drive a system emits by the sequence playing on it (`Playing`, the name a script
+    plays), on that sequence's time from its start: its on/off and birth-rate tracks,
+    and the emitter fields it keys (`NiPSysEmitterSpeedCtlr`…). A sequence that does not
+    name the system, or none playing, leaves it off: an emitter whose controller
+    leaves everything to sequences has nothing to emit by. A clamped sequence holds its
+    end, the last key's state going on (Forward leaves the bay's clouds on until Right
+    replaces it).
+  - It emits from its emitter object's node as drawn, so the sequence's moves carry it
+    (the exhaust rides with the rockets).
+  - A modifier switched by the sequences follows the keys of the sequence the particle
+    was born under, on that sequence's time.
+  - Models not drawn with their own nodes (explosions and shot effects, `shot_fx`) keep
+    the first sequence's tracks on the emitter's own time, as before.
+- Code: `nvf_assets::particles` (`SequenceEmission`, `ParticleSystemDef::sequences`,
+  `ModifierActive::by_sequence`, `Emitter::object`); `nvforever::particles` (`emit`,
+  `simulate`). Log: the model's line ends `; <n> driven by the sequences [<names>]`, and
+  `particles: <ref> <path> emits as its <sequence> says: <k> of <n> systems` when a
+  sequence begins. Smoke `repconn-rocket-launch`.
+- Not built: a mesh emitter's meshes are not moved by the sequence; gravity strength keys
+  come from the first sequence only.
 
 ## 7. Placed particle systems: the survey and what was still missing [2026-10-21]
 
@@ -364,58 +416,37 @@ tyre-smoke columns, 23 of the 89 small boulders and 20 of the 36 force-field glo
 among them. They now emit as render streaming's do (`world::spawn_emitters` under the
 script-drawn root).
 
-### 7.5 The sequence a placed model plays drives its emitters (the rising B-29; fixed 2026-10-24)
+### 7.5 The rising B-29: a script-drawn rig's sequences drive its emitters (2026-10-25)
 
-The B-29 of Volare! (`VMS15RisingPlaneREF` 00105868, `meshes\vehicles\b29\b29_riseanim.nif`)
-drew white specks spreading over the whole hillside behind it and building up, from the
-moment it was enabled. What the file holds [observed: `fnvtool nif decode`]:
+The B-29 of Volare! (`VMS15RisingPlaneREF` 00105868, `meshesehicles2929_riseanim.nif`)
+drew white specks spreading over the whole hillside behind it, building up from the moment
+the detonator enabled it, with white blocks along the waterline. What the file holds
+[observed: `fnvtool nif decode`]:
 
-- An `NiControllerManager` with four sequences: `Right` (0.03 s, loop), `Forward` (9.93 s,
-  cycle type 2: once; the rise), `Idle` (2.97 s, loop), `Left` (0.17 s, loop). Each names
-  the same 126 controlled blocks.
-- 39 `NiParticleSystem`s, all box emitters with a gravity modifier (axis +z of a gravity
-  object turned upside down, so a pull down of 450 or 900 units/s²): 14 drips `wDrip…`
-  (emitter objects under the animated `b29Root`), 25 flings `wFling…` (emitter objects at
-  the waterline under the root); 24 of the flings have a bomb modifier (`delta_v` 675 to
-  6,750, exponential decay over 339 or 787 units). Rates 60 or 150 a second, 5,000
-  particles each, `fluidsplat01.dds`, the shared `NiAlphaProperty` (flags 4333: blended,
-  source alpha, inverse source alpha, no test).
-- Every emitter controller and modifier active controller carries a blend interpolator
-  (value 2, none): its keys are the sequences'. Per sequence, `EmitterActive` and the
-  bombs' modifier active keys are: in `Right`, `Idle` and `Left` an `NiBoolInterpolator`
-  with the value **false and no data**; in `Forward` keys such as `wFlingL01` on at 3.2 s,
-  off at 3.53 s, its bomb on from 3.2 s to 6.8 s; the drips on from 3.53 s to 4.27 s.
-- Four splash shapes (`WaterSplashL`, `WaterSplashR`, `WaterRipple`, `waterSplash01`:
-  `NiTexturingProperty` with a scrolled texture, `NiMaterialProperty` alpha 0) fade in and
-  out by `NiAlphaController` keys in `Forward` only (0 throughout `Idle`).
+- Four sequences: `Right` (0.03 s, loop), `Forward` (9.93 s, once: the rise), `Idle`
+  (2.97 s, loop), `Left` (0.17 s, loop), each naming the same 126 controlled blocks.
+- 39 box-emitter systems with gravity (a pull down of 450 or 900 units/s², the gravity
+  objects turned upside down): 14 drips `wDrip…` whose emitter objects hang under the
+  animated `b29Root`, and 25 flings `wFling…` at the waterline, 24 of them with a bomb
+  modifier (`delta_v` 675 to 6,750). Rates 60 or 150 a second, 5,000 particles each,
+  `fluidsplat01.dds`, blended (`NiAlphaProperty` flags 4333).
+- Every emitter and modifier active controller carries a blend interpolator; per sequence,
+  `Right`, `Idle` and `Left` give each `EmitterActive` and bomb a lone false (no data), and
+  `Forward` turns them on at set times (`wFlingL01` 3.2 to 3.53 s, its bomb 3.2 to 6.8 s;
+  the drips 3.53 to 4.27 s, when `b29Root` has risen from z −1200 to about +120).
+- Four splash shapes (`WaterSplashL/R`, `WaterRipple`, `waterSplash01`) with material
+  alpha 0, faded in and out by `NiAlphaController` keys in `Forward` only.
 
-Two faults made every emitter run all the time, and a third put the drips in the wrong place:
-
-1. **A bool interpolator with a value and no keys** gave no keys, which the emitter and
-   modifier readings take as "always on". Now its value is a key at 0 (`bool_keys`): the
-   `Idle`/`Right`/`Left` false holds the emitters and bombs off [hypothesis: the value
-   holds for the whole sequence, as a constant float interpolator's value does].
-2. **Only the first sequence was read** (`Right`), on the emitter's own age, whatever the
-   model played. Now each system keeps every sequence's rate and on/off keys
-   (`ParticleSystemDef::sequences`) and its switched modifiers each sequence's keys
-   (`ModifierActive::by_sequence`); a placed model's emitter follows the sequence its rig
-   plays (`Playing` on the rig's root: its idle, or a script's group through
-   `object_anims`), on that sequence's time, and a particle's modifiers follow the
-   sequence it was born under [hypothesis: a sequence drives the particle controllers it
-   names as it drives the nodes it names]. Without a rig sequence (shot effects, static
-   placed models), or for a sequence that does not name the system, the first sequence's
-   keys stay in use, as before.
-
-3. **The drips' emitter objects hang under `b29Root`**, which `Forward` lifts from z −1200
-   (its place in the file) to about +120 by the time the drips start (3.53 s); emitted
-   from the file's place they were born some 1,300 units under the water. A placed model
-   drawn with its own node hierarchy now hands its nodes by name to its emitter, and a
-   box, sphere or cylinder emitter whose object is one of them emits from where the node
-   is now (`Emitter::object`; mesh emitters still use their place in the file).
-
-So in `Idle` the plane makes no spray, and in `Forward` the spray comes at the times its
-keys give, round the plane. Whether the original shows anything in `Idle` was not checked
-against the game (no frame of the rise in the original yet).
+The plane starts disabled, so `nvf_play::script_draw` draws it (§7.4). Its own systems were
+emitted from a holder at the reference, with no rig and no sequence: the first sequence's
+keys, read without the lone value as a key, said always on. §6.7 (a drawn model's
+sequence drives its emitters, a lone value is a key) needs the emitter beside the rig's
+`GroupRig`; a script-drawn rig with named sequences carries a `ScriptDrawnRig` on its rig
+root, where `object_anims` builds that `GroupRig`. Now such a model's own systems emit from
+the rig root (`particles::script_drawn_rig`; its add-on nodes stay on the holder), so in
+`Idle` the plane sprays nothing and in `Forward` the spray comes at its keys' times, the
+drips from where `b29Root` is. Smoke `b29-spray-follows-sequence`. Whether the original
+shows anything in `Idle` was not checked against the game (no frame of the rise yet).
 
 ### 7.6 Left open
 
@@ -427,9 +458,7 @@ against the game (no frame of the rise in the original yet).
 - `nvbouldersm.nif` (89 MSTT, 5,000 particles, stop time 20 s): a rock-slide effect that
   emits from the start; whether the game holds it until a trigger is not known.
 - Unchanged from §5: turbulence, spawn on death, the ADDN's particle cap (`DNAM`), the dust
-  devils' path; an emitter moved by its model's sequence emits from its place in the file,
-  except a box, sphere or cylinder emitter of a placed model drawn with its own nodes
-  (§7.5).
+  devils' path. (An emitter moved by its model's sequence: built, §6.7.)
 - Exit log: `particles: placed references emitting: <n> of <m> with particle systems, at
   most <k> placed model instances at once`; smoke `placed-particle-smokes` (Gomorrah's
   floor: 45 of 45, 45 instances [observed 2026-10-21]).

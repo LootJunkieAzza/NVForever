@@ -64,6 +64,22 @@ pub fn type_pace(creature_type: Option<i64>) -> f32 {
     }
 }
 
+/// A skeleton's own share on top of [`CREATURE_SPEED_FIT`]: brahmin (`creatures\brahmin`)
+/// 2.0 [observed: the AI observer in the original game, 2026-10-24, the Novac caravan's
+/// pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its merchant on its
+/// route: it walked at a median 78 units/s over 2-second windows, and ran once at a
+/// median of about 330 to catch up; with the fit alone it walked 39 and ran 155, half
+/// of both. Hypothesis: that its walk is its own and not matched to the merchant's 77
+/// (the run, matched to nothing, is about twice too slow as well), and the same share
+/// for every brahmin]; every other skeleton 1.
+pub fn skeleton_pace(skeleton: &str) -> f32 {
+    if fnv_vfs::normalize(skeleton).contains("creatures\\brahmin\\") {
+        2.0
+    } else {
+        1.0
+    }
+}
+
 /// A creature's turn rate at scale 1, degrees per second, walking and standing; it
 /// scales with the creature's size [observed: the same observations' headings, 0.16 s
 /// apart: medium cazadors (scale 1) turned at up to 304 degrees a second, young ones
@@ -154,8 +170,9 @@ fn give_speeds(
             // leveled cazadors at the Tribal Village take theirs.
             let mult = speed_mult(game, FormId(rig.base), id);
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
-            // Its type's own share (feral ghouls), as if its Speed Mult were that much higher.
-            let mult = mult * type_pace(game.creature_type(id));
+            // Its type's and its skeleton's own shares (feral ghouls, brahmin), as if its
+            // Speed Mult were that much higher.
+            let mult = mult * type_pace(game.creature_type(id)) * skeleton_pace(&rig.skeleton);
             lo.pace = mult / 100.0 * CREATURE_SPEED_FIT;
             let calm = clip_speeds(&lo.stand, scale, mult, default);
             let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, default));
@@ -263,6 +280,13 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<PaceStats>) {
 mod tests {
     use super::*;
     use fnv_actor::locomotion::ClipInfo;
+
+    #[test]
+    fn brahmin_go_twice_the_fit() {
+        assert_eq!(skeleton_pace("Creatures\\Brahmin\\Skeleton.nif"), 2.0);
+        assert_eq!(skeleton_pace("meshes/creatures/brahmin/skeleton.nif"), 2.0);
+        assert_eq!(skeleton_pace("creatures\\cazador\\skeleton.nif"), 1.0);
+    }
 
     #[test]
     fn feral_ghouls_run_a_quarter_faster() {

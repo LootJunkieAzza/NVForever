@@ -745,6 +745,52 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
     assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
 }
 
+/// A follower keeps step with a target that walks on, rather than catching up, stopping
+/// and setting off again every few steps, or swapping between its walk and its run (owner's
+/// playtest of 2026-10-24: the Novac pack brahmin after its merchant).
+#[test]
+fn a_follower_keeps_step_with_a_walking_target() {
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.5, package_interval: Some(10.0), ..GameConfig::default() });
+    let mut s = Sim { game, ai: Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() }), nav: nav() };
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    // Both in the large cell C, the companion 200 units behind the player.
+    for (r, x) in [(player, 10100.0), (mate, 10100.0)] {
+        let y = if r == player { 10250.0 } else { 10050.0 };
+        let p = s.game.world.get(r).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_C)), [x, y, 0.0], [0.0; 3]);
+    }
+    s.ai.add(&s.game, mate).unwrap();
+    // The companion's own walk is slower than the player's 100 units/s.
+    let own = fnv_ai::Speeds { walk: 70.0, run: 300.0 };
+    s.ai.set_speeds(mate, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    s.run(1.0);
+    let (mut speeds, mut gaps) = (Vec::new(), Vec::new());
+    // The player walks on in a straight line at 100 units/s for 8 seconds.
+    for _ in 0..16 {
+        s.game.world.get(player).unwrap().pos[1] += 50.0;
+        s.run(0.5);
+        if s.ai.agents[&mate].activity == Activity::Travelling {
+            speeds.push(s.ai.agents[&mate].walker.speed);
+        }
+        gaps.push(dist(s.feet(R_COMPANION), s.game.world.peek(player).unwrap().pos));
+    }
+    let ev = s.events(R_COMPANION);
+    let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
+    // It sets off once, walking, and keeps going: no stop and start, never its run.
+    assert_eq!(follows, 1, "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Follow { running: false, .. })), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, AiEvent::CaughtUp { .. })), "{ev:?}");
+    assert!(speeds.len() >= 10, "{speeds:?}");
+    assert!(speeds.iter().all(|v| *v < 200.0), "{speeds:?}");
+    // In step: at the player's pace, not its own slower walk, and the gap stays near its
+    // distance (256) rather than growing.
+    let last = *speeds.last().unwrap();
+    assert!((95.0..=140.0).contains(&last), "it goes at {last}: {speeds:?}");
+    assert!(gaps.iter().all(|g| *g < 256.0 + 64.0 + 80.0), "{gaps:?}");
+}
+
 /// Two actors following one target walk after it in a line: the one nearer the target
 /// at first after the target, the other after it, nearer than the package's distance
 /// (`Ai::ahead_in_column`, `COLUMN_GAP`; the owner's playtest of 2026-10-24).
@@ -773,11 +819,11 @@ fn two_actors_following_one_target_walk_in_a_line() {
 /// up to half as fast again (`carry::catch_up`; the owner's playtest of 2026-10-24).
 #[test]
 fn a_follower_far_behind_catches_up_faster_than_it_runs() {
-    use fnv_ai::carry::{catch_up, CATCH_UP_BOOST, CATCH_UP_SPAN, FOLLOW_RUN_FROM};
+    use fnv_ai::carry::{catch_up, CATCH_UP_BOOST, CATCH_UP_SPAN, FOLLOW_RUN_BEHIND};
     assert_eq!(catch_up(100.0), 1.0);
-    assert_eq!(catch_up(FOLLOW_RUN_FROM), 1.0);
-    assert!((catch_up(FOLLOW_RUN_FROM + CATCH_UP_SPAN / 2.0) - (1.0 + CATCH_UP_BOOST / 2.0)).abs() < 1e-6);
-    assert_eq!(catch_up(FOLLOW_RUN_FROM + CATCH_UP_SPAN), 1.0 + CATCH_UP_BOOST);
+    assert_eq!(catch_up(FOLLOW_RUN_BEHIND), 1.0);
+    assert!((catch_up(FOLLOW_RUN_BEHIND + CATCH_UP_SPAN / 2.0) - (1.0 + CATCH_UP_BOOST / 2.0)).abs() < 1e-6);
+    assert_eq!(catch_up(FOLLOW_RUN_BEHIND + CATCH_UP_SPAN), 1.0 + CATCH_UP_BOOST);
     assert_eq!(catch_up(f32::INFINITY), 1.0 + CATCH_UP_BOOST);
 }
 
@@ -1220,6 +1266,41 @@ fn continue_during_combat_keeps_the_package_going() {
 }
 
 #[test]
+fn an_actor_warning_the_player_stops_faces_it_then_walks_on() {
+    // `fnv_game::aggro` "The look" / `crate::alert` Warnings: in Normal, warning the
+    // player, a walker stops and turns to the player; once the warning is over it goes
+    // back to its package.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::Travelling);
+    let (me, player) = (FormId(R_TRAVEL), FormId::PLAYER_REF);
+    let at = s.feet(R_TRAVEL);
+    let cell = s.game.world.peek(me).and_then(|m| m.cell);
+    {
+        let p = s.game.world.get(player).unwrap();
+        (p.cell, p.pos) = (cell, [at[0] + 300.0, at[1], at[2]]);
+    }
+    s.game.provocations.aggro_inside.insert(me);
+    assert!(s.game.draws_weapon(me));
+    s.run(3.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Warn { target, .. } if *target == player)), "{:?}", s.events(R_TRAVEL));
+    let a = &s.ai.agents[&me];
+    assert_eq!(a.activity, Activity::There);
+    assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
+    // Facing the player (east of it: heading 0 or π/2 by the walker's convention, so
+    // measured as the heading towards the player).
+    let want = fnv_nav::follow::heading_of([300.0, 0.0]);
+    assert!(fnv_nav::follow::heading_delta(a.walker.heading, want).abs() < 0.05, "{} vs {want}", a.walker.heading);
+    // The warning is over: back to its package.
+    s.game.provocations.aggro_inside.clear();
+    s.run(2.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SearchOver { why } if why.contains("warning"))), "{ev:?}");
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+}
+
+#[test]
 fn an_actor_in_combat_stops_and_faces_its_target() {
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL]);
@@ -1566,6 +1647,33 @@ fn an_actor_walking_into_the_loaded_area_is_moved_every_frame() {
     // Into the loaded area: the high process.
     assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
     assert_eq!((s.ai.level(actor), s.ai.process_counts()), (fnv_ai::ProcessLevel::High, (1, 0)));
+}
+
+#[test]
+fn a_far_walk_stops_where_it_comes_into_the_loaded_area() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Its destination's cell is the loaded area; it walks from the other one.
+    s.ai.set_loaded(Some(fnv_ai::LoadedArea { space: B, cells: Default::default() }));
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    let mut waited = 0;
+    while s.ai.process_stats.far_updates == 0 {
+        s.run(1.0);
+        waited += 1;
+        assert!(waited <= 121);
+    }
+    // The original's Malcolm Holmes: the jump that reached the loaded area stopped at its
+    // edge [observed 2026-10-24]. The engine takes it on from there in the high process.
+    assert_eq!(s.ai.process_stats.reached_loaded, 1);
+    assert_eq!(s.ai.agents[&actor].walker.space, B);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling, "not there yet");
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) > 50.0);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
+    s.run(30.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
 }
 
 /// A Use Weapon package (`fnv_game::use_weapon`): the actor walks to the package's
