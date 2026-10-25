@@ -360,6 +360,11 @@ impl Stats {
                     }
                 }
                 Stmt::Let { .. } => "let",
+                Stmt::Eval { .. } => "eval",
+                Stmt::While { .. } => "while",
+                Stmt::ForEach { .. } => "foreach",
+                Stmt::Break => "break",
+                Stmt::Continue => "continue",
                 Stmt::Raw { .. } => "raw",
             };
             *self.statements.entry(k).or_default() += 1;

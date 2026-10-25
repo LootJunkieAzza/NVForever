@@ -237,11 +237,12 @@ fn extender_precedence_follows_the_operator_table() {
 }
 
 #[test]
-fn a_functions_argument_is_a_whole_expression() {
-    // `GetStage Q >= 10` in an extended expression: the argument swallows the comparison,
-    // as the wiki's `Sin 14 == 1` (Script Compiler Override); parentheses keep it apart.
-    let l = lets("int a\nbegin GameMode\nif eval (GetStage TestQuest) >= 10\nendif\nlet a := player.GetAV Luck\nlet a := GetRandomPercent * 2\nend");
+fn a_functions_argument_is_an_operand() {
+    // [documented: Inline Expression] `Player.GetActorValue Health + 50` is
+    // (GetAV Health) + 50.
+    let l = lets("int a\nbegin GameMode\nif eval GetStage TestQuest >= 10\nendif\nlet a := player.GetAV Luck\nlet a := GetRandomPercent * 2\nlet a := Abs -3 + 1\nend");
     assert_eq!(l[0], "if (103A(r1) Ge 10)");
+    assert_eq!(l[3], "(v1 Set= (1221((Neg 3)) Add 1))", "a minus starts the first argument");
     assert!(l[1].starts_with("(v1 Set= r2.100E(#"), "an actor value name is its code: {}", l[1]);
     assert_eq!(l[2], "(v1 Set= (104D() Mul 2))", "a function without parameters takes no operand");
 }
@@ -324,4 +325,114 @@ fn not_built_yet_stops_the_statement() {
     let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
     assert!(matches!(r, Err(fnv_script::vm::VmError::NotBuilt(_))), "{r:?}");
     let _ = XOp::Add;
+}
+
+// ---- loops (task A8) ------------------------------------------------------------
+
+#[test]
+fn while_loops_run_with_break_and_continue() {
+    // Sum 1..=10 skipping 5, stopping after 8: 1+2+3+4+6+7+8 = 31.
+    let h = run(
+        "float i\nfloat s\nbegin GameMode\nwhile i < 10\n  i += 1\n  if eval i == 5\n    continue\n  endif\n  if eval i > 8\n    break\n  endif\n  s += i\nloop\nend",
+    );
+    assert_eq!(h.0[&2], Value::Num(31.0));
+    assert_eq!(h.0[&1], Value::Num(9.0));
+}
+
+#[test]
+fn nested_loops_and_their_structure() {
+    let (_, p) = build("float i\nfloat j\nfloat n\nbegin GameMode\nwhile i < 3\n  i += 1\n  let j := 0\n  while j < 2\n    j += 1\n    n += 1\n  loop\nloop\nend");
+    let Stmt::While { body, .. } = &body(&p)[0] else { panic!("outer while") };
+    assert!(matches!(body.last(), Some(Stmt::While { .. })), "the inner loop is in the outer body");
+    let h = run("float i\nfloat j\nfloat n\nbegin GameMode\nwhile i < 3\n  i += 1\n  let j := 0\n  while j < 2\n    j += 1\n    n += 1\n  loop\nloop\nend");
+    assert_eq!(h.0[&3], Value::Num(6.0));
+}
+
+#[test]
+fn a_runaway_loop_stops_at_the_step_budget() {
+    let t = table();
+    let (_, p) = build("float i\nbegin GameMode\nwhile 1\n  i += 1\nloop\nend");
+    let mut h = Locals::default();
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 1000 }).run(&p.blocks[0].body);
+    assert!(matches!(r, Err(fnv_script::vm::VmError::Budget(1000))), "{r:?}");
+}
+
+#[test]
+fn foreach_compiles_and_waits_for_arrays() {
+    let (_, p) = build("float e\nfloat a\nbegin GameMode\nforeach e <- a\n  break\nloop\nend");
+    assert!(matches!(&body(&p)[0], Stmt::ForEach { body, .. } if body == &[Stmt::Break]));
+}
+
+#[test]
+fn loop_mistakes_are_errors() {
+    let t = table();
+    for (src, kind) in [
+        ("begin GameMode\nloop\nend", "loop_without_while"),
+        ("begin GameMode\nbreak\nend", "outside_a_loop"),
+        ("float i\nbegin GameMode\nwhile i\nend", "while_without_loop"),
+        ("float e\nbegin GameMode\nforeach e a\nloop\nend", "syntax"),
+    ] {
+        let c = compile(src, &t, &World, None);
+        assert_eq!(c.errors().map(|d| d.kind).collect::<Vec<_>>(), [kind], "{src}");
+    }
+}
+
+// ---- inline expressions, new variable types (tasks A9, A10) -----------------------
+
+#[test]
+fn inline_expressions_as_arguments_in_an_extended_unit() {
+    // [documented: Inline Expression] `Player.SetActorValue Health (Player.GetActorValue
+    // Health + 50)`; the unit is extended (it has a let), so the call line is one too.
+    let (_, p) = build("float f\nbegin GameMode\nlet f := 1\nplayer.SetActorValue Health (player.GetActorValue Health + 50)\nend");
+    let Stmt::Eval { expr } = &body(&p)[1] else { panic!("an expression statement: {:?}", body(&p)[1]) };
+    let s = x(expr);
+    assert!(s.starts_with("r1.100F(#"), "{s}");
+    assert!(s.contains("(r1.100E(#") && s.ends_with("Add 50))"), "{s}");
+}
+
+#[test]
+fn a_vanilla_unit_keeps_its_parentheses_dropped() {
+    // Without any extender syntax, parentheses among arguments are dropped as the editor
+    // drops them (scripts.md §3.4): a plain call statement.
+    let (_, p) = build("begin GameMode\nplayer.AddItem (Caps001) 5\nend");
+    assert!(matches!(&body(&p)[0], Stmt::Call { .. }));
+}
+
+#[test]
+fn extender_functions_as_statements_make_the_unit_extended() {
+    let t = table();
+    let c = compile("array_var a\nbegin GameMode\nAr_Append a 5\nend", &t, &World, None);
+    assert!(c.errors().next().is_none(), "{:?}", c.diags);
+    let p = decode(&c.bytes, &t).program;
+    assert!(matches!(&body(&p)[0], Stmt::Eval { expr: XExpr::Call { call } } if call.func == FuncId::Name("Ar_Append".into())));
+    assert_eq!(c.variables[0].ty, VarType::Other("array_var".into()));
+}
+
+#[test]
+fn inline_declarations_hex_and_binary_and_block_comments() {
+    let h = run("begin GameMode\nint i = 0x10 + 0b101\n/* a comment\nint j = 99\n*/\nfloat f = i * 2 ; 42\nend");
+    assert_eq!(h.0[&1], Value::Num(21.0));
+    assert_eq!(h.0[&2], Value::Num(42.0), "j was inside the comment, so f is variable 2");
+}
+
+#[test]
+fn calls_on_results_chain() {
+    let l = lets("ref r\nfloat f\nbegin GameMode\nlet f := (GetSelf).GetAV Luck\nend");
+    assert!(l[0].starts_with("(v2 Set= "), "{}", l[0]);
+    assert!(l[0].contains(".100E(#"), "a call on the result of GetSelf: {}", l[0]);
+}
+
+#[test]
+fn compiler_override_blocks_read_every_line_with_the_extender_grammar() {
+    // [documented: Script Compiler Override] under `Begin _GameMode`, `if Sin 14 == 1`
+    // evaluates 14 == 1 first; `set` takes extended expressions too.
+    let (_, p) = build("float f\nbegin _GameMode\nif Sin 14 == 1\nset f to f + 1\nendif\nend");
+    assert_eq!(p.blocks[0].event, 0, "the block is GameMode");
+    let Stmt::If { arms, .. } = &body(&p)[0] else { panic!() };
+    let [Token::X { e }] = &arms[0].cond.0[..] else { panic!("an extended condition: {:?}", arms[0].cond) };
+    assert_eq!(x(e), "Sin((14 Eq 1))", "Sin is the extender's (no opcode)");
+    assert!(matches!(&arms[0].body[0], Stmt::Let { .. }));
+    // The same line outside an override block: (Sin 14) == 1.
+    let l = lets("float f\nbegin GameMode\nif eval Sin 14 == 1\nendif\nend");
+    assert_eq!(l[0], "if (Sin(14) Eq 1)");
 }

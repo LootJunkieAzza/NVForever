@@ -245,6 +245,18 @@ pub enum Stmt {
     /// `let <assignment>` and the Let macro (`x = 1`, `x += 1`): an extended expression
     /// whose top is an assignment (docs/spec-notes/script-compiler.md §8).
     Let { expr: XExpr },
+    /// An extended expression run for what it does: a call with inline expressions as
+    /// arguments (`SetAV Health (GetAV Health + 50)`), an extender function as a statement
+    /// [documented: Inline Expression].
+    Eval { expr: XExpr },
+    /// `while <condition>` … `loop` [documented: While].
+    While { cond: XExpr, body: Vec<Stmt> },
+    /// `foreach <var> <- <source>` … `loop` [documented: ForEach].
+    ForEach { head: XForEach, body: Vec<Stmt> },
+    /// `break`: leave the innermost loop [documented: While; ForEach].
+    Break,
+    /// `continue`: the innermost loop's next round [documented: While; ForEach].
+    Continue,
     /// A statement whose opcode or body the decoder could not explain.
     Raw {
         opcode: u16,
@@ -302,13 +314,17 @@ impl Program {
         fn rec<'a>(s: &'a [Stmt], f: &mut impl FnMut(&'a Stmt)) {
             for st in s {
                 f(st);
-                if let Stmt::If { arms, otherwise } = st {
-                    for a in arms {
-                        rec(&a.body, f);
+                match st {
+                    Stmt::If { arms, otherwise } => {
+                        for a in arms {
+                            rec(&a.body, f);
+                        }
+                        if let Some(o) = otherwise {
+                            rec(o, f);
+                        }
                     }
-                    if let Some(o) = otherwise {
-                        rec(o, f);
-                    }
+                    Stmt::While { body, .. } | Stmt::ForEach { body, .. } => rec(body, f),
+                    _ => {}
                 }
             }
         }
@@ -397,6 +413,13 @@ pub enum XAssign {
     BitOr,
     BitAnd,
     Mod,
+}
+
+/// The head of a `foreach` loop: the loop variable and what it walks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XForEach {
+    pub var: XExpr,
+    pub source: XExpr,
 }
 
 /// An extended expression, as a tree (the vanilla postfix [`Expr`] cannot hold strings,

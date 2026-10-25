@@ -249,6 +249,19 @@ impl Decompiler<'_> {
                 Stmt::Return => out.push("return".into()),
                 Stmt::Call { call } => out.push(self.call_stmt(call)),
                 Stmt::Let { expr } => out.push(format!("let {}", self.xexpr(expr))),
+                Stmt::Eval { expr } => out.push(format!("eval {}", self.xexpr(expr))),
+                Stmt::While { cond, body } => {
+                    out.push(format!("while {}", self.xexpr(cond)));
+                    self.stmts(body, out);
+                    out.push("loop".into());
+                }
+                Stmt::ForEach { head, body } => {
+                    out.push(format!("foreach {} <- {}", self.xexpr(&head.var), self.xexpr(&head.source)));
+                    self.stmts(body, out);
+                    out.push("loop".into());
+                }
+                Stmt::Break => out.push("break".into()),
+                Stmt::Continue => out.push("continue".into()),
                 Stmt::Unmatched { marker, cond, .. } => out.push(match marker {
                     Marker::Else => "else".into(),
                     Marker::EndIf => "endif".into(),

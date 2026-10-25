@@ -26,6 +26,16 @@ pub mod op {
     pub const X_LET: u16 = 0x00F0;
     /// NVForever's own expression token: u16 length + an extended expression as JSON.
     pub const X_TOKEN: u8 = 0xF0;
+    /// NVForever's own loop statements (script-compiler.md §8): `while` (body: the
+    /// condition as JSON), `foreach` (body: `XForEach` as JSON), `loop`, `break`,
+    /// `continue` (empty bodies).
+    pub const X_WHILE: u16 = 0x00F1;
+    pub const X_FOREACH: u16 = 0x00F2;
+    pub const X_LOOP: u16 = 0x00F3;
+    pub const X_BREAK: u16 = 0x00F4;
+    pub const X_CONTINUE: u16 = 0x00F5;
+    /// NVForever's own expression statement (body: the expression as JSON).
+    pub const X_EVAL: u16 = 0x00F6;
 }
 
 /// Something the decoder noticed that is not an unknown encoding: a skip count or block
@@ -179,7 +189,28 @@ enum Piece {
     ElseIf { skip: u16, cond: Expr },
     Else { skip: u16 },
     EndIf,
+    While(XExpr),
+    ForEach(XForEach),
+    Loop,
     Stmt(Stmt),
+}
+
+/// An open loop while nesting is rebuilt: its head, the `If` frames open outside it, and
+/// its body so far.
+struct LoopFrame {
+    head: Piece,
+    ifs: Vec<Frame>,
+    body: Vec<Stmt>,
+}
+
+impl LoopFrame {
+    fn finish(self) -> Stmt {
+        match self.head {
+            Piece::While(cond) => Stmt::While { cond, body: self.body },
+            Piece::ForEach(head) => Stmt::ForEach { head, body: self.body },
+            _ => Stmt::Raw { opcode: op::X_LOOP, body: vec![] },
+        }
+    }
 }
 
 struct Ctx<'t> {
@@ -491,6 +522,21 @@ fn piece(c: &mut Ctx<'_>, f: &Flat<'_>) -> Piece {
             Ok(expr) => Piece::Stmt(Stmt::Let { expr }),
             Err(_) => raw(c, "unreadable extended statement"),
         },
+        op::X_WHILE => match serde_json::from_slice(f.body) {
+            Ok(e) => Piece::While(e),
+            Err(_) => raw(c, "unreadable extended statement"),
+        },
+        op::X_FOREACH => match serde_json::from_slice(f.body) {
+            Ok(h) => Piece::ForEach(h),
+            Err(_) => raw(c, "unreadable extended statement"),
+        },
+        op::X_EVAL => match serde_json::from_slice(f.body) {
+            Ok(expr) => Piece::Stmt(Stmt::Eval { expr }),
+            Err(_) => raw(c, "unreadable extended statement"),
+        },
+        op::X_LOOP if empty => Piece::Loop,
+        op::X_BREAK if empty => Piece::Stmt(Stmt::Break),
+        op::X_CONTINUE if empty => Piece::Stmt(Stmt::Continue),
         op::ENDIF if empty => Piece::EndIf,
         op::ELSE if f.body.len() == 2 => Piece::Else { skip: r.u16().unwrap_or_default() },
         op::IF | op::ELSEIF => {
@@ -546,6 +592,7 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
     let mut prog = Program::default();
     let mut block: Option<(Block, usize, u32, usize)> = None; // block, start stmt, stored len, byte offset after Begin
     let mut stack: Vec<Frame> = Vec::new();
+    let mut loops: Vec<LoopFrame> = Vec::new();
 
     // Close every open If into the current sink (end of a block or of the unit).
     fn close_ifs(stack: &mut Vec<Frame>, sink: &mut Vec<Stmt>) {
@@ -557,13 +604,27 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
             }
         }
     }
-    fn push(stack: &mut [Frame], block: &mut Option<(Block, usize, u32, usize)>, top: &mut Vec<Stmt>, s: Stmt) {
-        match stack.last_mut() {
-            Some(f) => f.current().push(s),
-            None => match block {
+    fn push(stack: &mut [Frame], loops: &mut [LoopFrame], block: &mut Option<(Block, usize, u32, usize)>, top: &mut Vec<Stmt>, s: Stmt) {
+        match (stack.last_mut(), loops.last_mut()) {
+            (Some(f), _) => f.current().push(s),
+            (None, Some(l)) => l.body.push(s),
+            (None, None) => match block {
                 Some(b) => b.0.body.push(s),
                 None => top.push(s),
             },
+        }
+    }
+    // Close every open loop (a block or the unit ends inside one) into where it stands.
+    fn close_loops(stack: &mut Vec<Frame>, loops: &mut Vec<LoopFrame>, sink: &mut Vec<Stmt>) {
+        while let Some(mut l) = loops.pop() {
+            close_ifs(stack, &mut l.body);
+            *stack = std::mem::take(&mut l.ifs);
+            let s = l.finish();
+            match (stack.last_mut(), loops.last_mut()) {
+                (Some(f), _) => f.current().push(s),
+                (None, Some(o)) => o.body.push(s),
+                (None, None) => sink.push(s),
+            }
         }
     }
     let check_skip = |c: &mut Ctx<'_>, marker: (usize, u16), at: usize| {
@@ -584,7 +645,7 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
             Piece::ScriptName => {
                 if i != 0 || prog.script_name {
                     c.issue("misplaced_scriptname", String::new());
-                    push(&mut stack, &mut block, &mut prog.top, Stmt::Raw { opcode: op::SCRIPT_NAME, body: vec![] });
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, Stmt::Raw { opcode: op::SCRIPT_NAME, body: vec![] });
                     c.report.raw_statements += 1;
                 } else {
                     prog.script_name = true;
@@ -594,6 +655,7 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
                 if let Some((b, ..)) = block.take() {
                     c.issue("begin_inside_block", String::new());
                     let mut b = b;
+                    close_loops(&mut stack, &mut loops, &mut b.body);
                     close_ifs(&mut stack, &mut b.body);
                     prog.blocks.push(b);
                 } else if !stack.is_empty() {
@@ -607,6 +669,10 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
             }
             Piece::End => match block.take() {
                 Some((mut b, _start, len, after_begin)) => {
+                    if !loops.is_empty() {
+                        c.issue("unterminated_loop", String::new());
+                        close_loops(&mut stack, &mut loops, &mut b.body);
+                    }
                     if !stack.is_empty() {
                         c.issue("if_open_at_end", String::new());
                         close_ifs(&mut stack, &mut b.body);
@@ -620,7 +686,7 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
                 None => {
                     c.issue("end_without_begin", String::new());
                     c.report.raw_statements += 1;
-                    push(&mut stack, &mut block, &mut prog.top, Stmt::Raw { opcode: op::END, body: vec![] });
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, Stmt::Raw { opcode: op::END, body: vec![] });
                 }
             },
             Piece::If { skip, cond } => {
@@ -645,7 +711,7 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
                 None => {
                     c.issue("unmatched_elseif", String::new());
                     let s = Stmt::Unmatched { marker: Marker::ElseIf, skip: Some(skip), cond: Some(cond) };
-                    push(&mut stack, &mut block, &mut prog.top, s);
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, s);
                 }
             },
             Piece::Else { skip } => match stack.last_mut() {
@@ -665,32 +731,56 @@ pub fn decode(bytes: &[u8], table: &FunctionTable) -> Decoded {
                 None => {
                     c.issue("unmatched_else", String::new());
                     let s = Stmt::Unmatched { marker: Marker::Else, skip: Some(skip), cond: None };
-                    push(&mut stack, &mut block, &mut prog.top, s);
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, s);
                 }
             },
             Piece::EndIf => match stack.pop() {
                 Some(fr) => {
                     check_skip(&mut c, fr.marker, i);
                     let s = fr.finish();
-                    push(&mut stack, &mut block, &mut prog.top, s);
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, s);
                 }
                 None => {
                     c.issue("unmatched_endif", String::new());
                     let s = Stmt::Unmatched { marker: Marker::EndIf, skip: None, cond: None };
-                    push(&mut stack, &mut block, &mut prog.top, s);
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, s);
                 }
             },
-            Piece::Stmt(s) => push(&mut stack, &mut block, &mut prog.top, s),
+            Piece::While(_) | Piece::ForEach(_) => {
+                loops.push(LoopFrame { head: p, ifs: std::mem::take(&mut stack), body: Vec::new() });
+            }
+            Piece::Loop => match loops.pop() {
+                Some(mut l) => {
+                    if !stack.is_empty() {
+                        c.issue("if_open_at_loop", String::new());
+                        close_ifs(&mut stack, &mut l.body);
+                    }
+                    stack = std::mem::take(&mut l.ifs);
+                    let s = l.finish();
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, s);
+                }
+                None => {
+                    c.issue("loop_without_while", String::new());
+                    c.report.raw_statements += 1;
+                    push(&mut stack, &mut loops, &mut block, &mut prog.top, Stmt::Raw { opcode: op::X_LOOP, body: vec![] });
+                }
+            },
+            Piece::Stmt(s) => push(&mut stack, &mut loops, &mut block, &mut prog.top, s),
         }
     }
     c.stmt = flats.len();
     match block.take() {
         Some((mut b, ..)) => {
             c.issue("unterminated_block", String::new());
+            close_loops(&mut stack, &mut loops, &mut b.body);
             close_ifs(&mut stack, &mut b.body);
             prog.blocks.push(b);
         }
         None => {
+            if !loops.is_empty() {
+                c.issue("unterminated_loop", String::new());
+            }
+            close_loops(&mut stack, &mut loops, &mut prog.top);
             if !stack.is_empty() {
                 c.issue("unterminated_if", String::new());
             }

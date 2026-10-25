@@ -57,8 +57,11 @@ docs/spec-notes/script-compiler.md §5. A6 done: units whose bytes call opcodes 
 lacks run from their source, `[Extenders] CompileSource` switches it, and the console sends
 expressions through the compiler (script-compiler.md §7). A7 done: the expression grammar
 (precedence, operators, functions taking expressions as arguments) with `let`, the Let
-macro and `if eval` from A8, and numbers in the VM (script-compiler.md §8). Next: the rest
-of A8 (loops), then A9–A10.
+macro and `if eval` from A8, and numbers in the VM (script-compiler.md §8). A8 done:
+`while`/`foreach`/`loop`/`break`/`continue` compile and nest, `while` runs (foreach waits
+for arrays, B3). A9, A10, A12 done: inline expressions and calls on results, hex and
+binary literals, block comments, `string_var`/`array_var` and `int i = 5`, override
+blocks (script-compiler.md §8). Next: A11 (functions, lambdas), then B1.
 
 The runtime only reads bytecode today, so mods that use extender syntax can't run at all
 until this exists. Vanilla first, so the parity check proves the compiler before any

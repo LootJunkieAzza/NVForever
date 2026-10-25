@@ -13,6 +13,10 @@ pub enum DeclType {
     Float,
     /// `ref`, `reference`: a `FloatOrRef` slot.
     Ref,
+    /// `string_var` [documented: String Variable].
+    String,
+    /// `array_var` [documented: Array Variable].
+    Array,
 }
 
 impl DeclType {
@@ -21,6 +25,8 @@ impl DeclType {
             "short" | "int" | "long" => DeclType::Int,
             "float" => DeclType::Float,
             "ref" | "reference" => DeclType::Ref,
+            "string_var" => DeclType::String,
+            "array_var" => DeclType::Array,
             _ => return None,
         })
     }
@@ -29,8 +35,9 @@ impl DeclType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kw {
     ScriptName(Option<String>),
-    /// A declaration produces no statement [observed: scripts.md §3.4].
-    Decl { ty: DeclType, names: Vec<String> },
+    /// A declaration produces no statement [observed: scripts.md §3.4]; with `= value`
+    /// (`int i = 5`, the extender's inline declaration) it also assigns.
+    Decl { ty: DeclType, names: Vec<String>, init: Option<Vec<XTok>> },
     Begin { block: String, args: Vec<Tok> },
     End,
     If(Vec<Tok>),
@@ -47,6 +54,14 @@ pub enum Kw {
     /// `if eval <expression>` / `elseif eval …` [documented: Eval].
     IfEval(Vec<XTok>),
     ElseIfEval(Vec<XTok>),
+    /// `while <condition>` [documented: While].
+    While(Vec<XTok>),
+    /// `foreach <var> <- <source>` [documented: ForEach]: the tokens after `foreach`.
+    ForEach(Vec<XTok>),
+    /// `loop`, closing a `while` or `foreach`.
+    Loop,
+    Break,
+    Continue,
 }
 
 /// The assignments the Let macro takes without `let` [documented: Let Macro].
@@ -60,6 +75,11 @@ fn extender(l: &Line) -> Option<Kw> {
         ("let", _) => Some(Kw::Let(xtokens(&l.text)[1..].to_vec())),
         ("if", Some("eval")) => Some(Kw::IfEval(xtokens(&l.text)[2..].to_vec())),
         ("elseif", Some("eval")) => Some(Kw::ElseIfEval(xtokens(&l.text)[2..].to_vec())),
+        ("while", _) => Some(Kw::While(xtokens(&l.text)[1..].to_vec())),
+        ("foreach", _) => Some(Kw::ForEach(xtokens(&l.text)[1..].to_vec())),
+        ("loop", None) => Some(Kw::Loop),
+        ("break", None) => Some(Kw::Break),
+        ("continue", None) => Some(Kw::Continue),
         _ => {
             let x = xtokens(&l.text);
             let assigns = x.len() > 2 && x[0].kind == XKind::Word && x[1].kind == XKind::Op && MACRO_OPS.contains(&x[1].text.as_str());
@@ -72,6 +92,22 @@ fn extender(l: &Line) -> Option<Kw> {
 pub struct Statement {
     pub line: usize,
     pub kw: Kw,
+    /// The line's text without its comment.
+    pub text: String,
+}
+
+impl Kw {
+    /// The statement is the extender's grammar (the unit is then compiled with its rules,
+    /// script-compiler.md §8).
+    pub fn extended(&self) -> bool {
+        match self {
+            Kw::Let(_) | Kw::IfEval(_) | Kw::ElseIfEval(_) | Kw::While(_) | Kw::ForEach(_) | Kw::Loop | Kw::Break | Kw::Continue => true,
+            Kw::Decl { ty, init, .. } => matches!(ty, DeclType::String | DeclType::Array) || init.is_some(),
+            // `Begin _GameMode`: a compiler-override block [documented: Script Compiler Override].
+            Kw::Begin { block, .. } => block.starts_with('_'),
+            _ => false,
+        }
+    }
 }
 
 /// A line that does not fit the grammar.
@@ -88,7 +124,7 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
     let err = |msg: &str| ParseError { line: l.no, msg: msg.to_string() };
     if head.kind == Kind::Word {
         if let Some(kw) = extender(l) {
-            return Ok(Statement { line: l.no, kw });
+            return Ok(Statement { line: l.no, kw, text: l.text.clone() });
         }
     }
     let kw = if head.kind != Kind::Word {
@@ -114,12 +150,20 @@ pub fn statement(l: &Line) -> Result<Statement, ParseError> {
                 Kw::Set { target: rest[..k].to_vec(), expr: rest[k + 1..].to_vec() }
             }
             w => match DeclType::from_word(w) {
-                Some(ty) => Kw::Decl { ty, names: rest.iter().filter(|t| t.kind == Kind::Word).map(|t| t.text.clone()).collect() },
+                Some(ty) => {
+                    let x = xtokens(&l.text);
+                    match x.get(2) {
+                        Some(eq) if eq.is(XKind::Op, "=") || eq.is(XKind::Op, ":=") => {
+                            Kw::Decl { ty, names: vec![x[1].text.clone()], init: Some(x[1..].to_vec()) }
+                        }
+                        _ => Kw::Decl { ty, names: rest.iter().filter(|t| t.kind == Kind::Word).map(|t| t.text.clone()).collect(), init: None },
+                    }
+                }
                 None => Kw::Call(toks.clone()),
             },
         }
     };
-    Ok(Statement { line: l.no, kw })
+    Ok(Statement { line: l.no, kw, text: l.text.clone() })
 }
 
 #[cfg(test)]
@@ -135,8 +179,8 @@ mod tests {
     fn classifies_lines() {
         let k = parse("scn Foo\nshort a\nref r\nbegin OnTrigger player\nset a to 1 + 2\nif a\nelse\nendif\nr.Disable\nend\n");
         assert_eq!(k[0], Kw::ScriptName(Some("Foo".into())));
-        assert_eq!(k[1], Kw::Decl { ty: DeclType::Int, names: vec!["a".into()] });
-        assert_eq!(k[2], Kw::Decl { ty: DeclType::Ref, names: vec!["r".into()] });
+        assert_eq!(k[1], Kw::Decl { ty: DeclType::Int, names: vec!["a".into()], init: None });
+        assert_eq!(k[2], Kw::Decl { ty: DeclType::Ref, names: vec!["r".into()], init: None });
         assert!(matches!(&k[3], Kw::Begin { block, args } if block == "OnTrigger" && args.len() == 1));
         assert!(matches!(&k[4], Kw::Set { target, expr } if target.len() == 1 && expr.len() == 3));
         assert!(matches!(&k[5], Kw::If(e) if e.len() == 1));

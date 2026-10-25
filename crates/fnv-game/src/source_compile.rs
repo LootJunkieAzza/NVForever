@@ -94,7 +94,8 @@ pub fn calls_above(p: &Program, highest: u16) -> bool {
             }
             Stmt::Unmatched { cond, .. } => cond.as_ref().is_some_and(|c| expr(c, h)),
             // An extended statement calls only what its tree names (no opcode above the table).
-            Stmt::Return | Stmt::Raw { .. } | Stmt::Let { .. } => false,
+            Stmt::While { body, .. } | Stmt::ForEach { body, .. } => stmts(body, h),
+            Stmt::Return | Stmt::Raw { .. } | Stmt::Let { .. } | Stmt::Eval { .. } | Stmt::Break | Stmt::Continue => false,
         })
     }
     stmts(&p.top, highest) || p.blocks.iter().any(|b| stmts(&b.body, highest))

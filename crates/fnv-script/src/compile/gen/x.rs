@@ -10,10 +10,14 @@
 //! assignments right to left [hypothesis, to check with the editor: extender-core-tasks.md
 //! G2].
 //!
-//! A function inside an expression takes up to as many arguments as it has parameters, and
-//! each argument is a whole expression (`Sin 14 == 1` is `Sin (14 == 1)`) [documented:
-//! Script Compiler Override, "Unforeseen Consequences"]. Arguments are separated by a comma
-//! or by two operands meeting without an operator (`Rand 0, 10`, `Rand 0 10`) [hypothesis].
+//! A function inside an expression takes up to as many arguments as it has parameters. An
+//! argument is an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50`
+//! [documented: Inline Expression; Let]. Inside a compiler-override block (`Begin
+//! _GameMode`) an argument is a whole expression instead: `Sin 14 == 1` is `Sin (14 == 1)`
+//! [documented: Script Compiler Override, "Unforeseen Consequences"; the page says the
+//! override evaluates such lines differently]. Arguments are separated by a comma or by two
+//! operands meeting without an operator (`Rand 0, 10`, `Rand 0 10`), and a `-` starts the
+//! first argument (`Abs -3`) [hypothesis, probes in tools/capture/ext-probes/expressions].
 
 use super::{Gen, Val};
 use crate::compile::lex::{XKind, XTok};
@@ -114,8 +118,11 @@ fn prefix(t: &XTok) -> Option<(XUnary, u8)> {
 
 /// Binding power of `[]` and `->` (precedence 15).
 const POSTFIX: u8 = 31;
-/// Arguments of a function: everything but the assignments of precedence 0.
-const ARG: u8 = 2;
+/// An argument of a function: an operand (prefix operators, `[]`, `->` and dot calls on
+/// it, no binary operator).
+const ARG: u8 = 25;
+/// An argument inside a compiler-override block: everything but the assignments.
+const ARG_OVERRIDE: u8 = 2;
 
 fn starts_operand(t: Option<&XTok>) -> bool {
     match t {
@@ -162,6 +169,16 @@ impl Gen<'_> {
                 left = XExpr::Binary { op: XOp::Subscript, l: Box::new(left), r: Box::new(inner) };
                 continue;
             }
+            // `expr.Function args`: a call on a result or an element [documented:
+            // Chained dot syntax, NVSE Expressions `.`].
+            if t.kind == XKind::Word && t.text.starts_with('.') && t.text.len() > 1 && POSTFIX >= min {
+                let name = &t.text[1..];
+                let Some(f) = self.xfunction(name) else { return self.xerr("unknown_function", name.to_string()) };
+                p.next();
+                let args = self.xargs(p, &f)?;
+                left = XExpr::Call { call: XCall { on: Some(Box::new(left)), func: f.func, args } };
+                continue;
+            }
             if t.is(XKind::Op, "->") && POSTFIX >= min {
                 p.next();
                 let Some(k) = p.next().filter(|k| matches!(k.kind, XKind::Word | XKind::Str)) else {
@@ -206,6 +223,13 @@ impl Gen<'_> {
         }
     }
 
+    /// Whether `name` (with or without `Ref.`) is a function the catalogue lists without
+    /// an opcode.
+    pub(in crate::compile) fn xfunction_name(&self, name: &str) -> bool {
+        let n = name.rsplit_once('.').map_or(name, |(_, n)| n);
+        self.table.unnumbered.contains_key(&n.to_ascii_lowercase())
+    }
+
     fn xfunction(&self, name: &str) -> Option<XFn> {
         if let Some(op) = self.table.by_name(name) {
             let f = self.table.get(op)?;
@@ -223,6 +247,15 @@ impl Gen<'_> {
 
     /// A word: a call (`[Ref.]Function args`), `Quest.var`, a local, a form.
     fn xword(&mut self, p: &mut P<'_>, w: &str) -> Option<XExpr> {
+        // `0x1F`, `0b101` [documented: Hexadecimal Notation; Binary Notation].
+        let lw = w.to_ascii_lowercase();
+        for (prefix, radix) in [("0x", 16), ("0b", 2)] {
+            if let Some(d) = lw.strip_prefix(prefix) {
+                if let Ok(v) = i64::from_str_radix(d, radix) {
+                    return Some(XExpr::Num { value: v as f64, text: v.to_string() });
+                }
+            }
+        }
         let (head, name) = match w.split_once('.') {
             Some((h, n)) if !h.is_empty() => (Some(h), n),
             Some((_, n)) => (None, n),
@@ -266,7 +299,8 @@ impl Gen<'_> {
             if !args.is_empty() && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
                 p.next();
             }
-            if !starts_operand(p.peek()) {
+            let minus_first = args.is_empty() && f.params != Some(0) && p.peek().is_some_and(|t| t.is(XKind::Op, "-"));
+            if !starts_operand(p.peek()) && !minus_first {
                 break;
             }
             let enc = f.opcode.map(|o| self.table.param_enc(o, args.len())).unwrap_or(ParamEnc::Value);
@@ -278,8 +312,10 @@ impl Gen<'_> {
     /// One argument. A name in a parameter that takes an enumeration, an axis or a string
     /// is that, when nothing follows it but the next argument.
     fn xarg(&mut self, p: &mut P<'_>, enc: &ParamEnc) -> Option<XExpr> {
+        // Outside an override block an argument is an operand, so what follows the name
+        // (`Health + 50`) is not part of it.
         let single = p.peek().is_some_and(|t| matches!(t.kind, XKind::Word | XKind::Str))
-            && !p.peek2().is_some_and(|n| infix(n).is_some() || n.kind == XKind::LBracket || n.is(XKind::Op, "->"));
+            && !p.peek2().is_some_and(|n| (self.co && infix(n).is_some()) || n.kind == XKind::LBracket || n.is(XKind::Op, "->"));
         if single && *enc != ParamEnc::Value {
             let t = p.next()?;
             return match enc {
@@ -297,7 +333,7 @@ impl Gen<'_> {
                 _ => Some(XExpr::Str { s: t.text.clone() }),
             };
         }
-        self.xexpr(p, ARG)
+        self.xexpr(p, if self.co { ARG_OVERRIDE } else { ARG })
     }
 }
 

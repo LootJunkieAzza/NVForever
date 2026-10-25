@@ -173,7 +173,10 @@ has no such opcodes, so those bytes would not run. Rule: a unit whose bytes call
 opcode above the highest one in the function table, or that the decoder cannot read (the
 extender's own statements have byte forms of their own [hypothesis]), and that has source,
 runs from its source compiled by NVForever, seeded with its own lists [decision; no shipped unit calls
-such an opcode, so the shipped game is unchanged in `auto`]. A unit whose source does not
+such an opcode, so the shipped game is unchanged in `auto`]. The rule agrees with the
+documented opcode ranges: the base game's run to 0x13FF, the extenders' start at 0x1400
+(xNVSE 0x1400–0x1FFF, JIP LN 0x2200–0x2FFF, JohnnyGuitar 0x3100–0x35FF [documented: NVSE
+Opcode Base]), and the function table's highest opcode is below 0x1400. A unit whose source does not
 compile keeps its bytes. Names the lists lacked are added after the existing entries. A
 unit without bytes stays unrun, as in the original (the three never-compiled units of
 scripts.md §3.6).
@@ -206,15 +209,34 @@ not take goes through the compiler and runs as a one-line result script
 expression (`set TimeScale to 10 + 2 * 10`) and a call the reader refuses that contains
 an operator or parenthesis. Smoke `console-compiled-source`.
 
-## 8. The extender's grammar (tasks A7, A8 in part)
+## 8. The extender's grammar (tasks A7–A10, A12)
 
 Written from the wiki export's pages (NVSE Expressions, Let, Let Macro, Eval, Inline
 Expression, Script Compiler Override), our notes in docs/spec-notes/ext-syntax.md. Code:
 `compile/lex.rs` (`xtokens`), `compile/parse.rs` (which lines), `compile/gen/x.rs` (the
 expression parser), `vm.rs` (`xeval`).
 
+- **Extended units.** A unit that uses any of the extender's statements, declares a
+  `string_var`/`array_var` or an initialised variable, calls a function that has no
+  opcode, or has a compiler-override block is compiled with the extender's rules. In it,
+  a call line holding parentheses or calling such a function is one extended expression
+  run for what it does (`SetAV Health (GetAV Health + 50)` [documented: Inline
+  Expression], `Ar_Append a 5`). Any other unit is vanilla and its parentheses are dropped
+  as the editor drops them (§3), so the shipped units compile as before.
+- **Declarations** (A10): `string_var` and `array_var` [documented: String Variable; Array
+  Variable] are kept in the variable list as `VarType::Other("string_var"/"array_var")`
+  [hypothesis on how the extender's editor stores them]. `int i = 5` declares and assigns
+  [documented: xNVSE 6.1 inline declarations].
+- **Literals and comments** (A9): `0x1F` and `0b101` are numbers [documented: Hexadecimal
+  Notation; Binary Notation]. `/* … */` comments may span lines [documented: xNVSE 6.1.7].
+  `expr.Function args` calls a function on a result or an element [documented: NVSE
+  Expressions `.`].
+- **Compiler-override blocks** (A12): `Begin _GameMode` (any block name after `_`) is that
+  block, and inside it `if`, `elseif` and `set` take extended expressions too, with the
+  argument rule above [documented: Script Compiler Override].
 - **Which lines.** `let …`; the Let macro, a name followed by `=`, `+=`, `-=` or `*=`
-  [documented: Let Macro lists these four]; and `if eval …` / `elseif eval …`. Every
+  [documented: Let Macro lists these four]; `if eval …` / `elseif eval …`; `while …`,
+  `foreach <var> <- <source>`, `loop`, `break`, `continue` [documented: While; ForEach]. Every
   other line is read as vanilla, so the shipped units compile as before (§5, unchanged).
 - **Tokens.** The operators of NVSE Expressions (`:=` and the compound assignments,
   `::` `->` `<<` `>>` `^` `|` `&` `!` `$` `#`), brackets, braces and commas, besides the
@@ -224,10 +246,13 @@ expression parser), `vm.rs` (`xeval`).
   and the compound assignments right to left [hypothesis; probes in
   extender-core-tasks.md G3].
 - **Functions in an expression.** A function takes up to as many arguments as it has
-  parameters (the catalogue's count, or the compiler's observed one, §3), and each
-  argument is a whole expression: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script
-  Compiler Override]. Arguments are separated by a comma or by two operands meeting
-  without an operator [hypothesis]. In a parameter that takes an actor value, an axis or a
+  parameters (the catalogue's count, or the compiler's observed one, §3). An argument is
+  an operand: `Player.GetActorValue Health + 50` is `(GetAV Health) + 50` [documented:
+  Inline Expression; Let]. Inside a compiler-override block an argument is a whole
+  expression instead: `Sin 14 == 1` is `Sin (14 == 1)` [documented: Script Compiler
+  Override, which says the override reads such lines differently]. Arguments are separated
+  by a comma or by two operands meeting without an operator, and a `-` starts the first
+  argument (`Abs -3`) [hypothesis; probes in tools/capture/ext-probes/expressions]. In a parameter that takes an actor value, an axis or a
   string, a lone name is that name. A function the catalogue lists without an opcode (the
   extender's own) is kept by its catalogue name (`FuncId::Name`). A local variable's name
   hides a function of the same name, as in vanilla.
@@ -235,8 +260,14 @@ expression parser), `vm.rs` (`xeval`).
   stop when the left operand decides, and return the deciding operand's value [documented:
   NVSE Expressions; Eval]. Bitwise operators and shifts take the operands as integers
   [documented]. `^` is a power. An assignment stores the value and yields it [documented].
-  Strings, arrays, `$` `#` `*` `&`, `[]`, `->`, `:` `::` and the extender's own functions
-  stop the statement with `NotBuilt` until tasks B1–B3 and D build them.
+  Strings, arrays, `$` `#` `*` `&`, `[]`, `->`, `:` `::`, `foreach` and the extender's
+  own functions stop the statement with `NotBuilt` until tasks B1–B4 and D build them.
+- **Loops** (VM): `while` tests its condition before each round; `break` leaves the
+  innermost loop, `continue` goes to its next round, through any `If` around them; each
+  round counts against the run's step budget (100,000 statements), so a loop that never
+  ends stops the script [decision; what the original does is to be observed, B4]. A
+  `loop` without its `while`, `break` or `continue` outside a loop, and a block ending
+  inside a loop are compile errors [hypothesis: as the editor refuses them, G2].
 
 **NVForever's own byte forms.** The extender's own byte encodings are not known here
 (extender-compat.md §5.2), and none is needed: the compiler writes the extended statements
@@ -247,6 +278,16 @@ plugin or a save:
 |---|---|
 | `let` statement | opcode 0x00F0, body = the expression tree as JSON (`ir::XExpr`) |
 | extended condition (`if eval`) | the If/ElseIf condition holds one token: 0x20, 0xF0, u16 length, the tree as JSON |
+| `while` / `foreach` | opcode 0x00F1 (body: the condition as JSON) / 0x00F2 (body: `ir::XForEach` as JSON) |
+| `loop` / `break` / `continue` | opcodes 0x00F3 / 0x00F4 / 0x00F5, empty |
+| extended expression statement | opcode 0x00F6, body: the expression as JSON |
+
+The decoder nests a loop's statements between its head and its `loop` (`If` chains open
+outside a loop stay open around it); a loop left open at `End` is closed there and
+reported (`unterminated_loop`). All these opcodes lie between the vanilla statements
+(0x0010–0x001E) and the functions (0x1000 on), inside the base game's documented range of
+opcodes (0x0000–0x13FF [documented: NVSE Opcode Base, the owner's NVSE.xml export]), where
+the shipped bytes use only the statements of scripts.md §2.2.
 
 The If chain keeps its ordinary skip counts, so the decoder's nesting rules (scripts.md
 §2.6) apply unchanged. A JSON body that does not parse is a Raw statement or token, and a

@@ -164,8 +164,9 @@ pub struct RunOpts {
     /// Unknown opcodes and undecodable pieces fail the run (tests) instead of being
     /// logged and skipped (the game).
     pub strict: bool,
-    /// Statements (and calls) one run may execute. Scripts have no loops, so only
-    /// runaway recursion through the host (a stage that sets itself) can reach it.
+    /// Statements (and calls) one run may execute: a runaway loop of the extender's
+    /// (`while`, each round counted) or runaway recursion through the host (a stage that
+    /// sets itself) stops there.
     pub max_steps: u64,
 }
 
@@ -184,6 +185,9 @@ enum Flow {
     /// A stray `Else`/`ElseIf` with no `EndIf` after it in its list: the list ends here
     /// and the enclosing chain is left (see [`Vm::list`]).
     Leave,
+    /// `break` / `continue`: up to the innermost loop.
+    Break,
+    Continue,
 }
 
 /// How a run ended.
@@ -216,7 +220,7 @@ impl<'t, 'h> Vm<'t, 'h> {
     pub fn run(&mut self, stmts: &[Stmt]) -> Result<Exit, VmError> {
         Ok(match self.list(stmts, false)? {
             Flow::Return => Exit::Returned,
-            Flow::Normal | Flow::Leave => Exit::Finished,
+            Flow::Normal | Flow::Leave | Flow::Break | Flow::Continue => Exit::Finished,
         })
     }
 
@@ -313,8 +317,9 @@ impl<'t, 'h> Vm<'t, 'h> {
                     }
                     let body = taken.or(otherwise.as_ref().map(|o| (o, true)));
                     if let Some((b, is_else)) = body {
-                        if self.list(b, is_else)? == Flow::Return {
-                            return Ok(Flow::Return);
+                        match self.list(b, is_else)? {
+                            f @ (Flow::Return | Flow::Break | Flow::Continue) => return Ok(f),
+                            Flow::Normal | Flow::Leave => {}
                         }
                     }
                 }
@@ -322,12 +327,33 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Stmt::Call { call } => {
                     self.call(call)?;
                 }
-                Stmt::Let { expr } => {
+                Stmt::Let { expr } | Stmt::Eval { expr } => {
                     self.xeval(expr)?;
                     if self.host.take_return() {
                         return Ok(Flow::Return);
                     }
                 }
+                // Each round counts against the step budget, so a loop that never ends
+                // stops the script there [decision: what the original does is to be
+                // observed, extender-core-tasks.md B4].
+                Stmt::While { cond, body } => loop {
+                    self.step()?;
+                    let go = self.xeval(cond)?.truthy();
+                    if self.host.take_return() {
+                        return Ok(Flow::Return);
+                    }
+                    if !go {
+                        break;
+                    }
+                    match self.list(body, false)? {
+                        Flow::Return => return Ok(Flow::Return),
+                        Flow::Break => break,
+                        Flow::Normal | Flow::Leave | Flow::Continue => {}
+                    }
+                },
+                Stmt::ForEach { .. } => return Err(VmError::NotBuilt("foreach (B3, B4)".into())),
+                Stmt::Break => return Ok(Flow::Break),
+                Stmt::Continue => return Ok(Flow::Continue),
                 Stmt::Unmatched { marker: Marker::EndIf, .. } => {}
                 Stmt::Unmatched { .. } if in_else => {
                     let end = stmts[i + 1..]
@@ -340,8 +366,8 @@ impl<'t, 'h> Vm<'t, 'h> {
                 }
                 Stmt::Unmatched { .. } => {
                     let (flow, next) = self.stray_chain(stmts, i)?;
-                    if flow == Flow::Return {
-                        return Ok(Flow::Return);
+                    if matches!(flow, Flow::Return | Flow::Break | Flow::Continue) {
+                        return Ok(flow);
                     }
                     // `next` is the closing stray EndIf (or the end of the list).
                     i = next;
@@ -390,8 +416,9 @@ impl<'t, 'h> Vm<'t, 'h> {
             };
             let next = next_marker(at);
             if hold {
-                if self.list(&stmts[at + 1..next], false)? == Flow::Return {
-                    return Ok((Flow::Return, stmts.len()));
+                let f = self.list(&stmts[at + 1..next], false)?;
+                if matches!(f, Flow::Return | Flow::Break | Flow::Continue) {
+                    return Ok((f, stmts.len()));
                 }
                 let close = stmts[next..]
                     .iter()

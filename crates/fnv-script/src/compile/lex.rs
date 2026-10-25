@@ -126,13 +126,52 @@ pub fn tokens(line: &str) -> Vec<Tok> {
     out
 }
 
+/// The line without `/* … */` comments, which may span lines (`in_block` carries one over)
+/// [documented: xNVSE 6.1.7 comments]. Inside quotes they are text.
+fn block_comments(line: &str, in_block: &mut bool) -> String {
+    let cs: Vec<char> = line.chars().collect();
+    let mut out = String::new();
+    let mut quoted = false;
+    let mut i = 0;
+    while i < cs.len() {
+        if *in_block {
+            if cs[i] == '*' && cs.get(i + 1) == Some(&'/') {
+                *in_block = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        match cs[i] {
+            '"' => quoted = !quoted,
+            ';' if !quoted => {
+                out.extend(&cs[i..]);
+                break;
+            }
+            '/' if !quoted && cs.get(i + 1) == Some(&'*') => {
+                *in_block = true;
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        out.push(cs[i]);
+        i += 1;
+    }
+    out
+}
+
 /// Every line that can produce a statement, with its tokens; `long` collects the numbers
 /// of lines over [`MAX_LINE`] characters.
 pub fn lines(src: &str, long: &mut Vec<usize>) -> Vec<Line> {
     let src = src.trim_end_matches('\0');
     let mut out = Vec::new();
+    let mut in_block = false;
     for (n, raw) in src.split('\n').enumerate() {
         let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        let owned = block_comments(raw, &mut in_block);
+        let raw = owned.as_str();
         if raw.chars().count() > MAX_LINE {
             long.push(n + 1);
         }
@@ -181,8 +220,8 @@ impl XTok {
 }
 
 /// Operators of the extender's expressions, longest first [documented: NVSE Expressions].
-const XOPS: [&str; 31] = [
-    ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
+const XOPS: [&str; 32] = [
+    "<-", ":=", "+=", "-=", "*=", "/=", "^=", "|=", "&=", "%=", "::", "->", "<<", ">>", "==", "!=", "<=", ">=", "&&", "||", ":", "|",
     "&", "+", "-", "*", "/", "%", "^", "<", ">", "=",
 ];
 
