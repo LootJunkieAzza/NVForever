@@ -94,6 +94,8 @@ pub enum LipError {
     NoCounts { have: usize },
     #[error("{frames} frames need {need} bytes, the unpacked body has {have}")]
     Frames { frames: u32, need: usize, have: usize },
+    #[error("the body unpacks past the {limit} bytes its header declares")]
+    TooLong { limit: usize },
 }
 
 /// One decoded `.lip` file.
@@ -113,7 +115,13 @@ pub struct Lip {
 
 /// Replace every zero-run marker by its zeros.
 pub fn unpack(packed: &[u8]) -> Result<Vec<u8>, LipError> {
-    let mut out = Vec::with_capacity(packed.len() * 4);
+    unpack_at_most(packed, usize::MAX)
+}
+
+/// [`unpack`], stopping with an error past `limit` bytes: each marker unpacks to as many as
+/// 65,535 zeros, so a garbled file could otherwise ask for gigabytes.
+pub fn unpack_at_most(packed: &[u8], limit: usize) -> Result<Vec<u8>, LipError> {
+    let mut out = Vec::with_capacity(packed.len().saturating_mul(4).min(limit));
     let mut i = 0;
     while i < packed.len() {
         if packed[i] != 0 {
@@ -122,8 +130,15 @@ pub fn unpack(packed: &[u8]) -> Result<Vec<u8>, LipError> {
             continue;
         }
         let Some(n) = packed.get(i + 1..i + 3) else { return Err(LipError::CutRun { at: i }) };
-        out.resize(out.len() + usize::from(u16::from_le_bytes([n[0], n[1]])), 0);
+        let end = out.len() + usize::from(u16::from_le_bytes([n[0], n[1]]));
+        if end > limit {
+            return Err(LipError::TooLong { limit });
+        }
+        out.resize(end, 0);
         i += 3;
+    }
+    if out.len() > limit {
+        return Err(LipError::TooLong { limit });
     }
     Ok(out)
 }
@@ -157,7 +172,7 @@ impl Lip {
             return Err(LipError::NoHeader { have: bytes.len() });
         }
         let (version, declared, flag) = (u32_at(bytes, 0), u32_at(bytes, 4), u32_at(bytes, 8));
-        let raw = unpack(&bytes[HEADER_BYTES..])?;
+        let raw = unpack_at_most(&bytes[HEADER_BYTES..], (declared as usize).saturating_sub(DECLARED_EXTRA as usize))?;
         if u64::from(declared) != raw.len() as u64 + u64::from(DECLARED_EXTRA) {
             return Err(LipError::Size { declared, unpacked: raw.len() });
         }
@@ -177,7 +192,8 @@ impl Lip {
             .map(|f| {
                 let mut v = [0.0f32; CHANNELS];
                 for (c, x) in v.iter_mut().enumerate() {
-                    *x = f32::from_bits(u32_at(f, c * 4));
+                    // A garbled weight (NaN, infinite) would bend the face out of shape.
+                    *x = Some(f32::from_bits(u32_at(f, c * 4))).filter(|v| v.is_finite()).unwrap_or(0.0);
                 }
                 v
             })

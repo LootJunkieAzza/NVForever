@@ -509,6 +509,11 @@ fn emit(
                 Some(s) => d.emitter.values_in(t, s),
                 None => d.emitter.values(age),
             };
+            // Births past the free slots are dropped (as the loop below would skip them);
+            // capping here keeps a broken file's huge or infinite rate from looping
+            // without end.
+            let free = d.max.saturating_sub(live.particles.len()) as f32;
+            *owed = if owed.is_finite() { owed.min(free + owed.fract()) } else { 0.0 };
             while *owed >= 1.0 {
                 *owed -= 1.0;
                 if live.particles.len() >= d.max {

@@ -42,23 +42,51 @@ pub struct WorldData {
     pub imposters: &'static ImposterRegions,
     /// Regions with weather lists (sky.rs `weather_region`).
     pub weather_regions: &'static [fnv_world::sky::RegionWeather],
+    /// Plugins left out of the load order, one line each ([`open_plugins`]); logged once
+    /// the log is up.
+    pub dropped_plugins: Vec<String>,
+}
+
+/// The plugins of a load order, opened, and a line for each one left out.
+pub struct OpenedPlugins {
+    pub plugins: Vec<EsmPlugin>,
+    pub dropped: Vec<String>,
+}
+
+/// Open the plugins `names` (load order) in `data_dir` for the game. A plugin that cannot
+/// be read or parsed (a truncated or broken mod) is left out, and then every plugin the
+/// load order would refuse: a missing master, a master that loads after it, a second
+/// copy, past the 255th (`fnv_esm::loadorder::drop_unloadable`). The game goes on without
+/// them; a line for each is printed now (the log is not up yet) and kept for the log.
+pub fn open_plugins(data_dir: &Path, names: &[String]) -> OpenedPlugins {
+    let mut dropped = Vec::new();
+    let mut plugins = Vec::with_capacity(names.len());
+    for n in names {
+        match EsmPlugin::open(data_dir.join(n)) {
+            Ok(p) => plugins.push(p),
+            Err(e) => dropped.push(format!("plugin {n} left out: cannot be read: {e}")),
+        }
+    }
+    let (plugins, refused) = fnv_esm::loadorder::drop_unloadable(plugins);
+    dropped.extend(refused.into_iter().map(|d| format!("plugin {} left out: {}", d.plugin, d.reason)));
+    for d in &dropped {
+        eprintln!("warning: {d}");
+    }
+    OpenedPlugins { plugins, dropped }
 }
 
 impl WorldData {
-    pub fn open(data_dir: &Path, schema_dir: &Path, plugins: &[String], world: &str) -> Result<WorldData, String> {
+    pub fn open(schema_dir: &Path, opened: OpenedPlugins, world: &str) -> Result<WorldData, String> {
         let schema: &'static EsmSchema =
             Box::leak(Box::new(EsmSchema::load_dir(schema_dir).map_err(|e| format!("{}: {e}", schema_dir.display()))?));
-        let plugins: Vec<EsmPlugin> = plugins
-            .iter()
-            .map(|p| EsmPlugin::open(data_dir.join(p)).map_err(|e| format!("{p}: {e}")))
-            .collect::<Result<_, _>>()?;
+        let OpenedPlugins { plugins, dropped: dropped_plugins } = opened;
         let plugins: &'static [EsmPlugin] = Box::leak(plugins.into_boxed_slice());
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
         let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
         let imposters: &'static ImposterRegions = Box::leak(Box::new(ImposterRegions::build(lo, schema)));
         let weather_regions: &'static [fnv_world::sky::RegionWeather] = Box::leak(fnv_world::sky::region_weathers(lo, schema).into_boxed_slice());
-        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new(), imposters, weather_regions };
+        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new(), imposters, weather_regions, dropped_plugins };
         data.set_world(w.form_id);
         Ok(data)
     }
@@ -201,6 +229,8 @@ pub struct StreamStats {
     pub refs_skipped_disabled: usize,
     pub refs_skipped_type: usize,
     pub refs_no_model: usize,
+    /// References whose model failed to load, drawn as the game's error marker.
+    pub refs_error_marker: usize,
     /// TREE references (SpeedTree, generated or as billboards).
     pub refs_speedtree: usize,
     /// References drawn with their own node hierarchy, playing an Idle sequence.
@@ -991,6 +1021,14 @@ pub fn spawn_model(
     // With the base's alternate textures on the shapes they name (texture-swaps.md §4).
     let Some(model) = models.model_swapped(&path, false, &base.world_alt_textures) else {
         stats.refs_no_model += 1;
+        if spawn_error_marker(commands, parent, r, rt, models) {
+            stats.refs_error_marker += 1;
+            // Once per model: a broken mod can place hundreds of one missing model.
+            static TOLD: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
+            if TOLD.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert_with(HashSet::new).insert(path.clone()) {
+                info!("world: 0x{r:08X} {path}: its model did not load; drawn as the error marker (each reference of it)");
+            }
+        }
         return;
     };
     // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
@@ -1287,6 +1325,24 @@ fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Han
     })();
     models.cache.set_billboard(tree, made.clone());
     made
+}
+
+/// The game's own marker for a model it could not load: a big red sign with an
+/// exclamation mark [observed: owner's screenshot of the original with a mod's model
+/// missing; observed: `meshes\marker_error.nif` in Fallout - Meshes.bsa, one unlit
+/// shape; hypothesis: the original draws this file in the missing model's place].
+pub const ERROR_MARKER: &str = "meshes\\marker_error.nif";
+
+/// Draw [`ERROR_MARKER`] where reference `r`'s model would be (its transform `rt` in
+/// `parent`'s space), so a broken mod shows where it is broken; whether it was drawn
+/// (the marker itself can be missing from a stripped install).
+fn spawn_error_marker(commands: &mut Commands, parent: Entity, r: u32, rt: Affine3A, models: &mut ModelCtx) -> bool {
+    let Some(marker) = models.model(ERROR_MARKER) else { return false };
+    for s in &marker.shapes {
+        let m = Mat4::from(rt * s.transform);
+        commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(m), RefVisual(r), ChildOf(parent)));
+    }
+    true
 }
 
 fn base_type_name(b: Option<&BaseObject>) -> String {

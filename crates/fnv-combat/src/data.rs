@@ -197,6 +197,12 @@ pub struct WeaponStats {
     pub enchantment: Option<FormId>,
     pub impact_dataset: Option<FormId>,
     pub embedded: bool,
+    /// DNAM "Embedded Weapon - Actor Value" as a limb-condition actor value code (25
+    /// Perception Condition … 31 Brain Condition): "the condition value affected when the
+    /// weapon is targeted" [documented: GECK wiki Weapons; codes: [`limb_code`]]. `None`
+    /// for a weapon that is not embedded. Not part of any report.
+    #[serde(skip)]
+    pub embedded_limb: Option<u16>,
     pub playable: bool,
     pub sound_level: Option<String>,
     /// MOD3: the scope's overlay model (docs/spec-notes/weapon-scopes.md §1). Not part of
@@ -1003,12 +1009,22 @@ fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
         enchantment: cx.fid("EITM", first(d, b"EITM")),
         impact_dataset: cx.fid("INAM", first(d, b"INAM")),
         embedded: flags1.is_some_and(|x| has_flag(x, "Embedded Weapon")),
+        embedded_limb: flags1.is_some_and(|x| has_flag(x, "Embedded Weapon")).then(|| label(dn.and_then(|v| v.get("embedded_weapon_actor_value"))).and_then(|l| limb_code(&l))).flatten(),
         playable: !flags1.is_some_and(|x| has_flag(x, "Non-Playable")),
         sound_level: label(first(d, b"VNAM")),
         scope_nif: first(d, b"MOD3").and_then(text),
         scope_effect: cx.fid("EFSD", first(d, b"EFSD")),
         zoom_mod_on: false,
     }
+}
+
+/// The limb-condition actor value code of a DNAM "Embedded Weapon - Actor Value" name
+/// (schema `objects.json`: Perception, Endurance, Left Attack, Right Attack, Left
+/// Mobility, Right Mobility, Brain → 25 … 31: the limb conditions, Perception Condition
+/// to Brain Condition, in the same order (`fnv_game::actor_values::LIMB_CONDITIONS`)).
+pub fn limb_code(name: &str) -> Option<u16> {
+    const NAMES: [&str; 7] = ["Perception", "Endurance", "Left Attack", "Right Attack", "Left Mobility", "Right Mobility", "Brain"];
+    NAMES.iter().position(|n| *n == name).map(|i| 25 + i as u16)
 }
 
 fn ammo(cx: &mut Ctx, d: &[Decoded]) -> AmmoStats {

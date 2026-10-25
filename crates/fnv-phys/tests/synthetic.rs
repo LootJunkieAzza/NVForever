@@ -129,6 +129,32 @@ fn bad_inputs_are_reported_not_dropped() {
 }
 
 #[test]
+fn non_finite_positions_are_refused() {
+    let mut w = ground();
+    // A NaN in the reference's position, the node's translation or a hull point: no body
+    // reaches the world, and stepping stays finite.
+    let r = w.add_ref(&at(1, [f32::NAN, 0.0, 0.0]), &[object(boxed([1.0; 3]), Motion::Dynamic)]);
+    assert_eq!((r.bodies, r.errors.len()), (0, 1));
+    let mut o = object(boxed([1.0; 3]), Motion::Dynamic);
+    o.node_transform.translation = [0.0, f32::INFINITY, 0.0];
+    let r = w.add_ref(&at(2, [0.0, 0.0, 50.0]), &[o]);
+    assert_eq!((r.bodies, r.errors), (0, vec![ConvertError::BadDimension]));
+    let shape = Shape::Compound {
+        children: vec![
+            (Iso { translation: [f32::NAN; 3], rotation: ID }, Shape::Sphere { radius: 1.0 }),
+            (Iso::IDENTITY, Shape::ConvexHull { points: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, f32::NAN]] }),
+            (Iso::IDENTITY, boxed([1.0; 3])),
+        ],
+    };
+    let r = w.add_ref(&at(3, [0.0, 0.0, 50.0]), &[object(shape, Motion::Dynamic)]);
+    assert_eq!((r.bodies, r.colliders, r.errors.len()), (1, 1, 2));
+    for _ in 0..30 {
+        w.step();
+    }
+    assert!(down(&mut w, 0.0, 0.0).is_some_and(|h| h.point.iter().all(|v| v.is_finite())));
+}
+
+#[test]
 fn trimesh_material_on_ray_hit() {
     let mut w = PhysWorld::new(PhysParams::default());
     let mesh = Shape::TriMesh {
@@ -573,6 +599,20 @@ fn actor_volumes_take_shots() {
     assert!(w.remove_actor_volume(0x10));
     w.update_queries();
     assert!(w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).is_none());
+}
+
+#[test]
+fn non_finite_hit_volumes_and_parts_are_left_out() {
+    let mut w = ground();
+    w.set_actor_volume(0x10, HitVolume { radius: f32::NAN, ..person([200.0, 0.0, 0.0], false) });
+    assert_eq!(w.actor_volumes().count(), 0);
+    let good = PartCapsule { part: 1, a: [200.0, 0.0, 40.0], b: [200.0, 0.0, 100.0], radius: 15.0 };
+    let bad = PartCapsule { part: 2, a: [f32::NAN, 0.0, 40.0], ..good };
+    w.set_actor_parts(0x10, person([200.0, 0.0, 0.0], false), &[good, bad]);
+    assert_eq!(w.actor_part_count(0x10), 1);
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 70.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert_eq!(shot.owner, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 1 });
 }
 
 #[test]

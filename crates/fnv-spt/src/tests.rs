@@ -137,3 +137,18 @@ fn generated_tree() {
     let mid = g.brightness(0.2, lo + 0.25 * (hi - lo));
     assert!((mid - (0.2 + 0.8 * 0.25f32.cbrt())).abs() < 1e-5, "{mid}");
 }
+
+/// A broken file's frequencies and level count cannot grow a tree without end.
+#[test]
+fn runaway_tree_stays_within_limits() {
+    let mut t = Tree::parse(&sample()).unwrap();
+    let wood = t.levels[1].clone();
+    t.levels.splice(1..1, std::iter::repeat_n(wood, 10));
+    for lv in &mut t.levels {
+        lv.frequency = f32::INFINITY;
+    }
+    let g = generate(&t);
+    assert!(g.positions.len() <= crate::generate::MAX_VERTICES + 33 * 33, "{} vertices", g.positions.len());
+    assert!(g.leaves.len() <= crate::generate::MAX_LEAVES);
+    assert!(Curve::parse(&format!("BezierSpline 0 1 0 {{ {} 0 }}", usize::MAX)).is_err());
+}

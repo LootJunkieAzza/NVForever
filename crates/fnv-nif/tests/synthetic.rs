@@ -207,3 +207,62 @@ proptest::proptest! {
         }
     }
 }
+
+/// The repository schemas plus a test block with arrays of structures: one that takes no
+/// bytes in this version, one of a byte, and rows of a given width.
+fn schema_with_arrays() -> Schema {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/nif");
+    let mut docs: Vec<(String, String)> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&p).unwrap()))
+        .collect();
+    docs.push((
+        "zz_test.json".into(),
+        r#"{"format": "fnv.nif.schema/1",
+            "structs": {
+              "TestNothing": {"fields": [{"name": "x", "type": "u8", "until": "4.0.0.0"}]},
+              "TestByte": {"fields": [{"name": "x", "type": "u8"}]}
+            },
+            "blocks": {
+              "TestEmptyArray": {"fields": [{"name": "n", "type": "u32"}, {"name": "items", "type": "TestNothing", "length": "n"}]},
+              "TestByteArray": {"fields": [{"name": "n", "type": "u32"}, {"name": "items", "type": "TestByte", "length": "n"}]},
+              "TestRows": {"fields": [{"name": "n", "type": "u32"}, {"name": "rows", "type": "TestByte", "length": "n", "width": "0"}]}
+            }}"#
+            .into(),
+    ));
+    Schema::from_strs(docs.iter().map(|(n, t)| (n.as_str(), t.as_str()))).unwrap()
+}
+
+/// A broken count of elements that take no bytes (or of empty rows) is refused rather
+/// than built from a few bytes; a plausible one still reads.
+#[test]
+fn huge_counts_of_empty_elements_are_refused() {
+    let s = schema_with_arrays();
+    let decode = |block: &str, n: u32, tail: &[u8]| {
+        let mut b = n.to_le_bytes().to_vec();
+        b.extend_from_slice(tail);
+        let data = build(&[(block, b)], &[], &[0]);
+        let f = NifFile::parse(&data, Some(&s)).unwrap();
+        f.decode_block(&s, &data, 0)
+    };
+    assert!(decode("TestEmptyArray", 100, &[]).is_ok());
+    assert!(decode("TestEmptyArray", 1 << 25, &[]).is_err());
+    assert!(decode("TestByteArray", 3, &[1, 2, 3]).is_ok());
+    assert!(decode("TestByteArray", 1 << 25, &[1, 2, 3]).is_err());
+    assert!(decode("TestRows", 5, &[]).is_ok());
+    assert!(decode("TestRows", 1 << 25, &[]).is_err());
+}
+
+/// Nodes listing each other (or themselves) as children: the loop's closing link is left
+/// out, so the parents form a tree.
+#[test]
+fn parent_loops_are_broken() {
+    let s = schema();
+    let data = build(&[("BSFadeNode", node(1)), ("BSFadeNode", node(0)), ("BSFadeNode", node(2))], &["Root"], &[0]);
+    let f = NifFile::parse(&data, Some(&s)).unwrap();
+    let dec = Decoded::new(&f, &data, &s);
+    let objs = scene_objects(&f, &dec);
+    assert_eq!(objs.iter().map(|o| o.parent).collect::<Vec<_>>(), [None, Some(0), None]);
+}

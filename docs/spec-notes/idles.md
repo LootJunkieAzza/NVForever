@@ -698,3 +698,97 @@ The creatures' combat idles (mole rat, giant rat, mantis, gecko) want procedure 
   it again on the run. A capture of `GetCurrentAIProcedure`, `IsMoving`, `IsSneaking`,
   `IsIdlePlaying` and `IsWeaponOut` on a fleeing NPC would settle it
   (`tools/capture/observe.py`); none was taken.
+
+## 14. Creatures' combat idles: alerted and standing (owner's playtest 2026-10-24)
+
+The owner saw young geckos give no sign before they attacked. The gecko's idle tree has a
+combat branch that the engine never played.
+
+### 14.1 What the data holds [observed: FalloutNV.esm, `fnvtool esm decode`]
+
+- `NVGeckoCombatIdles` 0x0011D9E9, a root of the `creatures\NVGecko\IdleAnims` branches,
+  wants `IsMoving != 1` AND (`GetIsAlerted == 1` OR `GetCurrentAIProcedure == 13` OR
+  `== 16`), i.e. standing while alerted, fighting or fleeing. Its children:
+  `NVgeckoHiss` (CombatIdle_Hiss.kf, GetRandomPercent < 50), `NVgeckoHopLeft`
+  (CombatIdle_HopLeft.kf, < 50) and `NVgeckoHopRight` (CombatIdle_HopRight.kf, none).
+- The gecko roots in chain order: `NVGeckoHitReactions`, `NVGeckoGetupAnims`,
+  `NVGeckoCombatIdles`, `NVGeckoGeneralIdles` (IsInCombat == 0: scratching, eye licks).
+  The combat branch comes before the general one.
+- Other creatures' warning idles want `GetIsAlerted == 1` alone: `MWarning` 0x00072DC2
+  (mirelurk SpecialIdle_Warning.kf), `StBWarning` 0x00099837 (sentry bot). The giant
+  rat's `NVgrGrowl` and the mole rat's growl sit under their own combat nodes.
+
+### 14.2 Rules as built (`FidgetKind::Alerted`, `engine/nvforever/src/idles.rs`)
+
+- A creature (a skeleton folder with a `creatures` part, DLC folders included) standing
+  still with its stance drawn (`Game::draws_weapon`: a combat state, SetAlert, or a
+  warning to the player, `Game::warning_to`) is checked every 2 s, as the drawn-weapon
+  fidgets are (§11), for the first leaf of its tree below a node naming
+  `GetIsAlerted == 1`, alone or joined by OR [hypothesis: the folder match and walk of
+  §11]. The tree's own conditions decide: a warning gecko reads GetIsAlerted 0 and
+  procedure 44, so it does not hiss until it fights (procedure 13) [observed in the
+  original, §14.3].
+- It ends when the creature moves or is calm again [design]; an attack stops it as it
+  stops any idle (`attack_anims.rs`). People keep their drawn-weapon fidgets: their tree
+  is not walked for this [design].
+- Log: `idle: … plays … (CombatIdle)`; `creature combat idle summary` at exit. Smoke
+  `aggro-warning-look`.
+
+### 14.3 The original's warning [observed: capture `warnings`, session young_gecko, save nvfstrip, 2026-10-24, plugin version 7]
+
+The player walked up to Young Gecko VERGSGecko6REF 0x00157B3C (aggro radius 500,
+sandboxing) from 900 units, sampled every 5 game loops:
+- Outside 500: it wandered (procedure 7), detecting the player from about 900.
+- At 467 (the first sample inside 500): it stopped (IsMoving 0) and faced the player
+  (within 1 degree, from 9.5 off the sample before); its package read a form made at
+  run time (FF001319), GetCurrentAIPackage 35 (GUARD), GetCurrentAIProcedure 44 (GUARD);
+  GetAnimAction 0 ("equip weapon"), IsWeaponOut 0, GetIsAlerted 0.
+- 21 game seconds later (0.7 s at TimeScale 30), the player at 246: combat (procedure
+  13, package type 5); IsWeaponOut 1 a sample later; GetIsAlerted stayed 0 in the fight.
+- So a warning creature draws but is not alerted, and the combat idles that want the
+  alerted state or the combat procedure come with the fight. IsIdlePlaying and the
+  warning count need plugin version 9 (not installed); not read.
+
+Sessions gecko_stay_400 and gecko_stay_150 (run by the observer session, same save and
+plugin; the player put at a distance and left there):
+- Goodsprings Young Gecko Hunter 0x00165186 (radius 650) stopped at 607 units, faced
+  the player within 1 degree, package a run-time form (type 35, procedure 44), and drew
+  and put away its weapon in turn: IsWeaponOut 1 every 0.0167 game hours (60 game
+  seconds, 2 s at TimeScale 30), GetAnimAction cycling 0 / 1 / -1, GetIsAlerted 0, never
+  moving. The owner, watching, saw it hiss: the gecko's draw clip is the hiss. It
+  attacked 451 game seconds (15 s) after it stopped, the player still at 606. Its
+  companion 0x00165185 warned from 618 without the cycle and attacked after 500 game
+  seconds (16.7 s).
+- A Young Gecko (radius 500) detecting the player first at 196 units attacked in the
+  same sample, with no warning.
+- Built: the 15 s and the half-radius attack (`fnv_game::aggro`, "The timing"). Not the
+  cycle: the owner judged it an unintended quirk of the original (2026-10-25); a warning
+  creature draws its stance once and holds it (`creature_stance.rs`).
+
+Gomorrah sessions (same day): the cash-room guard 0x00127950, aggro radius 128 of his own,
+warned a player 66-85 units from him the same way: a run-time Guard package (type 35,
+procedure 44), faced the player, drew and holstered his gun every 2.5 s (IsWeaponOut,
+GetAnimAction 0 / 1), GetIsAlerted 0, and fought 21 s later. A player 129-135 from him
+(24-33 from the door his Guard package guards) got a brief run-time Follow package and a
+turn of his head, no warning. For people too the owner chose draw and hold over the cycle
+(2026-10-25, `alert.rs`); they say their GuardTrespass line at each warning. The bouncer sessions saw nothing (no detection; the
+player was moved away by something in Gomorrah).
+
+Campaign `warnings2` (2026-10-25, run by the observer session, plugin version 7, 23
+sessions; the frame rate was lower, the clock normal):
+- Attack delay: creatures 15 s after the warning began (the young gecko at 387-393 of
+  500, the coyote VERGSCoyote6REF at 727 of 1024, the gecko hunters), the cash-room guard
+  21-22 s (at 70-90 of 128, four runs). The setgs runs (fAITrespassWarningTimer 2 / 10,
+  iGuardWarnings 1 / 4, TimeScale 60) showed no difference: their start distances
+  varied between 90 and 98 and that, not the settings, decided whether he attacked.
+- Inside half the radius: the young gecko at 217 of 500 fought on detection; the guard at
+  32 and 62 of 128 fought after one draw (about 3 s). Open: the guard at 98-121 of 128
+  warned for 68 s and never attacked.
+- The draw cycle, sampled every game loop: the guard's weapon out 1.33 s, holstered
+  1.17 s (2.5 s); the young gecko out 0.81 s, holstered 1.20 s (2.0 s), GetAnimAction 0
+  for 1.08 s and 1 for 0.88 s. Not built (owner: draw and hold).
+- Gomorrah's room guards (vGomorrahGuardPackage, no aggro radius) did not warn a player
+  15 units from the door each guards, nor 60 units from them (a run-time Follow
+  package, procedure 11, instead). Guard packages' own warnings were taken out.
+- Coyote at 300-560 of 1024: it took up the warning's Guard package within 0.6 s, then
+  lost sight of the player and stood without warning or fighting for 28 s.

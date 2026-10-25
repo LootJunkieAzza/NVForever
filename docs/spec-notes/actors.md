@@ -2037,7 +2037,11 @@ vvoid` rows are the "void" creature of spawn lists (VSpawn…50: a
     entry's inventory: one placed reference stands for one pick, so not a gap.
   - Many creature folders have stances for their own body weapons (eyebots, dogs,
     radscorpions `1hp`; geckos, mirelurks `2hl`; sentry bots, securitrons, turrets);
-    these are "Embedded Weapon" records and are not drawn as models.
+    these are "Embedded Weapon" records and are not drawn as models. The audit looks for
+    stance clips at the folder's root only: Mister Handy's and Gutsy's
+    (`creatures\mistergutsy`), the protectron's and the bloatfly's are in the folder's
+    `specialanims\` [observed], so their rows show no stance clips. Creatures fight with
+    their body weapons since 2026-10-24 (docs/design/combat-ai.md §19).
 - **The gap found: thrown weapons won the weapon choice.** Ghost harvesters (spear and
   throwing spears) held the throwing spear, which is hidden while holstered and is
   never thrown (NPCs do not throw yet), so they showed no weapon. Fixed by holding a

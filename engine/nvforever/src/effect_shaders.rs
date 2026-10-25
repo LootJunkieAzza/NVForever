@@ -8,8 +8,10 @@
 //!   gets up to two overlays drawn on the same surface (its mesh, and its skin when it
 //!   has one): the fill (texture × colour, panned by the texture speed) and the edge
 //!   (the edge colour, faded in towards the outline by the NIF material's view-angle
-//!   falloff). The player's are the meshes of its third-person body. Both are unlit, cast no shadow and sit a decal's depth step in front of
-//!   the surface. Their alpha follows the record's cycle every frame; a mesh drawn later
+//!   falloff). Cut-out and blended meshes (hair, beards, lashes) get none: the overlays
+//!   do not carry the mesh's texture alpha. The player's are the meshes of its
+//!   third-person body. Both are unlit, cast no shadow and sit a decal's depth step in
+//!   front of the surface. Their alpha follows the record's cycle every frame; a mesh drawn later
 //!   (a cell loaded again, armour put on) gets its overlays then.
 //! - **Holes** (§7 of the notes): a shader with a holes texture gives every mesh it
 //!   covers (and its own overlays) a copy of the mesh's material that the holes texture
@@ -323,8 +325,16 @@ fn play(
         a.covered.retain(|e, _| meshes.iter().any(|(m, ..)| m == e));
         a.holed.retain(|e, _| meshes.iter().any(|(m, ..)| m == e));
         let before = a.covered.len();
-        for &(e, mesh, skin, _) in meshes {
+        for &(e, mesh, skin, mat) in meshes {
             if a.covered.contains_key(&e) {
+                continue;
+            }
+            // A cut-out or blended mesh (hair, beards, lashes) gets no overlay: drawn
+            // without the mesh's texture alpha, it covered every card of the hair in the
+            // membrane's colour and the head showed bald (owner's playtest, 2026-10-24).
+            let own = a.holed.get(&e).map_or(&mat.0, |(original, _)| original);
+            if models.materials.get(own).is_some_and(|m| !matches!(m.base.alpha_mode, AlphaMode::Opaque) || m.extension.alpha_cut > 0.0) {
+                a.covered.insert(e, Vec::new());
                 continue;
             }
             let mut overlays = Vec::new();
@@ -561,6 +571,8 @@ fn actor_alpha(
                         if let AlphaMode::Mask(cut) = m.base.alpha_mode {
                             m.extension.alpha_cut = cut * a;
                         }
+                        // A see-through actor's hair hides nothing behind it.
+                        m.extension.depth_write = false;
                         if matches!(m.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)) {
                             m.base.alpha_mode = AlphaMode::Blend;
                         }

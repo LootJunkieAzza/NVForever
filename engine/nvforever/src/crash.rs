@@ -231,6 +231,14 @@ fn report_text(thread: &str, message: &str, location: &str, place: &str, command
 fn set_hook() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // A broken model, texture or animation: caught, and that file counts as failed
+        // (nvf_assets::guard). Logged, not a crash.
+        if nvf_assets::guard::in_guard() {
+            let message = nvf_assets::guard::message(info.payload());
+            let location = info.location().map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+            warn!("a broken file panicked while loading at {location}: {message}; that file is skipped");
+            return;
+        }
         let thread = std::thread::current();
         let thread = thread.name().unwrap_or("unnamed").to_string();
         let message = info
@@ -263,7 +271,7 @@ fn set_hook() {
 }
 
 /// Say where the run log is, and whether the run before this one ended abnormally.
-pub fn report_start() {
+pub fn report_start(mut commands: Commands) {
     match run_log_path() {
         Some(p) => info!("run log: {}", p.display()),
         None => info!("run log: none"),
@@ -271,6 +279,32 @@ pub fn report_start() {
     if let Some(Some(p)) = UNCLEAN.get() {
         warn!("run log: the previous run did not end normally and left no crash report (a native crash, or the process was ended): {}", p.display());
     }
+    commands.insert_resource(bevy::render::error_handler::RenderErrorHandler(render_error));
+}
+
+/// GPU validation errors let through before the game stops after all.
+const VALIDATION_ERRORS_LET_THROUGH: u32 = 20;
+
+/// What the game does on a GPU error. Bevy's own choice is to close the game on any;
+/// the images made from files are checked before they reach the GPU
+/// (nvf_assets::texture::checked_image), so a validation error left is most likely one
+/// broken file's: it is logged and the game goes on. One that keeps coming back stops
+/// the game as before, rather than flash the screen frame after frame; so do running out
+/// of GPU memory and a lost device.
+fn render_error(error: &bevy::render::error_handler::RenderError, main: &mut World, _: &mut World) -> bevy::render::error_handler::RenderErrorPolicy {
+    use bevy::render::error_handler::{ErrorType, RenderErrorPolicy};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+    if matches!(error.ty, ErrorType::Validation) {
+        let n = SEEN.fetch_add(1, Ordering::Relaxed) + 1;
+        if n <= VALIDATION_ERRORS_LET_THROUGH {
+            warn!("render: GPU validation error {n} of {VALIDATION_ERRORS_LET_THROUGH} let through (most likely a broken file): {}", error.description);
+            return RenderErrorPolicy::Ignore;
+        }
+    }
+    error!("render: {:?} GPU error, the game stops: {}", error.ty, error.description);
+    main.write_message(AppExit::error());
+    RenderErrorPolicy::StopRendering
 }
 
 /// Keep where the camera is for a crash report: worldspace or interior, cell, position.

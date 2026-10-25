@@ -60,8 +60,14 @@ pub fn arr3(v: Vector) -> [f32; 3] {
 
 /// `iso` as a pose, with its translation multiplied by the uniform `scale` that is baked
 /// into the shapes it places.
+/// A non-finite translation (a broken mod's file) is refused here, before it can reach
+/// rapier, where one NaN position poisons the whole physics world.
 pub fn pose(iso: &Iso, scale: f32) -> Result<Pose, ConvertError> {
-    Ok(Pose::from_parts(vec3(iso.translation) * scale, rotation(&iso.rotation)?))
+    let t = vec3(iso.translation) * scale;
+    if !t.is_finite() {
+        return Err(ConvertError::BadDimension);
+    }
+    Ok(Pose::from_parts(t, rotation(&iso.rotation)?))
 }
 
 fn finite_pos(v: f32) -> Result<f32, ConvertError> {

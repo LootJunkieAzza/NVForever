@@ -79,6 +79,14 @@
 //! holes. A shape with holes is drawn alpha-tested, so the depth-only passes run the
 //! same test (`nif_prepass.wgsl`).
 //!
+//! Depth of blended hair: hair-shader shapes (hair, beards, brows) are blended
+//! ([`NifSurface::depth_write`]). Bevy writes no depth for blended shapes, so a blended
+//! shape drawn after the hair (fire, a dust devil, an effect shader's glow) painted over
+//! it wherever only the room's depth lay behind it, and the player's head showed bald
+//! through flames (owner's playtest, 2026-10-24). Hair writes depth where its alpha
+//! reaches [`nif_spawn::HAIR_DEPTH_CUT`](crate::nif_spawn::HAIR_DEPTH_CUT) and drops the
+//! fainter fragments [engineering choice; docs/spec-notes/nif.md §6 "Hair"].
+//!
 //! Shade light: a shape can take the sun's shadows from another light's shadow map
 //! instead of the sun's own ([`NifSurface::shade_light`]). That light is a second
 //! directional light with shadows, pointing as the sun does, so its shadow map holds the
@@ -232,6 +240,9 @@ pub struct NifSurface {
     /// The shape's sun shadows are those of the shade light (module docs, "Shade light"),
     /// where the view has one.
     pub shade_light: bool,
+    /// A blended shape that writes depth in the main pass (module notes, "Depth of blended
+    /// hair"); its [`alpha_cut`](Self::alpha_cut) keeps faint fragments out of the depth.
+    pub depth_write: bool,
     /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
     /// which the holes texture's alpha leaves a hole, negative for none; y the width of
     /// the edge band below it; z, w unused.
@@ -324,6 +335,7 @@ impl Default for NifSurface {
             decal: false,
             hard_edges: false,
             shade_light: false,
+            depth_write: false,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
             soft: Vec4::ZERO,
@@ -342,6 +354,7 @@ pub struct NifSurfaceKey {
     pub shade_light: bool,
     /// The shape has a FaceGen offset ([`NifSurface::facegen_offset`]).
     pub facegen: bool,
+    pub depth_write: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
@@ -352,6 +365,7 @@ impl From<&NifSurface> for NifSurfaceKey {
             hard_edges: surface.hard_edges,
             shade_light: surface.shade_light,
             facegen: surface.facegen_offset.is_some(),
+            depth_write: surface.depth_write,
         }
     }
 }
@@ -387,6 +401,10 @@ impl MaterialExtension for NifSurface {
         }
         if key.bind_group_data.refract {
             refraction_pipeline(descriptor);
+        } else if key.bind_group_data.depth_write && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
+                depth_stencil.depth_write_enabled = Some(true);
+            }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
@@ -639,10 +657,13 @@ fn spawn_transmission_anchor(mut commands: Commands, mut meshes: ResMut<Assets<M
 }
 
 /// Whether a material is see-through: blended, added or multiplied onto what lies behind
-/// it (glass, light rays, glows, smoke), and not an alpha-tested cut-out with soft edges
-/// (`NifSurface::alpha_cut`), which is solid where it is drawn.
+/// it (glass, light rays, glows, smoke, hair), and not an alpha-tested cut-out with soft
+/// edges (`NifSurface::alpha_cut`), which is solid where it is drawn. Hair's cut only
+/// keeps faint fragments out of its depth ([`NifSurface::depth_write`]); it stays
+/// see-through, as before that cut.
 pub fn see_through(m: &NifMaterial) -> bool {
-    matches!(m.base.alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied) && m.extension.alpha_cut <= 0.0
+    matches!(m.base.alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied)
+        && (m.extension.alpha_cut <= 0.0 || m.extension.depth_write)
 }
 
 /// Marks a mesh [`see_through_casts_no_shadow`] took the shadow from.
@@ -755,25 +776,25 @@ mod tests {
         // Only the decal, refraction, hard-edge, shade-light and FaceGen switches select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false });
         assert_eq!(surface.alpha_cut, 0.0);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         surface.alpha_cut = 0.5;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false });
         // A FaceGen offset selects the tinting shader.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false });
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).
