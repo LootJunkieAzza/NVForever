@@ -174,6 +174,7 @@ use crate::nav::NavState;
 use fnv_game::combat_group::{Post, PostKind, Strength};
 use fnv_nav::Space;
 use nvf_play::Location;
+use crate::idles::ActorIdle;
 use crate::limbs::ActorRig;
 use crate::locomotion::{Dying, Flinch};
 use crate::ragdoll::Corpse;
@@ -371,6 +372,8 @@ struct Fighter {
     /// The start (`Flinch::at`, as bits) of the last hit reaction counted as holding it
     /// back.
     stagger_seen: Option<u32>,
+    /// The serial of the last "No attacking" idle counted as holding it back.
+    idle_hold_seen: Option<u32>,
     /// Its temperaments (docs/design/combat-ai.md §14.1), kept across targets.
     temper: Temperament,
     /// Crouched to fire since (clock); seconds stood still; its feet last frame; seconds
@@ -590,6 +593,8 @@ struct Stats {
     /// swung that they cut short.
     staggers: usize,
     blows_cut: usize,
+    /// Idles flagged "No attacking" that held a fighter back.
+    idle_holds: usize,
     /// Frames in which a fighter that could have attacked waited to face its target.
     unfaced: usize,
     /// Crouching (§14.2): times crouched to fire, behind low cover; stood up, for a
@@ -1016,7 +1021,7 @@ pub(crate) fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
 /// The navmesh, the player's place, the battle's counts, and who the AI moves.
 type Where<'w> = (Option<Res<'w, NavState>>, Option<Res<'w, Location>>, ResMut<'w, Battle>, Option<Res<'w, crate::residents::Residents>>);
 
-type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>);
+type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>, Option<&'w ActorIdle>);
 
 /// The share of its running speed a fighter keeps (`Awarenesses::pace`, read by the AI
 /// that moves it): a two-handed weapon drawn costs `fMove2HBigPenalty` of it (item 61).
@@ -1093,7 +1098,7 @@ pub(crate) fn fight(
     };
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
-    for (rig, g, vis, _, dying, corpse, _) in &actors {
+    for (rig, g, vis, _, dying, corpse, ..) in &actors {
         if vis.get() && !dying && !corpse {
             let feet = bevy_to_game(g.translation()).to_array();
             let scale = g.affine().transform_vector3(Vec3::Z).length().max(0.1);
@@ -1166,7 +1171,7 @@ pub(crate) fn fight(
                 anims.write(PlayAttack { actor: b.blocker.0, weapon: weapons.get(&b.blocker.0).copied(), melee: true, sights: false, kind: Move::BlockHit, power: None, swing: None });
             }
         }
-        for (rig, global, _, hold, _, _, flinch) in &actors {
+        for (rig, global, _, hold, _, _, flinch, idle) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
@@ -1320,6 +1325,7 @@ pub(crate) fn fight(
                         flee_check_in: 0.0,
                         tactic,
                         stagger_seen: None,
+                        idle_hold_seen: None,
                         temper,
                         crouched_since: None,
                         still_for: 0.0,
@@ -1966,6 +1972,18 @@ pub(crate) fn fight(
                     info!("npc combat: {me_name} holds its attacks while it staggers ({:.1} s){}", fl.at + fl.clip.clip.length() - clock, if cut > 0 { format!("; {cut} blow(s) cut short") } else { String::new() });
                 }
             }
+            // An idle flagged "No attacking" playing (a creature's growl, hiss, dodge or
+            // hop; idles.md §14): no attack until it has ended [documented: GECK wiki Idle
+            // Animations Window, "No Attacking"]. An attack would end the idle
+            // (`attack_anims.rs`), so it is held instead.
+            let idle_holds = idle.and_then(|i| i.0.cur.as_ref()).filter(|p| g.data.idles.get(&FormId(p.idle)).is_some_and(|d| d.no_attacking));
+            if let Some(p) = idle_holds {
+                if fighter.idle_hold_seen != Some(p.serial) {
+                    fighter.idle_hold_seen = Some(p.serial);
+                    f.stats.idle_holds += 1;
+                    info!("npc combat: {me_name} holds its attacks while its idle {:08X} plays (No attacking)", p.idle);
+                }
+            }
             // It attacks only facing its target (owner's playtest list 5 item 33: NPCs fired
             // while looking 90° away); the AI turns it (`fnv_ai::alert`).
             let off = facing_off(global, feet, tfeet);
@@ -2110,6 +2128,7 @@ pub(crate) fn fight(
                 && facing
                 && !hold_fire
                 && staggering.is_none()
+                && idle_holds.is_none()
                 && fighter.block.is_none()
                 && clock >= fighter.recoil_until
                 && fighter.seen_for >= REACTION_SECONDS
@@ -2657,6 +2676,9 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.blows_cut,
         s.unfaced,
     );
+    if s.idle_holds > 0 {
+        info!("npc combat: {} idles flagged No attacking held a fighter's attacks", s.idle_holds);
+    }
     let mut d = s.swing_distances.clone();
     d.sort_by(f32::total_cmp);
     if !d.is_empty() {

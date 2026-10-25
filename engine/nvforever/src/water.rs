@@ -221,7 +221,7 @@ pub fn water_material(world: &WorldData, wid: u32, models: &mut ModelCtx, water:
 
 /// Water planes beyond the loaded cells, out to the distant LOD's range: one per cell
 /// whose water surface lies above the lowest point of its landscape (or that has no
-/// landscape). Without them a lake ends at the loaded cells and its LOD bed shows.
+/// landscape). Not for a cell or worldspace flagged No LOD Water. Without them a lake ends at the loaded cells and its LOD bed shows.
 #[derive(Resource, Default)]
 pub struct DistantWater {
     /// Per cell: its visible water surface (height, water type), or `None`.
@@ -249,10 +249,15 @@ impl DistantWater {
 
 fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
     let c = world.grid_cell(g)?;
-    if !c.has_water() {
+    let ws = &world.index.worldspaces[&world.world];
+    // "No LOD Water" on the cell (CELL DATA bit 3) or the worldspace (WRLD DATA bit 4):
+    // no distant water for it [documented: xEdit flag names]. Zion Canyon sets it on its
+    // cells (7 of them had a plane at the 5000 default over a dip), and five worldspaces
+    // (Big MT, the Higgs Village and Lucky 38 worlds among them) on the whole world
+    // [observed].
+    if !c.has_water() || c.no_lod_water() || ws.data_flags & 0x10 != 0 {
         return None;
     }
-    let ws = &world.index.worldspaces[&world.world];
     let height = c.water_surface(ws.default_water_height)?;
     let wid = c.water_type.or(ws.water)?;
     if let Some(land) = c.land {

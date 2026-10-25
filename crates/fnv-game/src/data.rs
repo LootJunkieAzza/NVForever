@@ -974,6 +974,9 @@ pub struct IdleDef {
     pub previous: Option<FormId>,
     /// DATA replay delay (i16) [documented: xEdit IDLE DATA].
     pub replay_delay: i16,
+    /// DATA flags bit 0 "No attacking": no attacking while the idle plays [documented:
+    /// xEdit IDLE DATA; GECK wiki Idle Animations Window]. Absent in the 6-byte DATA.
+    pub no_attacking: bool,
 }
 
 impl IdleDef {
@@ -985,7 +988,7 @@ impl IdleDef {
             .filter(|s| !s.is_empty());
         let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
         let replay_delay = i16::from_le_bytes([byte(4), byte(5)]);
-        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()), parent: None, previous: None, replay_delay }
+        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()), parent: None, previous: None, replay_delay, no_attacking: byte(6) & 1 != 0 }
     }
 
     /// Whether the record names an animation file.
