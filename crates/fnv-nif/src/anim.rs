@@ -310,8 +310,20 @@ impl PathChannel {
     }
 }
 
+/// Whether every component is a finite number.
+fn finite<const N: usize>(v: &[f32; N]) -> bool {
+    v.iter().all(|x| x.is_finite())
+}
+
 impl<const N: usize> Channel<N> {
+    /// The value at `t`; `None` where it is not a finite number (a broken file's keys,
+    /// or finite keys whose interpolation overflows), so the caller keeps its rest value
+    /// rather than passing NaN on to a transform.
     pub fn sample(&self, t: f32) -> Option<[f32; N]> {
+        self.sample_raw(t).filter(finite)
+    }
+
+    fn sample_raw(&self, t: f32) -> Option<[f32; N]> {
         match self {
             Channel::Static(v) => *v,
             Channel::Keys(k) => k.sample(t),
@@ -343,27 +355,31 @@ pub struct TransformTrack {
 }
 
 impl TransformTrack {
-    /// Rotation at `t` as a normalised quaternion (w, x, y, z).
+    /// Rotation at `t` as a normalised quaternion (w, x, y, z); `None` where it is not
+    /// a finite number.
     pub fn rotation_at(&self, t: f32) -> Option<[f32; 4]> {
         if let Some(e) = &self.euler {
             let a: [f32; 3] = std::array::from_fn(|k| e[k].sample(t).map_or(0.0, |v| v[0]));
-            return Some(euler_xyz_to_quat(a));
+            return Some(euler_xyz_to_quat(a)).filter(finite);
         }
         let q = match &self.rotation {
             Channel::Keys(k) => sample_quat_keys(k, t)?,
             other => other.sample(t)?,
         };
-        Some(normalize(q))
+        Some(normalize(q)).filter(finite)
     }
 }
 
+/// `q` at unit length; the identity for a zero or overflowing one. Divided by its largest
+/// component first, so that the squares of large but finite keys do not overflow.
 fn normalize(q: [f32; 4]) -> [f32; 4] {
-    let len = (q.iter().map(|x| x * x).sum::<f32>()).sqrt();
-    if len > 0.0 {
-        q.map(|x| x / len)
-    } else {
-        [1.0, 0.0, 0.0, 0.0]
+    let m = q.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+    if !(m > 0.0 && m.is_finite()) {
+        return [1.0, 0.0, 0.0, 0.0];
     }
+    let q = q.map(|x| x / m);
+    let len = (q.iter().map(|x| x * x).sum::<f32>()).sqrt();
+    q.map(|x| x / len)
 }
 
 /// Spherical linear interpolation along the shorter arc [documented: Shoemake 1985,
@@ -880,6 +896,106 @@ mod tests {
         assert!(g.moves());
         g.positions_at(2.0, &mut out);
         assert_eq!(out, vec![[0.0; 3], [100.0, 0.0, -4.0]]);
+    }
+
+    fn track(rotation: Channel<4>) -> TransformTrack {
+        TransformTrack { translation: Channel::Static(None), rotation, euler: None, scale: Channel::Static(None) }
+    }
+
+    #[test]
+    fn broken_keys_sample_to_finite_values_or_none() {
+        let times = [f32::NAN, f32::NEG_INFINITY, -1.0, 0.0, 0.25, 0.5, 1.0, 3.0, f32::INFINITY, f32::MAX];
+        // No keys, keys out of order, three keys at one time, NaN and infinite values and
+        // times, values whose interpolation overflows; under every kind of interpolation,
+        // with tangents and TBC parameters that overflow too.
+        let sets: Vec<Vec<Key<3>>> = vec![
+            Vec::new(),
+            vec![key(1.0, [1.0; 3]), key(0.0, [0.0; 3]), key(0.5, [2.0; 3])],
+            vec![key(0.5, [1.0; 3]), key(0.5, [2.0; 3]), key(0.5, [3.0; 3])],
+            vec![key(0.0, [f32::NAN; 3]), key(1.0, [0.0; 3])],
+            vec![key(f32::NAN, [0.0; 3]), key(1.0, [f32::INFINITY; 3])],
+            vec![key(0.0, [-3.0e38; 3]), key(1.0, [3.0e38; 3])],
+        ];
+        for kind in [KeyKind::Linear, KeyKind::Quadratic, KeyKind::Tbc, KeyKind::XyzRotation, KeyKind::Constant] {
+            for ks in &sets {
+                for wild in [false, true] {
+                    let mut ks = ks.clone();
+                    if wild {
+                        for k in &mut ks {
+                            k.forward = [1.0e38; 3];
+                            k.backward = [-1.0e38; 3];
+                            k.tbc = [5.0e18, -5.0e18, 1.0e19];
+                        }
+                    }
+                    let c = Channel::Keys(Keys { kind, keys: ks });
+                    for t in times {
+                        assert!(c.sample(t).is_none_or(|v| finite(&v)), "{kind:?} at {t}");
+                    }
+                }
+            }
+        }
+        assert_eq!(Channel::<3>::Keys(Keys { kind: KeyKind::Linear, keys: Vec::new() }).sample(0.0), None);
+        assert_eq!(Channel::Static(Some([f32::NAN])).sample(0.0), None);
+        // Good keys still sample.
+        let good = Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [0.0]), key(1.0, [2.0])] });
+        assert_eq!(good.sample(0.5), Some([1.0]));
+    }
+
+    #[test]
+    fn broken_rotations_are_unit_quaternions_or_none() {
+        let quats = [[0.0; 4], [f32::NAN, 0.0, 0.0, 0.0], [f32::INFINITY, 0.0, 0.0, 0.0], [1.0e30, 1.0e30, 0.0, 0.0], [-3.0e38, 3.0e38, 3.0e38, 0.0], [1.0e-30, 0.0, 0.0, 0.0]];
+        for kind in [KeyKind::Linear, KeyKind::Tbc, KeyKind::Constant] {
+            for a in quats {
+                for b in quats {
+                    let t = track(Channel::Keys(Keys { kind, keys: vec![key(0.0, a), key(1.0, b)] }));
+                    for time in [f32::NAN, 0.0, 0.3, 0.5, 1.0, f32::INFINITY] {
+                        if let Some(q) = t.rotation_at(time) {
+                            let len = q.iter().map(|x| x * x).sum::<f32>().sqrt();
+                            assert!((len - 1.0).abs() < 1e-3, "{a:?} to {b:?} at {time}: {q:?}");
+                        }
+                    }
+                }
+            }
+        }
+        // Huge but finite values keep their direction (their squares overflowed to a
+        // zero quaternion before).
+        let q = track(Channel::Static(Some([1.0e30, 1.0e30, 0.0, 0.0]))).rotation_at(0.0).unwrap();
+        assert!((q[0] - q[1]).abs() < 1e-6 && (q[0] - 0.5f32.sqrt()).abs() < 1e-4);
+        // NaN Euler angles give no rotation.
+        let e = |v: f32| Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [v])] };
+        let t = TransformTrack { euler: Some([e(0.0), e(f32::NAN), e(0.0)]), ..track(Channel::Static(None)) };
+        assert_eq!(t.rotation_at(0.0), None);
+    }
+
+    #[test]
+    fn broken_splines_and_paths_do_not_panic() {
+        // No points, points not a multiple of the width, a width of zero, NaN points,
+        // points whose blend overflows.
+        let splines = [(3, vec![]), (3, vec![1.0; 7]), (0, vec![1.0; 4]), (3, vec![f32::NAN; 12]), (1, vec![3.0e38, -3.0e38, 3.0e38, -3.0e38, 3.0e38])];
+        for (dim, points) in splines {
+            let spline = BSplineChannel { dim, points };
+            for (start, stop) in [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (f32::NAN, 1.0), (0.0, f32::INFINITY)] {
+                let c3 = Channel::<3>::BSpline { start, stop, spline: spline.clone() };
+                let c1 = Channel::<1>::BSpline { start, stop, spline: spline.clone() };
+                for t in [f32::NAN, -1.0, 0.0, 0.5, 1.0, 2.0, f32::INFINITY] {
+                    assert!(c3.sample(t).is_none_or(|v| finite(&v)));
+                    assert!(c1.sample(t).is_none_or(|v| finite(&v)));
+                    let _ = spline.eval(t);
+                }
+            }
+        }
+        // A path of one key, a path standing at one place, a NaN percent.
+        let one = Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [1.0, 2.0, 3.0])] };
+        let still = Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [1.0; 3]), key(1.0, [1.0; 3])] };
+        let nan = Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [f32::NAN]), key(1.0, [f32::NAN])] };
+        for path in [one, still] {
+            for constant_velocity in [false, true] {
+                let c = Channel::<3>::Path(Box::new(PathChannel::new(path.clone(), nan.clone(), constant_velocity)));
+                for t in [f32::NAN, 0.0, 0.5, f32::INFINITY] {
+                    assert!(c.sample(t).is_some_and(|v| finite(&v)));
+                }
+            }
+        }
     }
 
     fn key<const N: usize>(time: f32, value: [f32; N]) -> Key<N> {

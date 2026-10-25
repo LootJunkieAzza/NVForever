@@ -344,6 +344,7 @@ pub fn foot_phase_of(start: f32, stop: f32, text_keys: &[(f32, String)]) -> Opti
         .iter()
         .find(|(_, k)| k.trim().strip_prefix("Enum:").is_some_and(|r| r.trim().eq_ignore_ascii_case("left")))
         .map(|(t, _)| ((t - start) / len).clamp(0.0, 1.0))
+        .filter(|p| p.is_finite())
 }
 
 /// Frames per second of the `Blend: N` text key [hypothesis, actors.md §8.3].
@@ -360,7 +361,7 @@ pub fn blend_time_of(text_keys: &[(f32, String)]) -> Option<f32> {
         let r = k.trim();
         let head = r.get(..5).filter(|h| h.eq_ignore_ascii_case("blend"))?;
         let n = r[head.len()..].trim_start().strip_prefix(':')?;
-        n.trim().parse::<f32>().ok().filter(|n| *n >= 0.0).map(|n| n / BLEND_KEY_FPS)
+        n.trim().parse::<f32>().ok().filter(|n| n.is_finite() && *n >= 0.0).map(|n| n / BLEND_KEY_FPS)
     })
 }
 
@@ -708,6 +709,11 @@ mod tests {
         assert_eq!(blend_time(&s), None);
         let ci = ClipInfo::of(&walk(0.8, 283.1, &[]));
         assert!((ci.speed - 353.875).abs() < 1e-2 && ci.blend_time == DEFAULT_BLEND && ci.foot_phase == 0.0);
+        // A broken file: a footfall at no finite time, blend times past the float range.
+        let s = walk(1.0, 0.0, &[(f32::NAN, "Enum: Left"), (0.0, "Blend: inf"), (0.0, "Blend: 1e40")]);
+        assert_eq!((foot_phase(&s), blend_time(&s)), (None, None));
+        let ci = ClipInfo::from_parts(0.0, f32::NAN, &[(0.5, "Enum: Left".to_string())], None);
+        assert!(ci.duration == 0.0 && ci.foot_phase == 0.0 && ci.speed == 0.0);
     }
 
     #[test]
