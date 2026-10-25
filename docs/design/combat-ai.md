@@ -1710,3 +1710,33 @@ whatever stances their folders have).
 
 **Checks**: unit tests (`fnv_combat::body_weapon`, `fnv_actor::anims`,
 `attack_anims::body_attack_names`); smoke `body-weapons-handy-gutsy`.
+
+## 20. Grenades (2026-10-25, `engine/nvforever/src/npc_grenades.rs`)
+
+No page says when the original's actors throw a grenade: the combat style has no grenade
+field and FalloutNV.esm sets no such setting [observed: CSTY's fields; the GMSTs named
+Grenade or Throw are VATS's, the AP cost, friction, restitution and the reverse-pickpocket
+timer]. Combat is not a parity target (combat.md), so the rules are ours [design], to be
+checked against the original (observer-checks.md item 20):
+
+- **What**: a weapon of animation type "Grenade Throw (1 Hand)" whose projectile explodes
+  (frag, plasma and pulse grenades, dynamite), from the actor's inventory, the lowest
+  FormID of those it carries; one used up per throw (rounds of guns still come from
+  nowhere, owner 2026-10-17: a grenade is the weapon itself).
+- **Who and when**: a person fighting with a gun (not fleeing), ready to fire on a target
+  it sees; the first throw 4 to 10 s after it is first ready on that target, then one every
+  12 to 25 s, rolled on the grenade rolls' own sequence.
+- **Where**: only at a target beyond 1.1 times the blast's radius (a frag grenade's
+  blast radius is 900 units, so beyond 990) and within the throw's reach:
+  the low arc's under the projectile's gravity, at most 1,500 units. Held when a comrade
+  or a bystander would be caught, by the combat style's Ignore Damaging flags as an
+  explosive shot is (§17.6).
+- **How**: from the eyes on the low arc that lands on the target's feet (VATS mode's
+  `lob_dir`), 2° of spread, the grenade's own attack clip asked for, the FireExplosive line
+  tried on the attack timer; the gun is not put away for the throw. The live grenade is
+  run from by those it threatens (§17.7).
+- Log: `npc combat: X throws W at T (D units, blast R); N left`, `X keeps its grenade: K
+  would be caught …`; summary `N grenades thrown, M kept for a comrade or a bystander`.
+  Smoke `combat-npc-grenades`.
+- Not built: putting the gun away and drawing the grenade, throwing from the clip's
+  release key, grenades for melee fighters and creatures, mines.
