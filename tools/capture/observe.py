@@ -25,6 +25,7 @@ The game folder and the Data folder are only read. Standard library only. Exit c
 ok, 1 bad input, 2 (run) some session did not end.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -139,6 +140,32 @@ MORE_PART = [("perception", "num", "GetAV Perception"), ("fatigue", "num", "GetA
 MORE_HEADER = ([("player_karma", "num", "player.GetAV Karma"), ("player_last_action", "num", "GetLastPlayerAction")]
                + [(f"player_action_{k}", "num", f"IsPlayerActionActive {k}") for k in range(1, 11)])
 
+# The JIP tier (session "jip": true; docs/spec-notes/ai-observer-jip.md): state no
+# base-game or xNVSE function reports, read with JIP LN NVSE functions, so a session that
+# asks for it needs that plugin installed (the run refuses otherwise). Scalar functions
+# only (the array ones, GetCombatTargets and the like, need a probe shape of their own).
+# [documented: GECK wiki, the JIP page of each] GetActorProcessingLevel 0 high, 1
+# mid-high, 2 mid-low, 3 low, -1 no process; GetCurrentStablePackage the package under
+# any interrupt package; GetInterruptPackage the interrupt package; GetDetectionValue
+# below 0 not detected, above 0 detected; IsFleeing combat flight or a Flee package;
+# GetIsRagdolled; IsInAir; GetActorMovementFlags a bitmask (1 forward ... 256 walking,
+# 512 running, 1024 sneaking, 4096 jumping, 16384 falling); GetActorVelocity with no
+# axis the total velocity; IsInCombatWith player.
+JIP_PART = [("proc_level", "num", "GetActorProcessingLevel"), ("stable_package", "ref", "GetCurrentStablePackage"),
+            ("interrupt_package", "ref", "GetInterruptPackage"), ("detection_value", "num", "GetDetectionValue player"),
+            ("fleeing", "num", "IsFleeing"), ("ragdolled", "num", "GetIsRagdolled"), ("in_air", "num", "IsInAir"),
+            ("move_flags", "num", "GetActorMovementFlags"), ("velocity", "num", "GetActorVelocity"),
+            ("combat_with_player", "num", "IsInCombatWith player")]
+# Probed for tracked actors too, loaded or not: the processing level is what tells an
+# unloaded actor's state (the page says -1 when the actor has no process, e.g. disabled).
+JIP_TRACKED_PART = [("proc_level", "num", "GetActorProcessingLevel"),
+                    ("stable_package", "ref", "GetCurrentStablePackage")]
+# GetPCDetectionState: -1 menu or loading, 0 hidden, 1 caution, 2 detected, 3 danger.
+JIP_HEADER = [("pc_detection", "num", "GetPCDetectionState")]
+# How a run tells that JIP LN NVSE is installed: a DLL in Data\NVSE\Plugins whose name
+# starts with "jip" [hypothesis: the plugin's file is jip_nvse.dll; to confirm on install].
+JIP_DLL_PREFIX = "jip"
+
 # Game events (plugin version 9; docs/spec-notes/ai-observer.md section 12): xNVSE's
 # events with two arguments, first and second [documented: GECK wiki NVSE Event
 # Handling]. For each event heard, the probe records both as FormIDs, the clock, and for
@@ -173,7 +200,9 @@ PROCEDURES = {0: "TRAVEL", 1: "ACTIVATE", 2: "ACQUIRE", 3: "WAIT", 4: "DIALOGUE"
 # Fields whose change starts a new timeline segment (and is listed as an event).
 STATE_FIELDS = ["cell", "package", "package_type", "procedure", "package_target", "in_combat", "combat_target",
                 "detects_player", "alerted", "alarmed", "sitting", "sleeping", "knocked", "talking", "dead",
-                "unconscious", "disabled", "sneaking", "weapon_out", "teammate", "seen"]
+                "unconscious", "disabled", "sneaking", "weapon_out", "teammate", "seen",
+                # the JIP tier's (None in sessions without it)
+                "proc_level", "stable_package", "interrupt_package", "fleeing", "ragdolled"]
 # Control code of Forward for GetControl [documented: GECK wiki TapControl, "0:Forward"].
 CONTROL_FORWARD = 0
 
@@ -343,10 +372,11 @@ def release_script():
     return cs.function(["int iK"], [f"let iK := GetControl {CONTROL_FORWARD}", "ReleaseKey iK"], returns_value=False)
 
 
-def groups(depth, max_actors, tracked, ctx, fields="full", extra_parts=()):
+def groups(depth, max_actors, tracked, ctx, fields="full", extra_parts=(), tracked_extra=()):
     """The observe step's groups: actors in the loaded area, and named actors (with the
     full set only its first TRACKED_PARTS parts: a named actor may be unloaded).
-    `extra_parts` (session_extras) are probed for the actors in the loaded area only."""
+    `extra_parts` (session_extras) are probed for the actors in the loaded area only,
+    `tracked_extra` for the named actors after their own parts."""
     parts = FIELD_SETS[fields]
     near_parts = parts + list(extra_parts)
     near = {"name": "nearby", "count": count_script(f"GetNumRefs {ACTOR_TYPE} {int(depth)}"),
@@ -355,11 +385,16 @@ def groups(depth, max_actors, tracked, ctx, fields="full", extra_parts=()):
     if tracked:
         n = cs.Names(*ctx)
         vars_ = [n.operand(t) for t in tracked]
-        tparts = parts[:TRACKED_PARTS] if fields == "full" else parts
+        tparts = tracked_parts(fields, tracked_extra)
         out.append({"name": "tracked", "count": count_script(str(len(tracked))),
                     "probe": [probe_part(p, n.decls, n.setup, tracked_select(vars_), False) for p in tparts],
                     "max": len(tracked)})
     return out
+
+
+def tracked_parts(fields="full", tracked_extra=()):
+    parts = FIELD_SETS[fields]
+    return (parts[:TRACKED_PARTS] if fields == "full" else parts) + list(tracked_extra)
 
 
 def header_fields(extra_header=()):
@@ -376,6 +411,9 @@ def session_extras(s):
     if s.get("more"):
         parts.append(MORE_PART)
         header += MORE_HEADER
+    if s.get("jip"):
+        parts.append(JIP_PART)
+        header += JIP_HEADER
     for key, out in (("extra", None), ("extra_header", header)):
         items = s.get(key) or []
         fields = []
@@ -392,11 +430,14 @@ def session_extras(s):
     return parts, header
 
 
-def fields_doc(tracked, fields="full", extra_parts=(), extra_header=(), events=()):
+def fields_doc(tracked, fields="full", extra_parts=(), extra_header=(), events=(), tracked_extra=()):
     parts = FIELD_SETS[fields] + list(extra_parts)
     doc = {"header": [[name, kind] for name, kind, _ in header_fields(extra_header)],
            "parts": [[[name, kind] for name, kind, _ in part] for part in parts],
            "tracked": list(tracked), "set": fields}
+    if tracked_extra:
+        # the named actors' parts differ from the nearby ones' beyond the set's own
+        doc["tracked_parts"] = [[[name, kind] for name, kind, _ in part] for part in tracked_parts(fields, tracked_extra)]
     if events:
         doc["events"] = list(events)
         doc["event_fields"] = [[name, kind] for name, kind in EVENT_FIELDS]
@@ -425,7 +466,7 @@ def check_campaign(c):
         raise InputError("session names must be unique")
     known = {"name", "go", "hour", "hours", "walk", "track", "every", "depth", "settle_frames", "timescale",
              "max_actors", "console_first", "close_menus_after", "fields", "do", "place", "note", "more", "events",
-             "shots", "timed", "extra", "extra_header", "do_first"}
+             "shots", "timed", "extra", "extra_header", "do_first", "jip"}
     for s in c["sessions"] + [c.get("defaults", {})]:
         extra = set(s) - known
         if extra:
@@ -615,10 +656,12 @@ def session_job(campaign, session, ctx):
     loops = session_seconds(s) * MAX_FPS
     fields = s.get("fields", "full")
     extra_parts, extra_header = session_extras(s)
+    tracked_extra = [JIP_TRACKED_PART] if s.get("jip") else []
     events = event_names(s.get("events"))
-    obs = {"label": s["name"], "fields": fields_doc(tracked, fields, extra_parts, extra_header, events),
+    obs = {"label": s["name"], "fields": fields_doc(tracked, fields, extra_parts, extra_header, events, tracked_extra),
            "header": [header_script(k, e) for _, k, e in header_fields(extra_header)],
-           "groups": groups(s["depth"], s["max_actors"], tracked, ctx, fields, extra_parts), "every": every,
+           "groups": groups(s["depth"], s["max_actors"], tracked, ctx, fields, extra_parts, tracked_extra),
+           "every": every,
            "until": until_hours_script("t0", hours), "max_samples": int(math.ceil(loops / every)) + 10}
     if events:
         probe = event_probe()
@@ -826,6 +869,28 @@ def _rounds(jobs, paths, state, report, capture_dir, game, save, retries, clock,
             break
 
 
+def nvse_plugins(game_dir):
+    """The DLLs in <game>\\Data\\NVSE\\Plugins (only read): file name, size and SHA-256, so
+    a run report says which plugins were loaded beside nvf_capture."""
+    folder = os.path.join(game_dir, "Data", "NVSE", "Plugins")
+    out = []
+    if not os.path.isdir(folder):
+        return out
+    for name in sorted(os.listdir(folder), key=str.lower):
+        path = os.path.join(folder, name)
+        if name.lower().endswith(".dll") and os.path.isfile(path):
+            h = hashlib.sha256()
+            with open(path, "rb") as f:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    h.update(block)
+            out.append({"file": name, "bytes": os.path.getsize(path), "sha256": h.hexdigest()})
+    return out
+
+
+def has_jip(plugins):
+    return any(p["file"].lower().startswith(JIP_DLL_PREFIX) for p in plugins)
+
+
 # --------------------------------------------------------------------------- report
 
 def parse_value(kind, text, mods):
@@ -928,6 +993,7 @@ def timeline(sources, names=None):
             f = ob["fields"]
             header_fields = [tuple(h) for h in f.get("header", [])]
             part_fields = [[tuple(x) for x in p] for p in f.get("parts", [])]
+            tracked_fields = [[tuple(x) for x in p] for p in f["tracked_parts"]] if f.get("tracked_parts") else part_fields
             sessions.append({"source": source, "label": ob["label"], "samples": len(ob["samples"]), "end": ob["end"],
                              "drives": ob.get("drives", []), "hooks": ob.get("hooks", []), "shots": ob.get("shots", []),
                              "events_lost": ob.get("events_lost", 0)})
@@ -954,7 +1020,7 @@ def timeline(sources, names=None):
                 merged_recs = {}
                 for group, subjects in sorted((smp.get("groups") or {}).items(), key=lambda g: g[0] != "nearby"):
                     for parts in subjects or []:
-                        rec = decode_subject(parts, part_fields, mods)
+                        rec = decode_subject(parts, tracked_fields if group == "tracked" else part_fields, mods)
                         aid = rec.get("id")
                         if not aid:
                             continue
@@ -972,7 +1038,7 @@ def timeline(sources, names=None):
         a["edid"] = label_of(aid, "id", names)
         a["base_edid"] = label_of(a["base"], "base", names)
         for seg in a["segments"]:
-            for k in ("cell", "package", "package_target", "combat_target"):
+            for k in ("cell", "package", "package_target", "combat_target", "stable_package", "interrupt_package"):
                 if seg["state"].get(k):
                     seg["state"][k + "_edid"] = label_of(seg["state"][k], k, names)
             for k in ("package_type", "procedure"):
@@ -1145,6 +1211,11 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
         others = [n for n in cr.pending_jobs(args.capture_dir) if n not in jobs]
         if others:
             raise InputError(f"other jobs are pending in {os.path.join(args.capture_dir, 'jobs')}: {others}; move them away first")
+        plugins = nvse_plugins(args.game)
+        jip_sessions = [s["name"] for s, _ in jobs.values() if s.get("jip")]
+        if jip_sessions and not has_jip(plugins):
+            raise InputError(f"sessions {jip_sessions} ask for the JIP tier, but no {JIP_DLL_PREFIX}*.dll is in "
+                             f"{os.path.join(args.game, 'Data', 'NVSE', 'Plugins')}")
     except (OSError, json.JSONDecodeError, InputError, cs.InputError, cr.InputError, KeyError, ValueError, TypeError) as e:
         print(f"observe: {e}", file=sys.stderr)
         return 1
@@ -1156,6 +1227,7 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
         report = supervise(jobs, args.capture_dir, game, save, args.retries, stage, clock=clock, sleep=sleep)
         report["campaign"] = campaign["name"]
         report["repeat"] = [k + 1, args.repeat]
+        report["nvse_plugins"] = plugins
         if args.timeline:
             ended = [o for s in report["sessions"].values() if s["status"] == "ended" for o in s["outputs"][-1:]]
             path = args.timeline if args.repeat == 1 else f"{os.path.splitext(args.timeline)[0]}.{k + 1}.json"

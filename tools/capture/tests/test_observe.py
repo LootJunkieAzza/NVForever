@@ -171,6 +171,22 @@ class ScriptRules(unittest.TestCase):
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(campaign(timed=[{"after": 1, "do": ["x"], "script": {"lines": ["y"]}}]), EDIDS)
 
+    def test_jip_tier(self):
+        job = ob.campaign_jobs(campaign(jip=True), EDIDS)["obs_c1_01_s1"][1]
+        self.check(job)
+        o = [s["observe"] for s in job["steps"] if "observe" in s][0]
+        self.assertEqual(len(o["groups"][0]["probe"]), len(ob.PARTS) + 1, "the JIP part for nearby actors")
+        self.assertIn("rA.GetActorProcessingLevel", o["groups"][0]["probe"][-1])
+        self.assertIn("rA.GetDetectionValue player", o["groups"][0]["probe"][-1])
+        self.assertEqual(len(o["groups"][1]["probe"]), ob.TRACKED_PARTS + 1, "and its short part for tracked ones")
+        self.assertIn("rA.GetCurrentStablePackage", o["groups"][1]["probe"][-1])
+        self.assertEqual(o["fields"]["tracked_parts"][-1], [["proc_level", "num"], ["stable_package", "ref"]])
+        self.assertEqual(len(o["fields"]["tracked_parts"]), ob.TRACKED_PARTS + 1)
+        self.assertIn("GetPCDetectionState", o["header"][-1])
+        plain = ob.campaign_jobs(campaign(), EDIDS)["obs_c1_01_s1"][1]
+        self.assertNotIn("tracked_parts", [s["observe"] for s in plain["steps"] if "observe" in s][0]["fields"])
+        self.assertNotIn("GetActorProcessingLevel", "".join(scripts_of(plain)), "base game + xNVSE only without the key")
+
     def test_do_waits(self):
         job = ob.campaign_jobs(campaign(do=["tgm", {"frames": 180}, "player.SetPos y 5850"]), EDIDS)["obs_c1_01_s1"][1]
         steps = job["steps"]
@@ -280,6 +296,18 @@ class Timeline(unittest.TestCase):
         self.assertEqual(bad["error"], "script call failed")
         self.assertEqual(tl["sessions"][0]["events_lost"], 2)
         self.assertEqual(tl["sessions"][0]["shots"][0]["file"], "shots/x.png")
+
+    def test_tracked_actors_decode_with_their_own_parts(self):
+        lines = output([(1.0, [actor("00001002") + ["", "1|00002002|0|-20|0|0|0|0|0|0"]],
+                         [actor("00001001") + ["3|00002001"]])])
+        obs = json.loads(lines[3])
+        obs["fields"] = ob.fields_doc(["Bob"], extra_parts=[ob.JIP_PART], tracked_extra=[ob.JIP_TRACKED_PART])
+        lines[3] = json.dumps(obs)
+        tl = ob.timeline([("o.jsonl", lines)])
+        bob = tl["actors"]["0x00001001"]["segments"][0]["state"]
+        self.assertEqual((bob["proc_level"], bob["stable_package"]), (3.0, "0x00002001"))
+        ann = tl["actors"]["0x00001002"]["segments"][0]["state"]
+        self.assertEqual((ann["proc_level"], ann["stable_package"], ann["interrupt_package"]), (1.0, "0x00002002", None))
 
     def test_crashed_output_is_read_up_to_its_last_line(self):
         lines = output([(1.0, [actor("00001001")], []), (1.1, [actor("00001001")], [])], end=False)
@@ -425,6 +453,40 @@ class Supervise(unittest.TestCase):
         with redirect_stderr(err), redirect_stdout(io.StringIO()):
             self.assertEqual(ob.main(["jobs", path]), 1)
         self.assertIn("not a fnv.observe.campaign/1", err.getvalue())
+
+    def test_plugins_are_listed_and_the_jip_tier_needs_jip(self):
+        game = os.path.join(self.dir, "game")
+        plugins = os.path.join(game, "Data", "NVSE", "Plugins")
+        os.makedirs(plugins)
+        with open(os.path.join(plugins, "nvf_capture.dll"), "wb") as f:
+            f.write(b"abc")
+        with open(os.path.join(plugins, "nvf_capture.ini"), "w") as f:
+            f.write("x")
+        listed = ob.nvse_plugins(game)
+        self.assertEqual([(p["file"], p["bytes"]) for p in listed], [("nvf_capture.dll", 3)])
+        self.assertEqual(listed[0]["sha256"], "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        self.assertFalse(ob.has_jip(listed))
+        self.assertEqual(ob.nvse_plugins(os.path.join(self.dir, "nowhere")), [])
+        path = os.path.join(self.dir, "c.json")
+        with open(path, "w") as f:
+            json.dump({"format": ob.CAMPAIGN_FORMAT, "name": "c", "save": "s",
+                       "sessions": [{"name": "a", "hours": 1, "jip": True}]}, f)
+        saves = os.path.join(self.dir, "saves")
+        os.makedirs(saves)
+        open(os.path.join(saves, "s.fos"), "w").close()
+
+        class Game(self.Game):
+            def check(self):
+                return None
+
+        err = io.StringIO()
+        with redirect_stderr(err), redirect_stdout(io.StringIO()):
+            self.assertEqual(ob.main(["run", path, "--game", game, "--capture-dir", self.dir, "--saves-dir", saves],
+                                     game=Game()), 1)
+        self.assertIn("ask for the JIP tier", err.getvalue())
+        with open(os.path.join(plugins, "jip_nvse.dll"), "wb") as f:
+            f.write(b"j")
+        self.assertTrue(ob.has_jip(ob.nvse_plugins(game)))
 
 
 if __name__ == "__main__":
