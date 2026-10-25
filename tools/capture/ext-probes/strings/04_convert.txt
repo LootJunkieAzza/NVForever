@@ -1,0 +1,57 @@
+scn ExtProbeStrings04
+; ToString, ToNumber, $, #, Sv_ToNumeric, NumToHex, GetFormIDString (tools/capture/ext-probes/strings/README.md)
+string_var s
+string_var t
+array_var a
+int i
+float f
+ref r
+int iDone
+Begin GameMode
+    if iDone
+        Return
+    endif
+    let iDone := 1
+    Print "EXTPROBE|strings/04_convert|begin"
+    let i := 5
+    Print "EXTPROBE|tostring.int|[" + ($i) + "]"
+    let f := 2.5
+    Print "EXTPROBE|tostring.float|[" + ($f) + "]"
+    let f := -0.25
+    Print "EXTPROBE|tostring.neg|[" + ($f) + "]"
+    let r := PlayerREF
+    Print "EXTPROBE|tostring.form|[" + ($r) + "]"
+    let r := 0
+    Print "EXTPROBE|tostring.unset_ref|[" + ($r) + "]"
+    let s := "1969"
+    Print "EXTPROBE|tonumber.int|" + $(#s)
+    let s := "3.14"
+    Print "EXTPROBE|tonumber.float|" + $(#s)
+    let s := "0x1F"
+    Print "EXTPROBE|tonumber.hex_prefix|" + $(ToNumber s)
+    let s := "1F"
+    Print "EXTPROBE|tonumber.hex_flag|" + $(ToNumber s, 1)
+    let s := "abc"
+    Print "EXTPROBE|tonumber.bad|" + $(#s)
+    let s := ""
+    Print "EXTPROBE|tonumber.empty|" + $(#s)
+    let s := "12abc"
+    Print "EXTPROBE|tonumber.trailing|" + $(#s)
+    let s := "-55"
+    Print "EXTPROBE|tonumeric.neg|" + $(Sv_ToNumeric s)
+    let s := "12abc"
+    Print "EXTPROBE|tonumeric.stops|" + $(Sv_ToNumeric s)
+    let s := "1e3"
+    Print "EXTPROBE|tonumeric.exponent|" + $(Sv_ToNumeric s)
+    let s := "abc"
+    Print "EXTPROBE|tonumeric.none|" + $(Sv_ToNumeric s)
+    Print "EXTPROBE|hex.width|[" + (NumToHex 42, 2) + "]"
+    Print "EXTPROBE|hex.default_width|[" + (NumToHex 42) + "]"
+    Print "EXTPROBE|hex.widened|[" + (NumToHex 255, 1) + "]"
+    Print "EXTPROBE|hex.prefix|[" + (NumToHex 42, 2, 1) + "]"
+    Print "EXTPROBE|hex.over8|[" + (NumToHex 42, 10) + "]"
+    Print "EXTPROBE|hex.negative|[" + (NumToHex -1) + "]"
+    let r := PlayerREF
+    Print "EXTPROBE|formid.player|[" + (GetFormIDString r) + "]"
+    Print "EXTPROBE|strings/04_convert|end"
+End
