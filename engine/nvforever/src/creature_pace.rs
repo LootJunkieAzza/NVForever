@@ -4,14 +4,15 @@
 //!
 //! - **Speed**: a creature walks at the root motion of its `Forward` clip and runs at
 //!   that of its `FastForward` clip, times its scale, its Speed Mult (CREA ACBS) and
-//!   [`CREATURE_SPEED_FIT`]. The AI moves it at those speeds (`fnv_ai::Ai::speeds`).
+//!   its skeleton's share ([`skeleton_share`], [`CREATURE_SPEED_FIT`] for most). The AI
+//!   moves it at those speeds (`fnv_ai::Ai::speeds`).
 //!   People walk and run at `fnv_ai::NPC_WALK` and `NPC_RUN` times their body armour's
 //!   share ([`person_pace`]), looked at again every second. Before this every actor
 //!   walked at 86.8 and ran at 344 units/s: a cazador's walk clip (217 units/s) played
 //!   at its slowest rate (0.4), and 344 is the point between its walk and run clips
 //!   (the geometric mean of 217 and 546), so a small slow-down swapped the two clips back
 //!   and forth: the stop-and-start.
-//! - **Clip rate**: the clips play `Speed Mult × CREATURE_SPEED_FIT` faster
+//! - **Clip rate**: the clips play `Speed Mult × the walk share` faster
 //!   (`Locomotion::pace`), as the movement comes from them, and the move is chosen for the
 //!   velocity divided by that: a medium cazador walking at 379 units/s plays its walk clip
 //!   at 1.75, not its run clip at 0.7.
@@ -38,19 +39,60 @@ use fnv_game::awareness::State;
 use fnv_sim::FormId;
 use nvf_play::script::ScriptState;
 
-/// The share of the clip pace (root motion × scale × Speed Mult) a creature keeps
-/// [observed: the AI observer in the original game, 2026-10-16: non-hostile cazadors at
-/// the Tribal Village walked at 228 units/s (young: scale 0.5, Speed Mult 300; clip
-/// pace 325) and 380 (scale 1, Speed Mult 250; clip pace 542), 0.70 of the clip pace
-/// both; charging, they reached 576 and 974 (run clip pace 818 and 1364, again 0.70);
-/// hypothesis: the same share for every creature; why 0.70 is open, actors.md §8.10].
-pub const CREATURE_SPEED_FIT: f32 = 0.70;
+/// The share of the clip pace (root motion × scale × Speed Mult) a creature keeps when
+/// its skeleton has none of its own ([`skeleton_share`]) [observed: the AI observer in
+/// the original game, 2026-10-25, creatures spawned by PlaceAtMe in a flat test room and
+/// placed ones, walking (docs/spec-notes/actors.md §8.10): dogs 0.98 (VCrTier1DogMed,
+/// 45.1 against 57.4 × 0.8), coyotes 0.96–0.98, geckos 1.00 (49.9 against 62.5 × 0.8),
+/// giant mantises 1.00, a bark scorpion 0.99 (65 against 74.9 × 0.35 × 2.5), an NCR dog
+/// 0.91–1.15; leveled geckos charging at 230–290 fit a run of 1 too (578.6 at scale 0.5).
+/// Hypothesis: the run keeps the walk's share where no run was measured].
+pub const CREATURE_SPEED_FIT: f32 = 1.0;
+
+/// A skeleton's shares of its clips' pace, walking and running.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Share {
+    pub walk: f32,
+    pub run: f32,
+}
+
+/// A skeleton's own shares of its clips' pace ([`CREATURE_SPEED_FIT`] for the others),
+/// by its folder [observed: the AI observer in the original game]:
+/// - cazadors (`nvcazadores`) 0.70 walking and running (2026-10-16: young ones at the
+///   Tribal Village walked 228 against a clip pace of 325, medium ones 380 against 542;
+///   charging, 576 and 974 against 818 and 1364);
+/// - brahmin 1.4 (2026-10-24: the Novac pack brahmin 001650BD, scale 1.25, walked a
+///   median 78 and ran about 330, twice what 0.70 gave; hypothesis: every brahmin);
+/// - mole rats 0.80 walking, 0.96 running (2026-10-25: VCrTier1MoleRatMed walked 34.1
+///   against 42.7; the placed mole rat 000BAC90 charged at a median 324 against 338.7);
+/// - giant rats (`nvgiantrat`) 0.76 (VCrTier1GiantRatMed, scale 1.1 by its own record,
+///   walked 46.9 against 56.0 × 1.1; hypothesis: the run the same);
+/// - deathclaws 0.70 as before (VCrTier3DeathClawSmall, scale 0.75, walked about 0.59 of
+///   120 × 0.75, unsteady: kept; hypothesis);
+/// - feral ghouls (`ghoul`) 0.70 as before, under [`type_pace`]'s 1.25 (not measured: the
+///   observer's ghoul jumped instead of walking).
+pub fn skeleton_share(skeleton: &str) -> Share {
+    let path = fnv_vfs::normalize(skeleton);
+    let has = |folder: &str| path.contains(&format!("creatures\\{folder}\\"));
+    let both = |v: f32| Share { walk: v, run: v };
+    if has("nvcazadores") || has("deathclaw") || has("ghoul") {
+        both(0.70)
+    } else if has("brahmin") {
+        both(1.4)
+    } else if has("molerat") {
+        Share { walk: 0.80, run: 0.96 }
+    } else if has("nvgiantrat") {
+        both(0.76)
+    } else {
+        both(CREATURE_SPEED_FIT)
+    }
+}
 
 /// CREA DATA creature type code of feral ghouls [documented: xEdit wbCreatureTypeEnum,
 /// 5 Feral Ghoul].
 pub const FERAL_GHOUL: i64 = 5;
 
-/// A creature type's own share on top of [`CREATURE_SPEED_FIT`]: feral ghouls 1.25
+/// A creature type's own share on top of its skeleton's ([`skeleton_share`]): feral ghouls 1.25
 /// [design: the owner's playtest list 7 item 36, "feral ghouls run too slow from a guess
 /// want to move 25% faster"; the original could not be watched. With the fit a feral
 /// ghoul (`creatures\ghoul`, Speed Mult 100, scale 1) ran 269 units/s, below the
@@ -60,22 +102,6 @@ pub const FERAL_GHOUL: i64 = 5;
 pub fn type_pace(creature_type: Option<i64>) -> f32 {
     if creature_type == Some(FERAL_GHOUL) {
         1.25
-    } else {
-        1.0
-    }
-}
-
-/// A skeleton's own share on top of [`CREATURE_SPEED_FIT`]: brahmin (`creatures\brahmin`)
-/// 2.0 [observed: the AI observer in the original game, 2026-10-24, the Novac caravan's
-/// pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its merchant on its
-/// route: it walked at a median 78 units/s over 2-second windows, and ran once at a
-/// median of about 330 to catch up; with the fit alone it walked 39 and ran 155, half
-/// of both. Hypothesis: that its walk is its own and not matched to the merchant's 77
-/// (the run, matched to nothing, is about twice too slow as well), and the same share
-/// for every brahmin]; every other skeleton 1.
-pub fn skeleton_pace(skeleton: &str) -> f32 {
-    if fnv_vfs::normalize(skeleton).contains("creatures\\brahmin\\") {
-        2.0
     } else {
         1.0
     }
@@ -129,11 +155,11 @@ struct PaceStats {
 }
 
 /// A clip set's walk and run speeds for a creature: its clips' root motion × `scale` ×
-/// `speed_mult` (percent) × [`CREATURE_SPEED_FIT`]; a move without a clip keeps
+/// `speed_mult` (percent) × its skeleton's `share`; a move without a clip keeps
 /// `default`'s speed.
-pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, default: Speeds) -> Speeds {
-    let of = |m: Move, d: f32| set.info(m).map(|i| i.speed).filter(|v| *v > 1.0).map_or(d, |v| v * scale * speed_mult / 100.0 * CREATURE_SPEED_FIT);
-    Speeds { walk: of(Move::Forward, default.walk), run: of(Move::FastForward, default.run) }
+pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, share: Share, default: Speeds) -> Speeds {
+    let of = |m: Move, k: f32, d: f32| set.info(m).map(|i| i.speed).filter(|v| *v > 1.0).map_or(d, |v| v * scale * speed_mult / 100.0 * k);
+    Speeds { walk: of(Move::Forward, share.walk, default.walk), run: of(Move::FastForward, share.run, default.run) }
 }
 
 /// The share of the people's speeds (`fnv_ai::NPC_WALK`, `NPC_RUN`) a person keeps for
@@ -242,12 +268,14 @@ fn give_speeds(
             // leveled cazadors at the Tribal Village take theirs.
             let mult = speed_mult(game, FormId(rig.base), id);
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
-            // Its type's and its skeleton's own shares (feral ghouls, brahmin), as if its
-            // Speed Mult were that much higher.
-            let mult = mult * type_pace(game.creature_type(id)) * skeleton_pace(&rig.skeleton);
-            lo.pace = mult / 100.0 * CREATURE_SPEED_FIT;
-            let calm = clip_speeds(&lo.stand, scale, mult, default);
-            let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, default));
+            // Its type's share (feral ghouls) as if its Speed Mult were that much higher,
+            // and its skeleton's shares. The clips play at the walk's share (a mole rat's
+            // run clip plays 1.2 times its own pace).
+            let mult = mult * type_pace(game.creature_type(id));
+            let share = skeleton_share(&rig.skeleton);
+            lo.pace = mult / 100.0 * share.walk;
+            let calm = clip_speeds(&lo.stand, scale, mult, share, default);
+            let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, share, default));
             info!(
                 "creature pace: {} {id} walks {:.0} and runs {:.0} units/s, turns {:.0} degrees/s{} (scale {scale:.2}, Speed Mult {mult:.0})",
                 game.data.name(FormId(rig.base)),
@@ -354,10 +382,22 @@ mod tests {
     use fnv_actor::locomotion::ClipInfo;
 
     #[test]
-    fn brahmin_go_twice_the_fit() {
-        assert_eq!(skeleton_pace("Creatures\\Brahmin\\Skeleton.nif"), 2.0);
-        assert_eq!(skeleton_pace("meshes/creatures/brahmin/skeleton.nif"), 2.0);
-        assert_eq!(skeleton_pace("creatures\\cazador\\skeleton.nif"), 1.0);
+    fn skeletons_keep_their_measured_shares() {
+        let s = |p: &str| skeleton_share(p);
+        assert_eq!(s("Creatures\\Brahmin\\Skeleton.nif").walk, 1.4);
+        assert_eq!(s("meshes/creatures/brahmin/skeleton.nif").run, 1.4);
+        assert_eq!(s("creatures\\nvcazadores\\skeleton.nif").walk, 0.70);
+        assert_eq!(s("Creatures\\MoleRat\\Skeleton.nif"), Share { walk: 0.80, run: 0.96 });
+        assert_eq!(s("creatures\\NVgiantrat\\skeleton.nif").walk, 0.76);
+        // Dogs, geckos, mantises, scorpions: the full clip pace.
+        assert_eq!(s("Creatures\\Dog\\Skeleton.nif").walk, 1.0);
+        assert_eq!(s("creatures\\nvgecko\\skeleton.nif").run, 1.0);
+        // Measured in the original: a dog (scale 0.8) walks 45.1, a mole rat runs 324.
+        let d = Speeds { walk: 85.3, run: 344.0 };
+        let dog = clip_speeds(&set(57.4, Some(333.1)), 0.8, 100.0, s("creatures\\dog\\skeleton.nif"), d);
+        assert!((dog.walk - 45.1).abs() < 1.5, "{dog:?}");
+        let mole = clip_speeds(&set(42.7, Some(338.7)), 1.0, 100.0, s("creatures\\molerat\\skeleton.nif"), d);
+        assert!((mole.walk - 34.1).abs() < 1.0 && (mole.run - 324.0).abs() < 5.0, "{mole:?}");
     }
 
     #[test]
@@ -406,8 +446,9 @@ mod tests {
         let d = Speeds { walk: 86.8, run: 344.0 };
         // The cazador's mtforward.kf and mtfastforward.kf (216.73 and 545.54 units/s).
         let caz = set(216.73, Some(545.54));
-        let young = clip_speeds(&caz, 0.5, 300.0, d);
-        let medium = clip_speeds(&caz, 1.0, 250.0, d);
+        let share = skeleton_share("creatures\\nvcazadores\\skeleton.nif");
+        let young = clip_speeds(&caz, 0.5, 300.0, share, d);
+        let medium = clip_speeds(&caz, 1.0, 250.0, share, d);
         // Observed: walks 228 and 380, charges up to 576 and 974.
         assert!((young.walk - 228.0).abs() < 5.0, "{young:?}");
         assert!((medium.walk - 380.0).abs() < 5.0, "{medium:?}");
@@ -420,7 +461,7 @@ mod tests {
         lo.step(0.016);
         assert_eq!(lo.blend.cur.mv, Move::FastForward);
         let mut lo = Locomotion::new(Arc::new(caz.clone()), 0.0);
-        lo.pace = 2.5 * CREATURE_SPEED_FIT;
+        lo.pace = 2.5 * share.walk;
         lo.velocity = [0.0, medium.walk];
         lo.step(0.016);
         assert_eq!(lo.blend.cur.mv, Move::Forward);
@@ -447,6 +488,6 @@ mod tests {
         }
         assert!(gaits.iter().all(|m| *m == Move::Forward), "{gaits:?}");
         // No run clip: the default run.
-        assert_eq!(clip_speeds(&set(100.0, None), 1.0, 100.0, d).run, 344.0);
+        assert_eq!(clip_speeds(&set(100.0, None), 1.0, 100.0, share, d).run, 344.0);
     }
 }

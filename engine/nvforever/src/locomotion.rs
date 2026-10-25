@@ -437,8 +437,8 @@ pub struct Locomotion {
     pub alert: Option<Arc<ClipSet>>,
     pub alerted: bool,
     /// How much faster than its clips' root motion the actor moves, its clips playing
-    /// that much faster too: a creature's Speed Mult × `creature_pace::CREATURE_SPEED_FIT`
-    /// (`creature_pace.rs`), 1 for people. The move is chosen for the velocity divided by
+    /// that much faster too: a creature's Speed Mult × its skeleton's walk share
+    /// (`creature_pace::skeleton_share`), 1 for people. The move is chosen for the velocity divided by
     /// it, so a fast creature's walk is still its walk clip.
     pub pace: f32,
     /// The speed (at the clips' pace) smoothed over [`GAIT_SMOOTHING`], which decides
