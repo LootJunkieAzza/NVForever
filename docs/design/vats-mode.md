@@ -246,9 +246,9 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 
 - **"x" marks**: each mark draws an "x" of two crossed bars in the interface's amber
   (`interface::AMBER`, the HUD's colour) lifted 25 % of the way to white so it stands out
-  on the amber grade, 1.9 % of the screen width across, at its point projected on the
+  on the amber grade, 1.3 % of the screen width across with bars 10 % of that thick, at its point projected on the
   screen (§6) [design, after the references; amber instead of their dark red at the
-  owner's wishes of 2026-10-24, to match the HUD and then to be brighter]. Marks behind
+  owner's wishes of 2026-10-24, to match the HUD and then to be brighter; smaller and thinner, owner 2026-10-25]. Marks behind
   the camera are not drawn. A mark that has fired goes [design]. The "x" and its
   chance are kept at the same size on the screen at any range, so a far mark stays
   readable [design]. Marks on the same actor and part share a point, so they draw one
