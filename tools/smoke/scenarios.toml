@@ -5671,6 +5671,21 @@ order = [[
 ]]
 
 [[scenario]]
+name = "hud-ammo-label"
+source = "owner 2026-10-25 (screenshot of the original): the ammo type's abbreviation (AMMO QNAM) stands left of the ammo counter, nothing for standard rounds (docs/spec-notes/hud.md §4)"
+note = "the 9mm pistol is given only 9mm hollow points, whose QNAM is HP"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0013E43A:50", NVF_PLAY_TEST_LOOK = "20:247:-5", NVF_PLAY_TEST_CONTROL = "3:view", NVF_PLAY_TEST_SHOTS = "22:hud_ammo_label.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { re = 'ammo Ammo9mmHollowPoint, magazine', label = "the pistol takes the hollow points" },
+  { re = 'hud: ammo label HP\s*$', label = "the HUD shows HP left of the counter" },
+]
+manual = "hud_ammo_label.png: \"HP\" just right of the divider at the bottom right, \"13/37\" at the upright"
+
+[[scenario]]
 name = "hud-crippled-limbs"
 source = "owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
 note = "the console cripples the player's right leg at 10 s and left arm at 13 s; the second crippling starts the time again and only the arm flashes"

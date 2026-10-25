@@ -40,8 +40,8 @@ Not built, and why:
 
 - **MISC and KEYM RNAM** "Sound - Random/Looping" [documented: xEdit]: built as the
   placed objects' own sounds are (audio.md §15.2): 1 MISC names one, 26 placed; no key.
-- **AMMO QNAM** "Abbrev." is read (`AmmoStats.abbrev`) and shown nowhere: no document
-  says where the game shows it.
+- **AMMO QNAM** "Abbrev." is shown on the HUD left of the ammo counter, the HUD's
+  `AmmoTypeLabel` (hud.md §4); standard rounds have none.
 - **ARMO MOD4 and ICO2/MIC2** (female world model and icons; 107 armours have MOD4): the
   ground model stays the male one; whose sex picks the ground model (the player's, the
   last wearer's) is not documented. **BNAM** "Overrides Animation Sounds" (5 of 378 set):

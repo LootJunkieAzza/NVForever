@@ -4041,6 +4041,9 @@ pub struct HudWeapon {
     /// Rounds in the magazine and rounds carried besides, for a weapon that uses ammo;
     /// a weapon that spends itself (thrown) has its count first and 0 besides.
     pub ammo: Option<(u32, u32)>,
+    /// The ammo type's abbreviation (AMMO `QNAM`: "HP", "JHP", "Slg"), shown left of the
+    /// counter; standard rounds have none (hud.md §4).
+    pub abbrev: Option<String>,
 }
 
 impl Combat {
@@ -4055,7 +4058,13 @@ impl Combat {
             (Some(id), Some(_)) if self.self_ammo => Some((player_count(sim, Some(id)), 0)),
             _ => None,
         };
-        HudWeapon { condition, ammo }
+        let abbrev = match self.cycle.as_ref() {
+            Some(cy) if ammo.is_some() && !cy.no_ammo => {
+                self.ammo.and_then(|a| self.forms.ammo.get(&a)).and_then(|a| a.abbrev.clone()).filter(|a| !a.trim().is_empty())
+            }
+            _ => None,
+        };
+        HudWeapon { condition, ammo, abbrev }
     }
 }
 
