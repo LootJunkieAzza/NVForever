@@ -1,5 +1,8 @@
 # ESM data audit, every field (2026-10-24)
 
+> **Superseded for status (2026-10-25):** 25 of the 30 gaps below have been built since;
+> what is still open is in [esm-audit-2026-10-25](esm-audit-2026-10-25.md).
+
 The owner asked for an audit of all base-game ESM data, like the NIF audit
 ([nif-node-audit](../spec-notes/nif-node-audit.md)): which record types, subrecords, fields
 and flag bits carry data that the engine does not use, and which engine logic stands in for
