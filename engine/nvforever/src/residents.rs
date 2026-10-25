@@ -546,6 +546,10 @@ struct Resident {
     /// The heading it is drawn with while it fights, facing its target (`Core::aims`),
     /// until it is back on the walker's.
     aim_heading: Option<f32>,
+    /// It has been in the loaded area: leaving it takes its cell into the cell buffer.
+    /// An actor a script put far away (Malcolm Holmes) never was, so its cell is not
+    /// buffered and it stays at the Low level (`process_levels`).
+    been_loaded: bool,
 }
 
 /// ACBS flag bit 5, "Flies" [documented: xEdit wbDefinitionsFNV.pas CREA ACBS, schema
@@ -972,6 +976,7 @@ impl Core {
             moved: false,
             last_space: None,
             aim_heading: None,
+            been_loaded: false,
         });
     }
 
@@ -1045,21 +1050,33 @@ impl Core {
     /// (owner's playtest 2026-10-11: Fiends talked near Camp McCarran, heard from
     /// Crimson Caravan).
     fn process_levels(&mut self, game: &Game, world: &WorldData, streamer: &Streamer) {
-        for r in self.list.iter().filter(|r| r.joined && !r.failed) {
+        // A far walk stops where it comes into the loaded area (`fnv_ai::process`).
+        let loaded = match streamer.interior {
+            Some(c) => fnv_ai::LoadedArea { space: Space::Interior(c), cells: Default::default() },
+            None => fnv_ai::LoadedArea { space: Space::World(world.world), cells: streamer.loaded.keys().copied().collect() },
+        };
+        if self.ai.loaded() != Some(&loaded) {
+            self.ai.set_loaded(Some(loaded));
+        }
+        for r in self.list.iter_mut().filter(|r| r.joined && !r.failed) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let (space, feet) = (a.walker.space, a.walker.feet);
             let high = drawn(world, streamer, space, feet);
+            r.been_loaded |= high;
             // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
             // Walking out of the loaded area, or on into another cell, takes the cell along.
             let new_cell = fnv_world::cell_of(r.last_feet[0], r.last_feet[1]) != fnv_world::cell_of(feet[0], feet[1]);
-            let carries = !high && !streamer.buffer.holds(space, feet) && (self.ai.is_high(r.actor) || (new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh));
+            let carries = !high && !streamer.buffer.holds(space, feet) && ((self.ai.is_high(r.actor) && r.been_loaded) || (new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh));
             if carries {
                 streamer.buffer.carry(space, feet);
             }
             // On its way into the loaded area (a corner of the rest of its path is in
             // it): moved every frame, so it comes through the door when it would (owner's
-            // playtest list 4 item 13: Ringo out of the gas station).
+            // playtest list 4 item 13: Ringo out of the gas station). Only from the cell
+            // buffer: from beyond, the original moves it in its hourly jumps up to the
+            // edge of the loaded area (Malcolm Holmes, `fnv_ai::process`).
             let coming = !high
+                && streamer.buffer.holds(space, feet)
                 && a.activity == fnv_ai::Activity::Travelling
                 && a.walker.follower.as_ref().is_some_and(|f| f.path.legs.iter().skip(f.leg).any(|l| l.points.iter().any(|p| drawn(world, streamer, l.space, *p))));
             let level = match (high, coming, streamer.buffer.holds(space, feet)) {
@@ -2066,7 +2083,7 @@ pub fn report(
     let (high, low) = core.ai.process_counts();
     let far = core.ai.far_count();
     info!(
-        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end ({far} of them beyond the cell buffer), at most {}, {} and {}; {} left the loaded area, {} came back; {} fell out of the cell buffer; {} low-process updates every {:.0} s and {} every {:.0} s ({} walking steps); {} conversations or searches ended by leaving; {} set off into the loaded area from out of it ({} updates every frame)",
+        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end ({far} of them beyond the cell buffer), at most {}, {} and {}; {} left the loaded area, {} came back; {} fell out of the cell buffer; {} low-process updates every {:.0} s and {} every {:.0} s ({} walking steps); {} conversations or searches ended by leaving; {} set off into the loaded area from out of it ({} updates every frame); {} far walks stopped at the edge of the loaded area",
         p.most_high,
         p.most_low,
         p.most_far,
@@ -2080,7 +2097,8 @@ pub fn report(
         p.low_steps,
         p.dropped,
         p.coming,
-        p.coming_updates
+        p.coming_updates,
+        p.reached_loaded
     );
 }
 
