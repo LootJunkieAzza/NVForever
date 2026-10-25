@@ -40,6 +40,22 @@ fn is_zero(m: &u8) -> bool {
     *m == 0
 }
 
+/// Weapon condition at and above which a weapon deals all its damage
+/// [documented: GECK wiki SetConditionDamagePenalty (JIP), "the 75% threshold"].
+pub const CONDITION_DAMAGE_THRESHOLD: f32 = 0.75;
+/// How fast damage falls below [`CONDITION_DAMAGE_THRESHOLD`]: the engine's hard-coded
+/// multiplier [documented: GECK wiki SetConditionDamagePenalty, "0.67, by default"].
+pub const CONDITION_DAMAGE_PENALTY: f32 = 0.67;
+
+/// The damage multiplier of a weapon at `condition` (0..=1): 1 at or above 75 %, below it
+/// `1 − (0.75 − condition) × 0.67`, 0.4975 at zero [documented: GECK wiki
+/// SetConditionDamagePenalty, the formula the JIP function overrides; observed: troopers'
+/// Service Rifles at 30, 45 and 50 % dealt 0.698, 0.799 and 0.832 of the full-condition
+/// hit, AI observer campaign fight_stats_round 2026-10-19, npc-behaviour-compare.md §9].
+pub fn condition_mult(condition: f32) -> f32 {
+    1.0 - (CONDITION_DAMAGE_THRESHOLD - condition.clamp(0.0, 1.0)).max(0.0) * CONDITION_DAMAGE_PENALTY
+}
+
 impl Extra {
     pub fn is_plain(&self) -> bool {
         *self == Extra::default()
@@ -600,6 +616,7 @@ mod tests {
             teaches: None,
             cant_be_taken: false,
             modulates_voice: false,
+            weapon_traits: None,
         };
         assert_eq!([0, 1, 2, 4, 6].map(|m| it.weight_with_mods(m)), [Some(6.0), Some(6.0), Some(3.5), Some(0.0), Some(0.0)]);
         let mut forms = FormStore::default();

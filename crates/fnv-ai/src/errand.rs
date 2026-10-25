@@ -797,7 +797,7 @@ fn carried(game: &mut Game, r: FormId) -> Vec<FormId> {
 /// The references (placed and created at run time) of the cells an area around `centre`
 /// covers: the cell itself in an interior, the exterior cells within `radius` (at most
 /// [`MAX_CELLS`] each way) outdoors.
-fn cells_around(game: &Game, centre: Place, radius: f32) -> Vec<FormId> {
+pub(crate) fn cells_around(game: &Game, centre: Place, radius: f32) -> Vec<FormId> {
     let refs = game.world.placed;
     let mut cells = Vec::new();
     match centre.space {

@@ -1440,6 +1440,10 @@ impl Core {
                 | AiEvent::AmbushWaits { .. }
                 | AiEvent::AmbushSprung { .. }
                 | AiEvent::FleeRuns { .. }
+                | AiEvent::Rearmed { .. }
+                | AiEvent::Fetch { .. }
+                | AiEvent::FetchGot { .. }
+                | AiEvent::FetchDropped { .. }
                 | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
@@ -1684,6 +1688,24 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *length > 0.0 { format!("walks to its place, {length:.0} units to go") } else { "from where it stands".to_string() }
         ),
         AiEvent::WeaponUseOver => "has used its weapon: back to its package".into(),
+        AiEvent::Rearmed { weapon, from } => match from {
+            Some(f) if f == weapon => format!("rearm: now holds {} it fetched", n(weapon)),
+            Some(f) => format!("rearm: fetched {}, holds {} it carries", n(f), n(weapon)),
+            None => format!("rearm: holds {} it carries, a better weapon", n(weapon)),
+        },
+        AiEvent::Fetch { weapon, dps, stops, trip } => format!("rearm: goes for {} ({dps:.1} damage a second), {stops} stop(s), {trip:.0} units", n(weapon)),
+        AiEvent::FetchGot { item, from, take, got } => format!(
+            "rearm: {} {} {} {}",
+            if *got { "picks up" } else { "finds nothing to take:" },
+            n(item),
+            match take {
+                fnv_game::rearm::Take::Ground => "from the ground",
+                fnv_game::rearm::Take::FromBody => "from the body of",
+                fnv_game::rearm::Take::CopyAmmo => "(a copy) from",
+            },
+            n(from)
+        ),
+        AiEvent::FetchDropped { from, why } => format!("rearm: gives up on {}: {why}", n(from)),
         AiEvent::EscortWaits { package, target, away } => format!(
             "escorts {}: waits, it is {} behind ({})",
             n(target),
