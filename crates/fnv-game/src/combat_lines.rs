@@ -146,6 +146,8 @@ pub struct CombatLines {
     pub said: Vec<(&'static str, FormId, Option<FormId>)>,
     pub timing: Option<Timing>,
     rng: u64,
+    /// The hit under way says no lines ([`Game::hit_without_lines`]).
+    quiet: bool,
 }
 
 impl CombatLines {
@@ -359,7 +361,7 @@ impl Game<'_> {
     /// The lines of a hit that took `target` from `before` to `after` health of `max`
     /// (called by [`Game::hit`]; see the module notes).
     pub(crate) fn hit_lines(&mut self, target: FormId, attacker: Option<FormId>, before: f64, after: f64, max: f64, crippled: bool) {
-        if self.is_dead(target) {
+        if self.is_dead(target) || self.combat_lines.quiet {
             return;
         }
         let below = mark_below(after, max);
@@ -395,6 +397,17 @@ impl Game<'_> {
         }
     }
 
+    /// [`Game::hit`] without the target's lines (Hit, Crippled, HealthHalf, HealthQuarter,
+    /// and Death if it dies): damage that is no blow, such as drowning's [design: owner
+    /// 2026-10-25, "should not hear the player hit sounds" while drowning, and no death
+    /// sound].
+    pub fn hit_without_lines(&mut self, target: FormId, damage: f64, info: crate::combat::HitInfo) -> crate::combat::HitResult {
+        self.combat_lines.quiet = true;
+        let r = self.hit(target, damage, info);
+        self.combat_lines.quiet = false;
+        r
+    }
+
     /// `actor` died (called by [`Game::kill`]): it says Death, cutting what it was
     /// saying, and the nearest living member of its group near it will say DeathResponse
     /// when that line is over.
@@ -405,6 +418,11 @@ impl Game<'_> {
             return;
         }
         self.cut_line(actor);
+        // A death by drowning (`Game::hit_without_lines`) is silent [design: owner
+        // 2026-10-25, "remove the death sound effect from drowning to death"].
+        if self.combat_lines.quiet {
+            return;
+        }
         if self.say_combat(actor, killer, "Death").is_none() {
             return;
         }

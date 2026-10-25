@@ -8454,6 +8454,43 @@ expect = [
 ]
 
 [[scenario]]
+name = "drowning"
+source = "docs/spec-notes/drowning.md: put on the Lake Mead bed 790 under the surface (a new character: Endurance 5, 200 health), the player holds its breath 10 s, then loses 40 health a second until it dies (captures dr_short and dr_rules, 2026-10-25); the HUD's breath meter is read from AirTimer01.NIF"
+areas = ["physics", "hud", "drowning"]
+paths = ["crates/fnv-game/src/breath.rs", "engine/nvf-play/src/drowning.rs", "engine/nvf-play/src/hud_breath.rs"]
+args = ["--play", "--pos=59500,38500,1820", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'drowning: head under water \([\d.]+ below the surface\), breath 10\.0 of 10\.0 s, 40\.0 health a second without$', label = "the head goes under with a whole breath of 10 s; 40 a second is a fifth of 200" },
+  { re = 'drowning: out of breath, drowning \(40 health a second\)', label = "the breath runs out" },
+  { re = 'drowning: 10\.0 damage, health 1\d\d/200', label = "the damage comes in quarter-second hits" },
+  { re = 'drowning: 10\.0 damage, health 0/200, dead', label = "with no way up the player drowns" },
+  { re = 'hud: breath meter read: 17 pieces, sequence 0\.533 s', label = "the meter's model: the word O2 and 16 ticks, Forward 16 frames long" },
+  { re = 'drowning: sound NPCHumanDrowning', min = 3, max = 3, label = "the game's drowning sound while drowning, every 1.7 s until it dies 5 s on: 0, 1.7 and 3.4 s (owner 2026-10-25)" },
+]
+forbid = [
+  { text = "drowning: head above water", label = "the player stays on the bed" },
+  { text = "combat: ? hits the player", label = "drowning is no blow: not through the combat hit path" },
+  { text = "says Hit line", label = "no hit grunts while drowning (owner 2026-10-25)" },
+  { text = "says Death line", label = "no death cry when drowned (owner 2026-10-25)" },
+  { text = "screen splatter:", label = "no blood on the screen from drowning" },
+]
+
+[[scenario]]
+name = "drowning-rebreather"
+source = "docs/spec-notes/drowning.md: with the Rebreather's ability VMS15WaterBreathingActual (Water Breathing, magnitude 0) the player on the Lake Mead bed never runs out of breath (capture dr_rules, 2026-10-25)"
+areas = ["physics", "drowning"]
+paths = ["crates/fnv-game/src/breath.rs", "engine/nvf-play/src/drowning.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "0.5:call:player:AddSpell:VMS15WaterBreathingActual" }
+args = ["--play", "--pos=59500,38500,1820", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'drowning: head under water', label = "the head is under water" },
+  { re = 'script: test aid calls AddSpell on ', label = "the ability is given" },
+]
+forbid = [{ text = "drowning: out of breath", label = "Water Breathing: no drowning" }]
+
+[[scenario]]
 name = "wade-in-swim"
 source = "owner's report 2026-10-18 (docs/spec-notes/physics.md §6.6, Walking in again): running east from the Boulder Beach shore into Lake Mead, the player starts swimming once its feet are wade_depth (115) under the surface, and keeps swimming over the deepening bed"
 areas = ["physics", "controls", "player-body"]
