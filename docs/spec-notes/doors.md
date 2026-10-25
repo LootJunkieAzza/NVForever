@@ -150,7 +150,11 @@ to the player.
   of its way, the door's OnActivate block runs with the actor as the action reference
   (GetActionRef, IsActionRef). A block that calls `Activate` for it lets it through: the
   AI moves it and opens the door as for a door without a script, and the door's activate
-  children go off. A block that does not closes the door to that actor's paths for 120
+  children go off. A block that does not, on a load door (XTEL), lets it through all the
+  same: about 420 actor/package pairs of FalloutNV.esm walk through the Strip gates and 15
+  through Gomorrah's elevator doors, whose blocks activate for the player only [observed:
+  `fnvtool ai reach` `routes_through_door`; hypothesis: the original moves them]. On a door
+  that opens in place, a block that does not closes the door to that actor's paths for 120
   game seconds (an hour at TimeScale 30) and its package is taken up afresh: another way,
   or the package set aside as out of reach as for a locked door. A door asked and passed
   is not asked again by that actor for 10 s. A `Begin OnActivate player` block does not

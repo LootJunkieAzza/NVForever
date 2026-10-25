@@ -12,6 +12,13 @@ a 9mm pistol at Bison Steve (0x000E71BE, 9mm × 10). Taken by hand the first tim
 weapon comes with that ammo [hypothesis: the rounds in it] (`fnv_sim::World::activate`,
 `PlacedRef::ammo`). Smoke `placed-weapon-ammo`.
 
+**No LOD Water** (CELL DATA bit 3, WRLD DATA bit 4 [documented: xEdit flag names]): no
+distant water plane for a cell or worldspace that sets it (`engine/nvforever/src/water.rs`
+`visible_surface`, 2026-10-25). In the masters the cell flag is on 3,967 cells, all of
+Zion Canyon (7 of them had a plane at the world's 5000 default over a dip), and the world
+flag on FFEncounterWorld, WastelandNVmini, Lucky38World, NVDLC03BigMT and NVDLC03Higgs
+[observed]. Loaded cells keep their own water.
+
 ## 2. Not built, and why
 
 - **Placed TXST decals**: 493 texture sets, 2 placed references (`DecalBloodPlaceable1`);
@@ -20,7 +27,7 @@ weapon comes with that ammo [hypothesis: the rounds in it] (`fnv_sim::World::act
   and its collision cut, for one cell.
 - **CELL IMPF, WRLD IMPS/IMPF** (footstep material swaps), **CELL/WRLD XNAM** (water
   noise), **LTEX friction, restitution, specular**, **LAND DATA flags**, **WRLD bounds,
-  LOD water and parent-use flags beyond Use Map Data, ONAM map offset**: read or stored
+  LOD water (NAM3/NAM4) and parent-use flags beyond Use Map Data, ONAM map offset**: read or stored
   in places; what each changes is not documented closely enough to build (the map is
   calibrated from its own markers, pipboy.md).
 - **REFR XACT, XTRG, XCHG, XRMR/XMBO/occlusion planes**: XPOD portals are used for

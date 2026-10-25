@@ -295,7 +295,15 @@ words, with where ours stands:
   the Special Idle group (§4). Neither follows the group yet.
 - **Looping**: Loop Forever, minimum, maximum (§3). **Replay delay**: the time between
   replays; not used by ours.
-- **No Attacking**: no attacking while the idle plays; not applied.
+- **No Attacking**: no attacking while the idle plays. Built 2026-10-25 for fighters
+  (`IdleDef::no_attacking`, DATA flags bit 0; `npc_combat.rs`): while an idle with the
+  flag plays, the fighter starts no shot or blow, and the idle is not cut short by one
+  (§14.2). 67 IDLEs set it [observed: the ten masters]: the people's `MTHit*` hit
+  reactions (played by `deaths.rs` as staggers, which hold attacks already), the
+  first-person `1stPHit*` ones, and creatures' combat idles: the gecko's hiss (not its
+  hops), the giant rat's growl and alarm cry, the cazador's dodges, wing hits and high
+  flight, the Dead Money ghosts' hops, the spore carrier's get-ups and the behemoth's
+  bash.
 - **Picking** (the idle manager; it confirms the tree walk of animation.md §2.2): the top
   item matching the actor's skeleton, then its first child; an idle whose conditions fail
   is passed over for its next sibling; one whose conditions pass has its children tried
@@ -729,7 +737,9 @@ combat branch that the engine never played.
   procedure 44, so it does not hiss until it fights (procedure 13) [observed in the
   original, §14.3].
 - It ends when the creature moves or is calm again [design]; an attack stops it as it
-  stops any idle (`attack_anims.rs`). People keep their drawn-weapon fidgets: their tree
+  stops any idle (`attack_anims.rs`), except that an idle flagged No Attacking (the
+  hiss, the rat's growl) holds the attack until it has played (§9). Log: `npc combat:
+  … holds its attacks while its idle … plays (No attacking)`. People keep their drawn-weapon fidgets: their tree
   is not walked for this [design].
 - Log: `idle: … plays … (CombatIdle)`; `creature combat idle summary` at exit. Smoke
   `aggro-warning-look`.
