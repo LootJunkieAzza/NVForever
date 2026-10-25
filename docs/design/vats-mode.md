@@ -732,7 +732,8 @@ open   = distance × tan(cone × fVATSSpreadMult)
 ### 17.6 Log lines
 
 - `vats mode: marked <name> <ref> (<part>), mark <k>; <r> AP reserved, <left> AP left;
-  <c>% to hit (base <b>[, perks <names>][, concentrated fire +<n>])`
+  <c>% to hit (base <b>[, perks <names>][, concentrated fire +<n>]); <d> units, skill <s>,
+  cone <deg> deg|none` (the distance, skill and cone the chance was worked from)
 - `vats mode: shot <k> of <n> at … , <cost> AP spent; <c>% to hit: hit|missed (rolled
   <r>)` (`burst …; round 1 …`, `throw …`, `swing …` alike; later rounds of a burst at
   debug)

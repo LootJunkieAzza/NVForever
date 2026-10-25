@@ -32,6 +32,10 @@ pub struct Stance {
     /// "Modify Aiming Move Speed" perk divisor for the moving penalty (1 = none; the page
     /// says it cannot divide below 1).
     pub aiming_move_divisor: f32,
+    /// "Modify Weapon Strength Req": points taken off the weapon's Strength requirement
+    /// [documented: GECK wiki Perk entry points, "Add Value of 1 means a reduction of 1
+    /// point from the requirement"; Weapon Handling 2].
+    pub strength_req_cut: f32,
 }
 
 /// Whether a weapon counts as one-handed for the crippled-arm penalties: pistols
@@ -54,7 +58,7 @@ pub fn actor_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance) ->
     } / s.aiming_move_divisor.max(1.0);
     let standing = if s.sneaking { 0.0 } else { r.spread_standing };
     let arms = crippled_spread(r, t, w, s);
-    let str_req = (w.strength_req as f32 - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
+    let str_req = (w.strength_req as f32 - s.strength_req_cut - s.strength.min(10.0)).max(0.0) * r.strength_req_penalty;
     // The page reports the original applies the Strength setting to the skill shortfall
     // (a bug); we use the skill setting it names.
     let skill_req = (w.skill_req as f32 - s.skill.min(100.0)).max(0.0) * r.skill_req_penalty;
@@ -82,15 +86,23 @@ pub fn crippled_spread(r: &Rules, t: &CombatTuning, w: &WeaponStats, s: &Stance)
 /// Degrees of deviation for an actor spread `p` and a weapon spread `w` (Min Spread): the
 /// page authors' in-game measurement, 5.955° per unit of actor spread and
 /// (0.0125·w² + 0.125·w) units for the weapon spread [documented as their measurement].
+/// It is the full width of the circle the shots fall in: the authors measured "the
+/// diameter of the sway circle" and fitted "the diameters of those circles" of shot
+/// impacts [documented: the page's Testing Methods]; [`half_angle`] turns it into a cone.
 pub fn deviation_deg(p: f32, w: f32) -> f32 {
     (p + 0.0125 * w * w + 0.125 * w) * 5.955
 }
 
+/// The cone half-angle for a deviation (a diameter, [`deviation_deg`]).
+pub fn half_angle(deviation_deg: f32) -> f32 {
+    deviation_deg / 2.0
+}
+
 /// The cone half-angle in degrees for one shot: actor spread (after perks) plus bloom,
-/// weapon spread, times the ammo's spread effects.
+/// weapon spread, times the ammo's spread effects, halved (the deviation is a diameter).
 pub fn cone_deg(actor: f32, bloom: f32, w: &WeaponStats, ammo_effects: &[&AmmoEffect]) -> f32 {
     let m = apply_effects(1.0, ammo_effects, "Spread Mod").max(0.0);
-    deviation_deg(actor + bloom, w.min_spread.max(0.0)) * m
+    half_angle(deviation_deg(actor + bloom, w.min_spread.max(0.0)) * m)
 }
 
 /// A direction inside a cone of half-angle `cone_deg` around `forward` (unit), uniform over

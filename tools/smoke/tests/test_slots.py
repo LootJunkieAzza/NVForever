@@ -35,6 +35,7 @@ class Machine:
     def runner(self, pid: int, count: int = 3, **kw) -> Slots:
         self.live.add(pid)
         q = Queue(self.gate.parent / "smoke-queue", pid=pid, alive=lambda p: p in self.live)
+        kw.setdefault("stagger", 0.0)
         return Slots(self.shared, [self.gate], count=count, poll=0.01, wait_max=0.1, say=quiet,
                      queue=q, running=lambda: True, **kw)
 
@@ -190,8 +191,8 @@ class SlotTests(unittest.TestCase):
             r.finish()
 
     def test_runners_that_want_fewer_slots_leave_the_rest_to_those_behind(self):
-        # The queue seen 2026-10-24: a full run, two runners capped at one slot, seven
-        # default runners. The capped runners used to get none (one game ran for hours).
+        # A full run, two runners that can use one slot (--jobs 1, or one launch), seven
+        # default runners: the free slots get used (the queue shape seen 2026-10-24).
         with tempfile.TemporaryDirectory() as d:
             m = Machine(d)
             rs = []
@@ -252,6 +253,45 @@ class SlotTests(unittest.TestCase):
         self.assertEqual(deal(4, [3, 3, 3]), [2, 1, 1])
         self.assertEqual(deal(2, []), [])
 
+    def test_game_starts_are_spread_out_machine_wide(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            now = [1000.0]
+            a = m.runner(1, count=3, stagger=12.0, clock=lambda: now[0])
+            s1 = a.acquire()
+            self.assertIn("spreading", a.try_take())  # a second start 0 s later waits
+            b = m.runner(2, count=3, stagger=12.0, clock=lambda: now[0])
+            now[0] += 11.0
+            self.assertIn("spreading", b.try_take())  # another runner too
+            now[0] += 1.5
+            s2 = a.acquire()
+            self.assertNotEqual(s1.index, s2.index)
+            for s in (s1, s2):
+                a.release(s)
+            a.finish()
+            b.finish()
+
+    def test_runners_behind_an_old_style_ticket_do_not_take_a_share(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            first = m.runner(1, count=3)
+            first.queue.join()
+            time.sleep(0.002)
+            m.live.add(9)
+            old = Queue(m.gate.parent / "smoke-queue", pid=9, alive=lambda p: p in m.live)
+            old.join()  # an --exclusive run waits for its turn alone
+            later = []
+            for pid in (2, 3):
+                time.sleep(0.002)
+                r = m.runner(pid, count=3)
+                r.queue.join()
+                later.append(r)
+            self.assertEqual(first.share(), 3)  # the ones behind the old ticket cannot run now
+            self.assertEqual([r.share() for r in later], [0, 0])
+            for r in (first, *later):
+                r.finish()
+            old.leave()
+
     def test_one_slot_is_the_old_one_game_at_a_time(self):
         with tempfile.TemporaryDirectory() as d:
             m = Machine(d)
@@ -266,6 +306,28 @@ class SlotTests(unittest.TestCase):
 def launch(name: str, home: str | None = None, kind: str = GAME) -> Launch:
     env = {"NVFOREVER_HOME": home} if home else {}
     return Launch(name, kind, [Scenario(name)], ["--play"], env, 1.0)
+
+
+class GateTests(unittest.TestCase):
+    def gate(self, d, *argv):
+        a = cli.parser().parse_args(["run", "--repo", d, *argv])
+        lock = Path(d) / "smoke.lock"
+        real = cli.default_lock_paths
+        cli.default_lock_paths = lambda repo: [Path(d) / "run.lock", lock]
+        try:
+            return cli.game_gate(a, quiet)
+        finally:
+            cli.default_lock_paths = real
+
+    def test_one_slot_means_the_machine_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            for argv in (["--slots", "1"], ["--exclusive"], ["--slots", "1", "--jobs", "3"]):
+                g, jobs = self.gate(d, *argv)
+                self.assertIsInstance(g, Locks, argv)
+                self.assertEqual(jobs, 1, argv)
+            g, jobs = self.gate(d, "--slots", "3")
+            self.assertIsInstance(g, Slots)
+            self.assertEqual(jobs, 3)
 
 
 class ParallelRunTests(unittest.TestCase):
