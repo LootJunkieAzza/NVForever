@@ -1405,6 +1405,9 @@ impl Core {
                 | AiEvent::TalkUnseen { .. }
                 | AiEvent::PushedBack { .. }
                 | AiEvent::Hello { .. }
+                | AiEvent::IdleChatter { .. }
+                | AiEvent::PlayerAction { .. }
+                | AiEvent::ObserveCombat { .. }
                 | AiEvent::Chat { .. }
                 | AiEvent::ChatApproach { .. }
                 | AiEvent::ChatGaveUp { .. }
@@ -1591,6 +1594,12 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
         AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
+        AiEvent::IdleChatter { line, away } => format!("chatters ({away:.0} units from the player), line {line}"),
+        AiEvent::PlayerAction { topic, line, away } => format!("comments on the player ({topic}, {away:.0} units away), line {line}"),
+        AiEvent::ObserveCombat { fighter, line, away } => format!(
+            "comments on the fight of {} ({away:.0} units away), line {line}",
+            if *fighter == FormId::PLAYER_REF { "the player".to_string() } else { n(fighter) }
+        ),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
         AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),
         AiEvent::ChatGaveUp { partner, why } => format!("gives up talking to {}: {why}", n(partner)),

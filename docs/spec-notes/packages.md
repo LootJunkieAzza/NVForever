@@ -944,16 +944,53 @@ listed record data the engine ignored. What each piece means, and what is built:
   allow these comments it says no Hit line for it (Crippled and the health lines are
   other topics and stay).
 
+### 7.6b The Fallout behaviours' lines and Avoid Radiation (built 2026-10-25)
+
+Each is allowed by the package as hellos are (`fnv_ai::social::allows`: a package
+without "Skip Fallout Behavior" allows all; the default flags 0x1CD include Observe
+Combat, Idle Chatter and Avoid Radiation [observed: FalloutNV.esm]). Lines are said in
+the world (`Game::say`, the player as the conditions' target), never by an actor in a
+combat state; the topics' lines in the masters [observed: `fnvtool dialogue lines`]:
+IdleChatter 82, ObserveCombat 39, PLAYERFIREWEAPON 56, PLAYERTHROWGRENADE 57,
+PLAYERLAYMINE 56; the other PLAYER… topics have none.
+
+- **Allow Idle Chatter** ("Allow idle chatter using the IdleChatter topic"
+  [documented: Category:Packages]; "said by actors on a random basis who aren't in
+  combat" [documented: Conversation Tab]): one timer for the loaded area, drawn between
+  `fIdleChatterCommentTimer` and `…Max` (15 and 60) [hypothesis: the settings'
+  meaning]; when due, an actor within 300 units of the player (the random conversations'
+  distance) is drawn and says its line. Log `ai … <actor>: chatters (<d> units from the
+  player), line <info>`.
+- **Reaction To Player Actions** (the Topics Tab's "special topics used to get actors
+  responding to player actions" [documented]): when the player's body starts a gun's
+  shot (WEAP animation types 3–9), a throw or a mine (`Game::anim_state`), the nearest
+  actor within 1000 units [stand-in] with a line says PLAYERFIREWEAPON,
+  PLAYERTHROWGRENADE or PLAYERLAYMINE, at most once per `fCommentOnPlayerActionsTimer`
+  (60 s) for the area [hypothesis: the setting's meaning]. Walking actors react too. Log
+  `… comments on the player (<topic>, <d> units away)`.
+- **Observe Combat Behavior** (the ObserveCombat topic: "actors in 'spectator' mode --
+  watching a combat but not joining in" [documented: Misc Tab]): an actor within 1000
+  units of the player and 1500 of a fighter (a resident in Combat, or the player while
+  hunted) [stand-ins] says its line, each actor at most once per
+  `fCommentOnPlayerActionsTimer` [stand-in]. Log `… comments on the fight of <who>`.
+  Not built: the behaviour's "run away if they get too close" [documented: GECK wiki
+  Packages] (no flee for actors outside a fight).
+- **Avoid Radiation** ("Allow actors to avoid entering radiated areas" [documented:
+  Category:Packages]): for an actor whose Rad Resistance is below
+  `fRadiationResistanceAvoidLevel` (50) [hypothesis: the setting's name], the radiation
+  markers (XRAD/XRDS, `crate::radiation`) within 20,000 units are places to avoid in its
+  paths (`PathParams::avoid`): a triangle whose centre lies within a marker's radius
+  costs 8 times as much [design], and the shortcut pass does not straighten a way back
+  into one. A goal inside stays reachable. Explosion radiation zones are not counted.
+- Checks: fnv-ai test `an_actor_next_to_the_player_chatters_now_and_then`; fnv-nav
+  `places_to_avoid_cost_more_and_are_gone_round`; smoke `player-fire-comment` (Easy
+  Pete: "What in tarnation?") and `observe-combat-comment` (Easy Pete: "Look at 'em
+  go!" while a cazador fights the player).
+
 ### 7.7 Not built, and why
 
-- **Observe Combat Behavior** ("an actor will run away if they get too close to the
-  player or another actor that is in combat"): needs a combat-observer flee behaviour;
-  NVForever has none for actors outside a fight.
-- **Reaction To Player Actions** (the PLAYERFIREWEAPON, PLAYERJUMP … topics of the
-  Topics Tab page) and **Allow Idle Chatter** (the IdleChatter topic): NVForever says
-  none of these topics yet, so there is nothing for the flags to gate.
-- **Avoid Radiation** ("Allow actors to avoid entering radiated areas"): needs paths that
-  cost or close radiated ground (the radiation zones of #548 are not on the nav graph).
+- **Observe Combat Behavior**'s running away from a fight that comes too close (§7.6b
+  says its lines).
 - **Guard "Remain Near Reference to Guard"**: no page in the wiki export documents the
   Guard package's tab.
 - **Stay-at locations by Object ID, Object Type, "At package location"**: the Standard

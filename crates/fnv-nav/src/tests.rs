@@ -816,3 +816,17 @@ fn an_obstacle_cuts_only_floor_within_its_height() {
     // Beside the floor, seen from above.
     assert!(!sandbags(0.0, 90.0).cuts([[600.0, 0.0, 0.0], [700.0, 0.0, 0.0], [650.0, 100.0, 0.0]]));
 }
+
+#[test]
+fn places_to_avoid_cost_more_and_are_gone_round() {
+    let g = graph(&[(grid(1, [0.0, 0.0], 10, 10, 100.0, &[], flat), W)]);
+    let (from, to) = (Place { space: W, pos: [150.0, 150.0, 0.0] }, Place { space: W, pos: [850.0, 150.0, 0.0] });
+    // Radiated ground round (500, 150), radius 220: straight through without the cost,
+    // round its north edge with it.
+    let straight = g.find_path(from, to, &PathParams::default()).unwrap();
+    assert!(straight.length < 720.0, "{}", straight.length);
+    let p = PathParams { avoid: vec![([500.0, 150.0, 0.0], 220.0)], avoid_cost: 8.0, ..Default::default() };
+    let round = g.find_path(from, to, &p).unwrap();
+    assert!(round.length > 760.0, "{}", round.length);
+    assert!(round.legs[0].points.iter().any(|q| q[1] > 300.0), "{:?}", round.legs[0].points);
+}

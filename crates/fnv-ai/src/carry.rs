@@ -25,7 +25,7 @@ use crate::sandbox::{Doing, Sandbox};
 use fnv_game::ai::AiPhase;
 use fnv_game::companion_wheel::{BACK_UP, BACK_UP_SECONDS};
 use fnv_game::game::Game;
-use fnv_game::package::{flags, PackageType};
+use fnv_game::package::{fallout, flags, PackageType};
 use fnv_game::use_weapon::Source;
 use fnv_nav::follow::heading_of;
 use fnv_nav::{NavGraph, PathParams, Place, Space, WalkEvent, Walker};
@@ -65,6 +65,31 @@ const HOME_REACH: f32 = 4096.0;
 /// What a unit of water costs on a way planned for an actor whose package does not
 /// allow swimming (`Ai::path_params`), against 1 on land [our choice].
 pub const NO_SWIM_WATER_COST: f32 = 50.0;
+
+/// A way through a radiation marker's radius costs this many times as much for an actor
+/// that avoids radiation [design: kept off where a way round is not far longer, still
+/// taken when there is none].
+pub const AVOID_RADIATION_COST: f32 = 8.0;
+/// `fRadiationResistanceAvoidLevel` when the load order does not set it [its value in
+/// FalloutNV.esm].
+const RAD_AVOID_LEVEL: f32 = 50.0;
+/// Markers this far from an actor are left out of its paths' costs, game units [design:
+/// a long way; paths farther are rare].
+const RADIATION_SEARCH: f32 = 20000.0;
+
+/// The radiation markers of `space` within [`RADIATION_SEARCH`] of `at`, as circles (centre,
+/// radius) for the path parameters; disabled ones left out.
+fn radiated_near(game: &Game, space: fnv_nav::Space, at: [f32; 3]) -> Vec<([f32; 3], f32)> {
+    let key = match space {
+        fnv_nav::Space::World(w) | fnv_nav::Space::Interior(w) => FormId(w),
+    };
+    let Some(markers) = game.data.radiation_markers.get(&key) else { return Vec::new() };
+    markers
+        .iter()
+        .filter(|m| m.radius > 0.0 && goal::dist(m.pos, at) <= RADIATION_SEARCH + m.radius && game.world.is_enabled(m.id).unwrap_or(true))
+        .map(|m| (m.pos, m.radius))
+        .collect()
+}
 
 /// A person's walk, game units per second: the root motion of the people's walk clip
 /// (`mtforward.kf`, 85.26 male, 85.06 female) [observed: the AI observer in the original
@@ -192,6 +217,13 @@ pub enum AiEvent {
     TalkUnseen { package: FormId, target: FormId, away: f32 },
     /// It said hello to the passing player, `away` units from it (`crate::social`).
     Hello { line: FormId, away: f32 },
+    /// It said an IdleChatter line, `away` units from the player (`crate::social`).
+    IdleChatter { line: FormId, away: f32 },
+    /// It commented on what the player did (a PLAYER… topic), `away` units from the
+    /// player (`crate::social`).
+    PlayerAction { topic: &'static str, line: FormId, away: f32 },
+    /// It commented on the fight of `fighter`, `away` units from it (`crate::social`).
+    ObserveCombat { fighter: FormId, line: FormId, away: f32 },
     /// It started a random conversation with `partner`, `away` units from it
     /// (`crate::social`); `line` is its first line.
     Chat { partner: FormId, line: FormId, away: f32 },
@@ -1632,6 +1664,21 @@ impl Ai {
         }
     }
 
+    /// Whether `actor` keeps away from radiation now: its package allows the Fallout
+    /// behaviour Avoid Radiation ("Allow actors to avoid entering radiated areas"
+    /// [documented: Category:Packages]; `crate::social::allows`) and its Rad Resistance
+    /// is below `fRadiationResistanceAvoidLevel` (50 in FalloutNV.esm) [hypothesis: the
+    /// setting's name: who resists that much need not keep away].
+    fn avoids_radiation(&self, game: &mut Game, actor: FormId) -> bool {
+        let data = game.data;
+        let Some(def) = self.agents.get(&actor).and_then(|a| a.package).and_then(|p| data.package_defs.get(&p)) else { return false };
+        if !crate::social::allows(def, fallout::AVOID_RADIATION) {
+            return false;
+        }
+        let level = game.world.forms.setting_f32("fRadiationResistanceAvoidLevel").unwrap_or(RAD_AVOID_LEVEL) as f64;
+        fnv_game::functions::actor_value_capped(game, actor, fnv_game::actor_values::RAD_RESISTANCE) < level
+    }
+
     /// Path parameters for `actor`: everything it carries may be a key [documented:
     /// locks name a key form].
     pub(crate) fn path_params(&self, game: &mut Game, actor: FormId) -> PathParams {
@@ -1649,6 +1696,12 @@ impl Ai {
         }
         if game.package_has(actor, flags::ALLOW_FALLS) {
             params.ledges = true;
+        }
+        // Avoid Radiation: the radiation markers near it cost a way through them more
+        // (`avoids_radiation`).
+        if let Some(a) = self.agents.get(&actor).filter(|_| self.avoids_radiation(game, actor)) {
+            params.avoid = radiated_near(game, a.walker.space, a.walker.feet);
+            params.avoid_cost = AVOID_RADIATION_COST;
         }
         if let Ok(s) = game.world.get(actor) {
             params.keys.extend(s.inventory.iter().flat_map(|inv| inv.iter()).map(|(item, _)| item.0));
