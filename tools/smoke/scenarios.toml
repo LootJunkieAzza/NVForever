@@ -3761,9 +3761,67 @@ expect = [
   { re = 'combat: Khan Trick \(Right power attack, unarmed\): clip attackcustom5power', label = "a power attack to the right is Khan Trick, with its own clip" },
   { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault, with its own clip" },
   { re = 'combat: Fists swing attackcustom1power', label = "the swing plays the Legion Assault clip" },
+  { re = 'combat: Legion Assault: the player lunges 332 units', label = "Legion Assault starts the lunge" },
 ]
 
 manual = "move_ranger_takedown.png, move_khan_trick.png, move_legion_assault.png: the player's body in each move's own clip (h2hattackcustom2power, custom5power, custom1power), not the plain directional power attack"
+
+[[scenario]]
+name = "perk-legion-lunge"
+source = "owner 2026-10-24: move the player forward during Legion Assault's lunge (docs/spec-notes/perk-entry-points.md §11.4)"
+note = "Goodsprings ground, fists and the perk LegionAssault from 3 s; a forward power attack at 8 s (Use held 1.5 s, the forward key held from 7.95 s to 8.8 s). The distance is measured from the swing's start, and the key stays down a little after it (a first run: the swing began 0.53 s after Use, the key came up 0.26 s later; 394 units, about 60 of them walked), so the range allows up to about 90 walked; without the lunge it would be that walking alone"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:LegionAssault", NVF_PLAY_TEST_MOVE = "7.95:1:0,8.8:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,8:fire,9.5:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 14
+order = [[
+  { re = 'combat: Legion Assault \(Forward power attack, unarmed\): clip attackcustom1power', label = "a forward power attack is Legion Assault" },
+  { re = 'combat: Legion Assault: the player lunges 332 units', label = "it starts the lunge" },
+  { re = 'player: lunge done: (3\d\d|4[0-2]\d) units', label = "the player ends the lunge's 332 units further on, and what walking adds" },
+]]
+
+[[scenario]]
+name = "perk-khan-trick-stun"
+source = "owner 2026-10-24: Khan Trick forces its target's hit reaction (docs/spec-notes/perk-entry-points.md §11.4)"
+note = "perk-unarmed-moves' NCR trooper fist fight with the perk KhanTrick alone from 3 s; three power attacks to the right (Use held 1.5 s, the right key held from 0.05 s before to 0.75 s after, the swing starting about 0.5 s in, then aimed at the trooper again 1 s in) at 6.9, 9.9 and 12.9 s, the trooper put 90 units north each 0.9 s before: one that lands forces the reaction (with the key held 1.4 s the player strafed out of reach and both blows of a run missed) (a first try inside perk-unarmed-moves had its one blow lost to a 3 s stall, and the trooper killed by the fiend dogs about)"
+areas = ["combat", "perks", "melee"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:perk:KhanTrick,4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_MOVE = "6.85:0:1,7.65:0:0,9.85:0:1,10.65:0:0,12.85:0:1,13.65:0:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,7.9:aimnpc,8.4:fire,9.8:aimnpc,9.9:fire,10.9:aimnpc,11.4:fire,12.8:aimnpc,12.9:fire,13.9:aimnpc,14.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 20
+order = [[
+  { re = 'combat: Khan Trick \(Right power attack, unarmed\): clip attackcustom5power', label = "a power attack to the right is Khan Trick" },
+  { re = 'combat: Khan Trick: \S+ is forced into its hit reaction', label = "a Khan Trick blow forces the trooper's hit reaction" },
+  { re = 'hit reaction: 000F36F5 staggers for [\d.]+ s \(location -?\d+, forced: Khan Trick\)', label = "the trooper plays it at once" },
+]]
+
+[[scenario]]
+name = "perk-spread-perks"
+source = "perk audit 2026-10-23 §3.6, owner 2026-10-24 (the rest of the perks): Weapon Handling takes 2 off a weapon's Strength requirement and Run 'n Gun halves the moving spread penalty (docs/spec-notes/perk-entry-points.md §12)"
+note = "Goodsprings, the 10mm Pistol (Weap10mmPistol 0000434F) drawn; the perks WeaponHandling at 3 s and RunNGun at 5 s: each change of the spread perks is logged"
+areas = ["combat", "perks"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/spread.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_SCRIPT = "3:perk:WeaponHandling,5:perk:RunNGun", NVF_PLAY_TEST_CONTROL = "2:weapon" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 9
+order = [[
+  { re = 'combat: spread perks for \S+: Strength requirement -2, moving penalty / 1\.00 \(WeaponHandling\)', label = "Weapon Handling takes 2 off the Strength requirement" },
+  { re = 'combat: spread perks for \S+: Strength requirement -2, moving penalty / 2\.00 \(WeaponHandling, RunNGun\)', label = "Run 'n Gun halves the moving penalty with a pistol" },
+]]
+
+[[scenario]]
+name = "perk-teammate-attack-speed"
+source = "perk audit 2026-10-23 §3.2, owner 2026-10-24 (the rest of the perks): Old Vaquero, a teammate perk, makes Raul attack faster with the weapons of OldVaqueroWeapons (docs/spec-notes/perk-entry-points.md §12)"
+note = "Raul (RaulREF, ACHR 000E6105) where he is placed, in BlackMountainPrison; at 3 s made a teammate and the player given OldVaquero for teammates (player.addperk OldVaquero 1), his own revolver (WeapNV44RevolverRaul 00176E57, not in OldVaqueroWeapons: a first run fought with it at its own speed, rightly) swapped for the .44 Revolver (WeapNV44Revolver 0008F215, in the list; the same rounds); at 5 s set on the player (god mode): its shot cycle at x1.33. A first try brought Raul to Goodsprings with MoveTo: an actor moved out of an interior cell was not drawn there, so did not fight"
+areas = ["combat", "perks", "followers"]
+paths = ["engine/nvforever/src/npc_combat.rs", "crates/fnv-game/src/perks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "000E6105", NVF_PLAY_TEST_CONSOLE = "3:RaulREF.setplayerteammate 1;3.3:player.addperk OldVaquero 1;3.6:RaulREF.removeitem 00176E57 1;3.9:RaulREF.additem 0008F215 1;4.2:RaulREF.equipitem 0008F215;4.5:close", NVF_PLAY_TEST_SCRIPT = "5:combat:RaulREF:player" }
+args = ["--cell", "BlackMountainPrison", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "RaulREF"]
+run_seconds = 20
+expect = [
+  { re = 'npc combat: .*\(the teammate perks\)', label = "Raul attacks faster through Old Vaquero" },
+]
 
 [[scenario]]
 name = "perk-scribe-counter"
