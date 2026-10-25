@@ -165,6 +165,27 @@ pub fn leg_speed(g: &Game, crippled: usize) -> f64 {
     .clamp(0.0, 1.0)
 }
 
+/// `fMoveMediumArmorPenalty` and `fMoveHeavyArmorPenalty` when the load order lacks
+/// them [observed: 0.075 and 0.15 in FalloutNV.esm].
+pub const MEDIUM_ARMOR_MOVE_PENALTY: f64 = 0.075;
+pub const HEAVY_ARMOR_MOVE_PENALTY: f64 = 0.15;
+
+/// The share of its speed an actor keeps in body armour of class `class`: 1 in light
+/// armour (or none), 1 − `fMoveMediumArmorPenalty` in medium, 1 − `fMoveHeavyArmorPenalty`
+/// in heavy [observed: the AI observer in the original game, NPCs walking holstered
+/// (docs/spec-notes/actors.md §8.10): light armour 85.5 units/s (median of the actors'
+/// medians), medium 77–79 (85.3 × 0.925 = 78.9), power armour 68–72 (85.3 × 0.85 =
+/// 72.5); running, a medium-armoured initiate 316 (344 × 0.925 = 318)].
+pub fn armor_speed(g: &Game, class: fnv_sim::forms::ArmorClass) -> f64 {
+    use fnv_sim::forms::ArmorClass;
+    match class {
+        ArmorClass::Light => 1.0,
+        ArmorClass::Medium => 1.0 - setting(g, "fMoveMediumArmorPenalty", MEDIUM_ARMOR_MOVE_PENALTY),
+        ArmorClass::Heavy => 1.0 - setting(g, "fMoveHeavyArmorPenalty", HEAVY_ARMOR_MOVE_PENALTY),
+    }
+    .clamp(0.1, 1.0)
+}
+
 /// Settings with their documented defaults (GECK wiki Experience Settings).
 pub(crate) fn setting(g: &Game, name: &str, default: f64) -> f64 {
     g.world.setting_f32(name).map_or(default, |v| v as f64)
@@ -550,6 +571,12 @@ impl Game<'_> {
     pub fn leg_speed_mult(&mut self, r: FormId) -> f64 {
         let crippled = [LEFT_MOBILITY, RIGHT_MOBILITY].into_iter().filter(|&c| self.is_crippled(r, c)).count();
         leg_speed(self, crippled)
+    }
+
+    /// The share of its speed an actor keeps in the body armour it wears ([`armor_speed`]).
+    pub fn armor_speed_mult(&mut self, r: FormId) -> f64 {
+        let class = self.body_armor(r).map_or(fnv_sim::forms::ArmorClass::Light, |(_, c)| c);
+        armor_speed(self, class)
     }
 
     /// An actor's limb conditions, codes 25–31 in order.

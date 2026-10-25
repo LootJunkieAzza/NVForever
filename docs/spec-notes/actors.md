@@ -1218,10 +1218,12 @@ stopped and started, as Victor's walk had before #258). Code:
   walk 216.73 × 0.5 × 3.0 × 0.70 = 228 and 216.73 × 1 × 2.5 × 0.70 = 379; the run
   545.54 × 0.5 × 3.0 × 0.70 = 573 and 545.54 × 2.5 × 0.70 = 955, all within the
   measurements. The share is the same for both kinds (0.701 and 0.701 when walking), so it
-  is proportional to Speed Mult, not an offset. No game setting gives 0.70
-  (`fMoveBaseSpeed` 77, `fMoveRunMult` 4, `fMoveSneakMult` 0.57 are the only movement
-  ones [observed: `fnvtool esm inventory`]); people at Speed Mult 100 walk at their clip's
-  speed (§8.3, physics.md §6.3), so why creatures keep 0.70 is open.
+  is proportional to Speed Mult, not an offset. No game setting gives 0.70 (the movement
+  ones are `fMoveBaseSpeed` 77, `fMoveRunMult` 4, `fMoveSneakMult` 0.57,
+  `fMoveMediumArmorPenalty` 0.075, `fMoveHeavyArmorPenalty` 0.15, `fMove2HBigPenalty`
+  0.1, `fMoveLegConditionMult` 0.9 and the two crippled-leg multipliers [observed:
+  `fnvtool esm inventory` and `esm decode`, FalloutNV.esm]); people walk at their clip's
+  speed (below, "People"), so why creatures keep 0.70 is open.
 - **Brahmin** [observed: the AI observer in the original game, 2026-10-24, the Novac
   caravan's pack brahmin 001650BD (scale 1.25, Speed Mult 100) following its merchant
   on its route, 2,909 samples over 243 s]: it walked at a median 78 units/s over
@@ -1231,10 +1233,59 @@ stopped and started, as Victor's walk had before #258). Code:
   [hypothesis: that the walk is its own rather than matched to the merchant's, the run
   being matched to nothing; the same share for every brahmin]. So 0.70 is not one share
   for every creature; other creatures are not measured. The merchant walked at a median
-  76.8, which is `fMoveBaseSpeed` (77), below the 86.8 NVForever gives people (not
-  changed here). The brahmin kept 440–530 units behind it while both walked, closed to
+  76.8 with its weapon drawn (below, "People"). The brahmin kept 440–530 units behind it while both walked, closed to
   about 300 when the merchant stopped, and ran when about 800–1,060 behind
   (docs/design/actor-behaviour.md, Follow).
+- **People** (added 2026-10-24; `fnv_ai::NPC_WALK`, `NPC_RUN`,
+  `fnv_game::combat::armor_speed`, `creature_pace::person_pace`). Before this every person
+  walked at 86.8 and ran at 344, the player's speeds (physics.md §6.3).
+  - **Measured in the original game** [observed: every AI observer output in
+    `C:\fnv-private\capture\out\obs_*.jsonl` that samples `running`, `moving`,
+    `weapon_out` (2026-10-16 to 10-24, not committed): horizontal speed over 1-second
+    windows in which the actor moved, did not sit, sneak or get knocked down and kept
+    the same running and weapon-out state; per actor the median; each NPC's outfit and
+    weapons from its record, template and leveled lists]:
+
+    | state | actors (median units/s) |
+    |---|---|
+    | holstered, light armour or clothes | 40 actors 76–86, median of medians 85; GSSettlerAAM 85.8, HVBrotherhoodScribeCM2 84.8, VESGSGeckoman 85.6, NovacSettlerAAM 82.6 |
+    | holstered, medium (Recon, NCR trooper armour) | HV Knight AF 79.0 and CF 77.0, Initiate HF 78.9, 188NCRTrooperB 78.5 |
+    | holstered, heavy (T-51b power armour) | HV Paladins AAM 69.0, CM2 68.2, AM 69.9; Edgar Hardin 71.7 |
+    | weapon drawn, walking (10mm pistol; leather or merc outfit) | Novac merchant 001650BF 78.0 (76.8 by the brahmin session's 2-second windows), mercenaries 77.5 and 78.3; one mercenary 66.4 (its outfit, leather to metal, not known) |
+    | running, light, holstered | VESGSGeckoman 337 (8 windows, up to 344) |
+    | running, medium, laser pistol drawn | Initiate HF 316 |
+    | running, light (raider armour), baseball bat or pool cue drawn | two fiends 309.2, 309.9 |
+    | running, heavy (metal armour), Incinerator drawn | Cook-Cook 255 |
+
+    The people's clips [observed: `fnvtool actor locomotion`, `meshes\characters\_male`]:
+    `mtforward.kf` 85.26 (female 85.06), `mtfastforward.kf` 353.88; the weapon stances'
+    walks differ (`1hmforward`/`h2hforward` 77.5, `1hpforward`/`2hlforward` 81.17,
+    `2hhforward` 84.72, `2haforward`/`2hrforward` 85.26), their runs do not (353.75–353.88,
+    `2hrfastforward` 364.03).
+  - **Rule** [observed fit]: a holstered person walks at 85.3 (the walk clip) and runs at
+    344 (the player's run) times 1 in light armour, 1 − `fMoveMediumArmorPenalty` (0.925)
+    in medium, 1 − `fMoveHeavyArmorPenalty` (0.85) in heavy (the class of the body armour,
+    ARMO BMDT Medium / Heavy flags); a two-handed weapon drawn takes `fMove2HBigPenalty`
+    (0.1) more off the run, added to the armour's: 344 × 0.925 = 318 (316), × 0.9 = 309.6
+    (309.2, 309.9), × (1 − 0.15 − 0.1) = 258 (255); 85.3 × 0.925 = 78.9 (77–79), × 0.85 =
+    72.5 (68–72: the paladins walk 4–6% below it). `fMoveBaseSpeed` (77) is not the walk:
+    the merchant's 77–78 was with its weapon drawn. The player's 86.8 is 1.7% above the
+    people's median and kept for the player. Speed Mult does not scale a person's speed
+    as it does a creature's [observed, one actor: Cook-Cook has Speed Mult 110 and ran
+    255, the 258 above; with it, 284].
+  - **Built**: `NPC_WALK` 85.3 and `NPC_RUN` 344 are every person's speeds; a drawn
+    person's both are scaled by its body armour's share (`person_pace`), looked at again
+    every second, as people put on their outfit when their cell loads (`World::outfit`),
+    which can come after they are drawn (`person pace:` log lines, the count in the
+    `creature pace summary`). The
+    two-handed run penalty was built before (`npc_combat::pace`, item 61) for every
+    two-handed weapon drawn in combat; whether rifles count as "big" is not measured
+    (the paladins walked holstered with Gauss rifles at about the heavy armour's pace).
+  - **Not built**: the walk with a weapon drawn outside combat (77–78 here, about the
+    `1hm`/`h2h` clip or `fMoveBaseSpeed`, which of the two is open); in combat, walking
+    with a weapon drawn was faster (a fiend 105, Cook-Cook 97; not explained); the
+    armour's share changing when a person changes its armour after it is drawn; the
+    same rule for the player (not measured).
 - **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
   ground when not alert and fly when they are alert/in combat"]: the cazador's folder
   has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`

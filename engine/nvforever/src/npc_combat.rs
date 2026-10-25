@@ -752,7 +752,7 @@ pub fn lunge_band(closing: f32, hit: f32) -> f32 {
 
 /// The alert walking speed of an actor the AI does not run, units/s (`fnv_ai::AiConfig`'s
 /// default).
-pub const DEFAULT_WALK: f32 = 86.8;
+pub const DEFAULT_WALK: f32 = fnv_ai::NPC_WALK;
 /// A dodge is no shorter than this, units; shorter, the actor idles (§17.1) [design].
 pub const DODGE_MIN: f32 = 32.0;
 /// How far beyond a live grenade's blast a fighter runs to, units (§17.7) [design].

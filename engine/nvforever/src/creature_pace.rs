@@ -4,8 +4,9 @@
 //!
 //! - **Speed**: a creature walks at the root motion of its `Forward` clip and runs at
 //!   that of its `FastForward` clip, times its scale, its Speed Mult (CREA ACBS) and
-//!   [`CREATURE_SPEED_FIT`]. The AI moves it at those speeds (`fnv_ai::Ai::speeds`);
-//!   people keep the configured walking and running speeds. Before this every actor
+//!   [`CREATURE_SPEED_FIT`]. The AI moves it at those speeds (`fnv_ai::Ai::speeds`).
+//!   People walk and run at `fnv_ai::NPC_WALK` and `NPC_RUN` times their body armour's
+//!   share ([`person_pace`]), looked at again every second. Before this every actor
 //!   walked at 86.8 and ran at 344 units/s: a cazador's walk clip (217 units/s) played
 //!   at its slowest rate (0.4), and 344 is the point between its walk and run clips
 //!   (the geometric mean of 217 and 546), so a small slow-down swapped the two clips back
@@ -100,7 +101,7 @@ pub struct CreaturePacePlugin;
 impl Plugin for CreaturePacePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PaceStats>()
-            .add_systems(Update, (give_speeds.before(crate::residents::drive), stance.after(nvf_play::PlaySet::Scripts).before(crate::locomotion::walk_test)))
+            .add_systems(Update, (give_speeds.before(crate::residents::drive), people_speeds.after(give_speeds).before(crate::residents::drive), stance.after(nvf_play::PlaySet::Scripts).before(crate::locomotion::walk_test)))
             .add_systems(Last, report);
     }
 }
@@ -114,6 +115,8 @@ struct PacedCreature;
 #[derive(Resource, Default)]
 struct PaceStats {
     paced: usize,
+    /// Speeds given to people for their armour.
+    people: usize,
     alerted: usize,
     calmed: usize,
     /// Frames of paced creatures playing a movement clip, and changes between a walk
@@ -129,6 +132,70 @@ struct PaceStats {
 pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, default: Speeds) -> Speeds {
     let of = |m: Move, d: f32| set.info(m).map(|i| i.speed).filter(|v| *v > 1.0).map_or(d, |v| v * scale * speed_mult / 100.0 * CREATURE_SPEED_FIT);
     Speeds { walk: of(Move::Forward, default.walk), run: of(Move::FastForward, default.run) }
+}
+
+/// The share of the people's speeds (`fnv_ai::NPC_WALK`, `NPC_RUN`) a person keeps: its
+/// body armour's (`Game::armor_speed_mult`: medium × 0.925, heavy × 0.85 [observed,
+/// actors.md §8.10]). Not its Speed Mult [observed: Cook-Cook, Speed Mult 110, ran 255 in
+/// metal armour with the Incinerator drawn, 344 × 0.75 = 258; with his Speed Mult it
+/// would be 284].
+pub fn person_pace(game: &mut fnv_game::Game, id: FormId) -> f32 {
+    game.armor_speed_mult(id) as f32
+}
+
+/// A drawn person and the share of the people's speeds it was last given.
+#[derive(Component)]
+struct PersonPace(f32);
+
+/// How often a drawn person's armour is looked at again, seconds: people put on their
+/// outfit when their cell loads, which may come after they are drawn, and scripts change
+/// what they wear [design].
+const PERSON_PACE_EVERY: f32 = 1.0;
+
+/// Drawn people walk and run at the people's speeds × [`person_pace`].
+fn people_speeds(
+    time: Res<Time>,
+    mut wait: Local<f32>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut res: Option<ResMut<Residents>>,
+    mut people: Query<(&ActorRig, &mut PersonPace)>,
+    mut stats: ResMut<PaceStats>,
+) {
+    *wait -= time.delta_secs();
+    if *wait > 0.0 {
+        return;
+    }
+    *wait = PERSON_PACE_EVERY;
+    let Some(res) = res.as_deref_mut() else { return };
+    let default = res.default_speeds();
+    let mut given = Vec::new();
+    {
+        let game = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            Some(rt) => &mut rt.game,
+            None => match res.own_game() {
+                Some(g) => g,
+                None => return,
+            },
+        };
+        for (rig, mut pace) in &mut people {
+            let id = FormId(rig.reference);
+            if id == FormId::PLAYER_REF {
+                continue;
+            }
+            let share = person_pace(game, id);
+            if (share - pace.0).abs() < 1e-3 {
+                continue;
+            }
+            pace.0 = share;
+            let s = Speeds { walk: default.walk * share, run: default.run * share };
+            info!("person pace: {} {id} walks {:.0} and runs {:.0} units/s ({:.1}% of the people's speeds: its armour)", game.data.name(FormId(rig.base)), s.walk, s.run, share * 100.0);
+            given.push((id, ActorSpeeds { calm: s, alert: s, turn_rate: None, spot_turn_start: None }));
+        }
+    }
+    for (id, s) in given {
+        res.set_speeds(id, s);
+        stats.people += 1;
+    }
 }
 
 fn give_speeds(
@@ -154,7 +221,10 @@ fn give_speeds(
         };
         for (e, rig, mut lo, global) in &mut actors {
             commands.entity(e).insert(Paced);
-            if game.data.actors.get(&FormId(rig.base)).is_none_or(|d| &d.sig != b"CREA") {
+            let Some(def) = game.data.actors.get(&FormId(rig.base)) else { continue };
+            if &def.sig != b"CREA" {
+                // A person: `people_speeds` gives its own.
+                commands.entity(e).insert(PersonPace(1.0));
                 continue;
             }
             commands.entity(e).insert(PacedCreature);
@@ -228,8 +298,8 @@ fn stance(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut L
 fn report(mut exit: MessageReader<AppExit>, stats: Res<PaceStats>) {
     if exit.read().next().is_some() {
         info!(
-            "creature pace summary: {} creatures given their own speeds; alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
-            stats.paced, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
+            "creature pace summary: {} creatures given their own speeds, people given their armour's speeds {} times; alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
+            stats.paced, stats.people, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
         );
     }
 }
